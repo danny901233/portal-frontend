@@ -1,0 +1,299 @@
+import type { Call, CallFeedback, Prisma } from '@prisma/client';
+import type { Request, Response } from 'express';
+import { Router } from 'express';
+import { prisma } from '../db.js';
+import { authenticate } from '../middleware/auth.js';
+import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
+import type {
+  CallWithParsedJson,
+  MetricsRecord,
+  SerializedCallFeedback,
+  TranscriptEntry,
+} from '../utils/types.js';
+import { resolveAllowedGarages } from '../utils/auth.js';
+
+const router = Router();
+
+const serializeCallFeedback = (feedback?: CallFeedback | null): SerializedCallFeedback | null => {
+  if (!feedback) {
+    return null;
+  }
+
+  return {
+    id: feedback.id,
+    callId: feedback.callId,
+    rating: feedback.rating === 'up' ? 'up' : 'down',
+    reasons: Array.isArray(feedback.reasons) ? [...feedback.reasons] : [],
+    notes: feedback.notes ?? null,
+    createdAt: feedback.createdAt.toISOString(),
+    updatedAt: feedback.updatedAt.toISOString(),
+  };
+};
+
+const parseCallJson = (call: Call & { feedback?: CallFeedback | null }): CallWithParsedJson => {
+  const { feedback, ...rest } = call;
+  const metricsCandidate = rest.metrics as Prisma.JsonValue;
+  const transcriptCandidate = rest.transcript as Prisma.JsonValue;
+
+  const metrics: MetricsRecord =
+    metricsCandidate && typeof metricsCandidate === 'object' && !Array.isArray(metricsCandidate)
+      ? (metricsCandidate as MetricsRecord)
+      : {};
+
+  const transcript: TranscriptEntry[] = Array.isArray(transcriptCandidate)
+    ? (transcriptCandidate as TranscriptEntry[])
+    : [];
+
+  return {
+    ...rest,
+    metrics,
+    transcript,
+    feedback: serializeCallFeedback(feedback ?? null),
+  };
+};
+
+const ensureWebhookSecret = (req: Request) => {
+  const configuredSecret = process.env.WEBHOOK_SECRET;
+  if (!configuredSecret) {
+    return true;
+  }
+  const headerSecret =
+    req.headers['x-webhook-secret'] ??
+    req.headers['webhook-secret'] ??
+    req.headers['x-webhook_secret'];
+
+  if (Array.isArray(headerSecret)) {
+    return headerSecret.includes(configuredSecret);
+  }
+
+  return headerSecret === configuredSecret;
+};
+
+router.post('/calls', async (req: Request, res: Response) => {
+  try {
+    if (!ensureWebhookSecret(req)) {
+      return res.status(401).json({ error: 'Invalid webhook secret' });
+    }
+
+    const parseResult = createCallSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ error: parseResult.error.flatten() });
+    }
+
+    const payload = parseResult.data;
+
+    await prisma.garage.upsert({
+      where: { id: payload.garageId },
+      create: {
+        id: payload.garageId,
+        name: payload.roomName.replace(/-.*/, ' Garage'),
+      },
+      update: {},
+    });
+
+    await prisma.call.create({
+      data: {
+        garageId: payload.garageId,
+        roomName: payload.roomName,
+        recordingUrl: payload.recordingUrl,
+        durationSeconds: payload.durationSeconds,
+        callType: payload.callType,
+        metrics: payload.metrics,
+        transcript: payload.transcript,
+        summary: payload.summary,
+      },
+    });
+
+    res.status(201).json({ success: true });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.error('Failed to create call', error);
+    }
+    res.status(500).json({ error: 'Failed to create call' });
+  }
+});
+
+router.get(
+  '/garages/:garageId/calls',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+      const allowedGarages = resolveAllowedGarages(req.user);
+
+      if (!allowedGarages.includes(garageId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const { callType, startDate, endDate } = req.query;
+
+      if (
+        (callType && Array.isArray(callType)) ||
+        (startDate && Array.isArray(startDate)) ||
+        (endDate && Array.isArray(endDate))
+      ) {
+        return res.status(400).json({ error: 'Invalid query parameters' });
+      }
+
+      const where: Prisma.CallWhereInput = { garageId };
+
+      if (typeof callType === 'string') {
+        const normalizedType = callType.trim().toLowerCase();
+        if (normalizedType && normalizedType !== 'all') {
+          where.callType = normalizedType;
+        }
+      }
+
+      const dateFilter: Prisma.DateTimeFilter = {};
+
+      if (typeof startDate === 'string' && startDate.trim()) {
+        const parsedStart = new Date(startDate);
+        if (Number.isNaN(parsedStart.getTime())) {
+          return res.status(400).json({ error: 'Invalid startDate parameter' });
+        }
+        dateFilter.gte = parsedStart;
+      }
+
+      if (typeof endDate === 'string' && endDate.trim()) {
+        const parsedEnd = new Date(endDate);
+        if (Number.isNaN(parsedEnd.getTime())) {
+          return res.status(400).json({ error: 'Invalid endDate parameter' });
+        }
+        dateFilter.lte = parsedEnd;
+      }
+
+      if (Object.keys(dateFilter).length > 0) {
+        where.createdAt = dateFilter;
+      }
+
+      const calls = await prisma.call.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: { feedback: true },
+      });
+
+      const parsedCalls = calls.map((call: Call & { feedback?: CallFeedback | null }) => parseCallJson(call));
+
+      res.json({ calls: parsedCalls });
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.error('Failed to fetch calls', error);
+      }
+      res.status(500).json({ error: 'Failed to fetch calls' });
+    }
+  },
+);
+
+router.get(
+  '/garages/:garageId/calls/:callId',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId, callId } = req.params;
+      const allowedGarages = resolveAllowedGarages(req.user);
+
+      if (!allowedGarages.includes(garageId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const call = await prisma.call.findFirst({
+        where: { id: callId, garageId },
+        include: { feedback: true },
+      });
+
+      if (!call) {
+        return res.status(404).json({ error: 'Call not found' });
+      }
+
+      res.json({ call: parseCallJson(call) });
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.error('Failed to fetch call', error);
+      }
+      res.status(500).json({ error: 'Failed to fetch call' });
+    }
+  },
+);
+
+router.post(
+  '/garages/:garageId/calls/:callId/feedback',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId, callId } = req.params;
+      const allowedGarages = resolveAllowedGarages(req.user);
+
+      if (!allowedGarages.includes(garageId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const call = await prisma.call.findFirst({
+        where: { id: callId, garageId },
+        select: { id: true },
+      });
+
+      if (!call) {
+        return res.status(404).json({ error: 'Call not found' });
+      }
+
+      const parseResult = callFeedbackSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: parseResult.error.flatten() });
+      }
+
+      const { rating, reasons, notes } = parseResult.data;
+      const normalizedReasons = Array.from(new Set((reasons ?? []).map((reason) => reason.trim()).filter(Boolean)));
+      const sanitizedNotes = notes?.trim() ? notes.trim() : null;
+
+      const feedback = await prisma.callFeedback.upsert({
+        where: { callId },
+        update: {
+          rating,
+          reasons: normalizedReasons,
+          notes: sanitizedNotes,
+        },
+        create: {
+          callId,
+          rating,
+          reasons: normalizedReasons,
+          notes: sanitizedNotes,
+        },
+      });
+
+      res.json({ feedback: serializeCallFeedback(feedback) });
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.error('Failed to upsert call feedback', error);
+      }
+      res.status(500).json({ error: 'Failed to save call feedback' });
+    }
+  },
+);
+
+router.get('/garages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (allowedGarages.length === 0) {
+      return res.json({ garages: [] });
+    }
+
+    const garages = await prisma.garage.findMany({
+      where: { id: { in: allowedGarages } },
+      orderBy: { name: 'asc' },
+    });
+
+    res.json({ garages: garages.map((garage) => ({ id: garage.id, name: garage.name })) });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.error('Failed to fetch garages', error);
+    }
+    res.status(500).json({ error: 'Failed to fetch garages' });
+  }
+});
+
+export default router;

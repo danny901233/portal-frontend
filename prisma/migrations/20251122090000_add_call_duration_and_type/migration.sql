@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Call"
+ADD COLUMN "durationSeconds" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "callType" TEXT NOT NULL DEFAULT 'unknown';

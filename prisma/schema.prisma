@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../backend/node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Garage {
+  id    String @id @default(uuid())
+  name  String
+  calls Call[]
+  agentConfiguration AgentConfiguration?
+}
+
+model Call {
+  id           String   @id @default(cuid())
+  garageId     String
+  garage       Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  roomName     String
+  recordingUrl String?
+  durationSeconds Int    @default(0)
+  callType       String  @default("unknown")
+  metrics      Json
+  transcript   Json
+  summary      String
+  createdAt    DateTime @default(now())
+  feedback     CallFeedback?
+}
+
+model User {
+  id           String @id @default(cuid())
+  email        String @unique
+  passwordHash String
+  garageAccessIds String[] @default([])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AgentConfiguration {
+  id                String   @id @default(cuid())
+  garageId          String   @unique
+  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  branchName        String
+  phoneNumber       String?
+  emailAddress      String?
+  branchAddress     String?
+  websiteUrl        String?
+  weeklyOpeningHours Json?
+  holidayClosures   String?
+  greetingLine      String?
+  tonePreference    String   @default("standard")
+  responseSpeed     String   @default("normal")
+  interruptionSensitivity Float @default(0.5)
+  allowFastFitOnly  Boolean  @default(false)
+  callSummaryEmail  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model CallFeedback {
+  id        String   @id @default(cuid())
+  callId    String   @unique
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  rating    String
+  reasons   String[] @default([])
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

@@ -46,6 +46,14 @@ export type WeeklyOpeningHours = Record<DayOfWeek, DailyOpeningHours>;
 
 export type ResponseSpeed = 'slow' | 'normal' | 'fast';
 
+export type IntegrationProvider = 'none' | 'garage_hive';
+
+export type GarageHiveSettings = {
+  instanceUrl: string;
+  apiKey: string;
+  locationId: string;
+};
+
 export const createDefaultWeeklyOpeningHours = (): WeeklyOpeningHours => {
   return WEEKDAY_ORDER.reduce<WeeklyOpeningHours>((acc, day) => {
     acc[day] = { open: null, close: null, closed: true };
@@ -65,6 +73,18 @@ export const cloneWeeklyOpeningHours = (hours: WeeklyOpeningHours): WeeklyOpenin
   }, {} as WeeklyOpeningHours);
 };
 
+export const createDefaultGarageHiveSettings = (): GarageHiveSettings => ({
+  instanceUrl: '',
+  apiKey: '',
+  locationId: '',
+});
+
+export const cloneGarageHiveSettings = (settings?: GarageHiveSettings | null): GarageHiveSettings => ({
+  instanceUrl: typeof settings?.instanceUrl === 'string' ? settings.instanceUrl : '',
+  apiKey: typeof settings?.apiKey === 'string' ? settings.apiKey : '',
+  locationId: typeof settings?.locationId === 'string' ? settings.locationId : '',
+});
+
 export type AgentConfigurationPayload = {
   branchName: string;
   phoneNumber?: string | null;
@@ -79,4 +99,6 @@ export type AgentConfigurationPayload = {
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
   callSummaryEmail?: string | null;
+  integrationProvider: IntegrationProvider;
+  garageHiveSettings: GarageHiveSettings;
 };

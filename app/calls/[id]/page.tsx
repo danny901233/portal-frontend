@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { fetchCallById } from '../../lib/api';
@@ -138,6 +139,27 @@ export default function CallDetailPage() {
   const rawId = params?.id;
   const callId = Array.isArray(rawId) ? rawId[0] : rawId;
   const garageId = getGarageId();
+  const [copied, setCopied] = useState(false);
+  const copyCallId = useCallback(() => {
+    if (!callId) {
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(callId)
+        .then(() => setCopied(true))
+        .catch(() => setCopied(true));
+      return;
+    }
+    setCopied(true);
+  }, [callId]);
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timeout = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [copied]);
 
   const query = useQuery<CallRecord>({
     queryKey: ['call-detail', garageId, callId],
@@ -218,6 +240,21 @@ export default function CallDetailPage() {
           {getCallTagLabel(call.callType)}
         </span>
         <p className="text-sm text-slate-400">Recorded on {new Date(call.createdAt).toLocaleString()}</p>
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+          <span>Call ID</span>
+          <code className="rounded bg-slate-900/80 px-2 py-1 text-[11px] text-slate-200">{call.id}</code>
+          <button
+            type="button"
+            onClick={copyCallId}
+            className="rounded border border-slate-700 px-2 py-1 text-[11px] text-sky-400 transition-colors hover:border-slate-500 hover:text-sky-300"
+          >
+            Copy
+          </button>
+          {copied ? <span className="text-[11px] text-emerald-300">Copied!</span> : null}
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Share this call ID with ReceptionMate support if you need help investigating the conversation.
+        </p>
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

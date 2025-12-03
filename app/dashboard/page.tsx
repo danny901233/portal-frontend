@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { fetchCalls } from '../lib/api';
-import type { CallRecord } from '../types';
+import type { CallRecord, ConfirmedBookingCategory } from '../types';
 import { cn } from '../lib/utils';
+import { useBranchScope } from '../lib/branchScope';
 import {
   TAG_LABELS,
   TAG_STYLES,
@@ -11,6 +12,13 @@ import {
   TAG_COLORS,
   normaliseCallTag,
 } from '../lib/callTags';
+
+type CallTypeTag = (typeof TRACKED_TAGS)[number] | 'other';
+type CallTypeChartEntry = {
+  tag: CallTypeTag;
+  label: string;
+  count: number;
+};
 
 const EMPTY_PIE_COLOR = '#1e293b';
 
@@ -24,6 +32,20 @@ const BOOKING_VALUE_KEYS = [
   'totalValue',
   'value',
 ] as const;
+
+const CONFIRMED_BOOKING_CATEGORIES = ['service', 'diagnostic', 'mot', 'other'] as const;
+const CONFIRMED_BOOKING_CATEGORY_LABELS: Record<ConfirmedBookingCategory, string> = {
+  service: 'Service',
+  diagnostic: 'Diagnostic',
+  mot: 'MOT',
+  other: 'Other',
+};
+const CONFIRMED_BOOKING_CATEGORY_COLORS: Record<ConfirmedBookingCategory, string> = {
+  service: '#38bdf8',
+  diagnostic: '#a855f7',
+  mot: '#f97316',
+  other: '#64748b',
+};
 
 const QUICK_RANGES = [
   { label: '7 days', days: 7 },
@@ -104,6 +126,15 @@ export default function DashboardPage() {
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const {
+    scope,
+    managedGarageIds,
+    allowAllAssignedOption,
+    selectedGarageId,
+    assignedGarageIds,
+  } = useBranchScope();
+  const shouldAggregateAllBranches =
+    scope === 'all' && allowAllAssignedOption && assignedGarageIds.length > 0;
 
   useEffect(() => {
     let isMounted = true;
@@ -111,10 +142,15 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        const { calls: responseCalls } = await fetchCalls(undefined, {
-          startDate: toIsoRangeBoundary(startDate, 'start'),
-          endDate: toIsoRangeBoundary(endDate, 'end'),
-        });
+        const startBoundary = toIsoRangeBoundary(startDate, 'start');
+        const endBoundary = toIsoRangeBoundary(endDate, 'end');
+        const filters: Parameters<typeof fetchCalls>[1] = {
+          startDate: startBoundary,
+          endDate: endBoundary,
+          ...(shouldAggregateAllBranches ? { garageIds: assignedGarageIds } : {}),
+        };
+        const garageParam = shouldAggregateAllBranches ? undefined : selectedGarageId ?? undefined;
+        const { calls: responseCalls } = await fetchCalls(garageParam, filters);
         if (isMounted) {
           setCalls(responseCalls);
         }
@@ -135,7 +171,7 @@ export default function DashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, [startDate, endDate]);
+  }, [endDate, assignedGarageIds, selectedGarageId, shouldAggregateAllBranches, startDate]);
 
   const totalCalls = calls.length;
   const totalDuration = useMemo(
@@ -154,6 +190,49 @@ export default function DashboardPage() {
     });
     return counts;
   }, [calls]);
+
+  const confirmedBookingCalls = useMemo(() => calls.filter((call) => Boolean(call.confirmedBooking)), [calls]);
+  const confirmedBookingCategoryCounts = useMemo(() => {
+    const counts = CONFIRMED_BOOKING_CATEGORIES.reduce<Record<ConfirmedBookingCategory, number>>((acc, category) => {
+      acc[category] = 0;
+      return acc;
+    }, {} as Record<ConfirmedBookingCategory, number>);
+    confirmedBookingCalls.forEach((call) => {
+      const category = (call.confirmedBookingCategory ?? 'other') as ConfirmedBookingCategory;
+      counts[category] = (counts[category] ?? 0) + 1;
+    });
+    return counts;
+  }, [confirmedBookingCalls]);
+  const confirmedBookingCategoryChartData = useMemo(
+    () =>
+      CONFIRMED_BOOKING_CATEGORIES.map((category) => ({
+        category,
+        label: CONFIRMED_BOOKING_CATEGORY_LABELS[category],
+        count: confirmedBookingCategoryCounts[category] ?? 0,
+      })),
+    [confirmedBookingCategoryCounts],
+  );
+  const confirmedBookingTotal = confirmedBookingCalls.length;
+  const confirmedBookingPieGradient = useMemo(() => {
+    if (!confirmedBookingTotal) {
+      return `conic-gradient(${EMPTY_PIE_COLOR} 0deg, ${EMPTY_PIE_COLOR} 360deg)`;
+    }
+    const segments = confirmedBookingCategoryChartData.filter((entry) => entry.count > 0);
+    if (!segments.length) {
+      return `conic-gradient(${EMPTY_PIE_COLOR} 0deg, ${EMPTY_PIE_COLOR} 360deg)`;
+    }
+
+    let currentAngle = 0;
+    const stops = segments.map((entry) => {
+      const angle = (entry.count / confirmedBookingTotal) * 360;
+      const start = currentAngle;
+      currentAngle += angle;
+      const color = CONFIRMED_BOOKING_CATEGORY_COLORS[entry.category] ?? EMPTY_PIE_COLOR;
+      return `${color} ${start}deg ${start + angle}deg`;
+    });
+
+    return `conic-gradient(${stops.join(', ')})`;
+  }, [confirmedBookingCategoryChartData, confirmedBookingTotal]);
 
   const bookingRevenueTotal = useMemo(() => {
     return calls.reduce((acc, call) => {
@@ -179,8 +258,8 @@ export default function DashboardPage() {
     }, 0);
   }, [calls]);
 
-  const callTypeChartData = useMemo(() => {
-    const data = TRACKED_TAGS.map((tag) => ({
+  const callTypeChartData = useMemo<CallTypeChartEntry[]>(() => {
+    const data: CallTypeChartEntry[] = TRACKED_TAGS.map((tag) => ({
       tag,
       label: TAG_LABELS[tag],
       count: callTypeCounts[tag] ?? 0,
@@ -392,7 +471,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-3">
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-100">Call type distribution</h2>
@@ -486,6 +565,68 @@ export default function DashboardPage() {
               })
             ) : (
               <div className="text-sm text-slate-400">No calls recorded for this range.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-100">Confirmed booking categories</h2>
+            <span className="text-xs uppercase tracking-wide text-slate-400">Set customer info</span>
+          </div>
+          <p className="mt-1 text-sm text-slate-400">
+            Breakdown of confirmed bookings that hit the customer info webhook, grouped by service type.
+          </p>
+          <div className="mt-6">
+            {loading ? (
+              <div className="text-sm text-slate-400">Loading breakdown…</div>
+            ) : confirmedBookingTotal ? (
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
+                <div className="flex justify-center lg:w-1/2">
+                  <div
+                    className="relative h-40 w-40 rounded-full border border-slate-800 bg-slate-950 shadow-lg shadow-slate-950/40"
+                    style={{ backgroundImage: confirmedBookingPieGradient }}
+                  >
+                    <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full border border-slate-800 bg-slate-950/90 text-slate-100 shadow-inner shadow-black/40">
+                      <span className="text-[10px] uppercase tracking-[0.35em] text-slate-400">Confirmed</span>
+                      <span className="mt-1 text-3xl font-semibold text-slate-50">{confirmedBookingTotal}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-1 flex-col gap-2">
+                  {confirmedBookingCategoryChartData.map((entry) => {
+                    const percent = confirmedBookingTotal
+                      ? Math.round((entry.count / confirmedBookingTotal) * 100)
+                      : 0;
+                    const color = CONFIRMED_BOOKING_CATEGORY_COLORS[entry.category] ?? '#ffffff';
+                    return (
+                      <div
+                        key={entry.category}
+                        className={cn(
+                          'flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/50 px-4 py-2 text-sm transition',
+                          entry.count === 0 ? 'opacity-60' : 'hover:border-slate-700 hover:bg-slate-900/80',
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="h-3 w-3 rounded-full"
+                            style={{ backgroundColor: color }}
+                            aria-hidden
+                          />
+                          <span className="text-slate-100">{entry.label}</span>
+                        </div>
+                        <span className="text-xs text-slate-300">
+                          {entry.count} • {percent}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-400">
+                No confirmed bookings recorded for this range.
+              </div>
             )}
           </div>
         </div>

@@ -7,19 +7,35 @@ import type { DayOfWeek } from '../src/utils/types.js';
 const main = async () => {
   const email = process.env.SEED_USER_EMAIL || 'admin@receptionmate.ai';
   const password = process.env.SEED_USER_PASSWORD || 'ChangeMe123!';
-  const garageId = process.env.SEED_GARAGE_ID || 'd5a97619-c212-4c22-8973-fc946b06ad59';
+  const businessId = process.env.SEED_BUSINESS_ID || 'd5a97619-c212-4c22-8973-fc946b06ad59';
+  const businessName = process.env.SEED_BUSINESS_NAME || 'ReceptionMate Business';
+  const garageId = process.env.SEED_GARAGE_ID || '827efd7f-c5df-47b1-b2b0-f9a5bde39efa';
   const garageName = process.env.SEED_GARAGE_NAME || 'ReceptionMate Garage';
 
   const passwordHash = await bcrypt.hash(password, 10);
+  const branchRoles = { [garageId]: 'MANAGER' } as const;
+
+  await prisma.business.upsert({
+    where: { id: businessId },
+    create: {
+      id: businessId,
+      name: businessName,
+    },
+    update: {
+      name: businessName,
+    },
+  });
 
   await prisma.garage.upsert({
     where: { id: garageId },
     create: {
       id: garageId,
       name: garageName,
+      businessId,
     },
     update: {
       name: garageName,
+      businessId,
     },
   });
 
@@ -29,10 +45,14 @@ const main = async () => {
       email,
       passwordHash,
       garageAccessIds: [garageId],
+      role: 'RECEPTIONMATE_STAFF',
+      branchRoles,
     },
     update: {
       passwordHash,
       garageAccessIds: [garageId],
+      role: 'ADMIN',
+      branchRoles,
     },
   });
 
@@ -67,7 +87,7 @@ const main = async () => {
   });
 
   // eslint-disable-next-line no-console
-  console.log(`Seed complete. User: ${email}, Garage: ${garageId}`);
+  console.log(`Seed complete. Business: ${businessId}, Garage: ${garageId}, User: ${email}`);
 };
 
 main()

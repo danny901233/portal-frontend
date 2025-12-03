@@ -6,11 +6,18 @@ import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import {
+  ALL_ASSIGNED_BRANCHES_IDENTIFIER,
+  BranchScopeProvider,
+  type BranchScope,
+} from '../lib/branchScope';
+import {
   clearSession,
   getGarageId,
   getGarages,
   getSessionToken,
+  getUserBranchRoles,
   getUserEmail,
+  isReceptionMateStaff,
   setGarageId,
   setGarages,
 } from '../lib/auth';
@@ -26,8 +33,66 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [garageId, setGarageIdState] = useState<string | null>(null);
   const [garages, setGaragesState] = useState<GarageSummary[]>([]);
+  const [isStaffUser, setIsStaffUser] = useState(false);
+  const [branchScope, setBranchScope] = useState<BranchScope>('single');
+  const branchRoles = useMemo(() => getUserBranchRoles(), []);
+  const managedGarageIds = useMemo(
+    () =>
+      Object.entries(branchRoles)
+        .filter(([, role]) => role === 'MANAGER')
+        .map(([garageId]) => garageId),
+    [branchRoles],
+  );
+  const managedGarageIdSet = useMemo(() => new Set(managedGarageIds), [managedGarageIds]);
+  const restrictToAssignedBranches = useMemo(
+    () => !isStaffUser && managedGarageIds.length > 0,
+    [isStaffUser, managedGarageIds.length],
+  );
+  const visibleGarages = useMemo(() => {
+    if (!restrictToAssignedBranches) {
+      return garages;
+    }
+    return garages.filter((garage) => managedGarageIdSet.has(garage.id));
+  }, [garages, managedGarageIdSet, restrictToAssignedBranches]);
+  const visibleGarageIds = useMemo(() => visibleGarages.map((garage) => garage.id), [visibleGarages]);
+  const allowAllAssignedBranches = useMemo(
+    () => pathname === '/dashboard' && visibleGarageIds.length > 1,
+    [pathname, visibleGarageIds.length],
+  );
 
   const shouldShowChrome = useMemo(() => !publicPaths.has(pathname ?? ''), [pathname]);
+
+  useEffect(() => {
+    if (!allowAllAssignedBranches && branchScope === 'all') {
+      setBranchScope('single');
+    }
+  }, [allowAllAssignedBranches, branchScope]);
+
+  const branchScopeValue = useMemo(
+    () => ({
+      scope: branchScope,
+      setBranchScope,
+      managedGarageIds,
+      allowAllAssignedOption: allowAllAssignedBranches,
+      selectedGarageId: garageId,
+      assignedGarageIds: visibleGarageIds,
+    }),
+    [allowAllAssignedBranches, branchScope, garageId, managedGarageIds, visibleGarageIds],
+  );
+
+  const selectedGarageValue = branchScope === 'all' ? ALL_ASSIGNED_BRANCHES_IDENTIFIER : garageId ?? '';
+
+  const handleSelectGarage = (nextGarageId: string) => {
+    if (nextGarageId === ALL_ASSIGNED_BRANCHES_IDENTIFIER) {
+      setBranchScope('all');
+      return;
+    }
+
+    setBranchScope('single');
+    setGarageId(nextGarageId);
+    setGarageIdState(nextGarageId);
+    router.refresh();
+  };
 
   const bootstrapSession = useCallback(async () => {
     const token = getSessionToken();
@@ -43,6 +108,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
     setUserEmail(email);
     setGarageIdState(storedGarageId);
+    setIsStaffUser(isReceptionMateStaff());
 
     if (storedGarages.length > 0) {
       setGaragesState(storedGarages);
@@ -95,36 +161,46 @@ export default function AppShell({ children }: { children: ReactNode }) {
     void bootstrapSession();
   }, [bootstrapSession, shouldShowChrome]);
 
-  if (!shouldShowChrome) {
-    return <>{children}</>;
-  }
+  useEffect(() => {
+    if (!restrictToAssignedBranches) {
+      return;
+    }
+    if (!visibleGarages.length) {
+      return;
+    }
+    if (garageId && visibleGarages.some((garage) => garage.id === garageId)) {
+      return;
+    }
+    const fallbackGarage = visibleGarages[0];
+    if (fallbackGarage) {
+      setGarageId(fallbackGarage.id);
+      setGarageIdState(fallbackGarage.id);
+      router.refresh();
+    }
+  }, [garageId, restrictToAssignedBranches, router, visibleGarages]);
 
-  if (!isReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
-        <div className="space-y-2 text-center">
-          <div className="text-xl font-semibold">Loading ReceptionMate…</div>
-          <div className="text-sm text-slate-400">Preparing your dashboard</div>
-        </div>
+  const shellContent = !shouldShowChrome ? (
+    <>{children}</>
+  ) : !isReady ? (
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
+      <div className="space-y-2 text-center">
+        <div className="text-xl font-semibold">Loading ReceptionMate…</div>
+        <div className="text-sm text-slate-400">Preparing your dashboard</div>
       </div>
-    );
-  }
-
-  return (
+    </div>
+  ) : (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
-      <Sidebar activePath={pathname ?? '/calls'} />
+      <Sidebar activePath={pathname ?? '/calls'} showAdminLink={isStaffUser} />
       <div className="flex flex-1 flex-col">
         <Navbar
           email={userEmail ?? 'Unknown user'}
-          garages={garages}
-          selectedGarageId={garageId ?? ''}
-          onSelectGarage={(nextGarageId) => {
-            setGarageId(nextGarageId);
-            setGarageIdState(nextGarageId);
-            router.refresh();
-          }}
+          garages={visibleGarages}
+          selectedGarageId={selectedGarageValue}
+          allowAllAssignedBranches={allowAllAssignedBranches}
+          onSelectGarage={handleSelectGarage}
           onLogout={() => {
             clearSession();
+            setIsStaffUser(false);
             router.replace('/login');
           }}
         />
@@ -132,4 +208,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </div>
     </div>
   );
+
+  return <BranchScopeProvider value={branchScopeValue}>{shellContent}</BranchScopeProvider>;
 }

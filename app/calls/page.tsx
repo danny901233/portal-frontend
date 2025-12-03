@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { fetchCalls, submitCallFeedback } from '../lib/api';
 import { getGarageId } from '../lib/auth';
 import {
@@ -144,6 +144,253 @@ const formatPhoneNumber = (value?: string | null): string => {
   return cleaned;
 };
 
+type BooleanToken =
+  | { type: 'term'; value: string }
+  | { type: 'operator'; value: 'and' | 'or' | 'not' }
+  | { type: 'lparen' }
+  | { type: 'rparen' };
+
+type BooleanNode =
+  | { kind: 'term'; value: string }
+  | { kind: 'not'; child: BooleanNode }
+  | { kind: 'and' | 'or'; left: BooleanNode; right: BooleanNode };
+
+type BooleanParseResult =
+  | { success: true; node: BooleanNode }
+  | { success: false };
+
+const tokenizeBooleanQuery = (input: string): BooleanToken[] => {
+  const tokens: BooleanToken[] = [];
+  let index = 0;
+
+  const pushTerm = (raw: string) => {
+    const value = raw.trim().toLowerCase();
+    if (!value) {
+      throw new Error('Empty term');
+    }
+    if (value === 'and' || value === 'or' || value === 'not') {
+      tokens.push({ type: 'operator', value });
+      return;
+    }
+    tokens.push({ type: 'term', value });
+  };
+
+  while (index < input.length) {
+    const char = input[index];
+
+    if (char.trim() === '') {
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      let end = index + 1;
+      let phrase = '';
+      while (end < input.length && input[end] !== '"') {
+        phrase += input[end];
+        end += 1;
+      }
+      if (end >= input.length) {
+        throw new Error('Unterminated quote');
+      }
+      pushTerm(phrase);
+      index = end + 1;
+      continue;
+    }
+
+    if (char === '(') {
+      tokens.push({ type: 'lparen' });
+      index += 1;
+      continue;
+    }
+
+    if (char === ')') {
+      tokens.push({ type: 'rparen' });
+      index += 1;
+      continue;
+    }
+
+    let end = index;
+    while (end < input.length) {
+      const candidate = input[end];
+      if (candidate.trim() === '' || candidate === '(' || candidate === ')' || candidate === '"') {
+        break;
+      }
+      end += 1;
+    }
+
+    pushTerm(input.slice(index, end));
+    index = end;
+  }
+
+  return tokens;
+};
+
+const parseBooleanTokens = (tokens: BooleanToken[]): BooleanNode => {
+  let index = 0;
+
+  const peek = () => tokens[index];
+  const consume = () => tokens[index++];
+
+  const parseExpression = (): BooleanNode => parseOr();
+
+  const parseOr = (): BooleanNode => {
+    let node = parseAnd();
+    while (true) {
+      const token = peek();
+      if (token && token.type === 'operator' && token.value === 'or') {
+        consume();
+        const right = parseAnd();
+        node = { kind: 'or', left: node, right };
+        continue;
+      }
+      break;
+    }
+    return node;
+  };
+
+  const parseAnd = (): BooleanNode => {
+    let node = parseUnary();
+    while (true) {
+      const token = peek();
+      if (token && token.type === 'operator' && token.value === 'and') {
+        consume();
+        const right = parseUnary();
+        node = { kind: 'and', left: node, right };
+        continue;
+      }
+      if (
+        token &&
+        (token.type === 'term' || token.type === 'lparen' || (token.type === 'operator' && token.value === 'not'))
+      ) {
+        const right = parseUnary();
+        node = { kind: 'and', left: node, right };
+        continue;
+      }
+      break;
+    }
+    return node;
+  };
+
+  const parseUnary = (): BooleanNode => {
+    let notCount = 0;
+    while (true) {
+      const token = peek();
+      if (token && token.type === 'operator' && token.value === 'not') {
+        consume();
+        notCount += 1;
+      } else {
+        break;
+      }
+    }
+
+    const primary = parsePrimary();
+    let node = primary;
+    while (notCount > 0) {
+      node = { kind: 'not', child: node };
+      notCount -= 1;
+    }
+    return node;
+  };
+
+  const parsePrimary = (): BooleanNode => {
+    const token = peek();
+    if (!token) {
+      throw new Error('Unexpected end of expression');
+    }
+
+    if (token.type === 'term') {
+      consume();
+      if (!token.value) {
+        throw new Error('Empty term');
+      }
+      return { kind: 'term', value: token.value };
+    }
+
+    if (token.type === 'lparen') {
+      consume();
+      const node = parseExpression();
+      const next = peek();
+      if (!next || next.type !== 'rparen') {
+        throw new Error('Missing closing parenthesis');
+      }
+      consume();
+      return node;
+    }
+
+    throw new Error('Unexpected token');
+  };
+
+  const node = parseExpression();
+  if (index < tokens.length) {
+    throw new Error('Unexpected token at end of expression');
+  }
+  return node;
+};
+
+const parseBooleanQuery = (input: string): BooleanParseResult => {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { success: false };
+  }
+
+  try {
+    const tokens = tokenizeBooleanQuery(trimmed);
+    if (!tokens.length) {
+      return { success: false };
+    }
+    const node = parseBooleanTokens(tokens);
+    return { success: true, node };
+  } catch (error) {
+    return { success: false };
+  }
+};
+
+const evaluateBooleanNode = (node: BooleanNode, text: string): boolean => {
+  switch (node.kind) {
+    case 'term':
+      return text.includes(node.value);
+    case 'not':
+      return !evaluateBooleanNode(node.child, text);
+    case 'and':
+      return evaluateBooleanNode(node.left, text) && evaluateBooleanNode(node.right, text);
+    case 'or':
+      return evaluateBooleanNode(node.left, text) || evaluateBooleanNode(node.right, text);
+    default:
+      return false;
+  }
+};
+
+const buildCallSearchText = (call: CallRecord): string => {
+  const transcriptText = call.transcript
+    .map((entry) => `${entry.speaker ?? ''} ${entry.text ?? ''}`)
+    .join(' ');
+  const callerName = deriveCallerName(call);
+  const callerNumber = deriveCallerNumber(call);
+  const summarySnippet = summaryPreview(call.summary);
+
+  const candidateFields: Array<string | null | undefined> = [
+    call.summary,
+    summarySnippet,
+    call.roomName,
+    call.callType,
+    getCallTagLabel(call.callType),
+    call.recordingUrl,
+    call.id,
+    transcriptText,
+    callerName,
+    callerNumber,
+    call.feedback?.rating,
+    call.feedback?.notes,
+    call.feedback?.reasons?.join(' '),
+  ];
+
+  return candidateFields
+    .filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+    .map((field) => field.toLowerCase())
+    .join(' ');
+};
+
 export default function CallsPage() {
   const garageId = getGarageId();
   const router = useRouter();
@@ -161,6 +408,7 @@ export default function CallsPage() {
   const [feedbackNotes, setFeedbackNotes] = useState('');
   const [summaryModalCallId, setSummaryModalCallId] = useState<string | null>(null);
   const [durationSort, setDurationSort] = useState<'none' | 'asc'>('none');
+  const [, startTransition] = useTransition();
 
   const startDateIso = useMemo(() => toIsoDate(startDateInput), [startDateInput]);
   const endDateIso = useMemo(() => toIsoDate(endDateInput, true), [endDateInput]);
@@ -186,79 +434,70 @@ export default function CallsPage() {
   const calls = useMemo<CallRecord[]>(() => query.data?.calls ?? [], [query.data]);
 
   useEffect(() => {
-    setRatings((prev) => {
-      const next: Record<string, 'up' | 'down' | null> = {};
-      for (const call of calls) {
-        const rating = call.feedback?.rating;
-        if (rating === 'up' || rating === 'down') {
-          next[call.id] = rating;
+    startTransition(() => {
+      setRatings((prev) => {
+        const next: Record<string, 'up' | 'down' | null> = {};
+        for (const call of calls) {
+          const rating = call.feedback?.rating;
+          if (rating === 'up' || rating === 'down') {
+            next[call.id] = rating;
+          }
         }
-      }
 
-      if (feedbackModal.callId && prev[feedbackModal.callId] !== undefined) {
-        next[feedbackModal.callId] = prev[feedbackModal.callId];
-      }
+        if (feedbackModal.callId && prev[feedbackModal.callId] !== undefined) {
+          next[feedbackModal.callId] = prev[feedbackModal.callId];
+        }
 
-      const prevKeys = Object.keys(prev);
-      const nextKeys = Object.keys(next);
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(next);
 
-      if (
-        prevKeys.length === nextKeys.length &&
-        nextKeys.every((key) => prev[key] === next[key as keyof typeof prev])
-      ) {
-        return prev;
-      }
+        if (
+          prevKeys.length === nextKeys.length &&
+          nextKeys.every((key) => prev[key] === next[key as keyof typeof prev])
+        ) {
+          return prev;
+        }
 
-      return next;
+        return next;
+      });
     });
-  }, [calls, feedbackModal.callId]);
+  }, [calls, feedbackModal.callId, startTransition]);
 
   useEffect(() => {
-    if (summaryModalCallId && !calls.some((call) => call.id === summaryModalCallId)) {
-      setSummaryModalCallId(null);
+    if (!summaryModalCallId) {
+      return;
     }
-  }, [calls, summaryModalCallId]);
+    if (calls.some((call) => call.id === summaryModalCallId)) {
+      return;
+    }
+    startTransition(() => {
+      setSummaryModalCallId(null);
+    });
+  }, [calls, summaryModalCallId, startTransition]);
+  const trimmedSearch = useMemo(() => searchTerm.trim(), [searchTerm]);
+  const normalizedSearch = useMemo(() => trimmedSearch.toLowerCase(), [trimmedSearch]);
+  const booleanQuery = useMemo<BooleanParseResult>(() => parseBooleanQuery(searchTerm), [searchTerm]);
   const filtersActive =
     callTagFilter !== 'all' ||
     durationSort !== 'none' ||
     Boolean(startDateInput) ||
     Boolean(endDateInput) ||
-    Boolean(searchTerm.trim());
-  const normalizedSearch = useMemo(() => searchTerm.trim().toLowerCase(), [searchTerm]);
+    Boolean(trimmedSearch);
   const filteredCalls = useMemo(() => {
+    if (!trimmedSearch) {
+      return calls;
+    }
+
     return calls.filter((call) => {
-      if (!normalizedSearch) {
-        return true;
+      const searchableText = buildCallSearchText(call);
+
+      if (booleanQuery.success) {
+        return evaluateBooleanNode(booleanQuery.node, searchableText);
       }
 
-      const transcriptText = call.transcript
-        .map((entry) => `${entry.speaker ?? ''} ${entry.text ?? ''}`)
-        .join(' ');
-      const callerName = deriveCallerName(call);
-      const callerNumber = deriveCallerNumber(call);
-      const summarySnippet = summaryPreview(call.summary);
-
-      const candidateFields = [
-        call.summary,
-        summarySnippet,
-        call.roomName,
-        call.callType,
-        getCallTagLabel(call.callType),
-        call.recordingUrl,
-        call.id,
-        transcriptText,
-        callerName,
-        callerNumber,
-        call.feedback?.rating,
-        call.feedback?.notes,
-        call.feedback?.reasons?.join(' '),
-      ];
-
-      return candidateFields.some((field) =>
-        typeof field === 'string' && field.toLowerCase().includes(normalizedSearch)
-      );
+      return searchableText.includes(normalizedSearch);
     });
-  }, [calls, normalizedSearch]);
+  }, [calls, trimmedSearch, normalizedSearch, booleanQuery]);
 
   const displayedCalls = useMemo(() => {
     if (durationSort === 'none') {
@@ -544,7 +783,8 @@ export default function CallsPage() {
                 type="search"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search summary, transcript, recording…"
+                placeholder={'e.g. "MOT" AND (booking OR estimate)'}
+                title="Supports AND, OR, NOT and quoted phrases"
                 className="w-56 rounded-md border border-slate-700 bg-slate-900/80 px-3 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
               />
             </label>
@@ -571,6 +811,7 @@ export default function CallsPage() {
               <tr>
                 <th className="px-5 py-3 text-left font-medium">Caller</th>
                 <th className="px-5 py-3 text-left font-medium">From Number</th>
+                <th className="px-5 py-3 text-left font-medium">Registration</th>
                 <th className="px-5 py-3 text-left font-medium">Date &amp; Time</th>
                 <th className="px-5 py-3 text-left font-medium">
                   <button
@@ -604,13 +845,13 @@ export default function CallsPage() {
             <tbody className="divide-y divide-slate-800/80">
               {query.isLoading ? (
                 <tr>
-                  <td colSpan={9} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={10} className="px-5 py-10 text-center text-slate-400">
                     Loading calls…
                   </td>
                 </tr>
               ) : displayedCalls.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={10} className="px-5 py-10 text-center text-slate-400">
                     No calls found. Adjust filters or widen your search query.
                   </td>
                 </tr>
@@ -619,6 +860,7 @@ export default function CallsPage() {
                   const callerName = deriveCallerName(call);
                   const callerNumberRaw = deriveCallerNumber(call);
                   const formattedNumber = formatPhoneNumber(callerNumberRaw);
+                  const registrationValue = call.registrationNumber?.trim();
                   const callTag = renderCallTag(call.callType);
                   const rating = ratings[call.id] ?? null;
                   const upActive = rating === 'up';
@@ -629,14 +871,18 @@ export default function CallsPage() {
                   return (
                     <tr key={call.id} className="hover:bg-slate-900/40">
                       <td className="px-5 py-3 align-top text-slate-100">
-                        <div className="flex flex-col gap-1">
-                          <span className="font-semibold tracking-tight text-slate-100" title={callerName}>
-                            {callerName}
-                          </span>
-                        </div>
+                        <span className="font-semibold tracking-tight text-slate-100" title={callerName}>
+                          {callerName}
+                        </span>
                       </td>
                       <td className="px-5 py-3 align-top text-slate-200" title={formattedNumber}>
                         {formattedNumber}
+                      </td>
+                      <td
+                        className="px-5 py-3 align-top text-slate-200"
+                        title={registrationValue || undefined}
+                      >
+                        {registrationValue ? registrationValue.toUpperCase() : '—'}
                       </td>
                       <td className="px-5 py-3 align-top text-slate-200">{formatDate(call.createdAt)}</td>
                       <td className="px-5 py-3 align-top text-slate-200">{formatDuration(call.durationSeconds)}</td>

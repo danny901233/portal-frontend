@@ -1,11 +1,14 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import type { BranchRole } from '../utils/branchRoles.js';
 
 interface JwtPayload {
   userId: string;
   email: string;
   garageIds?: string[];
   garageId?: string;
+  role?: 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
+  branchRoles?: Record<string, BranchRole>;
 }
 
 declare module 'express-serve-static-core' {
@@ -36,4 +39,11 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+};
+
+export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user || req.user.role !== 'RECEPTIONMATE_STAFF') {
+    return res.status(403).json({ error: 'ReceptionMate staff access required' });
+  }
+  next();
 };

@@ -1,3 +1,4 @@
+
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { promises as fs } from 'node:fs';
@@ -14,6 +15,7 @@ const resolveSettingsPath = () => {
 };
 
 const settingsPath = resolveSettingsPath();
+const knowledgePath = path.resolve(path.dirname(settingsPath), 'agent_knowledge.json');
 
 const ensureSecretIsValid = (req: Request) => {
   const requiredSecret = process.env.AGENT_CONFIG_WEBHOOK_SECRET;
@@ -33,11 +35,55 @@ router.post('/agent-config', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { garageId, configuration } = req.body ?? {};
+  const { garageId, configuration, knowledgeBase, knowledgeVersion } = req.body ?? {};
 
   if (!garageId || typeof configuration !== 'object' || configuration === null) {
     return res.status(400).json({ error: 'Invalid payload' });
   }
+
+  const sanitizedKnowledge = Array.isArray(knowledgeBase)
+    ? knowledgeBase
+        .map((entry: Record<string, unknown>) => {
+          const content = typeof entry?.content === 'string' ? entry.content.trim() : '';
+          if (!content) {
+            return null;
+          }
+          return {
+            id: typeof entry?.id === 'string' ? entry.id : undefined,
+            title: typeof entry?.title === 'string' && entry.title.trim() ? entry.title.trim() : null,
+            source: typeof entry?.source === 'string' ? entry.source : 'website-scan',
+            url: typeof entry?.url === 'string' ? entry.url : null,
+            content,
+            metadata: typeof entry?.metadata === 'object' && entry.metadata !== null ? entry.metadata : null,
+            createdAt: typeof entry?.createdAt === 'string' ? entry.createdAt : null,
+            updatedAt: typeof entry?.updatedAt === 'string' ? entry.updatedAt : null,
+          };
+        })
+        .filter((entry): entry is {
+          id: string | undefined;
+          title: string | null;
+          source: string;
+          url: string | null;
+          content: string;
+          metadata: Record<string, unknown> | null;
+          createdAt: string | null;
+          updatedAt: string | null;
+        } => Boolean(entry))
+    : [];
+
+  const resolvedKnowledgeVersion =
+    typeof knowledgeVersion === 'string' && knowledgeVersion.trim()
+      ? knowledgeVersion.trim()
+      : sanitizedKnowledge.reduce<string | null>((latest, entry) => {
+          const timestamp = entry.updatedAt || entry.createdAt;
+          if (!timestamp) {
+            return latest;
+          }
+          if (!latest) {
+            return timestamp;
+          }
+          return timestamp > latest ? timestamp : latest;
+        }, null) ?? '';
 
   const formatEnvValue = (value: unknown) => {
     if (value === null || value === undefined) {
@@ -76,11 +122,30 @@ router.post('/agent-config', async (req: Request, res: Response) => {
     `AGENT_CALL_SUMMARY_EMAIL=${formatEnvValue(configuration.callSummaryEmail)}`,
     `AGENT_HOLIDAY_CLOSURES=${formatEnvValue(configuration.holidayClosures)}`,
     `AGENT_WEEKLY_OPENING_HOURS=${formatEnvValue(JSON.stringify(configuration.weeklyOpeningHours ?? {}))}`,
+    `AGENT_KNOWLEDGE_VERSION=${formatEnvValue(resolvedKnowledgeVersion)}`,
   ];
+
+  const garageHiveSettings =
+    configuration.garageHiveSettings ?? { instanceUrl: '', apiKey: '', locationId: '' };
+  envLines.push(
+    `GARAGE_HIVE_INSTANCE_URL=${formatEnvValue(garageHiveSettings.instanceUrl)}`,
+    `GARAGE_HIVE_API_KEY=${formatEnvValue(garageHiveSettings.apiKey)}`,
+    `GARAGE_HIVE_LOCATION_ID=${formatEnvValue(garageHiveSettings.locationId)}`,
+  );
 
   try {
     await fs.mkdir(path.dirname(settingsPath), { recursive: true });
     await fs.writeFile(`${settingsPath}`, `${envLines.join('\n')}\n`, 'utf8');
+
+    if (sanitizedKnowledge.length > 0) {
+      const knowledgePayload = {
+        updatedAt: resolvedKnowledgeVersion || new Date().toISOString(),
+        documents: sanitizedKnowledge,
+      };
+      await fs.writeFile(knowledgePath, `${JSON.stringify(knowledgePayload, null, 2)}\n`, 'utf8');
+    } else {
+      await fs.rm(knowledgePath, { force: true });
+    }
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       // eslint-disable-next-line no-console

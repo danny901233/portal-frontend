@@ -26,6 +26,9 @@ export const createCallSchema = z
       .transform((val) => val || undefined),
     durationSeconds: z.number().int().nonnegative().optional(),
     callType: z.string().min(1).optional(),
+    registrationNumber: z.string().trim().min(1).max(64).optional(),
+    confirmedBooking: z.boolean().optional(),
+    confirmedBookingCategory: z.enum(['service', 'diagnostic', 'mot', 'other']).optional(),
     metrics: metricsSchema,
     transcript: z.array(transcriptEntrySchema).min(1),
     summary: z.string().min(1),
@@ -34,12 +37,14 @@ export const createCallSchema = z
     ...payload,
     durationSeconds: Math.max(0, Math.trunc(payload.durationSeconds ?? 0)),
     callType: (payload.callType?.trim().toLowerCase() || 'unknown').slice(0, 100),
+    confirmedBooking: Boolean(payload.confirmedBooking),
+    confirmedBookingCategory: payload.confirmedBookingCategory ?? null,
   }));
 
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
-  garageId: z.string().uuid(),
+  garageId: z.string().uuid().optional(),
 });
 
 const optionalEmail = z
@@ -48,6 +53,17 @@ const optionalEmail = z
 
 const optionalUrl = z
   .union([z.string().url().max(500), z.literal('')])
+  .optional();
+
+const optionalBoundedString = (maxLength: number) =>
+  z.union([z.string().max(maxLength), z.literal('')]).optional();
+
+const garageHiveSettingsSchema = z
+  .object({
+    instanceUrl: z.union([z.string().max(2048), z.literal('')]).optional(),
+    apiKey: optionalBoundedString(4096),
+    locationId: optionalBoundedString(200),
+  })
   .optional();
 
 const timeString = z
@@ -118,10 +134,69 @@ export const upsertAgentConfigurationSchema = z.object({
   interruptionSensitivity: z.number().min(0).max(1).optional(),
   allowFastFitOnly: z.boolean(),
   callSummaryEmail: optionalEmail,
+  integrationProvider: z.enum(['none', 'garage_hive']).optional(),
+  garageHiveSettings: garageHiveSettingsSchema,
+}).superRefine((value, ctx) => {
+  const provider = value.integrationProvider ?? 'none';
+  if (provider !== 'garage_hive') {
+    return;
+  }
+
+  const settings = value.garageHiveSettings ?? {};
+  const instanceUrl = typeof settings.instanceUrl === 'string' ? settings.instanceUrl.trim() : '';
+  const apiKey = typeof settings.apiKey === 'string' ? settings.apiKey.trim() : '';
+  const locationId = typeof settings.locationId === 'string' ? settings.locationId.trim() : '';
+
+  if (!instanceUrl) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Provide the Garage Hive instance name before saving.',
+      path: ['garageHiveSettings', 'instanceUrl'],
+    });
+  }
+
+  if (instanceUrl) {
+    const instancePattern = /^[A-Za-z0-9._-]+$/;
+    if (!instancePattern.test(instanceUrl)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Use the instance name provided by Garage Hive (letters, numbers, dashes, underscores, or dots).',
+        path: ['garageHiveSettings', 'instanceUrl'],
+      });
+    }
+    if (instanceUrl.includes('://')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Enter only the instance name, not the full URL.',
+        path: ['garageHiveSettings', 'instanceUrl'],
+      });
+    }
+  }
+
+  if (!apiKey) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Provide the Garage Hive API key before saving.',
+      path: ['garageHiveSettings', 'apiKey'],
+    });
+  }
+
+  if (!locationId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Provide the Garage Hive location ID before saving.',
+      path: ['garageHiveSettings', 'locationId'],
+    });
+  }
 });
 
 export const callFeedbackSchema = z.object({
   rating: z.enum(['up', 'down']),
   reasons: z.array(z.string().min(1).max(200)).max(10).default([]),
   notes: z.string().max(2000).optional(),
+});
+
+export const websiteScanSchema = z.object({
+  url: z.string().url().max(2048),
+  selectedUrls: z.array(z.string().url().max(2048)).min(1).max(25).optional(),
 });

@@ -18,6 +18,8 @@ export interface CallFeedbackRecord {
   updatedAt: string;
 }
 
+export type ConfirmedBookingCategory = 'service' | 'diagnostic' | 'mot' | 'other';
+
 export interface CallRecord {
   id: string;
   garageId: string;
@@ -25,6 +27,9 @@ export interface CallRecord {
   recordingUrl?: string | null;
   durationSeconds: number;
   callType: string;
+  registrationNumber?: string | null;
+  confirmedBooking?: boolean;
+  confirmedBookingCategory?: ConfirmedBookingCategory | null;
   metrics: MetricsRecord;
   transcript: TranscriptEntry[];
   summary: string;
@@ -39,12 +44,18 @@ export interface GarageSummary {
   name: string;
 }
 
+export type UserRole = 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
+export type BranchRole = 'MANAGER' | 'USER';
+export type BranchRolesMap = Record<string, BranchRole>;
+
 export interface LoginResponse {
   success: boolean;
   token: string;
   user: {
     id: string;
     email: string;
+    role: UserRole;
+    branchRoles: BranchRolesMap;
   };
   garages: GarageSummary[];
   selectedGarageId: string;
@@ -96,6 +107,14 @@ export const createEmptyWeeklyOpeningHours = (): WeeklyOpeningHours => {
   }, {} as WeeklyOpeningHours);
 };
 
+export type IntegrationProvider = 'none' | 'garage_hive';
+
+export interface GarageHiveSettings {
+  instanceUrl: string;
+  apiKey: string;
+  locationId: string;
+}
+
 export interface AgentConfiguration {
   branchName: string;
   phoneNumber: string;
@@ -110,8 +129,71 @@ export interface AgentConfiguration {
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
   callSummaryEmail: string;
+  integrationProvider: IntegrationProvider;
+  garageHiveSettings: GarageHiveSettings;
 }
 
 export interface AgentConfigurationResponse {
   configuration: AgentConfiguration;
+  knowledgeBase: AgentKnowledgeDocument[];
+}
+
+export interface AdminAgentConfiguration {
+  branchName: string;
+  phoneNumber: string;
+  emailAddress: string;
+  callSummaryEmail: string;
+}
+
+export interface AdminGarage {
+  id: string;
+  name: string;
+  businessId: string | null;
+  agentConfiguration: AdminAgentConfiguration | null;
+}
+
+export interface AdminBusiness {
+  id: string;
+  name: string;
+  branches: AdminGarage[];
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: UserRole;
+  garageAccessIds: string[];
+}
+
+export interface WebsiteScanSummaryPage {
+  url: string;
+  title?: string;
+  description?: string;
+  snippet?: string;
+  phoneNumbers: string[];
+  emails: string[];
+  hours: string[];
+  address?: string;
+  chunkCount: number;
+}
+
+export interface WebsiteScanResponse {
+  origin: string;
+  pages: WebsiteScanSummaryPage[];
+}
+
+export interface WebsiteIngestResponse {
+  knowledgeBase: AgentKnowledgeDocument[];
+  processedPages: number;
+}
+
+export interface AgentKnowledgeDocument {
+  id: string;
+  source: string;
+  title: string | null;
+  url: string | null;
+  content: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
 }

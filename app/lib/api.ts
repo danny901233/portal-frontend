@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosHeaders } from "axios";
 import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from "axios";
 import type {
   AgentConfiguration,
@@ -8,6 +8,8 @@ import type {
   CallsResponse,
   GaragesResponse,
   LoginResponse,
+  WebsiteIngestResponse,
+  WebsiteScanResponse,
 } from "../types";
 import { TOKEN_STORAGE_KEY, clearSession, getGarageId } from "./auth";
 
@@ -20,10 +22,9 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem(TOKEN_STORAGE_KEY);
     if (token) {
-      config.headers = {
-        ...config.headers,
-        Authorization: `Bearer ${token}`,
-      };
+      const headers = AxiosHeaders.from(config.headers);
+      headers.set("Authorization", `Bearer ${token}`);
+      config.headers = headers;
     }
   }
   return config;
@@ -44,15 +45,17 @@ export type CallFilters = {
   callType?: string;
   startDate?: string;
   endDate?: string;
+  garageIds?: string[];
 };
 
 export const fetchCalls = async (
   garageId?: string,
   filters?: CallFilters
 ): Promise<CallsResponse> => {
-  const targetGarageId = garageId ?? getGarageId();
-  if (!targetGarageId) {
-    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  const hasGarageIds = Boolean(filters?.garageIds?.length);
+  const targetGarageId = hasGarageIds ? undefined : garageId ?? getGarageId();
+  if (!hasGarageIds && !targetGarageId) {
+    throw new Error('Missing garage id. Log in again or set a default garage id.');
   }
   const params = new URLSearchParams();
   if (filters?.callType && filters.callType !== "all") {
@@ -64,12 +67,21 @@ export const fetchCalls = async (
   if (filters?.endDate) {
     params.set("endDate", filters.endDate);
   }
+  if (hasGarageIds) {
+    filters?.garageIds?.forEach((id) => {
+      if (id) {
+        params.append('garageIds', id);
+      }
+    });
+  }
 
   const querySuffix = params.toString();
 
-  const { data } = await api.get<CallsResponse>(
-    `/api/garages/${targetGarageId}/calls${querySuffix ? `?${querySuffix}` : ""}`
-  );
+  const endpoint = hasGarageIds
+    ? `/api/calls${querySuffix ? `?${querySuffix}` : ''}`
+    : `/api/garages/${targetGarageId}/calls${querySuffix ? `?${querySuffix}` : ''}`;
+
+  const { data } = await api.get<CallsResponse>(endpoint);
   return data;
 };
 
@@ -122,13 +134,11 @@ export const updateAgentConfiguration = async (
 
 export const login = async (
   email: string,
-  password: string,
-  garageId: string
+  password: string
 ): Promise<LoginResponse> => {
-  const { data } = await api.post<LoginResponse>("/api/auth/login", {
+  const { data } = await api.post<LoginResponse>('/api/auth/login', {
     email,
     password,
-    garageId,
   });
   return data;
 };
@@ -158,6 +168,43 @@ export const submitCallFeedback = async (
   const { data } = await api.post<CallFeedbackResponse>(
     `/api/garages/${targetGarageId}/calls/${callId}/feedback`,
     requestBody
+  );
+  return data;
+};
+
+export const discoverWebsitePages = async (
+  url: string,
+  garageId?: string
+): Promise<WebsiteScanResponse> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+
+  const { data } = await api.post<WebsiteScanResponse>(
+    `/api/garages/${targetGarageId}/website-scan`,
+    { url }
+  );
+  return data;
+};
+
+export const ingestWebsiteKnowledge = async (
+  url: string,
+  selectedUrls: string[],
+  garageId?: string
+): Promise<WebsiteIngestResponse> => {
+  if (!selectedUrls.length) {
+    throw new Error("Select at least one page before publishing the knowledge base.");
+  }
+
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+
+  const { data } = await api.post<WebsiteIngestResponse>(
+    `/api/garages/${targetGarageId}/website-scan`,
+    { url, selectedUrls }
   );
   return data;
 };

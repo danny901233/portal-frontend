@@ -8,17 +8,14 @@ import { login } from '../lib/api';
 import { persistSession } from '../lib/auth';
 import type { LoginResponse } from '../types';
 
-const DEFAULT_GARAGE_ID = 'd5a97619-c212-4c22-8973-fc946b06ad59';
-
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [garageId, setGarageId] = useState(DEFAULT_GARAGE_ID);
 
   const mutation = useMutation<LoginResponse, AxiosError>({
     mutationFn: async () => {
-      const response = await login(email, password, garageId);
+      const response = await login(email, password);
       return response;
     },
     onSuccess: (data: LoginResponse) => {
@@ -27,6 +24,8 @@ export default function LoginPage() {
         garageId: data.selectedGarageId,
         garages: data.garages,
         email: data.user.email,
+        role: data.user.role,
+        branchRoles: data.user.branchRoles,
       });
       router.push('/calls');
     },
@@ -84,20 +83,6 @@ export default function LoginPage() {
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 transition-colors focus:border-sky-500 focus:outline-none"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-300" htmlFor="garageId">
-              Garage ID
-            </label>
-            <input
-              id="garageId"
-              type="text"
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 transition-colors focus:border-sky-500 focus:outline-none"
-              value={garageId}
-              onChange={(event) => setGarageId(event.target.value)}
               required
             />
           </div>

@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../db.js';
 import { loginSchema } from '../utils/validators.js';
+import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(400).json({ error: result.error.flatten() });
     }
 
-    const { email, password, garageId } = result.data;
+    const { email, password, garageId: requestedGarageId } = result.data;
 
     const user = await prisma.user.findUnique({ where: { email } });
 
@@ -28,24 +29,36 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const garage = await prisma.garage.findUnique({ where: { id: garageId } });
+    let allowedGarageIds = Array.isArray(user.garageAccessIds) ? [...user.garageAccessIds] : [];
+    if (user.role === 'RECEPTIONMATE_STAFF') {
+      const allGarages = await prisma.garage.findMany({ select: { id: true } });
+      allowedGarageIds = allGarages.map((entry) => entry.id);
+    }
+    if (allowedGarageIds.length === 0) {
+      const fallback = await prisma.garage.findFirst({ select: { id: true } });
+      if (!fallback) {
+        return res.status(404).json({ error: 'No garages available' });
+      }
+      allowedGarageIds = [fallback.id];
+    }
+
+    const selectedGarageId = requestedGarageId && allowedGarageIds.includes(requestedGarageId)
+      ? requestedGarageId
+      : allowedGarageIds[0];
+
+    const garage = await prisma.garage.findUnique({ where: { id: selectedGarageId } });
 
     if (!garage) {
       return res.status(404).json({ error: 'Garage not found' });
-    }
-
-    const allowedGarageIds = Array.isArray(user.garageAccessIds) && user.garageAccessIds.length > 0
-      ? user.garageAccessIds
-      : [garageId];
-
-    if (!allowedGarageIds.includes(garageId)) {
-      return res.status(403).json({ error: 'You do not have access to this garage' });
     }
 
     const accessibleGarages = await prisma.garage.findMany({
       where: { id: { in: allowedGarageIds } },
       orderBy: { name: 'asc' },
     });
+
+
+    const branchRoles = sanitizeBranchRoles(user.branchRoles);
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {
@@ -57,6 +70,8 @@ router.post('/login', async (req: Request, res: Response) => {
         userId: user.id,
         email: user.email,
         garageIds: allowedGarageIds,
+        role: user.role,
+        branchRoles,
       },
       secret,
       { expiresIn: '12h' },
@@ -65,8 +80,8 @@ router.post('/login', async (req: Request, res: Response) => {
     res.json({
       success: true,
       token,
-      user: { id: user.id, email: user.email },
-      selectedGarageId: garage.id,
+      user: { id: user.id, email: user.email, role: user.role, branchRoles },
+      selectedGarageId,
       garages: accessibleGarages.map((entry) => ({ id: entry.id, name: entry.name })),
     });
   } catch (error) {

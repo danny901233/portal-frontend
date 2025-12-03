@@ -1,9 +1,12 @@
 import type { Call, CallFeedback, Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
+import type { ParsedQs } from 'qs';
+import { randomInt } from 'node:crypto';
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
+import { classifyCallCategory } from '../utils/callClassifier.js';
 import type {
   CallWithParsedJson,
   MetricsRecord,
@@ -13,6 +16,22 @@ import type {
 import { resolveAllowedGarages } from '../utils/auth.js';
 
 const router = Router();
+
+const CALL_ID_LENGTH = 8;
+
+const generateCandidateCallId = () => randomInt(0, 10 ** CALL_ID_LENGTH).toString().padStart(CALL_ID_LENGTH, '0');
+
+const generateUniqueCallId = async () => {
+  const maxAttempts = 10;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const candidate = generateCandidateCallId();
+    const existing = await prisma.call.findUnique({ where: { id: candidate } });
+    if (!existing) {
+      return candidate;
+    }
+  }
+  throw new Error('Failed to generate unique call identifier');
+};
 
 const serializeCallFeedback = (feedback?: CallFeedback | null): SerializedCallFeedback | null => {
   if (!feedback) {
@@ -69,6 +88,83 @@ const ensureWebhookSecret = (req: Request) => {
   return headerSecret === configuredSecret;
 };
 
+type ParsedDateParamResult = Date | 'invalid' | undefined;
+
+type QueryParamValue = string | ParsedQs | (string | ParsedQs)[];
+
+const getSingleQueryValue = (value?: QueryParamValue) => {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0] : undefined;
+  }
+  return typeof value === 'string' ? value : undefined;
+};
+
+const normalizeCallTypeParam = (value?: QueryParamValue) => {
+  const raw = getSingleQueryValue(value);
+  if (!raw) {
+    return undefined;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized || normalized === 'all') {
+    return undefined;
+  }
+  return normalized;
+};
+
+const parseDateQueryParam = (value?: QueryParamValue): ParsedDateParamResult => {
+  const raw = getSingleQueryValue(value);
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'invalid';
+  }
+  return parsed;
+};
+
+const buildCallFilters = (where: Prisma.CallWhereInput, query: Request['query']) => {
+  const callType = normalizeCallTypeParam(query.callType);
+  if (callType) {
+    where.callType = callType;
+  }
+
+  const startDate = parseDateQueryParam(query.startDate);
+  if (startDate === 'invalid') {
+    return { error: 'Invalid startDate parameter' };
+  }
+
+  const endDate = parseDateQueryParam(query.endDate);
+  if (endDate === 'invalid') {
+    return { error: 'Invalid endDate parameter' };
+  }
+
+  const dateFilter: Prisma.DateTimeFilter = {};
+  if (startDate instanceof Date) {
+    dateFilter.gte = startDate;
+  }
+  if (endDate instanceof Date) {
+    dateFilter.lte = endDate;
+  }
+
+  if (Object.keys(dateFilter).length > 0) {
+    where.createdAt = dateFilter;
+  }
+
+  return {};
+};
+
+const parseGarageIdsParam = (value?: QueryParamValue): string[] => {
+  if (!value) {
+    return [];
+  }
+  const sources = Array.isArray(value) ? value : [value];
+  return sources
+    .flatMap((entry) => (typeof entry === 'string' ? entry.split(',') : []))
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+};
+
 router.post('/calls', async (req: Request, res: Response) => {
   try {
     if (!ensureWebhookSecret(req)) {
@@ -91,23 +187,30 @@ router.post('/calls', async (req: Request, res: Response) => {
       update: {},
     });
 
+    const callType = classifyCallCategory(payload.callType, payload.summary, payload.transcript);
+
+    const callId = await generateUniqueCallId();
+
     await prisma.call.create({
       data: {
+        id: callId,
         garageId: payload.garageId,
         roomName: payload.roomName,
         recordingUrl: payload.recordingUrl,
         durationSeconds: payload.durationSeconds,
-        callType: payload.callType,
+        callType,
+        registrationNumber: payload.registrationNumber ?? null,
+        confirmedBooking: payload.confirmedBooking,
+        confirmedBookingCategory: payload.confirmedBookingCategory,
         metrics: payload.metrics,
         transcript: payload.transcript,
         summary: payload.summary,
       },
     });
 
-    res.status(201).json({ success: true });
+    res.status(201).json({ success: true, callId });
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
       console.error('Failed to create call', error);
     }
     res.status(500).json({ error: 'Failed to create call' });
@@ -137,34 +240,9 @@ router.get(
       }
 
       const where: Prisma.CallWhereInput = { garageId };
-
-      if (typeof callType === 'string') {
-        const normalizedType = callType.trim().toLowerCase();
-        if (normalizedType && normalizedType !== 'all') {
-          where.callType = normalizedType;
-        }
-      }
-
-      const dateFilter: Prisma.DateTimeFilter = {};
-
-      if (typeof startDate === 'string' && startDate.trim()) {
-        const parsedStart = new Date(startDate);
-        if (Number.isNaN(parsedStart.getTime())) {
-          return res.status(400).json({ error: 'Invalid startDate parameter' });
-        }
-        dateFilter.gte = parsedStart;
-      }
-
-      if (typeof endDate === 'string' && endDate.trim()) {
-        const parsedEnd = new Date(endDate);
-        if (Number.isNaN(parsedEnd.getTime())) {
-          return res.status(400).json({ error: 'Invalid endDate parameter' });
-        }
-        dateFilter.lte = parsedEnd;
-      }
-
-      if (Object.keys(dateFilter).length > 0) {
-        where.createdAt = dateFilter;
+      const filterResult = buildCallFilters(where, req.query);
+      if (filterResult.error) {
+        return res.status(400).json({ error: filterResult.error });
       }
 
       const calls = await prisma.call.findMany({
@@ -178,7 +256,58 @@ router.get(
       res.json({ calls: parsedCalls });
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
+        console.error('Failed to fetch calls', error);
+      }
+      res.status(500).json({ error: 'Failed to fetch calls' });
+    }
+  },
+);
+
+router.get(
+  '/calls',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const allowedGarages = resolveAllowedGarages(req.user);
+      if (allowedGarages.length === 0) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const { callType, startDate, endDate } = req.query;
+      if (
+        (callType && Array.isArray(callType)) ||
+        (startDate && Array.isArray(startDate)) ||
+        (endDate && Array.isArray(endDate))
+      ) {
+        return res.status(400).json({ error: 'Invalid query parameters' });
+      }
+
+      const requestedGarageIds = parseGarageIdsParam(req.query.garageIds);
+      let targetGarageIds = allowedGarages;
+      if (requestedGarageIds.length > 0) {
+        const filtered = requestedGarageIds.filter((entry) => allowedGarages.includes(entry));
+        if (!filtered.length) {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+        targetGarageIds = filtered;
+      }
+
+      const where: Prisma.CallWhereInput = { garageId: { in: targetGarageIds } };
+      const filterResult = buildCallFilters(where, req.query);
+      if (filterResult.error) {
+        return res.status(400).json({ error: filterResult.error });
+      }
+
+      const calls = await prisma.call.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: { feedback: true },
+      });
+
+      const parsedCalls = calls.map((call: Call & { feedback?: CallFeedback | null }) => parseCallJson(call));
+      res.json({ calls: parsedCalls });
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to fetch calls', error);
       }
       res.status(500).json({ error: 'Failed to fetch calls' });
@@ -210,7 +339,6 @@ router.get(
       res.json({ call: parseCallJson(call) });
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
         console.error('Failed to fetch call', error);
       }
       res.status(500).json({ error: 'Failed to fetch call' });
@@ -266,7 +394,6 @@ router.post(
       res.json({ feedback: serializeCallFeedback(feedback) });
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
         console.error('Failed to upsert call feedback', error);
       }
       res.status(500).json({ error: 'Failed to save call feedback' });
@@ -289,7 +416,6 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
     res.json({ garages: garages.map((garage) => ({ id: garage.id, name: garage.name })) });
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
       console.error('Failed to fetch garages', error);
     }
     res.status(500).json({ error: 'Failed to fetch garages' });

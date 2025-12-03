@@ -13,6 +13,9 @@ model Garage {
   name  String
   calls Call[]
   agentConfiguration AgentConfiguration?
+  knowledgeDocuments AgentKnowledgeDocument[]
+  business   Business? @relation(fields: [businessId], references: [id])
+  businessId String?
 }
 
 model Call {
@@ -23,6 +26,9 @@ model Call {
   recordingUrl String?
   durationSeconds Int    @default(0)
   callType       String  @default("unknown")
+  registrationNumber String?
+  confirmedBooking Boolean @default(false)
+  confirmedBookingCategory ConfirmedBookingCategory?
   metrics      Json
   transcript   Json
   summary      String
@@ -37,6 +43,8 @@ model User {
   garageAccessIds String[] @default([])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  role         UserRole @default(USER)
+  branchRoles  Json @default("{}")
 }
 
 model AgentConfiguration {
@@ -56,8 +64,26 @@ model AgentConfiguration {
   interruptionSensitivity Float @default(0.5)
   allowFastFitOnly  Boolean  @default(false)
   callSummaryEmail  String?
+  integrationProvider String  @default("none")
+  integrationProviderConfig Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+model AgentKnowledgeDocument {
+  id        String   @id @default(cuid())
+  garageId  String
+  garage    Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  source    String
+  title     String?
+  url       String?
+  content   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([garageId, source])
+  @@index([garageId])
 }
 
 model CallFeedback {
@@ -69,4 +95,25 @@ model CallFeedback {
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Business {
+  id        String   @id @default(cuid())
+  name      String
+  garages   Garage[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  RECEPTIONMATE_STAFF
+}
+
+enum ConfirmedBookingCategory {
+  service
+  diagnostic
+  mot
+  other
 }

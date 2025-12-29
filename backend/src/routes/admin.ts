@@ -16,6 +16,20 @@ const createBranchSchema = z.object({
   name: z.string().min(1).max(200),
 });
 
+const activateGarageSchema = z.object({
+  twilioNumber: z.string().min(1).max(100),
+});
+
+const updateTwilioNumberSchema = z.object({
+  twilioNumber: z
+    .string()
+    .max(100)
+    .transform((value) => value.trim())
+    .refine((value) => value.length > 0, {
+      message: 'Twilio number is required.',
+    }),
+});
+
 const branchRoleEnum = z.enum(['MANAGER', 'USER']);
 const branchRolesSchema = z.record(branchRoleEnum);
 
@@ -70,6 +84,7 @@ const formatBranch = (garage: {
   id: string;
   name: string;
   businessId: string | null;
+  twilioNumber: string | null;
   agentConfiguration: {
     branchName: string;
     phoneNumber?: string | null;
@@ -80,6 +95,7 @@ const formatBranch = (garage: {
   id: garage.id,
   name: garage.name,
   businessId: garage.businessId,
+  twilioNumber: garage.twilioNumber ?? '',
   agentConfiguration: garage.agentConfiguration
     ? {
         branchName: garage.agentConfiguration.branchName,
@@ -167,8 +183,107 @@ router.post('/admin/businesses/:businessId/branches', authenticate, requireAdmin
       id: garage.id,
       name: garage.name,
       businessId: garage.businessId,
+      twilioNumber: garage.twilioNumber,
       agentConfiguration: agentConfig,
     }),
+  });
+});
+
+router.post('/admin/garages/:garageId/activate', authenticate, requireAdmin, async (req, res) => {
+  const { garageId } = req.params;
+  const parsed = activateGarageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const normalizedTwilioNumber = parsed.data.twilioNumber.trim();
+
+  const garage = await prisma.garage.findUnique({
+    where: { id: garageId },
+    include: { agentConfiguration: true },
+  });
+
+  if (!garage) {
+    return res.status(404).json({ error: 'Garage not found.' });
+  }
+
+  await prisma.garage.update({
+    where: { id: garageId },
+    data: { twilioNumber: normalizedTwilioNumber },
+  });
+
+  const payload = {
+    garageId,
+    garageName: garage.name,
+    branchName: garage.agentConfiguration?.branchName ?? null,
+    contactEmail: garage.agentConfiguration?.emailAddress ?? null,
+    contactPhone: garage.agentConfiguration?.phoneNumber ?? null,
+    twilioNumber: normalizedTwilioNumber,
+    triggeredAt: new Date().toISOString(),
+  };
+
+  const onboardingEndpoint = process.env.ONBOARDING_SERVICE_URL;
+  if (!onboardingEndpoint) {
+    console.warn('ONBOARDING_SERVICE_URL is not configured; request payload:', payload);
+    return res.status(202).json({
+      status: 'queued',
+      message: 'Onboarding service URL is not configured; request logged only.',
+    });
+  }
+
+  try {
+    const response = await fetch(onboardingEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      return res.status(502).json({
+        error: 'Onboarding service rejected the request.',
+        message: body || response.statusText,
+      });
+    }
+  } catch (error) {
+    console.error('Failed to call onboarding service', error);
+    return res.status(502).json({ error: 'Failed to reach onboarding service.' });
+  }
+
+  res.status(202).json({ status: 'queued' });
+});
+
+router.get('/admin/garages/:garageId/twilio-number', authenticate, requireAdmin, async (req, res) => {
+  const { garageId } = req.params;
+
+  const garage = await prisma.garage.findUnique({ where: { id: garageId } });
+  if (!garage) {
+    return res.status(404).json({ error: 'Garage not found.' });
+  }
+
+  res.json({ twilioNumber: garage.twilioNumber ?? '' });
+});
+
+router.put('/admin/garages/:garageId/twilio-number', authenticate, requireAdmin, async (req, res) => {
+  const { garageId } = req.params;
+  const parsed = updateTwilioNumberSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const garage = await prisma.garage.findUnique({ where: { id: garageId } });
+  if (!garage) {
+    return res.status(404).json({ error: 'Garage not found.' });
+  }
+
+  const updated = await prisma.garage.update({
+    where: { id: garageId },
+    data: { twilioNumber: parsed.data.twilioNumber },
+  });
+
+  res.json({
+    twilioNumber: updated.twilioNumber ?? '',
   });
 });
 

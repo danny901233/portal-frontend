@@ -8,6 +8,7 @@ import callsRouter from './routes/calls.js';
 import configRouter from './routes/config.js';
 import agentWebhookRouter from './routes/agentWebhook.js';
 import adminRouter from './routes/admin.js';
+import voiceRouter from './routes/voice.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
@@ -42,6 +43,7 @@ app.use('/api', configRouter);
 app.use('/api/auth', authRouter);
 app.use('/api', adminRouter);
 app.use('/webhooks', agentWebhookRouter);
+app.use('/webhooks', voiceRouter);
 
 app.use(errorHandler);
 

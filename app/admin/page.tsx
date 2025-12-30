@@ -229,10 +229,10 @@ export default function AdminPage() {
 
   const branchMutation = useMutation({
     mutationFn: createAdminBranch,
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] });
       setBranchName('');
-      setBranchMessage('Branch created successfully.');
+      setBranchMessage('Branch created successfully. Log out and back in to see it in the dropdown.');
     },
     onError: () => {
       setBranchMessage('Failed to create branch.');

@@ -28,6 +28,8 @@ model Call {
   durationSeconds Int    @default(0)
   callType       String  @default("unknown")
   registrationNumber String?
+  customerName   String?
+  customerPhone  String?
   confirmedBooking Boolean @default(false)
   confirmedBookingCategory ConfirmedBookingCategory?
   metrics      Json

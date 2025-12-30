@@ -63,7 +63,14 @@ app.post('/provision', async (req: Request, res: Response) => {
     }
 
     // 3. Create LiveKit SIP trunk for this garage
-    await createLiveKitSipTrunk(payload.garageId, payload.garageName);
+    // Skip LiveKit trunk creation if credentials are invalid
+    try {
+      await createLiveKitSipTrunk(payload.garageId, payload.garageName, payload.twilioNumber);
+      console.log('✅ LiveKit SIP trunk created successfully');
+    } catch (error) {
+      console.warn('⚠️ LiveKit SIP trunk creation failed, skipping:', error instanceof Error ? error.message : 'Unknown error');
+      // Continue with Twilio configuration even if LiveKit fails
+    }
 
     // 4. Configure Twilio number to route to voice webhook
     await configureTwilioNumber(payload.twilioNumber, payload.garageId);
@@ -95,18 +102,19 @@ app.post('/provision', async (req: Request, res: Response) => {
 /**
  * Create a SIP trunk in LiveKit for this garage
  */
-async function createLiveKitSipTrunk(garageId: string, garageName: string): Promise<void> {
+async function createLiveKitSipTrunk(garageId: string, garageName: string, twilioNumber: string): Promise<void> {
   try {
     console.log('Creating LiveKit SIP trunk for garage:', garageId);
 
-    // Create SIP inbound trunk
+    // Create SIP inbound trunk with both garage ID and phone number as identifiers
     const trunk = await livekitSipClient.createSipInboundTrunk(
       `${garageName} (${garageId})`,
-      [`${garageId}`],
+      [garageId, twilioNumber.replace('+', '')],
       {
         metadata: JSON.stringify({
           garageId,
           garageName,
+          twilioNumber,
           createdAt: new Date().toISOString(),
         }),
       }
@@ -116,10 +124,11 @@ async function createLiveKitSipTrunk(garageId: string, garageName: string): Prom
     console.log(`   Trunk identifier: ${garageId}`);
     
     // Create SIP dispatch rule to route calls to your agent
+    // Use a room prefix instead of static name to allow multiple concurrent calls
     const dispatchRule = await livekitSipClient.createSipDispatchRule(
       {
-        type: 'direct',
-        roomName: `garage-${garageId}`,
+        type: 'individual',
+        roomPrefix: `garage-${garageId}`,
         pin: '',
       },
       {

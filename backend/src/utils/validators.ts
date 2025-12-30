@@ -29,6 +29,9 @@ export const createCallSchema = z
     metrics: metricsSchema,
     transcript: z.array(transcriptEntrySchema).min(1),
     summary: z.string().min(1),
+    customerName: z.string().min(1).optional(),
+    customerPhone: z.string().min(1).optional(),
+    registrationNumber: z.string().min(1).optional(),
   })
   .transform((payload) => ({
     ...payload,

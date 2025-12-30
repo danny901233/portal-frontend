@@ -225,15 +225,23 @@ router.post('/admin/garages/:garageId/activate', authenticate, requireAdmin, asy
 
   const payload = {
     garageId,
-    businessName: garage.name,
+    garageName: garage.name,
+    branchName: null,
+    contactEmail: null,
+    contactPhone: null,
     twilioNumber: normalizedTwilioNumber,
-    secret: onboardingSecret,
+    triggeredAt: new Date().toISOString(),
   };
 
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (onboardingSecret) {
+      headers['x-onboarding-secret'] = onboardingSecret;
+    }
+
     const response = await fetch(onboardingEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(15000),
     });

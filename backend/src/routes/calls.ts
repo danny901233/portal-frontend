@@ -124,6 +124,8 @@ router.post('/calls', async (req: Request, res: Response) => {
         registrationNumber: payload.registrationNumber,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
+        confirmedBooking: payload.confirmedBooking ?? false,
+        capturedRevenue: payload.capturedRevenue ?? null,
         metrics: payload.metrics,
         transcript: payload.transcript,
         summary: payload.summary,

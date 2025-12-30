@@ -32,6 +32,7 @@ model Call {
   customerPhone  String?
   confirmedBooking Boolean @default(false)
   confirmedBookingCategory ConfirmedBookingCategory?
+  capturedRevenue Float?
   metrics      Json
   transcript   Json
   summary      String

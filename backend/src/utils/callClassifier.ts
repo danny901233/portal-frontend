@@ -63,18 +63,26 @@ const INTERNAL_PATTERNS = [
   /\binvoice number\b/i,
 ];
 
-const BOOKING_PATTERNS = [
-  /\bbooking (?:is )?confirmed\b/i,
-  /\bappointment (?:is )?confirmed\b/i,
+const BOOKING_CONFIRMED_PATTERNS = [
+  /\bbooking (?:is |has been )?confirmed\b/i,
+  /\bappointment (?:is |has been )?confirmed\b/i,
+  /\bwe(?:'ve| have) booked you in\b/i,
+  /\byou(?:'re| are) all booked\b/i,
+  /\byou(?:'re| are) booked in for\b/i,
   /\bwe(?:'| wi)ll see you on\b/i,
-  /\bsee you on\b/i,
-  /\bbook(?:ed|ing)? (?:you|in|for)\b/i,
-  /\bcan you book\b/i,
-  /\bi(?:'d| would) like to book\b/i,
-  /\bwant to book\b/i,
-  /\bmake an appointment\b/i,
-  /\bschedule (?:a|the) (?:service|booking|appointment)\b/i,
-  /\bslot available\b/i,
+  /\bsee you (?:on|at|next)\b/i,
+  /\blook forward to seeing you\b/i,
+  /\byour (?:booking|appointment) is set for\b/i,
+  /\bconfirmed for (?:today|tomorrow|monday|tuesday|wednesday|thursday|friday)\b/i,
+];
+
+const BOOKING_FAILED_PATTERNS = [
+  /\b(?:having|there's) (?:a )?(?:problem|trouble|issue)\b.*\b(?:booking|starting|session)\b/i,
+  /\bunable to (?:book|complete|start)\b/i,
+  /\bcan(?:'t| not) (?:book|complete)\b/i,
+  /\btake (?:a )?(?:message|callback|your (?:details|contact))\b/i,
+  /\b(?:call|get back to) you\b/i,
+  /\bteam will (?:call|contact|get back)\b/i,
 ];
 
 const UPDATE_SUBJECT_PATTERN =
@@ -199,7 +207,12 @@ export const classifyCallCategory = (
       return 'internal';
     }
 
-    if (matchesAny(analysisText, BOOKING_PATTERNS)) {
+    // Check if booking was confirmed vs failed
+    const hasBookingConfirmed = matchesAny(analysisText, BOOKING_CONFIRMED_PATTERNS);
+    const hasBookingFailed = matchesAny(analysisText, BOOKING_FAILED_PATTERNS);
+    
+    // Only classify as confirmed booking if explicitly confirmed AND no failure detected
+    if (hasBookingConfirmed && !hasBookingFailed) {
       return 'confirmed booking';
     }
 

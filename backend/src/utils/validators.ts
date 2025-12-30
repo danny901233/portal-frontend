@@ -32,6 +32,9 @@ export const createCallSchema = z
     customerName: z.string().min(1).optional(),
     customerPhone: z.string().min(1).optional(),
     registrationNumber: z.string().min(1).optional(),
+    confirmedBooking: z.boolean().optional(),
+    capturedRevenue: z.number().nonnegative().optional(),
+    bookingDetails: z.string().min(1).optional(),
   })
   .transform((payload) => ({
     ...payload,

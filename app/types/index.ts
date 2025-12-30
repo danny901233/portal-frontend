@@ -31,6 +31,8 @@ export interface CallRecord {
   callerName?: string | null;
   callerNumber?: string | null;
   feedback: CallFeedbackRecord | null;
+  confirmedBooking?: boolean | null;
+  confirmedBookingCategory?: ConfirmedBookingCategory | null;
   createdAt: string;
 }
 
@@ -42,6 +44,7 @@ export interface GarageSummary {
 export type BranchRole = 'MANAGER' | 'USER';
 export type BranchRolesMap = Record<string, BranchRole>;
 export type UserRole = 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
+export type ConfirmedBookingCategory = 'service' | 'diagnostic' | 'mot' | 'other';
 
 export interface LoginResponse {
   success: boolean;

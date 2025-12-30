@@ -212,31 +212,30 @@ router.post('/admin/garages/:garageId/activate', authenticate, requireAdmin, asy
     data: { twilioNumber: normalizedTwilioNumber },
   });
 
-  const payload = {
-    garageId,
-    garageName: garage.name,
-    branchName: garage.agentConfiguration?.branchName ?? null,
-    contactEmail: garage.agentConfiguration?.emailAddress ?? null,
-    contactPhone: garage.agentConfiguration?.phoneNumber ?? null,
-    twilioNumber: normalizedTwilioNumber,
-    triggeredAt: new Date().toISOString(),
-  };
-
   const onboardingEndpoint = process.env.ONBOARDING_SERVICE_URL;
+  const onboardingSecret = process.env.ONBOARDING_SECRET;
+  
   if (!onboardingEndpoint) {
-    console.warn('ONBOARDING_SERVICE_URL is not configured; request payload:', payload);
+    console.warn('ONBOARDING_SERVICE_URL is not configured');
     return res.status(202).json({
       status: 'queued',
       message: 'Onboarding service URL is not configured; request logged only.',
     });
   }
 
+  const payload = {
+    garageId,
+    businessName: garage.name,
+    areaCode: normalizedTwilioNumber.replace(/\D/g, '').substring(0, 3),
+    secret: onboardingSecret,
+  };
+
   try {
     const response = await fetch(onboardingEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
@@ -252,17 +251,6 @@ router.post('/admin/garages/:garageId/activate', authenticate, requireAdmin, asy
   }
 
   res.status(202).json({ status: 'queued' });
-});
-
-router.get('/admin/garages/:garageId/twilio-number', authenticate, requireAdmin, async (req, res) => {
-  const { garageId } = req.params;
-
-  const garage = await prisma.garage.findUnique({ where: { id: garageId } });
-  if (!garage) {
-    return res.status(404).json({ error: 'Garage not found.' });
-  }
-
-  res.json({ twilioNumber: garage.twilioNumber ?? '' });
 });
 
 router.put('/admin/garages/:garageId/twilio-number', authenticate, requireAdmin, async (req, res) => {
@@ -284,6 +272,16 @@ router.put('/admin/garages/:garageId/twilio-number', authenticate, requireAdmin,
 
   res.json({
     twilioNumber: updated.twilioNumber ?? '',
+  });
+});
+
+router.get('/admin/twilio-number', authenticate, requireAdmin, async (req, res) => {
+  // For now, return the first garage's Twilio number as a fallback
+  // This can be enhanced to handle specific garage selection later
+  const garage = await prisma.garage.findFirst();
+  
+  res.json({
+    twilioNumber: garage?.twilioNumber ?? '',
   });
 });
 

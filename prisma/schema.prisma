@@ -11,6 +11,7 @@ datasource db {
 model Garage {
   id    String @id @default(uuid())
   name  String
+  twilioNumber String?
   calls Call[]
   agentConfiguration AgentConfiguration?
   knowledgeDocuments AgentKnowledgeDocument[]

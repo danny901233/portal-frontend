@@ -17,19 +17,25 @@ const baseNavigation = [
   { name: 'Agent Configurations', href: '/agent-configurations' },
 ];
 
+const adminNavigation = { name: 'Admin', href: '/admin' } as const;
+
 const supportLinks = [{ name: 'Help & Guides', href: '/help' }];
 
-export default function Sidebar({ activePath, showAdminLink = false }: { activePath: string; showAdminLink?: boolean }) {
-  const items = useMemo(() => {
-    const nav = [...baseNavigation];
-    if (showAdminLink) {
-      nav.push({ name: 'Admin', href: '/admin' });
-    }
-    return nav.map((item) => ({
-      ...item,
-      isActive: activePath.startsWith(item.href),
-    }));
-  }, [activePath, showAdminLink]);
+export default function Sidebar({
+  activePath,
+  showAdminLink = false,
+}: {
+  activePath: string;
+  showAdminLink?: boolean;
+}) {
+  const items = useMemo(
+    () =>
+      (showAdminLink ? [...baseNavigation, adminNavigation] : baseNavigation).map((item) => ({
+        ...item,
+        isActive: activePath.startsWith(item.href),
+      })),
+    [activePath, showAdminLink],
+  );
 
   const supportItems = useMemo(
     () =>

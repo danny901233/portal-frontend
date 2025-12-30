@@ -13,13 +13,20 @@ import { errorHandler } from './middleware/errorHandler.js';
 const app = express();
 
 const port = Number(process.env.PORT) || 4000;
-const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
-
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 app.use(helmet());
 app.use(
   cors({
-    origin: corsOrigin,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: false,
   }),
 );

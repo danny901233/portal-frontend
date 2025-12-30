@@ -23,6 +23,7 @@ export default function LoginPage() {
         token: data.token,
         garageId: data.selectedGarageId,
         garages: data.garages,
+        userId: data.user.id,
         email: data.user.email,
         role: data.user.role,
         branchRoles: data.user.branchRoles,
@@ -35,8 +36,57 @@ export default function LoginPage() {
     if (!mutation.error) {
       return null;
     }
-    const apiMessage = (mutation.error.response?.data as { error?: string } | undefined)?.error;
-    return apiMessage || mutation.error.message || 'Unable to sign in. Please verify your credentials.';
+
+    const fallbackMessage = 'Unable to sign in. Please verify your credentials.';
+    const rawResponseData = mutation.error.response?.data as { error?: unknown } | string | undefined;
+    const payload = typeof rawResponseData === 'object' && rawResponseData !== null && 'error' in rawResponseData
+      ? (rawResponseData as { error?: unknown }).error
+      : rawResponseData;
+
+    if (typeof payload === 'string' && payload.trim()) {
+      return payload;
+    }
+
+    if (Array.isArray(payload)) {
+      const firstString = payload.find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+      if (firstString) {
+        return firstString;
+      }
+    }
+
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const flattened = payload as {
+        formErrors?: unknown;
+        fieldErrors?: Record<string, unknown>;
+      };
+
+      const formErrors = Array.isArray(flattened.formErrors) ? flattened.formErrors : [];
+      const firstFormError = formErrors.find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+      if (firstFormError) {
+        return firstFormError;
+      }
+
+      const fieldErrors = flattened.fieldErrors;
+      if (fieldErrors && typeof fieldErrors === 'object') {
+        for (const value of Object.values(fieldErrors)) {
+          if (typeof value === 'string' && value.trim().length > 0) {
+            return value;
+          }
+          if (Array.isArray(value)) {
+            const firstFieldError = value.find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+            if (firstFieldError) {
+              return firstFieldError;
+            }
+          }
+        }
+      }
+    }
+
+    if (typeof mutation.error.message === 'string' && mutation.error.message.trim()) {
+      return mutation.error.message;
+    }
+
+    return fallbackMessage;
   }, [mutation.error]);
 
   return (

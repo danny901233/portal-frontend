@@ -5,7 +5,6 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { isManagerForGarage } from '../utils/branchRoles.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import {
   cloneGarageHiveSettings,
@@ -393,13 +392,15 @@ router.get(
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    if (!isManagerForGarage(req.user, garageId)) {
-      return res.status(403).json({ error: 'Manager access required' });
-    }
-
-    const configurationRecord = await prisma.agentConfiguration.findUnique({
-      where: { garageId },
-    });
+    const [configurationRecord, garageRecord] = await Promise.all([
+      prisma.agentConfiguration.findUnique({
+        where: { garageId },
+      }),
+      prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { twilioNumber: true },
+      }),
+    ]);
 
     const configuration = buildConfigurationResponse(configurationRecord);
     const knowledgeBase = await loadKnowledgeBase(garageId);
@@ -407,6 +408,7 @@ router.get(
     return res.json({
       configuration,
       knowledgeBase,
+      twilioNumber: garageRecord?.twilioNumber ?? null,
     });
   },
 );
@@ -423,7 +425,13 @@ const sendAgentConfigWebhook = async (garageId: string) => {
       headers['x-agent-config-secret'] = process.env.AGENT_CONFIG_WEBHOOK_SECRET;
     }
 
-    const configurationRecord = await prisma.agentConfiguration.findUnique({ where: { garageId } });
+    const [configurationRecord, garageRecord] = await Promise.all([
+      prisma.agentConfiguration.findUnique({ where: { garageId } }),
+      prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { twilioNumber: true },
+      }),
+    ]);
     const configuration = buildConfigurationResponse(configurationRecord);
     const knowledgeBase = await loadKnowledgeBase(garageId);
     const knowledgeVersion = knowledgeBase.reduce<string | null>((latest, doc) => {
@@ -442,6 +450,7 @@ const sendAgentConfigWebhook = async (garageId: string) => {
       headers,
       body: JSON.stringify({
         garageId,
+        twilioNumber: garageRecord?.twilioNumber ?? null,
         configuration,
         knowledgeBase,
         knowledgeVersion,
@@ -463,10 +472,6 @@ router.put(
 
     if (!allowedGarages.includes(garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    if (!isManagerForGarage(req.user, garageId)) {
-      return res.status(403).json({ error: 'Manager access required' });
     }
 
     const parseResult = upsertAgentConfigurationSchema.safeParse(req.body);
@@ -494,14 +499,14 @@ router.put(
         })
       : createDefaultGarageHiveSettings();
 
-    const integrationProviderConfig =
+    const integrationProviderConfig: Prisma.InputJsonValue | null =
       requestedProvider === 'garage_hive'
         ? {
             instanceUrl: garageHiveSettings.instanceUrl,
             apiKey: garageHiveSettings.apiKey,
             locationId: garageHiveSettings.locationId,
           }
-        : Prisma.JsonNull;
+        : null;
 
     const normalizedData = {
       branchName: data.branchName,
@@ -521,17 +526,23 @@ router.put(
       allowFastFitOnly: data.allowFastFitOnly,
       callSummaryEmail: data.callSummaryEmail || null,
       integrationProvider: requestedProvider,
-      integrationProviderConfig,
+      integrationProviderConfig: integrationProviderConfig || undefined,
     };
 
-    const configuration = await prisma.agentConfiguration.upsert({
-      where: { garageId },
-      update: normalizedData,
-      create: {
-        garageId,
-        ...normalizedData,
-      },
-    });
+    const [configuration, garageRecord] = await Promise.all([
+      prisma.agentConfiguration.upsert({
+        where: { garageId },
+        update: normalizedData,
+        create: {
+          garageId,
+          ...normalizedData,
+        },
+      }),
+      prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { twilioNumber: true },
+      }),
+    ]);
 
     void sendAgentConfigWebhook(garageId);
 
@@ -540,6 +551,7 @@ router.put(
     return res.json({
       configuration: buildConfigurationResponse(configuration),
       knowledgeBase,
+      twilioNumber: garageRecord?.twilioNumber ?? null,
     });
   },
 );

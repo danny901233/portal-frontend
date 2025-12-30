@@ -58,3 +58,19 @@ export const updateAdminUser = async (payload: UpdateAdminUserPayload) => {
 export const deleteAdminUser = async (userId: string) => {
   await api.delete(`/api/admin/users/${userId}`);
 };
+
+export const activateGarage = async (payload: { garageId: string; twilioNumber: string }) => {
+  const { data } = await api.post<{ status: string; message?: string }>(
+    `/api/admin/garages/${payload.garageId}/activate`,
+    { twilioNumber: payload.twilioNumber },
+  );
+  return data;
+};
+
+export const updateGarageTwilioNumber = async (payload: { garageId: string; twilioNumber: string }) => {
+  const { data } = await api.put<{ twilioNumber: string }>(
+    `/api/admin/garages/${payload.garageId}/twilio-number`,
+    { twilioNumber: payload.twilioNumber },
+  );
+  return data;
+};

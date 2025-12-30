@@ -811,7 +811,6 @@ export default function CallsPage() {
               <tr>
                 <th className="px-5 py-3 text-left font-medium">Caller</th>
                 <th className="px-5 py-3 text-left font-medium">From Number</th>
-                <th className="px-5 py-3 text-left font-medium">Registration</th>
                 <th className="px-5 py-3 text-left font-medium">Date &amp; Time</th>
                 <th className="px-5 py-3 text-left font-medium">
                   <button
@@ -845,13 +844,13 @@ export default function CallsPage() {
             <tbody className="divide-y divide-slate-800/80">
               {query.isLoading ? (
                 <tr>
-                  <td colSpan={10} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={9} className="px-5 py-10 text-center text-slate-400">
                     Loading calls…
                   </td>
                 </tr>
               ) : displayedCalls.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={9} className="px-5 py-10 text-center text-slate-400">
                     No calls found. Adjust filters or widen your search query.
                   </td>
                 </tr>
@@ -860,7 +859,6 @@ export default function CallsPage() {
                   const callerName = deriveCallerName(call);
                   const callerNumberRaw = deriveCallerNumber(call);
                   const formattedNumber = formatPhoneNumber(callerNumberRaw);
-                  const registrationValue = call.registrationNumber?.trim();
                   const callTag = renderCallTag(call.callType);
                   const rating = ratings[call.id] ?? null;
                   const upActive = rating === 'up';
@@ -877,12 +875,6 @@ export default function CallsPage() {
                       </td>
                       <td className="px-5 py-3 align-top text-slate-200" title={formattedNumber}>
                         {formattedNumber}
-                      </td>
-                      <td
-                        className="px-5 py-3 align-top text-slate-200"
-                        title={registrationValue || undefined}
-                      >
-                        {registrationValue ? registrationValue.toUpperCase() : '—'}
                       </td>
                       <td className="px-5 py-3 align-top text-slate-200">{formatDate(call.createdAt)}</td>
                       <td className="px-5 py-3 align-top text-slate-200">{formatDuration(call.durationSeconds)}</td>

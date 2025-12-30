@@ -1,4 +1,4 @@
-import axios, { AxiosHeaders } from "axios";
+import axios from "axios";
 import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from "axios";
 import type {
   AgentConfiguration,
@@ -11,20 +11,39 @@ import type {
   WebsiteIngestResponse,
   WebsiteScanResponse,
 } from "../types";
+import { API_PROXY_PREFIX } from "./constants";
 import { TOKEN_STORAGE_KEY, clearSession, getGarageId } from "./auth";
 
+const backendOrigin = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000").replace(/\/$/, "");
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000",
+  baseURL: backendOrigin,
   withCredentials: false,
+});
+
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const url = config.url ?? "";
+    if (!url.startsWith(API_PROXY_PREFIX) && !/^https?:\/\//i.test(url)) {
+      if (url.startsWith("/")) {
+        config.url = `${API_PROXY_PREFIX}${url}`;
+      } else {
+        config.url = `${API_PROXY_PREFIX}/${url}`;
+      }
+    }
+    config.baseURL = undefined;
+  }
+  return config;
 });
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem(TOKEN_STORAGE_KEY);
     if (token) {
-      const headers = AxiosHeaders.from(config.headers);
-      headers.set("Authorization", `Bearer ${token}`);
-      config.headers = headers;
+      config.headers = {
+        ...config.headers,
+        Authorization: `Bearer ${token}`,
+      };
     }
   }
   return config;
@@ -45,17 +64,15 @@ export type CallFilters = {
   callType?: string;
   startDate?: string;
   endDate?: string;
-  garageIds?: string[];
 };
 
 export const fetchCalls = async (
   garageId?: string,
   filters?: CallFilters
 ): Promise<CallsResponse> => {
-  const hasGarageIds = Boolean(filters?.garageIds?.length);
-  const targetGarageId = hasGarageIds ? undefined : garageId ?? getGarageId();
-  if (!hasGarageIds && !targetGarageId) {
-    throw new Error('Missing garage id. Log in again or set a default garage id.');
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
   }
   const params = new URLSearchParams();
   if (filters?.callType && filters.callType !== "all") {
@@ -67,21 +84,12 @@ export const fetchCalls = async (
   if (filters?.endDate) {
     params.set("endDate", filters.endDate);
   }
-  if (hasGarageIds) {
-    filters?.garageIds?.forEach((id) => {
-      if (id) {
-        params.append('garageIds', id);
-      }
-    });
-  }
 
   const querySuffix = params.toString();
 
-  const endpoint = hasGarageIds
-    ? `/api/calls${querySuffix ? `?${querySuffix}` : ''}`
-    : `/api/garages/${targetGarageId}/calls${querySuffix ? `?${querySuffix}` : ''}`;
-
-  const { data } = await api.get<CallsResponse>(endpoint);
+  const { data } = await api.get<CallsResponse>(
+    `/api/garages/${targetGarageId}/calls${querySuffix ? `?${querySuffix}` : ""}`
+  );
   return data;
 };
 
@@ -134,12 +142,23 @@ export const updateAgentConfiguration = async (
 
 export const login = async (
   email: string,
-  password: string
+  password: string,
+  garageId?: string
 ): Promise<LoginResponse> => {
-  const { data } = await api.post<LoginResponse>('/api/auth/login', {
+  const payload: {
+    email: string;
+    password: string;
+    garageId?: string;
+  } = {
     email,
     password,
-  });
+  };
+
+  if (garageId && garageId.trim()) {
+    payload.garageId = garageId.trim();
+  }
+
+  const { data } = await api.post<LoginResponse>("/api/auth/login", payload);
   return data;
 };
 

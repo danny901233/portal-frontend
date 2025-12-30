@@ -18,8 +18,6 @@ export interface CallFeedbackRecord {
   updatedAt: string;
 }
 
-export type ConfirmedBookingCategory = 'service' | 'diagnostic' | 'mot' | 'other';
-
 export interface CallRecord {
   id: string;
   garageId: string;
@@ -27,9 +25,6 @@ export interface CallRecord {
   recordingUrl?: string | null;
   durationSeconds: number;
   callType: string;
-  registrationNumber?: string | null;
-  confirmedBooking?: boolean;
-  confirmedBookingCategory?: ConfirmedBookingCategory | null;
   metrics: MetricsRecord;
   transcript: TranscriptEntry[];
   summary: string;
@@ -44,9 +39,9 @@ export interface GarageSummary {
   name: string;
 }
 
-export type UserRole = 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
 export type BranchRole = 'MANAGER' | 'USER';
 export type BranchRolesMap = Record<string, BranchRole>;
+export type UserRole = 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
 
 export interface LoginResponse {
   success: boolean;
@@ -75,6 +70,35 @@ export interface CallFeedbackResponse {
 
 export interface GaragesResponse {
   garages: GarageSummary[];
+}
+
+export interface AdminGarageAgentConfiguration {
+  branchName: string;
+  phoneNumber: string;
+  emailAddress: string;
+  callSummaryEmail: string;
+}
+
+export interface AdminGarage {
+  id: string;
+  name: string;
+  businessId: string | null;
+  twilioNumber: string;
+  agentConfiguration: AdminGarageAgentConfiguration | null;
+}
+
+export interface AdminBusiness {
+  id: string;
+  name: string;
+  branches: AdminGarage[];
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  garageAccessIds: string[];
+  role: UserRole;
+  branchRoles: BranchRolesMap;
 }
 
 export type TonePreference = 'standard' | 'upbeat' | 'professional';
@@ -136,33 +160,7 @@ export interface AgentConfiguration {
 export interface AgentConfigurationResponse {
   configuration: AgentConfiguration;
   knowledgeBase: AgentKnowledgeDocument[];
-}
-
-export interface AdminAgentConfiguration {
-  branchName: string;
-  phoneNumber: string;
-  emailAddress: string;
-  callSummaryEmail: string;
-}
-
-export interface AdminGarage {
-  id: string;
-  name: string;
-  businessId: string | null;
-  agentConfiguration: AdminAgentConfiguration | null;
-}
-
-export interface AdminBusiness {
-  id: string;
-  name: string;
-  branches: AdminGarage[];
-}
-
-export interface AdminUser {
-  id: string;
-  email: string;
-  role: UserRole;
-  garageAccessIds: string[];
+  twilioNumber: string | null;
 }
 
 export interface WebsiteScanSummaryPage {

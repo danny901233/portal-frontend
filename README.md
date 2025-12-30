@@ -37,6 +37,8 @@ cp backend/.env.example backend/.env
 # update PORT, DATABASE_URL, JWT_SECRET, etc.
 ```
 
+`ONBOARDING_SERVICE_URL` should point to the workflow endpoint that provisions LiveKit/Twilio resources. If it is left empty the new "Activate garage" button will simply log requests for manual follow-up.
+
 ---
 
 ## Installation & Setup

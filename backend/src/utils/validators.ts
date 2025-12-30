@@ -26,9 +26,6 @@ export const createCallSchema = z
       .transform((val) => val || undefined),
     durationSeconds: z.number().int().nonnegative().optional(),
     callType: z.string().min(1).optional(),
-    registrationNumber: z.string().trim().min(1).max(64).optional(),
-    confirmedBooking: z.boolean().optional(),
-    confirmedBookingCategory: z.enum(['service', 'diagnostic', 'mot', 'other']).optional(),
     metrics: metricsSchema,
     transcript: z.array(transcriptEntrySchema).min(1),
     summary: z.string().min(1),
@@ -37,14 +34,17 @@ export const createCallSchema = z
     ...payload,
     durationSeconds: Math.max(0, Math.trunc(payload.durationSeconds ?? 0)),
     callType: (payload.callType?.trim().toLowerCase() || 'unknown').slice(0, 100),
-    confirmedBooking: Boolean(payload.confirmedBooking),
-    confirmedBookingCategory: payload.confirmedBookingCategory ?? null,
   }));
+
+const optionalGarageIdSchema = z
+  .string()
+  .uuid()
+  .optional();
 
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
-  garageId: z.string().uuid().optional(),
+  garageId: optionalGarageIdSchema,
 });
 
 const optionalEmail = z

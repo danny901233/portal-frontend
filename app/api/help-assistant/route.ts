@@ -84,7 +84,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Messages array is required.' }, { status: 400 });
     }
 
-    const sanitizedMessages: IncomingMessage[] = body.messages
+    const sanitizedMessages = body.messages
       .slice(-12)
       .map((message) => ({
         role: message.role === 'assistant' ? 'assistant' : 'user',

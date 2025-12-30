@@ -3,8 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { isAdmin } from '../lib/auth';
+import { isReceptionMateStaff } from '../lib/auth';
 import {
+  activateGarage,
   createAdminBranch,
   createAdminBusiness,
   createAdminUser,
@@ -12,9 +13,12 @@ import {
   deleteAdminUser,
   fetchAdminBusinesses,
   fetchAdminUsers,
+  updateGarageTwilioNumber,
   updateAdminUser,
 } from '../lib/admin';
 import type { AdminUser, UserRole } from '../types';
+
+type ActivationFeedback = { message: string; tone: 'success' | 'error' };
 
 export default function AdminPage() {
   const router = useRouter();
@@ -46,8 +50,10 @@ export default function AdminPage() {
     garageIds: [] as string[],
   });
   const [userMessage, setUserMessage] = useState('');
+  const [activationFeedback, setActivationFeedback] = useState<Record<string, ActivationFeedback>>({});
+  const [twilioDrafts, setTwilioDrafts] = useState<Record<string, string>>({});
 
-  const adminStatus = useMemo(() => isAdmin(), []);
+  const adminStatus = useMemo(() => isReceptionMateStaff(), []);
 
   useEffect(() => {
     if (!adminStatus) {
@@ -71,6 +77,35 @@ export default function AdminPage() {
   const businesses = businessesQuery.data?.businesses ?? [];
   const selectedBusiness = businesses.find((business) => business.id === selectedBusinessId) ?? null;
   const branches = selectedBusiness?.branches ?? [];
+
+  useEffect(() => {
+    setTwilioDrafts((prev) => {
+      const next: Record<string, string> = {};
+      let changed = false;
+
+      branches.forEach((branch) => {
+        const value = prev[branch.id] ?? branch.twilioNumber ?? '';
+        next[branch.id] = value;
+        if (!changed && value !== prev[branch.id]) {
+          changed = true;
+        }
+      });
+
+      const prevKeys = Object.keys(prev);
+      if (!changed && prevKeys.length !== branches.length) {
+        changed = true;
+      } else if (!changed) {
+        for (const key of prevKeys) {
+          if (!(key in next)) {
+            changed = true;
+            break;
+          }
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [branches]);
 
   useEffect(() => {
     if (!adminStatus) {
@@ -204,6 +239,83 @@ export default function AdminPage() {
     },
   });
 
+  const activateGarageMutation = useMutation<
+    { status: string; message?: string },
+    unknown,
+    { garageId: string; twilioNumber: string }
+  >({
+    mutationFn: ({ garageId, twilioNumber }: { garageId: string; twilioNumber: string }) =>
+      activateGarage({ garageId, twilioNumber }),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] });
+      const successMessage =
+        result?.message ?? 'Onboarding request sent. We will notify you when setup completes.';
+      setActivationFeedback((prev) => ({
+        ...prev,
+        [variables.garageId]: {
+          message: successMessage,
+          tone: 'success',
+        },
+      }));
+    },
+    onError: (error: unknown, variables) => {
+      let message = 'Failed to trigger onboarding.';
+      if (error && typeof error === 'object') {
+        const maybeResponse = (error as { response?: { data?: { error?: unknown; message?: unknown } } });
+        const derived = maybeResponse.response?.data;
+        if (derived?.error) {
+          message = String(derived.error);
+        } else if (derived?.message) {
+          message = String(derived.message);
+        } else if ('message' in error && typeof (error as { message?: unknown }).message === 'string') {
+          message = String((error as { message?: unknown }).message);
+        }
+      }
+      setActivationFeedback((prev) => ({
+        ...prev,
+        [variables.garageId]: { message, tone: 'error' },
+      }));
+    },
+  });
+
+  const updateTwilioNumberMutation = useMutation<
+    { twilioNumber: string },
+    unknown,
+    { garageId: string; twilioNumber: string }
+  >({
+    mutationFn: ({ garageId, twilioNumber }) =>
+      updateGarageTwilioNumber({ garageId, twilioNumber }),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] });
+      setTwilioDrafts((prev) => ({ ...prev, [variables.garageId]: result.twilioNumber ?? '' }));
+      setActivationFeedback((prev) => ({
+        ...prev,
+        [variables.garageId]: {
+          message: 'Twilio number saved.',
+          tone: 'success',
+        },
+      }));
+    },
+    onError: (error: unknown, variables) => {
+      let message = 'Failed to save the Twilio number.';
+      if (error && typeof error === 'object') {
+        const maybeResponse = (error as { response?: { data?: { error?: unknown; message?: unknown } } });
+        const derived = maybeResponse.response?.data;
+        if (derived?.error) {
+          message = String(derived.error);
+        } else if (derived?.message) {
+          message = String(derived.message);
+        } else if ('message' in error && typeof (error as { message?: unknown }).message === 'string') {
+          message = String((error as { message?: unknown }).message);
+        }
+      }
+      setActivationFeedback((prev) => ({
+        ...prev,
+        [variables.garageId]: { message, tone: 'error' },
+      }));
+    },
+  });
+
   const userMutation = useMutation({
     mutationFn: createAdminUser,
     onSuccess: () => {
@@ -290,6 +402,57 @@ export default function AdminPage() {
     }
     const nextIds = user.garageAccessIds.filter((id) => id !== target);
     unassignMutation.mutate({ userId: user.id, garageAccessIds: nextIds });
+  };
+
+  const handleTwilioDraftChange = (branchId: string, value: string) => {
+    setTwilioDrafts((prev) => ({ ...prev, [branchId]: value }));
+    setActivationFeedback((prev) => {
+      if (!prev[branchId]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[branchId];
+      return next;
+    });
+  };
+
+  const handleSaveTwilioNumber = (branchId: string) => {
+    const trimmedDraft = (twilioDrafts[branchId] ?? '').trim();
+
+    if (!trimmedDraft) {
+      setActivationFeedback((prev) => ({
+        ...prev,
+        [branchId]: {
+          message: 'Enter the Twilio number before saving.',
+          tone: 'error',
+        },
+      }));
+      return;
+    }
+
+    updateTwilioNumberMutation.mutate({ garageId: branchId, twilioNumber: trimmedDraft });
+  };
+
+  const handleActivateGarage = (branchId: string, currentTwilioNumber: string) => {
+    setActivationFeedback((prev) => {
+      const next = { ...prev };
+      delete next[branchId];
+      return next;
+    });
+
+    const trimmedNumber = (currentTwilioNumber ?? '').trim();
+    if (!trimmedNumber) {
+      setActivationFeedback((prev) => ({
+        ...prev,
+        [branchId]: {
+          message: 'Set and save the Twilio number before activating.',
+          tone: 'error',
+        },
+      }));
+      return;
+    }
+
+    activateGarageMutation.mutate({ garageId: branchId, twilioNumber: trimmedNumber });
   };
 
   const currentBusinessName = selectedBusiness?.name ?? 'Select a business';
@@ -426,6 +589,7 @@ export default function AdminPage() {
                   {business.branches.length} Branches
                 </span>
               </div>
+              <p className="mt-1 text-[11px] text-slate-500">Business ID: {business.id}</p>
               <p className="mt-2 text-xs text-slate-500">
                 {business.branches.length === 0
                   ? 'Add a branch to start tracking calls.'
@@ -452,6 +616,7 @@ export default function AdminPage() {
             <div>
               <h2 className="text-xl font-semibold text-slate-100">Branches</h2>
               <p className="text-sm text-slate-400">Manage branches for {selectedBusiness.name}</p>
+              <p className="text-xs text-slate-500">Business ID: {selectedBusiness.id}</p>
             </div>
             <span className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-slate-500">
               {branches.length} branches
@@ -533,36 +698,99 @@ export default function AdminPage() {
               />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              {filteredBranches.map((branch) => (
-                <div key={branch.id} className="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-slate-200">{branch.name}</p>
-                    <span className="text-xs uppercase tracking-[0.3em] text-slate-500">
-                      {branch.agentConfiguration?.branchName || 'Branch'}
-                    </span>
+              {filteredBranches.map((branch) => {
+                const contactPhone = branch.agentConfiguration?.phoneNumber?.trim() ?? '';
+                const storedTwilioNumber = (branch.twilioNumber ?? '').trim();
+                const draftTwilioNumber = twilioDrafts[branch.id] ?? branch.twilioNumber ?? '';
+                const trimmedDraftTwilio = draftTwilioNumber.trim();
+                const hasTwilioChanges = trimmedDraftTwilio !== storedTwilioNumber;
+                const activationState = activationFeedback[branch.id] ?? null;
+                const isActivating =
+                  activateGarageMutation.isPending &&
+                  activateGarageMutation.variables?.garageId === branch.id;
+                const isUpdatingTwilio =
+                  updateTwilioNumberMutation.isPending &&
+                  updateTwilioNumberMutation.variables?.garageId === branch.id;
+
+                return (
+                  <div key={branch.id} className="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-200">{branch.name}</p>
+                      <span className="text-xs uppercase tracking-[0.3em] text-slate-500">
+                        {branch.agentConfiguration?.branchName || 'Branch'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">Garage ID: {branch.id}</p>
+                    <p className="mt-2 text-xs text-slate-400">
+                      Summary contact: {branch.agentConfiguration?.callSummaryEmail || 'Not set'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Branch phone: {contactPhone || 'Not set'}
+                    </p>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <label className="text-xs text-slate-400" htmlFor={`twilio-${branch.id}`}>
+                        ReceptionMate number (Twilio)
+                      </label>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input
+                          id={`twilio-${branch.id}`}
+                          type="text"
+                          value={draftTwilioNumber}
+                          onChange={(event) => handleTwilioDraftChange(branch.id, event.target.value)}
+                          disabled={isUpdatingTwilio}
+                          className="w-full flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                          placeholder="+44…"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveTwilioNumber(branch.id)}
+                          disabled={isUpdatingTwilio || !trimmedDraftTwilio || !hasTwilioChanges}
+                          className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-100 transition hover:border-sky-500 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isUpdatingTwilio ? 'Saving…' : 'Save number'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => handleActivateGarage(branch.id, storedTwilioNumber)}
+                        disabled={isActivating || isUpdatingTwilio || hasTwilioChanges}
+                        className="w-full rounded-lg bg-emerald-500 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700"
+                        title="Trigger the onboarding flow with the saved Twilio number"
+                      >
+                        {isActivating ? 'Activating…' : 'Activate garage'}
+                      </button>
+                      {activationState && (
+                        <p
+                          className={`text-[11px] ${
+                            activationState.tone === 'success' ? 'text-emerald-400' : 'text-red-400'
+                          }`}
+                        >
+                          {activationState.message}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `Remove branch ${branch.name}? This will revoke access from all users.`,
+                          )
+                        ) {
+                          return;
+                        }
+                        deleteBranchMutation.mutate(branch.id);
+                      }}
+                      disabled={deleteBranchMutation.isPending}
+                      className="mt-3 w-full rounded-lg border border-red-500 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-red-400 transition-colors hover:border-red-400"
+                    >
+                      Remove branch
+                    </button>
                   </div>
-                  <p className="mt-2 text-xs text-slate-400">
-                    Summary contact: {branch.agentConfiguration?.callSummaryEmail || 'Not set'}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (
-                        !window.confirm(
-                          `Remove branch ${branch.name}? This will revoke access from all users.`,
-                        )
-                      ) {
-                        return;
-                      }
-                      deleteBranchMutation.mutate(branch.id);
-                    }}
-                    disabled={deleteBranchMutation.isPending}
-                    className="mt-3 w-full rounded-lg border border-red-500 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-red-400 transition-colors hover:border-red-400"
-                  >
-                    Remove branch
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {branches.length > 0 && filteredBranches.length === 0 && (
               <p className="text-sm text-slate-500">No branches match your search.</p>
@@ -584,6 +812,7 @@ export default function AdminPage() {
               </p>
             </div>
             <p className="text-sm text-slate-500">Create and manage users inside the selected business.</p>
+            <p className="text-xs text-slate-500">Business ID: {selectedBusiness.id}</p>
           </div>
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <form
@@ -701,7 +930,10 @@ export default function AdminPage() {
                         })}
                         className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
                       />
-                      <span>{branch.name}</span>
+                      <span className="flex flex-col text-left leading-tight">
+                        <span>{branch.name}</span>
+                        <span className="text-[11px] text-slate-500">{branch.id}</span>
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -739,6 +971,10 @@ export default function AdminPage() {
                   const assignedBranchesInBusiness = branches.filter((branch) =>
                     user.garageAccessIds.includes(branch.id),
                   );
+                  const accessDescriptions = user.garageAccessIds.map((id) => {
+                    const label = branchNamesById[id] ?? 'Unknown branch';
+                    return `${label} (${id})`;
+                  });
                   return (
                     <div key={user.id} className="rounded-lg border border-slate-800 px-3 py-2">
                       <div className="flex items-center justify-between text-slate-100">
@@ -760,12 +996,11 @@ export default function AdminPage() {
                           </button>
                         </div>
                       </div>
+                      <p className="mt-1 text-[11px] text-slate-500">User ID: {user.id}</p>
                       <p className="mt-1 text-xs text-slate-500">
                         Access:{' '}
-                        {user.garageAccessIds.length > 0
-                          ? user.garageAccessIds
-                              .map((id) => branchNamesById[id] ?? 'Unknown branch')
-                              .join(', ')
+                        {accessDescriptions.length > 0
+                          ? accessDescriptions.join(', ')
                           : 'None yet. Assign branches to give visibility.'}
                       </p>
                       {selectedBusiness && branches.length > 0 && (
@@ -789,7 +1024,7 @@ export default function AdminPage() {
                                 .filter((branch) => !user.garageAccessIds.includes(branch.id))
                                 .map((branch) => (
                                   <option key={branch.id} value={branch.id}>
-                                    {branch.name}
+                                    {branch.name} ({branch.id})
                                   </option>
                                 ))}
                             </select>
@@ -823,7 +1058,7 @@ export default function AdminPage() {
                               <option value="">Select a branch</option>
                               {assignedBranchesInBusiness.map((branch) => (
                                 <option key={branch.id} value={branch.id}>
-                                  {branch.name}
+                                  {branch.name} ({branch.id})
                                 </option>
                               ))}
                             </select>

@@ -9,7 +9,7 @@ import {
   ingestWebsiteKnowledge,
   updateAgentConfiguration,
 } from '../lib/api';
-import { getGarageId, isManagerForGarage } from '../lib/auth';
+import { getGarageId } from '../lib/auth';
 import {
   createEmptyWeeklyOpeningHours,
   WEEKDAY_ORDER,
@@ -293,7 +293,6 @@ export default function AgentConfigurationsPage() {
   }, [query.data, startTransition]);
 
   const hasGarage = useMemo(() => Boolean(garageId), [garageId]);
-  const canManageAgentConfig = useMemo(() => isManagerForGarage(garageId), [garageId]);
 
   const knowledgeUpdatedAt = useMemo(() => {
     if (!knowledgeBase.length) {
@@ -313,6 +312,8 @@ export default function AgentConfigurationsPage() {
 
     return new Date(Math.max(...timestamps)).toISOString();
   }, [knowledgeBase]);
+
+  const twilioNumber = query.data?.twilioNumber ?? '';
 
   const handleInputChange = (field: TextFieldKey) =>
     (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -432,12 +433,6 @@ export default function AgentConfigurationsPage() {
     mutation.mutate(formState);
   };
 
-  useEffect(() => {
-    if (!canManageAgentConfig && isEditing) {
-      setIsEditing(false);
-    }
-  }, [canManageAgentConfig, isEditing]);
-
   if (!hasGarage) {
     return (
       <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
@@ -463,14 +458,11 @@ export default function AgentConfigurationsPage() {
             Tailor your AI agent&rsquo;s behaviour for the selected branch. Changes apply after saving.
           </p>
         </div>
-        <div className="flex flex-col items-center gap-3 text-right">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             className="rounded-md border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-slate-50 disabled:opacity-60"
             onClick={() => {
-              if (!canManageAgentConfig) {
-                return;
-              }
               setFeedback(null);
               setIsEditing((state) => {
                 if (state && query.data?.configuration) {
@@ -479,15 +471,10 @@ export default function AgentConfigurationsPage() {
                 return !state;
               });
             }}
-            disabled={!canManageAgentConfig || query.isLoading || mutation.isPending}
+            disabled={query.isLoading || mutation.isPending}
           >
             {isEditing ? 'Cancel' : 'Edit'}
           </button>
-          {!canManageAgentConfig && (
-            <p className="text-xs text-rose-300">
-              You are viewing this branch in read-only mode. Contact an admin for edits.
-            </p>
-          )}
         </div>
       </header>
 
@@ -516,7 +503,7 @@ export default function AgentConfigurationsPage() {
               />
             </label>
             <label className="flex flex-col gap-2 text-sm text-slate-300">
-              <span className="text-xs uppercase tracking-wide text-slate-500">Phone number</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500">Branch phone number</span>
               <input
                 type="text"
                 value={formState.phoneNumber}
@@ -524,6 +511,17 @@ export default function AgentConfigurationsPage() {
                 disabled={!isEditing || mutation.isPending}
                 className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
+            </label>
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              <span className="text-xs uppercase tracking-wide text-slate-500">ReceptionMate number</span>
+              <input
+                type="text"
+                value={twilioNumber}
+                readOnly
+                placeholder="Not assigned yet"
+                className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-400 focus:border-slate-700 focus:outline-none"
+              />
+              <span className="text-[11px] text-slate-500">Managed by ReceptionMate staff.</span>
             </label>
             <label className="flex flex-col gap-2 text-sm text-slate-300">
               <span className="text-xs uppercase tracking-wide text-slate-500">Primary email</span>

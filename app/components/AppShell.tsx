@@ -17,6 +17,8 @@ import {
   getSessionToken,
   getUserBranchRoles,
   getUserEmail,
+  getUserId,
+  isAdmin,
   isReceptionMateStaff,
   setGarageId,
   setGarages,
@@ -31,9 +33,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [isReady, setIsReady] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userId, setUserIdState] = useState<string | null>(null);
   const [garageId, setGarageIdState] = useState<string | null>(null);
   const [garages, setGaragesState] = useState<GarageSummary[]>([]);
   const [isStaffUser, setIsStaffUser] = useState(false);
+  const [isAdminUser, setIsAdminUser] = useState(false);
   const [branchScope, setBranchScope] = useState<BranchScope>('single');
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
@@ -45,8 +49,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   );
   const managedGarageIdSet = useMemo(() => new Set(managedGarageIds), [managedGarageIds]);
   const restrictToAssignedBranches = useMemo(
-    () => !isStaffUser && managedGarageIds.length > 0,
-    [isStaffUser, managedGarageIds.length],
+    () => !isStaffUser && !isAdminUser && managedGarageIds.length > 0,
+    [isAdminUser, isStaffUser, managedGarageIds.length],
   );
   const visibleGarages = useMemo(() => {
     if (!restrictToAssignedBranches) {
@@ -99,6 +103,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     const storedGarageId = getGarageId();
     const storedGarages = getGarages();
     const email = getUserEmail();
+    const id = getUserId();
 
     if (!token || !storedGarageId) {
       clearSession();
@@ -107,8 +112,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
 
     setUserEmail(email);
+    setUserIdState(id);
     setGarageIdState(storedGarageId);
     setIsStaffUser(isReceptionMateStaff());
+    setIsAdminUser(isAdmin());
 
     if (storedGarages.length > 0) {
       setGaragesState(storedGarages);
@@ -142,6 +149,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         : undefined;
       if (status === 401) {
         clearSession();
+        setUserIdState(null);
         router.replace('/login');
         return;
       }
@@ -190,10 +198,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
     </div>
   ) : (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
-      <Sidebar activePath={pathname ?? '/calls'} showAdminLink={isStaffUser} />
+      <Sidebar
+        activePath={pathname ?? '/calls'}
+        showAdminLink={isStaffUser}
+      />
       <div className="flex flex-1 flex-col">
         <Navbar
           email={userEmail ?? 'Unknown user'}
+          userId={userId}
           garages={visibleGarages}
           selectedGarageId={selectedGarageValue}
           allowAllAssignedBranches={allowAllAssignedBranches}
@@ -201,6 +213,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           onLogout={() => {
             clearSession();
             setIsStaffUser(false);
+            setUserIdState(null);
             router.replace('/login');
           }}
         />

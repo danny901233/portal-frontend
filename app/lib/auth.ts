@@ -6,12 +6,14 @@ export const GARAGES_STORAGE_KEY = 'rm_garages';
 export const USER_EMAIL_STORAGE_KEY = 'rm_user_email';
 export const USER_ROLE_STORAGE_KEY = 'rm_user_role';
 export const USER_BRANCH_ROLES_KEY = 'rm_user_branch_roles';
+export const USER_ID_STORAGE_KEY = 'rm_user_id';
 
 export const persistSession = (params: {
   token: string;
   garageId: string;
   garages: { id: string; name: string }[];
   email: string;
+  userId: string;
   role: UserRole;
   branchRoles: BranchRolesMap;
 }) => {
@@ -21,6 +23,7 @@ export const persistSession = (params: {
   localStorage.setItem(TOKEN_STORAGE_KEY, params.token);
   localStorage.setItem(GARAGE_STORAGE_KEY, params.garageId);
   localStorage.setItem(GARAGES_STORAGE_KEY, JSON.stringify(params.garages));
+  localStorage.setItem(USER_ID_STORAGE_KEY, params.userId);
   localStorage.setItem(USER_EMAIL_STORAGE_KEY, params.email);
   localStorage.setItem(USER_ROLE_STORAGE_KEY, params.role);
   localStorage.setItem(USER_BRANCH_ROLES_KEY, JSON.stringify(params.branchRoles));
@@ -33,6 +36,7 @@ export const clearSession = () => {
   localStorage.removeItem(TOKEN_STORAGE_KEY);
   localStorage.removeItem(GARAGE_STORAGE_KEY);
   localStorage.removeItem(GARAGES_STORAGE_KEY);
+  localStorage.removeItem(USER_ID_STORAGE_KEY);
   localStorage.removeItem(USER_EMAIL_STORAGE_KEY);
   localStorage.removeItem(USER_ROLE_STORAGE_KEY);
   localStorage.removeItem(USER_BRANCH_ROLES_KEY);
@@ -92,6 +96,13 @@ export const getUserEmail = () => {
   return localStorage.getItem(USER_EMAIL_STORAGE_KEY);
 };
 
+export const getUserId = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  return localStorage.getItem(USER_ID_STORAGE_KEY);
+};
+
 export const getUserRole = (): UserRole | null => {
   if (typeof window === 'undefined') {
     return null;
@@ -100,7 +111,7 @@ export const getUserRole = (): UserRole | null => {
 };
 
 export const isReceptionMateStaff = () => getUserRole() === 'RECEPTIONMATE_STAFF';
-export const isAdmin = () => isReceptionMateStaff();
+export const isAdmin = () => getUserRole() === 'ADMIN';
 
 export const getUserBranchRoles = (): BranchRolesMap => {
   if (typeof window === 'undefined') {

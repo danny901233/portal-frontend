@@ -125,14 +125,6 @@ router.post('/agent-config', async (req: Request, res: Response) => {
     `AGENT_KNOWLEDGE_VERSION=${formatEnvValue(resolvedKnowledgeVersion)}`,
   ];
 
-  const garageHiveSettings =
-    configuration.garageHiveSettings ?? { instanceUrl: '', apiKey: '', locationId: '' };
-  envLines.push(
-    `GARAGE_HIVE_INSTANCE_URL=${formatEnvValue(garageHiveSettings.instanceUrl)}`,
-    `GARAGE_HIVE_API_KEY=${formatEnvValue(garageHiveSettings.apiKey)}`,
-    `GARAGE_HIVE_LOCATION_ID=${formatEnvValue(garageHiveSettings.locationId)}`,
-  );
-
   try {
     await fs.mkdir(path.dirname(settingsPath), { recursive: true });
     await fs.writeFile(`${settingsPath}`, `${envLines.join('\n')}\n`, 'utf8');

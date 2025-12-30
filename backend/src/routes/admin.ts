@@ -226,7 +226,7 @@ router.post('/admin/garages/:garageId/activate', authenticate, requireAdmin, asy
   const payload = {
     garageId,
     businessName: garage.name,
-    areaCode: normalizedTwilioNumber.replace(/\D/g, '').substring(0, 3),
+    twilioNumber: normalizedTwilioNumber,
     secret: onboardingSecret,
   };
 

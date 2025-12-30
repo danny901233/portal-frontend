@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import twilio from 'twilio';
+import { SipClient } from 'livekit-server-sdk';
 
 dotenv.config();
 
@@ -25,6 +26,13 @@ type ActivationPayload = z.infer<typeof activationPayloadSchema>;
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
+);
+
+// LiveKit SIP client
+const livekitSipClient = new SipClient(
+  process.env.LIVEKIT_URL!,
+  process.env.LIVEKIT_API_KEY!,
+  process.env.LIVEKIT_API_SECRET!
 );
 
 // Health check endpoint
@@ -54,17 +62,11 @@ app.post('/provision', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid secret' });
     }
 
-    // 3. Configure Twilio number
-    await configureTwilioNumber(payload.twilioNumber);
+    // 3. Create LiveKit SIP trunk for this garage
+    await createLiveKitSipTrunk(payload.garageId, payload.garageName);
 
-    // 4. Optionally trigger LiveKit agent deployment/configuration
-    // This depends on your LiveKit setup - you might:
-    // - Call LiveKit API to create rooms
-    // - Trigger a deployment pipeline
-    // - Update agent configuration
-    // For now, we'll log it
-    console.log('LiveKit agent should pull config from:', 
-      `${process.env.PORTAL_BASE_URL}/api/config/${payload.garageId}`);
+    // 4. Configure Twilio number to route to voice webhook
+    await configureTwilioNumber(payload.twilioNumber, payload.garageId);
 
     // 5. Optional: Send notification email
     if (payload.contactEmail) {
@@ -91,9 +93,57 @@ app.post('/provision', async (req: Request, res: Response) => {
 });
 
 /**
- * Configure a Twilio phone number to route calls to the LiveKit agent
+ * Create a SIP trunk in LiveKit for this garage
  */
-async function configureTwilioNumber(phoneNumber: string): Promise<void> {
+async function createLiveKitSipTrunk(garageId: string, garageName: string): Promise<void> {
+  try {
+    console.log('Creating LiveKit SIP trunk for garage:', garageId);
+
+    // Create SIP inbound trunk
+    const trunk = await livekitSipClient.createSipInboundTrunk(
+      `${garageName} (${garageId})`,
+      [`${garageId}`],
+      {
+        metadata: JSON.stringify({
+          garageId,
+          garageName,
+          createdAt: new Date().toISOString(),
+        }),
+      }
+    );
+
+    console.log(`✅ Created LiveKit SIP trunk:`, trunk.sipTrunkId);
+    console.log(`   Trunk identifier: ${garageId}`);
+    
+    // Create SIP dispatch rule to route calls to your agent
+    const dispatchRule = await livekitSipClient.createSipDispatchRule(
+      {
+        type: 'direct',
+        roomName: `garage-${garageId}`,
+        pin: '',
+      },
+      {
+        name: `Route to ${garageName}`,
+        trunkIds: [trunk.sipTrunkId],
+        metadata: JSON.stringify({
+          garageId,
+          garageName,
+        }),
+      }
+    );
+
+    console.log(`✅ Created dispatch rule:`, dispatchRule.sipDispatchRuleId);
+
+  } catch (error) {
+    console.error('Failed to create LiveKit SIP trunk:', error);
+    throw error;
+  }
+}
+
+/**
+ * Configure a Twilio phone number to route calls to the voice webhook
+ */
+async function configureTwilioNumber(phoneNumber: string, garageId: string): Promise<void> {
   try {
     console.log('Configuring Twilio number:', phoneNumber);
 
@@ -107,21 +157,23 @@ async function configureTwilioNumber(phoneNumber: string): Promise<void> {
     }
 
     const numberSid = numbers[0].sid;
-    const agentUrl = process.env.LIVEKIT_AGENT_URL;
+    const portalBaseUrl = process.env.PORTAL_BASE_URL;
 
-    if (!agentUrl) {
-      throw new Error('LIVEKIT_AGENT_URL not configured');
+    if (!portalBaseUrl) {
+      throw new Error('PORTAL_BASE_URL not configured');
     }
+
+    // Build the webhook URL with garage ID
+    const webhookUrl = `${portalBaseUrl}/webhooks/voice?garageId=${garageId}`;
 
     // Update the number's voice webhook
     await twilioClient.incomingPhoneNumbers(numberSid).update({
-      voiceUrl: agentUrl,
+      voiceUrl: webhookUrl,
       voiceMethod: 'POST',
-      statusCallback: `${agentUrl}/status`,
-      statusCallbackMethod: 'POST',
+      friendlyName: `ReceptionMate - ${garageId}`,
     });
 
-    console.log(`✅ Configured ${phoneNumber} to route to ${agentUrl}`);
+    console.log(`✅ Configured ${phoneNumber} to route to ${webhookUrl}`);
   } catch (error) {
     console.error('Failed to configure Twilio number:', error);
     throw error;

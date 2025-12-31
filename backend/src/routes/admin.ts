@@ -90,6 +90,7 @@ const formatBranch = (garage: {
     phoneNumber?: string | null;
     emailAddress?: string | null;
     callSummaryEmail?: string | null;
+    notificationEmails?: string[];
   } | null;
 }) => ({
   id: garage.id,
@@ -102,6 +103,7 @@ const formatBranch = (garage: {
         phoneNumber: garage.agentConfiguration.phoneNumber ?? '',
         emailAddress: garage.agentConfiguration.emailAddress ?? '',
         callSummaryEmail: garage.agentConfiguration.callSummaryEmail ?? '',
+        notificationEmails: garage.agentConfiguration.notificationEmails ?? [],
       }
     : null,
 });

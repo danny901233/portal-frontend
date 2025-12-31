@@ -722,10 +722,16 @@ export default function AdminPage() {
                     </div>
                     <p className="mt-1 text-[11px] text-slate-500">Garage ID: {branch.id}</p>
                     <p className="mt-2 text-xs text-slate-400">
-                      Summary contact: {branch.agentConfiguration?.callSummaryEmail || 'Not set'}
+                      Branch email: {branch.agentConfiguration?.emailAddress || 'Not set'}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
                       Branch phone: {contactPhone || 'Not set'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Summary contact: {branch.agentConfiguration?.callSummaryEmail || 'Not set'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Notification emails: {branch.agentConfiguration?.notificationEmails?.length ? branch.agentConfiguration.notificationEmails.join(', ') : 'Not set'}
                     </p>
                     <div className="mt-2 flex flex-col gap-2">
                       <label className="text-xs text-slate-400" htmlFor={`twilio-${branch.id}`}>

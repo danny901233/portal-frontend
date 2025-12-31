@@ -81,46 +81,40 @@ export const generateWeeklyReports = async (): Promise<void> => {
 
   console.log(`Report period: ${formatDate(startDate)} - ${formatDate(endDate)}`);
 
-  // Find all managers
-  const managers = await prisma.user.findMany({
+  // Find all ADMIN users
+  const admins = await prisma.user.findMany({
     where: {
-      role: 'MANAGER',
-    },
-    include: {
-      business: {
-        include: {
-          garages: true,
-        },
-      },
+      role: 'ADMIN',
     },
   });
 
-  console.log(`Found ${managers.length} managers`);
+  console.log(`Found ${admins.length} admin users`);
 
-  for (const manager of managers) {
+  for (const admin of admins) {
     try {
-      // Get branches this manager has access to
-      const branches: { id: string; name: string }[] = [];
-      
-      // If manager role, get all branches in their business
-      if (manager.business) {
-        branches.push(...manager.business.garages.map(g => ({ id: g.id, name: g.name })));
-      }
+      // Get all garages this admin has access to
+      const garages = await prisma.garage.findMany({
+        where: {
+          id: {
+            in: admin.garageAccessIds,
+          },
+        },
+      });
 
-      if (branches.length === 0) {
-        console.log(`Skipping ${manager.email} - no branches assigned`);
+      if (garages.length === 0) {
+        console.log(`Skipping ${admin.email} - no garages assigned`);
         continue;
       }
 
-      console.log(`Processing manager: ${manager.email} with ${branches.length} branch(es)`);
+      console.log(`Processing admin: ${admin.email} with ${garages.length} garage(s)`);
 
-      // Calculate stats for each branch
+      // Calculate stats for each garage
       const branchStats: BranchStats[] = [];
       let totalCallsAllBranches = 0;
       let totalRevenueAllBranches = 0;
 
-      for (const branch of branches) {
-        const stats = await calculateBranchStats(branch.id, branch.name, startDate, endDate);
+      for (const garage of garages) {
+        const stats = await calculateBranchStats(garage.id, garage.name, startDate, endDate);
         branchStats.push(stats);
         totalCallsAllBranches += stats.totalCalls;
         totalRevenueAllBranches += stats.totalRevenue;
@@ -128,8 +122,8 @@ export const generateWeeklyReports = async (): Promise<void> => {
 
       // Send email
       await sendWeeklyReport({
-        userName: manager.email,
-        userEmail: manager.email,
+        userName: admin.email,
+        userEmail: admin.email,
         periodStart: formatDate(startDate),
         periodEnd: formatDate(new Date(endDate.getTime() - 24 * 60 * 60 * 1000)), // Yesterday
         branches: branchStats,
@@ -137,9 +131,9 @@ export const generateWeeklyReports = async (): Promise<void> => {
         totalRevenueAllBranches,
       });
 
-      console.log(`✓ Sent weekly report to ${manager.email}`);
+      console.log(`✓ Sent weekly report to ${admin.email}`);
     } catch (error) {
-      console.error(`Failed to generate report for ${manager.email}:`, error);
+      console.error(`Failed to generate report for ${admin.email}:`, error);
     }
   }
 
@@ -159,47 +153,41 @@ export const generateMonthlyReports = async (): Promise<void> => {
 
   console.log(`Report period: ${month} ${year}`);
 
-  // Find all managers
-  const managers = await prisma.user.findMany({
+  // Find all ADMIN users
+  const admins = await prisma.user.findMany({
     where: {
-      role: 'MANAGER',
-    },
-    include: {
-      business: {
-        include: {
-          garages: true,
-        },
-      },
+      role: 'ADMIN',
     },
   });
 
-  console.log(`Found ${managers.length} managers`);
+  console.log(`Found ${admins.length} admin users`);
 
-  for (const manager of managers) {
+  for (const admin of admins) {
     try {
-      // Get branches this manager has access to
-      const branches: { id: string; name: string }[] = [];
-      
-      // If manager role, get all branches in their business
-      if (manager.business) {
-        branches.push(...manager.business.garages.map(g => ({ id: g.id, name: g.name })));
-      }
+      // Get all garages this admin has access to
+      const garages = await prisma.garage.findMany({
+        where: {
+          id: {
+            in: admin.garageAccessIds,
+          },
+        },
+      });
 
-      if (branches.length === 0) {
-        console.log(`Skipping ${manager.email} - no branches assigned`);
+      if (garages.length === 0) {
+        console.log(`Skipping ${admin.email} - no garages assigned`);
         continue;
       }
 
-      console.log(`Processing manager: ${manager.email} with ${branches.length} branch(es)`);
+      console.log(`Processing admin: ${admin.email} with ${garages.length} garage(s)`);
 
-      // Calculate stats for each branch
+      // Calculate stats for each garage
       const branchStats: BranchStats[] = [];
       let totalCallsAllBranches = 0;
       let totalRevenueAllBranches = 0;
       let totalBookingsAllBranches = 0;
 
-      for (const branch of branches) {
-        const stats = await calculateBranchStats(branch.id, branch.name, startDate, endDate);
+      for (const garage of garages) {
+        const stats = await calculateBranchStats(garage.id, garage.name, startDate, endDate);
         branchStats.push(stats);
         totalCallsAllBranches += stats.totalCalls;
         totalRevenueAllBranches += stats.totalRevenue;
@@ -208,8 +196,8 @@ export const generateMonthlyReports = async (): Promise<void> => {
 
       // Send email
       await sendMonthlyReport({
-        userName: manager.email,
-        userEmail: manager.email,
+        userName: admin.email,
+        userEmail: admin.email,
         month,
         year,
         branches: branchStats,
@@ -218,9 +206,9 @@ export const generateMonthlyReports = async (): Promise<void> => {
         totalBookingsAllBranches,
       });
 
-      console.log(`✓ Sent monthly report to ${manager.email}`);
+      console.log(`✓ Sent monthly report to ${admin.email}`);
     } catch (error) {
-      console.error(`Failed to generate report for ${manager.email}:`, error);
+      console.error(`Failed to generate report for ${admin.email}:`, error);
     }
   }
 

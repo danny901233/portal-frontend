@@ -109,7 +109,8 @@ router.post('/calls', async (req: Request, res: Response) => {
       update: {},
     });
 
-    const callType = classifyCallCategory(payload.callType, payload.summary, payload.transcript);
+    // Use AI classification from agent directly (no pattern matching override)
+    const callType = payload.callType || 'unknown';
 
     const callId = await generateUniqueCallId();
 

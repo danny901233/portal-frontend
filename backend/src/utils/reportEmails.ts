@@ -50,7 +50,7 @@ const generateBranchStatsHtml = (branch: BranchStats): string => {
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px;">
       <tr>
         <td style="padding: 20px; background-color: #0d2739; border: 2px solid #3126cf; border-radius: 8px;">
-          <h3 style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #3126cf;">
+          <h3 style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #ffffff;">
             📍 ${branch.branchName}
           </h3>
           
@@ -85,11 +85,6 @@ const generateBranchStatsHtml = (branch: BranchStats): string => {
                   <tr>
                     <td style="padding: 8px 0; font-size: 14px; color: #94a3b8;">
                       <span style="color: #e2e8f0;">💬 General Enquiries:</span> ${branch.generalEnquiries}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; font-size: 14px; color: #94a3b8;">
-                      <span style="color: #e2e8f0;">📅 Booking Requests:</span> ${branch.bookingRequests}
                     </td>
                   </tr>
                   <tr>

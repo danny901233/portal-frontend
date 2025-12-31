@@ -35,6 +35,7 @@ export const createCallSchema = z
     confirmedBooking: z.boolean().optional(),
     capturedRevenue: z.number().nonnegative().optional(),
     bookingDetails: z.string().min(1).optional(),
+    emotionData: z.record(z.union([z.number(), z.string(), z.boolean(), z.null()])).optional(),
   })
   .transform((payload) => ({
     ...payload,

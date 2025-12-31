@@ -10,6 +10,7 @@ import agentWebhookRouter from './routes/agentWebhook.js';
 import adminRouter from './routes/admin.js';
 import voiceRouter from './routes/voice.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { initializeScheduledReports } from './utils/scheduler.js';
 
 const app = express();
 
@@ -51,4 +52,7 @@ app.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`Server listening on port ${port}`);
   console.log('Effective WEBHOOK_SECRET:', JSON.stringify(process.env.WEBHOOK_SECRET ?? null));
+  
+  // Initialize scheduled report jobs
+  initializeScheduledReports();
 });

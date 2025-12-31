@@ -144,20 +144,12 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
             <td style="padding: 0; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
-                  <td style="text-align: center; padding: 32px 32px 24px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
-                      <tr>
-                        <td style="background-color: #ffffff; padding: 12px 28px; border-radius: 8px;">
-                          <h1 style="margin: 0; font-size: 26px; font-weight: 700; color: #0ea5e9; letter-spacing: -0.5px;">
-                            ReceptionMate
-                          </h1>
-                        </td>
-                      </tr>
-                    </table>
+                  <td style="text-align: center; padding: 32px 32px 8px;">
+                    <img src="https://i.ibb.co/z5YJF9m/Reception-Mate-Logo.png" alt="ReceptionMate" width="180" style="max-width: 180px; height: auto; display: block; margin: 0 auto;" />
                   </td>
                 </tr>
                 <tr>
-                  <td style="text-align: center; padding: 0 32px 32px;">
+                  <td style="text-align: center; padding: 16px 32px 32px;">
                     <h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #ffffff;">
                       New Call Handled
                     </h2>
@@ -199,13 +191,11 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
                           <strong style="color: #111827;">⏱️ Duration:</strong> ${formatDuration(durationSeconds)}
                         </td>
                       </tr>
-                      ${customerName ? `
                       <tr>
                         <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
-                          <strong style="color: #111827;">👤 Customer:</strong> ${customerName}
+                          <strong style="color: #111827;">👤 Customer Name:</strong> ${customerName || 'Not provided'}
                         </td>
                       </tr>
-                      ` : ''}
                       ${customerPhone ? `
                       <tr>
                         <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
@@ -220,13 +210,11 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
                         </td>
                       </tr>
                       ` : ''}
-                      ${formattedBookingDate ? `
                       <tr>
                         <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
-                          <strong style="color: #111827;">📆 Booking Date:</strong> ${formattedBookingDate}
+                          <strong style="color: #111827;">📆 Booking Date:</strong> ${formattedBookingDate || 'No booking made'}
                         </td>
                       </tr>
-                      ` : ''}
                       ${priceQuoted ? `
                       <tr>
                         <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">

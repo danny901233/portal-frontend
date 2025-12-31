@@ -170,7 +170,9 @@ router.get(
       if (garageIds) {
         const requestedGarageIds = Array.isArray(garageIds) ? garageIds : [garageIds];
         // Only include garages the user has access to
-        const validGarageIds = requestedGarageIds.filter(id => allowedGarages.includes(id));
+        const validGarageIds = requestedGarageIds
+          .filter((id): id is string => typeof id === 'string')
+          .filter(id => allowedGarages.includes(id));
         if (validGarageIds.length === 0) {
           return res.status(403).json({ error: 'No valid garage IDs provided' });
         }

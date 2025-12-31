@@ -256,19 +256,21 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
             </td>
           </tr>
           
-          <!-- Transcript -->
+          <!-- View in Portal Button -->
           <tr>
-            <td style="padding: 0 32px 32px;">
-              <h2 style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #e2e8f0;">
-                💬 Full Transcript
-              </h2>
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <td style="padding: 0 32px 32px; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
                 <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 6px; font-size: 13px; line-height: 1.9; color: #94a3b8; font-family: 'Courier New', Consolas, monospace;">
-                    <div style="white-space: pre-wrap; word-wrap: break-word;">${formatTranscript(transcript)}</div>
+                  <td style="background: linear-gradient(135deg, #3126cf 0%, #2419a8 100%); border-radius: 8px; padding: 16px 40px;">
+                    <a href="https://portal.receptionmate.co.uk/calls" style="color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; display: block;">
+                      🎧 View Call Recording & Transcript in Portal
+                    </a>
                   </td>
                 </tr>
               </table>
+              <p style="margin: 16px 0 0; font-size: 13px; color: #94a3b8;">
+                Listen to the full recording and read the complete transcript
+              </p>
             </td>
           </tr>
           

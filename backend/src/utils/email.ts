@@ -134,30 +134,34 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Call Summary - ${branchName}</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #0f172a;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #0f172a;">
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6;">
     <tr>
       <td style="padding: 40px 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1e293b; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
           <!-- Header with Logo -->
           <tr>
-            <td style="padding: 40px 32px 32px; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); border-radius: 12px 12px 0 0;">
+            <td style="padding: 0; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
-                  <td style="text-align: center; padding-bottom: 24px;">
-                    <div style="display: inline-block; padding: 12px 24px; background-color: rgba(255,255,255,0.15); border-radius: 8px; backdrop-filter: blur(10px);">
-                      <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">
-                        ReceptionMate
-                      </h1>
-                    </div>
+                  <td style="text-align: center; padding: 32px 32px 24px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                      <tr>
+                        <td style="background-color: #ffffff; padding: 12px 28px; border-radius: 8px;">
+                          <h1 style="margin: 0; font-size: 26px; font-weight: 700; color: #0ea5e9; letter-spacing: -0.5px;">
+                            ReceptionMate
+                          </h1>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
                 <tr>
-                  <td style="text-align: center;">
+                  <td style="text-align: center; padding: 0 32px 32px;">
                     <h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #ffffff;">
                       New Call Handled
                     </h2>
-                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.9);">
+                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
                       ${branchName}
                     </p>
                   </td>
@@ -172,64 +176,68 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td style="padding-bottom: 20px;">
-                    <div style="display: inline-block; padding: 6px 14px; background-color: #0ea5e9; color: #ffffff; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
-                      ${callType}
-                    </div>
-                    ${confirmedBooking ? '<div style="display: inline-block; margin-left: 8px; padding: 6px 14px; background-color: #10b981; color: #ffffff; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">✓ Booking Confirmed</div>' : ''}
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td style="background-color: #0ea5e9; color: #ffffff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                          ${callType}
+                        </td>
+                        ${confirmedBooking ? '<td style="padding-left: 8px;"><table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="background-color: #10b981; color: #ffffff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">✓ Booking Confirmed</td></tr></table></td>' : ''}
+                      </tr>
+                    </table>
                   </td>
                 </tr>
                 <tr>
-                  <td style="padding: 20px; background-color: #0f172a; border-radius: 8px;">
+                  <td style="padding: 20px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📅 Call Date:</strong> ${formattedDate} at ${formattedTime}
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
+                          <strong style="color: #111827;">📅 Call Date:</strong> ${formattedDate} at ${formattedTime}
                         </td>
                       </tr>
                       <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">⏱️ Duration:</strong> ${formatDuration(durationSeconds)}
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
+                          <strong style="color: #111827;">⏱️ Duration:</strong> ${formatDuration(durationSeconds)}
                         </td>
                       </tr>
                       ${customerName ? `
                       <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">👤 Customer:</strong> ${customerName}
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
+                          <strong style="color: #111827;">👤 Customer:</strong> ${customerName}
                         </td>
                       </tr>
                       ` : ''}
                       ${customerPhone ? `
                       <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📞 Phone:</strong> ${customerPhone}
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
+                          <strong style="color: #111827;">📞 Phone:</strong> ${customerPhone}
                         </td>
                       </tr>
                       ` : ''}
                       ${registrationNumber ? `
                       <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">🚗 Registration:</strong> ${registrationNumber}
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
+                          <strong style="color: #111827;">🚗 Registration:</strong> ${registrationNumber}
                         </td>
                       </tr>
                       ` : ''}
                       ${formattedBookingDate ? `
                       <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📆 Booking Date:</strong> ${formattedBookingDate}
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
+                          <strong style="color: #111827;">📆 Booking Date:</strong> ${formattedBookingDate}
                         </td>
                       </tr>
                       ` : ''}
                       ${priceQuoted ? `
                       <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">💰 Price Quoted:</strong> £${priceQuoted.toFixed(2)}
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
+                          <strong style="color: #111827;">💰 Price Quoted:</strong> £${priceQuoted.toFixed(2)}
                         </td>
                       </tr>
                       ` : ''}
                       ${capturedRevenue ? `
                       <tr>
-                        <td style="padding-bottom: 0; font-size: 14px; color: #94a3b8;">
-                          <strong style="color: #10b981;">💵 Revenue Captured:</strong> <span style="color: #10b981; font-weight: 600;">£${capturedRevenue.toFixed(2)}</span>
+                        <td style="padding-bottom: 0; font-size: 14px; line-height: 1.5; color: #6b7280;">
+                          <strong style="color: #059669;">💵 Revenue Captured:</strong> <span style="color: #059669; font-weight: 600;">£${capturedRevenue.toFixed(2)}</span>
                         </td>
                       </tr>
                       ` : ''}
@@ -243,34 +251,42 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
           <!-- Summary -->
           <tr>
             <td style="padding: 0 32px 24px;">
-              <h2 style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #f1f5f9;">
-                📋 Call Summary
+              <h2 style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #111827;">
+                📋 Summary
               </h2>
-              <div style="padding: 20px; background-color: #0f172a; border-left: 4px solid #0ea5e9; border-radius: 6px; font-size: 14px; line-height: 1.7; color: #cbd5e1;">
-                ${summary}
-              </div>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 20px; background-color: #eff6ff; border-left: 4px solid #0ea5e9; border-radius: 6px; font-size: 14px; line-height: 1.7; color: #374151;">
+                    ${summary}
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           
           <!-- Transcript -->
           <tr>
             <td style="padding: 0 32px 32px;">
-              <h2 style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #f1f5f9;">
+              <h2 style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #111827;">
                 💬 Full Transcript
               </h2>
-              <div style="padding: 20px; background-color: #0f172a; border-radius: 6px; font-size: 13px; line-height: 1.9; color: #94a3b8; white-space: pre-wrap; font-family: 'Courier New', Consolas, monospace; max-height: 400px; overflow-y: auto;">
-${formatTranscript(transcript)}
-              </div>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 20px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 13px; line-height: 1.9; color: #6b7280; font-family: 'Courier New', Consolas, monospace;">
+                    <div style="white-space: pre-wrap; word-wrap: break-word;">${formatTranscript(transcript)}</div>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           
           <!-- Footer -->
           <tr>
-            <td style="padding: 28px 32px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 0 0 12px 12px; text-align: center;">
-              <p style="margin: 0; font-size: 13px; color: #cbd5e1; font-weight: 500;">
+            <td style="padding: 28px 32px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="margin: 0; font-size: 13px; color: #374151; font-weight: 500;">
                 This is an automated notification from <strong style="color: #0ea5e9;">ReceptionMate</strong>
               </p>
-              <p style="margin: 12px 0 0; font-size: 12px; color: #64748b;">
+              <p style="margin: 12px 0 0; font-size: 12px; color: #9ca3af;">
                 Intelligent call handling for your business
               </p>
             </td>

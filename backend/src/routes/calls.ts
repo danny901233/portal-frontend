@@ -13,6 +13,7 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
+import { sendCallSummaryEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -132,6 +133,33 @@ router.post('/calls', async (req: Request, res: Response) => {
         summary: payload.summary,
       },
     });
+
+    // Send notification emails asynchronously
+    const agentConfiguration = await prisma.agentConfiguration.findUnique({
+      where: { garageId: payload.garageId },
+      select: { 
+        branchName: true,
+        notificationEmails: true,
+      },
+    });
+
+    if (agentConfiguration?.notificationEmails && agentConfiguration.notificationEmails.length > 0) {
+      void sendCallSummaryEmail(agentConfiguration.notificationEmails, {
+        branchName: agentConfiguration.branchName,
+        summary: payload.summary,
+        transcript: payload.transcript,
+        durationSeconds: payload.durationSeconds,
+        callType,
+        customerName: payload.customerName,
+        customerPhone: payload.customerPhone,
+        registrationNumber: payload.registrationNumber,
+        confirmedBooking: payload.confirmedBooking,
+        capturedRevenue: payload.capturedRevenue,
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.error('Failed to send notification email:', error);
+      });
+    }
 
     res.status(201).json({ success: true, callId });
   } catch (error) {

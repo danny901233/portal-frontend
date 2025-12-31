@@ -99,6 +99,7 @@ export type AgentConfigurationPayload = {
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
   callSummaryEmail?: string | null;
+  notificationEmails?: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
 };

@@ -68,6 +68,7 @@ model AgentConfiguration {
   interruptionSensitivity Float @default(0.5)
   allowFastFitOnly  Boolean  @default(false)
   callSummaryEmail  String?
+  notificationEmails String[] @default([])
   integrationProvider String  @default("none")
   integrationProviderConfig Json?
   createdAt         DateTime @default(now())

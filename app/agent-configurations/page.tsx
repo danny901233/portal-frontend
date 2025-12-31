@@ -95,6 +95,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   interruptionSensitivity: 0.5,
   allowFastFitOnly: false,
   callSummaryEmail: '',
+  notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
 });
@@ -124,6 +125,7 @@ type TextFieldKey = Exclude<
   | 'interruptionSensitivity'
   | 'integrationProvider'
   | 'garageHiveSettings'
+  | 'notificationEmails'
 >;
 
 const integrationProviderOptions: { value: IntegrationProvider; label: string; description: string }[] = [
@@ -166,6 +168,7 @@ export default function AgentConfigurationsPage() {
   const [discoveredPages, setDiscoveredPages] = useState<WebsiteScanSummaryPage[]>([]);
   const [selectedPageUrls, setSelectedPageUrls] = useState<string[]>([]);
   const [lastScanUrl, setLastScanUrl] = useState<string | null>(null);
+  const [newNotificationEmail, setNewNotificationEmail] = useState<string>('');
   const [, startTransition] = useTransition();
 
   const query = useQuery({
@@ -422,6 +425,41 @@ export default function AgentConfigurationsPage() {
 
   const handleToggle = () => {
     setFormState((prev) => ({ ...prev, allowFastFitOnly: !prev.allowFastFitOnly }));
+    setFeedback(null);
+  };
+
+  const handleAddNotificationEmail = () => {
+    const trimmed = newNotificationEmail.trim();
+    if (!trimmed) {
+      setFeedback('Please enter an email address.');
+      return;
+    }
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmed)) {
+      setFeedback('Please enter a valid email address.');
+      return;
+    }
+    
+    if (formState.notificationEmails.includes(trimmed)) {
+      setFeedback('This email is already in the notification list.');
+      return;
+    }
+    
+    setFormState((prev) => ({
+      ...prev,
+      notificationEmails: [...prev.notificationEmails, trimmed],
+    }));
+    setNewNotificationEmail('');
+    setFeedback(null);
+  };
+
+  const handleRemoveNotificationEmail = (email: string) => {
+    setFormState((prev) => ({
+      ...prev,
+      notificationEmails: prev.notificationEmails.filter((e) => e !== email),
+    }));
     setFeedback(null);
   };
 
@@ -819,6 +857,69 @@ export default function AgentConfigurationsPage() {
                 placeholder="Where daily summaries should be delivered"
                 className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
+            </label>
+          </div>
+          
+          <div className="mt-6">
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              <span className="text-xs uppercase tracking-wide text-slate-500">Notification emails</span>
+              <p className="text-xs text-slate-400">
+                Email addresses that will receive a notification after each call with the call summary.
+              </p>
+              
+              {isEditing ? (
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={newNotificationEmail}
+                    onChange={(e) => setNewNotificationEmail(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddNotificationEmail();
+                      }
+                    }}
+                    disabled={mutation.isPending}
+                    placeholder="Add an email address"
+                    className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddNotificationEmail}
+                    disabled={mutation.isPending || !newNotificationEmail.trim()}
+                    className="rounded-md border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-sky-500 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Add
+                  </button>
+                </div>
+              ) : null}
+              
+              {formState.notificationEmails.length > 0 ? (
+                <div className="mt-2 space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+                  {formState.notificationEmails.map((email) => (
+                    <div
+                      key={email}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800/60 bg-slate-950/60 px-3 py-2"
+                    >
+                      <span className="text-sm text-slate-100">{email}</span>
+                      {isEditing ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveNotificationEmail(email)}
+                          disabled={mutation.isPending}
+                          className="text-xs text-rose-400 transition hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2 rounded-xl border border-slate-800/70 bg-slate-900/50 p-3 text-xs text-slate-400">
+                  {isEditing ? 'No notification emails added yet.' : 'No notification emails configured.'}
+                </div>
+              )}
             </label>
           </div>
         </section>

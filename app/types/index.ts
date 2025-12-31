@@ -156,6 +156,7 @@ export interface AgentConfiguration {
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
   callSummaryEmail: string;
+  notificationEmails: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
 }

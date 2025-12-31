@@ -154,7 +154,7 @@ router.get(
         return res.status(403).json({ error: 'Forbidden' });
       }
 
-      const { callType, startDate, endDate } = req.query;
+      const { callType, startDate, endDate, garageIds } = req.query;
 
       if (
         (callType && Array.isArray(callType)) ||
@@ -164,7 +164,21 @@ router.get(
         return res.status(400).json({ error: 'Invalid query parameters' });
       }
 
-      const where: Prisma.CallWhereInput = { garageId };
+      const where: Prisma.CallWhereInput = {};
+
+      // If garageIds filter is provided, use it (for "all assigned branches")
+      if (garageIds) {
+        const requestedGarageIds = Array.isArray(garageIds) ? garageIds : [garageIds];
+        // Only include garages the user has access to
+        const validGarageIds = requestedGarageIds.filter(id => allowedGarages.includes(id));
+        if (validGarageIds.length === 0) {
+          return res.status(403).json({ error: 'No valid garage IDs provided' });
+        }
+        where.garageId = { in: validGarageIds };
+      } else {
+        // Single garage mode
+        where.garageId = garageId;
+      }
 
       if (typeof callType === 'string') {
         const normalizedType = callType.trim().toLowerCase();

@@ -61,6 +61,7 @@ export type CallFilters = {
   callType?: string;
   startDate?: string;
   endDate?: string;
+  garageIds?: string[];
 };
 
 export const fetchCalls = async (
@@ -80,6 +81,9 @@ export const fetchCalls = async (
   }
   if (filters?.endDate) {
     params.set("endDate", filters.endDate);
+  }
+  if (filters?.garageIds && filters.garageIds.length > 0) {
+    filters.garageIds.forEach(id => params.append("garageIds", id));
   }
 
   const querySuffix = params.toString();

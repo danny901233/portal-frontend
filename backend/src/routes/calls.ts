@@ -156,6 +156,8 @@ router.post('/calls', async (req: Request, res: Response) => {
         confirmedBooking: payload.confirmedBooking,
         capturedRevenue: payload.capturedRevenue,
         createdAt: new Date().toISOString(),
+        bookingDate: null, // Not currently captured
+        priceQuoted: payload.capturedRevenue, // Use captured revenue as price quoted for now
       }).catch((error) => {
         console.error('Failed to send notification email:', error);
       });

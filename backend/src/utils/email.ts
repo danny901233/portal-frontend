@@ -141,11 +141,11 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
         <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
           <!-- Header with Logo -->
           <tr>
-            <td style="padding: 0; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);">
+            <td style="padding: 0; background: linear-gradient(135deg, #3126cf 0%, #2419a8 100%);">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td style="text-align: center; padding: 32px 32px 8px;">
-                    <img src="https://i.ibb.co/z5YJF9m/Reception-Mate-Logo.png" alt="ReceptionMate" width="180" style="max-width: 180px; height: auto; display: block; margin: 0 auto;" />
+                    <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" width="200" style="max-width: 200px; height: auto; display: block; margin: 0 auto;" />
                   </td>
                 </tr>
                 <tr>
@@ -170,7 +170,7 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
                   <td style="padding-bottom: 20px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                       <tr>
-                        <td style="background-color: #0ea5e9; color: #ffffff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                        <td style="background-color: #3126cf; color: #ffffff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
                           ${callType}
                         </td>
                         ${confirmedBooking ? '<td style="padding-left: 8px;"><table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="background-color: #10b981; color: #ffffff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">✓ Booking Confirmed</td></tr></table></td>' : ''}
@@ -196,13 +196,11 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
                           <strong style="color: #111827;">👤 Customer Name:</strong> ${customerName || 'Not provided'}
                         </td>
                       </tr>
-                      ${customerPhone ? `
                       <tr>
                         <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
-                          <strong style="color: #111827;">📞 Phone:</strong> ${customerPhone}
+                          <strong style="color: #111827;">📞 Caller Phone:</strong> ${customerPhone || 'Not provided'}
                         </td>
                       </tr>
-                      ` : ''}
                       ${registrationNumber ? `
                       <tr>
                         <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #6b7280;">
@@ -244,7 +242,7 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
               </h2>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
-                  <td style="padding: 20px; background-color: #eff6ff; border-left: 4px solid #0ea5e9; border-radius: 6px; font-size: 14px; line-height: 1.7; color: #374151;">
+                  <td style="padding: 20px; background-color: #eff6ff; border-left: 4px solid #3126cf; border-radius: 6px; font-size: 14px; line-height: 1.7; color: #374151;">
                     ${summary}
                   </td>
                 </tr>
@@ -272,7 +270,7 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
           <tr>
             <td style="padding: 28px 32px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
               <p style="margin: 0; font-size: 13px; color: #374151; font-weight: 500;">
-                This is an automated notification from <strong style="color: #0ea5e9;">ReceptionMate</strong>
+                This is an automated notification from <strong style="color: #3126cf;">ReceptionMate</strong>
               </p>
               <p style="margin: 12px 0 0; font-size: 12px; color: #9ca3af;">
                 Intelligent call handling for your business

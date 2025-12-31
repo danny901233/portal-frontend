@@ -84,17 +84,9 @@ export const generateWeeklyReports = async (): Promise<void> => {
   // Find all managers
   const managers = await prisma.user.findMany({
     where: {
-      OR: [
-        { role: 'MANAGER' },
-        { branchRoles: { some: {} } },
-      ],
+      role: 'MANAGER',
     },
     include: {
-      branchRoles: {
-        include: {
-          garage: true,
-        },
-      },
       business: {
         include: {
           garages: true,
@@ -111,23 +103,16 @@ export const generateWeeklyReports = async (): Promise<void> => {
       const branches: { id: string; name: string }[] = [];
       
       // If manager role, get all branches in their business
-      if (manager.role === 'MANAGER' && manager.business) {
+      if (manager.business) {
         branches.push(...manager.business.garages.map(g => ({ id: g.id, name: g.name })));
       }
-      
-      // Add branches from branchRoles
-      manager.branchRoles.forEach(br => {
-        if (!branches.some(b => b.id === br.garage.id)) {
-          branches.push({ id: br.garage.id, name: br.garage.name });
-        }
-      });
 
       if (branches.length === 0) {
-        console.log(`Skipping ${manager.name} - no branches assigned`);
+        console.log(`Skipping ${manager.email} - no branches assigned`);
         continue;
       }
 
-      console.log(`Processing manager: ${manager.name} with ${branches.length} branch(es)`);
+      console.log(`Processing manager: ${manager.email} with ${branches.length} branch(es)`);
 
       // Calculate stats for each branch
       const branchStats: BranchStats[] = [];
@@ -143,7 +128,7 @@ export const generateWeeklyReports = async (): Promise<void> => {
 
       // Send email
       await sendWeeklyReport({
-        userName: manager.name,
+        userName: manager.email,
         userEmail: manager.email,
         periodStart: formatDate(startDate),
         periodEnd: formatDate(new Date(endDate.getTime() - 24 * 60 * 60 * 1000)), // Yesterday
@@ -177,17 +162,9 @@ export const generateMonthlyReports = async (): Promise<void> => {
   // Find all managers
   const managers = await prisma.user.findMany({
     where: {
-      OR: [
-        { role: 'MANAGER' },
-        { branchRoles: { some: {} } },
-      ],
+      role: 'MANAGER',
     },
     include: {
-      branchRoles: {
-        include: {
-          garage: true,
-        },
-      },
       business: {
         include: {
           garages: true,
@@ -204,23 +181,16 @@ export const generateMonthlyReports = async (): Promise<void> => {
       const branches: { id: string; name: string }[] = [];
       
       // If manager role, get all branches in their business
-      if (manager.role === 'MANAGER' && manager.business) {
+      if (manager.business) {
         branches.push(...manager.business.garages.map(g => ({ id: g.id, name: g.name })));
       }
-      
-      // Add branches from branchRoles
-      manager.branchRoles.forEach(br => {
-        if (!branches.some(b => b.id === br.garage.id)) {
-          branches.push({ id: br.garage.id, name: br.garage.name });
-        }
-      });
 
       if (branches.length === 0) {
-        console.log(`Skipping ${manager.name} - no branches assigned`);
+        console.log(`Skipping ${manager.email} - no branches assigned`);
         continue;
       }
 
-      console.log(`Processing manager: ${manager.name} with ${branches.length} branch(es)`);
+      console.log(`Processing manager: ${manager.email} with ${branches.length} branch(es)`);
 
       // Calculate stats for each branch
       const branchStats: BranchStats[] = [];
@@ -238,7 +208,7 @@ export const generateMonthlyReports = async (): Promise<void> => {
 
       // Send email
       await sendMonthlyReport({
-        userName: manager.name,
+        userName: manager.email,
         userEmail: manager.email,
         month,
         year,

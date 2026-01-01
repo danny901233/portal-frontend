@@ -19,6 +19,10 @@ export const createAdminBranch = async (payload: { businessId: string; name: str
   return data;
 };
 
+export const deleteAdminBusiness = async (businessId: string) => {
+  await api.delete(`/api/admin/businesses/${businessId}`);
+};
+
 export const deleteAdminBranch = async (branchId: string) => {
   await api.delete(`/api/admin/branches/${branchId}`);
 };

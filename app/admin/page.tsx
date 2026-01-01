@@ -10,6 +10,7 @@ import {
   createAdminBusiness,
   createAdminUser,
   deleteAdminBranch,
+  deleteAdminBusiness,
   deleteAdminUser,
   fetchAdminBusinesses,
   fetchAdminUsers,
@@ -338,6 +339,17 @@ export default function AdminPage() {
       setBranchMessage('Failed to remove branch.');
     },
   });
+
+  const deleteBusinessMutation = useMutation({
+    mutationFn: deleteAdminBusiness,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] });
+      setBusinessMessage('Business deleted successfully.');
+    },
+    onError: () => {
+      setBusinessMessage('Failed to delete business.');
+    },
+  });
   
   const deleteUserMutation = useMutation({
     mutationFn: deleteAdminUser,
@@ -574,28 +586,45 @@ export default function AdminPage() {
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {filteredBusinesses.map((business) => (
-            <button
+            <div
               key={business.id}
-              onClick={() => setSelectedBusinessId(business.id)}
-              className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
+              className={`relative w-full rounded-xl border px-4 py-3 transition-colors ${
                 business.id === selectedBusinessId
-                  ? 'border-sky-500 bg-sky-500/10 text-slate-100'
-                  : 'border-slate-800 bg-slate-950/40 text-slate-200 hover:border-slate-700'
+                  ? 'border-sky-500 bg-sky-500/10'
+                  : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
               }`}
             >
-              <div className="flex items-center justify-between text-sm font-semibold">
-                <span>{business.name}</span>
-                <span className="text-[10px] uppercase tracking-[0.4em] text-slate-500">
-                  {business.branches.length} Branches
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500">Business ID: {business.id}</p>
-              <p className="mt-2 text-xs text-slate-500">
-                {business.branches.length === 0
-                  ? 'Add a branch to start tracking calls.'
-                  : 'Choose this business to manage its branches.'}
-              </p>
-            </button>
+              <button
+                onClick={() => setSelectedBusinessId(business.id)}
+                className="w-full text-left"
+              >
+                <div className="flex items-center justify-between text-sm font-semibold">
+                  <span className="text-slate-100">{business.name}</span>
+                  <span className="text-[10px] uppercase tracking-[0.4em] text-slate-500">
+                    {business.branches.length} Branches
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">Business ID: {business.id}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {business.branches.length === 0
+                    ? 'Add a branch to start tracking calls.'
+                    : 'Choose this business to manage its branches.'}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirm(`Are you sure you want to delete "${business.name}" and all its branches? This cannot be undone.`)) {
+                    deleteBusinessMutation.mutate(business.id);
+                  }
+                }}
+                disabled={deleteBusinessMutation.isPending}
+                className="absolute right-2 top-2 rounded-lg bg-red-600/80 px-2 py-1 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"
+              >
+                Delete
+              </button>
+            </div>
           ))}
         </div>
         {filteredBusinesses.length === 0 && (

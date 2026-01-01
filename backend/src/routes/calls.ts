@@ -13,7 +13,7 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { sendCallSummaryEmail } from '../utils/email.js';
+import { sendCallSummaryEmail, sendNegativeFeedbackEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -180,9 +180,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
-      const allowedGarages = resolveAllowedGarages(req.user);
+      const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+      const allowedGarages = isStaff ? [] : resolveAllowedGarages(req.user);
 
-      if (!allowedGarages.includes(garageId)) {
+      // RECEPTIONMATE_STAFF can access any garage, others must have explicit access
+      if (!isStaff && !allowedGarages.includes(garageId)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
 
@@ -201,10 +203,10 @@ router.get(
       // If garageIds filter is provided, use it (for "all assigned branches")
       if (garageIds) {
         const requestedGarageIds = Array.isArray(garageIds) ? garageIds : [garageIds];
-        // Only include garages the user has access to
+        // RECEPTIONMATE_STAFF can access all requested garages, others only their assigned ones
         const validGarageIds = requestedGarageIds
           .filter((id): id is string => typeof id === 'string')
-          .filter(id => allowedGarages.includes(id));
+          .filter(id => isStaff || allowedGarages.includes(id));
         if (validGarageIds.length === 0) {
           return res.status(403).json({ error: 'No valid garage IDs provided' });
         }
@@ -267,9 +269,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId, callId } = req.params;
-      const allowedGarages = resolveAllowedGarages(req.user);
+      const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+      const allowedGarages = isStaff ? [] : resolveAllowedGarages(req.user);
 
-      if (!allowedGarages.includes(garageId)) {
+      // RECEPTIONMATE_STAFF can access any garage, others must have explicit access
+      if (!isStaff && !allowedGarages.includes(garageId)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
 
@@ -298,15 +302,17 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { garageId, callId } = req.params;
-      const allowedGarages = resolveAllowedGarages(req.user);
+      const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+      const allowedGarages = isStaff ? [] : resolveAllowedGarages(req.user);
 
-      if (!allowedGarages.includes(garageId)) {
+      // RECEPTIONMATE_STAFF can access any garage, others must have explicit access
+      if (!isStaff && !allowedGarages.includes(garageId)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
 
       const call = await prisma.call.findFirst({
         where: { id: callId, garageId },
-        select: { id: true },
+        include: { garage: true },
       });
 
       if (!call) {
@@ -337,6 +343,21 @@ router.post(
         },
       });
 
+      // Send email notification for negative feedback
+      if (rating === 'down' && req.user?.email) {
+        void sendNegativeFeedbackEmail({
+          branchName: call.garage.name,
+          callId,
+          rating: 'down',
+          reasons: normalizedReasons,
+          notes: sanitizedNotes,
+          userEmail: req.user.email,
+          submittedAt: new Date().toISOString(),
+        }).catch((error) => {
+          console.error('Failed to send negative feedback email:', error);
+        });
+      }
+
       res.json({ feedback: serializeCallFeedback(feedback) });
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -349,6 +370,15 @@ router.post(
 
 router.get('/garages', authenticate, async (req: Request, res: Response) => {
   try {
+    // RECEPTIONMATE_STAFF can see all garages
+    if (req.user?.role === 'RECEPTIONMATE_STAFF') {
+      const garages = await prisma.garage.findMany({
+        orderBy: { name: 'asc' },
+      });
+      return res.json({ garages: garages.map((garage) => ({ id: garage.id, name: garage.name })) });
+    }
+
+    // Regular users see only their assigned garages
     const allowedGarages = resolveAllowedGarages(req.user);
     if (allowedGarages.length === 0) {
       return res.json({ garages: [] });

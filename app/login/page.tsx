@@ -93,10 +93,14 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
       <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-sky-500/10 text-lg font-semibold text-sky-400">
-            RM
+          <div className="mx-auto mb-6 flex justify-center">
+            <img
+              src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+              alt="ReceptionMate Logo"
+              className="h-16 w-auto"
+            />
           </div>
-          <h1 className="text-2xl font-semibold">ReceptionMate Portal</h1>
+          <h1 className="text-2xl font-semibold">Portal Login</h1>
           <p className="mt-2 text-sm text-slate-400">Sign in to continue to your calls dashboard</p>
         </div>
 
@@ -150,8 +154,17 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-slate-500">
-          Having trouble? Contact your administrator to reset credentials.
+        <div className="mt-6 text-center">
+          <a
+            href="mailto:hello@receptionmate.co.uk?subject=Portal%20Password%20Reset%20Request"
+            className="text-sm text-sky-400 hover:text-sky-300 hover:underline"
+          >
+            Forgot your password?
+          </a>
+        </div>
+
+        <p className="mt-4 text-center text-xs text-slate-500">
+          Having trouble? Contact us at hello@receptionmate.co.uk
         </p>
       </div>
     </div>

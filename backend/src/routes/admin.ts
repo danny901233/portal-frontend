@@ -295,6 +295,48 @@ router.get('/admin/twilio-number', authenticate, requireAdmin, async (req, res) 
   });
 });
 
+router.delete('/admin/businesses/:businessId', authenticate, requireAdmin, async (req, res) => {
+  const { businessId } = req.params;
+
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    include: { garages: true },
+  });
+
+  if (!business) {
+    return res.status(404).json({ error: 'Business not found.' });
+  }
+
+  // Get all branch IDs for this business
+  const branchIds = business.garages.map((g) => g.id);
+
+  // Remove branch access from all users
+  if (branchIds.length > 0) {
+    const users = await prisma.user.findMany({
+      where: {
+        garageAccessIds: {
+          hasSome: branchIds,
+        },
+      },
+    });
+
+    await Promise.all(
+      users.map((user) => {
+        const nextIds = user.garageAccessIds.filter((id) => !branchIds.includes(id));
+        return prisma.user.update({
+          where: { id: user.id },
+          data: { garageAccessIds: nextIds },
+        });
+      }),
+    );
+  }
+
+  // Delete the business (cascade will delete branches)
+  await prisma.business.delete({ where: { id: businessId } });
+
+  res.status(204).end();
+});
+
 router.delete('/admin/branches/:branchId', authenticate, requireAdmin, async (req, res) => {
   const { branchId } = req.params;
 

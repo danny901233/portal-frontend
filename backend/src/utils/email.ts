@@ -399,3 +399,137 @@ export const sendCallSummaryEmail = async (
     text,
   });
 };
+
+interface NegativeFeedbackEmailData {
+  branchName: string;
+  callId: string;
+  rating: 'down';
+  reasons: string[];
+  notes: string | null;
+  userEmail: string;
+  submittedAt: string;
+}
+
+export const sendNegativeFeedbackEmail = async (
+  data: NegativeFeedbackEmailData,
+): Promise<boolean> => {
+  const { branchName, callId, reasons, notes, userEmail, submittedAt } = data;
+
+  const date = new Date(submittedAt);
+  const formattedDate = date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Negative Feedback Alert</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #09203c;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #09203c;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1a3a52; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="text-align: center; padding: 32px;">
+                    <h2 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">
+                      ⚠️ Negative Feedback Received
+                    </h2>
+                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
+                      ${branchName}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <tr>
+            <td style="padding: 32px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
+                          <strong style="color: #e2e8f0;">📅 Submitted:</strong> ${formattedDate}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
+                          <strong style="color: #e2e8f0;">👤 User:</strong> ${userEmail}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
+                          <strong style="color: #e2e8f0;">🆔 Call ID:</strong> ${callId}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
+                          <strong style="color: #e2e8f0;">📝 Reasons:</strong><br/>
+                          ${reasons.length > 0 ? reasons.map(r => `• ${r}`).join('<br/>') : 'No specific reasons provided'}
+                        </td>
+                      </tr>
+                      ${notes ? `<tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
+                          <strong style="color: #e2e8f0;">💬 Additional Notes:</strong><br/>
+                          ${notes}
+                        </td>
+                      </tr>` : ''}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <tr>
+            <td style="padding: 32px; text-align: center; color: #64748b; font-size: 12px; border-top: 1px solid #1e4a66;">
+              <p style="margin: 0;">
+                This is an automated alert from ReceptionMate
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+
+  const text = `
+NEGATIVE FEEDBACK RECEIVED
+
+Branch: ${branchName}
+Call ID: ${callId}
+Submitted: ${formattedDate}
+User: ${userEmail}
+
+Reasons:
+${reasons.length > 0 ? reasons.map(r => `• ${r}`).join('\n') : 'No specific reasons provided'}
+
+${notes ? `Additional Notes:\n${notes}` : ''}
+
+---
+This is an automated alert from ReceptionMate
+`;
+
+  return sendEmail({
+    to: ['hello@receptionmate.co.uk'],
+    subject: `⚠️ Negative Feedback: ${branchName}`,
+    html,
+    text,
+  });
+};

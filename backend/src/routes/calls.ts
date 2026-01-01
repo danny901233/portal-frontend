@@ -127,10 +127,12 @@ router.post('/calls', async (req: Request, res: Response) => {
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
         confirmedBooking: payload.confirmedBooking ?? false,
+        confirmedBookingCategory: payload.confirmedBookingCategory,
         capturedRevenue: payload.capturedRevenue ?? null,
         metrics: payload.metrics,
         transcript: payload.transcript,
         summary: payload.summary,
+        emotionData: payload.emotionData ?? null,
       },
     });
 

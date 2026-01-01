@@ -36,7 +36,6 @@ model Call {
   metrics      Json
   transcript   Json
   summary      String
-  emotionData  Json?
   createdAt    DateTime @default(now())
   feedback     CallFeedback?
 }

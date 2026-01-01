@@ -26,7 +26,7 @@ import {
 import { fetchGarages } from '../lib/api';
 import type { GarageSummary } from '../types';
 
-const publicPaths = new Set(['/login']);
+const publicPaths = new Set(['/login', '/reset-password']);
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

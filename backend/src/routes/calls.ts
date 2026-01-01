@@ -132,7 +132,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         metrics: payload.metrics,
         transcript: payload.transcript,
         summary: payload.summary,
-        emotionData: payload.emotionData ?? null,
+        ...(payload.emotionData && { emotionData: payload.emotionData }),
       },
     });
 

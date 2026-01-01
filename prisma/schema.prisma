@@ -50,6 +50,8 @@ model User {
   updatedAt    DateTime @updatedAt
   role         UserRole @default(USER)
   branchRoles  Json @default("{}")
+  resetToken       String?
+  resetTokenExpiry DateTime?
 }
 
 model AgentConfiguration {

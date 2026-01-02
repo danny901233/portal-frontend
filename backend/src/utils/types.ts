@@ -51,6 +51,7 @@ export type IntegrationProvider = 'none' | 'garage_hive';
 export type GarageHiveSettings = {
   instanceUrl: string;
   apiKey: string;
+  customerId: string;
   locationId: string;
 };
 
@@ -76,12 +77,14 @@ export const cloneWeeklyOpeningHours = (hours: WeeklyOpeningHours): WeeklyOpenin
 export const createDefaultGarageHiveSettings = (): GarageHiveSettings => ({
   instanceUrl: '',
   apiKey: '',
+  customerId: '',
   locationId: '',
 });
 
 export const cloneGarageHiveSettings = (settings?: GarageHiveSettings | null): GarageHiveSettings => ({
   instanceUrl: typeof settings?.instanceUrl === 'string' ? settings.instanceUrl : '',
   apiKey: typeof settings?.apiKey === 'string' ? settings.apiKey : '',
+  customerId: typeof settings?.customerId === 'string' ? settings.customerId : '',
   locationId: typeof settings?.locationId === 'string' ? settings.locationId : '',
 });
 

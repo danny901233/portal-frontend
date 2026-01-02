@@ -70,6 +70,7 @@ const cloneWeeklyOpeningHours = (hours: WeeklyOpeningHours): WeeklyOpeningHours 
 const createEmptyGarageHiveSettings = (): AgentConfiguration['garageHiveSettings'] => ({
   instanceUrl: '',
   apiKey: '',
+  customerId: '',
   locationId: '',
 });
 

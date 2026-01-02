@@ -112,6 +112,7 @@ const parseIntegrationSettings = (
     garageHiveSettings: cloneGarageHiveSettings({
       instanceUrl: typeof settingsRecord.instanceUrl === 'string' ? settingsRecord.instanceUrl : '',
       apiKey: typeof settingsRecord.apiKey === 'string' ? settingsRecord.apiKey : '',
+      customerId: typeof settingsRecord.customerId === 'string' ? settingsRecord.customerId : '',
       locationId: typeof settingsRecord.locationId === 'string' ? settingsRecord.locationId : '',
     }),
   };

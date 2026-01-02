@@ -140,6 +140,7 @@ export type IntegrationProvider = 'none' | 'garage_hive';
 export interface GarageHiveSettings {
   instanceUrl: string;
   apiKey: string;
+  customerId: string;
   locationId: string;
 }
 

@@ -123,6 +123,8 @@ router.post('/agent-config', async (req: Request, res: Response) => {
     `AGENT_HOLIDAY_CLOSURES=${formatEnvValue(configuration.holidayClosures)}`,
     `AGENT_WEEKLY_OPENING_HOURS=${formatEnvValue(JSON.stringify(configuration.weeklyOpeningHours ?? {}))}`,
     `AGENT_KNOWLEDGE_VERSION=${formatEnvValue(resolvedKnowledgeVersion)}`,
+    `GH_CUSTOMER_ID=${formatEnvValue(configuration.garageHiveSettings?.customerId || '')}`,
+    `GH_LOCATION_ID=${formatEnvValue(configuration.garageHiveSettings?.locationId || '')}`,
   ];
 
   try {

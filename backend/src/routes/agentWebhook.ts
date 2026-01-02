@@ -6,6 +6,27 @@ import path from 'node:path';
 
 const router = Router();
 
+// DynamoDB client (lazy init to handle missing AWS SDK gracefully)
+let dynamoClient: any = null;
+
+const getDynamoClient = () => {
+  if (dynamoClient !== null) {
+    return dynamoClient;
+  }
+  
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DynamoDBClient, PutItemCommand } = require('@aws-sdk/client-dynamodb');
+    const region = process.env.AWS_DEFAULT_REGION || process.env.AWS_REGION || 'eu-west-2';
+    dynamoClient = { client: new DynamoDBClient({ region }), PutItemCommand };
+    return dynamoClient;
+  } catch {
+    // AWS SDK not installed or region not configured
+    dynamoClient = false;
+    return null;
+  }
+};
+
 const resolveSettingsPath = () => {
   const configuredPath = process.env.BASIC_AGENT_SETTINGS_PATH;
   if (configuredPath && configuredPath.trim().length > 0) {
@@ -139,6 +160,30 @@ router.post('/agent-config', async (req: Request, res: Response) => {
       await fs.writeFile(knowledgePath, `${JSON.stringify(knowledgePayload, null, 2)}\n`, 'utf8');
     } else {
       await fs.rm(knowledgePath, { force: true });
+    }
+
+    // Also update DynamoDB if available
+    const dynamo = getDynamoClient();
+    if (dynamo) {
+      try {
+        await dynamo.client.send(new dynamo.PutItemCommand({
+          TableName: 'AgentConfig',
+          Item: {
+            garageId: { S: garageId },
+            updatedAt: { S: new Date().toISOString() },
+            configuration: { S: JSON.stringify(configuration) },
+            knowledgeBase: { S: JSON.stringify(sanitizedKnowledge) },
+            knowledgeVersion: resolvedKnowledgeVersion
+              ? { S: resolvedKnowledgeVersion }
+              : { NULL: true },
+          },
+        }));
+      } catch (dynamoError) {
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.error('Failed to update DynamoDB (continuing anyway)', dynamoError);
+        }
+      }
     }
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {

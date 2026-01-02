@@ -70,6 +70,7 @@ const garageHiveSettingsSchema = z
   .object({
     instanceUrl: z.union([z.string().max(2048), z.literal('')]).optional(),
     apiKey: optionalBoundedString(4096),
+    customerId: optionalBoundedString(200),
     locationId: optionalBoundedString(200),
   })
   .optional();

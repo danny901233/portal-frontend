@@ -1110,7 +1110,21 @@ export default function AgentConfigurationsPage() {
                       Stored securely and only visible to you while editing.
                     </span>
                   </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Customer ID</span>
+                    <input
+                      type="text"
+                      value={formState.garageHiveSettings.customerId}
+                      onChange={handleGarageHiveSettingsChange('customerId')}
+                      disabled={!isEditing || mutation.isPending}
+                      required={formState.integrationProvider === 'garage_hive'}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-xs text-slate-500">
+                      Your unique Garage Hive customer identifier for this branch.
+                    </span>
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
                     <span className="text-xs uppercase tracking-wide text-slate-500">Location ID</span>
                     <input
                       type="text"
@@ -1142,6 +1156,12 @@ export default function AgentConfigurationsPage() {
                       <span className="text-xs uppercase tracking-wide text-slate-500">API key</span>
                       <div className="text-slate-100">
                         {maskSecretValue(formState.garageHiveSettings.apiKey)}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Customer ID</span>
+                      <div className="text-slate-100">
+                        {formState.garageHiveSettings.customerId || 'Not set'}
                       </div>
                     </div>
                     <div>

@@ -5,6 +5,7 @@ export const TRACKED_TAGS = [
   'complaint',
   'human request',
   'confirmed booking',
+  'other',
 ] as const;
 
 export const TAG_LABELS: Record<string, string> = {

@@ -498,6 +498,8 @@ router.put(
             typeof rawGarageHive.instanceUrl === 'string' ? rawGarageHive.instanceUrl.trim() : '',
           apiKey:
             typeof rawGarageHive.apiKey === 'string' ? rawGarageHive.apiKey.trim() : '',
+          customerId:
+            typeof rawGarageHive.customerId === 'string' ? rawGarageHive.customerId.trim() : '',
           locationId:
             typeof rawGarageHive.locationId === 'string' ? rawGarageHive.locationId.trim() : '',
         })
@@ -508,6 +510,7 @@ router.put(
         ? {
             instanceUrl: garageHiveSettings.instanceUrl,
             apiKey: garageHiveSettings.apiKey,
+            customerId: garageHiveSettings.customerId,
             locationId: garageHiveSettings.locationId,
           }
         : null;

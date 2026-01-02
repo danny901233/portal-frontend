@@ -79,6 +79,7 @@ const cloneGarageHiveSettings = (
 ): AgentConfiguration['garageHiveSettings'] => ({
   instanceUrl: settings?.instanceUrl ?? '',
   apiKey: settings?.apiKey ?? '',
+  customerId: settings?.customerId ?? '',
   locationId: settings?.locationId ?? '',
 });
 

@@ -240,6 +240,13 @@ export default function DashboardPage() {
       if (tag !== 'confirmed booking') {
         return acc;
       }
+      
+      // First check if capturedRevenue exists at the top level (new format)
+      if (typeof call.capturedRevenue === 'number' && Number.isFinite(call.capturedRevenue)) {
+        return acc + call.capturedRevenue;
+      }
+      
+      // Fallback to checking metrics object (legacy format)
       const metrics = call.metrics ?? {};
       const valueCandidate = BOOKING_VALUE_KEYS.reduce<number | undefined>((found, key) => {
         if (found !== undefined) {

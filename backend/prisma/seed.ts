@@ -11,6 +11,12 @@ const main = async () => {
   const businessName = process.env.SEED_BUSINESS_NAME || 'ReceptionMate Business';
   const garageId = process.env.SEED_GARAGE_ID || '827efd7f-c5df-47b1-b2b0-f9a5bde39efa';
   const garageName = process.env.SEED_GARAGE_NAME || 'ReceptionMate Garage';
+  
+  // GarageHive integration settings
+  const ghInstanceUrl = process.env.SEED_GH_INSTANCE_URL || 'devbc24_mpu';
+  const ghCustomerId = process.env.SEED_GH_CUSTOMER_ID || ghInstanceUrl;
+  const ghLocationId = process.env.SEED_GH_LOCATION_ID || '399';
+  const ghApiKey = process.env.SEED_GH_API_KEY || '';
 
   const passwordHash = await bcrypt.hash(password, 10);
   const branchRoles = { [garageId]: 'MANAGER' } as const;
@@ -82,8 +88,23 @@ const main = async () => {
       interruptionSensitivity: 0.5,
       allowFastFitOnly: false,
       callSummaryEmail: email,
+      integrationProvider: 'garage_hive',
+      integrationProviderConfig: {
+        instanceUrl: ghInstanceUrl,
+        customerId: ghCustomerId,
+        locationId: ghLocationId,
+        apiKey: ghApiKey,
+      },
     },
-    update: {},
+    update: {
+      integrationProvider: 'garage_hive',
+      integrationProviderConfig: {
+        instanceUrl: ghInstanceUrl,
+        customerId: ghCustomerId,
+        locationId: ghLocationId,
+        apiKey: ghApiKey,
+      },
+    },
   });
 
   // eslint-disable-next-line no-console

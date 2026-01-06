@@ -33,6 +33,7 @@ export interface CallRecord {
   feedback: CallFeedbackRecord | null;
   confirmedBooking?: boolean | null;
   confirmedBookingCategory?: ConfirmedBookingCategory | null;
+  capturedRevenue?: number | null;
   createdAt: string;
 }
 

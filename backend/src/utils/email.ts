@@ -204,7 +204,7 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
                       </tr>
                       <tr>
                         <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📞 Incoming Number:</strong> ${customerPhone || 'Not captured'}
+                          <strong style="color: #e2e8f0;">📞 Caller Phone:</strong> ${customerPhone || 'Not captured'}
                         </td>
                       </tr>
                       ${registrationNumber ? `
@@ -214,17 +214,22 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
                         </td>
                       </tr>
                       ` : ''}
-                      ${formattedBookingDate ? `
                       <tr>
                         <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📆 Booking Date:</strong> ${formattedBookingDate}
+                          <strong style="color: #e2e8f0;">📆 Booking Date:</strong> ${formattedBookingDate || 'No booking made'}
+                        </td>
+                      </tr>
+                      ${priceQuoted ? `
+                      <tr>
+                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
+                          <strong style="color: #e2e8f0;">💰 Price Quoted:</strong> £${priceQuoted.toFixed(2)}
                         </td>
                       </tr>
                       ` : ''}
-                      ${priceQuoted ? `
+                      ${capturedRevenue ? `
                       <tr>
                         <td style="padding-bottom: 0; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">💰 Price Quoted:</strong> £${priceQuoted.toFixed(2)}
+                          <strong style="color: #10b981;">💵 Revenue Captured:</strong> <span style="color: #10b981; font-weight: 600;">£${capturedRevenue.toFixed(2)}</span>
                         </td>
                       </tr>
                       ` : ''}

@@ -13,9 +13,9 @@ app.use(express.json());
 const activationPayloadSchema = z.object({
   garageId: z.string().uuid(),
   garageName: z.string(),
-  branchName: z.string().nullable(),
-  contactEmail: z.string().email().nullable(),
-  contactPhone: z.string().nullable(),
+  branchName: z.string().nullable().optional(),
+  contactEmail: z.string().email().nullable().optional(),
+  contactPhone: z.string().nullable().optional(),
   twilioNumber: z.string(),
   triggeredAt: z.string(),
 });

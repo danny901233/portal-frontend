@@ -24,6 +24,7 @@ export const createCallSchema = z
       .optional()
       .or(z.literal(''))
       .transform((val) => val || undefined),
+    twilioCallSid: z.string().optional(),
     durationSeconds: z.number().int().nonnegative().optional(),
     callType: z.string().min(1).optional(),
     metrics: metricsSchema,

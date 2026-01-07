@@ -101,6 +101,20 @@ router.post('/calls', async (req: Request, res: Response) => {
 
     const payload = parseResult.data;
 
+    // If Twilio CallSid provided, try to get recording URL from callback data
+    let finalRecordingUrl = payload.recordingUrl;
+    if (payload.twilioCallSid && global.twilioRecordings) {
+      const recordingData = global.twilioRecordings.get(payload.twilioCallSid);
+      if (recordingData?.recordingUrl) {
+        console.log(`[RECORDING] Found Twilio recording for CallSid ${payload.twilioCallSid}:`, recordingData.recordingUrl);
+        finalRecordingUrl = recordingData.recordingUrl;
+        // Clean up the map entry
+        global.twilioRecordings.delete(payload.twilioCallSid);
+      } else {
+        console.log(`[RECORDING] No recording found yet for CallSid ${payload.twilioCallSid}, will be null`);
+      }
+    }
+
     await prisma.garage.upsert({
       where: { id: payload.garageId },
       create: {
@@ -120,7 +134,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         id: callId,
         garageId: payload.garageId,
         roomName: payload.roomName,
-        recordingUrl: payload.recordingUrl,
+        recordingUrl: finalRecordingUrl,
         durationSeconds: payload.durationSeconds,
         callType,
         registrationNumber: payload.registrationNumber,

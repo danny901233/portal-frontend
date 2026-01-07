@@ -29,6 +29,10 @@ const twilioClient = twilio(
 );
 
 // LiveKit SIP client
+console.log('🔧 Initializing LiveKit SIP client with:', {
+  url: process.env.LIVEKIT_URL,
+  apiKey: process.env.LIVEKIT_API_KEY?.substring(0, 10) + '...',
+});
 const livekitSipClient = new SipClient(
   process.env.LIVEKIT_URL!,
   process.env.LIVEKIT_API_KEY!,

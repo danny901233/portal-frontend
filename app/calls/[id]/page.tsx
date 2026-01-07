@@ -264,6 +264,30 @@ export default function CallDetailPage() {
         <MetricCard label="Caller Number" value={callerNumber} />
       </section>
 
+      {call.recordingUrl ? (
+        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+          <h2 className="text-lg font-semibold text-slate-100 mb-4">Call Recording</h2>
+          <audio
+            controls
+            className="w-full"
+            preload="metadata"
+          >
+            <source src={call.recordingUrl} type="audio/mpeg" />
+            <source src={call.recordingUrl} type="audio/wav" />
+            Your browser does not support the audio element.
+          </audio>
+          <p className="mt-2 text-xs text-slate-500">
+            <a 
+              href={call.recordingUrl} 
+              download 
+              className="text-sky-400 hover:text-sky-300 hover:underline"
+            >
+              Download recording
+            </a>
+          </p>
+        </section>
+      ) : null}
+
       {metricEntries.length > 0 ? (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {metricEntries.map(([key, value]) => (

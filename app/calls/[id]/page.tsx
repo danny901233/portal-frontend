@@ -174,7 +174,7 @@ export default function CallDetailPage() {
     setRecordingError(null);
     
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      const token = typeof window !== 'undefined' ? localStorage.getItem('rm_token') : null;
       const response = await fetch(`/api/calls/${callId}/recording`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });

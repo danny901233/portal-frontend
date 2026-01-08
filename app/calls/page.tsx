@@ -105,12 +105,19 @@ const deriveCallerName = (call: CallRecord): string => {
 const PHONE_REGEX = /\b(?:\+?\d[\d\s-]{6,})\b/;
 
 const deriveCallerNumber = (call: CallRecord): string | null => {
+  // Use customerPhone if available (stored from agent)
+  if (call.customerPhone) {
+    return call.customerPhone;
+  }
+  
+  // Fallback to extracting from summary
   const summary = call.summary ?? '';
   const summaryMatch = summary.match(PHONE_REGEX);
   if (summaryMatch) {
     return summaryMatch[0].trim();
   }
 
+  // Fallback to transcript
   for (const entry of call.transcript) {
     if (entry.speaker && entry.speaker.toLowerCase() !== 'customer') {
       continue;

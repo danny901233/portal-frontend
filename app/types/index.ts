@@ -30,6 +30,9 @@ export interface CallRecord {
   summary: string;
   callerName?: string | null;
   callerNumber?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  registrationNumber?: string | null;
   feedback: CallFeedbackRecord | null;
   confirmedBooking?: boolean | null;
   confirmedBookingCategory?: ConfirmedBookingCategory | null;

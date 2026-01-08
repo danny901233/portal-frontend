@@ -945,14 +945,12 @@ export default function CallsPage() {
                       <td className="px-5 py-3 align-top text-slate-100">{callTag}</td>
                       <td className="px-5 py-3 align-top text-slate-300">
                         {call.recordingUrl ? (
-                          <a
-                            href={call.recordingUrl}
-                            className="rounded-md border border-slate-700 px-2 py-1 text-xs text-sky-400 hover:border-slate-500 hover:text-sky-300"
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            View Recording
-                          </a>
+                          <audio
+                            src={call.recordingUrl}
+                            controls
+                            className="h-8"
+                            style={{ width: '200px' }}
+                          />
                         ) : call.customerPhone ? (
                           <div className="space-y-1">
                             <button

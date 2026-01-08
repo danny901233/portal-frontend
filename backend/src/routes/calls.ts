@@ -383,7 +383,7 @@ router.post(
 );
 
 // Fetch Twilio recording URL for a specific call
-router.get('/:id/recording', authenticate, async (req: Request, res: Response) => {
+router.get('/calls/:id/recording', authenticate, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     

@@ -382,6 +382,102 @@ router.post(
   },
 );
 
+// Fetch Twilio recording URL for a specific call
+router.get('/:id/recording', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // Fetch call with garage info
+    const call = await prisma.call.findUnique({
+      where: { id },
+      include: { garage: true },
+    });
+
+    if (!call) {
+      return res.status(404).json({ error: 'Call not found' });
+    }
+
+    // Check user has access to this garage
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF' && !allowedGarages.includes(call.garageId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // If we already have a recording URL, return it
+    if (call.recordingUrl) {
+      return res.json({ recordingUrl: call.recordingUrl });
+    }
+
+    // Otherwise, try to fetch from Twilio using customer phone
+    if (!call.customerPhone) {
+      return res.status(404).json({ error: 'No customer phone number available for this call' });
+    }
+
+    // Fetch recording from Twilio
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+    if (!accountSid || !authToken) {
+      console.error('[RECORDING] Twilio credentials not configured');
+      return res.status(500).json({ error: 'Recording service not configured' });
+    }
+
+    // Search for recent calls from this number
+    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?From=${encodeURIComponent(call.customerPhone)}&PageSize=10`;
+    const callsResponse = await fetch(callsUrl, {
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+      },
+    });
+
+    if (!callsResponse.ok) {
+      console.error('[RECORDING] Failed to fetch Twilio calls:', callsResponse.status);
+      return res.status(500).json({ error: 'Failed to fetch recording' });
+    }
+
+    const callsData = await callsResponse.json();
+    
+    // Find calls around the time of this call (within 5 minutes)
+    const callTime = call.createdAt.getTime();
+    const tolerance = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+    for (const twilioCall of callsData.calls || []) {
+      const twilioCallTime = new Date(twilioCall.start_time).getTime();
+      if (Math.abs(twilioCallTime - callTime) < tolerance) {
+        // Check if this call has recordings
+        const recordingsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${twilioCall.sid}/Recordings.json`;
+        const recordingsResponse = await fetch(recordingsUrl, {
+          headers: {
+            'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+          },
+        });
+
+        if (recordingsResponse.ok) {
+          const recordingsData = await recordingsResponse.json();
+          if (recordingsData.recordings && recordingsData.recordings.length > 0) {
+            const recording = recordingsData.recordings[0];
+            const recordingUrl = `https://api.twilio.com${recording.uri.replace('.json', '')}`;
+            
+            // Store the recording URL in the database for future use
+            await prisma.call.update({
+              where: { id },
+              data: { recordingUrl },
+            });
+
+            return res.json({ recordingUrl });
+          }
+        }
+      }
+    }
+
+    // No recording found
+    return res.status(404).json({ error: 'No recording found for this call' });
+  } catch (error) {
+    console.error('[RECORDING] Error fetching recording:', error);
+    res.status(500).json({ error: 'Failed to fetch recording' });
+  }
+});
+
 router.get('/garages', authenticate, async (req: Request, res: Response) => {
   try {
     // RECEPTIONMATE_STAFF can see all garages

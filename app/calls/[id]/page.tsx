@@ -140,6 +140,10 @@ export default function CallDetailPage() {
   const callId = Array.isArray(rawId) ? rawId[0] : rawId;
   const garageId = getGarageId();
   const [copied, setCopied] = useState(false);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [fetchingRecording, setFetchingRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+
   const copyCallId = useCallback(() => {
     if (!callId) {
       return;
@@ -160,6 +164,32 @@ export default function CallDetailPage() {
     const timeout = window.setTimeout(() => setCopied(false), 2000);
     return () => window.clearTimeout(timeout);
   }, [copied]);
+
+  const fetchRecording = useCallback(async () => {
+    if (!callId || fetchingRecording) {
+      return;
+    }
+    
+    setFetchingRecording(true);
+    setRecordingError(null);
+    
+    try {
+      const response = await fetch(`/api/calls/${callId}/recording`);
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to fetch recording' }));
+        throw new Error(error.error || 'Failed to fetch recording');
+      }
+      
+      const data = await response.json();
+      setRecordingUrl(data.recordingUrl);
+    } catch (error) {
+      console.error('Error fetching recording:', error);
+      setRecordingError(error instanceof Error ? error.message : 'Failed to fetch recording');
+    } finally {
+      setFetchingRecording(false);
+    }
+  }, [callId, fetchingRecording]);
 
   const query = useQuery<CallRecord>({
     queryKey: ['call-detail', garageId, callId],
@@ -375,36 +405,55 @@ export default function CallDetailPage() {
               </div>
             </div>
           ) : null}
-          {call.recordingUrl ? (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-              <h2 className="text-lg font-semibold text-slate-100">Recording</h2>
-              {/\.(mp3|wav|m4a|aac)$/i.test(call.recordingUrl) ? (
-                <audio
-                  src={call.recordingUrl}
-                  controls
-                  className="mt-3 w-full"
-                />
-              ) : (
-                <video
-                  src={call.recordingUrl}
-                  controls
-                  className="mt-3 w-full rounded-lg border border-slate-800 object-cover"
-                />
-              )}
-              <a
-                href={call.recordingUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-flex items-center rounded-md border border-slate-700 px-3 py-1 text-xs text-sky-400 hover:border-slate-500 hover:text-sky-300"
-              >
-                Open in new tab
-              </a>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6 text-sm text-slate-400">
-              No recording available for this call.
-            </div>
-          )}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">Call Recording</h2>
+            
+            {call.recordingUrl || recordingUrl ? (
+              <>
+                {/\.(mp3|wav|m4a|aac)$/i.test(call.recordingUrl || recordingUrl || '') ? (
+                  <audio
+                    src={call.recordingUrl || recordingUrl || ''}
+                    controls
+                    className="w-full"
+                  />
+                ) : (
+                  <video
+                    src={call.recordingUrl || recordingUrl || ''}
+                    controls
+                    className="w-full rounded-lg border border-slate-800 object-cover"
+                  />
+                )}
+                <a
+                  href={call.recordingUrl || recordingUrl || ''}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex items-center rounded-md border border-slate-700 px-3 py-1 text-xs text-sky-400 hover:border-slate-500 hover:text-sky-300"
+                >
+                  Open in new tab
+                </a>
+              </>
+            ) : call.customerPhone ? (
+              <div className="space-y-3">
+                <p className="text-sm text-slate-400">
+                  Recording available from Twilio (caller: {formatPhoneNumber(call.customerPhone)})
+                </p>
+                <button
+                  onClick={fetchRecording}
+                  disabled={fetchingRecording}
+                  className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {fetchingRecording ? 'Fetching recording...' : 'Load Recording'}
+                </button>
+                {recordingError && (
+                  <p className="text-sm text-rose-400">{recordingError}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">
+                No recording available for this call (no customer phone number stored).
+              </p>
+            )}
+          </div>
         </div>
       </section>
     </div>

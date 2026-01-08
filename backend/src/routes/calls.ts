@@ -456,7 +456,8 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
           const recordingsData = await recordingsResponse.json();
           if (recordingsData.recordings && recordingsData.recordings.length > 0) {
             const recording = recordingsData.recordings[0];
-            const recordingUrl = `https://api.twilio.com${recording.uri.replace('.json', '')}`;
+            // Use the media_url which is publicly accessible with auth in URL
+            const recordingUrl = `https://${accountSid}:${authToken}@api.twilio.com${recording.uri.replace('.json', '.mp3')}`;
             
             // Store the recording URL in the database for future use
             await prisma.call.update({

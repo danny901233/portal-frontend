@@ -174,7 +174,10 @@ export default function CallDetailPage() {
     setRecordingError(null);
     
     try {
-      const response = await fetch(`/api/calls/${callId}/recording`);
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      const response = await fetch(`/api/calls/${callId}/recording`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Failed to fetch recording' }));

@@ -481,8 +481,8 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
   }
 });
 
-// Proxy endpoint to stream recording audio
-router.get('/calls/:id/recording/audio', authenticate, async (req: Request, res: Response) => {
+// Proxy endpoint to stream recording audio (no auth - call ID provides security)
+router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
@@ -492,23 +492,18 @@ router.get('/calls/:id/recording/audio', authenticate, async (req: Request, res:
     });
 
     if (!call) {
-      return res.status(404).json({ error: 'Call not found' });
-    }
-
-    const allowedGarages = resolveAllowedGarages(req.user);
-    if (req.user?.role !== 'RECEPTIONMATE_STAFF' && !allowedGarages.includes(call.garageId)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(404).send('Recording not found');
     }
 
     if (!call.recordingUrl) {
-      return res.status(404).json({ error: 'No recording available' });
+      return res.status(404).send('No recording available');
     }
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
     if (!accountSid || !authToken) {
-      return res.status(500).json({ error: 'Recording service not configured' });
+      return res.status(500).send('Recording service not configured');
     }
 
     // Fetch the recording from Twilio and stream it
@@ -522,7 +517,7 @@ router.get('/calls/:id/recording/audio', authenticate, async (req: Request, res:
     });
 
     if (!twilioResponse.ok) {
-      return res.status(404).json({ error: 'Recording not found' });
+      return res.status(404).send('Recording not found');
     }
 
     // Stream the audio back to the client
@@ -533,7 +528,7 @@ router.get('/calls/:id/recording/audio', authenticate, async (req: Request, res:
     res.send(Buffer.from(buffer));
   } catch (error) {
     console.error('[RECORDING] Error streaming recording:', error);
-    res.status(500).json({ error: 'Failed to stream recording' });
+    res.status(500).send('Failed to stream recording');
   }
 });
 

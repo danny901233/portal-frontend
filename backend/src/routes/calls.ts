@@ -405,7 +405,8 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     // If we already have a recording URL, return it
     if (call.recordingUrl) {
-      return res.json({ recordingUrl: call.recordingUrl });
+      const recordingUrl = `/api/calls/${id}/recording/audio`;
+      return res.json({ recordingUrl });
     }
 
     // Otherwise, try to fetch from Twilio using customer phone
@@ -456,13 +457,14 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
           const recordingsData = await recordingsResponse.json();
           if (recordingsData.recordings && recordingsData.recordings.length > 0) {
             const recording = recordingsData.recordings[0];
-            // Use the media_url which is publicly accessible with auth in URL
-            const recordingUrl = `https://${accountSid}:${authToken}@api.twilio.com${recording.uri.replace('.json', '.mp3')}`;
+            // Store the recording SID and return our proxy URL
+            const recordingSid = recording.sid;
+            const recordingUrl = `/api/calls/${id}/recording/audio`;
             
-            // Store the recording URL in the database for future use
+            // Store the Twilio recording SID in the database
             await prisma.call.update({
               where: { id },
-              data: { recordingUrl },
+              data: { recordingUrl: recordingSid },
             });
 
             return res.json({ recordingUrl });
@@ -476,6 +478,62 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
   } catch (error) {
     console.error('[RECORDING] Error fetching recording:', error);
     res.status(500).json({ error: 'Failed to fetch recording' });
+  }
+});
+
+// Proxy endpoint to stream recording audio
+router.get('/calls/:id/recording/audio', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    const call = await prisma.call.findUnique({
+      where: { id },
+      include: { garage: true },
+    });
+
+    if (!call) {
+      return res.status(404).json({ error: 'Call not found' });
+    }
+
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF' && !allowedGarages.includes(call.garageId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (!call.recordingUrl) {
+      return res.status(404).json({ error: 'No recording available' });
+    }
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+    if (!accountSid || !authToken) {
+      return res.status(500).json({ error: 'Recording service not configured' });
+    }
+
+    // Fetch the recording from Twilio and stream it
+    const recordingSid = call.recordingUrl;
+    const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordingSid}.mp3`;
+    
+    const twilioResponse = await fetch(twilioUrl, {
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+      },
+    });
+
+    if (!twilioResponse.ok) {
+      return res.status(404).json({ error: 'Recording not found' });
+    }
+
+    // Stream the audio back to the client
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
+    
+    const buffer = await twilioResponse.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (error) {
+    console.error('[RECORDING] Error streaming recording:', error);
+    res.status(500).json({ error: 'Failed to stream recording' });
   }
 });
 

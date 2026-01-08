@@ -415,6 +415,8 @@ export default function CallsPage() {
   const [feedbackNotes, setFeedbackNotes] = useState('');
   const [summaryModalCallId, setSummaryModalCallId] = useState<string | null>(null);
   const [durationSort, setDurationSort] = useState<'none' | 'asc'>('none');
+  const [loadingRecordings, setLoadingRecordings] = useState<Set<string>>(new Set());
+  const [recordingErrors, setRecordingErrors] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
 
   const startDateIso = useMemo(() => toIsoDate(startDateInput), [startDateInput]);
@@ -724,6 +726,58 @@ export default function CallsPage() {
     [router],
   );
 
+  const handleLoadRecording = useCallback(
+    async (callId: string) => {
+      if (loadingRecordings.has(callId)) {
+        return;
+      }
+
+      setLoadingRecordings((prev) => new Set(prev).add(callId));
+      setRecordingErrors((prev) => {
+        const next = { ...prev };
+        delete next[callId];
+        return next;
+      });
+
+      try {
+        const response = await fetch(`/api/calls/${callId}/recording`);
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ error: 'Failed to fetch recording' }));
+          throw new Error(error.error || 'Failed to fetch recording');
+        }
+
+        const data = await response.json();
+
+        // Update the call in the query cache
+        queryClient.setQueryData<CallsResponse>(callsQueryKey, (previous) => {
+          if (!previous) {
+            return previous;
+          }
+          return {
+            ...previous,
+            calls: previous.calls.map((call) =>
+              call.id === callId ? { ...call, recordingUrl: data.recordingUrl } : call,
+            ),
+          };
+        });
+      } catch (error) {
+        console.error('Error fetching recording:', error);
+        setRecordingErrors((prev) => ({
+          ...prev,
+          [callId]: error instanceof Error ? error.message : 'Failed to fetch recording',
+        }));
+      } finally {
+        setLoadingRecordings((prev) => {
+          const next = new Set(prev);
+          next.delete(callId);
+          return next;
+        });
+      }
+    },
+    [loadingRecordings, queryClient, callsQueryKey],
+  );
+
   if (!garageId) {
     return (
       <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
@@ -896,6 +950,20 @@ export default function CallsPage() {
                           >
                             View Recording
                           </a>
+                        ) : call.customerPhone ? (
+                          <div className="space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => handleLoadRecording(call.id)}
+                              disabled={loadingRecordings.has(call.id)}
+                              className="rounded-md border border-slate-700 px-2 py-1 text-xs text-sky-400 hover:border-slate-500 hover:text-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {loadingRecordings.has(call.id) ? 'Loading...' : 'Load Recording'}
+                            </button>
+                            {recordingErrors[call.id] && (
+                              <p className="text-xs text-rose-400">{recordingErrors[call.id]}</p>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-slate-500">—</span>
                         )}

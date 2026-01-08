@@ -413,19 +413,11 @@ export default function CallDetailPage() {
             
             {call.recordingUrl || recordingUrl ? (
               <>
-                {/\.(mp3|wav|m4a|aac)$/i.test(call.recordingUrl || recordingUrl || '') ? (
-                  <audio
-                    src={call.recordingUrl || recordingUrl || ''}
-                    controls
-                    className="w-full"
-                  />
-                ) : (
-                  <video
-                    src={call.recordingUrl || recordingUrl || ''}
-                    controls
-                    className="w-full rounded-lg border border-slate-800 object-cover"
-                  />
-                )}
+                <audio
+                  src={call.recordingUrl || recordingUrl || ''}
+                  controls
+                  className="w-full"
+                />
                 <a
                   href={call.recordingUrl || recordingUrl || ''}
                   target="_blank"

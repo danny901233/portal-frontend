@@ -297,30 +297,6 @@ export default function CallDetailPage() {
         <MetricCard label="Caller Number" value={callerNumber} />
       </section>
 
-      {call.recordingUrl ? (
-        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-6">
-          <h2 className="text-lg font-semibold text-slate-100 mb-4">Call Recording</h2>
-          <audio
-            controls
-            className="w-full"
-            preload="metadata"
-          >
-            <source src={call.recordingUrl} type="audio/mpeg" />
-            <source src={call.recordingUrl} type="audio/wav" />
-            Your browser does not support the audio element.
-          </audio>
-          <p className="mt-2 text-xs text-slate-500">
-            <a 
-              href={call.recordingUrl} 
-              download 
-              className="text-sky-400 hover:text-sky-300 hover:underline"
-            >
-              Download recording
-            </a>
-          </p>
-        </section>
-      ) : null}
-
       {metricEntries.length > 0 ? (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {metricEntries.map(([key, value]) => (
@@ -412,21 +388,28 @@ export default function CallDetailPage() {
             <h2 className="text-lg font-semibold text-slate-100 mb-4">Call Recording</h2>
             
             {call.recordingUrl || recordingUrl ? (
-              <>
+              <div className="space-y-3">
                 <audio
-                  src={call.recordingUrl || recordingUrl || ''}
+                  src={
+                    (call.recordingUrl || recordingUrl || '').startsWith('/api/')
+                      ? call.recordingUrl || recordingUrl || ''
+                      : `/api/calls/${call.id}/recording/audio`
+                  }
                   controls
                   className="w-full"
                 />
                 <a
-                  href={call.recordingUrl || recordingUrl || ''}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex items-center rounded-md border border-slate-700 px-3 py-1 text-xs text-sky-400 hover:border-slate-500 hover:text-sky-300"
+                  href={
+                    (call.recordingUrl || recordingUrl || '').startsWith('/api/')
+                      ? call.recordingUrl || recordingUrl || ''
+                      : `/api/calls/${call.id}/recording/audio`
+                  }
+                  download={`call-${call.id}-recording.mp3`}
+                  className="inline-flex items-center rounded-md border border-slate-700 px-3 py-1 text-xs text-sky-400 hover:border-slate-500 hover:text-sky-300"
                 >
-                  Open in new tab
+                  Download Recording
                 </a>
-              </>
+              </div>
             ) : call.customerPhone ? (
               <div className="space-y-3">
                 <p className="text-sm text-slate-400">

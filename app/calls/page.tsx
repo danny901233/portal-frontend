@@ -946,7 +946,11 @@ export default function CallsPage() {
                       <td className="px-5 py-3 align-top text-slate-300">
                         {call.recordingUrl ? (
                           <audio
-                            src={call.recordingUrl}
+                            src={
+                              call.recordingUrl.startsWith('/api/')
+                                ? call.recordingUrl
+                                : `/api/calls/${call.id}/recording/audio`
+                            }
                             controls
                             className="h-8"
                             style={{ width: '200px' }}

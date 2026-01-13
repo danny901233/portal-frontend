@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import { prisma } from '../db.js';
 
 // Global type for Twilio recording storage
 declare global {
@@ -20,8 +21,32 @@ router.post('/voice', async (req: Request, res: Response) => {
     return res.status(400).send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Invalid request</Say></Response>');
   }
 
-  // Get the LiveKit SIP domain from environment
-  const livekitSipDomain = process.env.LIVEKIT_SIP_DOMAIN || 'n4s20ufg0v7.sip.livekit.cloud';
+  // Fetch garage configuration to determine agent type
+  let agentType = 'assist'; // Default to assist agent
+  try {
+    const agentConfig = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { agentType: true },
+    });
+    if (agentConfig?.agentType) {
+      agentType = agentConfig.agentType;
+    }
+  } catch (error) {
+    console.error('[VOICE] Error fetching agent type:', error);
+    // Continue with default 'assist' agent
+  }
+
+  // Route to appropriate LiveKit SIP domain based on agent type
+  let livekitSipDomain: string;
+  if (agentType === 'automate') {
+    // Automate/booking agent - receptionmate-i9q7193z
+    livekitSipDomain = process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE || 'n4s20ufg0v7.sip.livekit.cloud';
+  } else {
+    // Assist agent (default) - receptionmate-assist-vlsv8zpk  
+    livekitSipDomain = process.env.LIVEKIT_SIP_DOMAIN_ASSIST || 'receptionmate-assist-v1sv8zpk.sip.livekit.cloud';
+  }
+
+  console.log(`[VOICE] Routing garage ${garageId} to ${agentType} agent at ${livekitSipDomain}`);
   
   // Build recording status callback URL
   const portalBaseUrl = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';

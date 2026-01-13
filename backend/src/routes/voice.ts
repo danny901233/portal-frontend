@@ -43,7 +43,7 @@ router.post('/voice', async (req: Request, res: Response) => {
     livekitSipDomain = process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE || 'n4s20ufg0v7.sip.livekit.cloud';
   } else {
     // Assist agent (default) - receptionmate-assist-vlsv8zpk  
-    livekitSipDomain = process.env.LIVEKIT_SIP_DOMAIN_ASSIST || 'receptionmate-assist-v1sv8zpk.sip.livekit.cloud';
+    livekitSipDomain = process.env.LIVEKIT_SIP_DOMAIN_ASSIST || 'receptionmate-assist-vlsv8zpk.sip.livekit.cloud';
   }
 
   console.log(`[VOICE] Routing garage ${garageId} to ${agentType} agent at ${livekitSipDomain}`);

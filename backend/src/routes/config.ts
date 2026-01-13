@@ -135,6 +135,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createDefaultGarageHiveSettings(),
+  agentType: 'assist',
 };
 const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
@@ -163,6 +164,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     notificationEmails: Array.isArray(config.notificationEmails) ? config.notificationEmails : [],
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
+    agentType: config.agentType === 'automate' ? 'automate' : 'assist',
   };
 };
 
@@ -189,6 +191,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     allowFastFitOnly: configuration.allowFastFitOnly,
     callSummaryEmail: configuration.callSummaryEmail,
     notificationEmails: configuration.notificationEmails || [],
+    agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     ...parseIntegrationSettings(
       configuration.integrationProvider,
       configuration.integrationProviderConfig,
@@ -535,6 +538,7 @@ router.put(
       notificationEmails: data.notificationEmails || [],
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,
+      agentType: data.agentType === 'automate' ? 'automate' : 'assist',
     };
 
     const [configuration, garageRecord] = await Promise.all([

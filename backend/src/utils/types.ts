@@ -48,6 +48,8 @@ export type ResponseSpeed = 'slow' | 'normal' | 'fast';
 
 export type IntegrationProvider = 'none' | 'garage_hive';
 
+export type AgentType = 'assist' | 'automate';
+
 export type GarageHiveSettings = {
   instanceUrl: string;
   apiKey: string;
@@ -105,4 +107,5 @@ export type AgentConfigurationPayload = {
   notificationEmails?: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
+  agentType: AgentType;
 };

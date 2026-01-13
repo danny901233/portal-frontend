@@ -141,6 +141,8 @@ export const createEmptyWeeklyOpeningHours = (): WeeklyOpeningHours => {
 
 export type IntegrationProvider = 'none' | 'garage_hive';
 
+export type AgentType = 'assist' | 'automate';
+
 export interface GarageHiveSettings {
   instanceUrl: string;
   apiKey: string;
@@ -165,6 +167,7 @@ export interface AgentConfiguration {
   notificationEmails: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
+  agentType: AgentType;
 }
 
 export interface AgentConfigurationResponse {

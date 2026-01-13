@@ -17,6 +17,7 @@ import {
 import type {
   AgentConfiguration,
   AgentKnowledgeDocument,
+  AgentType,
   DayOfWeek,
   IntegrationProvider,
   ResponseSpeed,
@@ -100,6 +101,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
+  agentType: 'assist',
 });
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
@@ -137,6 +139,11 @@ const integrationProviderOptions: { value: IntegrationProvider; label: string; d
     label: 'Garage Hive',
     description: 'Let the agent book straight into your Garage Hive diary.',
   },
+];
+
+const agentTypeOptions: { value: AgentType; label: string; description: string }[] = [
+  { value: 'assist', label: 'Assist', description: 'Collects enquiries and customer details for callback.' },
+  { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
 const maskSecretValue = (value: string) => {
@@ -1047,6 +1054,39 @@ export default function AgentConfigurationsPage() {
               </span>
               {formState.allowFastFitOnly ? 'Yes' : 'No'}
             </button>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+          <h2 className="text-lg font-semibold text-slate-100">Agent Type</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Choose which agent handles calls for this garage.
+          </p>
+
+          <div className="mt-6">
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              <span className="text-xs uppercase tracking-wide text-slate-500">Agent</span>
+              <select
+                value={formState.agentType}
+                onChange={(event) =>
+                  setFormState((state) => ({
+                    ...state,
+                    agentType: event.target.value as AgentType,
+                  }))
+                }
+                disabled={!isEditing || mutation.isPending}
+                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {agentTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-slate-500">
+                {agentTypeOptions.find((option) => option.value === formState.agentType)?.description ?? ''}
+              </span>
+            </label>
           </div>
         </section>
 

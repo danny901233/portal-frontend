@@ -452,6 +452,10 @@ const sendAgentConfigWebhook = async (garageId: string) => {
       return candidate > latest ? candidate : latest;
     }, null);
 
+    console.log('[WEBHOOK] Sending configuration for garage:', garageId);
+    console.log('[WEBHOOK] agentType in configuration:', configuration.agentType);
+    console.log('[WEBHOOK] Full configuration:', JSON.stringify(configuration, null, 2));
+
     await fetch(webhookUrl, {
       method: 'POST',
       headers,

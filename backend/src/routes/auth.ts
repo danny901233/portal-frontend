@@ -32,6 +32,26 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    if (user.mustChangePassword) {
+      const resetToken = randomBytes(32).toString('hex');
+      const resetTokenExpiry = new Date(Date.now() + 3600000);
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetToken,
+          resetTokenExpiry,
+        },
+      });
+
+      return res.json({
+        success: true,
+        passwordChangeRequired: true,
+        resetToken,
+        user: { id: user.id, email: user.email, role: user.role, branchRoles: sanitizeBranchRoles(user.branchRoles) },
+      });
+    }
+
     let allowedGarageIds = Array.isArray(user.garageAccessIds) ? [...user.garageAccessIds] : [];
     if (user.role === 'RECEPTIONMATE_STAFF') {
       const allGarages = await prisma.garage.findMany({ select: { id: true } });
@@ -249,6 +269,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       where: { id: user.id },
       data: {
         passwordHash,
+        mustChangePassword: false,
         resetToken: null,
         resetTokenExpiry: null,
       },

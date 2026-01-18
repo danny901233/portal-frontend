@@ -45,6 +45,7 @@ model User {
   id           String @id @default(cuid())
   email        String @unique
   passwordHash String
+  mustChangePassword Boolean @default(false)
   garageAccessIds String[] @default([])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

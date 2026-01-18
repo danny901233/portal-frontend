@@ -396,6 +396,7 @@ router.post('/admin/users', authenticate, requireAdmin, async (req, res) => {
     data: {
       email: parsed.data.email,
       passwordHash,
+      mustChangePassword: true,
       garageAccessIds: Array.from(new Set(parsed.data.garageAccessIds)),
       role: parsed.data.role,
       branchRoles: parsed.data.branchRoles ?? {},

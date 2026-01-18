@@ -15,6 +15,7 @@ export default function LoginPage() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetMessage, setResetMessage] = useState('');
+  const [loginMessage, setLoginMessage] = useState<string | null>(null);
 
   const mutation = useMutation<LoginResponse, AxiosError>({
     mutationFn: async () => {
@@ -22,6 +23,19 @@ export default function LoginPage() {
       return response;
     },
     onSuccess: (data: LoginResponse) => {
+      setLoginMessage(null);
+      if (data.passwordChangeRequired) {
+        if (data.resetToken) {
+          router.push(`/reset-password?token=${data.resetToken}`);
+          return;
+        }
+        setLoginMessage('Password change required. Please request a reset link.');
+        return;
+      }
+      if (!data.token || !data.user || !data.selectedGarageId || !data.garages) {
+        setLoginMessage('Login failed. Please try again.');
+        return;
+      }
       persistSession({
         token: data.token,
         garageId: data.selectedGarageId,
@@ -198,6 +212,7 @@ export default function LoginPage() {
               className="space-y-6"
               onSubmit={(event) => {
                 event.preventDefault();
+                setLoginMessage(null);
                 mutation.mutate();
               }}
             >
@@ -233,6 +248,9 @@ export default function LoginPage() {
 
               {mutation.isError && errorMessage ? (
                 <p className="text-sm text-rose-400">{errorMessage}</p>
+              ) : null}
+              {loginMessage ? (
+                <p className="text-sm text-amber-400">{loginMessage}</p>
               ) : null}
 
               <button

@@ -52,15 +52,17 @@ export type ConfirmedBookingCategory = 'service' | 'diagnostic' | 'mot' | 'other
 
 export interface LoginResponse {
   success: boolean;
-  token: string;
-  user: {
+  token?: string;
+  user?: {
     id: string;
     email: string;
     role: UserRole;
     branchRoles: BranchRolesMap;
   };
-  garages: GarageSummary[];
-  selectedGarageId: string;
+  garages?: GarageSummary[];
+  selectedGarageId?: string;
+  passwordChangeRequired?: boolean;
+  resetToken?: string;
 }
 
 export interface CallsResponse {

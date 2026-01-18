@@ -492,6 +492,16 @@ router.put(
     }
 
     const data = parseResult.data;
+    const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
+    let resolvedAgentType: 'assist' | 'automate' = data.agentType === 'automate' ? 'automate' : 'assist';
+
+    if (!canEditAgentType) {
+      const existingConfig = await prisma.agentConfiguration.findUnique({
+        where: { garageId },
+        select: { agentType: true },
+      });
+      resolvedAgentType = existingConfig?.agentType === 'automate' ? 'automate' : 'assist';
+    }
 
     const normalizedWeeklyOpeningHours = data.weeklyOpeningHours
       ? cloneWeeklyOpeningHours(data.weeklyOpeningHours)
@@ -542,7 +552,7 @@ router.put(
       notificationEmails: data.notificationEmails || [],
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,
-      agentType: data.agentType === 'automate' ? 'automate' : 'assist',
+      agentType: resolvedAgentType,
     };
 
     const [configuration, garageRecord] = await Promise.all([

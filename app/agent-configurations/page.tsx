@@ -9,7 +9,7 @@ import {
   ingestWebsiteKnowledge,
   updateAgentConfiguration,
 } from '../lib/api';
-import { getGarageId } from '../lib/auth';
+import { getGarageId, isReceptionMateStaff } from '../lib/auth';
 import {
   createEmptyWeeklyOpeningHours,
   WEEKDAY_ORDER,
@@ -179,6 +179,7 @@ export default function AgentConfigurationsPage() {
   const [lastScanUrl, setLastScanUrl] = useState<string | null>(null);
   const [newNotificationEmail, setNewNotificationEmail] = useState<string>('');
   const [, startTransition] = useTransition();
+  const canEditAgentType = isReceptionMateStaff();
 
   const query = useQuery({
     queryKey: ['agent-config', garageId],
@@ -1074,7 +1075,7 @@ export default function AgentConfigurationsPage() {
                     agentType: event.target.value as AgentType,
                   }))
                 }
-                disabled={!isEditing || mutation.isPending}
+                disabled={!isEditing || mutation.isPending || !canEditAgentType}
                 className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {agentTypeOptions.map((option) => (
@@ -1086,6 +1087,11 @@ export default function AgentConfigurationsPage() {
               <span className="text-xs text-slate-500">
                 {agentTypeOptions.find((option) => option.value === formState.agentType)?.description ?? ''}
               </span>
+              {!canEditAgentType && (
+                <span className="text-xs text-amber-400">
+                  Only ReceptionMate staff can change the agent type.
+                </span>
+              )}
             </label>
           </div>
         </section>

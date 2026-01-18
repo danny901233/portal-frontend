@@ -68,9 +68,7 @@ Both reports feature:
 ### Dependencies Added
 ```json
 {
-  "nodemailer": "^6.9.16",
   "node-cron": "^3.0.3",
-  "@types/nodemailer": "^6.4.16",
   "@types/node-cron": "^3.0.11"
 }
 ```
@@ -85,10 +83,17 @@ Both reports feature:
 2. `backend/package.json` - Add dependencies
 
 ### Email Service
-Uses existing nodemailer + AWS SES SMTP infrastructure:
-- Host: email-smtp.eu-west-2.amazonaws.com
-- Port: 587
-- From: notifications@receptionmate.co.uk
+Uses Mailgun API for transactional email delivery with optional O365 SMTP fallback:
+- API Base: `https://api.mailgun.net` (or `https://api.eu.mailgun.net` for EU)
+- Domain: `MAILGUN_DOMAIN`
+- From: `MAILGUN_FROM`
+
+Optional O365 fallback (used when Mailgun fails or is not configured):
+- Host: `O365_SMTP_HOST` (default `smtp.office365.com`)
+- Port: `O365_SMTP_PORT` (default `587`)
+- User: `O365_SMTP_USER`
+- Pass: `O365_SMTP_PASS`
+- From: `O365_FROM` (defaults to user)
 
 ## Deployment Status
 ✅ Deployed to EC2 (18.171.230.217)

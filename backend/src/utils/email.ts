@@ -8,53 +8,129 @@ interface EmailOptions {
   text: string;
 }
 
-const createTransporter = () => {
-  const smtpHost = process.env.SMTP_HOST;
-  const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
-  const smtpFrom = process.env.SMTP_FROM || smtpUser;
+const getMailgunConfig = () => {
+  const apiKey = process.env.MAILGUN_API_KEY;
+  const domain = process.env.MAILGUN_DOMAIN;
+  const from = process.env.MAILGUN_FROM;
+  const apiBase = (process.env.MAILGUN_API_BASE || 'https://api.mailgun.net').replace(/\/$/, '');
 
-  if (!smtpHost || !smtpUser || !smtpPass) {
-    console.error('Email configuration missing. Set SMTP_HOST, SMTP_USER, and SMTP_PASS environment variables.');
+  if (!apiKey || !domain || !from) {
+    console.error('Email configuration missing. Set MAILGUN_API_KEY, MAILGUN_DOMAIN, and MAILGUN_FROM environment variables.');
     return null;
   }
 
-  return nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpPort === 465,
-    auth: {
-      user: smtpUser,
-      pass: smtpPass,
+  return { apiKey, domain, from, apiBase };
+};
+
+const getO365Config = () => {
+  const host = process.env.O365_SMTP_HOST || 'smtp.office365.com';
+  const port = Number(process.env.O365_SMTP_PORT || 587);
+  const user = process.env.O365_SMTP_USER;
+  const pass = process.env.O365_SMTP_PASS;
+  const from = process.env.O365_FROM || user;
+
+  if (!user || !pass || !from) {
+    return null;
+  }
+
+  return { host, port, user, pass, from };
+};
+
+const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof getMailgunConfig>): Promise<boolean> => {
+  if (!config) {
+    return false;
+  }
+
+  const form = new URLSearchParams();
+  form.set('from', config.from);
+  form.set('to', options.to.join(', '));
+  form.set('subject', options.subject);
+  form.set('text', options.text);
+  form.set('html', options.html);
+
+  const response = await fetch(`${config.apiBase}/v3/${config.domain}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`api:${config.apiKey}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
-    from: smtpFrom,
+    body: form.toString(),
   });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error('Failed to send email via Mailgun:', response.status, errorBody);
+    return false;
+  }
+
+  return true;
+};
+
+const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO365Config>): Promise<boolean> => {
+  if (!config) {
+    return false;
+  }
+
+  const transport = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.port === 465,
+    auth: {
+      user: config.user,
+      pass: config.pass,
+    },
+    requireTLS: true,
+  });
+
+  await transport.sendMail({
+    from: config.from,
+    to: options.to.join(', '),
+    subject: options.subject,
+    text: options.text,
+    html: options.html,
+  });
+
+  return true;
 };
 
 export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
-  const transporter = createTransporter();
-  
-  if (!transporter) {
-    console.warn('Email transporter not configured, skipping email send');
+  const mailgunConfig = getMailgunConfig();
+  const o365Config = getO365Config();
+
+  if (!mailgunConfig && !o365Config) {
+    console.warn('Email configuration missing. Configure Mailgun or O365 SMTP to enable sending.');
     return false;
   }
 
-  try {
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      to: options.to.join(', '),
-      subject: options.subject,
-      text: options.text,
-      html: options.html,
-    });
-    
-    console.log(`Email sent successfully to: ${options.to.join(', ')}`);
-    return true;
-  } catch (error) {
-    console.error('Failed to send email:', error);
-    return false;
+  if (mailgunConfig) {
+    try {
+      const sent = await sendViaMailgun(options, mailgunConfig);
+      if (sent) {
+        console.log(`Email sent successfully via Mailgun to: ${options.to.join(', ')}`);
+        return true;
+      }
+      console.warn('Mailgun send failed, attempting O365 fallback.');
+    } catch (error) {
+      console.error('Failed to send email via Mailgun:', error);
+      console.warn('Attempting O365 fallback.');
+    }
   }
+
+  if (o365Config) {
+    try {
+      const sent = await sendViaO365(options, o365Config);
+      if (sent) {
+        console.log(`Email sent successfully via O365 to: ${options.to.join(', ')}`);
+        return true;
+      }
+    } catch (error) {
+      console.error('Failed to send email via O365:', error);
+      return false;
+    }
+  }
+
+  console.warn('Email send failed and no fallback succeeded.');
+  return false;
 };
 
 interface CallSummaryEmailData {

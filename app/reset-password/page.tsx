@@ -66,16 +66,23 @@ function ResetPasswordForm() {
 
   if (!token) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
+        <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">Invalid Reset Link</h1>
-            <p className="text-gray-600 mb-6">
+            <div className="mx-auto mb-6 flex justify-center">
+              <img
+                src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+                alt="ReceptionMate Logo"
+                className="h-24 w-auto"
+              />
+            </div>
+            <h1 className="text-2xl font-semibold">Invalid Reset Link</h1>
+            <p className="mt-2 text-sm text-slate-400">
               This password reset link is invalid or has expired. Please request a new password reset.
             </p>
             <button
               onClick={() => router.push('/login')}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+              className="mt-6 w-full rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
               Back to Login
             </button>
@@ -86,21 +93,23 @@ function ResetPasswordForm() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
-        <div className="text-center mb-8">
-          <img 
-            src="/rm-logo.png" 
-            alt="ReceptionMate" 
-            className="h-24 mx-auto mb-6"
-          />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Reset Your Password</h1>
-          <p className="text-gray-600">Enter your new password below</p>
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
+      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-6 flex justify-center">
+            <img
+              src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+              alt="ReceptionMate Logo"
+              className="h-24 w-auto"
+            />
+          </div>
+          <h1 className="text-2xl font-semibold">Reset Your Password</h1>
+          <p className="mt-2 text-sm text-slate-400">Enter your new password below</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+          <div className="space-y-2">
+            <label htmlFor="password" className="block text-sm font-medium text-slate-300">
               New Password
             </label>
             <input
@@ -108,15 +117,16 @@ function ResetPasswordForm() {
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 transition-colors focus:border-sky-500 focus:outline-none"
               placeholder="Enter new password"
               required
               minLength={6}
+              autoComplete="new-password"
             />
           </div>
 
-          <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+          <div className="space-y-2">
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-300">
               Confirm Password
             </label>
             <input
@@ -124,19 +134,20 @@ function ResetPasswordForm() {
               id="confirmPassword"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 transition-colors focus:border-sky-500 focus:outline-none"
               placeholder="Confirm new password"
               required
               minLength={6}
+              autoComplete="new-password"
             />
           </div>
 
           {message && (
             <div
-              className={`p-4 rounded-md ${
+              className={`rounded-lg border px-4 py-3 text-sm ${
                 message.type === 'success'
-                  ? 'bg-green-50 text-green-800 border border-green-200'
-                  : 'bg-red-50 text-red-800 border border-red-200'
+                  ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-200'
+                  : 'border-rose-500/60 bg-rose-500/15 text-rose-200'
               }`}
             >
               {message.text}
@@ -146,16 +157,16 @@ function ResetPasswordForm() {
           <button
             type="submit"
             disabled={resetPasswordMutation.isPending}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="w-full rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
           >
-            {resetPasswordMutation.isPending ? 'Resetting Password...' : 'Reset Password'}
+            {resetPasswordMutation.isPending ? 'Resetting Password…' : 'Reset Password'}
           </button>
 
           <div className="text-center">
             <button
               type="button"
               onClick={() => router.push('/login')}
-              className="text-sm text-gray-600 hover:text-gray-900"
+              className="text-sm text-sky-400 hover:text-sky-300 hover:underline"
             >
               Back to Login
             </button>
@@ -169,8 +180,8 @@ function ResetPasswordForm() {
 export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-gray-600">Loading...</div>
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
+        <div className="text-slate-400">Loading...</div>
       </div>
     }>
       <ResetPasswordForm />

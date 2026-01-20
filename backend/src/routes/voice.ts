@@ -21,33 +21,30 @@ router.post('/voice', async (req: Request, res: Response) => {
     return res.status(400).send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Invalid request</Say></Response>');
   }
 
-  // Fetch garage configuration to determine agent type
-  let agentType = 'assist'; // Default to assist agent
+  // Fetch garage configuration to log the current agent type (assist vs automate)
+  let agentType = 'assist';
   try {
     const agentConfig = await prisma.agentConfiguration.findUnique({
       where: { garageId },
       select: { agentType: true },
     });
-    if (agentConfig?.agentType) {
-      agentType = agentConfig.agentType;
+
+    if (agentConfig?.agentType === 'automate') {
+      agentType = 'automate';
     }
   } catch (error) {
-    console.error('[VOICE] Error fetching agent type:', error);
-    // Continue with default 'assist' agent
+    console.error('[VOICE] Error loading agent type for garage', garageId, error);
   }
 
-  // Route to appropriate LiveKit SIP domain based on agent type
-  let livekitSipDomain: string;
-  if (agentType === 'automate') {
-    // Automate/booking agent - receptionmate-i9q7193z
-    livekitSipDomain = process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE || 'n4s20ufg0v7.sip.livekit.cloud';
-  } else {
-    // Assist agent (default) - receptionmate-assist-vlsv8zpk  
-    livekitSipDomain = process.env.LIVEKIT_SIP_DOMAIN_ASSIST || 'receptionmate-assist-vlsv8zpk.sip.livekit.cloud';
-  }
+  // Always dial the unified LiveKit SIP domain; behaviour differences happen inside the agent codepath
+  const livekitSipDomain =
+    process.env.LIVEKIT_SIP_DOMAIN ||
+    process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
+    process.env.LIVEKIT_SIP_DOMAIN_ASSIST ||
+    'n4s20ufg0v7.sip.livekit.cloud';
 
-  console.log(`[VOICE] Routing garage ${garageId} to ${agentType} agent at ${livekitSipDomain}`);
-  
+  console.log(`[VOICE] Routing garage ${garageId} (agentType=${agentType}) via ${livekitSipDomain}`);
+
   // Build recording status callback URL
   const portalBaseUrl = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';
   const recordingCallbackUrl = `${portalBaseUrl}/webhooks/recording-status`;

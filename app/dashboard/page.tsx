@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { fetchCalls } from '../lib/api';
+import { downloadConfirmedBookingsCsv, fetchCalls } from '../lib/api';
 import type { CallRecord, ConfirmedBookingCategory } from '../types';
 import { cn } from '../lib/utils';
 import { useBranchScope } from '../lib/branchScope';
@@ -125,6 +125,7 @@ export default function DashboardPage() {
   const [endDate, setEndDate] = useState<string>(defaultEnd);
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const {
     scope,
@@ -363,6 +364,33 @@ export default function DashboardPage() {
     setEndDate(value);
   };
 
+  const handleDownloadConfirmedBookings = async () => {
+    setIsDownloading(true);
+    setError(null);
+    try {
+      const startBoundary = toIsoRangeBoundary(startDate, 'start');
+      const endBoundary = toIsoRangeBoundary(endDate, 'end');
+      const filters: Parameters<typeof downloadConfirmedBookingsCsv>[1] = {
+        startDate: startBoundary,
+        endDate: endBoundary,
+        ...(shouldAggregateAllBranches ? { garageIds: assignedGarageIds } : {}),
+      };
+      const garageParam = shouldAggregateAllBranches ? undefined : selectedGarageId ?? undefined;
+      const blob = await downloadConfirmedBookingsCsv(garageParam, filters);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `confirmed-bookings-${startDate}-to-${endDate}.csv`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to download CSV';
+      setError(message);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -413,6 +441,17 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={handleDownloadConfirmedBookings}
+            disabled={isDownloading || loading}
+            className={cn(
+              'rounded-lg border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-400 hover:text-emerald-100',
+              (isDownloading || loading) && 'cursor-not-allowed opacity-60'
+            )}
+          >
+            {isDownloading ? 'Preparing CSV…' : 'Download confirmed bookings CSV'}
+          </button>
         </div>
       </div>
 

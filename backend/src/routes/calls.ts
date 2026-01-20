@@ -33,6 +33,35 @@ const generateUniqueCallId = async () => {
   throw new Error('Failed to generate unique call identifier');
 };
 
+const csvEscape = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const raw = String(value);
+  if (!raw) {
+    return '';
+  }
+  if (/[",\n\r]/.test(raw)) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+};
+
+const extractBookingDate = (bookingDetails?: string | null) => {
+  if (!bookingDetails) {
+    return '';
+  }
+  const labeledMatch = bookingDetails.match(/Date:\s*([^,\n]+)(?:,|\n|$)/i);
+  if (labeledMatch) {
+    return labeledMatch[1].trim();
+  }
+  const isoMatch = bookingDetails.match(/\b\d{4}-\d{2}-\d{2}\b/);
+  if (isoMatch) {
+    return isoMatch[0];
+  }
+  return '';
+};
+
 const serializeCallFeedback = (feedback?: CallFeedback | null): SerializedCallFeedback | null => {
   if (!feedback) {
     return null;
@@ -143,6 +172,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         confirmedBooking: payload.confirmedBooking ?? false,
         confirmedBookingCategory: payload.confirmedBookingCategory,
         capturedRevenue: payload.capturedRevenue ?? null,
+        bookingDetails: payload.bookingDetails,
         metrics: payload.metrics,
         transcript: payload.transcript,
         summary: payload.summary,
@@ -273,6 +303,121 @@ router.get(
         console.error('Failed to fetch calls', error);
       }
       res.status(500).json({ error: 'Failed to fetch calls' });
+    }
+  },
+);
+
+router.get(
+  '/garages/:garageId/confirmed-bookings.csv',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+      const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+      const allowedGarages = isStaff ? [] : resolveAllowedGarages(req.user);
+
+      if (!isStaff && !allowedGarages.includes(garageId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const { startDate, endDate, garageIds } = req.query;
+
+      if ((startDate && Array.isArray(startDate)) || (endDate && Array.isArray(endDate))) {
+        return res.status(400).json({ error: 'Invalid query parameters' });
+      }
+
+      const where: Prisma.CallWhereInput = {
+        OR: [{ confirmedBooking: true }, { callType: 'confirmed booking' }],
+      };
+
+      if (garageIds) {
+        const requestedGarageIds = Array.isArray(garageIds) ? garageIds : [garageIds];
+        const validGarageIds = requestedGarageIds
+          .filter((id): id is string => typeof id === 'string')
+          .filter((id) => isStaff || allowedGarages.includes(id));
+        if (validGarageIds.length === 0) {
+          return res.status(403).json({ error: 'No valid garage IDs provided' });
+        }
+        where.garageId = { in: validGarageIds };
+      } else {
+        where.garageId = garageId;
+      }
+
+      const dateFilter: Prisma.DateTimeFilter = {};
+      if (typeof startDate === 'string' && startDate.trim()) {
+        const parsedStart = new Date(startDate);
+        if (Number.isNaN(parsedStart.getTime())) {
+          return res.status(400).json({ error: 'Invalid startDate parameter' });
+        }
+        dateFilter.gte = parsedStart;
+      }
+
+      if (typeof endDate === 'string' && endDate.trim()) {
+        const parsedEnd = new Date(endDate);
+        if (Number.isNaN(parsedEnd.getTime())) {
+          return res.status(400).json({ error: 'Invalid endDate parameter' });
+        }
+        dateFilter.lte = parsedEnd;
+      }
+
+      if (Object.keys(dateFilter).length > 0) {
+        where.createdAt = dateFilter;
+      }
+
+      const calls = await prisma.call.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          garage: { select: { name: true } },
+          registrationNumber: true,
+          createdAt: true,
+          bookingDetails: true,
+          confirmedBookingCategory: true,
+          capturedRevenue: true,
+        },
+      });
+
+      const header = [
+        'Garage Name',
+        'Registration Number',
+        'Call Date',
+        'Date of Booking',
+        'Work Booked',
+        'Booking Value',
+      ];
+
+      const rows = calls.map((call) => {
+        const bookingDate = extractBookingDate(call.bookingDetails ?? undefined);
+        const workBooked = call.bookingDetails || call.confirmedBookingCategory || '';
+        const bookingValue =
+          typeof call.capturedRevenue === 'number'
+            ? call.capturedRevenue.toFixed(2)
+            : '';
+        return [
+          call.garage?.name ?? '',
+          call.registrationNumber ?? '',
+          call.createdAt.toISOString(),
+          bookingDate,
+          workBooked,
+          bookingValue,
+        ];
+      });
+
+      const csv = [header, ...rows]
+        .map((row) => row.map(csvEscape).join(','))
+        .join('\n');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="confirmed-bookings-${garageId}.csv"`,
+      );
+      res.status(200).send(`${csv}\n`);
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to export confirmed bookings CSV', error);
+      }
+      res.status(500).json({ error: 'Failed to export confirmed bookings' });
     }
   },
 );

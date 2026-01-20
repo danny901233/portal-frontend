@@ -64,6 +64,32 @@ export type CallFilters = {
   garageIds?: string[];
 };
 
+export const downloadConfirmedBookingsCsv = async (
+  garageId?: string,
+  filters?: CallFilters
+): Promise<Blob> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+  const params = new URLSearchParams();
+  if (filters?.startDate) {
+    params.set("startDate", filters.startDate);
+  }
+  if (filters?.endDate) {
+    params.set("endDate", filters.endDate);
+  }
+  if (filters?.garageIds && filters.garageIds.length > 0) {
+    filters.garageIds.forEach((id) => params.append("garageIds", id));
+  }
+  const querySuffix = params.toString();
+  const { data } = await api.get<Blob>(
+    `/api/garages/${targetGarageId}/confirmed-bookings.csv${querySuffix ? `?${querySuffix}` : ""}`,
+    { responseType: "blob" }
+  );
+  return data;
+};
+
 export const fetchCalls = async (
   garageId?: string,
   filters?: CallFilters

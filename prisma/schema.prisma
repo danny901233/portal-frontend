@@ -33,6 +33,7 @@ model Call {
   confirmedBooking Boolean @default(false)
   confirmedBookingCategory ConfirmedBookingCategory?
   capturedRevenue Float?
+  bookingDetails String?
   metrics      Json
   transcript   Json
   summary      String

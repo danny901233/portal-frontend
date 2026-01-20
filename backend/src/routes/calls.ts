@@ -606,7 +606,11 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     }
 
     // Otherwise, try to fetch from Twilio using customer phone (fallback only when no CallSid)
-    if (!call.customerPhone || call.twilioCallSid) {
+    if (call.twilioCallSid) {
+      return res.status(404).json({ error: 'Recording not available yet for this call' });
+    }
+
+    if (!call.customerPhone) {
       return res.status(404).json({ error: 'No customer phone number available for this call' });
     }
 

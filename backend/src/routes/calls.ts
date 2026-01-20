@@ -615,54 +615,93 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
         return res.status(500).json({ error: 'Recording service not configured' });
       }
 
-      const recordingsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${call.twilioCallSid}/Recordings.json`;
-      const recordingsResponse = await fetch(recordingsUrl, {
-        headers: {
-          'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
-        },
-      });
+      const fetchRecordingForCallSid = async (callSid: string) => {
+        const recordingsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${callSid}/Recordings.json`;
+        const recordingsResponse = await fetch(recordingsUrl, {
+          headers: {
+            'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+          },
+        });
 
-      if (recordingsResponse.ok) {
-        const recordingsData = await recordingsResponse.json();
-        if (recordingsData.recordings && recordingsData.recordings.length > 0) {
-          const recording = recordingsData.recordings[0];
-          const recordingSid = recording.sid;
-          const recordingUrl = `/api/calls/${id}/recording/audio`;
-          const recordingResourceUrl = recording.uri
-            ? `https://api.twilio.com${String(recording.uri).replace(/\.json$/i, '')}`
-            : null;
-          const recordingUrlForDb = recordingResourceUrl ?? recordingSid;
-          const durationSeconds = recording.duration ? Number.parseInt(recording.duration, 10) : null;
-          const completedAt = recording.date_created ? new Date(recording.date_created) : new Date();
-
-          await prisma.twilioRecording.upsert({
-            where: { callSid: call.twilioCallSid },
-            update: {
-              recordingSid,
-              recordingUrl: recordingUrlForDb,
-              recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
-              completedAt,
-            },
-            create: {
-              callSid: call.twilioCallSid,
-              recordingSid,
-              recordingUrl: recordingUrlForDb,
-              recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
-              completedAt,
-            },
-          });
-
-          await prisma.call.update({
-            where: { id },
-            data: {
-              recordingUrl: recordingSid,
-              recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
-              recordingCompletedAt: completedAt,
-            },
-          });
-
-          return res.json({ recordingUrl });
+        if (!recordingsResponse.ok) {
+          return null;
         }
+
+        const recordingsData = await recordingsResponse.json();
+        if (!recordingsData.recordings || recordingsData.recordings.length === 0) {
+          return null;
+        }
+
+        const recording = recordingsData.recordings[0];
+        const recordingSid = recording.sid;
+        const recordingResourceUrl = recording.uri
+          ? `https://api.twilio.com${String(recording.uri).replace(/\.json$/i, '')}`
+          : null;
+        const durationSeconds = recording.duration ? Number.parseInt(recording.duration, 10) : null;
+        const completedAt = recording.date_created ? new Date(recording.date_created) : new Date();
+
+        return {
+          recordingSid,
+          recordingUrlForDb: recordingResourceUrl ?? recordingSid,
+          durationSeconds,
+          completedAt,
+        };
+      };
+
+      let recordingInfo = await fetchRecordingForCallSid(call.twilioCallSid);
+      if (!recordingInfo) {
+        const callDetailsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${call.twilioCallSid}.json`;
+        const callDetailsResponse = await fetch(callDetailsUrl, {
+          headers: {
+            'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+          },
+        });
+
+        if (callDetailsResponse.ok) {
+          const callDetails = await callDetailsResponse.json();
+          const parentCallSid = callDetails.parent_call_sid;
+          if (parentCallSid) {
+            recordingInfo = await fetchRecordingForCallSid(parentCallSid);
+          }
+        }
+      }
+
+      if (recordingInfo) {
+        const recordingUrl = `/api/calls/${id}/recording/audio`;
+
+        await prisma.twilioRecording.upsert({
+          where: { callSid: call.twilioCallSid },
+          update: {
+            recordingSid: recordingInfo.recordingSid,
+            recordingUrl: recordingInfo.recordingUrlForDb,
+            recordingDurationSeconds: Number.isNaN(recordingInfo.durationSeconds ?? NaN)
+              ? null
+              : recordingInfo.durationSeconds,
+            completedAt: recordingInfo.completedAt,
+          },
+          create: {
+            callSid: call.twilioCallSid,
+            recordingSid: recordingInfo.recordingSid,
+            recordingUrl: recordingInfo.recordingUrlForDb,
+            recordingDurationSeconds: Number.isNaN(recordingInfo.durationSeconds ?? NaN)
+              ? null
+              : recordingInfo.durationSeconds,
+            completedAt: recordingInfo.completedAt,
+          },
+        });
+
+        await prisma.call.update({
+          where: { id },
+          data: {
+            recordingUrl: recordingInfo.recordingSid,
+            recordingDurationSeconds: Number.isNaN(recordingInfo.durationSeconds ?? NaN)
+              ? null
+              : recordingInfo.durationSeconds,
+            recordingCompletedAt: recordingInfo.completedAt,
+          },
+        });
+
+        return res.json({ recordingUrl });
       }
 
       return res.status(404).json({ error: 'Recording not available yet for this call' });

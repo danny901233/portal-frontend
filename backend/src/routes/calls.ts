@@ -607,6 +607,63 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     // Otherwise, try to fetch from Twilio using customer phone (fallback only when no CallSid)
     if (call.twilioCallSid) {
+      const accountSid = process.env.TWILIO_ACCOUNT_SID;
+      const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+      if (!accountSid || !authToken) {
+        console.error('[RECORDING] Twilio credentials not configured');
+        return res.status(500).json({ error: 'Recording service not configured' });
+      }
+
+      const recordingsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${call.twilioCallSid}/Recordings.json`;
+      const recordingsResponse = await fetch(recordingsUrl, {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+        },
+      });
+
+      if (recordingsResponse.ok) {
+        const recordingsData = await recordingsResponse.json();
+        if (recordingsData.recordings && recordingsData.recordings.length > 0) {
+          const recording = recordingsData.recordings[0];
+          const recordingSid = recording.sid;
+          const recordingUrl = `/api/calls/${id}/recording/audio`;
+          const recordingResourceUrl = recording.uri
+            ? `https://api.twilio.com${String(recording.uri).replace(/\.json$/i, '')}`
+            : null;
+          const durationSeconds = recording.duration ? Number.parseInt(recording.duration, 10) : null;
+          const completedAt = recording.date_created ? new Date(recording.date_created) : new Date();
+
+          await prisma.twilioRecording.upsert({
+            where: { callSid: call.twilioCallSid },
+            update: {
+              recordingSid,
+              recordingUrl: recordingResourceUrl ?? undefined,
+              recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
+              completedAt,
+            },
+            create: {
+              callSid: call.twilioCallSid,
+              recordingSid,
+              recordingUrl: recordingResourceUrl ?? undefined,
+              recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
+              completedAt,
+            },
+          });
+
+          await prisma.call.update({
+            where: { id },
+            data: {
+              recordingUrl: recordingSid,
+              recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
+              recordingCompletedAt: completedAt,
+            },
+          });
+
+          return res.json({ recordingUrl });
+        }
+      }
+
       return res.status(404).json({ error: 'Recording not available yet for this call' });
     }
 

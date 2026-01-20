@@ -25,6 +25,9 @@ model Call {
   garage       Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
   roomName     String
   recordingUrl String?
+  recordingDurationSeconds Int?
+  recordingCompletedAt DateTime?
+  twilioCallSid String?
   durationSeconds Int    @default(0)
   callType       String  @default("unknown")
   registrationNumber String?
@@ -40,6 +43,17 @@ model Call {
   emotionData  Json?
   createdAt    DateTime @default(now())
   feedback     CallFeedback?
+}
+
+model TwilioRecording {
+  id        String   @id @default(cuid())
+  callSid   String   @unique
+  recordingSid String?
+  recordingUrl String
+  recordingDurationSeconds Int?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model User {

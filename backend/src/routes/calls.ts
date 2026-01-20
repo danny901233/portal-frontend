@@ -145,17 +145,21 @@ router.post('/calls', async (req: Request, res: Response) => {
 
     const payload = parseResult.data;
 
-    // If Twilio CallSid provided, try to get recording URL from callback data
+    // If Twilio CallSid provided, try to get recording URL from stored callback data
     let finalRecordingUrl = payload.recordingUrl;
-    if (payload.twilioCallSid && global.twilioRecordings) {
-      const recordingData = global.twilioRecordings.get(payload.twilioCallSid);
-      if (recordingData?.recordingUrl) {
-        console.log(`[RECORDING] Found Twilio recording for CallSid ${payload.twilioCallSid}:`, recordingData.recordingUrl);
-        finalRecordingUrl = recordingData.recordingUrl;
-        // Clean up the map entry
-        global.twilioRecordings.delete(payload.twilioCallSid);
+    let finalRecordingDuration: number | null = null;
+    let finalRecordingCompletedAt: Date | null = null;
+    if (payload.twilioCallSid) {
+      const storedRecording = await prisma.twilioRecording.findUnique({
+        where: { callSid: payload.twilioCallSid },
+      });
+      if (storedRecording?.recordingUrl) {
+        console.log(`[RECORDING] Found stored recording for CallSid ${payload.twilioCallSid}:`, storedRecording.recordingUrl);
+        finalRecordingUrl = storedRecording.recordingUrl;
+        finalRecordingDuration = storedRecording.recordingDurationSeconds ?? null;
+        finalRecordingCompletedAt = storedRecording.completedAt ?? null;
       } else {
-        console.log(`[RECORDING] No recording found yet for CallSid ${payload.twilioCallSid}, will be null`);
+        console.log(`[RECORDING] No stored recording found yet for CallSid ${payload.twilioCallSid}, will be null`);
       }
     }
 
@@ -179,8 +183,11 @@ router.post('/calls', async (req: Request, res: Response) => {
         garageId: payload.garageId,
         roomName: payload.roomName,
         recordingUrl: finalRecordingUrl,
+        recordingDurationSeconds: finalRecordingDuration,
+        recordingCompletedAt: finalRecordingCompletedAt,
         durationSeconds: payload.durationSeconds,
         callType,
+        twilioCallSid: payload.twilioCallSid,
         registrationNumber: payload.registrationNumber,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,

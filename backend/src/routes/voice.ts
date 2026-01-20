@@ -2,16 +2,6 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
 
-// Global type for Twilio recording storage
-declare global {
-  var twilioRecordings: Map<string, {
-    recordingSid: string;
-    recordingUrl: string;
-    duration: string;
-    completedAt: string;
-  }> | undefined;
-}
-
 const router = Router();
 
 router.post('/voice', async (req: Request, res: Response) => {
@@ -74,21 +64,40 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       RecordingDuration 
     } = req.body;
     
-    if (RecordingStatus === 'completed' && RecordingUrl) {
+    if (RecordingStatus === 'completed' && RecordingUrl && CallSid) {
       console.log(`[RECORDING] ✅ Recording completed:`);
       console.log(`[RECORDING]    CallSid: ${CallSid}`);
       console.log(`[RECORDING]    RecordingSid: ${RecordingSid}`);
       console.log(`[RECORDING]    RecordingUrl: ${RecordingUrl}`);
       console.log(`[RECORDING]    Duration: ${RecordingDuration}s`);
-      
-      // Store in global map for agent to retrieve
-      // We'll use CallSid as the key since that's available in both webhooks
-      global.twilioRecordings = global.twilioRecordings || new Map();
-      global.twilioRecordings.set(CallSid, {
-        recordingSid: RecordingSid,
-        recordingUrl: RecordingUrl,
-        duration: RecordingDuration,
-        completedAt: new Date().toISOString()
+
+      const durationSeconds = RecordingDuration ? Number.parseInt(RecordingDuration, 10) : null;
+      const completedAt = new Date();
+
+      await prisma.twilioRecording.upsert({
+        where: { callSid: CallSid },
+        update: {
+          recordingSid: RecordingSid,
+          recordingUrl: RecordingUrl,
+          recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
+          completedAt,
+        },
+        create: {
+          callSid: CallSid,
+          recordingSid: RecordingSid,
+          recordingUrl: RecordingUrl,
+          recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
+          completedAt,
+        },
+      });
+
+      await prisma.call.updateMany({
+        where: { twilioCallSid: CallSid },
+        data: {
+          recordingUrl: RecordingUrl,
+          recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
+          recordingCompletedAt: completedAt,
+        },
       });
     }
     

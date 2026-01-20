@@ -25,6 +25,8 @@ export const createCallSchema = z
       .or(z.literal(''))
       .transform((val) => val || undefined),
     twilioCallSid: z.string().optional(),
+    callSid: z.string().optional(),
+    call_sid: z.string().optional(),
     durationSeconds: z.number().int().nonnegative().optional(),
     callType: z.string().min(1).optional(),
     metrics: metricsSchema,
@@ -55,9 +57,12 @@ export const createCallSchema = z
       payload.registration_no ??
       payload.reg;
 
+    const derivedCallSid = payload.twilioCallSid ?? payload.callSid ?? payload.call_sid;
+
     return {
       ...payload,
       registrationNumber: derivedRegistration?.trim() || undefined,
+      twilioCallSid: derivedCallSid?.trim() || undefined,
       durationSeconds: Math.max(0, Math.trunc(payload.durationSeconds ?? 0)),
       callType: (payload.callType?.trim().toLowerCase() || 'unknown').slice(0, 100),
     };

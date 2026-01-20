@@ -37,6 +37,7 @@ export const createCallSchema = z
     vehicleRegistration: z.string().min(1).optional(),
     vehicleReg: z.string().min(1).optional(),
     vehicle_reg: z.string().min(1).optional(),
+    registration_no: z.string().min(1).optional(),
     reg: z.string().min(1).optional(),
     confirmedBooking: z.boolean().optional(),
     confirmedBookingCategory: z.enum(['service', 'mot', 'diagnostic', 'other']).optional(),
@@ -51,6 +52,7 @@ export const createCallSchema = z
       payload.vehicleRegistration ??
       payload.vehicleReg ??
       payload.vehicle_reg ??
+      payload.registration_no ??
       payload.reg;
 
     return {

@@ -631,6 +631,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
           const recordingResourceUrl = recording.uri
             ? `https://api.twilio.com${String(recording.uri).replace(/\.json$/i, '')}`
             : null;
+          const recordingUrlForDb = recordingResourceUrl ?? recordingSid;
           const durationSeconds = recording.duration ? Number.parseInt(recording.duration, 10) : null;
           const completedAt = recording.date_created ? new Date(recording.date_created) : new Date();
 
@@ -638,14 +639,14 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
             where: { callSid: call.twilioCallSid },
             update: {
               recordingSid,
-              recordingUrl: recordingResourceUrl ?? undefined,
+              recordingUrl: recordingUrlForDb,
               recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
               completedAt,
             },
             create: {
               callSid: call.twilioCallSid,
               recordingSid,
-              recordingUrl: recordingResourceUrl ?? undefined,
+              recordingUrl: recordingUrlForDb,
               recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
               completedAt,
             },

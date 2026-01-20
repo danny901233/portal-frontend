@@ -581,8 +581,32 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.json({ recordingUrl });
     }
 
-    // Otherwise, try to fetch from Twilio using customer phone
-    if (!call.customerPhone) {
+    // Prefer Twilio CallSid matching if available
+    if (call.twilioCallSid) {
+      const twilioRecording = await prisma.twilioRecording.findUnique({
+        where: { callSid: call.twilioCallSid },
+      });
+      let recordingSid = twilioRecording?.recordingSid ?? null;
+
+      if (!recordingSid && twilioRecording?.recordingUrl) {
+        const match = twilioRecording.recordingUrl.match(/Recordings\/([^/.]+)/i);
+        if (match) {
+          recordingSid = match[1];
+        }
+      }
+
+      if (recordingSid) {
+        await prisma.call.update({
+          where: { id },
+          data: { recordingUrl: recordingSid },
+        });
+        const recordingUrl = `/api/calls/${id}/recording/audio`;
+        return res.json({ recordingUrl });
+      }
+    }
+
+    // Otherwise, try to fetch from Twilio using customer phone (fallback only when no CallSid)
+    if (!call.customerPhone || call.twilioCallSid) {
       return res.status(404).json({ error: 'No customer phone number available for this call' });
     }
 
@@ -679,8 +703,10 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
     }
 
     // Fetch the recording from Twilio and stream it
-    const recordingSid = call.recordingUrl;
-    const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordingSid}.mp3`;
+    const recordingValue = call.recordingUrl;
+    const twilioUrl = recordingValue.startsWith('http')
+      ? `${recordingValue.replace(/\.mp3$/i, '')}.mp3`
+      : `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordingValue}.mp3`;
     
     const twilioResponse = await fetch(twilioUrl, {
       headers: {

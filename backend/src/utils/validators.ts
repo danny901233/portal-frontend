@@ -33,17 +33,33 @@ export const createCallSchema = z
     customerName: z.string().min(1).optional(),
     customerPhone: z.string().min(1).optional(),
     registrationNumber: z.string().min(1).optional(),
+    registration: z.string().min(1).optional(),
+    vehicleRegistration: z.string().min(1).optional(),
+    vehicleReg: z.string().min(1).optional(),
+    vehicle_reg: z.string().min(1).optional(),
+    reg: z.string().min(1).optional(),
     confirmedBooking: z.boolean().optional(),
     confirmedBookingCategory: z.enum(['service', 'mot', 'diagnostic', 'other']).optional(),
     capturedRevenue: z.number().nonnegative().optional(),
     bookingDetails: z.string().min(1).optional(),
     emotionData: z.record(z.any()).optional(),
   })
-  .transform((payload) => ({
-    ...payload,
-    durationSeconds: Math.max(0, Math.trunc(payload.durationSeconds ?? 0)),
-    callType: (payload.callType?.trim().toLowerCase() || 'unknown').slice(0, 100),
-  }));
+  .transform((payload) => {
+    const derivedRegistration =
+      payload.registrationNumber ??
+      payload.registration ??
+      payload.vehicleRegistration ??
+      payload.vehicleReg ??
+      payload.vehicle_reg ??
+      payload.reg;
+
+    return {
+      ...payload,
+      registrationNumber: derivedRegistration?.trim() || undefined,
+      durationSeconds: Math.max(0, Math.trunc(payload.durationSeconds ?? 0)),
+      callType: (payload.callType?.trim().toLowerCase() || 'unknown').slice(0, 100),
+    };
+  });
 
 const optionalGarageIdSchema = z
   .string()

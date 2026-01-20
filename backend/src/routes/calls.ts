@@ -62,6 +62,21 @@ const extractBookingDate = (bookingDetails?: string | null) => {
   return '';
 };
 
+const extractRegistrationFromText = (text?: string | null) => {
+  if (!text) {
+    return '';
+  }
+  const labeledMatch = text.match(/Registration:\s*([^,\n]+)(?:,|\n|$)/i);
+  if (labeledMatch) {
+    return labeledMatch[1].trim();
+  }
+  const vrnMatch = text.match(/\b[A-Z]{2}\d{2}\s?[A-Z]{3}\b/i);
+  if (vrnMatch) {
+    return vrnMatch[0].replace(/\s+/g, '').toUpperCase();
+  }
+  return '';
+};
+
 const serializeCallFeedback = (feedback?: CallFeedback | null): SerializedCallFeedback | null => {
   if (!feedback) {
     return null;
@@ -370,6 +385,7 @@ router.get(
         select: {
           garage: { select: { name: true } },
           registrationNumber: true,
+          summary: true,
           createdAt: true,
           bookingDetails: true,
           confirmedBookingCategory: true,
@@ -389,13 +405,17 @@ router.get(
       const rows = calls.map((call) => {
         const bookingDate = extractBookingDate(call.bookingDetails ?? undefined);
         const workBooked = call.bookingDetails || call.confirmedBookingCategory || '';
+        const derivedRegistration =
+          call.registrationNumber ||
+          extractRegistrationFromText(call.bookingDetails) ||
+          extractRegistrationFromText(call.summary);
         const bookingValue =
           typeof call.capturedRevenue === 'number'
             ? call.capturedRevenue.toFixed(2)
             : '';
         return [
           call.garage?.name ?? '',
-          call.registrationNumber ?? '',
+          derivedRegistration,
           call.createdAt.toISOString(),
           bookingDate,
           workBooked,

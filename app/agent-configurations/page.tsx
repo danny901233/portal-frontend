@@ -991,7 +991,7 @@ export default function AgentConfigurationsPage() {
           </div>
 
           <div className="mt-8 flex flex-col gap-3 text-sm text-slate-300">
-            <span className="text-xs uppercase tracking-wide text-slate-500">Interruption sensitivity</span>
+            <span className="text-xs uppercase tracking-wide text-slate-500">Response timing</span>
             {isEditing ? (
               <label className="flex flex-col gap-2">
                 <input
@@ -1005,10 +1005,10 @@ export default function AgentConfigurationsPage() {
                   aria-valuemin={0}
                   aria-valuemax={1}
                   aria-valuenow={Number(formState.interruptionSensitivity.toFixed(1))}
-                  aria-valuetext={`${formState.interruptionSensitivity.toFixed(1)} sensitivity`}
+                  aria-valuetext={`${formState.interruptionSensitivity.toFixed(1)} timing`}
                   className="h-2 w-full cursor-pointer rounded-full bg-slate-800 accent-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
                 />
-                <span className="text-xs text-slate-400">{formState.interruptionSensitivity.toFixed(1)} (0 = rarely interrupt, 1 = interrupt quickly)</span>
+                <span className="text-xs text-slate-400">{formState.interruptionSensitivity.toFixed(1)} (0 = longer pause, 1 = faster response)</span>
               </label>
             ) : (
               <span className="text-sm text-slate-200">{formState.interruptionSensitivity.toFixed(1)}</span>

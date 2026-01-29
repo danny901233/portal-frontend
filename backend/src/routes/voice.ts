@@ -19,19 +19,33 @@ router.post('/voice', async (req: Request, res: Response) => {
       select: { agentType: true },
     });
 
-    if (agentConfig?.agentType === 'automate') {
+    if (!agentConfig) {
+      return res
+        .status(404)
+        .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Configuration not found for this garage.</Say><Hangup/></Response>');
+    }
+
+    if (agentConfig.agentType === 'automate') {
       agentType = 'automate';
     }
   } catch (error) {
     console.error('[VOICE] Error loading agent type for garage', garageId, error);
+    return res
+      .status(500)
+      .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Configuration error.</Say><Hangup/></Response>');
   }
 
   // Always dial the unified LiveKit SIP domain; behaviour differences happen inside the agent codepath
   const livekitSipDomain =
     process.env.LIVEKIT_SIP_DOMAIN ||
     process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
-    process.env.LIVEKIT_SIP_DOMAIN_ASSIST ||
-    'n4s20ufg0v7.sip.livekit.cloud';
+    process.env.LIVEKIT_SIP_DOMAIN_ASSIST;
+
+  if (!livekitSipDomain) {
+    return res
+      .status(500)
+      .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Call routing is not configured.</Say><Hangup/></Response>');
+  }
 
   console.log(`[VOICE] Routing garage ${garageId} (agentType=${agentType}) via ${livekitSipDomain}`);
 

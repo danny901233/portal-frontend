@@ -30,7 +30,7 @@ export const createCallSchema = z
     durationSeconds: z.number().int().nonnegative().optional(),
     callType: z.string().min(1).optional(),
     metrics: metricsSchema,
-    transcript: z.array(transcriptEntrySchema),
+    transcript: z.array(transcriptEntrySchema).min(1),
     summary: z.string().min(1),
     customerName: z.string().min(1).optional(),
     customerPhone: z.string().min(1).optional(),

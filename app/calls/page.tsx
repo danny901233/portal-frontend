@@ -82,6 +82,12 @@ type FeedbackMutationVariables = {
 };
 
 const deriveCallerName = (call: CallRecord): string => {
+  // First check if customerName is directly available
+  if (call.customerName && call.customerName.trim()) {
+    return call.customerName.trim();
+  }
+
+  // Fallback: try to extract from summary
   const summary = call.summary ?? '';
   const namedLine = summary.match(/Customer name:\s*([^\n]+)/i);
   if (namedLine) {
@@ -91,7 +97,7 @@ const deriveCallerName = (call: CallRecord): string => {
     }
   }
 
-  const sentenceMatch = summary.match(/^([^.,]+?)\s+(?:called|spoke)/i);
+  const sentenceMatch = summary.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:called|spoke|Phone)/i);
   if (sentenceMatch) {
     const candidate = sentenceMatch[1].trim();
     if (candidate && !/^the caller$/i.test(candidate)) {

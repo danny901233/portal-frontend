@@ -735,13 +735,20 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     const callsData = await callsResponse.json();
     
-    // Find calls around the time of this call (within 5 minutes)
+    // Find calls around the time of this call (within 30 seconds)
     const callTime = call.createdAt.getTime();
-    const tolerance = 5 * 60 * 1000; // 5 minutes in milliseconds
+    const tolerance = 30 * 1000; // 30 seconds (reduced from 5 minutes to prevent mix-ups)
 
     for (const twilioCall of callsData.calls || []) {
       const twilioCallTime = new Date(twilioCall.start_time).getTime();
-      if (Math.abs(twilioCallTime - callTime) < tolerance) {
+      const timeDiff = Math.abs(twilioCallTime - callTime);
+
+      // Match by both time AND duration for better accuracy
+      const twilioCallDuration = parseInt(twilioCall.duration || '0');
+      const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
+
+      // Must match time (within 30s) AND duration (within 10s)
+      if (timeDiff < tolerance && durationDiff < 10) {
         // Check if this call has recordings
         const recordingsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${twilioCall.sid}/Recordings.json`;
         const recordingsResponse = await fetch(recordingsUrl, {

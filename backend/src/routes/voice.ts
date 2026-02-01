@@ -105,14 +105,9 @@ router.post('/recording-status', async (req: Request, res: Response) => {
         },
       });
 
-      await prisma.call.updateMany({
-        where: { twilioCallSid: CallSid },
-        data: {
-          recordingUrl: RecordingUrl,
-          recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
-          recordingCompletedAt: completedAt,
-        },
-      });
+      // Don't update calls here - let the recording fetch logic match by roomName
+      // This prevents multiple calls from getting the same recording when they share a Twilio CallSid
+      console.log(`[RECORDING] Stored recording for CallSid ${CallSid}, calls will fetch by roomName`);
     }
     
     res.status(200).send('OK');

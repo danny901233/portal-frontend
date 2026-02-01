@@ -714,8 +714,13 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
         where: { callSid: call.twilioCallSid },
       });
 
-      if (existingRecording?.recordingUrl) {
+      if (existingRecording?.recordingSid) {
         console.log(`[RECORDING] Strategy 1 SUCCESS: Found exact twilioCallSid match`);
+        // Update call.recordingUrl for the audio proxy endpoint
+        await prisma.call.update({
+          where: { id },
+          data: { recordingUrl: existingRecording.recordingSid },
+        });
         return res.json({ recordingUrl: `/api/calls/${id}/recording/audio` });
       }
     }
@@ -727,15 +732,16 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
         where: { roomName: call.roomName },
       });
 
-      if (existingRecording?.recordingUrl) {
+      if (existingRecording?.recordingSid) {
         console.log(`[RECORDING] Strategy 2 SUCCESS: Found roomName match`);
-        // Update call with the twilioCallSid for future exact matches
-        if (existingRecording.callSid && !call.twilioCallSid) {
-          await prisma.call.update({
-            where: { id },
-            data: { twilioCallSid: existingRecording.callSid },
-          });
-        }
+        // Update call with both twilioCallSid and recordingUrl
+        await prisma.call.update({
+          where: { id },
+          data: {
+            twilioCallSid: existingRecording.callSid,
+            recordingUrl: existingRecording.recordingSid,
+          },
+        });
         return res.json({ recordingUrl: `/api/calls/${id}/recording/audio` });
       }
     }

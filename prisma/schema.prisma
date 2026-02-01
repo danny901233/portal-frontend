@@ -48,7 +48,6 @@ model Call {
 model TwilioRecording {
   id        String   @id @default(cuid())
   callSid   String   @unique
-  roomName  String?  // Add this to match recordings by room name
   recordingSid String?
   recordingUrl String
   recordingDurationSeconds Int?

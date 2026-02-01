@@ -145,21 +145,21 @@ router.post('/calls', async (req: Request, res: Response) => {
 
     const payload = parseResult.data;
 
-    // If Twilio CallSid provided, try to get recording URL from stored callback data
+    // Try to get recording URL from stored callback data by roomName (unique per call)
     let finalRecordingUrl = payload.recordingUrl;
     let finalRecordingDuration: number | null = null;
     let finalRecordingCompletedAt: Date | null = null;
-    if (payload.twilioCallSid) {
-      const storedRecording = await prisma.twilioRecording.findUnique({
-        where: { callSid: payload.twilioCallSid },
+    if (payload.roomName) {
+      const storedRecording = await prisma.twilioRecording.findFirst({
+        where: { roomName: payload.roomName },
       });
-      if (storedRecording?.recordingUrl) {
-        console.log(`[RECORDING] Found stored recording for CallSid ${payload.twilioCallSid}:`, storedRecording.recordingUrl);
-        finalRecordingUrl = storedRecording.recordingUrl;
+      if (storedRecording?.recordingSid) {
+        console.log(`[RECORDING] Found stored recording for room ${payload.roomName}: ${storedRecording.recordingSid}`);
+        finalRecordingUrl = storedRecording.recordingSid;
         finalRecordingDuration = storedRecording.recordingDurationSeconds ?? null;
         finalRecordingCompletedAt = storedRecording.completedAt ?? null;
       } else {
-        console.log(`[RECORDING] No stored recording found yet for CallSid ${payload.twilioCallSid}, will be null`);
+        console.log(`[RECORDING] No stored recording found yet for room ${payload.roomName}, will be null`);
       }
     }
 

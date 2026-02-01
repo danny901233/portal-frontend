@@ -17,6 +17,7 @@ const activationPayloadSchema = z.object({
   contactEmail: z.string().email().nullable().optional(),
   contactPhone: z.string().nullable().optional(),
   twilioNumber: z.string(),
+  agentName: z.string().nullable().optional(),
   triggeredAt: z.string(),
 });
 
@@ -69,7 +70,12 @@ app.post('/provision', async (req: Request, res: Response) => {
     // 3. Create LiveKit SIP trunk for this garage
     // Skip LiveKit trunk creation if credentials are invalid
     try {
-      await createLiveKitSipTrunk(payload.garageId, payload.garageName, payload.twilioNumber);
+      await createLiveKitSipTrunk(
+        payload.garageId,
+        payload.garageName,
+        payload.twilioNumber,
+        payload.agentName ?? undefined
+      );
       console.log('✅ LiveKit SIP trunk created successfully');
     } catch (error) {
       console.warn('⚠️ LiveKit SIP trunk creation failed, skipping:', error instanceof Error ? error.message : 'Unknown error');
@@ -106,9 +112,18 @@ app.post('/provision', async (req: Request, res: Response) => {
 /**
  * Create a SIP trunk in LiveKit for this garage
  */
-async function createLiveKitSipTrunk(garageId: string, garageName: string, twilioNumber: string): Promise<void> {
+async function createLiveKitSipTrunk(
+  garageId: string,
+  garageName: string,
+  twilioNumber: string,
+  agentName?: string
+): Promise<void> {
   try {
     console.log('Creating LiveKit SIP trunk for garage:', garageId);
+    const dispatchAgentName =
+      process.env.LIVEKIT_DISPATCH_AGENT_NAME?.trim() ||
+      agentName?.trim() ||
+      'receptionmate-agent';
 
     // Create SIP inbound trunk with both garage ID and phone number as identifiers
     const trunk = await livekitSipClient.createSipInboundTrunk(
@@ -142,7 +157,14 @@ async function createLiveKitSipTrunk(garageId: string, garageName: string, twili
           garageId,
           garageName,
         }),
-      }
+        roomConfig: {
+          agents: [
+            {
+              agentName: dispatchAgentName,
+            },
+          ],
+        } as any,
+      } as any
     );
 
     console.log(`✅ Created dispatch rule:`, dispatchRule.sipDispatchRuleId);

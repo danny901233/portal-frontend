@@ -707,11 +707,46 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.status(404).json({ error: 'Recording not available yet for this call' });
     }
 
+    // Strategy 1: Try matching by twilioCallSid (exact match - most reliable)
+    if (call.twilioCallSid) {
+      console.log(`[RECORDING] Strategy 1: Looking for exact twilioCallSid match: ${call.twilioCallSid}`);
+      const existingRecording = await prisma.twilioRecording.findUnique({
+        where: { callSid: call.twilioCallSid },
+      });
+
+      if (existingRecording?.recordingUrl) {
+        console.log(`[RECORDING] Strategy 1 SUCCESS: Found exact twilioCallSid match`);
+        return res.json({ recordingUrl: `/api/calls/${id}/recording/audio` });
+      }
+    }
+
+    // Strategy 2: Try matching by roomName (second most reliable)
+    if (call.roomName) {
+      console.log(`[RECORDING] Strategy 2: Looking for roomName match: ${call.roomName}`);
+      const existingRecording = await prisma.twilioRecording.findFirst({
+        where: { roomName: call.roomName },
+      });
+
+      if (existingRecording?.recordingUrl) {
+        console.log(`[RECORDING] Strategy 2 SUCCESS: Found roomName match`);
+        // Update call with the twilioCallSid for future exact matches
+        if (existingRecording.callSid && !call.twilioCallSid) {
+          await prisma.call.update({
+            where: { id },
+            data: { twilioCallSid: existingRecording.callSid },
+          });
+        }
+        return res.json({ recordingUrl: `/api/calls/${id}/recording/audio` });
+      }
+    }
+
+    // Strategy 3: Fetch from Twilio API with smart matching
     if (!call.customerPhone) {
       return res.status(404).json({ error: 'No customer phone number available for this call' });
     }
 
-    // Fetch recording from Twilio
+    console.log(`[RECORDING] Strategy 3: Fetching from Twilio API for phone: ${call.customerPhone}`);
+
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -721,7 +756,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     }
 
     // Search for recent calls from this number
-    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?From=${encodeURIComponent(call.customerPhone)}&PageSize=10`;
+    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?From=${encodeURIComponent(call.customerPhone)}&PageSize=20`;
     const callsResponse = await fetch(callsUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
@@ -734,43 +769,105 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     }
 
     const callsData = await callsResponse.json();
-    
-    // Find calls around the time of this call (within 5 minutes)
+
+    // Find calls within 90 seconds, score by duration similarity
     const callTime = call.createdAt.getTime();
-    const tolerance = 5 * 60 * 1000; // 5 minutes in milliseconds
+    const tightTolerance = 90 * 1000; // 90 seconds (safer window)
+    const broadTolerance = 5 * 60 * 1000; // 5 minutes (fallback)
+
+    interface ScoredCall {
+      twilioCall: any;
+      timeDiff: number;
+      durationDiff: number;
+      score: number;
+    }
+
+    const scoredCalls: ScoredCall[] = [];
 
     for (const twilioCall of callsData.calls || []) {
       const twilioCallTime = new Date(twilioCall.start_time).getTime();
-      if (Math.abs(twilioCallTime - callTime) < tolerance) {
-        // Check if this call has recordings
-        const recordingsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${twilioCall.sid}/Recordings.json`;
-        const recordingsResponse = await fetch(recordingsUrl, {
-          headers: {
-            'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
-          },
+      const timeDiff = Math.abs(twilioCallTime - callTime);
+
+      // Only consider calls within broad tolerance
+      if (timeDiff < broadTolerance) {
+        const twilioCallDuration = parseInt(twilioCall.duration || '0');
+        const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
+
+        // Score: lower is better (prefer close time + close duration)
+        // Time is weighted more heavily (×1000) than duration
+        const score = timeDiff + (durationDiff * 1000);
+
+        scoredCalls.push({
+          twilioCall,
+          timeDiff,
+          durationDiff,
+          score,
         });
+      }
+    }
 
-        if (recordingsResponse.ok) {
-          const recordingsData = await recordingsResponse.json();
-          if (recordingsData.recordings && recordingsData.recordings.length > 0) {
-            const recording = recordingsData.recordings[0];
-            // Store the recording SID and return our proxy URL
-            const recordingSid = recording.sid;
-            const recordingUrl = `/api/calls/${id}/recording/audio`;
-            
-            // Store the Twilio recording SID in the database
-            await prisma.call.update({
-              where: { id },
-              data: { recordingUrl: recordingSid },
-            });
+    // Sort by score (best match first)
+    scoredCalls.sort((a, b) => a.score - b.score);
 
-            return res.json({ recordingUrl });
-          }
+    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls within broad window`);
+
+    // Try candidates in order of best score
+    for (const { twilioCall, timeDiff, durationDiff, score } of scoredCalls) {
+      const withinTightWindow = timeDiff < tightTolerance;
+      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: timeDiff=${timeDiff}ms, durationDiff=${durationDiff}s, score=${score}, inTightWindow=${withinTightWindow}`);
+
+      // Check if this call has recordings
+      const recordingsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${twilioCall.sid}/Recordings.json`;
+      const recordingsResponse = await fetch(recordingsUrl, {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
+        },
+      });
+
+      if (recordingsResponse.ok) {
+        const recordingsData = await recordingsResponse.json();
+        if (recordingsData.recordings && recordingsData.recordings.length > 0) {
+          const recording = recordingsData.recordings[0];
+          const recordingSid = recording.sid;
+
+          console.log(`[RECORDING] Strategy 3 SUCCESS: Found recording with score=${score}`);
+
+          // Store in TwilioRecording for future lookups
+          await prisma.twilioRecording.upsert({
+            where: { callSid: twilioCall.sid },
+            create: {
+              callSid: twilioCall.sid,
+              recordingSid,
+              recordingUrl: recording.uri,
+              recordingDurationSeconds: parseInt(recording.duration || '0'),
+              roomName: call.roomName,
+              completedAt: new Date(recording.date_created),
+            },
+            update: {
+              recordingSid,
+              recordingUrl: recording.uri,
+              recordingDurationSeconds: parseInt(recording.duration || '0'),
+              roomName: call.roomName,
+              completedAt: new Date(recording.date_created),
+            },
+          });
+
+          // Update call with twilioCallSid for future exact matches
+          await prisma.call.update({
+            where: { id },
+            data: {
+              recordingUrl: recordingSid,
+              twilioCallSid: twilioCall.sid,
+            },
+          });
+
+          return res.json({ recordingUrl: `/api/calls/${id}/recording/audio` });
         }
       }
     }
 
     // No recording found
+    console.log(`[RECORDING] No recording found after trying all strategies`);
     return res.status(404).json({ error: 'No recording found for this call' });
   } catch (error) {
     console.error('[RECORDING] Error fetching recording:', error);

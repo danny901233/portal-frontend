@@ -52,6 +52,7 @@ model TwilioRecording {
   recordingUrl String
   recordingDurationSeconds Int?
   completedAt DateTime?
+  roomName  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

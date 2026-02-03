@@ -74,8 +74,22 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
 
     const { phoneNumber } = parsed.data;
 
+    // Fetch the first available address for regulatory compliance
+    const addresses = await twilioClient.addresses.list({ limit: 1 });
+
+    if (!addresses.length) {
+      return res.status(400).json({
+        error: 'No address found in Twilio account',
+        details: 'Please add a verified address in your Twilio console under Regulatory Compliance before purchasing numbers.',
+      });
+    }
+
+    const addressSid = addresses[0].sid;
+    console.log(`Using address SID: ${addressSid} for phone number purchase`);
+
     const purchasedNumber = await twilioClient.incomingPhoneNumbers.create({
       phoneNumber,
+      addressSid,
     });
 
     res.status(201).json({

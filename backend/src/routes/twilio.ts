@@ -74,20 +74,24 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
 
     const { phoneNumber } = parsed.data;
 
-    // Fetch the first approved regulatory bundle for UK compliance
-    const bundles = await twilioClient.numbers.regulatoryCompliance.bundles.list({
-      status: 'approved',
-      limit: 1,
+    // Fetch regulatory bundles for UK compliance
+    const allBundles = await twilioClient.numbers.regulatoryCompliance.bundles.list({
+      limit: 20,
     });
 
-    if (!bundles.length) {
+    // Filter for approved bundles
+    const approvedBundles = allBundles.filter((b: any) =>
+      b.status === 'twilio-approved' || b.status === 'approved'
+    );
+
+    if (!approvedBundles.length) {
       return res.status(400).json({
         error: 'No approved regulatory bundle found',
         details: 'UK phone numbers require an approved regulatory compliance bundle. Please create and submit one in your Twilio console under Regulatory Compliance > Bundles.',
       });
     }
 
-    const bundleSid = bundles[0].sid;
+    const bundleSid = approvedBundles[0].sid;
     console.log(`Using bundle SID: ${bundleSid} for phone number purchase`);
 
     const purchasedNumber = await twilioClient.incomingPhoneNumbers.create({

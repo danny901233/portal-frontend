@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import api from '../../lib/api';
 
 type TwilioNumber = {
   phoneNumber: string;
@@ -32,17 +33,12 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
   const searchNumbersMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch('/api/admin/twilio/available-numbers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          countryCode: 'GB',
-          areaCode: searchAreaCode || undefined,
-          limit: 20,
-        }),
+      const { data } = await api.post('/api/admin/twilio/available-numbers', {
+        countryCode: 'GB',
+        areaCode: searchAreaCode || undefined,
+        limit: 20,
       });
-      if (!res.ok) throw new Error('Failed to search numbers');
-      return res.json();
+      return data;
     },
     onSuccess: (data) => {
       setAvailableNumbers(data.numbers);
@@ -53,13 +49,10 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
   const purchaseNumberMutation = useMutation({
     mutationFn: async (phoneNumber: string) => {
-      const res = await fetch('/api/admin/twilio/purchase', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneNumber }),
+      const { data } = await api.post('/api/admin/twilio/purchase', {
+        phoneNumber,
       });
-      if (!res.ok) throw new Error('Failed to purchase number');
-      return res.json();
+      return data;
     },
     onSuccess: (data) => {
       setTwilioNumber(data.phoneNumber);
@@ -72,23 +65,15 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const onboardMutation = useMutation({
     mutationFn: async () => {
       const finalNumber = useManualEntry ? manualNumber : twilioNumber;
-      const res = await fetch('/api/admin/onboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          businessName,
-          branchName,
-          twilioNumber: finalNumber || undefined,
-          userEmail,
-          userPassword,
-          userRole: 'USER',
-        }),
+      const { data } = await api.post('/api/admin/onboard', {
+        businessName,
+        branchName,
+        twilioNumber: finalNumber || undefined,
+        userEmail,
+        userPassword,
+        userRole: 'USER',
       });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Onboarding failed');
-      }
-      return res.json();
+      return data;
     },
     onSuccess: () => {
       resetForm();

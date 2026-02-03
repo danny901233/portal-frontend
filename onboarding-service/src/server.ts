@@ -133,7 +133,7 @@ async function createLiveKitSipTrunk(
         metadata: JSON.stringify({
           garageId,
           garageName,
-          twilioNumber,
+          twilioNumber: twilioNumber.replace('+', ''),
           createdAt: new Date().toISOString(),
         }),
       }

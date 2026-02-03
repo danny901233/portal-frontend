@@ -11,7 +11,7 @@ const twilioClient = twilio(
 );
 
 const searchNumbersSchema = z.object({
-  areaCode: z.string().optional(),
+  areaCode: z.string().optional().transform(val => val ? parseInt(val, 10) : undefined),
   countryCode: z.string().default('GB'),
   contains: z.string().optional(),
   limit: z.number().min(1).max(50).optional().default(10),

@@ -101,23 +101,11 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
       });
     }
 
-    // Use the specific National bundle SID
+    // Use the specific National bundle and associated address
     const bundleSid = 'BU30e5e37d9313ac7e38c42777d9dcbfc0';
-    console.log('Using National bundle:', bundleSid);
+    const addressSid = 'AD3c5a548136ce529b4e43e934762cbfec';
 
-    // Fetch addresses for UK compliance (required in addition to bundle)
-    const addresses = await twilioClient.addresses.list({ limit: 1 });
-
-    if (!addresses.length) {
-      return res.status(400).json({
-        error: 'No address found in Twilio account',
-        details: 'Please add a verified address in your Twilio console.',
-      });
-    }
-
-    const addressSid = addresses[0].sid;
-
-    console.log(`Using bundle SID: ${bundleSid} and address SID: ${addressSid} for phone number purchase`);
+    console.log(`Using National bundle: ${bundleSid} with associated address: ${addressSid}`);
 
     const purchasedNumber = await twilioClient.incomingPhoneNumbers.create({
       phoneNumber,

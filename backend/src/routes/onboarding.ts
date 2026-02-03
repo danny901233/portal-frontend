@@ -4,7 +4,6 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
 import { authenticateApiKey } from '../middleware/auth.js';
 import type { Prisma } from '@prisma/client';
-import { sanitizeBranchRoles, branchRolesSchema } from '../utils/branchRoles.js';
 
 const router = Router();
 

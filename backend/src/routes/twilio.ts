@@ -127,10 +127,21 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
       status: error?.status,
       moreInfo: error?.moreInfo,
     });
+
+    let errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    // Provide helpful context for common errors
+    if (error?.code === 21649) {
+      errorMessage = 'This phone number type is not compatible with your National bundle. Try: 1) Use manual entry to add an existing Twilio number, or 2) Purchase via Twilio Console where compatibility is checked automatically.';
+    } else if (error?.code === 21651) {
+      errorMessage = 'Address not linked to bundle. Please verify the address is associated with the bundle in Twilio Console.';
+    }
+
     res.status(500).json({
       error: 'Failed to purchase number',
-      details: error instanceof Error ? error.message : 'Unknown error',
+      details: errorMessage,
       code: error?.code,
+      twilioMessage: error?.message,
     });
   }
 });

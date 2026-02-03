@@ -14,6 +14,7 @@ import {
   deleteAdminUser,
   fetchAdminBusinesses,
   fetchAdminUsers,
+  updateBusinessContact,
   updateGarageTwilioNumber,
   updateAdminUser,
 } from '../lib/admin';
@@ -47,6 +48,13 @@ export default function AdminPage() {
   const [activationFeedback, setActivationFeedback] = useState<Record<string, ActivationFeedback>>({});
   const [twilioDrafts, setTwilioDrafts] = useState<Record<string, string>>({});
   const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
+  const [contactForm, setContactForm] = useState({
+    contactName: '',
+    contactEmail: '',
+    contactPhone: '',
+    contactRole: '',
+  });
+  const [contactMessage, setContactMessage] = useState('');
 
   const adminStatus = useMemo(() => isReceptionMateStaff(), []);
 
@@ -137,6 +145,17 @@ export default function AdminPage() {
     setIsBranchFormVisible(false);
   }, [selectedBusiness?.id]);
 
+  useEffect(() => {
+    if (selectedBusiness) {
+      setContactForm({
+        contactName: selectedBusiness.contactName || '',
+        contactEmail: selectedBusiness.contactEmail || '',
+        contactPhone: selectedBusiness.contactPhone || '',
+        contactRole: selectedBusiness.contactRole || '',
+      });
+    }
+  }, [selectedBusiness]);
+
   const branchNamesById = useMemo(() => {
     return businesses.reduce<Record<string, string>>((acc, business) => {
       business.branches.forEach((branch) => {
@@ -222,6 +241,17 @@ export default function AdminPage() {
     },
     onError: () => {
       setBranchMessage('Failed to create branch.');
+    },
+  });
+
+  const updateContactMutation = useMutation({
+    mutationFn: updateBusinessContact,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] });
+      setContactMessage('Contact information updated successfully.');
+    },
+    onError: () => {
+      setContactMessage('Failed to update contact information.');
     },
   });
 
@@ -600,6 +630,81 @@ export default function AdminPage() {
             </span>
           </div>
           <div className="mt-6 space-y-4">
+            {/* Business Point of Contact */}
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Business Point of Contact</p>
+              <form
+                className="space-y-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setContactMessage('');
+                  if (!selectedBusiness) return;
+                  updateContactMutation.mutate({
+                    businessId: selectedBusiness.id,
+                    contactName: contactForm.contactName.trim() || undefined,
+                    contactEmail: contactForm.contactEmail.trim() || undefined,
+                    contactPhone: contactForm.contactPhone.trim() || undefined,
+                    contactRole: contactForm.contactRole.trim() || undefined,
+                  });
+                }}
+              >
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-sm text-slate-300">
+                    Name
+                    <input
+                      type="text"
+                      value={contactForm.contactName}
+                      onChange={(e) => setContactForm({ ...contactForm, contactName: e.target.value })}
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      placeholder="Casey Admin"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm text-slate-300">
+                    Email
+                    <input
+                      type="email"
+                      value={contactForm.contactEmail}
+                      onChange={(e) => setContactForm({ ...contactForm, contactEmail: e.target.value })}
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      placeholder="contact@biz.com"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm text-slate-300">
+                    Telephone
+                    <input
+                      type="tel"
+                      value={contactForm.contactPhone}
+                      onChange={(e) => setContactForm({ ...contactForm, contactPhone: e.target.value })}
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      placeholder="(555) 123-4567"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm text-slate-300">
+                    Role
+                    <input
+                      type="text"
+                      value={contactForm.contactRole}
+                      onChange={(e) => setContactForm({ ...contactForm, contactRole: e.target.value })}
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      placeholder="Owner"
+                    />
+                  </label>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={updateContactMutation.isPending}
+                    className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500"
+                  >
+                    {updateContactMutation.isPending ? 'Saving…' : 'Save Contact Info'}
+                  </button>
+                  {contactMessage && (
+                    <p className="text-sm text-slate-300">{contactMessage}</p>
+                  )}
+                </div>
+              </form>
+            </div>
+
             <button
               type="button"
               onClick={() => setIsBranchFormVisible((prev) => !prev)}

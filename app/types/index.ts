@@ -100,6 +100,10 @@ export interface AdminGarage {
 export interface AdminBusiness {
   id: string;
   name: string;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  contactRole?: string | null;
   branches: AdminGarage[];
 }
 

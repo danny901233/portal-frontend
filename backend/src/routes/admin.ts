@@ -12,6 +12,13 @@ const createBusinessSchema = z.object({
   name: z.string().min(1).max(200),
 });
 
+const updateBusinessContactSchema = z.object({
+  contactName: z.string().max(200).optional(),
+  contactEmail: z.string().email().max(200).optional().or(z.literal('')),
+  contactPhone: z.string().max(100).optional(),
+  contactRole: z.string().max(100).optional(),
+});
+
 const createBranchSchema = z.object({
   name: z.string().min(1).max(200),
 });
@@ -123,6 +130,10 @@ router.get('/admin/businesses', authenticate, requireAdmin, async (_req, res) =>
     businesses: businesses.map((business) => ({
       id: business.id,
       name: business.name,
+      contactName: business.contactName,
+      contactEmail: business.contactEmail,
+      contactPhone: business.contactPhone,
+      contactRole: business.contactRole,
       branches: business.garages.map(formatBranch),
     })),
   });
@@ -143,6 +154,40 @@ router.post('/admin/businesses', authenticateApiKey, requireAdmin, async (req, r
       id: business.id,
       name: business.name,
       branches: [],
+    },
+  });
+});
+
+router.patch('/admin/businesses/:businessId/contact', authenticateApiKey, requireAdmin, async (req, res) => {
+  const { businessId } = req.params;
+  const parsed = updateBusinessContactSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const business = await prisma.business.findUnique({ where: { id: businessId } });
+  if (!business) {
+    return res.status(404).json({ error: 'Business not found.' });
+  }
+
+  const updated = await prisma.business.update({
+    where: { id: businessId },
+    data: {
+      contactName: parsed.data.contactName,
+      contactEmail: parsed.data.contactEmail === '' ? null : parsed.data.contactEmail,
+      contactPhone: parsed.data.contactPhone,
+      contactRole: parsed.data.contactRole,
+    },
+  });
+
+  res.json({
+    business: {
+      id: updated.id,
+      name: updated.name,
+      contactName: updated.contactName,
+      contactEmail: updated.contactEmail,
+      contactPhone: updated.contactPhone,
+      contactRole: updated.contactRole,
     },
   });
 });

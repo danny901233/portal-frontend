@@ -19,6 +19,23 @@ export const createAdminBranch = async (payload: { businessId: string; name: str
   return data;
 };
 
+export type UpdateBusinessContactPayload = {
+  businessId: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  contactRole?: string;
+};
+
+export const updateBusinessContact = async (payload: UpdateBusinessContactPayload) => {
+  const { businessId, ...contactData } = payload;
+  const { data } = await api.patch<{ business: AdminBusiness }>(
+    `/api/admin/businesses/${businessId}/contact`,
+    contactData,
+  );
+  return data;
+};
+
 export const deleteAdminBusiness = async (businessId: string) => {
   await api.delete(`/api/admin/businesses/${businessId}`);
 };

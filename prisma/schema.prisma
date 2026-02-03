@@ -124,11 +124,15 @@ model CallFeedback {
 }
 
 model Business {
-  id        String   @id @default(cuid())
-  name      String
-  garages   Garage[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  contactRole  String?
+  garages      Garage[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 enum UserRole {

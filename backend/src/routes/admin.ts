@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, authenticateApiKey, requireAdmin } from '../middleware/auth.js';
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 
 const router = Router();
@@ -128,7 +128,7 @@ router.get('/admin/businesses', authenticate, requireAdmin, async (_req, res) =>
   });
 });
 
-router.post('/admin/businesses', authenticate, requireAdmin, async (req, res) => {
+router.post('/admin/businesses', authenticateApiKey, requireAdmin, async (req, res) => {
   const parsed = createBusinessSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -147,7 +147,7 @@ router.post('/admin/businesses', authenticate, requireAdmin, async (req, res) =>
   });
 });
 
-router.post('/admin/businesses/:businessId/branches', authenticate, requireAdmin, async (req, res) => {
+router.post('/admin/businesses/:businessId/branches', authenticateApiKey, requireAdmin, async (req, res) => {
   const { businessId } = req.params;
   const parsed = createBranchSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -191,7 +191,7 @@ router.post('/admin/businesses/:businessId/branches', authenticate, requireAdmin
   });
 });
 
-router.post('/admin/garages/:garageId/activate', authenticate, requireAdmin, async (req, res) => {
+router.post('/admin/garages/:garageId/activate', authenticateApiKey, requireAdmin, async (req, res) => {
   const { garageId } = req.params;
   const parsed = activateGarageSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -384,7 +384,7 @@ router.get('/admin/users', authenticate, requireAdmin, async (_req, res) => {
   });
 });
 
-router.post('/admin/users', authenticate, requireAdmin, async (req, res) => {
+router.post('/admin/users', authenticateApiKey, requireAdmin, async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -462,6 +462,113 @@ router.put('/admin/users/:userId', authenticate, requireAdmin, async (req, res) 
       branchRoles: sanitizeBranchRoles(user.branchRoles),
     },
   });
+});
+
+// Comprehensive onboarding endpoint
+const completeOnboardingSchema = z.object({
+  businessName: z.string().min(1).max(200),
+  branchName: z.string().min(1).max(200),
+  twilioNumber: z.string().min(1).max(100),
+  userEmail: z.string().email(),
+  userPassword: z.string().min(8),
+  userRole: z.enum(['USER', 'ADMIN']).optional().default('USER'),
+});
+
+router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res) => {
+  const parsed = completeOnboardingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  try {
+    // 1. Create business
+    const business = await prisma.business.create({
+      data: { name: parsed.data.businessName },
+    });
+
+    // 2. Create branch/garage
+    const garage = await prisma.garage.create({
+      data: {
+        name: parsed.data.branchName,
+        businessId: business.id,
+      },
+    });
+
+    // 3. Create agent configuration
+    const agentConfig = await prisma.agentConfiguration.create({
+      data: {
+        garageId: garage.id,
+        branchName: parsed.data.branchName,
+        tonePreference: 'standard',
+        responseSpeed: 'normal',
+        interruptionSensitivity: 0.5,
+        allowFastFitOnly: false,
+        integrationProvider: 'none',
+      },
+    });
+
+    // 4. Grant admin access
+    await ensureAdminAccessToGarage(garage.id);
+
+    // 5. Activate with Twilio (provision SIP trunk)
+    const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
+    const agentName = agentConfig.agentName || 'basic_agent2';
+
+    const onboardResponse = await fetch(`${onboardingUrl}/provision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        garageId: garage.id,
+        phoneNumber: parsed.data.twilioNumber,
+        agentName,
+      }),
+    });
+
+    if (!onboardResponse.ok) {
+      throw new Error(`Onboarding service failed: ${await onboardResponse.text()}`);
+    }
+
+    await prisma.garage.update({
+      where: { id: garage.id },
+      data: { twilioNumber: parsed.data.twilioNumber },
+    });
+
+    // 6. Create user account
+    const passwordHash = await bcrypt.hash(parsed.data.userPassword, 10);
+    const user = await prisma.user.create({
+      data: {
+        email: parsed.data.userEmail,
+        passwordHash,
+        mustChangePassword: true,
+        garageAccessIds: [garage.id],
+        role: parsed.data.userRole,
+        branchRoles: { [garage.id]: 'MANAGER' },
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      business: {
+        id: business.id,
+        name: business.name,
+      },
+      branch: {
+        id: garage.id,
+        name: garage.name,
+        twilioNumber: parsed.data.twilioNumber,
+      },
+      user: {
+        id: user.id,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error('Onboarding failed:', error);
+    res.status(500).json({
+      error: 'Onboarding failed',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
 });
 
 export default router;

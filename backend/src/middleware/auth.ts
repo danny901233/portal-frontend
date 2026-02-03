@@ -41,6 +41,28 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
   }
 };
 
+export const authenticateApiKey = (req: Request, res: Response, next: NextFunction) => {
+  const apiKey = req.headers['x-api-key'];
+  const validApiKey = process.env.ONBOARDING_API_KEY;
+
+  if (!validApiKey) {
+    return res.status(500).json({ error: 'API key authentication not configured' });
+  }
+
+  if (apiKey === validApiKey) {
+    // Set a synthetic admin user for API key requests
+    req.user = {
+      userId: 'api-onboarding',
+      email: 'api@receptionmate.com',
+      role: 'RECEPTIONMATE_STAFF',
+    };
+    return next();
+  }
+
+  // Fall back to JWT authentication
+  return authenticate(req, res, next);
+};
+
 export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user || req.user.role !== 'RECEPTIONMATE_STAFF') {
     return res.status(403).json({ error: 'ReceptionMate staff access required' });

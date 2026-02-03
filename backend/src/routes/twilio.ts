@@ -92,11 +92,25 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
     }
 
     const bundleSid = approvedBundles[0].sid;
-    console.log(`Using bundle SID: ${bundleSid} for phone number purchase`);
+
+    // Fetch addresses for UK compliance (required in addition to bundle)
+    const addresses = await twilioClient.addresses.list({ limit: 1 });
+
+    if (!addresses.length) {
+      return res.status(400).json({
+        error: 'No address found in Twilio account',
+        details: 'Please add a verified address in your Twilio console.',
+      });
+    }
+
+    const addressSid = addresses[0].sid;
+
+    console.log(`Using bundle SID: ${bundleSid} and address SID: ${addressSid} for phone number purchase`);
 
     const purchasedNumber = await twilioClient.incomingPhoneNumbers.create({
       phoneNumber,
       bundleSid,
+      addressSid,
     });
 
     res.status(201).json({

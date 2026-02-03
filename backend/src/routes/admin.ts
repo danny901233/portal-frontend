@@ -558,7 +558,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     // 5. Activate with Twilio (provision SIP trunk) - ONLY if Twilio number provided
     if (parsed.data.twilioNumber) {
       const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
-      const agentName = 'basic_agent2';
+      const agentName = 'receptionmate-agent';
       const onboardingSecret = process.env.ONBOARDING_SECRET;
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };

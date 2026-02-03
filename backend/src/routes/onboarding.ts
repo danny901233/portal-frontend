@@ -159,7 +159,7 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
             branchName: branchData.name,
             contactEmail: userData.email,
             twilioNumber,
-            agentName: 'basic_agent2',
+            agentName: 'receptionmate-agent',
             triggeredAt: new Date().toISOString(),
           }),
         });

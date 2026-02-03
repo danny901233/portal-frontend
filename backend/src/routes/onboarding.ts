@@ -1,11 +1,51 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import twilio from 'twilio';
 import { prisma } from '../db.js';
 import { authenticateApiKey } from '../middleware/auth.js';
 import type { Prisma } from '@prisma/client';
 
 const router = Router();
+
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+// Helper function to auto-purchase a random UK number
+async function autoPurchaseTwilioNumber(): Promise<string> {
+  try {
+    // Search for available UK numbers
+    const availableNumbers = await twilioClient.availablePhoneNumbers('GB')
+      .local
+      .list({ limit: 5 });
+
+    if (!availableNumbers.length) {
+      throw new Error('No available UK numbers found');
+    }
+
+    // Pick the first available number
+    const selectedNumber = availableNumbers[0].phoneNumber;
+    console.log('[ONBOARDING] Auto-purchasing number:', selectedNumber);
+
+    // Purchase the number with regulatory bundle
+    const bundleSid = 'BU08d2714daf3a61874f914319204d51ca';
+    const addressSid = 'AD5d175e286a33f9348f9b19aa4bdd513a';
+
+    const purchasedNumber = await twilioClient.incomingPhoneNumbers.create({
+      phoneNumber: selectedNumber,
+      bundleSid,
+      addressSid,
+    });
+
+    console.log('[ONBOARDING] Successfully purchased:', purchasedNumber.phoneNumber);
+    return purchasedNumber.phoneNumber;
+  } catch (error) {
+    console.error('[ONBOARDING] Auto-purchase failed:', error);
+    throw new Error('Failed to auto-purchase Twilio number: ' + (error as Error).message);
+  }
+}
 
 // Schema for complete onboarding request
 const onboardingSchema = z.object({
@@ -20,6 +60,8 @@ const onboardingSchema = z.object({
     password: z.string().min(8),
     role: z.enum(['USER', 'ADMIN']).default('USER'),
   }),
+  twilioNumber: z.string().optional(),
+  autoPurchaseTwilioNumber: z.boolean().default(false),
   activateTwilio: z.boolean().default(false),
 });
 
@@ -41,9 +83,21 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  const { business: businessData, branch: branchData, user: userData, activateTwilio } = parsed.data;
+  const { business: businessData, branch: branchData, user: userData, twilioNumber: providedTwilioNumber, autoPurchaseTwilioNumber, activateTwilio } = parsed.data;
 
   try {
+    // Step 0: Auto-purchase Twilio number if requested
+    let twilioNumber: string | null = providedTwilioNumber || null;
+    if (autoPurchaseTwilioNumber && !twilioNumber) {
+      try {
+        twilioNumber = await autoPurchaseTwilioNumber();
+        console.log('[ONBOARDING] Auto-purchased number:', twilioNumber);
+      } catch (error) {
+        console.error('[ONBOARDING] Auto-purchase failed:', error);
+        // Continue without Twilio number - don't fail the entire onboarding
+      }
+    }
+
     // Step 1: Create business
     const business = await prisma.business.create({
       data: { name: businessData.name },
@@ -54,6 +108,7 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
       data: {
         name: branchData.name,
         businessId: business.id,
+        twilioNumber,
       },
     });
 
@@ -84,29 +139,35 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
     });
 
     // Step 5: Optionally activate Twilio
-    let twilioNumber: string | null = null;
-    if (activateTwilio) {
+    let provisioningFailed = false;
+    if (activateTwilio && twilioNumber) {
       try {
         const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
         const response = await fetch(`${onboardingUrl}/provision`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ garageId: garage.id }),
+          body: JSON.stringify({
+            garageId: garage.id,
+            twilioNumber
+          }),
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          twilioNumber = data.phoneNumber;
-
-          await prisma.garage.update({
-            where: { id: garage.id },
-            data: { twilioNumber },
-          });
+        if (!response.ok) {
+          provisioningFailed = true;
+          console.error('[ONBOARDING] Twilio provisioning failed:', await response.text());
         }
       } catch (err) {
+        provisioningFailed = true;
         console.error('[ONBOARDING] Twilio activation failed:', err);
-        // Continue even if Twilio fails - return warning
       }
+    }
+
+    const warnings = [];
+    if (autoPurchaseTwilioNumber && !twilioNumber) {
+      warnings.push('Auto-purchase of Twilio number failed');
+    }
+    if (activateTwilio && provisioningFailed) {
+      warnings.push('Twilio provisioning failed');
     }
 
     res.status(201).json({
@@ -119,13 +180,14 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
         id: garage.id,
         name: garage.name,
         twilioNumber,
+        autoPurchased: autoPurchaseTwilioNumber && !!twilioNumber,
       },
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
       },
-      warnings: activateTwilio && !twilioNumber ? ['Twilio activation failed'] : [],
+      warnings,
     });
   } catch (error) {
     console.error('[ONBOARDING] Error:', error);

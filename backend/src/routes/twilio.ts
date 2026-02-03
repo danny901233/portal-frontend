@@ -79,10 +79,20 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
       limit: 20,
     });
 
+    // Log all bundles for debugging
+    console.log('All bundles:', allBundles.map((b: any) => ({
+      sid: b.sid,
+      status: b.status,
+      regulationType: b.regulationType,
+      friendlyName: b.friendlyName,
+    })));
+
     // Filter for approved bundles
     const approvedBundles = allBundles.filter((b: any) =>
       b.status === 'twilio-approved' || b.status === 'approved'
     );
+
+    console.log('Approved bundles:', approvedBundles.length);
 
     if (!approvedBundles.length) {
       return res.status(400).json({
@@ -91,7 +101,18 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
       });
     }
 
-    const bundleSid = approvedBundles[0].sid;
+    // Try to find a bundle with UK local number regulation type
+    // Common types: 'local', 'phone-number-verification-gb', etc.
+    const ukLocalBundle = approvedBundles.find((b: any) =>
+      b.regulationType && (
+        b.regulationType.toLowerCase().includes('gb') ||
+        b.regulationType.toLowerCase().includes('uk') ||
+        b.regulationType.toLowerCase().includes('local')
+      )
+    );
+
+    const bundleSid = (ukLocalBundle || approvedBundles[0]).sid;
+    console.log('Selected bundle:', bundleSid, 'regulation type:', ukLocalBundle?.regulationType || approvedBundles[0]?.regulationType);
 
     // Fetch addresses for UK compliance (required in addition to bundle)
     const addresses = await twilioClient.addresses.list({ limit: 1 });

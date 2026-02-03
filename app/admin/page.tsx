@@ -32,14 +32,6 @@ export default function AdminPage() {
   const [businessSearch, setBusinessSearch] = useState('');
   const [branchSearch, setBranchSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
-  type ContactInfo = { name: string; email: string; phone: string; role: string };
-  const [contactDetails, setContactDetails] = useState<Record<string, ContactInfo>>({});
-  const [businessContactForm, setBusinessContactForm] = useState<ContactInfo>({
-    name: '',
-    email: '',
-    phone: '',
-    role: '',
-  });
   const [assignmentTarget, setAssignmentTarget] = useState<Record<string, string>>({});
   const [unassignmentTarget, setUnassignmentTarget] = useState<Record<string, string>>({});
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
@@ -182,10 +174,6 @@ export default function AdminPage() {
     );
   }, [users, branchIdsForBusiness]);
 
-  const selectedBusinessContact = selectedBusinessId
-    ? contactDetails[selectedBusinessId] ?? null
-    : null;
-
   const userSearchLower = userSearch.trim().toLowerCase();
   const filteredUsers = useMemo(() => {
     if (!userSearchLower) {
@@ -219,11 +207,6 @@ export default function AdminPage() {
       setBusinessName('');
       setBusinessMessage('Business created successfully.');
       setSelectedBusinessId(response.business.id);
-      setContactDetails((prev) => ({
-        ...prev,
-        [response.business.id]: businessContactForm,
-      }));
-      setBusinessContactForm({ name: '', email: '', phone: '', role: '' });
     },
     onError: () => {
       setBusinessMessage('Failed to create business.');
@@ -527,59 +510,6 @@ export default function AdminPage() {
               placeholder="ReceptionMate Group"
             />
           </label>
-          <div className="flex flex-1 flex-col gap-3 text-sm text-slate-300">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Business point of contact</p>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="flex flex-col gap-1">
-                Name
-                <input
-                  type="text"
-                  value={businessContactForm.name}
-                  onChange={(event) =>
-                    setBusinessContactForm((prev) => ({ ...prev, name: event.target.value }))
-                  }
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                  placeholder="Casey Admin"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                Email
-                <input
-                  type="email"
-                  value={businessContactForm.email}
-                  onChange={(event) =>
-                    setBusinessContactForm((prev) => ({ ...prev, email: event.target.value }))
-                  }
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                  placeholder="contact@biz.com"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                Telephone
-                <input
-                  type="tel"
-                  value={businessContactForm.phone}
-                  onChange={(event) =>
-                    setBusinessContactForm((prev) => ({ ...prev, phone: event.target.value }))
-                  }
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                  placeholder="(555) 123-4567"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                Role
-                <input
-                  type="text"
-                  value={businessContactForm.role}
-                  onChange={(event) =>
-                    setBusinessContactForm((prev) => ({ ...prev, role: event.target.value }))
-                  }
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                  placeholder="Owner"
-                />
-              </label>
-            </div>
-          </div>
           <button
             type="submit"
             className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-violet-400"
@@ -670,25 +600,6 @@ export default function AdminPage() {
             </span>
           </div>
           <div className="mt-6 space-y-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-200">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Point of contact</p>
-              <p>
-                <span className="font-semibold text-slate-100">Name:</span>{' '}
-                {selectedBusinessContact?.name || 'Not provided'}
-              </p>
-              <p>
-                <span className="font-semibold text-slate-100">Email:</span>{' '}
-                {selectedBusinessContact?.email || 'Not provided'}
-              </p>
-              <p>
-                <span className="font-semibold text-slate-100">Phone:</span>{' '}
-                {selectedBusinessContact?.phone || 'Not provided'}
-              </p>
-              <p>
-                <span className="font-semibold text-slate-100">Role:</span>{' '}
-                {selectedBusinessContact?.role || 'Not provided'}
-              </p>
-            </div>
             <button
               type="button"
               onClick={() => setIsBranchFormVisible((prev) => !prev)}

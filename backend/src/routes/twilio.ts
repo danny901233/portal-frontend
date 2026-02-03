@@ -111,8 +111,9 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
       )
     );
 
-    const bundleSid = (ukLocalBundle || approvedBundles[0]).sid;
-    console.log('Selected bundle:', bundleSid, 'regulation type:', ukLocalBundle?.regulationType || approvedBundles[0]?.regulationType);
+    const selectedBundle: any = ukLocalBundle || approvedBundles[0];
+    const bundleSid = selectedBundle.sid;
+    console.log('Selected bundle:', bundleSid, 'regulation type:', selectedBundle.regulationType);
 
     // Fetch addresses for UK compliance (required in addition to bundle)
     const addresses = await twilioClient.addresses.list({ limit: 1 });

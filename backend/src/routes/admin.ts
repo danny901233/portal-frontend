@@ -468,7 +468,7 @@ router.put('/admin/users/:userId', authenticate, requireAdmin, async (req, res) 
 const completeOnboardingSchema = z.object({
   businessName: z.string().min(1).max(200),
   branchName: z.string().min(1).max(200),
-  twilioNumber: z.string().min(1).max(100),
+  twilioNumber: z.string().min(1).max(100).optional(),
   userEmail: z.string().email(),
   userPassword: z.string().min(8),
   userRole: z.enum(['USER', 'ADMIN']).optional().default('USER'),
@@ -510,38 +510,40 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     // 4. Grant admin access
     await ensureAdminAccessToGarage(garage.id);
 
-    // 5. Activate with Twilio (provision SIP trunk)
-    const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
-    const agentName = 'basic_agent2';
-    const onboardingSecret = process.env.ONBOARDING_SECRET;
+    // 5. Activate with Twilio (provision SIP trunk) - ONLY if Twilio number provided
+    if (parsed.data.twilioNumber) {
+      const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
+      const agentName = 'basic_agent2';
+      const onboardingSecret = process.env.ONBOARDING_SECRET;
 
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (onboardingSecret) {
-      headers['x-onboarding-secret'] = onboardingSecret;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (onboardingSecret) {
+        headers['x-onboarding-secret'] = onboardingSecret;
+      }
+
+      const onboardResponse = await fetch(`${onboardingUrl}/provision`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          garageId: garage.id,
+          garageName: garage.name,
+          branchName: parsed.data.branchName,
+          contactEmail: parsed.data.userEmail,
+          twilioNumber: parsed.data.twilioNumber,
+          agentName,
+          triggeredAt: new Date().toISOString(),
+        }),
+      });
+
+      if (!onboardResponse.ok) {
+        throw new Error(`Onboarding service failed: ${await onboardResponse.text()}`);
+      }
+
+      await prisma.garage.update({
+        where: { id: garage.id },
+        data: { twilioNumber: parsed.data.twilioNumber },
+      });
     }
-
-    const onboardResponse = await fetch(`${onboardingUrl}/provision`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        garageId: garage.id,
-        garageName: garage.name,
-        branchName: parsed.data.branchName,
-        contactEmail: parsed.data.userEmail,
-        twilioNumber: parsed.data.twilioNumber,
-        agentName,
-        triggeredAt: new Date().toISOString(),
-      }),
-    });
-
-    if (!onboardResponse.ok) {
-      throw new Error(`Onboarding service failed: ${await onboardResponse.text()}`);
-    }
-
-    await prisma.garage.update({
-      where: { id: garage.id },
-      data: { twilioNumber: parsed.data.twilioNumber },
-    });
 
     // 6. Create user account
     const passwordHash = await bcrypt.hash(parsed.data.userPassword, 10);
@@ -565,7 +567,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       branch: {
         id: garage.id,
         name: garage.name,
-        twilioNumber: parsed.data.twilioNumber,
+        twilioNumber: parsed.data.twilioNumber || null,
       },
       user: {
         id: user.id,

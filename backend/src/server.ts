@@ -9,6 +9,7 @@ import configRouter from './routes/config.js';
 import agentWebhookRouter from './routes/agentWebhook.js';
 import adminRouter from './routes/admin.js';
 import voiceRouter from './routes/voice.js';
+import onboardingRouter from './routes/onboarding.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 
@@ -43,6 +44,7 @@ app.use('/api', callsRouter);
 app.use('/api', configRouter);
 app.use('/api/auth', authRouter);
 app.use('/api', adminRouter);
+app.use('/api', onboardingRouter);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
 

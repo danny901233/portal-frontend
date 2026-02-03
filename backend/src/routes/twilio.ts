@@ -11,7 +11,7 @@ const twilioClient = twilio(
 );
 
 const searchNumbersSchema = z.object({
-  areaCode: z.string().optional().transform(val => val ? parseInt(val, 10) : undefined),
+  areaCode: z.string().optional(),
   countryCode: z.string().default('GB'),
   contains: z.string().optional(),
   limit: z.number().min(1).max(50).optional().default(10),
@@ -48,11 +48,18 @@ router.post('/admin/twilio/available-numbers', authenticateApiKey, requireAdmin,
         capabilities: num.capabilities,
       })),
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Twilio search failed:', error);
+    console.error('Error details:', {
+      message: error?.message,
+      code: error?.code,
+      status: error?.status,
+      moreInfo: error?.moreInfo,
+    });
     res.status(500).json({
       error: 'Failed to search numbers',
       details: error instanceof Error ? error.message : 'Unknown error',
+      code: error?.code,
     });
   }
 });
@@ -77,11 +84,18 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
       sid: purchasedNumber.sid,
       friendlyName: purchasedNumber.friendlyName,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Twilio purchase failed:', error);
+    console.error('Error details:', {
+      message: error?.message,
+      code: error?.code,
+      status: error?.status,
+      moreInfo: error?.moreInfo,
+    });
     res.status(500).json({
       error: 'Failed to purchase number',
       details: error instanceof Error ? error.message : 'Unknown error',
+      code: error?.code,
     });
   }
 });

@@ -7,7 +7,6 @@ import { isReceptionMateStaff } from '../lib/auth';
 import {
   activateGarage,
   createAdminBranch,
-  createAdminBusiness,
   createAdminUser,
   deleteAdminBranch,
   deleteAdminBusiness,
@@ -26,8 +25,6 @@ type ActivationFeedback = { message: string; tone: 'success' | 'error' };
 export default function AdminPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [businessName, setBusinessName] = useState('');
-  const [businessMessage, setBusinessMessage] = useState('');
   const [branchName, setBranchName] = useState('');
   const [branchMessage, setBranchMessage] = useState('');
   const [businessSearch, setBusinessSearch] = useState('');
@@ -219,19 +216,6 @@ export default function AdminPage() {
     });
   }, [businessUsers, userSearchLower, branchNamesById, selectedBusiness?.name]);
 
-  const businessMutation = useMutation({
-    mutationFn: createAdminBusiness,
-    onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] });
-      setBusinessName('');
-      setBusinessMessage('Business created successfully.');
-      setSelectedBusinessId(response.business.id);
-    },
-    onError: () => {
-      setBusinessMessage('Failed to create business.');
-    },
-  });
-
   const branchMutation = useMutation({
     mutationFn: createAdminBranch,
     onSuccess: async () => {
@@ -359,10 +343,9 @@ export default function AdminPage() {
     mutationFn: deleteAdminBusiness,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] });
-      setBusinessMessage('Business deleted successfully.');
     },
     onError: () => {
-      setBusinessMessage('Failed to delete business.');
+      // Silently handle error - user already confirmed via dialog
     },
   });
   
@@ -518,37 +501,6 @@ export default function AdminPage() {
             {businesses.length} businesses
           </span>
         </div>
-        <form
-          className="mt-6 flex flex-wrap items-end gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setBusinessMessage('');
-            if (!businessName.trim()) {
-              setBusinessMessage('Enter a business name.');
-              return;
-            }
-            businessMutation.mutate({ name: businessName.trim() });
-          }}
-        >
-          <label className="flex flex-1 flex-col gap-1 text-sm text-slate-300">
-            Business name
-            <input
-              type="text"
-              value={businessName}
-              onChange={(event) => setBusinessName(event.target.value)}
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-              placeholder="ReceptionMate Group"
-            />
-          </label>
-          <button
-            type="submit"
-            className="rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-violet-400"
-            disabled={businessMutation.isPending}
-          >
-            {businessMutation.isPending ? 'Creating…' : 'Create business'}
-          </button>
-        </form>
-        {businessMessage && <p className="mt-2 text-sm text-slate-300">{businessMessage}</p>}
         <div className="mt-6 space-y-3">
           <label className="text-sm font-medium text-slate-300" htmlFor="businessSearch">
             Search businesses
@@ -562,53 +514,65 @@ export default function AdminPage() {
             className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
           />
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {filteredBusinesses.map((business) => (
-            <div
-              key={business.id}
-              className={`relative w-full rounded-xl border px-4 py-3 transition-colors ${
-                business.id === selectedBusinessId
-                  ? 'border-sky-500 bg-sky-500/10'
-                  : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
-              }`}
-            >
-              <button
-                onClick={() => setSelectedBusinessId(business.id)}
-                className="w-full text-left"
-              >
-                <div className="flex items-center justify-between text-sm font-semibold">
-                  <span className="text-slate-100">{business.name}</span>
-                  <span className="text-[10px] uppercase tracking-[0.4em] text-slate-500">
-                    {business.branches.length} Branches
-                  </span>
-                </div>
-                <p className="mt-1 text-[11px] text-slate-500">Business ID: {business.id}</p>
-                <p className="mt-2 text-xs text-slate-500">
-                  {business.branches.length === 0
-                    ? 'Add a branch to start tracking calls.'
-                    : 'Choose this business to manage its branches.'}
-                </p>
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (confirm(`Are you sure you want to delete "${business.name}" and all its branches? This cannot be undone.`)) {
-                    deleteBusinessMutation.mutate(business.id);
-                  }
-                }}
-                disabled={deleteBusinessMutation.isPending}
-                className="absolute right-2 top-2 rounded-lg bg-red-600/80 px-2 py-1 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"
-              >
-                Delete
-              </button>
-            </div>
-          ))}
-        </div>
-        {filteredBusinesses.length === 0 && (
-          <p className="mt-2 text-sm text-slate-500">
+
+        {filteredBusinesses.length > 0 ? (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Business Name</th>
+                  <th className="px-4 py-3 font-semibold text-center">Branches</th>
+                  <th className="px-4 py-3 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredBusinesses.map((business) => (
+                  <tr
+                    key={business.id}
+                    className={`border-b border-slate-800 transition-colors ${
+                      business.id === selectedBusinessId
+                        ? 'bg-sky-500/10'
+                        : 'hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setSelectedBusinessId(business.id)}
+                        className="text-left w-full"
+                      >
+                        <div className="font-semibold text-slate-100">{business.name}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">ID: {business.id}</div>
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center justify-center rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-300">
+                        {business.branches.length}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`Are you sure you want to delete "${business.name}" and all its branches? This cannot be undone.`)) {
+                            deleteBusinessMutation.mutate(business.id);
+                          }
+                        }}
+                        disabled={deleteBusinessMutation.isPending}
+                        className="rounded-lg bg-red-600/80 px-3 py-1 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-slate-500">
             {businesses.length === 0
-              ? 'Create the first business to start assigning branches and users.'
+              ? 'No businesses yet. Use "Quick Onboard Business" to create your first business.'
               : 'No businesses match your search.'}
           </p>
         )}

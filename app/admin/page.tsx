@@ -52,6 +52,8 @@ export default function AdminPage() {
     contactRole: '',
   });
   const [contactMessage, setContactMessage] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const adminStatus = useMemo(() => isReceptionMateStaff(), []);
 
@@ -171,6 +173,18 @@ export default function AdminPage() {
       business.name.toLowerCase().includes(businessSearchLower),
     );
   }, [businesses, businessSearchLower]);
+
+  const totalPages = Math.ceil(filteredBusinesses.length / itemsPerPage);
+  const paginatedBusinesses = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredBusinesses.slice(startIndex, endIndex);
+  }, [filteredBusinesses, currentPage, itemsPerPage]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [businessSearchLower]);
 
   const branchSearchLower = branchSearch.trim().toLowerCase();
   const filteredBranches = useMemo(() => {
@@ -516,17 +530,18 @@ export default function AdminPage() {
         </div>
 
         {filteredBusinesses.length > 0 ? (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Business Name</th>
-                  <th className="px-4 py-3 font-semibold text-center">Branches</th>
-                  <th className="px-4 py-3 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredBusinesses.map((business) => (
+          <>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Business Name</th>
+                    <th className="px-4 py-3 font-semibold text-center">Branches</th>
+                    <th className="px-4 py-3 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedBusinesses.map((business) => (
                   <tr
                     key={business.id}
                     className={`border-b border-slate-800 transition-colors ${
@@ -568,7 +583,48 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between border-t border-slate-800 pt-4">
+                <div className="text-sm text-slate-400">
+                  Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredBusinesses.length)} of {filteredBusinesses.length} businesses
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 rounded-lg border border-slate-700 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <div className="flex gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                          currentPage === page
+                            ? 'bg-violet-600 text-white'
+                            : 'border border-slate-700 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 rounded-lg border border-slate-700 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
+          </>
         ) : (
           <p className="mt-4 text-sm text-slate-500">
             {businesses.length === 0
@@ -582,17 +638,30 @@ export default function AdminPage() {
       </section>
 
       {selectedBusiness && (
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-100">Branches</h2>
-              <p className="text-sm text-slate-400">Manage branches for {selectedBusiness.name}</p>
-              <p className="text-xs text-slate-500">Business ID: {selectedBusiness.id}</p>
+        <>
+          {/* Selected Business Indicator */}
+          <div className="rounded-2xl border-2 border-violet-500 bg-gradient-to-r from-violet-500/10 to-sky-500/10 p-4">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-violet-500 px-3 py-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-white">Currently Editing</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-100">{selectedBusiness.name}</h3>
+                <p className="text-xs text-slate-400">ID: {selectedBusiness.id}</p>
+              </div>
             </div>
-            <span className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-slate-500">
-              {branches.length} branches
-            </span>
           </div>
+
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-100">Branches</h2>
+                <p className="text-sm text-slate-400">Manage branches for {selectedBusiness.name}</p>
+              </div>
+              <span className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-slate-500">
+                {branches.length} branches
+              </span>
+            </div>
           <div className="mt-6 space-y-4">
             {/* Business Point of Contact */}
             <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
@@ -840,9 +909,7 @@ export default function AdminPage() {
             )}
           </div>
         </section>
-      )}
 
-      {selectedBusiness && (
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
           <div className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between">
@@ -852,7 +919,6 @@ export default function AdminPage() {
               </p>
             </div>
             <p className="text-sm text-slate-500">Create and manage users inside the selected business.</p>
-            <p className="text-xs text-slate-500">Business ID: {selectedBusiness.id}</p>
           </div>
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <form
@@ -1128,6 +1194,7 @@ export default function AdminPage() {
           </div>
           {userMessage && <p className="mt-4 text-sm text-slate-300">{userMessage}</p>}
         </section>
+        </>
       )}
     </div>
   );

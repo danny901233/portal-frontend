@@ -101,19 +101,21 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
       });
     }
 
-    // Try to find a bundle with UK local number regulation type
-    // Common types: 'local', 'phone-number-verification-gb', etc.
-    const ukLocalBundle = approvedBundles.find((b: any) =>
-      b.regulationType && (
-        b.regulationType.toLowerCase().includes('gb') ||
-        b.regulationType.toLowerCase().includes('uk') ||
-        b.regulationType.toLowerCase().includes('local')
-      )
+    // Find the Local bundle for local phone numbers by checking friendlyName
+    const localBundle = approvedBundles.find((b: any) =>
+      b.friendlyName && b.friendlyName.toLowerCase().includes('local')
     );
 
-    const selectedBundle: any = ukLocalBundle || approvedBundles[0];
+    if (!localBundle) {
+      return res.status(400).json({
+        error: 'No Local regulatory bundle found',
+        details: 'Local phone numbers require a bundle with "Local" regulation type. Please create a UK Local bundle in your Twilio console.',
+      });
+    }
+
+    const selectedBundle: any = localBundle;
     const bundleSid = selectedBundle.sid;
-    console.log('Selected bundle:', bundleSid, 'regulation type:', selectedBundle.regulationType);
+    console.log('Selected bundle:', bundleSid, 'friendlyName:', selectedBundle.friendlyName);
 
     // Fetch addresses for UK compliance (required in addition to bundle)
     const addresses = await twilioClient.addresses.list({ limit: 1 });

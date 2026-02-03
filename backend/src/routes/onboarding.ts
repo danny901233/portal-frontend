@@ -14,7 +14,7 @@ const twilioClient = twilio(
 );
 
 // Helper function to auto-purchase a random UK number
-async function autoPurchaseTwilioNumber(): Promise<string> {
+async function purchaseRandomTwilioNumber(): Promise<string> {
   try {
     // Search for available UK numbers
     const availableNumbers = await twilioClient.availablePhoneNumbers('GB')
@@ -90,7 +90,7 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
     let twilioNumber: string | null = providedTwilioNumber || null;
     if (autoPurchaseTwilioNumber && !twilioNumber) {
       try {
-        twilioNumber = await autoPurchaseTwilioNumber();
+        twilioNumber = await purchaseRandomTwilioNumber();
         console.log('[ONBOARDING] Auto-purchased number:', twilioNumber);
       } catch (error) {
         console.error('[ONBOARDING] Auto-purchase failed:', error);

@@ -513,10 +513,16 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     // 5. Activate with Twilio (provision SIP trunk)
     const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
     const agentName = agentConfig.agentName || 'basic_agent2';
+    const onboardingSecret = process.env.ONBOARDING_SECRET;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (onboardingSecret) {
+      headers['x-onboarding-secret'] = onboardingSecret;
+    }
 
     const onboardResponse = await fetch(`${onboardingUrl}/provision`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         garageId: garage.id,
         garageName: garage.name,

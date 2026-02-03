@@ -519,8 +519,12 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         garageId: garage.id,
-        phoneNumber: parsed.data.twilioNumber,
+        garageName: garage.name,
+        branchName: parsed.data.branchName,
+        contactEmail: parsed.data.userEmail,
+        twilioNumber: parsed.data.twilioNumber,
         agentName,
+        triggeredAt: new Date().toISOString(),
       }),
     });
 

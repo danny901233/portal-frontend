@@ -109,17 +109,17 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
     const addressSid = 'AD3c5a548136ce529b4e43e934762cbfec';
 
     console.log(`Using National bundle: ${bundleSid} with associated address: ${addressSid}`);
-    console.log('Purchase request parameters:', {
-      phoneNumber,
-      bundleSid,
-      addressSid,
-    });
 
-    const purchasedNumber = await twilioClient.incomingPhoneNumbers.create({
-      phoneNumber,
-      bundleSid,
-      addressSid,
-    });
+    // Use PascalCase parameter names as required by Twilio REST API
+    const params: any = {
+      PhoneNumber: phoneNumber,
+      BundleSid: bundleSid,
+      AddressSid: addressSid,
+    };
+
+    console.log('Purchase request with PascalCase parameters:', params);
+
+    const purchasedNumber = await twilioClient.incomingPhoneNumbers.create(params);
 
     console.log('Purchase successful!', purchasedNumber.sid);
 

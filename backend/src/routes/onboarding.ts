@@ -143,12 +143,24 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
     if (activateTwilio && twilioNumber) {
       try {
         const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
+        const onboardingSecret = process.env.ONBOARDING_SECRET;
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (onboardingSecret) {
+          headers['x-onboarding-secret'] = onboardingSecret;
+        }
+
         const response = await fetch(`${onboardingUrl}/provision`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             garageId: garage.id,
-            twilioNumber
+            garageName: garage.name,
+            branchName: branchData.name,
+            contactEmail: userData.email,
+            twilioNumber,
+            agentName: 'basic_agent2',
+            triggeredAt: new Date().toISOString(),
           }),
         });
 

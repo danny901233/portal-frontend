@@ -74,6 +74,9 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
 
     const { phoneNumber } = parsed.data;
 
+    // Log the phone number being purchased
+    console.log(`Attempting to purchase phone number: ${phoneNumber}`);
+
     // Fetch regulatory bundles for UK compliance
     const allBundles = await twilioClient.numbers.regulatoryCompliance.bundles.list({
       limit: 20,
@@ -106,12 +109,19 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
     const addressSid = 'AD3c5a548136ce529b4e43e934762cbfec';
 
     console.log(`Using National bundle: ${bundleSid} with associated address: ${addressSid}`);
+    console.log('Purchase request parameters:', {
+      phoneNumber,
+      bundleSid,
+      addressSid,
+    });
 
     const purchasedNumber = await twilioClient.incomingPhoneNumbers.create({
       phoneNumber,
       bundleSid,
       addressSid,
     });
+
+    console.log('Purchase successful!', purchasedNumber.sid);
 
     res.status(201).json({
       success: true,

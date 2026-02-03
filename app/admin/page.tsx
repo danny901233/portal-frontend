@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tantml:function_calls/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { isReceptionMateStaff } from '../lib/auth';
@@ -18,6 +18,7 @@ import {
   updateAdminUser,
 } from '../lib/admin';
 import type { AdminUser, UserRole } from '../types';
+import { OnboardingModal } from './components/OnboardingModal';
 
 type ActivationFeedback = { message: string; tone: 'success' | 'error' };
 
@@ -53,6 +54,7 @@ export default function AdminPage() {
   const [userMessage, setUserMessage] = useState('');
   const [activationFeedback, setActivationFeedback] = useState<Record<string, ActivationFeedback>>({});
   const [twilioDrafts, setTwilioDrafts] = useState<Record<string, string>>({});
+  const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
 
   const adminStatus = useMemo(() => isReceptionMateStaff(), []);
 
@@ -475,6 +477,22 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
+      <OnboardingModal
+        isOpen={isOnboardingModalOpen}
+        onClose={() => setIsOnboardingModalOpen(false)}
+        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] })}
+      />
+
+      {/* Quick Onboard Button */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => setIsOnboardingModalOpen(true)}
+          className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-colors shadow-lg"
+        >
+          + Quick Onboard Business
+        </button>
+      </div>
+
       <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
         <div className="flex items-center justify-between">
           <div>

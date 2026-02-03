@@ -40,7 +40,7 @@ router.post('/admin/twilio/available-numbers', authenticateApiKey, requireAdmin,
       });
 
     res.json({
-      numbers: availableNumbers.map(num => ({
+      numbers: availableNumbers.map((num: any) => ({
         phoneNumber: num.phoneNumber,
         friendlyName: num.friendlyName,
         locality: num.locality,

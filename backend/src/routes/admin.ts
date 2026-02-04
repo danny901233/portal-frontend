@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, authenticateApiKey, requireAdmin } from '../middleware/auth.js';
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
+import { sendWelcomeEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -515,9 +516,11 @@ const completeOnboardingSchema = z.object({
   branchName: z.string().min(1).max(200),
   twilioNumber: z.string().min(1).max(100).optional(),
   userEmail: z.string().email(),
-  userPassword: z.string().min(8),
+  userPassword: z.string().min(8).optional(),
   userRole: z.enum(['USER', 'ADMIN']).optional().default('USER'),
 });
+
+const DEFAULT_PASSWORD = 'Nomoremissedcalls';
 
 router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res) => {
   const parsed = completeOnboardingSchema.safeParse(req.body);
@@ -591,16 +594,32 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     }
 
     // 6. Create user account
-    const passwordHash = await bcrypt.hash(parsed.data.userPassword, 10);
+    const actualPassword = parsed.data.userPassword || DEFAULT_PASSWORD;
+    const passwordHash = await bcrypt.hash(actualPassword, 10);
     const user = await prisma.user.create({
       data: {
         email: parsed.data.userEmail,
         passwordHash,
         mustChangePassword: true,
+        mustSetupPayment: true,
         garageAccessIds: [garage.id],
         role: parsed.data.userRole,
         branchRoles: { [garage.id]: 'MANAGER' },
       },
+    });
+
+    // 7. Send welcome email with login credentials
+    const portalUrl = process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.ai';
+    await sendWelcomeEmail({
+      to: parsed.data.userEmail,
+      businessName: parsed.data.businessName,
+      branchName: parsed.data.branchName,
+      email: parsed.data.userEmail,
+      password: actualPassword,
+      portalUrl,
+    }).catch((error) => {
+      console.error('Failed to send welcome email:', error);
+      // Don't fail the onboarding if email fails
     });
 
     res.status(201).json({

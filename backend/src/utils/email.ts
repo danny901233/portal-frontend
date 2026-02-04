@@ -609,3 +609,138 @@ This is an automated alert from ReceptionMate
     text,
   });
 };
+
+interface WelcomeEmailData {
+  to: string;
+  businessName: string;
+  branchName: string;
+  email: string;
+  password: string;
+  portalUrl: string;
+}
+
+export const sendWelcomeEmail = async (data: WelcomeEmailData): Promise<boolean> => {
+  const { to, businessName, branchName, email, password, portalUrl } = data;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to ReceptionMate</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #09203c;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #09203c;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1a3a52; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="text-align: center; padding: 32px;">
+                    <h2 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">
+                      🎉 Welcome to ReceptionMate!
+                    </h2>
+                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
+                      Your account has been created
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 32px;">
+              <p style="margin: 0 0 20px; font-size: 16px; color: #cbd5e1; line-height: 1.6;">
+                Hi there,
+              </p>
+
+              <p style="margin: 0 0 20px; font-size: 16px; color: #cbd5e1; line-height: 1.6;">
+                Your ReceptionMate account has been set up for <strong style="color: #ffffff;">${businessName}</strong> - <strong style="color: #ffffff;">${branchName}</strong>.
+              </p>
+
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
+                    <h3 style="margin: 0 0 16px; font-size: 16px; font-weight: 600; color: #ffffff;">
+                      Your Login Credentials
+                    </h3>
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <td style="padding: 8px 0; font-size: 14px; color: #94a3b8; width: 120px;">Email:</td>
+                        <td style="padding: 8px 0; font-size: 14px; color: #ffffff; font-weight: 500;">${email}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 8px 0; font-size: 14px; color: #94a3b8;">Password:</td>
+                        <td style="padding: 8px 0; font-size: 14px; color: #ffffff; font-weight: 500; font-family: 'Courier New', monospace;">${password}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+                <strong style="color: #fbbf24;">⚠️ Important:</strong> You will be required to change your password when you first log in.
+              </p>
+
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="text-align: center; padding: 20px 0;">
+                    <a href="${portalUrl}/login" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+                      Log In to Portal
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 20px 0 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+                If you have any questions or need assistance, please don't hesitate to contact our support team.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 24px; background-color: #0d2739; border-top: 1px solid #1e4a66;">
+              <p style="margin: 0; font-size: 12px; color: #64748b; text-align: center;">
+                This is an automated email from ReceptionMate<br/>
+                © ${new Date().getFullYear()} ReceptionMate. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+
+  const text = `
+Welcome to ReceptionMate!
+
+Your account has been created for ${businessName} - ${branchName}.
+
+Your Login Credentials:
+Email: ${email}
+Password: ${password}
+
+⚠️ Important: You will be required to change your password when you first log in.
+
+Log in to the portal: ${portalUrl}/login
+
+If you have any questions or need assistance, please contact our support team.
+
+---
+This is an automated email from ReceptionMate
+`;
+
+  return sendEmail({
+    to: [to],
+    subject: `Welcome to ReceptionMate - Your Login Credentials`,
+    html,
+    text,
+  });
+};

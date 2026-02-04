@@ -22,7 +22,6 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [businessName, setBusinessName] = useState('');
   const [branchName, setBranchName] = useState('');
   const [userEmail, setUserEmail] = useState('');
-  const [userPassword, setUserPassword] = useState('');
   const [twilioNumber, setTwilioNumber] = useState('');
   const [manualNumber, setManualNumber] = useState('');
   const [useManualEntry, setUseManualEntry] = useState(false);
@@ -70,7 +69,6 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
         branchName,
         twilioNumber: finalNumber || undefined,
         userEmail,
-        userPassword,
         userRole: 'USER',
       });
       return data;
@@ -87,7 +85,6 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     setBusinessName('');
     setBranchName('');
     setUserEmail('');
-    setUserPassword('');
     setTwilioNumber('');
     setManualNumber('');
     setUseManualEntry(false);
@@ -107,13 +104,8 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     e.preventDefault();
     setError('');
 
-    if (!businessName.trim() || !branchName.trim() || !userEmail.trim() || !userPassword.trim()) {
+    if (!businessName.trim() || !branchName.trim() || !userEmail.trim()) {
       setError('Please fill in all required fields');
-      return;
-    }
-
-    if (userPassword.length < 8) {
-      setError('Password must be at least 8 characters');
       return;
     }
 
@@ -277,23 +269,8 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                     autoComplete="email"
                     required
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">
-                    Temporary Password *
-                  </label>
-                  <input
-                    type="password"
-                    value={userPassword}
-                    onChange={(e) => setUserPassword(e.target.value)}
-                    className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
-                    placeholder="Min. 8 characters"
-                    autoComplete="new-password"
-                    required
-                  />
                   <p className="mt-1 text-xs text-slate-500">
-                    User will be forced to change password on first login
+                    Login credentials will be sent to this email address
                   </p>
                 </div>
               </div>

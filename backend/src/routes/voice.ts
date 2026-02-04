@@ -112,7 +112,7 @@ router.post('/recording-status', async (req: Request, res: Response) => {
         const updatedCalls = await prisma.call.updateMany({
           where: {
             twilioCallSid: CallSid,
-            recordingUrl: null, // Only update calls that don't have recording yet
+            recordingDurationSeconds: null, // Only update calls that don't have recording duration yet
           },
           data: {
             durationSeconds,
@@ -124,6 +124,8 @@ router.post('/recording-status', async (req: Request, res: Response) => {
 
         if (updatedCalls.count > 0) {
           console.log(`[RECORDING] Updated ${updatedCalls.count} call(s) with recording duration: ${durationSeconds}s`);
+        } else {
+          console.log(`[RECORDING] No calls updated for CallSid ${CallSid} (may already have recording duration)`);
         }
       }
     }

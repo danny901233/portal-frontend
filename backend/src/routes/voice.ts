@@ -108,24 +108,39 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       console.log(`[RECORDING] Stored recording for CallSid ${CallSid}`);
 
       // Update call duration with recording duration (actual call time)
+      // OR delete the call if duration is under 30 seconds
       if (durationSeconds !== null && !Number.isNaN(durationSeconds)) {
-        const updatedCalls = await prisma.call.updateMany({
-          where: {
-            twilioCallSid: CallSid,
-            recordingDurationSeconds: null, // Only update calls that don't have recording duration yet
-          },
-          data: {
-            durationSeconds,
-            recordingDurationSeconds: durationSeconds,
-            recordingUrl: RecordingSid,
-            recordingCompletedAt: completedAt,
-          },
-        });
+        // If recording duration is under 30 seconds, delete the call from portal
+        if (durationSeconds < 30) {
+          const deletedCalls = await prisma.call.deleteMany({
+            where: {
+              twilioCallSid: CallSid,
+            },
+          });
 
-        if (updatedCalls.count > 0) {
-          console.log(`[RECORDING] Updated ${updatedCalls.count} call(s) with recording duration: ${durationSeconds}s`);
+          if (deletedCalls.count > 0) {
+            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 30s threshold`);
+          }
         } else {
-          console.log(`[RECORDING] No calls updated for CallSid ${CallSid} (may already have recording duration)`);
+          // Duration is >= 30 seconds, update the call with correct duration
+          const updatedCalls = await prisma.call.updateMany({
+            where: {
+              twilioCallSid: CallSid,
+              recordingDurationSeconds: null, // Only update calls that don't have recording duration yet
+            },
+            data: {
+              durationSeconds,
+              recordingDurationSeconds: durationSeconds,
+              recordingUrl: RecordingSid,
+              recordingCompletedAt: completedAt,
+            },
+          });
+
+          if (updatedCalls.count > 0) {
+            console.log(`[RECORDING] ✅ Updated ${updatedCalls.count} call(s) with recording duration: ${durationSeconds}s`);
+          } else {
+            console.log(`[RECORDING] No calls updated for CallSid ${CallSid} (may already have recording duration)`);
+          }
         }
       }
     }

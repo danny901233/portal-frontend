@@ -145,12 +145,6 @@ router.post('/calls', async (req: Request, res: Response) => {
 
     const payload = parseResult.data;
 
-    // Skip calls under 30 seconds (dropped calls, wrong numbers, etc.)
-    if (payload.durationSeconds < 30) {
-      console.log(`[CALL] Skipping short call (${payload.durationSeconds}s) for garage ${payload.garageId} - under 30 second threshold`);
-      return res.status(201).json({ success: true, callId: 'skipped', reason: 'Call duration under 30 seconds' });
-    }
-
     // Try to get recording URL from stored callback data by roomName (unique per call)
     let finalRecordingUrl = payload.recordingUrl;
     let finalRecordingDuration: number | null = null;
@@ -167,6 +161,15 @@ router.post('/calls', async (req: Request, res: Response) => {
       } else {
         console.log(`[RECORDING] No stored recording found yet for room ${payload.roomName}, will be null`);
       }
+    }
+
+    // Use recording duration if available (actual call time), otherwise use agent-reported duration
+    const actualDuration = finalRecordingDuration ?? payload.durationSeconds;
+
+    // Skip calls under 30 seconds (dropped calls, wrong numbers, etc.)
+    if (actualDuration < 30) {
+      console.log(`[CALL] Skipping short call (${actualDuration}s) for garage ${payload.garageId} - under 30 second threshold`);
+      return res.status(201).json({ success: true, callId: 'skipped', reason: 'Call duration under 30 seconds' });
     }
 
     await prisma.garage.upsert({
@@ -191,7 +194,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         recordingUrl: finalRecordingUrl,
         recordingDurationSeconds: finalRecordingDuration,
         recordingCompletedAt: finalRecordingCompletedAt,
-        durationSeconds: payload.durationSeconds,
+        durationSeconds: actualDuration,
         callType,
         twilioCallSid: payload.twilioCallSid,
         registrationNumber: payload.registrationNumber,

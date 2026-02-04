@@ -601,7 +601,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         email: parsed.data.userEmail.toLowerCase(),
         passwordHash,
         mustChangePassword: true,
-        mustSetupPayment: true,
+        mustSetupPayment: false, // TEMPORARILY DISABLED
         garageAccessIds: [garage.id],
         role: parsed.data.userRole,
         branchRoles: { [garage.id]: 'MANAGER' },

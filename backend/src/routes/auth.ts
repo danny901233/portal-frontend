@@ -53,33 +53,34 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     // Check if payment setup is required
-    if (user.mustSetupPayment) {
-      const secret = process.env.JWT_SECRET;
-      if (!secret) {
-        throw new Error('JWT_SECRET is not configured');
-      }
+    // TEMPORARILY DISABLED
+    // if (user.mustSetupPayment) {
+    //   const secret = process.env.JWT_SECRET;
+    //   if (!secret) {
+    //     throw new Error('JWT_SECRET is not configured');
+    //   }
 
-      const branchRoles = sanitizeBranchRoles(user.branchRoles);
+    //   const branchRoles = sanitizeBranchRoles(user.branchRoles);
 
-      // Generate a token for authenticated payment setup
-      const token = jwt.sign(
-        {
-          userId: user.id,
-          email: user.email,
-          role: user.role,
-          branchRoles,
-        },
-        secret,
-        { expiresIn: '12h' },
-      );
+    //   // Generate a token for authenticated payment setup
+    //   const token = jwt.sign(
+    //     {
+    //       userId: user.id,
+    //       email: user.email,
+    //       role: user.role,
+    //       branchRoles,
+    //     },
+    //     secret,
+    //     { expiresIn: '12h' },
+    //   );
 
-      return res.json({
-        success: true,
-        paymentSetupRequired: true,
-        token,
-        user: { id: user.id, email: user.email, role: user.role, branchRoles },
-      });
-    }
+    //   return res.json({
+    //     success: true,
+    //     paymentSetupRequired: true,
+    //     token,
+    //     user: { id: user.id, email: user.email, role: user.role, branchRoles },
+    //   });
+    // }
 
     let allowedGarageIds = Array.isArray(user.garageAccessIds) ? [...user.garageAccessIds] : [];
     if (user.role === 'RECEPTIONMATE_STAFF') {

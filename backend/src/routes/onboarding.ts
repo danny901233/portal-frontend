@@ -113,10 +113,12 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
     });
 
     // Step 3: Create agent configuration
+    const defaultGreeting = `Good [morning/afternoon/evening], ${branchData.name}, Leah speaking how may I help?`;
     const agentConfig = await prisma.agentConfiguration.create({
       data: {
         garageId: garage.id,
         branchName: branchData.name,
+        greetingLine: defaultGreeting,
         tonePreference: 'standard',
         responseSpeed: 'normal',
         interruptionSensitivity: 0.5,

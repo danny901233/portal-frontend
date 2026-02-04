@@ -109,10 +109,10 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       console.log(`[RECORDING] Stored recording for CallSid ${CallSid}`);
 
       // Update call duration with recording duration (actual call time)
-      // OR delete the call if duration is under 30 seconds
+      // OR delete the call if duration is under 55 seconds
       if (durationSeconds !== null && !Number.isNaN(durationSeconds)) {
-        // If recording duration is under 30 seconds, delete the call from portal
-        if (durationSeconds < 30) {
+        // If recording duration is under 55 seconds, delete the call from portal
+        if (durationSeconds < 55) {
           const deletedCalls = await prisma.call.deleteMany({
             where: {
               twilioCallSid: CallSid,
@@ -120,10 +120,30 @@ router.post('/recording-status', async (req: Request, res: Response) => {
           });
 
           if (deletedCalls.count > 0) {
-            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 30s threshold`);
+            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 55s threshold`);
+          } else {
+            // Fallback: No calls found by twilioCallSid, try timestamp matching for deletion
+            console.log(`[RECORDING] No calls deleted by CallSid - trying fallback deletion by timestamp`);
+
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+            const recentCalls = await prisma.call.findMany({
+              where: {
+                createdAt: { gte: fiveMinutesAgo },
+                recordingDurationSeconds: null,
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            });
+
+            if (recentCalls.length > 0) {
+              await prisma.call.delete({
+                where: { id: recentCalls[0].id },
+              });
+              console.log(`[RECORDING] 🗑️  Deleted call ${recentCalls[0].id} via fallback - duration ${durationSeconds}s under 55s threshold`);
+            }
           }
         } else {
-          // Duration is >= 30 seconds, update the call with correct duration
+          // Duration is >= 55 seconds, update the call with correct duration
           const updatedCalls = await prisma.call.updateMany({
             where: {
               twilioCallSid: CallSid,
@@ -140,7 +160,7 @@ router.post('/recording-status', async (req: Request, res: Response) => {
           if (updatedCalls.count > 0) {
             console.log(`[RECORDING] ✅ Updated ${updatedCalls.count} call(s) with recording duration: ${durationSeconds}s`);
 
-            // Send notification email now that we've confirmed duration >= 30s
+            // Send notification email now that we've confirmed duration >= 55s
             const call = await prisma.call.findFirst({
               where: { twilioCallSid: CallSid },
               include: {
@@ -180,7 +200,78 @@ router.post('/recording-status', async (req: Request, res: Response) => {
               });
             }
           } else {
-            console.log(`[RECORDING] No calls updated for CallSid ${CallSid} (may already have recording duration)`);
+            console.log(`[RECORDING] No calls updated for CallSid ${CallSid} - trying fallback match by timestamp`);
+
+            // Fallback: Find call by matching recent calls with similar timestamp
+            // Recording callback usually arrives within 5-10 seconds of call end
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+            const recentCalls = await prisma.call.findMany({
+              where: {
+                createdAt: { gte: fiveMinutesAgo },
+                recordingDurationSeconds: null, // Only calls without recording duration set
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 10,
+            });
+
+            if (recentCalls.length > 0) {
+              // Take the most recent call as the match
+              const matchedCall = recentCalls[0];
+              console.log(`[RECORDING] Fallback matched call ${matchedCall.id} by timestamp`);
+
+              await prisma.call.update({
+                where: { id: matchedCall.id },
+                data: {
+                  twilioCallSid: CallSid,
+                  durationSeconds,
+                  recordingDurationSeconds: durationSeconds,
+                  recordingUrl: RecordingSid,
+                  recordingCompletedAt: completedAt,
+                },
+              });
+
+              console.log(`[RECORDING] ✅ Updated call ${matchedCall.id} with recording duration: ${durationSeconds}s`);
+
+              // Send notification email
+              const call = await prisma.call.findFirst({
+                where: { id: matchedCall.id },
+                include: {
+                  garage: {
+                    include: {
+                      agentConfiguration: {
+                        select: {
+                          branchName: true,
+                          notificationEmails: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              });
+
+              if (call?.garage?.agentConfiguration?.notificationEmails &&
+                  call.garage.agentConfiguration.notificationEmails.length > 0) {
+                console.log(`[RECORDING] 📧 Sending notification email for fallback-matched call`);
+
+                void sendCallSummaryEmail(call.garage.agentConfiguration.notificationEmails, {
+                  branchName: call.garage.agentConfiguration.branchName,
+                  summary: call.summary,
+                  transcript: call.transcript as any,
+                  durationSeconds: durationSeconds,
+                  callType: call.callType,
+                  customerName: call.customerName,
+                  customerPhone: call.customerPhone,
+                  registrationNumber: call.registrationNumber,
+                  confirmedBooking: call.confirmedBooking,
+                  capturedRevenue: call.capturedRevenue,
+                  createdAt: call.createdAt.toISOString(),
+                  bookingDate: null,
+                  priceQuoted: call.capturedRevenue,
+                }).catch((error) => {
+                  console.error('[RECORDING] Failed to send notification email:', error);
+                });
+              }
+            }
           }
         }
       }

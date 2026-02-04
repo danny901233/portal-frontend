@@ -145,6 +145,12 @@ router.post('/calls', async (req: Request, res: Response) => {
 
     const payload = parseResult.data;
 
+    // Skip calls under 30 seconds (dropped calls, wrong numbers, etc.)
+    if (payload.durationSeconds < 30) {
+      console.log(`[CALL] Skipping short call (${payload.durationSeconds}s) for garage ${payload.garageId} - under 30 second threshold`);
+      return res.status(201).json({ success: true, callId: 'skipped', reason: 'Call duration under 30 seconds' });
+    }
+
     // Try to get recording URL from stored callback data by roomName (unique per call)
     let finalRecordingUrl = payload.recordingUrl;
     let finalRecordingDuration: number | null = null;

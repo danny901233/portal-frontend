@@ -71,20 +71,6 @@ const toIsoRangeBoundary = (date: string, boundary: 'start' | 'end') => {
   return new Date(`${date}${suffix}`).toISOString();
 };
 
-const formatDuration = (seconds: number) => {
-  if (!seconds) return '0m 00s';
-  const totalSeconds = Math.round(seconds);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const remainingSeconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes.toString().padStart(2, '0')}m`;
-  }
-
-  return `${minutes}m ${remainingSeconds.toString().padStart(2, '0')}s`;
-};
-
 const formatCurrency = (value: number) => {
   if (!Number.isFinite(value)) return '—';
   return new Intl.NumberFormat(undefined, {
@@ -175,12 +161,6 @@ export default function DashboardPage() {
   }, [endDate, assignedGarageIds, selectedGarageId, shouldAggregateAllBranches, startDate]);
 
   const totalCalls = calls.length;
-  const totalDuration = useMemo(
-    () => calls.reduce((acc, call) => acc + (call.durationSeconds ?? 0), 0),
-    [calls]
-  );
-
-  const averageDuration = totalCalls ? totalDuration / totalCalls : 0;
 
   const callTypeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -486,29 +466,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl bg-gradient-to-br from-sky-500/10 via-sky-500/5 to-sky-500/0 p-5 shadow-sm ring-1 ring-sky-500/20">
           <div className="text-xs uppercase tracking-wide text-slate-300">Total calls</div>
           <div className="mt-3 text-3xl font-semibold text-sky-100">{loading ? '—' : totalCalls}</div>
           <p className="mt-2 text-xs text-slate-400">
             All calls captured within the selected date range.
           </p>
-        </div>
-        <div className="rounded-2xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-emerald-500/0 p-5 shadow-sm ring-1 ring-emerald-500/20">
-          <div className="text-xs uppercase tracking-wide text-slate-300">Total duration</div>
-          <div className="mt-3 text-3xl font-semibold text-emerald-100">
-            {loading ? '—' : formatDuration(totalDuration)}
-          </div>
-          <p className="mt-2 text-xs text-slate-400">
-            Combined talk time for every call in the selected range.
-          </p>
-        </div>
-        <div className="rounded-2xl bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-violet-500/0 p-5 shadow-sm ring-1 ring-violet-500/20">
-          <div className="text-xs uppercase tracking-wide text-slate-300">Average duration</div>
-          <div className="mt-3 text-3xl font-semibold text-violet-100">
-            {loading ? '—' : formatDuration(averageDuration)}
-          </div>
-          <p className="mt-2 text-xs text-slate-400">Mean handle time for conversations in this period.</p>
         </div>
         <div className="rounded-2xl bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-amber-500/0 p-5 shadow-sm ring-1 ring-amber-500/20">
           <div className="text-xs uppercase tracking-wide text-slate-300">Top call tag</div>

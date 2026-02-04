@@ -14,22 +14,6 @@ const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
 });
 
-const formatDuration = (seconds?: number | null) => {
-  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) {
-    return '—';
-  }
-  const total = Math.max(0, Math.trunc(seconds));
-  const minutes = Math.floor(total / 60);
-  const secs = total % 60;
-  if (minutes === 0) {
-    return `${secs}s`;
-  }
-  if (secs === 0) {
-    return `${minutes}m`;
-  }
-  return `${minutes}m ${secs}s`;
-};
-
 const METRIC_EXCLUDE_KEYS = new Set([
   'transcriptlength',
   'sttautoduration',
@@ -296,9 +280,8 @@ export default function CallDetailPage() {
         </p>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard label="Call Tag" value={getCallTagLabel(call.callType)} />
-        <MetricCard label="Duration" value={formatDuration(call.durationSeconds)} />
         <MetricCard label="Caller Name" value={callerName} />
         <MetricCard label="Caller Number" value={callerNumber} />
       </section>

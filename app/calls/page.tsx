@@ -43,22 +43,6 @@ const toIsoDate = (value: string, endOfDay = false): string | undefined => {
   return date.toISOString();
 };
 
-const formatDuration = (seconds?: number | null) => {
-  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) {
-    return '—';
-  }
-  const total = Math.max(0, Math.trunc(seconds));
-  const minutes = Math.floor(total / 60);
-  const secs = total % 60;
-  if (minutes === 0) {
-    return `${secs}s`;
-  }
-  if (secs === 0) {
-    return `${minutes}m`;
-  }
-  return `${minutes}m ${secs}s`;
-};
-
 const formatCallTag = (raw?: string | null) => getCallTagLabel(raw);
 
 const renderCallTag = (raw?: string | null) => {
@@ -420,7 +404,6 @@ export default function CallsPage() {
   const [feedbackReasons, setFeedbackReasons] = useState<string[]>([]);
   const [feedbackNotes, setFeedbackNotes] = useState('');
   const [summaryModalCallId, setSummaryModalCallId] = useState<string | null>(null);
-  const [durationSort, setDurationSort] = useState<'none' | 'asc'>('none');
   const [loadingRecordings, setLoadingRecordings] = useState<Set<string>>(new Set());
   const [recordingErrors, setRecordingErrors] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
@@ -494,7 +477,6 @@ export default function CallsPage() {
   const booleanQuery = useMemo<BooleanParseResult>(() => parseBooleanQuery(searchTerm), [searchTerm]);
   const filtersActive =
     callTagFilter !== 'all' ||
-    durationSort !== 'none' ||
     Boolean(startDateInput) ||
     Boolean(endDateInput) ||
     Boolean(trimmedSearch);
@@ -514,21 +496,7 @@ export default function CallsPage() {
     });
   }, [calls, trimmedSearch, normalizedSearch, booleanQuery]);
 
-  const displayedCalls = useMemo(() => {
-    if (durationSort === 'none') {
-      return filteredCalls;
-    }
-
-    return [...filteredCalls].sort((a, b) => {
-      const aDuration = typeof a.durationSeconds === 'number' && Number.isFinite(a.durationSeconds)
-        ? Math.max(0, a.durationSeconds)
-        : 0;
-      const bDuration = typeof b.durationSeconds === 'number' && Number.isFinite(b.durationSeconds)
-        ? Math.max(0, b.durationSeconds)
-        : 0;
-      return aDuration - bDuration;
-    });
-  }, [filteredCalls, durationSort]);
+  const displayedCalls = filteredCalls;
 
   const callTagOptions = useMemo(() => {
     const tagSet = new Set<string>(TRACKED_TAGS as readonly string[]);
@@ -560,15 +528,10 @@ export default function CallsPage() {
     setStartDateInput('');
     setEndDateInput('');
     setSearchTerm('');
-    setDurationSort('none');
   }, []);
 
   const handleReasonToggle = useCallback((value: string) => {
     setFeedbackReasons((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
-  }, []);
-
-  const toggleDurationSort = useCallback(() => {
-    setDurationSort((prev) => (prev === 'asc' ? 'none' : 'asc'));
   }, []);
 
   const closeFeedbackModal = useCallback(() => {
@@ -882,28 +845,6 @@ export default function CallsPage() {
                 <th className="px-5 py-3 text-left font-medium">Caller</th>
                 <th className="px-5 py-3 text-left font-medium">From Number</th>
                 <th className="px-5 py-3 text-left font-medium">Date &amp; Time</th>
-                <th className="px-5 py-3 text-left font-medium">
-                  <button
-                    type="button"
-                    onClick={toggleDurationSort}
-                    className="flex items-center gap-1 text-slate-400 transition-colors hover:text-sky-300"
-                    aria-pressed={durationSort === 'asc'}
-                    title={durationSort === 'asc' ? 'Clear duration sort' : 'Sort by shortest duration'}
-                  >
-                    <span>Duration</span>
-                    <svg
-                      className={cn(
-                        'h-3 w-3 transition-transform',
-                        durationSort === 'asc' ? 'rotate-180 text-sky-400' : 'text-slate-500',
-                      )}
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      aria-hidden="true"
-                    >
-                      <path d="M12 6l-4 6h8l-4-6z" />
-                    </svg>
-                  </button>
-                </th>
                 <th className="px-5 py-3 text-left font-medium">Tag</th>
                 <th className="px-5 py-3 text-left font-medium">Recording</th>
                 <th className="px-5 py-3 text-left font-medium">Summary</th>
@@ -914,13 +855,13 @@ export default function CallsPage() {
             <tbody className="divide-y divide-slate-800/80">
               {query.isLoading ? (
                 <tr>
-                  <td colSpan={9} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={8} className="px-5 py-10 text-center text-slate-400">
                     Loading calls…
                   </td>
                 </tr>
               ) : displayedCalls.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={8} className="px-5 py-10 text-center text-slate-400">
                     No calls found. Adjust filters or widen your search query.
                   </td>
                 </tr>
@@ -947,7 +888,6 @@ export default function CallsPage() {
                         {formattedNumber}
                       </td>
                       <td className="px-5 py-3 align-top text-slate-200">{formatDate(call.createdAt)}</td>
-                      <td className="px-5 py-3 align-top text-slate-200">{formatDuration(call.durationSeconds)}</td>
                       <td className="px-5 py-3 align-top text-slate-100">{callTag}</td>
                       <td className="px-5 py-3 align-top text-slate-300">
                         {call.recordingUrl ? (

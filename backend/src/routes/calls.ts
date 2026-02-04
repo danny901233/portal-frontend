@@ -13,7 +13,7 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { sendNegativeFeedbackEmail } from '../utils/email.js';
+import { sendNegativeFeedbackEmail, sendCallSummaryEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -196,7 +196,7 @@ router.post('/calls', async (req: Request, res: Response) => {
 
     const callId = await generateUniqueCallId();
 
-    await prisma.call.create({
+    const createdCall = await prisma.call.create({
       data: {
         id: callId,
         garageId: payload.garageId,
@@ -219,11 +219,43 @@ router.post('/calls', async (req: Request, res: Response) => {
         summary: payload.summary,
         ...(payload.emotionData && { emotionData: payload.emotionData }),
       },
+      include: {
+        garage: {
+          include: {
+            agentConfiguration: {
+              select: {
+                branchName: true,
+                notificationEmails: true,
+              },
+            },
+          },
+        },
+      },
     });
 
-    // NOTE: Email notifications are now sent from the recording callback (voice.ts)
-    // after we confirm the actual recording duration is >= 30 seconds.
-    // This prevents sending emails for calls that will be deleted due to short duration.
+    // Send notification email (agent already filtered to only send calls >= 30s)
+    if (createdCall.garage?.agentConfiguration?.notificationEmails &&
+        createdCall.garage.agentConfiguration.notificationEmails.length > 0) {
+      console.log(`[EMAIL] Sending notification for call ${callId} with duration ${actualDuration}s`);
+
+      void sendCallSummaryEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+        branchName: createdCall.garage.agentConfiguration.branchName,
+        summary: payload.summary,
+        transcript: payload.transcript as any,
+        durationSeconds: actualDuration,
+        callType: callType,
+        customerName: payload.customerName,
+        customerPhone: payload.customerPhone,
+        registrationNumber: payload.registrationNumber,
+        confirmedBooking: payload.confirmedBooking ?? false,
+        capturedRevenue: payload.capturedRevenue ?? null,
+        createdAt: createdCall.createdAt.toISOString(),
+        bookingDate: null,
+        priceQuoted: payload.capturedRevenue ?? null,
+      }).catch((error) => {
+        console.error('[EMAIL] Failed to send notification email:', error);
+      });
+    }
 
     res.status(201).json({ success: true, callId });
   } catch (error) {

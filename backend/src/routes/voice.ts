@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
+import { sendCallSummaryEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -138,13 +139,53 @@ router.post('/recording-status', async (req: Request, res: Response) => {
 
           if (updatedCalls.count > 0) {
             console.log(`[RECORDING] ✅ Updated ${updatedCalls.count} call(s) with recording duration: ${durationSeconds}s`);
+
+            // Send notification email now that we've confirmed duration >= 30s
+            const call = await prisma.call.findFirst({
+              where: { twilioCallSid: CallSid },
+              include: {
+                garage: {
+                  include: {
+                    agentConfiguration: {
+                      select: {
+                        branchName: true,
+                        notificationEmails: true,
+                      },
+                    },
+                  },
+                },
+              },
+            });
+
+            if (call?.garage?.agentConfiguration?.notificationEmails &&
+                call.garage.agentConfiguration.notificationEmails.length > 0) {
+              console.log(`[RECORDING] 📧 Sending notification email for call with ${durationSeconds}s duration`);
+
+              void sendCallSummaryEmail(call.garage.agentConfiguration.notificationEmails, {
+                branchName: call.garage.agentConfiguration.branchName,
+                summary: call.summary,
+                transcript: call.transcript as any,
+                durationSeconds: durationSeconds,
+                callType: call.callType,
+                customerName: call.customerName,
+                customerPhone: call.customerPhone,
+                registrationNumber: call.registrationNumber,
+                confirmedBooking: call.confirmedBooking,
+                capturedRevenue: call.capturedRevenue,
+                createdAt: call.createdAt.toISOString(),
+                bookingDate: null,
+                priceQuoted: call.capturedRevenue,
+              }).catch((error) => {
+                console.error('[RECORDING] Failed to send notification email:', error);
+              });
+            }
           } else {
             console.log(`[RECORDING] No calls updated for CallSid ${CallSid} (may already have recording duration)`);
           }
         }
       }
     }
-    
+
     res.status(200).send('OK');
   } catch (error) {
     console.error('[RECORDING] Error processing recording callback:', error);

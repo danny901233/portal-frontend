@@ -13,7 +13,7 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { sendCallSummaryEmail, sendNegativeFeedbackEmail } from '../utils/email.js';
+import { sendNegativeFeedbackEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -138,6 +138,15 @@ router.post('/calls', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
 
+    // Log incoming payload to debug duration
+    console.log('[CALL] Incoming webhook payload:', JSON.stringify({
+      garageId: req.body.garageId,
+      durationSeconds: req.body.durationSeconds,
+      roomName: req.body.roomName,
+      customerName: req.body.customerName,
+      callType: req.body.callType,
+    }));
+
     const parseResult = createCallSchema.safeParse(req.body);
     if (!parseResult.success) {
       return res.status(400).json({ error: parseResult.error.flatten() });
@@ -211,34 +220,9 @@ router.post('/calls', async (req: Request, res: Response) => {
       },
     });
 
-    // Send notification emails asynchronously
-    const agentConfiguration = await prisma.agentConfiguration.findUnique({
-      where: { garageId: payload.garageId },
-      select: { 
-        branchName: true,
-        notificationEmails: true,
-      },
-    });
-
-    if (agentConfiguration?.notificationEmails && agentConfiguration.notificationEmails.length > 0) {
-      void sendCallSummaryEmail(agentConfiguration.notificationEmails, {
-        branchName: agentConfiguration.branchName,
-        summary: payload.summary,
-        transcript: payload.transcript,
-        durationSeconds: payload.durationSeconds,
-        callType,
-        customerName: payload.customerName,
-        customerPhone: payload.customerPhone,
-        registrationNumber: payload.registrationNumber,
-        confirmedBooking: payload.confirmedBooking,
-        capturedRevenue: payload.capturedRevenue,
-        createdAt: new Date().toISOString(),
-        bookingDate: null, // Not currently captured
-        priceQuoted: payload.capturedRevenue, // Use captured revenue as price quoted for now
-      }).catch((error) => {
-        console.error('Failed to send notification email:', error);
-      });
-    }
+    // NOTE: Email notifications are now sent from the recording callback (voice.ts)
+    // after we confirm the actual recording duration is >= 30 seconds.
+    // This prevents sending emails for calls that will be deleted due to short duration.
 
     res.status(201).json({ success: true, callId });
   } catch (error) {

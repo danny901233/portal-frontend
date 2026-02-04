@@ -105,9 +105,27 @@ router.post('/recording-status', async (req: Request, res: Response) => {
         },
       });
 
-      // Don't update calls here - let the recording fetch logic match by roomName
-      // This prevents multiple calls from getting the same recording when they share a Twilio CallSid
-      console.log(`[RECORDING] Stored recording for CallSid ${CallSid}, calls will fetch by roomName`);
+      console.log(`[RECORDING] Stored recording for CallSid ${CallSid}`);
+
+      // Update call duration with recording duration (actual call time)
+      if (durationSeconds !== null && !Number.isNaN(durationSeconds)) {
+        const updatedCalls = await prisma.call.updateMany({
+          where: {
+            twilioCallSid: CallSid,
+            recordingUrl: null, // Only update calls that don't have recording yet
+          },
+          data: {
+            durationSeconds,
+            recordingDurationSeconds: durationSeconds,
+            recordingUrl: RecordingSid,
+            recordingCompletedAt: completedAt,
+          },
+        });
+
+        if (updatedCalls.count > 0) {
+          console.log(`[RECORDING] Updated ${updatedCalls.count} call(s) with recording duration: ${durationSeconds}s`);
+        }
+      }
     }
     
     res.status(200).send('OK');

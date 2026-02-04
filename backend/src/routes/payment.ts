@@ -1,9 +1,13 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
-import gocardless from 'gocardless-nodejs';
+import { createRequire } from 'module';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+
+const require = createRequire(import.meta.url);
+const gocardless = require('gocardless-nodejs');
+const constants = require('gocardless-nodejs/constants');
 
 const router = Router();
 
@@ -17,8 +21,8 @@ const getGocardlessClient = () => {
   }
 
   const gcEnvironment = environment === 'live'
-    ? gocardless.constants.Environments.Live
-    : gocardless.constants.Environments.Sandbox;
+    ? constants.Environments.Live
+    : constants.Environments.Sandbox;
 
   return gocardless(accessToken, gcEnvironment);
 };

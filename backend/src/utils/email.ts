@@ -639,9 +639,14 @@ export const sendWelcomeEmail = async (data: WelcomeEmailData): Promise<boolean>
             <td style="padding: 0; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
-                  <td style="text-align: center; padding: 32px;">
+                  <td style="text-align: center; padding: 24px 32px 8px;">
+                    <img src="https://receptionmate.co.uk/wp-content/uploads/2024/12/receptionmate-light-1-1024x292.png" alt="ReceptionMate" style="height: 40px; width: auto; display: inline-block;" />
+                  </td>
+                </tr>
+                <tr>
+                  <td style="text-align: center; padding: 8px 32px 32px;">
                     <h2 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">
-                      🎉 Welcome to ReceptionMate!
+                      Welcome to ReceptionMate!
                     </h2>
                     <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
                       Your account has been created
@@ -688,6 +693,19 @@ export const sendWelcomeEmail = async (data: WelcomeEmailData): Promise<boolean>
 
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
+                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
+                    <h3 style="margin: 0 0 12px; font-size: 16px; font-weight: 600; color: #ffffff;">
+                      💳 Set Up Direct Debit
+                    </h3>
+                    <p style="margin: 0; font-size: 14px; color: #cbd5e1; line-height: 1.6;">
+                      After logging in, you'll need to complete your Direct Debit mandate to activate your service. This ensures uninterrupted access to ReceptionMate.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
                   <td style="text-align: center; padding: 20px 0;">
                     <a href="${portalUrl}/login" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
                       Log In to Portal
@@ -697,7 +715,7 @@ export const sendWelcomeEmail = async (data: WelcomeEmailData): Promise<boolean>
               </table>
 
               <p style="margin: 20px 0 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-                If you have any questions or need assistance, please don't hesitate to contact our support team.
+                If you have any questions or need assistance, please don't hesitate to contact our support team at <a href="mailto:hello@receptionmate.co.uk" style="color: #8b5cf6; text-decoration: none;">hello@receptionmate.co.uk</a>
               </p>
             </td>
           </tr>
@@ -729,9 +747,12 @@ Password: ${password}
 
 ⚠️ Important: You will be required to change your password when you first log in.
 
+💳 Set Up Direct Debit
+After logging in, you'll need to complete your Direct Debit mandate to activate your service. This ensures uninterrupted access to ReceptionMate.
+
 Log in to the portal: ${portalUrl}/login
 
-If you have any questions or need assistance, please contact our support team.
+If you have any questions or need assistance, please contact our support team at hello@receptionmate.co.uk
 
 ---
 This is an automated email from ReceptionMate

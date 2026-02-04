@@ -20,7 +20,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
     const { email, password, garageId: requestedGarageId } = result.data;
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -49,6 +49,35 @@ router.post('/login', async (req: Request, res: Response) => {
         passwordChangeRequired: true,
         resetToken,
         user: { id: user.id, email: user.email, role: user.role, branchRoles: sanitizeBranchRoles(user.branchRoles) },
+      });
+    }
+
+    // Check if payment setup is required
+    if (user.mustSetupPayment) {
+      const secret = process.env.JWT_SECRET;
+      if (!secret) {
+        throw new Error('JWT_SECRET is not configured');
+      }
+
+      const branchRoles = sanitizeBranchRoles(user.branchRoles);
+
+      // Generate a token for authenticated payment setup
+      const token = jwt.sign(
+        {
+          userId: user.id,
+          email: user.email,
+          role: user.role,
+          branchRoles,
+        },
+        secret,
+        { expiresIn: '12h' },
+      );
+
+      return res.json({
+        success: true,
+        paymentSetupRequired: true,
+        token,
+        user: { id: user.id, email: user.email, role: user.role, branchRoles },
       });
     }
 

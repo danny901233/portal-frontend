@@ -598,7 +598,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     const passwordHash = await bcrypt.hash(actualPassword, 10);
     const user = await prisma.user.create({
       data: {
-        email: parsed.data.userEmail,
+        email: parsed.data.userEmail.toLowerCase(),
         passwordHash,
         mustChangePassword: true,
         garageAccessIds: [garage.id],

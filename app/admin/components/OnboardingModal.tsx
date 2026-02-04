@@ -274,6 +274,8 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                     onChange={(e) => setUserEmail(e.target.value)}
                     className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
                     placeholder="manager@business.com"
+                    autoComplete="email"
+                    required
                   />
                 </div>
 
@@ -287,6 +289,8 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                     onChange={(e) => setUserPassword(e.target.value)}
                     className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
                     placeholder="Min. 8 characters"
+                    autoComplete="new-password"
+                    required
                   />
                   <p className="mt-1 text-xs text-slate-500">
                     User will be forced to change password on first login

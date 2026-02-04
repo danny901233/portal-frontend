@@ -125,50 +125,6 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
       },
     });
 
-    // Step 3.5: Sync agent configuration to DynamoDB
-    try {
-      const agentWebhookUrl = process.env.AGENT_CONFIG_WEBHOOK_URL;
-      const agentWebhookSecret = process.env.AGENT_CONFIG_WEBHOOK_SECRET;
-
-      if (agentWebhookUrl) {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (agentWebhookSecret) {
-          headers['x-agent-config-secret'] = agentWebhookSecret;
-        }
-
-        const configPayload = {
-          garageId: garage.id,
-          configuration: {
-            branchName: branchData.name,
-            phoneNumber: twilioNumber || '',
-            emailAddress: '',
-            websiteUrl: '',
-            greetingLine: '',
-            tonePreference: 'standard',
-            responseSpeed: 'normal',
-            interruptionSensitivity: 0.5,
-            allowFastFitOnly: false,
-            callSummaryEmail: '',
-            holidayClosures: '',
-            weeklyOpeningHours: {},
-            garageHiveSettings: null,
-          },
-          knowledgeBase: [],
-        };
-
-        await fetch(agentWebhookUrl, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(configPayload),
-        });
-
-        console.log('[ONBOARDING] Synced agent config to DynamoDB for garage:', garage.id);
-      }
-    } catch (err) {
-      console.error('[ONBOARDING] Failed to sync agent config to DynamoDB:', err);
-      // Don't fail the entire onboarding if webhook fails
-    }
-
     // Step 4: Create user
     const passwordHash = await bcrypt.hash(userData.password, 10);
     const user = await prisma.user.create({

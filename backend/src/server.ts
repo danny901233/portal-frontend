@@ -11,6 +11,7 @@ import adminRouter from './routes/admin.js';
 import voiceRouter from './routes/voice.js';
 import twilioRouter from './routes/twilio.js';
 import onboardingRouter from './routes/onboarding.js';
+import paymentRouter from './routes/payment.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 
@@ -35,6 +36,7 @@ app.use(
   }),
 );
 app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' })); // Parse form-urlencoded bodies (Twilio webhooks)
 app.use(morgan('dev'));
 
 app.get('/health', (_req, res) => {
@@ -47,6 +49,7 @@ app.use('/api/auth', authRouter);
 app.use('/api', adminRouter);
 app.use('/api', twilioRouter);
 app.use('/api', onboardingRouter);
+app.use('/api', paymentRouter);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
 

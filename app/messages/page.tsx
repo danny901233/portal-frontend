@@ -64,7 +64,7 @@ const InstagramIcon = () => (
   </svg>
 );
 
-const PLATFORM_ICONS: { [key: string]: () => JSX.Element } = {
+const PLATFORM_ICONS: { [key: string]: () => React.JSX.Element } = {
   whatsapp: WhatsAppIcon,
   facebook: FacebookIcon,
   instagram: InstagramIcon,

@@ -17,6 +17,8 @@ model Garage {
   knowledgeDocuments AgentKnowledgeDocument[]
   business   Business? @relation(fields: [businessId], references: [id])
   businessId String?
+  conversations ChatConversation[]
+  socialMediaConnections SocialMediaConnection[]
 }
 
 model Call {
@@ -136,6 +138,55 @@ model Business {
   garages      Garage[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model ChatConversation {
+  id            String   @id @default(cuid())
+  garageId      String
+  garage        Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  platform      String
+  customerPhone String?
+  customerId    String?
+  customerName  String?
+  status        String   @default("active")
+  unreadCount   Int      @default(0)
+  lastMessageAt DateTime @default(now())
+  messages      ChatMessage[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([garageId, status])
+  @@index([garageId, platform])
+}
+
+model ChatMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  mediaUrl       String?
+  mediaType      String?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model SocialMediaConnection {
+  id                    String   @id @default(cuid())
+  garageId              String
+  garage                Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  platform              String
+  whatsappPhoneNumberId String?
+  pageId                String?
+  instagramAccountId    String?
+  accessToken           String
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([garageId, platform])
+  @@index([garageId])
 }
 
 enum UserRole {

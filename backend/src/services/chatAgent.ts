@@ -1,9 +1,19 @@
 import { prisma } from '../db.js';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy-load OpenAI client to avoid crashing if API key is missing
+let openaiClient: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!openaiClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
+    }
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return openaiClient;
+}
 
 interface ChatAgentResponse {
   content: string;
@@ -64,7 +74,7 @@ export async function getChatAgentResponse(
     messages.push({ role: 'user', content: message });
 
     // Call OpenAI GPT-4o
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model: 'gpt-4o',
       messages,
       temperature: 0.7,

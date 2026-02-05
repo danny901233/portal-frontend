@@ -235,6 +235,11 @@ export interface BillingConfig {
   includedMinutes: number;
   costPerMinuteGbp: number;
   vatRate: number;
+  trialEndDate: string | null;
+  requiresBookingActivation: boolean;
+  bookingsRequiredForActivation: number;
+  activationBookingsCount: number;
+  subscriptionActivatedAt: string | null;
 }
 
 export interface UsageSummary {

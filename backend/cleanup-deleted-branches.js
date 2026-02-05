@@ -1,5 +1,9 @@
 // Cleanup script to remove deleted branches from user accounts
+import { config } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+
+// Load environment variables from parent directory
+config({ path: '../.env' });
 
 const prisma = new PrismaClient();
 

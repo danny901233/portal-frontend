@@ -403,7 +403,7 @@ router.delete('/admin/businesses/:businessId', authenticate, requireAdmin, async
   // Get all branch IDs for this business
   const branchIds = business.garages.map((g) => g.id);
 
-  // Remove branch access from all users
+  // Remove branch access from all users (both garageAccessIds and branchRoles)
   if (branchIds.length > 0) {
     const users = await prisma.user.findMany({
       where: {
@@ -416,9 +416,20 @@ router.delete('/admin/businesses/:businessId', authenticate, requireAdmin, async
     await Promise.all(
       users.map((user) => {
         const nextIds = user.garageAccessIds.filter((id) => !branchIds.includes(id));
+        const currentBranchRoles = sanitizeBranchRoles(user.branchRoles);
+        const nextBranchRoles = { ...currentBranchRoles };
+
+        // Remove all branch IDs from branchRoles
+        branchIds.forEach((branchId) => {
+          delete nextBranchRoles[branchId];
+        });
+
         return prisma.user.update({
           where: { id: user.id },
-          data: { garageAccessIds: nextIds },
+          data: {
+            garageAccessIds: nextIds,
+            branchRoles: nextBranchRoles,
+          },
         });
       }),
     );
@@ -449,9 +460,18 @@ router.delete('/admin/branches/:branchId', authenticate, requireAdmin, async (re
   await Promise.all(
     users.map((user) => {
       const nextIds = user.garageAccessIds.filter((id) => id !== branchId);
+      const currentBranchRoles = sanitizeBranchRoles(user.branchRoles);
+      const nextBranchRoles = { ...currentBranchRoles };
+
+      // Remove this branch from branchRoles
+      delete nextBranchRoles[branchId];
+
       return prisma.user.update({
         where: { id: user.id },
-        data: { garageAccessIds: nextIds },
+        data: {
+          garageAccessIds: nextIds,
+          branchRoles: nextBranchRoles,
+        },
       });
     }),
   );

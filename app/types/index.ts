@@ -62,6 +62,7 @@ export interface LoginResponse {
   garages?: GarageSummary[];
   selectedGarageId?: string;
   passwordChangeRequired?: boolean;
+  paymentSetupRequired?: boolean;
   resetToken?: string;
 }
 

@@ -14,6 +14,7 @@ const poppins = Poppins({
 const baseNavigation = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Calls', href: '/calls' },
+  { name: 'Messages', href: '/messages' },
   { name: 'Agent Configurations', href: '/agent-configurations' },
 ];
 

@@ -12,6 +12,10 @@ import voiceRouter from './routes/voice.js';
 import twilioRouter from './routes/twilio.js';
 import onboardingRouter from './routes/onboarding.js';
 import paymentRouter from './routes/payment.js';
+import messagesRouter from './routes/messages.js';
+import metaWhatsappWebhook from './routes/webhooks/meta-whatsapp.js';
+import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
+import metaInstagramWebhook from './routes/webhooks/meta-instagram.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 
@@ -50,6 +54,10 @@ app.use('/api', adminRouter);
 app.use('/api', twilioRouter);
 app.use('/api', onboardingRouter);
 app.use('/api', paymentRouter);
+app.use('/api', messagesRouter);
+app.use('/api/webhooks', metaWhatsappWebhook);
+app.use('/api/webhooks', metaFacebookWebhook);
+app.use('/api/webhooks', metaInstagramWebhook);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
 

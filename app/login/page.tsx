@@ -32,6 +32,16 @@ export default function LoginPage() {
         setLoginMessage('Password change required. Please request a reset link.');
         return;
       }
+      if (data.paymentSetupRequired) {
+        // Store token for authenticated payment setup
+        if (data.token && data.user) {
+          localStorage.setItem('auth_token', data.token);
+          router.push('/setup-payment');
+          return;
+        }
+        setLoginMessage('Payment setup required but authentication failed.');
+        return;
+      }
       if (!data.token || !data.user || !data.selectedGarageId || !data.garages) {
         setLoginMessage('Login failed. Please try again.');
         return;

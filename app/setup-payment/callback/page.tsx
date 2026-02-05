@@ -18,7 +18,8 @@ function CallbackContent() {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch('/api/payment/confirm-mandate', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+      const response = await fetch(`${apiUrl}/api/payment/confirm-mandate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

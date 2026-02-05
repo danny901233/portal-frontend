@@ -27,6 +27,7 @@ import { fetchGarages } from '../lib/api';
 import type { GarageSummary } from '../types';
 
 const publicPaths = new Set(['/login', '/reset-password']);
+const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -39,6 +40,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [isStaffUser, setIsStaffUser] = useState(false);
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [branchScope, setBranchScope] = useState<BranchScope>('single');
+  const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
+  const [messagesNeedingAttention, setMessagesNeedingAttention] = useState(0);
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
@@ -64,7 +67,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     [pathname, visibleGarageIds.length],
   );
 
-  const shouldShowChrome = useMemo(() => !publicPaths.has(pathname ?? ''), [pathname]);
+  const shouldShowChrome = useMemo(() => !publicPaths.has(pathname ?? '') && !paymentPaths.has(pathname ?? ''), [pathname]);
 
   useEffect(() => {
     if (!allowAllAssignedBranches && branchScope === 'all') {
@@ -105,9 +108,18 @@ export default function AppShell({ children }: { children: ReactNode }) {
     const email = getUserEmail();
     const id = getUserId();
 
-    if (!token || !storedGarageId) {
+    // Payment pages only need token, not garage
+    const isPaymentPage = paymentPaths.has(pathname ?? '');
+
+    if (!token || (!storedGarageId && !isPaymentPage)) {
       clearSession();
       router.replace('/login');
+      return;
+    }
+
+    // Payment pages can proceed with just token
+    if (isPaymentPage && token) {
+      setIsReady(true);
       return;
     }
 
@@ -187,6 +199,68 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
   }, [garageId, restrictToAssignedBranches, router, visibleGarages]);
 
+  useEffect(() => {
+    const fetchMessagingData = async () => {
+      if (!garageId) {
+        setHasMessagingAccess(false);
+        setMessagesNeedingAttention(0);
+        return;
+      }
+
+      try {
+        const token = getSessionToken();
+
+        // Fetch messaging access
+        const accessResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${garageId}/messaging-access`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (accessResponse.ok) {
+          const accessData = await accessResponse.json();
+          const hasAccess = accessData.hasMessagingAccess || false;
+          setHasMessagingAccess(hasAccess);
+
+          // If has access, fetch needs attention count
+          if (hasAccess) {
+            const statsResponse = await fetch(
+              `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${garageId}/messages/needs-attention-count`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              }
+            );
+
+            if (statsResponse.ok) {
+              const statsData = await statsResponse.json();
+              setMessagesNeedingAttention(statsData.count || 0);
+            }
+          } else {
+            setMessagesNeedingAttention(0);
+          }
+        } else {
+          setHasMessagingAccess(false);
+          setMessagesNeedingAttention(0);
+        }
+      } catch (error) {
+        console.error('Error fetching messaging data:', error);
+        setHasMessagingAccess(false);
+        setMessagesNeedingAttention(0);
+      }
+    };
+
+    void fetchMessagingData();
+
+    // Poll for updates every 30 seconds
+    const interval = setInterval(fetchMessagingData, 30000);
+    return () => clearInterval(interval);
+  }, [garageId]);
+
   const shellContent = !shouldShowChrome ? (
     <>{children}</>
   ) : !isReady ? (
@@ -201,6 +275,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <Sidebar
         activePath={pathname ?? '/calls'}
         showAdminLink={isStaffUser}
+        hasMessagingAccess={hasMessagingAccess}
+        messagesNeedingAttention={messagesNeedingAttention}
       />
       <div className="flex flex-1 flex-col">
         <Navbar

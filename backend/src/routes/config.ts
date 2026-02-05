@@ -131,7 +131,6 @@ const defaultConfiguration: AgentConfigurationPayload = {
   responseSpeed: 'normal',
   interruptionSensitivity: 0.5,
   allowFastFitOnly: false,
-  callSummaryEmail: '',
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createDefaultGarageHiveSettings(),
@@ -160,7 +159,6 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       typeof config.interruptionSensitivity === 'number'
         ? Math.min(1, Math.max(0, config.interruptionSensitivity))
         : 0.5,
-    callSummaryEmail: config.callSummaryEmail ?? '',
     notificationEmails: Array.isArray(config.notificationEmails) ? config.notificationEmails : [],
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
@@ -189,7 +187,6 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
         ? Math.min(1, Math.max(0, configuration.interruptionSensitivity))
         : 0.5,
     allowFastFitOnly: configuration.allowFastFitOnly,
-    callSummaryEmail: configuration.callSummaryEmail,
     notificationEmails: configuration.notificationEmails || [],
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     ...parseIntegrationSettings(
@@ -548,7 +545,6 @@ router.put(
           ? Math.min(1, Math.max(0, data.interruptionSensitivity))
           : 0.5,
       allowFastFitOnly: data.allowFastFitOnly,
-      callSummaryEmail: data.callSummaryEmail || null,
       notificationEmails: data.notificationEmails || [],
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,

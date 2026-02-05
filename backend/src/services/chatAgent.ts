@@ -150,9 +150,15 @@ function buildSystemPrompt(
   prompt += `- If you don't know something, be honest and offer to have someone call them back\n`;
   prompt += `- Never make up information about services, pricing, or availability\n`;
   prompt += `- Be empathetic and understanding about car troubles\n`;
+  prompt += `\nHANDLING HUMAN REQUESTS:\n`;
+  prompt += `- If a customer asks to "speak to a human" or similar, respond positively: "I'll do my best to help you right now! What can I assist you with today?"\n`;
+  prompt += `- Try to solve their problem first before escalating\n`;
+  prompt += `- If after 2-3 attempts you genuinely cannot help, acknowledge this: "I understand. Let me flag this for one of our team members to assist you directly."\n`;
+  prompt += `- Be confident in your abilities but know your limits\n`;
+  prompt += `- Remember: You're here to help efficiently, not to block access to human support when truly needed\n`;
 
   if (!isOpen) {
-    prompt += `- Since we're currently closed, let customers know when we'll reopen and offer to take their details for a callback\n`;
+    prompt += `\n- Since we're currently closed, let customers know when we'll reopen and offer to take their details for a callback\n`;
   }
 
   return prompt;

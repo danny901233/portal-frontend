@@ -93,11 +93,20 @@ const formatBranch = (garage: {
   name: string;
   businessId: string | null;
   twilioNumber: string | null;
+  hasMessagingAccess?: boolean;
+  subscriptionCostGbp?: number;
+  includedMinutes?: number;
+  costPerMinuteGbp?: number;
+  vatRate?: number;
+  trialEndDate?: Date | null;
+  requiresBookingActivation?: boolean;
+  bookingsRequiredForActivation?: number;
+  activationBookingsCount?: number;
+  subscriptionActivatedAt?: Date | null;
   agentConfiguration: {
     branchName: string;
     phoneNumber?: string | null;
     emailAddress?: string | null;
-    callSummaryEmail?: string | null;
     notificationEmails?: string[];
   } | null;
 }) => ({
@@ -105,12 +114,21 @@ const formatBranch = (garage: {
   name: garage.name,
   businessId: garage.businessId,
   twilioNumber: garage.twilioNumber ?? '',
+  hasMessagingAccess: garage.hasMessagingAccess ?? false,
+  subscriptionCostGbp: garage.subscriptionCostGbp ?? 0,
+  includedMinutes: garage.includedMinutes ?? 0,
+  costPerMinuteGbp: garage.costPerMinuteGbp ?? 0,
+  vatRate: garage.vatRate ?? 0.20,
+  trialEndDate: garage.trialEndDate?.toISOString() ?? null,
+  requiresBookingActivation: garage.requiresBookingActivation ?? false,
+  bookingsRequiredForActivation: garage.bookingsRequiredForActivation ?? 4,
+  activationBookingsCount: garage.activationBookingsCount ?? 0,
+  subscriptionActivatedAt: garage.subscriptionActivatedAt?.toISOString() ?? null,
   agentConfiguration: garage.agentConfiguration
     ? {
         branchName: garage.agentConfiguration.branchName,
         phoneNumber: garage.agentConfiguration.phoneNumber ?? '',
         emailAddress: garage.agentConfiguration.emailAddress ?? '',
-        callSummaryEmail: garage.agentConfiguration.callSummaryEmail ?? '',
         notificationEmails: garage.agentConfiguration.notificationEmails ?? [],
       }
     : null,
@@ -127,6 +145,28 @@ router.get('/admin/businesses', authenticate, requireAdmin, async (_req, res) =>
     orderBy: { name: 'asc' },
   });
 
+  // Get all users to find billing dates for each garage
+  const users = await prisma.user.findMany({
+    select: {
+      garageAccessIds: true,
+      nextBillingDate: true,
+      billingCycleStartDate: true,
+    },
+  });
+
+  // Create a map of garageId to billing info
+  const garageBillingMap = new Map<string, { nextBillingDate: Date | null; billingDay: number | null }>();
+  users.forEach(user => {
+    user.garageAccessIds.forEach(garageId => {
+      if (!garageBillingMap.has(garageId) && user.nextBillingDate) {
+        garageBillingMap.set(garageId, {
+          nextBillingDate: user.nextBillingDate,
+          billingDay: user.nextBillingDate.getDate(),
+        });
+      }
+    });
+  });
+
   res.json({
     businesses: businesses.map((business) => ({
       id: business.id,
@@ -135,7 +175,14 @@ router.get('/admin/businesses', authenticate, requireAdmin, async (_req, res) =>
       contactEmail: business.contactEmail,
       contactPhone: business.contactPhone,
       contactRole: business.contactRole,
-      branches: business.garages.map(formatBranch),
+      branches: business.garages.map(garage => {
+        const billingInfo = garageBillingMap.get(garage.id);
+        return {
+          ...formatBranch(garage),
+          nextBillingDate: billingInfo?.nextBillingDate?.toISOString() ?? null,
+          billingDay: billingInfo?.billingDay ?? null,
+        };
+      }),
     })),
   });
 });
@@ -646,5 +693,41 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     });
   }
 });
+
+// PATCH /api/garages/:garageId/messaging-access - Toggle messaging subscription
+router.patch(
+  '/garages/:garageId/messaging-access',
+  authenticate,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const { garageId } = req.params;
+      const { hasMessagingAccess } = req.body;
+
+      if (typeof hasMessagingAccess !== 'boolean') {
+        return res.status(400).json({ error: 'hasMessagingAccess must be a boolean' });
+      }
+
+      const garage = await prisma.garage.update({
+        where: { id: garageId },
+        data: { hasMessagingAccess },
+        select: {
+          id: true,
+          name: true,
+          hasMessagingAccess: true,
+        },
+      });
+
+      res.json({
+        success: true,
+        garage,
+        message: `Messaging access ${hasMessagingAccess ? 'enabled' : 'disabled'} for ${garage.name}`,
+      });
+    } catch (error) {
+      console.error('Failed to update messaging access:', error);
+      res.status(500).json({ error: 'Failed to update messaging access' });
+    }
+  }
+);
 
 export default router;

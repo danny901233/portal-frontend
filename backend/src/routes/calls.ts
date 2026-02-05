@@ -14,6 +14,7 @@ import type {
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { sendNegativeFeedbackEmail, sendCallSummaryEmail } from '../utils/email.js';
+import { trackConfirmedBooking } from '../services/billing.js';
 
 const router = Router();
 
@@ -232,6 +233,15 @@ router.post('/calls', async (req: Request, res: Response) => {
         },
       },
     });
+
+    // Track confirmed booking for subscription activation
+    if (payload.confirmedBooking) {
+      try {
+        await trackConfirmedBooking(payload.garageId);
+      } catch (error) {
+        console.error('[BILLING] Failed to track confirmed booking:', error);
+      }
+    }
 
     // Send notification email (agent already filtered to only send calls >= 30s)
     if (createdCall.garage?.agentConfiguration?.notificationEmails &&

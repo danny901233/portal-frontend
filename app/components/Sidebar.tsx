@@ -25,18 +25,29 @@ const supportLinks = [{ name: 'Help & Guides', href: '/help' }];
 export default function Sidebar({
   activePath,
   showAdminLink = false,
+  hasMessagingAccess = false,
+  messagesNeedingAttention = 0,
 }: {
   activePath: string;
   showAdminLink?: boolean;
+  hasMessagingAccess?: boolean;
+  messagesNeedingAttention?: number;
 }) {
-  const items = useMemo(
-    () =>
-      (showAdminLink ? [...baseNavigation, adminNavigation] : baseNavigation).map((item) => ({
-        ...item,
-        isActive: activePath.startsWith(item.href),
-      })),
-    [activePath, showAdminLink],
-  );
+  const items = useMemo(() => {
+    // Filter navigation based on permissions
+    const filteredBase = baseNavigation.filter(item => {
+      // Only show Messages link if garage has messaging access
+      if (item.href === '/messages') {
+        return hasMessagingAccess;
+      }
+      return true;
+    });
+
+    return (showAdminLink ? [...filteredBase, adminNavigation] : filteredBase).map((item) => ({
+      ...item,
+      isActive: activePath.startsWith(item.href),
+    }));
+  }, [activePath, showAdminLink, hasMessagingAccess]);
 
   const supportItems = useMemo(
     () =>
@@ -71,13 +82,18 @@ export default function Sidebar({
             key={item.href}
             href={item.href}
             className={cn(
-              'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+              'flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors',
               item.isActive
                 ? 'bg-slate-800/60 text-slate-100'
                 : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-100',
             )}
           >
             <span>{item.name}</span>
+            {item.href === '/messages' && messagesNeedingAttention > 0 && (
+              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-semibold text-white">
+                {messagesNeedingAttention > 99 ? '99+' : messagesNeedingAttention}
+              </span>
+            )}
           </Link>
         ))}
       </nav>

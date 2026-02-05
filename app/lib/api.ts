@@ -256,3 +256,86 @@ export const ingestWebsiteKnowledge = async (
 };
 
 export default api;
+// Billing API Functions
+export const fetchBillingConfig = async (garageId: string): Promise<{ config: import('../types').BillingConfig }> => {
+  const { data } = await api.get(`/api/billing/garages/${garageId}/config`);
+  return data;
+};
+
+export const updateBillingConfig = async (
+  garageId: string,
+  config: {
+    subscriptionCostGbp: number;
+    includedMinutes: number;
+    costPerMinuteGbp: number;
+    vatRate: number;
+    trialDays?: number;
+    requiresBookingActivation?: boolean;
+    bookingsRequiredForActivation?: number;
+  }
+): Promise<{ config: import('../types').BillingConfig }> => {
+  const { data } = await api.put(`/api/billing/garages/${garageId}/config`, config);
+  return data;
+};
+
+export const fetchUsage = async (
+  garageId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ usage: import('../types').UsageSummary; billing: import('../types').BillingCalculation }> => {
+  const { data } = await api.get(`/api/billing/garages/${garageId}/usage`, {
+    params: { startDate, endDate },
+  });
+  return data;
+};
+
+export const generateInvoice = async (payload: {
+  garageId: string;
+  periodStart: string;
+  periodEnd: string;
+}): Promise<{ invoice: import('../types').Invoice }> => {
+  const { data } = await api.post('/api/billing/invoices/generate', payload);
+  return data;
+};
+
+export const generateBatchInvoices = async (payload: {
+  periodStart: string;
+  periodEnd: string;
+}): Promise<{ summary: { total: number; succeeded: number; failed: number }; results: any[] }> => {
+  const { data } = await api.post('/api/billing/invoices/generate-batch', payload);
+  return data;
+};
+
+export const fetchInvoices = async (params?: {
+  garageId?: string;
+  status?: string;
+  limit?: number;
+}): Promise<{ invoices: import('../types').Invoice[] }> => {
+  const { data } = await api.get('/api/billing/invoices', { params });
+  return data;
+};
+
+export const fetchInvoice = async (invoiceId: string): Promise<{ invoice: import('../types').Invoice }> => {
+  const { data } = await api.get(`/api/billing/invoices/${invoiceId}`);
+  return data;
+};
+
+export const chargeInvoice = async (invoiceId: string): Promise<{ invoice: import('../types').Invoice; payment: any }> => {
+  const { data } = await api.post(`/api/billing/invoices/${invoiceId}/charge`);
+  return data;
+};
+
+export const fetchUsersDueForBilling = async (): Promise<{ users: any[] }> => {
+  const { data } = await api.get('/api/billing/users-due');
+  return data;
+};
+
+export const processMonthlyBilling = async (): Promise<{ summary: { processed: number; successful: number; failed: number }; results: any[] }> => {
+  const { data } = await api.post('/api/billing/process-monthly');
+  return data;
+};
+
+export const generateInvoicesForUser = async (userId: string): Promise<any> => {
+  const { data } = await api.post(`/api/billing/users/${userId}/generate-invoices`);
+  return data;
+};

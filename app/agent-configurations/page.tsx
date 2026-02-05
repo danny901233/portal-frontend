@@ -97,11 +97,11 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   responseSpeed: 'normal',
   interruptionSensitivity: 0.5,
   allowFastFitOnly: false,
-  callSummaryEmail: '',
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
   agentType: 'assist',
+  enableSmsBookingLinks: true,
 });
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
@@ -290,6 +290,206 @@ export default function AgentConfigurationsPage() {
 
     setFeedback(null);
     websiteIngestMutation.mutate({ url: baseUrlCandidate, selectedUrls: selectedPageUrls });
+  };
+
+  const handleAutoPopulateFromScan = () => {
+    if (!discoveredPages.length) {
+      setFeedback('No website scan data available.');
+      return;
+    }
+
+    console.log('=== AUTO-POPULATE DEBUG ===');
+    console.log('Discovered pages:', discoveredPages);
+
+    // Aggregate data from all discovered pages
+    const allPhoneNumbers: string[] = [];
+    const allEmails: string[] = [];
+    const allAddresses: string[] = [];
+    const allHours: string[] = [];
+
+    discoveredPages.forEach((page, idx) => {
+      console.log(`Page ${idx + 1}:`, {
+        url: page.url,
+        title: page.title,
+        phoneNumbers: page.phoneNumbers,
+        emails: page.emails,
+        address: page.address,
+        hours: page.hours,
+      });
+
+      if (page.phoneNumbers?.length) allPhoneNumbers.push(...page.phoneNumbers);
+      if (page.emails?.length) allEmails.push(...page.emails);
+      if (page.address) allAddresses.push(page.address);
+      if (page.hours?.length) allHours.push(...page.hours);
+    });
+
+    console.log('Aggregated data:', {
+      phones: allPhoneNumbers,
+      emails: allEmails,
+      addresses: allAddresses,
+      hours: allHours,
+    });
+
+    // Get unique values
+    const uniquePhones = [...new Set(allPhoneNumbers)];
+    const uniqueEmails = [...new Set(allEmails)];
+    const uniqueAddresses = [...new Set(allAddresses)];
+
+    // Update form state with found data
+    const updates: Partial<AgentConfiguration> = {};
+
+    if (uniquePhones.length > 0 && !formState.phoneNumber) {
+      updates.phoneNumber = uniquePhones[0];
+    }
+
+    if (uniqueEmails.length > 0 && !formState.emailAddress) {
+      updates.emailAddress = uniqueEmails[0];
+    }
+
+    if (uniqueAddresses.length > 0 && !formState.branchAddress) {
+      updates.branchAddress = uniqueAddresses[0];
+    }
+
+    // Try to parse opening hours from text
+    if (allHours.length > 0) {
+      console.log('Attempting to parse hours...');
+      const parsedHours = parseOpeningHoursFromText(allHours);
+      if (parsedHours && Object.keys(parsedHours).length > 0) {
+        updates.weeklyOpeningHours = {
+          ...formState.weeklyOpeningHours,
+          ...parsedHours,
+        };
+        console.log('Successfully parsed hours, will update form');
+      } else {
+        console.log('Failed to parse hours from text:', allHours);
+      }
+    } else {
+      console.log('No hours data found in website scan');
+    }
+
+    console.log('Final updates to apply:', updates);
+
+    if (Object.keys(updates).length > 0) {
+      setFormState(prev => ({ ...prev, ...updates }));
+      const updatedFields = Object.keys(updates).join(', ');
+      setFeedback(`✓ Populated: ${updatedFields}. ${allHours.length > 0 && !updates.weeklyOpeningHours ? 'Note: Could not parse opening hours format.' : ''}`);
+    } else {
+      setFeedback('No new information found in scan, or fields already filled. Check console for details.');
+    }
+  };
+
+  const parseOpeningHoursFromText = (hoursTexts: string[]): Partial<WeeklyOpeningHours> | null => {
+    const result: Partial<WeeklyOpeningHours> = {};
+    const fullText = hoursTexts.join(' ');
+
+    console.log('Parsing opening hours from:', fullText);
+
+    const dayMap: Record<string, DayOfWeek> = {
+      'monday': 'monday', 'mon': 'monday',
+      'tuesday': 'tuesday', 'tue': 'tuesday', 'tues': 'tuesday',
+      'wednesday': 'wednesday', 'wed': 'wednesday',
+      'thursday': 'thursday', 'thu': 'thursday', 'thur': 'thursday', 'thurs': 'thursday',
+      'friday': 'friday', 'fri': 'friday',
+      'saturday': 'saturday', 'sat': 'saturday',
+      'sunday': 'sunday', 'sun': 'sunday',
+    };
+
+    // Try to extract day-specific hours
+    // Pattern: "Monday: 9:00am - 5:00pm" or "Mon 9am-5pm" or "Monday 09:00 - 17:00"
+    const dayHoursPattern = /(monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs|friday|fri|saturday|sat|sunday|sun)[:\s]*(\d{1,2}):?(\d{2})?\s*(am|pm)?\s*[-–to]+\s*(\d{1,2}):?(\d{2})?\s*(am|pm)?/gi;
+
+    let match;
+    while ((match = dayHoursPattern.exec(fullText)) !== null) {
+      const dayKey = match[1].toLowerCase();
+      const day = dayMap[dayKey];
+
+      if (day) {
+        const openTime = convertTo24Hour(`${match[2]}${match[3] ? ':' + match[3] : ''}${match[4] || ''}`);
+        const closeTime = convertTo24Hour(`${match[5]}${match[6] ? ':' + match[6] : ''}${match[7] || ''}`);
+
+        if (openTime && closeTime) {
+          result[day] = { open: openTime, close: closeTime, closed: false };
+          console.log(`Parsed ${day}: ${openTime} - ${closeTime}`);
+        }
+      }
+    }
+
+    // Try to extract range hours like "Monday - Friday: 9am - 5pm" or "Mon-Fri 9:00-17:00"
+    const rangePattern = /(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s*[-–to]+\s*(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)[:\s]*(\d{1,2}):?(\d{2})?\s*(am|pm)?\s*[-–to]+\s*(\d{1,2}):?(\d{2})?\s*(am|pm)?/gi;
+
+    while ((match = rangePattern.exec(fullText)) !== null) {
+      const startDayKey = match[1].toLowerCase();
+      const endDayKey = match[2].toLowerCase();
+      const startDay = dayMap[startDayKey];
+      const endDay = dayMap[endDayKey];
+
+      if (startDay && endDay) {
+        const openTime = convertTo24Hour(`${match[3]}${match[4] ? ':' + match[4] : ''}${match[5] || ''}`);
+        const closeTime = convertTo24Hour(`${match[6]}${match[7] ? ':' + match[7] : ''}${match[8] || ''}`);
+
+        if (openTime && closeTime) {
+          // Fill in all days in the range
+          const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+          const startIdx = dayOrder.indexOf(startDay);
+          const endIdx = dayOrder.indexOf(endDay);
+
+          for (let i = startIdx; i <= endIdx; i++) {
+            const day = dayOrder[i] as DayOfWeek;
+            result[day] = { open: openTime, close: closeTime, closed: false };
+            console.log(`Parsed range ${day}: ${openTime} - ${closeTime}`);
+          }
+        }
+      }
+    }
+
+    // If no structured hours found, try to extract just times and apply to weekdays
+    if (Object.keys(result).length === 0) {
+      const timePattern = /(\d{1,2}):?(\d{2})?\s*(am|pm)?\s*[-–to]+\s*(\d{1,2}):?(\d{2})?\s*(am|pm)?/gi;
+      const timeMatch = timePattern.exec(fullText);
+
+      if (timeMatch) {
+        const openTime = convertTo24Hour(`${timeMatch[1]}${timeMatch[2] ? ':' + timeMatch[2] : ''}${timeMatch[3] || ''}`);
+        const closeTime = convertTo24Hour(`${timeMatch[4]}${timeMatch[5] ? ':' + timeMatch[5] : ''}${timeMatch[6] || ''}`);
+
+        if (openTime && closeTime) {
+          console.log(`Found generic hours: ${openTime} - ${closeTime}, applying to weekdays`);
+          ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].forEach(day => {
+            result[day as DayOfWeek] = { open: openTime, close: closeTime, closed: false };
+          });
+        }
+      }
+    }
+
+    console.log('Parsed hours result:', result);
+    return Object.keys(result).length > 0 ? result : null;
+  };
+
+  const convertTo24Hour = (timeStr: string): string | null => {
+    // Handle formats like "9am", "9:30pm", "09:00", "17:00", "9"
+    const normalized = timeStr.trim().toLowerCase();
+
+    // Match various time formats
+    const match = normalized.match(/(\d{1,2}):?(\d{2})?\s*(am|pm)?/);
+    if (!match) return null;
+
+    let hours = parseInt(match[1], 10);
+    const minutes = match[2] || '00';
+    const period = match[3];
+
+    // Handle 12-hour format
+    if (period === 'pm' && hours !== 12) {
+      hours += 12;
+    } else if (period === 'am' && hours === 12) {
+      hours = 0;
+    } else if (!period && hours < 8) {
+      // If no AM/PM specified and hour is very early (< 8), assume PM
+      hours += 12;
+    }
+
+    // Validate
+    if (hours < 0 || hours > 23) return null;
+
+    return `${hours.toString().padStart(2, '0')}:${minutes}`;
   };
 
   useEffect(() => {
@@ -682,6 +882,62 @@ export default function AgentConfigurationsPage() {
             </label>
           </div>
         </section>
+
+        {formState.agentType === 'assist' && (
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+            <h2 className="text-lg font-semibold text-slate-100">SMS Booking Links</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              When enabled, the agent will offer to send customers a text message with a link to book an appointment online. The SMS contains the <strong>Website URL</strong> configured above, so it&rsquo;s best to enter a direct link to your booking page rather than just your homepage.
+            </p>
+
+            <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
+              <p className="text-xs text-sky-200">
+                <strong>Tip:</strong> Enter your online booking page URL (e.g., https://yourbusiness.com/book) in the Website URL field above for the best customer experience.
+              </p>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+              <p className="text-xs text-amber-200">
+                <strong>Billing Note:</strong> SMS messages are charged at £0.99 per message. When disabled, the agent will take customer details for callback without offering the SMS option.
+              </p>
+            </div>
+
+            <div className="mt-6 flex items-center justify-between">
+              <span className="text-sm text-slate-300">
+                Enable SMS booking links
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setFormState((prev) => ({
+                    ...prev,
+                    enableSmsBookingLinks: !prev.enableSmsBookingLinks
+                  }))
+                }
+                disabled={!isEditing || mutation.isPending}
+                className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                  formState.enableSmsBookingLinks
+                    ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
+                    : 'border-slate-700 bg-slate-900/60 text-slate-200'
+                } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
+              >
+                <span
+                  className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
+                    formState.enableSmsBookingLinks ? 'bg-emerald-500/70' : 'bg-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                      formState.enableSmsBookingLinks ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                  />
+                </span>
+                {formState.enableSmsBookingLinks ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+          </section>
+        )}
+
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -715,6 +971,14 @@ export default function AgentConfigurationsPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={handleAutoPopulateFromScan}
+                    disabled={publishingKnowledge}
+                    className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-400 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    ✨ Auto-fill details
+                  </button>
                   <button
                     type="button"
                     onClick={handleSelectAllPages}
@@ -917,17 +1181,6 @@ export default function AgentConfigurationsPage() {
                 onChange={handleInputChange('greetingLine')}
                 disabled={!isEditing || mutation.isPending}
                 placeholder="e.g. Thanks for calling ReceptionMate Garage"
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
-              <span className="text-xs uppercase tracking-wide text-slate-500">Call summary email</span>
-              <input
-                type="email"
-                value={formState.callSummaryEmail}
-                onChange={handleInputChange('callSummaryEmail')}
-                disabled={!isEditing || mutation.isPending}
-                placeholder="Where daily summaries should be delivered"
                 className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
             </label>

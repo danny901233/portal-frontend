@@ -140,7 +140,7 @@ router.post('/agent-config', async (req: Request, res: Response) => {
         : '0.5',
     )}`,
     `AGENT_ALLOW_FAST_FIT_ONLY=${configuration.allowFastFitOnly ? 'true' : 'false'}`,
-    `AGENT_CALL_SUMMARY_EMAIL=${formatEnvValue(configuration.callSummaryEmail)}`,
+    `AGENT_ENABLE_SMS_BOOKING_LINKS=${configuration.enableSmsBookingLinks !== false ? 'true' : 'false'}`,
     `AGENT_HOLIDAY_CLOSURES=${formatEnvValue(configuration.holidayClosures)}`,
     `AGENT_WEEKLY_OPENING_HOURS=${formatEnvValue(JSON.stringify(configuration.weeklyOpeningHours ?? {}))}`,
     `AGENT_KNOWLEDGE_VERSION=${formatEnvValue(resolvedKnowledgeVersion)}`,

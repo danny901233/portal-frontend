@@ -86,7 +86,6 @@ export interface AdminGarageAgentConfiguration {
   branchName: string;
   phoneNumber: string;
   emailAddress: string;
-  callSummaryEmail: string;
   notificationEmails: string[];
 }
 
@@ -95,6 +94,18 @@ export interface AdminGarage {
   name: string;
   businessId: string | null;
   twilioNumber: string;
+  hasMessagingAccess: boolean;
+  subscriptionCostGbp: number;
+  includedMinutes: number;
+  costPerMinuteGbp: number;
+  vatRate: number;
+  trialEndDate: string | null;
+  requiresBookingActivation: boolean;
+  bookingsRequiredForActivation: number;
+  activationBookingsCount: number;
+  subscriptionActivatedAt: string | null;
+  nextBillingDate: string | null;
+  billingDay: number | null;
   agentConfiguration: AdminGarageAgentConfiguration | null;
 }
 
@@ -170,11 +181,11 @@ export interface AgentConfiguration {
   responseSpeed: ResponseSpeed;
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
-  callSummaryEmail: string;
   notificationEmails: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   agentType: AgentType;
+  enableSmsBookingLinks: boolean;
 }
 
 export interface AgentConfigurationResponse {
@@ -212,6 +223,71 @@ export interface AgentKnowledgeDocument {
   url: string | null;
   content: string;
   metadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Billing Types
+export interface BillingConfig {
+  id: string;
+  name: string;
+  subscriptionCostGbp: number;
+  includedMinutes: number;
+  costPerMinuteGbp: number;
+  vatRate: number;
+}
+
+export interface UsageSummary {
+  minutesUsed: number;
+  smsCount: number;
+}
+
+export interface BillingBreakdown {
+  subscriptionCostGbp: number;
+  minutesUsed: number;
+  minutesIncluded: number;
+  overageMinutes: number;
+  costPerMinuteGbp: number;
+  smsCount: number;
+  costPerSmsGbp: number;
+  vatRate: number;
+}
+
+export interface BillingCalculation {
+  subscriptionAmount: number;
+  minutesAmount: number;
+  smsAmount: number;
+  subtotal: number;
+  vatAmount: number;
+  total: number;
+  breakdown: BillingBreakdown;
+}
+
+export interface Invoice {
+  id: string;
+  garageId: string;
+  garage?: {
+    id: string;
+    name: string;
+  };
+  businessId: string | null;
+  periodStart: string;
+  periodEnd: string;
+  minutesUsed: number;
+  minutesIncluded: number;
+  smsCount: number;
+  subscriptionAmount: number;
+  minutesAmount: number;
+  smsAmount: number;
+  subtotal: number;
+  vatAmount: number;
+  total: number;
+  subscriptionCostGbp: number;
+  costPerMinuteGbp: number;
+  vatRate: number;
+  status: string;
+  gocardlessPaymentId: string | null;
+  paidAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

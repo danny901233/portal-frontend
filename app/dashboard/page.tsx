@@ -12,6 +12,9 @@ import {
   TAG_COLORS,
   normaliseCallTag,
 } from '../lib/callTags';
+import MessageStatsWidget from '../components/MessageStatsWidget';
+import SmsStatsWidget from '../components/SmsStatsWidget';
+import { getSessionToken } from '../lib/auth';
 
 type CallTypeTag = (typeof TRACKED_TAGS)[number] | 'other';
 type CallTypeChartEntry = {
@@ -113,6 +116,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean>(false);
   const {
     scope,
     managedGarageIds,
@@ -159,6 +163,34 @@ export default function DashboardPage() {
       isMounted = false;
     };
   }, [endDate, assignedGarageIds, selectedGarageId, shouldAggregateAllBranches, startDate]);
+
+  useEffect(() => {
+    const checkMessagingAccess = async () => {
+      if (!selectedGarageId) return;
+
+      try {
+        const token = getSessionToken();
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${selectedGarageId}/messaging-access`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setHasMessagingAccess(data.hasMessagingAccess || false);
+        }
+      } catch (error) {
+        console.error('Error checking messaging access:', error);
+        setHasMessagingAccess(false);
+      }
+    };
+
+    void checkMessagingAccess();
+  }, [selectedGarageId]);
 
   const totalCalls = calls.length;
 
@@ -480,6 +512,21 @@ export default function DashboardPage() {
           <p className="mt-2 text-xs text-slate-400">Most frequent call classification in the selected window.</p>
         </div>
       </div>
+
+      {hasMessagingAccess && selectedGarageId && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <MessageStatsWidget
+            garageId={selectedGarageId}
+            startDate={toIsoRangeBoundary(startDate, 'start')}
+            endDate={toIsoRangeBoundary(endDate, 'end')}
+          />
+          <SmsStatsWidget
+            garageId={selectedGarageId}
+            startDate={toIsoRangeBoundary(startDate, 'start')}
+            endDate={toIsoRangeBoundary(endDate, 'end')}
+          />
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">

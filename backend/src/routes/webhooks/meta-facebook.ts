@@ -3,6 +3,7 @@ import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
 import { getChatAgentResponse } from '../../services/chatAgent.js';
+import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
 
 const router = Router();
 
@@ -79,12 +80,18 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
           continue;
         }
 
+        // Find or create customer
+        const customerId = await findOrCreateCustomer({
+          garageId: connection.garageId,
+          facebookUserId: senderId,
+        });
+
         // Find or create conversation
         let conversation = await prisma.chatConversation.findFirst({
           where: {
             garageId: connection.garageId,
             platform: 'facebook',
-            customerId: senderId,
+            platformUserId: senderId,
           },
         });
 
@@ -94,7 +101,8 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
             data: {
               garageId: connection.garageId,
               platform: 'facebook',
-              customerId: senderId,
+              platformUserId: senderId,
+              customerId,
               status: 'active',
               unreadCount: 1,
               lastMessageAt: new Date(),
@@ -105,6 +113,7 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
           await prisma.chatConversation.update({
             where: { id: conversation.id },
             data: {
+              customerId,
               unreadCount: { increment: 1 },
               lastMessageAt: new Date(),
               status: 'active',
@@ -121,38 +130,57 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
           },
         });
 
-        // Get AI response
-        const agentResponse = await getChatAgentResponse(
-          connection.garageId,
-          messageText,
-          conversation.id
-        );
-
-        // Save AI response
-        await prisma.chatMessage.create({
-          data: {
-            conversationId: conversation.id,
-            role: 'assistant',
-            content: agentResponse.content,
-          },
-        });
-
-        // Send response via Facebook Messenger
-        await axios.post(
-          'https://graph.facebook.com/v18.0/me/messages',
-          {
-            recipient: { id: senderId },
-            message: { text: agentResponse.content },
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${connection.accessToken}`,
-              'Content-Type': 'application/json',
-            },
+        // Check if agent pause has expired and auto-resume
+        let isAgentPaused = conversation.agentPaused;
+        if (conversation.agentPaused && conversation.agentPausedUntil) {
+          if (new Date() > conversation.agentPausedUntil) {
+            // Pause has expired, resume agent
+            await prisma.chatConversation.update({
+              where: { id: conversation.id },
+              data: { agentPaused: false, agentPausedUntil: null },
+            });
+            isAgentPaused = false;
+            console.log(`Agent auto-resumed for conversation ${conversation.id}`);
           }
-        );
+        }
 
-        console.log(`Facebook message sent to ${senderId}`);
+        // Only send agent response if agent is not paused
+        if (!isAgentPaused) {
+          // Get AI response
+          const agentResponse = await getChatAgentResponse(
+            connection.garageId,
+            messageText,
+            conversation.id
+          );
+
+          // Save AI response
+          await prisma.chatMessage.create({
+            data: {
+              conversationId: conversation.id,
+              role: 'assistant',
+              content: agentResponse.content,
+            },
+          });
+
+          // Send response via Facebook Messenger
+          await axios.post(
+            'https://graph.facebook.com/v18.0/me/messages',
+            {
+              recipient: { id: senderId },
+              message: { text: agentResponse.content },
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${connection.accessToken}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+
+          console.log(`Facebook message sent to ${senderId}`);
+        } else {
+          console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
+        }
       }
     }
   } catch (error) {

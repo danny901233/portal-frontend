@@ -87,7 +87,6 @@ const main = async () => {
       responseSpeed: 'normal',
       interruptionSensitivity: 0.5,
       allowFastFitOnly: false,
-      callSummaryEmail: email,
       integrationProvider: 'garage_hive',
       integrationProviderConfig: {
         instanceUrl: ghInstanceUrl,

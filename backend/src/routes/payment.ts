@@ -109,13 +109,80 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       return res.status(400).json({ error: 'Mandate is not in a valid state' });
     }
 
-    // Update user with mandate details
+    const now = new Date();
+
+    // Check if any garages have trial or activation requirements
+    const garages = await prisma.garage.findMany({
+      where: {
+        id: { in: user.garageAccessIds },
+      },
+      select: {
+        id: true,
+        subscriptionCostGbp: true,
+        trialEndDate: true,
+        requiresBookingActivation: true,
+      },
+    });
+
+    // Determine if billing should start now or wait for activation/trial end
+    const hasActiveGarages = garages.some(g => {
+      const inTrial = g.trialEndDate && g.trialEndDate > now;
+      const needsActivation = g.requiresBookingActivation;
+      return !inTrial && !needsActivation && g.subscriptionCostGbp > 0;
+    });
+
+    let billingCycleStartDate: Date | null = null;
+    let nextBillingDate: Date | null = null;
+
+    // Only set billing dates if there are active garages (no trial, no activation needed)
+    if (hasActiveGarages) {
+      billingCycleStartDate = now;
+      nextBillingDate = new Date(now);
+      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+
+      // Charge first month subscription for active garages
+      const activeGarages = garages.filter(g => {
+        const inTrial = g.trialEndDate && g.trialEndDate > now;
+        const needsActivation = g.requiresBookingActivation;
+        return !inTrial && !needsActivation && g.subscriptionCostGbp > 0;
+      });
+
+      const totalSubscriptionCost = activeGarages.reduce((sum, g) => sum + g.subscriptionCostGbp, 0);
+      const totalInPence = Math.round(totalSubscriptionCost * 100);
+
+      if (totalInPence > 0) {
+        try {
+          await client.payments.create({
+            amount: totalInPence,
+            currency: 'GBP',
+            description: `ReceptionMate - First Month Subscription`,
+            metadata: {
+              user_id: user.id,
+              type: 'first_month_subscription',
+              billing_cycle_start: now.toISOString(),
+            },
+            links: {
+              mandate: mandateId,
+            },
+          });
+          console.log(`Charged first month subscription: £${totalSubscriptionCost} for user ${user.email}`);
+        } catch (error) {
+          console.error('Failed to charge first month subscription:', error);
+        }
+      }
+    } else {
+      console.log(`User ${user.email} has trial/activation requirements - billing will start when activated`);
+    }
+
+    // Update user with mandate details and billing cycle dates
     await prisma.user.update({
       where: { id: user.id },
       data: {
         gocardlessMandateId: mandateId,
         gocardlessCustomerId: customerId,
         mustSetupPayment: false,
+        billingCycleStartDate: billingCycleStartDate,
+        nextBillingDate: nextBillingDate,
       },
     });
 

@@ -166,7 +166,6 @@ export const upsertAgentConfigurationSchema = z.object({
   responseSpeed: z.enum(['slow', 'normal', 'fast']).optional(),
   interruptionSensitivity: z.number().min(0).max(1).optional(),
   allowFastFitOnly: z.boolean(),
-  callSummaryEmail: optionalEmail,
   notificationEmails: z.array(z.string().email().max(254)).max(10).optional(),
   integrationProvider: z.enum(['none', 'garage_hive']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,

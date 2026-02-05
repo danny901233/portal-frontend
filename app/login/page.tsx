@@ -5,7 +5,7 @@ import type { AxiosError } from 'axios';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { login } from '../lib/api';
-import { persistSession } from '../lib/auth';
+import { persistSession, TOKEN_STORAGE_KEY } from '../lib/auth';
 import type { LoginResponse } from '../types';
 
 export default function LoginPage() {
@@ -35,7 +35,7 @@ export default function LoginPage() {
       if (data.paymentSetupRequired) {
         // Store token for authenticated payment setup
         if (data.token && data.user) {
-          localStorage.setItem('auth_token', data.token);
+          localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
           router.push('/setup-payment');
           return;
         }

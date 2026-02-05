@@ -16,7 +16,14 @@ import {
   updateBusinessContact,
   updateGarageTwilioNumber,
   updateAdminUser,
+  updateGarageMessagingAccess,
 } from '../lib/admin';
+import {
+  fetchUsersDueForBilling,
+  processMonthlyBilling,
+  fetchInvoices,
+  chargeInvoice,
+} from '../lib/api';
 import type { AdminUser, UserRole } from '../types';
 import { OnboardingModal } from './components/OnboardingModal';
 
@@ -54,6 +61,7 @@ export default function AdminPage() {
   const [contactMessage, setContactMessage] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const [forecastDays, setForecastDays] = useState(30);
 
   const adminStatus = useMemo(() => isReceptionMateStaff(), []);
 
@@ -73,6 +81,51 @@ export default function AdminPage() {
     queryFn: fetchAdminUsers,
     enabled: adminStatus,
   });
+
+  const usersDueQuery = useQuery({
+    queryKey: ['users-due-billing'],
+    queryFn: fetchUsersDueForBilling,
+    enabled: adminStatus,
+  });
+
+  const invoicesQuery = useQuery({
+    queryKey: ['invoices-recent'],
+    queryFn: () => fetchInvoices({ limit: 20 }),
+    enabled: adminStatus,
+  });
+
+  // Calculate billing forecast
+  const billingForecast = useMemo(() => {
+    if (!usersDueQuery.data?.users) return { upcomingBillings: [], totalExpected: 0 };
+
+    const now = new Date();
+    const forecastEnd = new Date();
+    forecastEnd.setDate(forecastEnd.getDate() + forecastDays);
+
+    const upcomingBillings = usersDueQuery.data.users
+      .map((user: any) => {
+        const nextBillingDate = new Date(user.nextBillingDate);
+        if (nextBillingDate <= forecastEnd) {
+          const totalExpected = user.garages.reduce((sum: number, garage: any) => {
+            return sum + (garage.subscriptionCostGbp * 100); // Convert to pence
+          }, 0);
+
+          return {
+            email: user.email,
+            nextBillingDate: user.nextBillingDate,
+            garages: user.garages,
+            expectedAmount: totalExpected,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => new Date(a.nextBillingDate).getTime() - new Date(b.nextBillingDate).getTime());
+
+    const totalExpected = upcomingBillings.reduce((sum: number, billing: any) => sum + billing.expectedAmount, 0);
+
+    return { upcomingBillings, totalExpected };
+  }, [usersDueQuery.data, forecastDays]);
 
   const users = usersQuery.data?.users ?? [];
 
@@ -330,6 +383,45 @@ export default function AdminPage() {
     },
   });
 
+  const updateMessagingAccessMutation = useMutation<
+    { hasMessagingAccess: boolean },
+    unknown,
+    { garageId: string; hasMessagingAccess: boolean }
+  >({
+    mutationFn: ({ garageId, hasMessagingAccess }) =>
+      updateGarageMessagingAccess({ garageId, hasMessagingAccess }),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['adminBusinesses'] });
+      setActivationFeedback((prev) => ({
+        ...prev,
+        [variables.garageId]: {
+          message: variables.hasMessagingAccess
+            ? 'Messaging access enabled.'
+            : 'Messaging access disabled.',
+          tone: 'success',
+        },
+      }));
+    },
+    onError: (error: unknown, variables) => {
+      let message = 'Failed to update messaging access.';
+      if (error && typeof error === 'object') {
+        const maybeResponse = (error as { response?: { data?: { error?: unknown; message?: unknown } } });
+        const derived = maybeResponse.response?.data;
+        if (derived?.error) {
+          message = String(derived.error);
+        } else if (derived?.message) {
+          message = String(derived.message);
+        } else if ('message' in error && typeof (error as { message?: unknown }).message === 'string') {
+          message = String((error as { message?: unknown }).message);
+        }
+      }
+      setActivationFeedback((prev) => ({
+        ...prev,
+        [variables.garageId]: { message, tone: 'error' },
+      }));
+    },
+  });
+
   const userMutation = useMutation({
     mutationFn: createAdminUser,
     onSuccess: () => {
@@ -502,6 +594,80 @@ export default function AdminPage() {
           + Quick Onboard Business
         </button>
       </div>
+
+      {/* Billing Forecast */}
+      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-slate-100">Revenue Forecast</h2>
+          <button
+            onClick={() => router.push('/admin/forecast')}
+            className="px-3 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 rounded-lg text-xs font-semibold transition-colors border border-sky-500/30"
+          >
+            📅 View Calendar
+          </button>
+        </div>
+        <div>
+          <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-300">Revenue Forecast</h3>
+              <select
+                value={forecastDays}
+                onChange={(e) => setForecastDays(Number(e.target.value))}
+                className="text-xs rounded-md border border-slate-600 bg-slate-900 px-2 py-1 text-slate-300"
+              >
+                <option value={7}>Next 7 days</option>
+                <option value={30}>Next 30 days</option>
+                <option value={60}>Next 60 days</option>
+                <option value={90}>Next 90 days</option>
+              </select>
+            </div>
+
+            {/* Total Expected */}
+            <div className="mb-4 rounded-lg bg-sky-500/10 border border-sky-500/30 p-3">
+              <div className="text-xs text-sky-300 mb-1">Expected Revenue</div>
+              <div className="text-2xl font-bold text-sky-100">
+                {new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(billingForecast.totalExpected / 100)}
+              </div>
+              <div className="text-[10px] text-sky-300 mt-1">
+                from {billingForecast.upcomingBillings.length} upcoming {billingForecast.upcomingBillings.length === 1 ? 'billing' : 'billings'}
+              </div>
+            </div>
+
+            {/* Upcoming Billings */}
+            {billingForecast.upcomingBillings.length > 0 ? (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-slate-400 mb-2">Upcoming Billings</div>
+                <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+                  {billingForecast.upcomingBillings.map((billing: any, index: number) => (
+                    <div key={index} className="flex flex-col text-xs p-3 rounded bg-slate-900/50 border border-slate-700/50">
+                      <div className="text-slate-300 font-medium">{billing.email}</div>
+                      <div className="text-slate-500 text-[10px] mt-1">
+                        {billing.garages.map((g: any) => g.name).join(', ')}
+                      </div>
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700">
+                        <div className="text-slate-500 text-[10px]">
+                          {new Date(billing.nextBillingDate).toLocaleDateString('en-GB', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                          })}
+                        </div>
+                        <div className="text-slate-100 font-semibold">
+                          {new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(billing.expectedAmount / 100)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 text-center py-4">
+                No billings scheduled in the next {forecastDays} days
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
         <div className="flex items-center justify-between">
@@ -808,15 +974,74 @@ export default function AdminPage() {
                   updateTwilioNumberMutation.isPending &&
                   updateTwilioNumberMutation.variables?.garageId === branch.id;
 
+                const hasBillingConfigured = branch.subscriptionCostGbp > 0;
+                const now = new Date();
+                const inTrial = branch.trialEndDate && new Date(branch.trialEndDate) > now;
+                const needsActivation = branch.requiresBookingActivation &&
+                  !branch.subscriptionActivatedAt &&
+                  branch.activationBookingsCount < branch.bookingsRequiredForActivation;
+
+                let billingStatus = 'Active';
+                let statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+
+                if (inTrial) {
+                  billingStatus = `Trial until ${new Date(branch.trialEndDate!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+                  statusColor = 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+                } else if (needsActivation) {
+                  billingStatus = `Awaiting bookings (${branch.activationBookingsCount}/${branch.bookingsRequiredForActivation})`;
+                  statusColor = 'text-sky-400 bg-sky-500/10 border-sky-500/30';
+                }
+
                 return (
                   <div key={branch.id} className="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-semibold text-slate-200">{branch.name}</p>
-                      <span className="text-xs uppercase tracking-[0.3em] text-slate-500">
-                        {branch.agentConfiguration?.branchName || 'Branch'}
+                      <span className={`text-[10px] font-medium px-2 py-1 rounded border ${statusColor}`}>
+                        {billingStatus}
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] text-slate-500">Garage ID: {branch.id}</p>
+
+                    {/* Billing Information */}
+                    <div className="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/60 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Billing</p>
+                        <button
+                          onClick={() => router.push(`/admin/billing/${branch.id}`)}
+                          className="text-[10px] font-semibold uppercase tracking-wide text-sky-400 hover:text-sky-300 transition-colors"
+                        >
+                          {hasBillingConfigured ? 'Edit' : 'Configure'}
+                        </button>
+                      </div>
+                      {hasBillingConfigured ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-slate-300">
+                            <span className="text-slate-500">Subscription:</span> £{branch.subscriptionCostGbp.toFixed(2)}/month
+                          </p>
+                          <p className="text-xs text-slate-300">
+                            <span className="text-slate-500">Included:</span> {branch.includedMinutes} minutes
+                          </p>
+                          <p className="text-xs text-slate-300">
+                            <span className="text-slate-500">Overage:</span> £{branch.costPerMinuteGbp.toFixed(2)}/min
+                          </p>
+                          <p className="text-xs text-slate-300">
+                            <span className="text-slate-500">VAT:</span> {(branch.vatRate * 100).toFixed(0)}%
+                          </p>
+                          {branch.billingDay && (
+                            <p className="text-xs text-slate-300 pt-1 border-t border-slate-700/50 mt-2">
+                              <span className="text-slate-500">Direct Debit:</span> {branch.billingDay}{branch.billingDay === 1 ? 'st' : branch.billingDay === 2 ? 'nd' : branch.billingDay === 3 ? 'rd' : 'th'} of every month
+                            </p>
+                          )}
+                          {!branch.billingDay && (inTrial || needsActivation) && (
+                            <p className="text-xs text-amber-400 pt-1 border-t border-slate-700/50 mt-2">
+                              <span className="text-slate-500">Direct Debit:</span> Not yet set (pending activation)
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500 italic">Not configured</p>
+                      )}
+                    </div>
                     
                     <div className="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/60 p-3">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Branch Details</p>
@@ -835,7 +1060,30 @@ export default function AdminPage() {
                         </p>
                       </div>
                     </div>
-                    
+
+                    <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-700/50 bg-slate-900/60 p-3">
+                      <div className="flex flex-col gap-1">
+                        <p className="text-xs font-semibold text-slate-300">Messaging Access</p>
+                        <p className="text-[10px] text-slate-500">Enable WhatsApp, Facebook, Instagram messaging</p>
+                      </div>
+                      <label className="relative inline-flex cursor-pointer items-center">
+                        <input
+                          type="checkbox"
+                          checked={branch.hasMessagingAccess || false}
+                          onChange={(e) => {
+                            updateMessagingAccessMutation.mutate({
+                              garageId: branch.id,
+                              hasMessagingAccess: e.target.checked,
+                            });
+                          }}
+                          disabled={updateMessagingAccessMutation.isPending &&
+                                   updateMessagingAccessMutation.variables?.garageId === branch.id}
+                          className="peer sr-only"
+                        />
+                        <div className="peer h-6 w-11 rounded-full bg-slate-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-600 after:bg-white after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"></div>
+                      </label>
+                    </div>
+
                     <div className="mt-3 flex flex-col gap-2">
                       <label className="text-xs text-slate-400" htmlFor={`twilio-${branch.id}`}>
                         ReceptionMate number (Twilio)

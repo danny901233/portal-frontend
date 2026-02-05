@@ -6,10 +6,283 @@ import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
+// GET /api/garages/:garageId/messaging-access - Check if garage has messaging access
+router.get(
+  '/garages/:garageId/messaging-access',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+
+      const garage = await prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { hasMessagingAccess: true },
+      });
+
+      if (!garage) {
+        return res.status(404).json({ error: 'Garage not found' });
+      }
+
+      res.json({
+        success: true,
+        hasMessagingAccess: garage.hasMessagingAccess,
+      });
+    } catch (error) {
+      console.error('Failed to check messaging access:', error);
+      res.status(500).json({ error: 'Failed to check messaging access' });
+    }
+  }
+);
+
+// GET /api/garages/:garageId/messages/needs-attention-count - Get count of messages needing attention
+router.get(
+  '/garages/:garageId/messages/needs-attention-count',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+
+      // Check messaging access
+      const garage = await prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { hasMessagingAccess: true },
+      });
+
+      if (!garage?.hasMessagingAccess) {
+        return res.json({ success: true, count: 0 });
+      }
+
+      const count = await prisma.chatConversation.count({
+        where: {
+          garageId,
+          status: 'active',
+          needsAttention: true,
+        },
+      });
+
+      res.json({ success: true, count });
+    } catch (error) {
+      console.error('Failed to fetch needs attention count:', error);
+      res.status(500).json({ error: 'Failed to fetch needs attention count' });
+    }
+  }
+);
+
+// GET /api/garages/:garageId/message-stats - Get message statistics
+router.get(
+  '/garages/:garageId/message-stats',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+      const { startDate, endDate } = req.query;
+
+      // Check messaging access
+      const garage = await prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { hasMessagingAccess: true },
+      });
+
+      if (!garage?.hasMessagingAccess) {
+        return res.status(403).json({ error: 'Messaging access not enabled' });
+      }
+
+      const platforms = ['whatsapp', 'facebook', 'instagram'];
+      const stats: any = {};
+
+      // Build date filter
+      const dateFilter: any = {};
+      if (startDate && typeof startDate === 'string') {
+        dateFilter.gte = new Date(startDate);
+      }
+      if (endDate && typeof endDate === 'string') {
+        dateFilter.lte = new Date(endDate);
+      }
+
+      for (const platform of platforms) {
+        const baseWhere: any = { garageId, platform };
+        if (Object.keys(dateFilter).length > 0) {
+          baseWhere.createdAt = dateFilter;
+        }
+
+        const active = await prisma.chatConversation.count({
+          where: { ...baseWhere, status: 'active', needsAttention: false },
+        });
+
+        const needsAttention = await prisma.chatConversation.count({
+          where: { ...baseWhere, status: 'active', needsAttention: true },
+        });
+
+        const resolved = await prisma.chatConversation.count({
+          where: { ...baseWhere, status: 'resolved' },
+        });
+
+        const totalConversations = await prisma.chatConversation.count({
+          where: baseWhere,
+        });
+
+        stats[platform] = {
+          active,
+          needsAttention,
+          resolved,
+          total: totalConversations,
+        };
+      }
+
+      // Calculate totals
+      stats.totals = {
+        active: Object.values(stats).reduce((sum: number, s: any) => sum + (s.active || 0), 0),
+        needsAttention: Object.values(stats).reduce((sum: number, s: any) => sum + (s.needsAttention || 0), 0),
+        resolved: Object.values(stats).reduce((sum: number, s: any) => sum + (s.resolved || 0), 0),
+        total: Object.values(stats).reduce((sum: number, s: any) => sum + (s.total || 0), 0),
+      };
+
+      res.json({ success: true, stats });
+    } catch (error) {
+      console.error('Failed to fetch message stats:', error);
+      res.status(500).json({ error: 'Failed to fetch message stats' });
+    }
+  }
+);
+
+// GET /api/garages/:garageId/message-stats/csv - Download message statistics as CSV
+router.get(
+  '/garages/:garageId/message-stats/csv',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+      const { startDate, endDate } = req.query;
+
+      // Check messaging access
+      const garage = await prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { hasMessagingAccess: true, name: true },
+      });
+
+      if (!garage?.hasMessagingAccess) {
+        return res.status(403).json({ error: 'Messaging access not enabled' });
+      }
+
+      // Build date filter
+      const dateFilter: any = {};
+      if (startDate && typeof startDate === 'string') {
+        dateFilter.gte = new Date(startDate);
+      }
+      if (endDate && typeof endDate === 'string') {
+        dateFilter.lte = new Date(endDate);
+      }
+
+      const baseWhere: any = { garageId };
+      if (Object.keys(dateFilter).length > 0) {
+        baseWhere.createdAt = dateFilter;
+      }
+
+      // Fetch all conversations in the date range
+      const conversations = await prisma.chatConversation.findMany({
+        where: baseWhere,
+        include: {
+          messages: {
+            orderBy: { createdAt: 'asc' },
+            take: 1, // Just get the first message for context
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // Build CSV
+      const csvRows = [
+        [
+          'Conversation ID',
+          'Platform',
+          'Customer Name',
+          'Customer Phone',
+          'Status',
+          'Needs Attention',
+          'Agent Paused',
+          'Message Type',
+          'Confirmed Booking',
+          'Booking Category',
+          'Captured Revenue',
+          'Tags',
+          'Created At',
+          'Last Message At',
+          'First Message',
+        ].join(','),
+      ];
+
+      for (const conv of conversations) {
+        const firstMessage = conv.messages[0]?.content || '';
+        const tags = Array.isArray(conv.tags) ? conv.tags.join('; ') : '';
+
+        csvRows.push([
+          conv.id,
+          conv.platform,
+          conv.customerName || '',
+          conv.customerPhone || '',
+          conv.status,
+          conv.needsAttention ? 'Yes' : 'No',
+          conv.agentPaused ? 'Yes' : 'No',
+          conv.messageType || '',
+          conv.confirmedBooking ? 'Yes' : 'No',
+          conv.confirmedBookingCategory || '',
+          conv.capturedRevenue?.toString() || '',
+          tags,
+          new Date(conv.createdAt).toISOString(),
+          new Date(conv.lastMessageAt).toISOString(),
+          `"${firstMessage.replace(/"/g, '""').substring(0, 100)}"`,
+        ].join(','));
+      }
+
+      const csv = csvRows.join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="message-stats-${garageId}.csv"`);
+      res.send(csv);
+    } catch (error) {
+      console.error('Failed to generate CSV:', error);
+      res.status(500).json({ error: 'Failed to generate CSV' });
+    }
+  }
+);
+
+// Middleware to check if garage has messaging access
+async function requireMessagingAccess(req: Request, res: Response, next: Function) {
+  try {
+    const garageId = req.params.garageId || req.body.garageId;
+
+    if (!garageId) {
+      return res.status(400).json({ error: 'Garage ID required' });
+    }
+
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      select: { hasMessagingAccess: true },
+    });
+
+    if (!garage) {
+      return res.status(404).json({ error: 'Garage not found' });
+    }
+
+    if (!garage.hasMessagingAccess) {
+      return res.status(403).json({
+        error: 'Messaging access not enabled',
+        message: 'This garage does not have messaging subscription. Please contact admin to enable it.',
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Messaging access check failed:', error);
+    res.status(500).json({ error: 'Failed to verify messaging access' });
+  }
+}
+
 // GET /api/garages/:garageId/conversations - List conversations with filters
 router.get(
   '/garages/:garageId/conversations',
   authenticate,
+  requireMessagingAccess,
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
@@ -32,28 +305,29 @@ router.get(
             orderBy: { createdAt: 'desc' },
             take: 1,
           },
+          customer: true,
         },
         orderBy: { lastMessageAt: 'desc' },
       });
 
-      // Group conversations by phone number
-      const groupedByPhone = new Map<string, any[]>();
-      const withoutPhone: any[] = [];
+      // Group conversations by customer
+      const groupedByCustomer = new Map<string, any[]>();
+      const withoutCustomer: any[] = [];
 
       for (const conv of allConversations) {
-        if (conv.customerPhone) {
-          const existing = groupedByPhone.get(conv.customerPhone) || [];
+        if (conv.customerId) {
+          const existing = groupedByCustomer.get(conv.customerId) || [];
           existing.push(conv);
-          groupedByPhone.set(conv.customerPhone, existing);
+          groupedByCustomer.set(conv.customerId, existing);
         } else {
-          withoutPhone.push(conv);
+          withoutCustomer.push(conv);
         }
       }
 
-      // Merge conversations with same phone number
+      // Merge conversations with same customer
       const mergedConversations = [];
 
-      for (const [phone, convs] of groupedByPhone.entries()) {
+      for (const [customerId, convs] of groupedByCustomer.entries()) {
         if (convs.length === 1) {
           mergedConversations.push(convs[0]);
         } else {
@@ -74,9 +348,10 @@ router.get(
             garageId: latestConv.garageId,
             platform: platforms.join(','), // "whatsapp,facebook,instagram"
             platforms: platforms, // Array of platforms
-            customerPhone: phone,
-            customerId: latestConv.customerId,
-            customerName: latestConv.customerName,
+            customerPhone: latestConv.customerPhone,
+            customerId: customerId,
+            customer: latestConv.customer,
+            customerName: latestConv.customer?.name || latestConv.customerName,
             status: latestConv.status,
             unreadCount: totalUnread,
             lastMessageAt: latestConv.lastMessageAt,
@@ -86,8 +361,8 @@ router.get(
         }
       }
 
-      // Add conversations without phone numbers
-      mergedConversations.push(...withoutPhone);
+      // Add conversations without customer
+      mergedConversations.push(...withoutCustomer);
 
       // Sort by last message time
       mergedConversations.sort((a, b) =>
@@ -116,6 +391,7 @@ router.get(
           messages: {
             orderBy: { createdAt: 'asc' },
           },
+          customer: true,
           garage: {
             select: {
               id: true,
@@ -129,19 +405,26 @@ router.get(
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
-      // If this conversation has a phone number, fetch ALL conversations with same phone
+      // If this conversation has a customer, fetch ALL conversations with same customer
       let allMessages = conversation.messages;
       let allConversations = [conversation];
 
-      if (conversation.customerPhone) {
+      if (conversation.customerId) {
         const relatedConversations = await prisma.chatConversation.findMany({
           where: {
             garageId: conversation.garageId,
-            customerPhone: conversation.customerPhone,
+            customerId: conversation.customerId,
           },
           include: {
             messages: {
               orderBy: { createdAt: 'asc' },
+            },
+            customer: true,
+            garage: {
+              select: {
+                id: true,
+                name: true,
+              },
             },
           },
         });
@@ -175,6 +458,18 @@ router.get(
         }
       }
 
+      // Check if conversation is within 24-hour messaging window
+      const withinMessagingWindow = isWithinMessagingWindow(conversation.lastMessageAt);
+
+      // Auto-resolve if past 24-hour window and still active
+      if (!withinMessagingWindow && conversation.status === 'active') {
+        await prisma.chatConversation.update({
+          where: { id: conversationId },
+          data: { status: 'resolved' },
+        });
+        console.log(`Auto-resolved conversation ${conversationId} - past 24-hour messaging window`);
+      }
+
       res.json({
         success: true,
         conversation: {
@@ -182,6 +477,7 @@ router.get(
           messages: allMessages,
           platforms: allConversations.map(c => c.platform),
           conversationIds: allConversations.map(c => c.id),
+          withinMessagingWindow,
         },
       });
     } catch (error) {
@@ -237,10 +533,14 @@ router.post(
         },
       });
 
-      // Update conversation
+      // Update conversation and pause agent for 24 hours when garage joins
       await prisma.chatConversation.update({
         where: { id: conversationId },
-        data: { lastMessageAt: new Date() },
+        data: {
+          lastMessageAt: new Date(),
+          agentPaused: true, // Pause agent when garage sends manual message
+          agentPausedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours from now
+        },
       });
 
       // Send message via appropriate platform
@@ -291,6 +591,184 @@ router.patch(
   }
 );
 
+// PATCH /api/conversations/:conversationId/tags - Update conversation tags
+router.patch(
+  '/conversations/:conversationId/tags',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { conversationId } = req.params;
+
+      const schema = z.object({
+        messageType: z.string().optional(),
+        confirmedBooking: z.boolean().optional(),
+        confirmedBookingCategory: z.enum(['service', 'diagnostic', 'mot', 'other']).optional().nullable(),
+        capturedRevenue: z.number().optional().nullable(),
+        bookingDetails: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      });
+
+      const result = schema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ error: 'Invalid request', details: result.error.flatten() });
+      }
+
+      const conversation = await prisma.chatConversation.update({
+        where: { id: conversationId },
+        data: {
+          messageType: result.data.messageType,
+          confirmedBooking: result.data.confirmedBooking,
+          confirmedBookingCategory: result.data.confirmedBookingCategory,
+          capturedRevenue: result.data.capturedRevenue,
+          bookingDetails: result.data.bookingDetails,
+          tags: result.data.tags,
+        },
+      });
+
+      res.json({ success: true, conversation });
+    } catch (error) {
+      console.error('Failed to update conversation tags:', error);
+      res.status(500).json({ error: 'Failed to update conversation tags' });
+    }
+  }
+);
+
+// PATCH /api/conversations/:conversationId/agent - Toggle agent pause/resume
+router.patch(
+  '/conversations/:conversationId/agent',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { conversationId } = req.params;
+
+      const schema = z.object({
+        agentPaused: z.boolean(),
+        pauseDurationHours: z.number().optional(), // 2, 4, 8, or 24
+      });
+
+      const result = schema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ error: 'Invalid request', details: result.error.flatten() });
+      }
+
+      // Update all related conversations if this is part of a merged customer conversation
+      const conversation = await prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+      });
+
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      // Calculate pause expiry time if pausing
+      let agentPausedUntil = null;
+      if (result.data.agentPaused && result.data.pauseDurationHours) {
+        agentPausedUntil = new Date(Date.now() + result.data.pauseDurationHours * 60 * 60 * 1000);
+      }
+
+      const updateData: any = {
+        agentPaused: result.data.agentPaused,
+        agentPausedUntil,
+      };
+
+      // Update all conversations for this customer
+      if (conversation.customerId) {
+        await prisma.chatConversation.updateMany({
+          where: {
+            garageId: conversation.garageId,
+            customerId: conversation.customerId,
+          },
+          data: updateData,
+        });
+      } else {
+        // Update just this conversation
+        await prisma.chatConversation.update({
+          where: { id: conversationId },
+          data: updateData,
+        });
+      }
+
+      res.json({
+        success: true,
+        agentPaused: result.data.agentPaused,
+        agentPausedUntil,
+      });
+    } catch (error) {
+      console.error('Failed to update agent status:', error);
+      res.status(500).json({ error: 'Failed to update agent status' });
+    }
+  }
+);
+
+// PATCH /api/conversations/:conversationId/flag - Toggle needs attention flag
+router.patch(
+  '/conversations/:conversationId/flag',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { conversationId } = req.params;
+
+      const schema = z.object({
+        needsAttention: z.boolean(),
+      });
+
+      const result = schema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ error: 'Invalid request', details: result.error.flatten() });
+      }
+
+      // Update all related conversations if this is part of a merged customer conversation
+      const conversation = await prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+      });
+
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      // When flagging for attention, automatically pause the agent for 24 hours
+      const updateData: any = { needsAttention: result.data.needsAttention };
+      if (result.data.needsAttention) {
+        updateData.agentPaused = true;
+        updateData.agentPausedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+      } else {
+        // When unflagging, don't automatically resume - let user control that
+        updateData.agentPausedUntil = null;
+      }
+
+      // Update all conversations for this customer
+      if (conversation.customerId) {
+        await prisma.chatConversation.updateMany({
+          where: {
+            garageId: conversation.garageId,
+            customerId: conversation.customerId,
+          },
+          data: updateData,
+        });
+      } else {
+        // Update just this conversation
+        await prisma.chatConversation.update({
+          where: { id: conversationId },
+          data: updateData,
+        });
+      }
+
+      res.json({ success: true, needsAttention: result.data.needsAttention, agentPaused: updateData.agentPaused });
+    } catch (error) {
+      console.error('Failed to update needs attention flag:', error);
+      res.status(500).json({ error: 'Failed to update needs attention flag' });
+    }
+  }
+);
+
+// Helper function to check if conversation is within 24-hour messaging window
+function isWithinMessagingWindow(lastMessageAt: Date): boolean {
+  const now = new Date();
+  const diffMs = now.getTime() - lastMessageAt.getTime();
+  const diffHours = diffMs / (60 * 60 * 1000);
+  return diffHours < 24;
+}
+
 // Helper function to send message via platform API
 async function sendMessage(
   conversation: any,
@@ -298,6 +776,13 @@ async function sendMessage(
   connection: any
 ): Promise<void> {
   const axios = (await import('axios')).default;
+
+  // Check 24-hour messaging window for Meta platforms
+  if (['whatsapp', 'facebook', 'instagram'].includes(conversation.platform)) {
+    if (!isWithinMessagingWindow(conversation.lastMessageAt)) {
+      throw new Error('Cannot send message: 24-hour messaging window has expired. The customer must initiate contact again.');
+    }
+  }
 
   if (conversation.platform === 'whatsapp') {
     await axios.post(
@@ -316,7 +801,7 @@ async function sendMessage(
     await axios.post(
       'https://graph.facebook.com/v18.0/me/messages',
       {
-        recipient: { id: conversation.customerId },
+        recipient: { id: conversation.platformUserId },
         message: { text: content },
       },
       {
@@ -327,7 +812,7 @@ async function sendMessage(
     await axios.post(
       'https://graph.facebook.com/v18.0/me/messages',
       {
-        recipient: { id: conversation.customerId },
+        recipient: { id: conversation.platformUserId },
         message: { text: content },
       },
       {

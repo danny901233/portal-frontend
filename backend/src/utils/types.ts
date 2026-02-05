@@ -107,4 +107,5 @@ export type AgentConfigurationPayload = {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   agentType: AgentType;
+  enableSmsBookingLinks?: boolean;
 };

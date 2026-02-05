@@ -135,6 +135,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   integrationProvider: 'none',
   garageHiveSettings: createDefaultGarageHiveSettings(),
   agentType: 'assist',
+  enableSmsBookingLinks: true,
 };
 const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
@@ -189,6 +190,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     allowFastFitOnly: configuration.allowFastFitOnly,
     notificationEmails: configuration.notificationEmails || [],
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
+    enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
     ...parseIntegrationSettings(
       configuration.integrationProvider,
       configuration.integrationProviderConfig,
@@ -549,6 +551,7 @@ router.put(
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,
       agentType: resolvedAgentType,
+      enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
     };
 
     const [configuration, garageRecord] = await Promise.all([

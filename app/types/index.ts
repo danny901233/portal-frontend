@@ -87,6 +87,7 @@ export interface AdminGarageAgentConfiguration {
   phoneNumber: string;
   emailAddress: string;
   notificationEmails: string[];
+  callSummaryEmail?: string | null;
 }
 
 export interface AdminGarage {

@@ -73,11 +73,11 @@ app.use('/webhooks', voiceRouter);
 
 app.use(errorHandler);
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Server listening on port ${port}`);
   console.log('Effective WEBHOOK_SECRET:', JSON.stringify(process.env.WEBHOOK_SECRET ?? null));
-  
+
   // Initialize scheduled report jobs
   initializeScheduledReports();
 });

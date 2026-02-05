@@ -25,7 +25,7 @@ router.get(
         where.status = status;
       }
 
-      const conversations = await prisma.chatConversation.findMany({
+      const allConversations = await prisma.chatConversation.findMany({
         where,
         include: {
           messages: {
@@ -36,7 +36,65 @@ router.get(
         orderBy: { lastMessageAt: 'desc' },
       });
 
-      res.json({ success: true, conversations });
+      // Group conversations by phone number
+      const groupedByPhone = new Map<string, any[]>();
+      const withoutPhone: any[] = [];
+
+      for (const conv of allConversations) {
+        if (conv.customerPhone) {
+          const existing = groupedByPhone.get(conv.customerPhone) || [];
+          existing.push(conv);
+          groupedByPhone.set(conv.customerPhone, existing);
+        } else {
+          withoutPhone.push(conv);
+        }
+      }
+
+      // Merge conversations with same phone number
+      const mergedConversations = [];
+
+      for (const [phone, convs] of groupedByPhone.entries()) {
+        if (convs.length === 1) {
+          mergedConversations.push(convs[0]);
+        } else {
+          // Merge multiple conversations into one
+          const platforms = convs.map(c => c.platform);
+          const allMessages = convs.flatMap(c => c.messages);
+          const latestMessage = allMessages.sort((a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )[0];
+
+          const totalUnread = convs.reduce((sum, c) => sum + c.unreadCount, 0);
+          const latestConv = convs.sort((a, b) =>
+            new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+          )[0];
+
+          mergedConversations.push({
+            id: latestConv.id,
+            garageId: latestConv.garageId,
+            platform: platforms.join(','), // "whatsapp,facebook,instagram"
+            platforms: platforms, // Array of platforms
+            customerPhone: phone,
+            customerId: latestConv.customerId,
+            customerName: latestConv.customerName,
+            status: latestConv.status,
+            unreadCount: totalUnread,
+            lastMessageAt: latestConv.lastMessageAt,
+            messages: [latestMessage],
+            conversationIds: convs.map(c => c.id), // Store all conversation IDs
+          });
+        }
+      }
+
+      // Add conversations without phone numbers
+      mergedConversations.push(...withoutPhone);
+
+      // Sort by last message time
+      mergedConversations.sort((a, b) =>
+        new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+      );
+
+      res.json({ success: true, conversations: mergedConversations });
     } catch (error) {
       console.error('Failed to fetch conversations:', error);
       res.status(500).json({ error: 'Failed to fetch conversations' });
@@ -71,15 +129,61 @@ router.get(
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
-      // Mark as read
-      if (conversation.unreadCount > 0) {
-        await prisma.chatConversation.update({
-          where: { id: conversationId },
-          data: { unreadCount: 0 },
+      // If this conversation has a phone number, fetch ALL conversations with same phone
+      let allMessages = conversation.messages;
+      let allConversations = [conversation];
+
+      if (conversation.customerPhone) {
+        const relatedConversations = await prisma.chatConversation.findMany({
+          where: {
+            garageId: conversation.garageId,
+            customerPhone: conversation.customerPhone,
+          },
+          include: {
+            messages: {
+              orderBy: { createdAt: 'asc' },
+            },
+          },
         });
+
+        allConversations = relatedConversations;
+
+        // Merge all messages from all platforms, sorted by time
+        allMessages = relatedConversations
+          .flatMap(conv => conv.messages.map(msg => ({
+            ...msg,
+            platform: conv.platform, // Add platform to each message
+          })))
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        // Mark all as read
+        for (const conv of relatedConversations) {
+          if (conv.unreadCount > 0) {
+            await prisma.chatConversation.update({
+              where: { id: conv.id },
+              data: { unreadCount: 0 },
+            });
+          }
+        }
+      } else {
+        // Mark as read
+        if (conversation.unreadCount > 0) {
+          await prisma.chatConversation.update({
+            where: { id: conversationId },
+            data: { unreadCount: 0 },
+          });
+        }
       }
 
-      res.json({ success: true, conversation });
+      res.json({
+        success: true,
+        conversation: {
+          ...conversation,
+          messages: allMessages,
+          platforms: allConversations.map(c => c.platform),
+          conversationIds: allConversations.map(c => c.id),
+        },
+      });
     } catch (error) {
       console.error('Failed to fetch conversation:', error);
       res.status(500).json({ error: 'Failed to fetch conversation' });

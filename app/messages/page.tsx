@@ -2,17 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getGarageId, getSessionToken } from '../lib/auth';
+import { cn } from '../lib/utils';
 
 interface Message {
   id: string;
   role: string;
   content: string;
   createdAt: string;
+  platform?: string;
 }
 
 interface Conversation {
   id: string;
   platform: string;
+  platforms?: string[];
   customerPhone?: string;
   customerId?: string;
   customerName?: string;
@@ -20,6 +24,7 @@ interface Conversation {
   unreadCount: number;
   lastMessageAt: string;
   messages: Message[];
+  conversationIds?: string[];
 }
 
 interface ConversationDetail extends Conversation {
@@ -36,41 +41,41 @@ const PLATFORM_ICONS = {
 };
 
 const PLATFORM_COLORS = {
-  whatsapp: 'bg-green-100 text-green-800',
-  facebook: 'bg-blue-100 text-blue-800',
-  instagram: 'bg-purple-100 text-purple-800',
+  whatsapp: 'bg-green-600',
+  facebook: 'bg-blue-600',
+  instagram: 'bg-purple-600',
 };
 
 export default function MessagesPage() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<ConversationDetail | null>(null);
-  const [platformFilter, setPlatformFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('active');
+  const [viewMode, setViewMode] = useState<'open' | 'closed'>('open');
+  const [platformFilter, setPlatformFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [messageInput, setMessageInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
 
-  // Get garage ID from session storage (set during login)
   useEffect(() => {
-    const garageId = sessionStorage.getItem('selectedGarageId');
-    if (!garageId) {
+    const garageId = getGarageId();
+    const token = getSessionToken();
+    if (!garageId || !token) {
       router.push('/login');
       return;
     }
     setSelectedGarageId(garageId);
   }, [router]);
 
-  // Fetch conversations
   const fetchConversations = async () => {
     if (!selectedGarageId) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getSessionToken();
       const params = new URLSearchParams();
       if (platformFilter !== 'all') params.append('platform', platformFilter);
-      if (statusFilter !== 'all') params.append('status', statusFilter);
+      params.append('status', viewMode === 'open' ? 'active' : 'resolved');
 
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${selectedGarageId}/conversations?${params}`,
@@ -92,10 +97,9 @@ export default function MessagesPage() {
     }
   };
 
-  // Fetch single conversation with full message history
-  const fetchConversation = async (conversationId: string) => {
+  const fetchConversationDetail = async (conversationId: string) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = getSessionToken();
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${conversationId}`,
         {
@@ -114,13 +118,12 @@ export default function MessagesPage() {
     }
   };
 
-  // Send message
   const sendMessage = async () => {
     if (!selectedConversation || !messageInput.trim()) return;
 
     setSending(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = getSessionToken();
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/messages`,
         {
@@ -136,7 +139,8 @@ export default function MessagesPage() {
       if (!response.ok) throw new Error('Failed to send message');
 
       setMessageInput('');
-      await fetchConversation(selectedConversation.id);
+      await fetchConversationDetail(selectedConversation.id);
+      await fetchConversations();
     } catch (error) {
       console.error('Error sending message:', error);
       alert('Failed to send message');
@@ -145,12 +149,11 @@ export default function MessagesPage() {
     }
   };
 
-  // Update conversation status
   const updateConversationStatus = async (status: string) => {
     if (!selectedConversation) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getSessionToken();
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}`, {
         method: 'PATCH',
         headers: {
@@ -161,29 +164,25 @@ export default function MessagesPage() {
       });
 
       await fetchConversations();
-      if (status !== 'active') {
-        setSelectedConversation(null);
-      }
+      setSelectedConversation(null);
     } catch (error) {
       console.error('Error updating conversation:', error);
     }
   };
 
-  // Poll for updates
   useEffect(() => {
     if (!selectedGarageId) return;
 
     fetchConversations();
-    const interval = setInterval(fetchConversations, 5000);
+    const interval = setInterval(fetchConversations, 10000);
     return () => clearInterval(interval);
-  }, [selectedGarageId, platformFilter, statusFilter]);
+  }, [selectedGarageId, platformFilter, viewMode]);
 
-  // Refresh selected conversation
   useEffect(() => {
     if (!selectedConversation) return;
 
     const interval = setInterval(() => {
-      fetchConversation(selectedConversation.id);
+      fetchConversationDetail(selectedConversation.id);
     }, 5000);
     return () => clearInterval(interval);
   }, [selectedConversation]);
@@ -203,81 +202,192 @@ export default function MessagesPage() {
     return date.toLocaleDateString();
   };
 
+  const getInitials = (name: string) => {
+    const words = name.split(' ');
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  };
+
+  const filteredConversations = conversations.filter(conv => {
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery ||
+      (conv.customerName?.toLowerCase().includes(searchLower)) ||
+      (conv.customerPhone?.toLowerCase().includes(searchLower)) ||
+      (conv.customerId?.toLowerCase().includes(searchLower));
+
+    return matchesSearch;
+  });
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-500">Loading conversations...</div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-slate-400">Loading conversations...</div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Left sidebar - Conversations list */}
-      <div className="w-1/3 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Messages</h1>
+    <div className="flex h-[calc(100vh-140px)] gap-0">
+      {/* Left Sidebar - Conversations List */}
+      <div className="w-96 bg-slate-900/40 border border-slate-800 rounded-l-lg flex flex-col">
+        {/* Search and Filters */}
+        <div className="p-4 border-b border-slate-800">
+          <div className="relative mb-4">
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-4 py-2 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <svg className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
 
-          {/* Filters */}
-          <div className="space-y-2">
-            <select
-              value={platformFilter}
-              onChange={(e) => setPlatformFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          {/* Platform Filter */}
+          <div className="flex gap-1 mb-3">
+            <button
+              onClick={() => setPlatformFilter('all')}
+              className={cn(
+                'flex-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                platformFilter === 'all'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:text-slate-100'
+              )}
             >
-              <option value="all">All Platforms</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="facebook">Facebook</option>
-              <option value="instagram">Instagram</option>
-            </select>
+              All
+            </button>
+            <button
+              onClick={() => setPlatformFilter('whatsapp')}
+              className={cn(
+                'flex-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                platformFilter === 'whatsapp'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:text-slate-100'
+              )}
+            >
+              📱 WhatsApp
+            </button>
+            <button
+              onClick={() => setPlatformFilter('facebook')}
+              className={cn(
+                'flex-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                platformFilter === 'facebook'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:text-slate-100'
+              )}
+            >
+              💬 Facebook
+            </button>
+            <button
+              onClick={() => setPlatformFilter('instagram')}
+              className={cn(
+                'flex-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                platformFilter === 'instagram'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:text-slate-100'
+              )}
+            >
+              📷 Instagram
+            </button>
+          </div>
 
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+          {/* Open / Closed Tabs */}
+          <div className="flex gap-4 border-b border-slate-700">
+            <button
+              onClick={() => setViewMode('open')}
+              className={cn(
+                'pb-2 px-1 text-sm font-medium transition-colors relative',
+                viewMode === 'open'
+                  ? 'text-blue-400'
+                  : 'text-slate-500 hover:text-slate-300'
+              )}
             >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="resolved">Resolved</option>
-              <option value="archived">Archived</option>
-            </select>
+              🔓 OPEN
+              {viewMode === 'open' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400" />
+              )}
+            </button>
+            <button
+              onClick={() => setViewMode('closed')}
+              className={cn(
+                'pb-2 px-1 text-sm font-medium transition-colors relative',
+                viewMode === 'closed'
+                  ? 'text-slate-400'
+                  : 'text-slate-500 hover:text-slate-300'
+              )}
+            >
+              🔒 CLOSED
+              {viewMode === 'closed' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-400" />
+              )}
+            </button>
           </div>
         </div>
 
-        {/* Conversations list */}
+        {/* Conversations List */}
         <div className="flex-1 overflow-y-auto">
-          {conversations.length === 0 ? (
-            <div className="p-4 text-center text-gray-500">No conversations found</div>
+          {filteredConversations.length === 0 ? (
+            <div className="p-4 text-center text-slate-500 text-sm">
+              No {viewMode} conversations
+            </div>
           ) : (
-            conversations.map((conv) => (
+            filteredConversations.map((conv) => (
               <div
                 key={conv.id}
-                onClick={() => fetchConversation(conv.id)}
-                className={`p-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 ${
-                  selectedConversation?.id === conv.id ? 'bg-blue-50' : ''
-                }`}
+                onClick={() => fetchConversationDetail(conv.id)}
+                className={cn(
+                  'p-4 border-b border-slate-800 cursor-pointer transition-colors hover:bg-slate-800/40',
+                  selectedConversation?.id === conv.id && 'bg-slate-800/60'
+                )}
               >
-                <div className="flex items-start justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{PLATFORM_ICONS[conv.platform as keyof typeof PLATFORM_ICONS]}</span>
-                    <span className="font-medium text-gray-900">
-                      {conv.customerName || conv.customerPhone || conv.customerId || 'Unknown'}
-                    </span>
+                <div className="flex items-start gap-3">
+                  <div className={cn(
+                    'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0',
+                    PLATFORM_COLORS[conv.platform as keyof typeof PLATFORM_COLORS]
+                  )}>
+                    {getInitials(conv.customerName || conv.customerPhone || conv.customerId || 'UK')}
                   </div>
-                  <span className="text-xs text-gray-500">{formatTime(conv.lastMessageAt)}</span>
-                </div>
-                <p className="text-sm text-gray-600 truncate">
-                  {conv.messages[0]?.content || 'No messages'}
-                </p>
-                <div className="flex items-center gap-2 mt-2">
-                  <span className={`text-xs px-2 py-1 rounded-full ${PLATFORM_COLORS[conv.platform as keyof typeof PLATFORM_COLORS]}`}>
-                    {conv.platform}
-                  </span>
-                  {conv.unreadCount > 0 && (
-                    <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-800">
-                      {conv.unreadCount} new
-                    </span>
-                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between mb-1">
+                      <h3 className="font-medium text-slate-100 text-sm truncate">
+                        {conv.customerName || conv.customerPhone || conv.customerId || 'Unknown'}
+                      </h3>
+                      <span className="text-xs text-slate-500 ml-2 flex-shrink-0">{formatTime(conv.lastMessageAt)}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 truncate mb-2">
+                      {conv.messages[0]?.content || 'No messages'}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {/* Show all platforms if merged */}
+                      {conv.platforms && conv.platforms.length > 1 ? (
+                        <div className="flex gap-1">
+                          {conv.platforms.map((p) => (
+                            <span key={p} className="text-xs">
+                              {PLATFORM_ICONS[p as keyof typeof PLATFORM_ICONS]}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className={cn(
+                          'text-xs px-2 py-0.5 rounded-full',
+                          conv.platform === 'whatsapp' && 'bg-green-500/20 text-green-300',
+                          conv.platform === 'facebook' && 'bg-blue-500/20 text-blue-300',
+                          conv.platform === 'instagram' && 'bg-purple-500/20 text-purple-300'
+                        )}>
+                          Lead
+                        </span>
+                      )}
+                      {conv.unreadCount > 0 && (
+                        <span className="w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                          {conv.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             ))
@@ -285,61 +395,81 @@ export default function MessagesPage() {
         </div>
       </div>
 
-      {/* Right panel - Conversation detail */}
-      <div className="flex-1 flex flex-col bg-white">
+      {/* Right Panel - Conversation Detail */}
+      <div className="flex-1 bg-slate-900/40 border border-l-0 border-slate-800 rounded-r-lg flex flex-col">
         {!selectedConversation ? (
-          <div className="flex-1 flex items-center justify-center text-gray-500">
-            Select a conversation to view messages
+          <div className="flex-1 flex items-center justify-center text-slate-500">
+            <div className="text-center">
+              <div className="text-4xl mb-4">💬</div>
+              <div>Select a conversation to view messages</div>
+            </div>
           </div>
         ) : (
           <>
-            {/* Conversation header */}
-            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">
-                  {selectedConversation.customerName ||
-                   selectedConversation.customerPhone ||
-                   selectedConversation.customerId ||
-                   'Unknown'}
-                </h2>
-                <p className="text-sm text-gray-500">
-                  {PLATFORM_ICONS[selectedConversation.platform as keyof typeof PLATFORM_ICONS]} {selectedConversation.platform}
-                </p>
+            {/* Conversation Header */}
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium',
+                  PLATFORM_COLORS[selectedConversation.platform as keyof typeof PLATFORM_COLORS]
+                )}>
+                  {getInitials(selectedConversation.customerName || selectedConversation.customerPhone || selectedConversation.customerId || 'UK')}
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-slate-100">
+                    {selectedConversation.customerName ||
+                     selectedConversation.customerPhone ||
+                     selectedConversation.customerId ||
+                     'Unknown'}
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    {PLATFORM_ICONS[selectedConversation.platform as keyof typeof PLATFORM_ICONS]} {selectedConversation.platform}
+                  </p>
+                </div>
               </div>
               <div className="flex gap-2">
-                {selectedConversation.status === 'active' && (
+                {selectedConversation.status === 'active' ? (
                   <button
                     onClick={() => updateConversationStatus('resolved')}
-                    className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700"
+                    className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors"
                   >
-                    Resolve
+                    Close Conversation
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => updateConversationStatus('active')}
+                    className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors"
+                  >
+                    Reopen
                   </button>
                 )}
-                <button
-                  onClick={() => updateConversationStatus('archived')}
-                  className="px-3 py-1 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700"
-                >
-                  Archive
-                </button>
               </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {selectedConversation.messages.map((message) => (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950/20">
+              {selectedConversation.messages?.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex ${message.role === 'user' ? 'justify-start' : 'justify-end'}`}
+                  className={cn('flex flex-col', message.role === 'user' ? 'items-start' : 'items-end')}
                 >
+                  {/* Platform badge */}
+                  {message.platform && (
+                    <div className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+                      <span>{PLATFORM_ICONS[message.platform as keyof typeof PLATFORM_ICONS]}</span>
+                      <span>{message.platform}</span>
+                    </div>
+                  )}
                   <div
-                    className={`max-w-xs px-4 py-2 rounded-lg ${
+                    className={cn(
+                      'max-w-md px-4 py-2 rounded-lg',
                       message.role === 'user'
-                        ? 'bg-gray-200 text-gray-900'
-                        : 'bg-blue-600 text-white'
-                    }`}
+                        ? 'bg-slate-800 text-slate-100'
+                        : 'bg-purple-600 text-white'
+                    )}
                   >
                     <p className="text-sm">{message.content}</p>
-                    <p className={`text-xs mt-1 ${message.role === 'user' ? 'text-gray-500' : 'text-blue-100'}`}>
+                    <p className={cn('text-xs mt-1', message.role === 'user' ? 'text-slate-500' : 'text-purple-200')}>
                       {formatTime(message.createdAt)}
                     </p>
                   </div>
@@ -347,27 +477,33 @@ export default function MessagesPage() {
               ))}
             </div>
 
-            {/* Message input */}
-            <div className="p-4 border-t border-gray-200">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                  placeholder="Type a message..."
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={sending}
-                />
-                <button
-                  onClick={sendMessage}
-                  disabled={sending || !messageInput.trim()}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {sending ? 'Sending...' : 'Send'}
-                </button>
+            {/* Message Input */}
+            {selectedConversation.status === 'active' && (
+              <div className="p-4 border-t border-slate-800">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                    placeholder="Write a message"
+                    maxLength={1600}
+                    className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    disabled={sending}
+                  />
+                  <button
+                    onClick={sendMessage}
+                    disabled={sending || !messageInput.trim()}
+                    className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {sending ? 'Sending...' : 'Send'}
+                  </button>
+                </div>
+                <div className="text-right text-xs text-slate-500 mt-1">
+                  {messageInput.length} / 1600
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
       </div>

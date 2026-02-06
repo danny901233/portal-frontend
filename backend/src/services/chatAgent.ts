@@ -73,9 +73,9 @@ export async function getChatAgentResponse(
     // Add current message
     messages.push({ role: 'user', content: message });
 
-    // Call OpenAI GPT-4o
+    // Call OpenAI GPT-4o-mini
     const completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini',
       messages,
       temperature: 0.7,
       max_tokens: 500,

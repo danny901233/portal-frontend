@@ -14,6 +14,7 @@ const VOICE_IDS: Record<string, string> = {
   gemma: 'IosqM5LMIzqPfT0efhhy',
   isobel: 'h8eW5xfRUGVJrZhAFxqK',
   fraser: 'v2zbX16tJNtRIx8rSHDM',
+  amelia: '21m00Tcm4TlvDq8ikWAM',
 };
 
 router.post(

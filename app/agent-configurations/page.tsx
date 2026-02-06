@@ -178,6 +178,7 @@ const voiceOptions: { value: VoiceOption; label: string; description: string; el
   { value: 'gemma', label: 'Gemma', description: 'A modern Northern English friendly female voice', elevenLabsId: 'IosqM5LMIzqPfT0efhhy' },
   { value: 'isobel', label: 'Isobel', description: 'Scottish female voice, youthful and warm', elevenLabsId: 'h8eW5xfRUGVJrZhAFxqK' },
   { value: 'fraser', label: 'Fraser', description: 'A soft male Scottish Glaswegian voice', elevenLabsId: 'v2zbX16tJNtRIx8rSHDM' },
+  { value: 'amelia', label: 'Amelia', description: 'A British female voice', elevenLabsId: '21m00Tcm4TlvDq8ikWAM' },
 ];
 
 export default function AgentConfigurationsPage() {

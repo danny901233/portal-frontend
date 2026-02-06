@@ -175,7 +175,7 @@ const voiceOptions: { value: VoiceOption; label: string; description: string; el
   { value: 'tom', label: 'Tom', description: 'A friendly mid thirties voice', elevenLabsId: 'Fahco4VZzobUeiPqni1S' },
   { value: 'leah', label: 'Leah', description: 'A pleasantly clear British female voice', elevenLabsId: 'rfkTsdZrVWEVhDycUYn9' },
   { value: 'sophie', label: 'Sophie', description: 'A clear and conversational female voice', elevenLabsId: 'fq1SdXsX6OokE10pJ4Xw' },
-  { value: 'dan', label: 'Dan', description: 'A British mid thirties voice', elevenLabsId: 'vzPN8OpeMFLHVpEYUMup' },
+  { value: 'gemma', label: 'Gemma', description: 'A modern Northern English friendly female voice', elevenLabsId: 'IosqM5LMIzqPfT0efhhy' },
   { value: 'isobel', label: 'Isobel', description: 'Scottish female voice, youthful and warm', elevenLabsId: 'h8eW5xfRUGVJrZhAFxqK' },
   { value: 'fraser', label: 'Fraser', description: 'A soft male Scottish Glaswegian voice', elevenLabsId: 'v2zbX16tJNtRIx8rSHDM' },
 ];

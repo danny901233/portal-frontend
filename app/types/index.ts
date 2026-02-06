@@ -162,7 +162,7 @@ export type IntegrationProvider = 'none' | 'garage_hive';
 
 export type AgentType = 'assist' | 'automate';
 
-export type VoiceOption = 'tom' | 'leah' | 'sophie' | 'dan' | 'isobel' | 'fraser';
+export type VoiceOption = 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser';
 
 export interface GarageHiveSettings {
   instanceUrl: string;

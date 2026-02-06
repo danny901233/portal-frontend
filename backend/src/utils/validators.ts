@@ -171,6 +171,7 @@ export const upsertAgentConfigurationSchema = z.object({
   garageHiveSettings: garageHiveSettingsSchema,
   agentType: z.enum(['assist', 'automate']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
+  voice: z.enum(['tom', 'leah', 'sophie', 'dan', 'isobel', 'fraser']).optional(),
 }).superRefine((value, ctx) => {
   const provider = value.integrationProvider ?? 'none';
   if (provider !== 'garage_hive') {

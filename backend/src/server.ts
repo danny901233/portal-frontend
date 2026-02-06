@@ -9,6 +9,7 @@ import configRouter from './routes/config.js';
 import agentWebhookRouter from './routes/agentWebhook.js';
 import adminRouter from './routes/admin.js';
 import voiceRouter from './routes/voice.js';
+import voicePreviewRouter from './routes/voicePreview.js';
 import twilioRouter from './routes/twilio.js';
 import onboardingRouter from './routes/onboarding.js';
 import paymentRouter from './routes/payment.js';
@@ -54,6 +55,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/api', callsRouter);
 app.use('/api', configRouter);
+app.use('/api', voicePreviewRouter);
 app.use('/api/auth', authRouter);
 app.use('/api', adminRouter);
 app.use('/api', twilioRouter);

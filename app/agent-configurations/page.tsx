@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import {
   discoverWebsitePages,
   fetchAgentConfiguration,
+  generateVoicePreview,
   ingestWebsiteKnowledge,
   updateAgentConfiguration,
 } from '../lib/api';
@@ -22,6 +23,7 @@ import type {
   IntegrationProvider,
   ResponseSpeed,
   TonePreference,
+  VoiceOption,
   WeeklyOpeningHours,
   WebsiteScanSummaryPage,
 } from '../types';
@@ -102,6 +104,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   garageHiveSettings: createEmptyGarageHiveSettings(),
   agentType: 'assist',
   enableSmsBookingLinks: true,
+  voice: 'leah',
 });
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
@@ -168,6 +171,15 @@ const toneOptions: { value: TonePreference; label: string; description: string }
   { value: 'professional', label: 'Professional', description: 'Formal and precise' },
 ];
 
+const voiceOptions: { value: VoiceOption; label: string; description: string; elevenLabsId: string }[] = [
+  { value: 'tom', label: 'Tom', description: 'A friendly mid thirties voice', elevenLabsId: 'Fahco4VZzobUeiPqni1S' },
+  { value: 'leah', label: 'Leah', description: 'A pleasantly clear British female voice', elevenLabsId: 'rfkTsdZrVWEVhDycUYn9' },
+  { value: 'sophie', label: 'Sophie', description: 'A clear and conversational female voice', elevenLabsId: 'fq1SdXsX6OokE10pJ4Xw' },
+  { value: 'dan', label: 'Dan', description: 'A British mid thirties voice', elevenLabsId: 'vzPN8OpeMFLHVpEYUMup' },
+  { value: 'isobel', label: 'Isobel', description: 'Scottish female voice, youthful and warm', elevenLabsId: 'h8eW5xfRUGVJrZhAFxqK' },
+  { value: 'fraser', label: 'Fraser', description: 'A soft male Scottish Glaswegian voice', elevenLabsId: 'v2zbX16tJNtRIx8rSHDM' },
+];
+
 export default function AgentConfigurationsPage() {
   const garageId = getGarageId();
   const [formState, setFormState] = useState<AgentConfiguration>(() => createEmptyConfiguration());
@@ -178,6 +190,8 @@ export default function AgentConfigurationsPage() {
   const [selectedPageUrls, setSelectedPageUrls] = useState<string[]>([]);
   const [lastScanUrl, setLastScanUrl] = useState<string | null>(null);
   const [newNotificationEmail, setNewNotificationEmail] = useState<string>('');
+  const [playingVoice, setPlayingVoice] = useState<VoiceOption | null>(null);
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [, startTransition] = useTransition();
   const canEditAgentType = isReceptionMateStaff();
 
@@ -543,6 +557,49 @@ export default function AgentConfigurationsPage() {
   const handleToneChange = (value: TonePreference) => {
     setFormState((prev) => ({ ...prev, tonePreference: value }));
     setFeedback(null);
+  };
+
+  const handleVoiceChange = (value: VoiceOption) => {
+    if (!isEditing || mutation.isPending) {
+      return;
+    }
+    setFormState((prev) => ({ ...prev, voice: value }));
+    setFeedback(null);
+  };
+
+  const handlePlayVoice = async (voiceId: VoiceOption) => {
+    try {
+      // Stop currently playing audio
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.src = '';
+      }
+
+      setPlayingVoice(voiceId);
+      setFeedback(null);
+
+      const audioBlob = await generateVoicePreview(voiceId, garageId ?? undefined);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      audio.onended = () => {
+        setPlayingVoice(null);
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      audio.onerror = () => {
+        setPlayingVoice(null);
+        setFeedback('Failed to play voice preview');
+        URL.revokeObjectURL(audioUrl);
+      };
+
+      setAudioElement(audio);
+      await audio.play();
+    } catch (error) {
+      console.error('Voice preview error:', error);
+      setPlayingVoice(null);
+      setFeedback('Failed to play voice preview. Please try again.');
+    }
   };
 
   const handleResponseSpeedChange = (value: ResponseSpeed) => {
@@ -1193,29 +1250,96 @@ export default function AgentConfigurationsPage() {
             Control how the AI sounds and how it handles booking requests.
           </p>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            {toneOptions.map((option) => {
-              const isSelected = formState.tonePreference === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
-                    isSelected
-                      ? 'border-sky-500 bg-sky-500/15 text-slate-100'
-                      : 'border-slate-800 bg-slate-900/50 text-slate-300 hover:border-slate-700 hover:text-slate-200'
-                  } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
-                  onClick={() => {
-                    if (!isEditing || mutation.isPending) return;
-                    handleToneChange(option.value);
-                  }}
-                  disabled={!isEditing || mutation.isPending}
-                >
-                  <div className="text-sm font-semibold">{option.label}</div>
-                  <div className="mt-1 text-xs text-slate-400">{option.description}</div>
-                </button>
-              );
-            })}
+          <div className="mt-6">
+            <span className="text-xs uppercase tracking-wide text-slate-500">Voice</span>
+            <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {voiceOptions.map((option) => {
+                const isSelected = formState.voice === option.value;
+                const isPlaying = playingVoice === option.value;
+                return (
+                  <div
+                    key={option.value}
+                    className={`rounded-xl border p-4 text-sm transition ${
+                      isSelected
+                        ? 'border-purple-500 bg-purple-500/15'
+                        : 'border-slate-800 bg-slate-900/50'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className={`w-full text-left mb-3 ${
+                        isSelected ? 'text-slate-100' : 'text-slate-300 hover:text-slate-200'
+                      } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
+                      onClick={() => handleVoiceChange(option.value)}
+                      disabled={!isEditing || mutation.isPending}
+                    >
+                      <div className="text-sm font-semibold">{option.label}</div>
+                      <div className="mt-1 text-xs text-slate-400">{option.description}</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handlePlayVoice(option.value)}
+                      disabled={isPlaying || !formState.greetingLine}
+                      className={`w-full flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${
+                        isPlaying
+                          ? 'bg-purple-500 text-white'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-100'
+                      } ${!formState.greetingLine ? 'cursor-not-allowed opacity-40' : ''}`}
+                      title={!formState.greetingLine ? 'Add a greeting line to preview voices' : 'Play preview'}
+                    >
+                      {isPlaying ? (
+                        <>
+                          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" />
+                          </svg>
+                          <span>Playing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
+                          </svg>
+                          <span>Preview Voice</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {!formState.greetingLine && (
+              <p className="mt-2 text-xs text-amber-400">
+                💡 Add a greeting line above to enable voice previews
+              </p>
+            )}
+          </div>
+
+          <div className="mt-8">
+            <span className="text-xs uppercase tracking-wide text-slate-500">Tone preference</span>
+            <div className="mt-3 grid gap-4 md:grid-cols-3">
+              {toneOptions.map((option) => {
+                const isSelected = formState.tonePreference === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
+                      isSelected
+                        ? 'border-sky-500 bg-sky-500/15 text-slate-100'
+                        : 'border-slate-800 bg-slate-900/50 text-slate-300 hover:border-slate-700 hover:text-slate-200'
+                    } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
+                    onClick={() => {
+                      if (!isEditing || mutation.isPending) return;
+                      handleToneChange(option.value);
+                    }}
+                    disabled={!isEditing || mutation.isPending}
+                  >
+                    <div className="text-sm font-semibold">{option.label}</div>
+                    <div className="mt-1 text-xs text-slate-400">{option.description}</div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="mt-8">

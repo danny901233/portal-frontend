@@ -234,6 +234,23 @@ export const discoverWebsitePages = async (
   return data;
 };
 
+export const generateVoicePreview = async (
+  voiceId: string,
+  garageId?: string
+): Promise<Blob> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+
+  const { data } = await api.post(
+    `/api/garages/${targetGarageId}/voice-preview`,
+    { voiceId },
+    { responseType: 'blob' }
+  );
+  return data;
+};
+
 export const ingestWebsiteKnowledge = async (
   url: string,
   selectedUrls: string[],

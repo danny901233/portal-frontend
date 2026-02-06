@@ -50,6 +50,8 @@ export type IntegrationProvider = 'none' | 'garage_hive';
 
 export type AgentType = 'assist' | 'automate';
 
+export type VoiceOption = 'tom' | 'leah' | 'sophie' | 'dan' | 'isobel' | 'fraser';
+
 export type GarageHiveSettings = {
   instanceUrl: string;
   apiKey: string;
@@ -108,4 +110,5 @@ export type AgentConfigurationPayload = {
   garageHiveSettings: GarageHiveSettings;
   agentType: AgentType;
   enableSmsBookingLinks?: boolean;
+  voice?: VoiceOption;
 };

@@ -117,6 +117,7 @@ model AgentConfiguration {
   integrationProviderConfig Json?
   agentType         String   @default("assist")
   enableSmsBookingLinks Boolean @default(true)
+  voice             String   @default("leah")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }

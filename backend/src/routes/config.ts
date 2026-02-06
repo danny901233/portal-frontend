@@ -193,7 +193,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     notificationEmails: configuration.notificationEmails || [],
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
-    voice: (['tom', 'leah', 'sophie', 'dan', 'isobel', 'fraser'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'dan' | 'isobel' | 'fraser',
+    voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser',
     ...parseIntegrationSettings(
       configuration.integrationProvider,
       configuration.integrationProviderConfig,

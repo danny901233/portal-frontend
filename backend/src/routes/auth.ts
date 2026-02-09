@@ -61,6 +61,13 @@ router.post('/login', async (req: Request, res: Response) => {
 
       const branchRoles = sanitizeBranchRoles(user.branchRoles);
 
+      // Get garage IDs for the token (users still need access to portal features)
+      let paymentSetupGarageIds = Array.isArray(user.garageAccessIds) ? [...user.garageAccessIds] : [];
+      if (user.role === 'RECEPTIONMATE_STAFF') {
+        const allGarages = await prisma.garage.findMany({ select: { id: true } });
+        paymentSetupGarageIds = allGarages.map((entry) => entry.id);
+      }
+
       // Generate a token for authenticated payment setup
       const token = jwt.sign(
         {
@@ -68,6 +75,7 @@ router.post('/login', async (req: Request, res: Response) => {
           email: user.email,
           role: user.role,
           branchRoles,
+          garageIds: paymentSetupGarageIds,
         },
         secret,
         { expiresIn: '12h' },

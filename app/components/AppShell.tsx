@@ -34,7 +34,6 @@ const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [isReady, setIsReady] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserIdState] = useState<string | null>(null);
@@ -193,8 +192,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Check if triggered by ?showSetup=true query param
-      const showSetup = searchParams?.get('showSetup') === 'true';
+      // Check if triggered by ?showSetup=true query param using window.location
+      const showSetup = typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('showSetup') === 'true';
 
       try {
         const status = await fetchOnboardingStatus();
@@ -212,7 +212,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     };
 
     void checkSetupWizard();
-  }, [shouldShowChrome, isReady, garageId, searchParams, pathname, router]);
+  }, [shouldShowChrome, isReady, garageId, pathname, router]);
 
   useEffect(() => {
     if (!restrictToAssignedBranches) {

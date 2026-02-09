@@ -110,6 +110,9 @@ function createPdfBuffer(invoice: InvoiceData, business: BusinessData | null): P
  * Add ReceptionMate header
  */
 function addHeader(doc: typeof PDFDocument.prototype) {
+  // TODO: Add logo image here when available
+  // doc.image('path/to/logo.png', 50, 45, { width: 150 });
+
   doc
     .fontSize(24)
     .font('Helvetica-Bold')
@@ -117,7 +120,8 @@ function addHeader(doc: typeof PDFDocument.prototype) {
     .fontSize(10)
     .font('Helvetica')
     .text('AI Phone Answering Service', 50, 80)
-    .text('support@receptionmate.co.uk', 50, 95)
+    .text('hello@receptionmate.co.uk', 50, 95)
+    .text('VAT Number: 494543753', 50, 110)
     .moveDown(2);
 }
 
@@ -334,7 +338,7 @@ function addFooter(doc: typeof PDFDocument.prototype) {
     .font('Helvetica')
     .fillColor('#666666')
     .text(
-      'Thank you for using ReceptionMate. Questions? Contact support@receptionmate.co.uk',
+      'Thank you for using ReceptionMate. Questions? Contact hello@receptionmate.co.uk',
       50,
       720,
       { align: 'center' }

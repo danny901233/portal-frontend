@@ -47,8 +47,8 @@ export const initializeScheduledReports = (): void => {
     console.log('Running automatic monthly billing check...');
     try {
       const result = await processMonthlyBilling();
-      if (result.summary.processed > 0) {
-        console.log(`✓ Automatic billing completed: ${result.summary.successful} successful, ${result.summary.failed} failed`);
+      if (result.processed > 0) {
+        console.log(`✓ Automatic billing completed: ${result.successful} successful, ${result.failed} failed`);
       } else {
         console.log('✓ Automatic billing check completed: No users due for billing');
       }

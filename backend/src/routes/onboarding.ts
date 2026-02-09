@@ -692,7 +692,6 @@ router.get('/onboarding/status', authenticate, async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId },
       select: {
-        setupWizardCompleted: true,
         garageAccessIds: true,
       },
     });
@@ -701,12 +700,15 @@ router.get('/onboarding/status', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get agent type from first garage
+    // Get garage setup status and agent type from first garage
     let agentType = 'assist'; // default
+    let needsSetup = false;
+
     if (user.garageAccessIds && user.garageAccessIds.length > 0) {
       const garage = await prisma.garage.findUnique({
         where: { id: user.garageAccessIds[0] },
         select: {
+          setupWizardCompleted: true,
           agentConfiguration: {
             select: {
               agentType: true,
@@ -715,13 +717,14 @@ router.get('/onboarding/status', authenticate, async (req, res) => {
         },
       });
 
-      if (garage?.agentConfiguration?.agentType) {
-        agentType = garage.agentConfiguration.agentType;
+      if (garage) {
+        needsSetup = !garage.setupWizardCompleted;
+        agentType = garage.agentConfiguration?.agentType || 'assist';
       }
     }
 
     res.json({
-      needsSetup: !user.setupWizardCompleted,
+      needsSetup,
       agentType,
     });
   } catch (error) {
@@ -733,7 +736,7 @@ router.get('/onboarding/status', authenticate, async (req, res) => {
 /**
  * POST /api/onboarding/wizard-complete
  *
- * Mark the setup wizard as completed for the logged-in user
+ * Mark the setup wizard as completed for the garage
  */
 router.post('/onboarding/wizard-complete', authenticate, async (req, res) => {
   try {
@@ -741,8 +744,20 @@ router.post('/onboarding/wizard-complete', authenticate, async (req, res) => {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    await prisma.user.update({
+    const user = await prisma.user.findUnique({
       where: { id: req.user.userId },
+      select: {
+        garageAccessIds: true,
+      },
+    });
+
+    if (!user || !user.garageAccessIds || user.garageAccessIds.length === 0) {
+      return res.status(404).json({ error: 'No garage access found' });
+    }
+
+    // Mark the first garage as setup complete
+    await prisma.garage.update({
+      where: { id: user.garageAccessIds[0] },
       data: {
         setupWizardCompleted: true,
         setupWizardCompletedAt: new Date(),

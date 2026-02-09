@@ -27,6 +27,10 @@ model Garage {
   activationBookingsCount Int @default(0)
   subscriptionActivatedAt DateTime?
 
+  // Setup Wizard
+  setupWizardCompleted Boolean @default(false)
+  setupWizardCompletedAt DateTime?
+
   calls Call[]
   agentConfiguration AgentConfiguration?
   knowledgeDocuments AgentKnowledgeDocument[]

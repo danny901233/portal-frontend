@@ -94,6 +94,10 @@ model User {
   branchRoles  Json @default("{}")
   resetToken       String?
   resetTokenExpiry DateTime?
+
+  // Onboarding tracking
+  setupWizardCompleted Boolean @default(false)
+  setupWizardCompletedAt DateTime?
 }
 
 model AgentConfiguration {

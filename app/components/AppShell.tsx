@@ -2,9 +2,10 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
+import SetupWizard from './SetupWizard';
 import {
   ALL_ASSIGNED_BRANCHES_IDENTIFIER,
   BranchScopeProvider,
@@ -24,6 +25,7 @@ import {
   setGarages,
 } from '../lib/auth';
 import { fetchGarages } from '../lib/api';
+import { fetchOnboardingStatus } from '../lib/onboarding';
 import type { GarageSummary } from '../types';
 
 const publicPaths = new Set(['/login', '/reset-password']);
@@ -32,6 +34,7 @@ const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isReady, setIsReady] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserIdState] = useState<string | null>(null);
@@ -42,6 +45,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [branchScope, setBranchScope] = useState<BranchScope>('single');
   const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
   const [messagesNeedingAttention, setMessagesNeedingAttention] = useState(0);
+  const [setupWizardOpen, setSetupWizardOpen] = useState(false);
+  const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
@@ -181,6 +186,34 @@ export default function AppShell({ children }: { children: ReactNode }) {
     void bootstrapSession();
   }, [bootstrapSession, shouldShowChrome]);
 
+  // Check if setup wizard should be shown
+  useEffect(() => {
+    const checkSetupWizard = async () => {
+      if (!shouldShowChrome || !isReady || !garageId) {
+        return;
+      }
+
+      // Check if triggered by ?showSetup=true query param
+      const showSetup = searchParams?.get('showSetup') === 'true';
+
+      try {
+        const status = await fetchOnboardingStatus();
+        if (status.needsSetup || showSetup) {
+          setWizardAgentType(status.agentType);
+          setSetupWizardOpen(true);
+          // Clear query param if present
+          if (showSetup && pathname) {
+            router.replace(pathname);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check onboarding status:', error);
+      }
+    };
+
+    void checkSetupWizard();
+  }, [shouldShowChrome, isReady, garageId, searchParams, pathname, router]);
+
   useEffect(() => {
     if (!restrictToAssignedBranches) {
       return;
@@ -299,5 +332,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
     </div>
   );
 
-  return <BranchScopeProvider value={branchScopeValue}>{shellContent}</BranchScopeProvider>;
+  return (
+    <BranchScopeProvider value={branchScopeValue}>
+      {shellContent}
+      <SetupWizard
+        isOpen={setupWizardOpen}
+        garageId={garageId || ''}
+        agentType={wizardAgentType}
+        onComplete={() => {
+          setSetupWizardOpen(false);
+          // Optionally refresh the page
+          router.refresh();
+        }}
+      />
+    </BranchScopeProvider>
+  );
 }

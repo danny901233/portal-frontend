@@ -38,9 +38,9 @@ function CallbackContent() {
     onSuccess: () => {
       setStatus('success');
       sessionStorage.removeItem('gocardless_redirect_flow_id');
-      // Redirect to calls page after a short delay
+      // Redirect to calls page with setup wizard trigger after a short delay
       setTimeout(() => {
-        router.push('/calls');
+        router.push('/calls?showSetup=true');
       }, 2000);
     },
     onError: (error: Error) => {

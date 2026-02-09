@@ -3,7 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import twilio from 'twilio';
 import { prisma } from '../db.js';
-import { authenticateApiKey } from '../middleware/auth.js';
+import { authenticateApiKey, authenticate } from '../middleware/auth.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 import { fetchWebsiteInfo } from '../utils/scraper.js';
 import type { Prisma } from '@prisma/client';
@@ -674,6 +674,164 @@ router.post('/onboarding/user', authenticateApiKey, async (req, res) => {
   } catch (error) {
     console.error('[ONBOARDING] User creation error:', error);
     res.status(500).json({ error: 'User creation failed', details: (error as Error).message });
+  }
+});
+
+/**
+ * GET /api/onboarding/status
+ *
+ * Check if the logged-in user needs to complete the setup wizard
+ * Returns: needsSetup boolean and agent type
+ */
+router.get('/onboarding/status', authenticate, async (req, res) => {
+  try {
+    if (!req.user?.userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: {
+        setupWizardCompleted: true,
+        garageAccessIds: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get agent type from first garage
+    let agentType = 'assist'; // default
+    if (user.garageAccessIds && user.garageAccessIds.length > 0) {
+      const garage = await prisma.garage.findUnique({
+        where: { id: user.garageAccessIds[0] },
+        select: {
+          agentConfiguration: {
+            select: {
+              agentType: true,
+            },
+          },
+        },
+      });
+
+      if (garage?.agentConfiguration?.agentType) {
+        agentType = garage.agentConfiguration.agentType;
+      }
+    }
+
+    res.json({
+      needsSetup: !user.setupWizardCompleted,
+      agentType,
+    });
+  } catch (error) {
+    console.error('[ONBOARDING] Status check error:', error);
+    res.status(500).json({ error: 'Failed to check onboarding status' });
+  }
+});
+
+/**
+ * POST /api/onboarding/wizard-complete
+ *
+ * Mark the setup wizard as completed for the logged-in user
+ */
+router.post('/onboarding/wizard-complete', authenticate, async (req, res) => {
+  try {
+    if (!req.user?.userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: {
+        setupWizardCompleted: true,
+        setupWizardCompletedAt: new Date(),
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Setup wizard completed',
+    });
+  } catch (error) {
+    console.error('[ONBOARDING] Wizard completion error:', error);
+    res.status(500).json({ error: 'Failed to complete wizard' });
+  }
+});
+
+/**
+ * GET /api/onboarding/initial-data
+ *
+ * Get initial data for wizard pre-population:
+ * - Existing agent configuration
+ * - Business billing info
+ * - Twilio number
+ * - Agent type
+ */
+router.get('/onboarding/initial-data', authenticate, async (req, res) => {
+  try {
+    if (!req.user?.userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: {
+        garageAccessIds: true,
+      },
+    });
+
+    if (!user || !user.garageAccessIds || user.garageAccessIds.length === 0) {
+      return res.status(404).json({ error: 'No garage access found' });
+    }
+
+    const garageId = user.garageAccessIds[0];
+
+    // Fetch garage with agent config and business info
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      include: {
+        agentConfiguration: true,
+        business: true,
+      },
+    });
+
+    if (!garage) {
+      return res.status(404).json({ error: 'Garage not found' });
+    }
+
+    res.json({
+      garageId: garage.id,
+      twilioNumber: garage.twilioNumber,
+      agentType: garage.agentConfiguration?.agentType || 'assist',
+      agentConfiguration: garage.agentConfiguration ? {
+        branchName: garage.agentConfiguration.branchName,
+        phoneNumber: garage.agentConfiguration.phoneNumber,
+        emailAddress: garage.agentConfiguration.emailAddress,
+        branchAddress: garage.agentConfiguration.branchAddress,
+        websiteUrl: garage.agentConfiguration.websiteUrl,
+        weeklyOpeningHours: garage.agentConfiguration.weeklyOpeningHours,
+        holidayClosures: garage.agentConfiguration.holidayClosures,
+        greetingLine: garage.agentConfiguration.greetingLine,
+        voice: garage.agentConfiguration.voice,
+        allowFastFitOnly: garage.agentConfiguration.allowFastFitOnly,
+        enableSmsBookingLinks: garage.agentConfiguration.enableSmsBookingLinks,
+        notificationEmails: garage.agentConfiguration.notificationEmails,
+      } : null,
+      businessInfo: garage.business ? {
+        name: garage.business.name,
+        billingAddress: garage.business.billingAddress,
+        billingCity: garage.business.billingCity,
+        billingPostcode: garage.business.billingPostcode,
+        billingCountry: garage.business.billingCountry,
+        vatNumber: garage.business.vatNumber,
+        companyRegNumber: garage.business.companyRegNumber,
+        billingEmail: garage.business.billingEmail,
+      } : null,
+    });
+  } catch (error) {
+    console.error('[ONBOARDING] Initial data fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch initial data' });
   }
 });
 

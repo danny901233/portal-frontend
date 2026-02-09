@@ -12,6 +12,8 @@ import {
   processMonthlyBilling,
   fetchUsersPendingBilling,
   activateBilling,
+  fetchUsersWithoutMandate,
+  requestDirectDebitSetup,
 } from '../../lib/api';
 
 export default function BillingDashboardPage() {
@@ -38,6 +40,12 @@ export default function BillingDashboardPage() {
   const pendingBillingQuery = useQuery({
     queryKey: ['users-pending-billing'],
     queryFn: () => fetchUsersPendingBilling(),
+    enabled: isStaff,
+  });
+
+  const usersWithoutMandateQuery = useQuery({
+    queryKey: ['users-without-mandate'],
+    queryFn: () => fetchUsersWithoutMandate(),
     enabled: isStaff,
   });
 
@@ -82,6 +90,16 @@ export default function BillingDashboardPage() {
     },
   });
 
+  const requestDirectDebitMutation = useMutation({
+    mutationFn: requestDirectDebitSetup,
+    onSuccess: (data) => {
+      setFeedback(`Direct Debit request email sent successfully!`);
+    },
+    onError: (error: any) => {
+      setFeedback(`Failed to send email: ${error.response?.data?.error || error.message}`);
+    },
+  });
+
   if (!isStaff) {
     return (
       <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
@@ -105,6 +123,12 @@ export default function BillingDashboardPage() {
   const handleActivateBilling = (userId: string, email: string, amount: number) => {
     if (confirm(`Activate billing for ${email}?\n\nThis will:\n- Set billing start date to today\n- Charge £${amount} for the first month\n- Enable monthly recurring billing`)) {
       activateBillingMutation.mutate(userId);
+    }
+  };
+
+  const handleRequestDirectDebit = (userId: string, email: string) => {
+    if (confirm(`Send Direct Debit setup request to ${email}?\n\nThis will email them a link to set up their Direct Debit mandate.`)) {
+      requestDirectDebitMutation.mutate(userId);
     }
   };
 
@@ -157,6 +181,77 @@ export default function BillingDashboardPage() {
         <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
           {feedback}
         </div>
+      )}
+
+      {/* Users Without Direct Debit Section */}
+      {usersWithoutMandateQuery.data?.users && usersWithoutMandateQuery.data.users.length > 0 && (
+        <section className="rounded-2xl border border-red-500/40 bg-red-500/10 p-6">
+          <h2 className="text-lg font-semibold text-red-100 mb-4">
+            ⚠️ No Direct Debit Set Up ({usersWithoutMandateQuery.data.users.length})
+          </h2>
+          <p className="text-sm text-red-200/80 mb-4">
+            These users have garages assigned but haven't set up Direct Debit yet. Send them a request email to complete setup.
+          </p>
+          <div className="space-y-3">
+            {usersWithoutMandateQuery.data.users.map((user: any) => (
+              <div
+                key={user.id}
+                className="rounded-lg border border-red-500/30 bg-slate-900/40 p-4"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium text-slate-100">{user.email}</div>
+                      <span className="rounded-full border border-slate-600 bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                        {user.role}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      {user.garages.map((garage: any) => (
+                        <div key={garage.id} className="text-xs text-slate-300">
+                          • {garage.name} - £{garage.cost}/month
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      Created: {formatDate(user.createdAt)}
+                    </div>
+                  </div>
+                  <div className="ml-4 flex flex-col items-end gap-2">
+                    <div className="text-right">
+                      <div className="text-lg font-semibold text-slate-100">
+                        £{user.totalMonthlyCost}
+                      </div>
+                      <div className="text-xs text-slate-400">per month</div>
+                    </div>
+                    <button
+                      onClick={() => handleRequestDirectDebit(user.id, user.email)}
+                      disabled={requestDirectDebitMutation.isPending}
+                      className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-60"
+                    >
+                      {requestDirectDebitMutation.isPending ? (
+                        <>
+                          <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                          Request Direct Debit
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Pending Billing Activation Section */}

@@ -362,6 +362,16 @@ export const activateBilling = async (userId: string): Promise<any> => {
   return data;
 };
 
+export const fetchUsersWithoutMandate = async (): Promise<{ users: any[] }> => {
+  const { data } = await api.get('/api/admin/users-without-mandate');
+  return data;
+};
+
+export const requestDirectDebitSetup = async (userId: string): Promise<any> => {
+  const { data } = await api.post(`/api/admin/request-direct-debit/${userId}`);
+  return data;
+};
+
 export const generateInvoicesForUser = async (userId: string): Promise<any> => {
   const { data } = await api.post(`/api/billing/users/${userId}/generate-invoices`);
   return data;

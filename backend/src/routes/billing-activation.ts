@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { createRequire } from 'module';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { sendDirectDebitRequestEmail } from '../services/directDebitRequestEmail.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -211,6 +212,116 @@ router.get('/admin/users-pending-billing', authenticate, requireAdmin, async (re
   } catch (error) {
     console.error('Failed to get users pending billing:', error);
     res.status(500).json({ error: 'Failed to get users pending billing' });
+  }
+});
+
+// GET /api/admin/users-without-mandate
+router.get('/admin/users-without-mandate', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    // Find users without mandates who have garages assigned
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { gocardlessMandateId: null },
+          { gocardlessMandateId: '' },
+        ],
+        garageAccessIds: {
+          isEmpty: false,
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        garageAccessIds: true,
+        createdAt: true,
+      },
+    });
+
+    // Get garage details for each user
+    const usersWithGarages = await Promise.all(
+      users.map(async (user) => {
+        const garages = await prisma.garage.findMany({
+          where: {
+            id: { in: user.garageAccessIds },
+          },
+          select: {
+            id: true,
+            name: true,
+            subscriptionCostGbp: true,
+          },
+        });
+
+        const totalCost = garages.reduce((sum, g) => sum + g.subscriptionCostGbp, 0);
+
+        return {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          createdAt: user.createdAt,
+          garages: garages.map(g => ({
+            id: g.id,
+            name: g.name,
+            cost: g.subscriptionCostGbp,
+          })),
+          totalMonthlyCost: totalCost,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      users: usersWithGarages,
+    });
+  } catch (error) {
+    console.error('Failed to get users without mandate:', error);
+    res.status(500).json({ error: 'Failed to get users without mandate' });
+  }
+});
+
+// POST /api/admin/request-direct-debit/:userId
+router.post('/admin/request-direct-debit/:userId', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        garageAccessIds: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get garage details
+    const garages = await prisma.garage.findMany({
+      where: {
+        id: { in: user.garageAccessIds },
+      },
+      select: {
+        name: true,
+      },
+    });
+
+    const garageNames = garages.map(g => g.name);
+
+    // Send the email
+    await sendDirectDebitRequestEmail(user.email, user.email, garageNames);
+
+    res.json({
+      success: true,
+      message: `Direct Debit request email sent to ${user.email}`,
+    });
+  } catch (error) {
+    console.error('Failed to send Direct Debit request email:', error);
+    res.status(500).json({
+      error: 'Failed to send Direct Debit request email',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
   }
 });
 

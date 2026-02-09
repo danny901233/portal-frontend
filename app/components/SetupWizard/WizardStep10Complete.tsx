@@ -132,7 +132,7 @@ export default function WizardStep10Complete({
             />
           </svg>
           <p className="text-sm text-blue-300">
-            Need help setting up call forwarding? Contact our support team at support@receptionmate.co.uk
+            Need help setting up call forwarding? Contact our support team at hello@receptionmate.co.uk
           </p>
         </div>
       </div>

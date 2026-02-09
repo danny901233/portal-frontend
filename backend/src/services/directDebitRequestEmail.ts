@@ -111,7 +111,7 @@ function generateDirectDebitRequestHtml(
           <tr>
             <td style="padding: 30px 40px; background-color: #f8fafc; border-top: 2px solid #e2e8f0; border-radius: 0 0 8px 8px;">
               <p style="margin: 0 0 10px 0; color: #64748b; font-size: 13px; line-height: 1.5;">
-                Questions? Contact us at support@receptionmate.co.uk
+                Questions? Contact us at hello@receptionmate.co.uk
               </p>
               <p style="margin: 0; color: #94a3b8; font-size: 12px;">
                 ReceptionMate © ${new Date().getFullYear()} | Automated Billing System
@@ -159,7 +159,7 @@ function generateDirectDebitRequestText(
   text += `SET UP DIRECT DEBIT NOW:\n`;
   text += `${setupUrl}\n\n`;
 
-  text += `If you have any questions or need assistance, please contact our support team at support@receptionmate.co.uk\n\n`;
+  text += `If you have any questions or need assistance, please contact our support team at hello@receptionmate.co.uk\n\n`;
 
   text += `ReceptionMate © ${new Date().getFullYear()}\n`;
 

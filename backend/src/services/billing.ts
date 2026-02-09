@@ -560,12 +560,29 @@ export async function generateInvoicesForUser(userId: string) {
         },
       });
 
-      results.push({
-        garageId,
-        garageName: garage.name,
-        success: true,
-        invoiceId: invoice.id,
-      });
+      // Automatically charge the invoice via GoCardless
+      try {
+        await createPaymentForInvoice(invoice.id);
+        console.log(`✓ Auto-charged invoice ${invoice.id} for ${garage.name}: £${(total / 100).toFixed(2)} (Sub: £${(subscriptionAmount / 100).toFixed(2)}, Overage: £${(minutesAmount / 100).toFixed(2)}, SMS: £${(smsAmount / 100).toFixed(2)})`);
+        results.push({
+          garageId,
+          garageName: garage.name,
+          success: true,
+          invoiceId: invoice.id,
+          charged: true,
+          amount: total / 100,
+        });
+      } catch (paymentError) {
+        console.error(`Failed to charge invoice ${invoice.id}:`, paymentError);
+        results.push({
+          garageId,
+          garageName: garage.name,
+          success: true,
+          invoiceId: invoice.id,
+          charged: false,
+          error: paymentError instanceof Error ? paymentError.message : 'Payment failed',
+        });
+      }
     } catch (error) {
       results.push({
         garageId,

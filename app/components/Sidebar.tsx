@@ -16,6 +16,7 @@ const baseNavigation = [
   { name: 'Calls', href: '/calls' },
   { name: 'Messages', href: '/messages' },
   { name: 'Agent Configurations', href: '/agent-configurations' },
+  { name: 'Billing', href: '/billing' },
 ];
 
 const adminNavigation = { name: 'Admin', href: '/admin' } as const;
@@ -26,11 +27,13 @@ export default function Sidebar({
   activePath,
   showAdminLink = false,
   hasMessagingAccess = false,
+  hasManagerAccess = false,
   messagesNeedingAttention = 0,
 }: {
   activePath: string;
   showAdminLink?: boolean;
   hasMessagingAccess?: boolean;
+  hasManagerAccess?: boolean;
   messagesNeedingAttention?: number;
 }) {
   const items = useMemo(() => {
@@ -40,6 +43,10 @@ export default function Sidebar({
       if (item.href === '/messages') {
         return hasMessagingAccess;
       }
+      // Only show Billing link if user is a manager
+      if (item.href === '/billing') {
+        return hasManagerAccess;
+      }
       return true;
     });
 
@@ -47,7 +54,7 @@ export default function Sidebar({
       ...item,
       isActive: activePath.startsWith(item.href),
     }));
-  }, [activePath, showAdminLink, hasMessagingAccess]);
+  }, [activePath, showAdminLink, hasMessagingAccess, hasManagerAccess]);
 
   const supportItems = useMemo(
     () =>

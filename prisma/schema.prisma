@@ -171,6 +171,17 @@ model Business {
   contactPhone String?
   contactRole  String?
   garages      Garage[]
+
+  // Billing Information
+  billingAddress      String?
+  billingCity         String?
+  billingPostcode     String?
+  billingCountry      String? @default("United Kingdom")
+  vatNumber           String?
+  companyRegNumber    String?
+  billingEmail        String?
+  billingInfoUpdatedAt DateTime?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

@@ -230,4 +230,128 @@ router.get('/payment/mandate-status', authenticate, async (req: Request, res: Re
   }
 });
 
+// POST /api/payment/update-mandate-flow
+router.post('/payment/update-mandate-flow', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: {
+        id: true,
+        email: true,
+        gocardlessMandateId: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.gocardlessMandateId) {
+      return res.status(400).json({ error: 'No existing mandate to update' });
+    }
+
+    const client = getGocardlessClient();
+    const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+
+    // Create new redirect flow for mandate update
+    const redirectFlow = await client.redirectFlows.create({
+      description: 'ReceptionMate - Update Payment Method',
+      session_token: `${user.id}-update-${Date.now()}`,
+      success_redirect_url: `${portalUrl}/billing/update-payment-callback`,
+      prefilled_customer: {
+        email: user.email,
+      },
+    });
+
+    res.json({
+      success: true,
+      redirectUrl: redirectFlow.redirect_url,
+      redirectFlowId: redirectFlow.id,
+    });
+  } catch (error) {
+    console.error('Failed to create mandate update flow:', error);
+    res.status(500).json({ error: 'Failed to initiate mandate update' });
+  }
+});
+
+// POST /api/payment/confirm-mandate-update
+router.post('/payment/confirm-mandate-update', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const schema = z.object({
+      redirectFlowId: z.string().min(1),
+    });
+
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ error: 'Invalid request', details: result.error.flatten() });
+    }
+
+    const { redirectFlowId } = result.data;
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: {
+        id: true,
+        gocardlessMandateId: true,
+        gocardlessCustomerId: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const oldMandateId = user.gocardlessMandateId;
+    const client = getGocardlessClient();
+
+    // Complete the redirect flow to get new mandate
+    const completedFlow = await client.redirectFlows.complete(redirectFlowId, {
+      session_token: `${user.id}-update-${redirectFlowId}`,
+    });
+
+    const newMandateId = completedFlow.links.mandate;
+    const newCustomerId = completedFlow.links.customer;
+
+    // Cancel old mandate if exists
+    if (oldMandateId) {
+      try {
+        await client.mandates.cancel(oldMandateId);
+        console.log(`Cancelled old mandate ${oldMandateId} for user ${user.id}`);
+      } catch (error) {
+        console.error('Failed to cancel old mandate:', error);
+        // Continue anyway - new mandate is active
+      }
+    }
+
+    // Update user with new mandate
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        gocardlessMandateId: newMandateId,
+        gocardlessCustomerId: newCustomerId,
+        mustSetupPayment: false,
+      },
+    });
+
+    console.log(`Updated mandate for user ${user.id}: ${oldMandateId} → ${newMandateId}`);
+
+    res.json({
+      success: true,
+      message: 'Payment method updated successfully',
+      mandateId: newMandateId,
+    });
+  } catch (error) {
+    console.error('Failed to confirm mandate update:', error);
+    res.status(500).json({ error: 'Failed to complete mandate update' });
+  }
+});
+
 export default router;

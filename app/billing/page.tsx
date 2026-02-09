@@ -1,0 +1,150 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { getGarageId, getUserBranchRoles } from '../lib/auth';
+import type { GarageSummary } from '../types';
+import { fetchGarages } from '../lib/api';
+import {
+  fetchCustomerInvoices,
+  fetchBusinessBillingInfo,
+  getMandateStatus,
+  type Invoice,
+  type BusinessBillingInfo,
+  type MandateStatus,
+} from '../lib/billing';
+import InvoiceTable from './components/InvoiceTable';
+import BillingInfoForm from './components/BillingInfoForm';
+import MandateStatusCard from './components/MandateStatusCard';
+
+export default function BillingPage() {
+  const [selectedGarageId, setSelectedGarageId] = useState<string>('all');
+  const [businessInfo, setBusinessInfo] = useState<BusinessBillingInfo | null>(null);
+
+  // Get managed garages
+  const branchRoles = useMemo(() => getUserBranchRoles(), []);
+  const managedGarageIds = useMemo(
+    () =>
+      Object.entries(branchRoles)
+        .filter(([, role]) => role === 'MANAGER')
+        .map(([garageId]) => garageId),
+    [branchRoles]
+  );
+
+  // Fetch garages
+  const garagesQuery = useQuery<{ garages: GarageSummary[] }>({
+    queryKey: ['garages'],
+    queryFn: fetchGarages,
+  });
+
+  // Filter to only managed garages
+  const managedGarages = useMemo(() => {
+    if (!garagesQuery.data?.garages) return [];
+    return garagesQuery.data.garages.filter((garage) =>
+      managedGarageIds.includes(garage.id)
+    );
+  }, [garagesQuery.data, managedGarageIds]);
+
+  // Set initial garage selection
+  useEffect(() => {
+    if (managedGarages.length > 0 && selectedGarageId === 'all') {
+      const storedGarageId = getGarageId();
+      if (storedGarageId && managedGarageIds.includes(storedGarageId)) {
+        setSelectedGarageId(storedGarageId);
+      } else if (managedGarages.length === 1) {
+        setSelectedGarageId(managedGarages[0].id);
+      }
+    }
+  }, [managedGarages, managedGarageIds, selectedGarageId]);
+
+  // Fetch invoices
+  const invoicesQuery = useQuery<Invoice[]>({
+    queryKey: ['customer-invoices', selectedGarageId],
+    queryFn: () =>
+      fetchCustomerInvoices(selectedGarageId === 'all' ? undefined : selectedGarageId),
+    enabled: selectedGarageId !== 'all' || managedGarageIds.length > 0,
+  });
+
+  // Fetch business info
+  const businessInfoQuery = useQuery<BusinessBillingInfo>({
+    queryKey: ['business-billing-info'],
+    queryFn: fetchBusinessBillingInfo,
+  });
+
+  // Fetch mandate status
+  const mandateQuery = useQuery<MandateStatus>({
+    queryKey: ['mandate-status'],
+    queryFn: getMandateStatus,
+  });
+
+  // Update local business info when query succeeds
+  useEffect(() => {
+    if (businessInfoQuery.data) {
+      setBusinessInfo(businessInfoQuery.data);
+    }
+  }, [businessInfoQuery.data]);
+
+  const handleBusinessInfoUpdate = (updated: BusinessBillingInfo) => {
+    setBusinessInfo(updated);
+  };
+
+  const isLoading = invoicesQuery.isLoading || businessInfoQuery.isLoading || mandateQuery.isLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="space-y-2 text-center">
+          <div className="text-xl font-semibold text-slate-100">Loading billing information...</div>
+          <div className="text-sm text-slate-400">Please wait</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold text-slate-100">Billing</h1>
+        <p className="mt-1 text-slate-400">
+          Manage your invoices, billing information, and payment method
+        </p>
+      </div>
+
+      {/* Branch Selector */}
+      {managedGarages.length > 1 && (
+        <div className="flex items-center gap-4">
+          <label className="text-sm font-medium text-slate-300">View invoices for:</label>
+          <select
+            value={selectedGarageId}
+            onChange={(e) => setSelectedGarageId(e.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="all">All Branches</option>
+            {managedGarages.map((garage) => (
+              <option key={garage.id} value={garage.id}>
+                {garage.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Invoices Section */}
+      <div>
+        <h2 className="mb-4 text-xl font-semibold text-slate-100">Invoices</h2>
+        <InvoiceTable invoices={invoicesQuery.data || []} />
+      </div>
+
+      {/* Billing Information */}
+      {businessInfo && (
+        <BillingInfoForm businessInfo={businessInfo} onUpdate={handleBusinessInfoUpdate} />
+      )}
+
+      {/* Direct Debit */}
+      {mandateQuery.data && (
+        <MandateStatusCard mandateStatus={mandateQuery.data} />
+      )}
+    </div>
+  );
+}

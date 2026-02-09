@@ -276,6 +276,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         activePath={pathname ?? '/calls'}
         showAdminLink={isStaffUser}
         hasMessagingAccess={hasMessagingAccess}
+        hasManagerAccess={managedGarageIds.length > 0}
         messagesNeedingAttention={messagesNeedingAttention}
       />
       <div className="flex flex-1 flex-col">

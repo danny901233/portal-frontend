@@ -111,6 +111,10 @@ export default function SetupWizard({ isOpen, garageId, agentType, onComplete }:
         .then((data: OnboardingInitialData) => {
           // Pre-populate form data
           if (data.agentConfiguration) {
+            // Check if weeklyOpeningHours is valid (has at least one day defined)
+            const hasValidHours = data.agentConfiguration?.weeklyOpeningHours &&
+              Object.keys(data.agentConfiguration.weeklyOpeningHours).length > 0;
+
             setFormData((prev) => ({
               ...prev,
               branchName: data.agentConfiguration?.branchName || prev.branchName,
@@ -118,7 +122,7 @@ export default function SetupWizard({ isOpen, garageId, agentType, onComplete }:
               emailAddress: data.agentConfiguration?.emailAddress || prev.emailAddress,
               branchAddress: data.agentConfiguration?.branchAddress || prev.branchAddress,
               websiteUrl: data.agentConfiguration?.websiteUrl || prev.websiteUrl,
-              weeklyOpeningHours: data.agentConfiguration?.weeklyOpeningHours || prev.weeklyOpeningHours,
+              weeklyOpeningHours: hasValidHours ? data.agentConfiguration.weeklyOpeningHours : prev.weeklyOpeningHours,
               holidayClosures: data.agentConfiguration?.holidayClosures || prev.holidayClosures,
               greetingLine: data.agentConfiguration?.greetingLine || prev.greetingLine,
               voice: data.agentConfiguration?.voice || prev.voice,

@@ -649,7 +649,7 @@ export async function generateInvoicesForUser(userId: string) {
       // Update results to show charged
       results.forEach(r => {
         if (r.success && !r.error) {
-          r.charged = true;
+          (r as any).charged = true;
         }
       });
 
@@ -657,8 +657,8 @@ export async function generateInvoicesForUser(userId: string) {
       console.error(`Failed to create combined payment:`, paymentError);
       results.forEach(r => {
         if (r.success && !r.error) {
-          r.charged = false;
-          r.error = paymentError instanceof Error ? paymentError.message : 'Payment failed';
+          (r as any).charged = false;
+          (r as any).error = paymentError instanceof Error ? paymentError.message : 'Payment failed';
         }
       });
     }

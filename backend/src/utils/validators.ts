@@ -144,13 +144,29 @@ const dailyHoursSchema = z
     }
   });
 
-export const weeklyOpeningHoursSchema = z.object(
-  WEEKDAY_ORDER.reduce((shape, day) => {
-    return {
-      ...shape,
-      [day]: dailyHoursSchema,
-    };
-  }, {} as Record<(typeof WEEKDAY_ORDER)[number], typeof dailyHoursSchema>),
+export const weeklyOpeningHoursSchema = z.preprocess(
+  (val) => {
+    // If weeklyOpeningHours is an empty object or missing days, fill with defaults
+    if (typeof val === 'object' && val !== null) {
+      const hasAllDays = WEEKDAY_ORDER.every((day) => day in val);
+      if (!hasAllDays) {
+        const defaults: any = {};
+        WEEKDAY_ORDER.forEach((day) => {
+          defaults[day] = (val as any)[day] || { open: null, close: null, closed: true };
+        });
+        return defaults;
+      }
+    }
+    return val;
+  },
+  z.object(
+    WEEKDAY_ORDER.reduce((shape, day) => {
+      return {
+        ...shape,
+        [day]: dailyHoursSchema,
+      };
+    }, {} as Record<(typeof WEEKDAY_ORDER)[number], typeof dailyHoursSchema>),
+  )
 );
 
 export const upsertAgentConfigurationSchema = z.object({

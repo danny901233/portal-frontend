@@ -103,7 +103,6 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
           metadata: {
             user_id: user.id,
             type: 'first_month_subscription',
-            billing_cycle_start: now.toISOString(),
             activated_by: req.user?.email || 'admin',
           },
           links: {

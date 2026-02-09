@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { generateWeeklyReports, generateMonthlyReports } from './reportGenerator.js';
 import { processMonthlyBilling } from '../services/billing.js';
+import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
 
 export const initializeScheduledReports = (): void => {
   console.log('Initializing scheduled jobs...');
@@ -60,4 +61,23 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ Automatic monthly billing scheduled: Daily at 9:00 AM (UK time)');
+
+  // Invoice preview emails: Every day at 10:00 AM (10 days before billing)
+  cron.schedule('0 10 * * *', async () => {
+    console.log('Running invoice preview email check...');
+    try {
+      const result = await processInvoicePreviewEmails();
+      if (result.processed > 0) {
+        console.log(`✓ Invoice previews sent: ${result.successful} successful, ${result.failed} failed`);
+      } else {
+        console.log('✓ Invoice preview check completed: No users due in 10 days');
+      }
+    } catch (error) {
+      console.error('❌ Invoice preview email check failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London', // UK timezone
+  });
+
+  console.log('✓ Invoice preview emails scheduled: Daily at 10:00 AM (UK time)');
 };

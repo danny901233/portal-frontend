@@ -122,7 +122,7 @@ export default function SetupWizard({ isOpen, garageId, agentType, onComplete }:
               emailAddress: data.agentConfiguration?.emailAddress || prev.emailAddress,
               branchAddress: data.agentConfiguration?.branchAddress || prev.branchAddress,
               websiteUrl: data.agentConfiguration?.websiteUrl || prev.websiteUrl,
-              weeklyOpeningHours: hasValidHours ? data.agentConfiguration.weeklyOpeningHours : prev.weeklyOpeningHours,
+              weeklyOpeningHours: hasValidHours ? data.agentConfiguration!.weeklyOpeningHours : prev.weeklyOpeningHours,
               holidayClosures: data.agentConfiguration?.holidayClosures || prev.holidayClosures,
               greetingLine: data.agentConfiguration?.greetingLine || prev.greetingLine,
               voice: data.agentConfiguration?.voice || prev.voice,

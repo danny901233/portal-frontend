@@ -42,6 +42,9 @@ export default function WizardStep2BranchDetails({
           emailAddress: data.emailAddress || null,
           branchAddress: data.branchAddress || null,
           websiteUrl: data.websiteUrl || null,
+          // Include required fields with defaults
+          tonePreference: 'standard',
+          allowFastFitOnly: false,
         } as any,
         garageId
       );

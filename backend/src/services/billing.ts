@@ -459,6 +459,7 @@ export async function generateInvoicesForUser(userId: string) {
   const periodStart = new Date(user.billingCycleStartDate);
 
   const results = [];
+  const invoicesToCharge = [];
 
   // Generate invoice for each garage the user has access to
   for (const garageId of user.garageAccessIds) {
@@ -560,35 +561,105 @@ export async function generateInvoicesForUser(userId: string) {
         },
       });
 
-      // Automatically charge the invoice via GoCardless
-      try {
-        await createPaymentForInvoice(invoice.id);
-        console.log(`✓ Auto-charged invoice ${invoice.id} for ${garage.name}: £${(total / 100).toFixed(2)} (Sub: £${(subscriptionAmount / 100).toFixed(2)}, Overage: £${(minutesAmount / 100).toFixed(2)}, SMS: £${(smsAmount / 100).toFixed(2)})`);
-        results.push({
-          garageId,
-          garageName: garage.name,
-          success: true,
-          invoiceId: invoice.id,
-          charged: true,
-          amount: total / 100,
-        });
-      } catch (paymentError) {
-        console.error(`Failed to charge invoice ${invoice.id}:`, paymentError);
-        results.push({
-          garageId,
-          garageName: garage.name,
-          success: true,
-          invoiceId: invoice.id,
-          charged: false,
-          error: paymentError instanceof Error ? paymentError.message : 'Payment failed',
-        });
-      }
+      // Store invoice for later combined charging
+      invoicesToCharge.push({
+        invoice,
+        garage,
+        total,
+        subscriptionAmount,
+        minutesAmount,
+        smsAmount,
+      });
+
+      results.push({
+        garageId,
+        garageName: garage.name,
+        success: true,
+        invoiceId: invoice.id,
+        amount: total / 100,
+      });
     } catch (error) {
       results.push({
         garageId,
         garageName: 'Unknown',
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  // Create ONE combined GoCardless payment for all invoices
+  if (invoicesToCharge.length > 0) {
+    try {
+      const totalAmount = invoicesToCharge.reduce((sum, item) => sum + item.total, 0);
+
+      // Get user with mandate
+      const userWithMandate = await prisma.user.findFirst({
+        where: {
+          garageAccessIds: {
+            hasSome: user.garageAccessIds,
+          },
+          gocardlessMandateId: {
+            not: null,
+          },
+        },
+      });
+
+      if (!userWithMandate || !userWithMandate.gocardlessMandateId) {
+        throw new Error('No valid mandate found');
+      }
+
+      const client = getGocardlessClient();
+
+      // Create single combined payment
+      const payment = await client.payments.create({
+        amount: totalAmount,
+        currency: 'GBP',
+        description: `ReceptionMate - ${invoicesToCharge.length} branch${invoicesToCharge.length > 1 ? 'es' : ''}`,
+        metadata: {
+          user_id: user.id,
+          invoice_count: invoicesToCharge.length.toString(),
+          period_end: periodEnd.toISOString(),
+        },
+        links: {
+          mandate: userWithMandate.gocardlessMandateId,
+        },
+      });
+
+      // Update all invoices with the same payment ID
+      for (const item of invoicesToCharge) {
+        await prisma.invoice.update({
+          where: { id: item.invoice.id },
+          data: {
+            status: 'pending',
+            gocardlessPaymentId: payment.id,
+          },
+        });
+      }
+
+      // Log details
+      const breakdown = invoicesToCharge.map(item =>
+        `${item.garage.name}: £${(item.total / 100).toFixed(2)}`
+      ).join(', ');
+
+      console.log(`✓ Combined payment created for ${user.email}: £${(totalAmount / 100).toFixed(2)} (${invoicesToCharge.length} branches)`);
+      console.log(`  Breakdown: ${breakdown}`);
+      console.log(`  Payment ID: ${payment.id}`);
+
+      // Update results to show charged
+      results.forEach(r => {
+        if (r.success && !r.error) {
+          r.charged = true;
+        }
+      });
+
+    } catch (paymentError) {
+      console.error(`Failed to create combined payment:`, paymentError);
+      results.forEach(r => {
+        if (r.success && !r.error) {
+          r.charged = false;
+          r.error = paymentError instanceof Error ? paymentError.message : 'Payment failed';
+        }
       });
     }
   }

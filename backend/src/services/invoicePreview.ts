@@ -360,7 +360,6 @@ export async function processInvoicePreviewEmails() {
     try {
       const result = await sendInvoicePreviewEmail(user.id);
       results.push({
-        success: true,
         userId: user.id,
         userEmail: user.email,
         ...result,

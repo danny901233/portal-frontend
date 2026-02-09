@@ -352,6 +352,16 @@ export const processMonthlyBilling = async (): Promise<{ summary: { processed: n
   return data;
 };
 
+export const fetchUsersPendingBilling = async (): Promise<{ users: any[] }> => {
+  const { data } = await api.get('/api/admin/users-pending-billing');
+  return data;
+};
+
+export const activateBilling = async (userId: string): Promise<any> => {
+  const { data } = await api.post(`/api/admin/activate-billing/${userId}`);
+  return data;
+};
+
 export const generateInvoicesForUser = async (userId: string): Promise<any> => {
   const { data } = await api.post(`/api/billing/users/${userId}/generate-invoices`);
   return data;

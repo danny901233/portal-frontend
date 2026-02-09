@@ -10,6 +10,8 @@ import {
   chargeInvoice,
   fetchUsersDueForBilling,
   processMonthlyBilling,
+  fetchUsersPendingBilling,
+  activateBilling,
 } from '../../lib/api';
 
 export default function BillingDashboardPage() {
@@ -30,6 +32,12 @@ export default function BillingDashboardPage() {
   const usersDueQuery = useQuery({
     queryKey: ['users-due-billing'],
     queryFn: () => fetchUsersDueForBilling(),
+    enabled: isStaff,
+  });
+
+  const pendingBillingQuery = useQuery({
+    queryKey: ['users-pending-billing'],
+    queryFn: () => fetchUsersPendingBilling(),
     enabled: isStaff,
   });
 
@@ -62,6 +70,18 @@ export default function BillingDashboardPage() {
     },
   });
 
+  const activateBillingMutation = useMutation({
+    mutationFn: activateBilling,
+    onSuccess: (data) => {
+      setFeedback(`Billing activated! Charged £${data.chargedAmount} for first month.`);
+      queryClient.invalidateQueries({ queryKey: ['users-pending-billing'] });
+      queryClient.invalidateQueries({ queryKey: ['users-due-billing'] });
+    },
+    onError: (error: any) => {
+      setFeedback(`Failed to activate billing: ${error.response?.data?.error || error.message}`);
+    },
+  });
+
   if (!isStaff) {
     return (
       <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
@@ -79,6 +99,12 @@ export default function BillingDashboardPage() {
   const handleChargeInvoice = (invoiceId: string) => {
     if (confirm('Create GoCardless payment for this invoice?')) {
       chargeMutation.mutate(invoiceId);
+    }
+  };
+
+  const handleActivateBilling = (userId: string, email: string, amount: number) => {
+    if (confirm(`Activate billing for ${email}?\n\nThis will:\n- Set billing start date to today\n- Charge £${amount} for the first month\n- Enable monthly recurring billing`)) {
+      activateBillingMutation.mutate(userId);
     }
   };
 
@@ -131,6 +157,70 @@ export default function BillingDashboardPage() {
         <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
           {feedback}
         </div>
+      )}
+
+      {/* Pending Billing Activation Section */}
+      {pendingBillingQuery.data?.users && pendingBillingQuery.data.users.length > 0 && (
+        <section className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-6">
+          <h2 className="text-lg font-semibold text-amber-100 mb-4">
+            ⏳ Pending Billing Activation ({pendingBillingQuery.data.users.length})
+          </h2>
+          <p className="text-sm text-amber-200/80 mb-4">
+            These users have set up Direct Debit but billing hasn't started yet. Activate when they're ready to be charged.
+          </p>
+          <div className="space-y-3">
+            {pendingBillingQuery.data.users.map((user: any) => (
+              <div
+                key={user.id}
+                className="rounded-lg border border-amber-500/30 bg-slate-900/40 p-4"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium text-slate-100">{user.email}</div>
+                      <span className="rounded-full border border-slate-600 bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                        {user.role}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      {user.garages.map((garage: any) => (
+                        <div key={garage.id} className="text-xs text-slate-300">
+                          • {garage.name} - £{garage.cost}/month
+                          {garage.inTrial && <span className="text-amber-400"> (In Trial)</span>}
+                          {garage.needsActivation && <span className="text-amber-400"> (Needs Activation)</span>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      Mandate ID: {user.mandateId} • Created: {formatDate(user.createdAt)}
+                    </div>
+                  </div>
+                  <div className="ml-4 flex flex-col items-end gap-2">
+                    <div className="text-right">
+                      <div className="text-lg font-semibold text-slate-100">
+                        £{user.totalMonthlyCost}
+                      </div>
+                      <div className="text-xs text-slate-400">per month</div>
+                    </div>
+                    {user.canActivateBilling ? (
+                      <button
+                        onClick={() => handleActivateBilling(user.id, user.email, user.totalMonthlyCost)}
+                        disabled={activateBillingMutation.isPending}
+                        className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-60"
+                      >
+                        {activateBillingMutation.isPending ? 'Activating...' : 'Activate Billing'}
+                      </button>
+                    ) : (
+                      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                        Cannot activate yet
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Monthly Billing Section */}

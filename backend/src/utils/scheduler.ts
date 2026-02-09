@@ -1,8 +1,9 @@
 import cron from 'node-cron';
 import { generateWeeklyReports, generateMonthlyReports } from './reportGenerator.js';
+import { processMonthlyBilling } from '../services/billing.js';
 
 export const initializeScheduledReports = (): void => {
-  console.log('Initializing scheduled reports...');
+  console.log('Initializing scheduled jobs...');
 
   // Weekly reports: Every Sunday at 9:00 AM
   cron.schedule('0 9 * * 0', async () => {
@@ -40,4 +41,23 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ Monthly reports scheduled: Last day of month at 9:00 AM (UK time)');
+
+  // Automatic monthly billing: Every day at 9:00 AM
+  cron.schedule('0 9 * * *', async () => {
+    console.log('Running automatic monthly billing check...');
+    try {
+      const result = await processMonthlyBilling();
+      if (result.summary.processed > 0) {
+        console.log(`✓ Automatic billing completed: ${result.summary.successful} successful, ${result.summary.failed} failed`);
+      } else {
+        console.log('✓ Automatic billing check completed: No users due for billing');
+      }
+    } catch (error) {
+      console.error('❌ Automatic billing check failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London', // UK timezone
+  });
+
+  console.log('✓ Automatic monthly billing scheduled: Daily at 9:00 AM (UK time)');
 };

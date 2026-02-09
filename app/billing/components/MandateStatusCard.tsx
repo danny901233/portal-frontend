@@ -164,9 +164,20 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
             <p className="mt-2 text-sm text-amber-400">
               You need to set up Direct Debit to enable automatic billing.
             </p>
-            <p className="mt-1 text-xs text-amber-500">
-              Please contact support to set up your payment method.
-            </p>
+            <a
+              href="/setup-payment"
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                />
+              </svg>
+              Set Up Direct Debit
+            </a>
           </div>
         )}
       </div>

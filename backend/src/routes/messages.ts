@@ -13,15 +13,19 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
+      console.log(`[MESSAGING ACCESS] Checking for garage: ${garageId}`);
 
       const garage = await prisma.garage.findUnique({
         where: { id: garageId },
-        select: { hasMessagingAccess: true },
+        select: { id: true, name: true, hasMessagingAccess: true },
       });
 
       if (!garage) {
+        console.log(`[MESSAGING ACCESS] Garage not found: ${garageId}`);
         return res.status(404).json({ error: 'Garage not found' });
       }
+
+      console.log(`[MESSAGING ACCESS] Garage: ${garage.name}, hasMessagingAccess: ${garage.hasMessagingAccess}`);
 
       res.json({
         success: true,

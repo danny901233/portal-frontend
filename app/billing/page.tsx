@@ -73,8 +73,10 @@ export default function BillingPage() {
 
   // Fetch mandate status
   const mandateQuery = useQuery<MandateStatus>({
-    queryKey: ['mandate-status'],
-    queryFn: getMandateStatus,
+    queryKey: ['mandate-status', selectedGarageId],
+    queryFn: () =>
+      getMandateStatus(selectedGarageId === 'all' ? undefined : selectedGarageId),
+    enabled: selectedGarageId !== 'all',
   });
 
   // Update local business info when query succeeds

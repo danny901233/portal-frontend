@@ -274,8 +274,8 @@ router.put('/business-info', authenticate, requireManager, async (req: Request, 
 });
 
 /**
- * GET /api/customer/billing/mandate-status
- * Get Direct Debit mandate status
+ * GET /api/customer/billing/mandate-status?garageId=xxx
+ * Get Direct Debit mandate status for the selected branch's business
  */
 router.get('/mandate-status', authenticate, requireManager, async (req: Request, res: Response) => {
   try {
@@ -284,12 +284,13 @@ router.get('/mandate-status', authenticate, requireManager, async (req: Request,
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
+    const { garageId } = req.query;
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        gocardlessMandateId: true,
-        gocardlessCustomerId: true,
-        nextBillingDate: true,
+        garageAccessIds: true,
+        role: true,
       },
     });
 
@@ -297,15 +298,82 @@ router.get('/mandate-status', authenticate, requireManager, async (req: Request,
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const hasMandate = !!user.gocardlessMandateId;
+    // Determine which garage to check
+    let targetGarageId: string | null = null;
+
+    if (garageId && typeof garageId === 'string') {
+      // Use the provided garageId
+      targetGarageId = garageId;
+    } else {
+      // Get user's garages
+      let garageIds = user.garageAccessIds || [];
+      if (user.role === 'RECEPTIONMATE_STAFF') {
+        // Staff have access to all garages
+        const allGarages = await prisma.garage.findMany({ select: { id: true } });
+        garageIds = allGarages.map(g => g.id);
+      }
+
+      if (garageIds.length === 0) {
+        return res.json({
+          hasMandate: false,
+          status: 'none',
+          mandateId: null,
+          customerId: null,
+          nextBillingDate: null,
+        });
+      }
+
+      targetGarageId = garageIds[0];
+    }
+
+    // Get business ID from the target garage
+    const garage = await prisma.garage.findUnique({
+      where: { id: targetGarageId },
+      select: { businessId: true },
+    });
+
+    if (!garage?.businessId) {
+      return res.json({
+        hasMandate: false,
+        status: 'none',
+        mandateId: null,
+        customerId: null,
+        nextBillingDate: null,
+      });
+    }
+
+    // Find ANY user with a mandate for this business's garages
+    const garagesInBusiness = await prisma.garage.findMany({
+      where: { businessId: garage.businessId },
+      select: { id: true },
+    });
+
+    const businessGarageIds = garagesInBusiness.map(g => g.id);
+
+    // Find any user with access to these garages who has a mandate
+    // NOTE: We only check users who have access to this business's garages
+    // Staff users are not considered here - mandate must be set up by actual business users
+    const userWithMandate = await prisma.user.findFirst({
+      where: {
+        garageAccessIds: { hasSome: businessGarageIds },
+        gocardlessMandateId: { not: null },
+      },
+      select: {
+        gocardlessMandateId: true,
+        gocardlessCustomerId: true,
+        nextBillingDate: true,
+      },
+    });
+
+    const hasMandate = !!userWithMandate?.gocardlessMandateId;
     const mandateStatus = hasMandate ? 'active' : 'none';
 
     res.json({
       hasMandate,
       status: mandateStatus,
-      mandateId: user.gocardlessMandateId,
-      customerId: user.gocardlessCustomerId,
-      nextBillingDate: user.nextBillingDate,
+      mandateId: userWithMandate?.gocardlessMandateId || null,
+      customerId: userWithMandate?.gocardlessCustomerId || null,
+      nextBillingDate: userWithMandate?.nextBillingDate || null,
     });
   } catch (error) {
     console.error('Error fetching mandate status:', error);

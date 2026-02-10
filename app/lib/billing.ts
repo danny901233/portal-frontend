@@ -120,9 +120,18 @@ export async function updateBusinessBillingInfo(
 
 /**
  * Get Direct Debit mandate status
+ * @param garageId Optional - check mandate for specific garage's business
  */
-export async function getMandateStatus(): Promise<MandateStatus> {
-  const { data } = await api.get<MandateStatusResponse>('/api/customer/billing/mandate-status');
+export async function getMandateStatus(garageId?: string): Promise<MandateStatus> {
+  const params = new URLSearchParams();
+  if (garageId) {
+    params.set('garageId', garageId);
+  }
+
+  const queryString = params.toString();
+  const url = `/api/customer/billing/mandate-status${queryString ? `?${queryString}` : ''}`;
+
+  const { data } = await api.get<MandateStatusResponse>(url);
   return data;
 }
 

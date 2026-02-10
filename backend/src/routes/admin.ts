@@ -750,4 +750,86 @@ router.patch(
   }
 );
 
+// DELETE /api/admin/invoices/:invoiceId - Delete an invoice (ReceptionMate staff only)
+router.delete('/admin/invoices/:invoiceId', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+
+    // Check if invoice exists
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        garage: {
+          select: { name: true }
+        }
+      }
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    // Delete the invoice
+    await prisma.invoice.delete({
+      where: { id: invoiceId }
+    });
+
+    console.log(`✓ Invoice ${invoiceId} deleted by admin for ${invoice.garage.name}`);
+
+    res.json({ success: true, message: 'Invoice deleted successfully' });
+  } catch (error) {
+    console.error('Failed to delete invoice:', error);
+    res.status(500).json({ error: 'Failed to delete invoice' });
+  }
+});
+
+// POST /api/admin/invoices/:invoiceId/credit - Credit/void an invoice (ReceptionMate staff only)
+router.post('/admin/invoices/:invoiceId/credit', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ error: 'Credit reason is required' });
+    }
+
+    // Check if invoice exists
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        garage: {
+          select: { name: true }
+        }
+      }
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    if (invoice.status === 'credited') {
+      return res.status(400).json({ error: 'Invoice has already been credited' });
+    }
+
+    // Update invoice status to credited
+    const updatedInvoice = await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: 'credited',
+        // TODO: Add creditReason and creditedAt fields to schema
+      }
+    });
+
+    console.log(`✓ Invoice ${invoiceId} credited by admin for ${invoice.garage.name} - Reason: ${reason}`);
+
+    res.json({
+      invoice: updatedInvoice,
+      message: 'Invoice credited successfully'
+    });
+  } catch (error) {
+    console.error('Failed to credit invoice:', error);
+    res.status(500).json({ error: 'Failed to credit invoice' });
+  }
+});
+
 export default router;

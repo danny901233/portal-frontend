@@ -235,6 +235,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const fetchMessagingData = async () => {
       if (!garageId) {
+        console.log('[MESSAGING] No garageId, setting access to false');
         setHasMessagingAccess(false);
         setMessagesNeedingAttention(0);
         return;
@@ -242,10 +243,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       try {
         const token = getSessionToken();
+        console.log('[MESSAGING] Fetching access for garage:', garageId);
 
         // Fetch messaging access
         const accessResponse = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${garageId}/messaging-access`,
+          `/internal-api/api/garages/${garageId}/messaging-access`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -253,15 +255,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
           }
         );
 
+        console.log('[MESSAGING] Response status:', accessResponse.status);
+
         if (accessResponse.ok) {
           const accessData = await accessResponse.json();
+          console.log('[MESSAGING] Access data:', accessData);
           const hasAccess = accessData.hasMessagingAccess || false;
+          console.log('[MESSAGING] Setting hasMessagingAccess to:', hasAccess);
           setHasMessagingAccess(hasAccess);
 
           // If has access, fetch needs attention count
           if (hasAccess) {
             const statsResponse = await fetch(
-              `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${garageId}/messages/needs-attention-count`,
+              `/internal-api/api/garages/${garageId}/messages/needs-attention-count`,
               {
                 headers: {
                   Authorization: `Bearer ${token}`,
@@ -277,11 +283,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
             setMessagesNeedingAttention(0);
           }
         } else {
+          console.log('[MESSAGING] Response not OK, setting access to false');
           setHasMessagingAccess(false);
           setMessagesNeedingAttention(0);
         }
       } catch (error) {
-        console.error('Error fetching messaging data:', error);
+        console.error('[MESSAGING] Error fetching messaging data:', error);
         setHasMessagingAccess(false);
         setMessagesNeedingAttention(0);
       }

@@ -118,7 +118,12 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       },
       select: {
         id: true,
+        name: true,
+        businessId: true,
         subscriptionCostGbp: true,
+        includedMinutes: true,
+        costPerMinuteGbp: true,
+        vatRate: true,
         trialEndDate: true,
         requiresBookingActivation: true,
       },
@@ -140,32 +145,88 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       nextBillingDate = new Date(now);
       nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
 
-      // Charge first month subscription for active garages
+      // Generate first invoices for active garages
       const activeGarages = garages.filter(g => {
         const inTrial = g.trialEndDate && g.trialEndDate > now;
         const needsActivation = g.requiresBookingActivation;
         return !inTrial && !needsActivation && g.subscriptionCostGbp > 0;
       });
 
-      const totalSubscriptionCost = activeGarages.reduce((sum, g) => sum + g.subscriptionCostGbp, 0);
-      const totalInPence = Math.round(totalSubscriptionCost * 100);
+      const invoices = [];
 
-      if (totalInPence > 0) {
+      // Create invoice for each active garage
+      for (const garage of activeGarages) {
+        // First month: Charge subscription in advance (no usage yet)
+        const subscriptionAmount = Math.round(garage.subscriptionCostGbp * 100);
+        const minutesAmount = 0; // No usage yet
+        const smsAmount = 0; // No SMS yet
+        const subtotal = subscriptionAmount;
+        const vatAmount = Math.round(subtotal * garage.vatRate);
+        const total = subtotal + vatAmount;
+
+        const invoice = await prisma.invoice.create({
+          data: {
+            garageId: garage.id,
+            businessId: garage.businessId,
+            periodStart: now,
+            periodEnd: nextBillingDate!,
+            minutesUsed: 0,
+            minutesIncluded: garage.includedMinutes,
+            smsCount: 0,
+            subscriptionAmount,
+            minutesAmount,
+            smsAmount,
+            subtotal,
+            vatAmount,
+            total,
+            subscriptionCostGbp: garage.subscriptionCostGbp,
+            costPerMinuteGbp: garage.costPerMinuteGbp,
+            vatRate: garage.vatRate,
+            status: 'draft',
+          },
+        });
+
+        invoices.push({ invoice, garage, total });
+      }
+
+      // Create ONE combined payment for all invoices
+      if (invoices.length > 0) {
+        const totalAmount = invoices.reduce((sum, item) => sum + item.total, 0);
+
         try {
-          await client.payments.create({
-            amount: totalInPence,
+          const payment = await client.payments.create({
+            amount: totalAmount,
             currency: 'GBP',
-            description: `ReceptionMate - First Month Subscription`,
+            description: `ReceptionMate - First Month (${invoices.length} branch${invoices.length > 1 ? 'es' : ''})`,
             metadata: {
               user_id: user.id,
               type: 'first_month_subscription',
+              invoice_count: invoices.length.toString(),
               billing_cycle_start: now.toISOString(),
             },
             links: {
               mandate: mandateId,
             },
           });
-          console.log(`Charged first month subscription: £${totalSubscriptionCost} for user ${user.email}`);
+
+          // Update all invoices with payment ID
+          for (const item of invoices) {
+            await prisma.invoice.update({
+              where: { id: item.invoice.id },
+              data: {
+                status: 'pending',
+                gocardlessPaymentId: payment.id,
+              },
+            });
+          }
+
+          const breakdown = invoices.map(item =>
+            `${item.garage.name}: £${(item.total / 100).toFixed(2)}`
+          ).join(', ');
+
+          console.log(`✓ First month invoices created for ${user.email}: £${(totalAmount / 100).toFixed(2)} (${invoices.length} branches)`);
+          console.log(`  Breakdown: ${breakdown}`);
+          console.log(`  Payment ID: ${payment.id}`);
         } catch (error) {
           console.error('Failed to charge first month subscription:', error);
         }

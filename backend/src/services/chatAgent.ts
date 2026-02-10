@@ -54,11 +54,19 @@ export async function getChatAgentResponse(
     const isOpen = checkOpeningHours(config.weeklyOpeningHours);
 
     // Load GarageHive credentials from integration config
+    console.log('[CHAT_AGENT] Integration Provider:', config.integrationProvider);
+    console.log('[CHAT_AGENT] Has integration config:', !!config.integrationProviderConfig);
+
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
       const ghConfig = config.integrationProviderConfig as any;
       GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
       GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
       GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
+      console.log('[CHAT_AGENT] Loaded GH config:', {
+        hasCustomerId: !!GH_CUSTOMER_ID,
+        hasApiKey: !!GH_API_KEY,
+        locationId: GH_LOCATION_ID,
+      });
     }
 
     // Build conversation context
@@ -519,6 +527,12 @@ function buildSystemPrompt(config: any, knowledgeDocuments: any[], isOpen: boole
   const hasGarageHive = config.integrationProvider === 'garagehive' ||
                         (config.integrationProviderConfig &&
                          (config.integrationProviderConfig as any).ghCustomerId);
+
+  console.log('[CHAT_AGENT] Has GarageHive?', hasGarageHive, {
+    provider: config.integrationProvider,
+    hasConfig: !!config.integrationProviderConfig,
+    hasCustomerId: !!(config.integrationProviderConfig as any)?.ghCustomerId,
+  });
 
   if (hasGarageHive) {
     prompt += `\nBOOKING CAPABILITIES:\n`;

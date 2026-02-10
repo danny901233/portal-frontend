@@ -20,7 +20,7 @@ const quickLinks = [
   { label: 'Boolean Search Tips', href: '/help#advanced-search' },
   { label: 'Configure Agent & Knowledge', href: '/agent-configurations' },
   { label: 'Portal Troubleshooting', href: '/help#troubleshooting' },
-  { label: 'Contact Support', href: 'mailto:hello@receptionmate.com' },
+  { label: 'Contact Support', href: 'mailto:hello@receptionmate.co.uk' },
 ];
 
 const guideSections: GuideSection[] = [
@@ -32,7 +32,7 @@ const guideSections: GuideSection[] = [
     points: [
       'Log in with your ReceptionMate credentials. The portal stores a short-lived token in secure storage; log out if you’re sharing a device.',
       'Immediately pick the garage you want to work on from the top bar. All calls, configuration, and metrics reflect the garage you select.',
-      'If the garage selector looks empty, refresh the page once. Still not there? Sign out, sign back in, and contact hello@receptionmate.com if the issue persists.',
+      'If the garage selector looks empty, refresh the page once. Still not there? Sign out, sign back in, and contact hello@receptionmate.co.uk if the issue persists.',
       'Bookmark /calls for direct access—this is the primary workspace for day-to-day operations.',
     ],
   },
@@ -214,7 +214,7 @@ const guideSections: GuideSection[] = [
       'Refresh the page or sign out and back in to clear expired sessions. Use a private/incognito window if the issue persists.',
       'If the Calls page looks empty, confirm the correct garage is selected and that filters are cleared.',
       'For search surprises, re-check your Boolean expression (balanced brackets and quotation marks).',
-      'Still stuck? Email hello@receptionmate.com with the page URL, time of the issue, and any call IDs affected.',
+      'Still stuck? Email hello@receptionmate.co.uk with the page URL, time of the issue, and any call IDs affected.',
     ],
   },
   {
@@ -225,7 +225,7 @@ const guideSections: GuideSection[] = [
     points: [
       'Restrict portal access to trusted team members. All actions are tied to the logged-in user account.',
       'Sign out on shared devices and avoid browser autofill of credentials.',
-      'If team members leave, update your account list and notify hello@receptionmate.com so old access can be removed.',
+      'If team members leave, update your account list and notify hello@receptionmate.co.uk so old access can be removed.',
     ],
   },
 ];
@@ -320,8 +320,8 @@ export default function HelpPage() {
         <h2 className="text-lg font-semibold text-slate-100">Need more help?</h2>
         <p className="mt-2 max-w-3xl">
           Reach out to the ReceptionMate success team at{' '}
-          <a href="mailto:hello@receptionmate.com" className="text-sky-300 hover:text-sky-200">
-            hello@receptionmate.com
+          <a href="mailto:hello@receptionmate.co.uk" className="text-sky-300 hover:text-sky-200">
+            hello@receptionmate.co.uk
           </a>{' '}
           or reply to your onboarding email. Include call IDs, timestamps, browser version, and screenshots so we can resolve things quickly.
         </p>

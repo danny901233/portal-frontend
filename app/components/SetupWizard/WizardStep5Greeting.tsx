@@ -33,7 +33,21 @@ export default function WizardStep5Greeting({
 
     try {
       await updateAgentConfiguration(
-        { greetingLine: data.greetingLine || null } as any,
+        {
+          branchName: data.branchName || '',
+          phoneNumber: data.phoneNumber || '',
+          emailAddress: data.emailAddress || '',
+          branchAddress: data.branchAddress || '',
+          websiteUrl: data.websiteUrl || '',
+          weeklyOpeningHours: data.weeklyOpeningHours,
+          holidayClosures: data.holidayClosures || '',
+          greetingLine: data.greetingLine || '',
+          voice: data.voice || 'leah',
+          notificationEmails: data.notificationEmails || [],
+          tonePreference: 'standard',
+          allowFastFitOnly: data.allowFastFitOnly,
+          enableSmsBookingLinks: data.enableSmsBookingLinks,
+        } as any,
         garageId
       );
       onNext();
@@ -71,6 +85,14 @@ export default function WizardStep5Greeting({
           <p className="mt-1 text-xs text-slate-500">
             {data.greetingLine.length}/500 characters
           </p>
+          <div className="mt-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+            <p className="text-sm text-blue-300">
+              <strong>Tip:</strong> Use <code className="rounded bg-blue-500/20 px-1.5 py-0.5 font-mono text-xs">{'{timeofday}'}</code> in your greeting to automatically say "Good morning", "Good afternoon", or "Good evening" based on the time of the call.
+            </p>
+            <p className="mt-1 text-xs text-blue-400">
+              Example: "Good {'{timeofday}'}, thank you for calling {branchName || 'our garage'}!"
+            </p>
+          </div>
         </div>
 
         {error && (

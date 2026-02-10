@@ -3,13 +3,40 @@ import { sendEmail } from '../utils/email.js';
 /**
  * Send Direct Debit setup request email to a user
  */
+import crypto from 'crypto';
+import { prisma } from '../db.js';
+
 export async function sendDirectDebitRequestEmail(
   userEmail: string,
   userName: string | null,
   garageNames: string[]
 ): Promise<void> {
+  // Find the user to create a magic link token
+  const user = await prisma.user.findUnique({
+    where: { email: userEmail },
+    select: { id: true }
+  });
+
+  if (!user) {
+    throw new Error(`User not found: ${userEmail}`);
+  }
+
+  // Generate a one-time magic link token (valid for 7 days)
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+
+  // Store the token on the user record (reusing resetToken fields)
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      resetToken: token,
+      resetTokenExpiry: expiresAt,
+    }
+  });
+
   const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
-  const setupUrl = `${portalUrl}/setup-payment`;
+  const setupUrl = `${portalUrl}/setup-payment?token=${token}`;
 
   const emailHtml = generateDirectDebitRequestHtml(userName || userEmail, garageNames, setupUrl);
   const emailText = generateDirectDebitRequestText(userName || userEmail, garageNames, setupUrl);
@@ -21,7 +48,7 @@ export async function sendDirectDebitRequestEmail(
     text: emailText,
   });
 
-  console.log(`✓ Direct Debit request email sent to ${userEmail}`);
+  console.log(`✓ Direct Debit request email sent to ${userEmail} with magic link`);
 }
 
 /**

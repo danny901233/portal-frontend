@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { isReceptionMateStaff } from '../../../../lib/auth';
-import { fetchInvoice, chargeInvoice } from '../../../../lib/api';
+import { fetchInvoice, chargeInvoice, deleteInvoice, creditInvoice } from '../../../../lib/api';
 
 export default function InvoiceDetailPage() {
   const params = useParams();
@@ -33,6 +33,28 @@ export default function InvoiceDetailPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteInvoice(invoiceId),
+    onSuccess: () => {
+      setFeedback('Invoice deleted successfully');
+      router.push('/admin/billing');
+    },
+    onError: (error: any) => {
+      setFeedback(`Failed to delete invoice: ${error.message}`);
+    },
+  });
+
+  const creditMutation = useMutation({
+    mutationFn: (reason: string) => creditInvoice(invoiceId, reason),
+    onSuccess: () => {
+      setFeedback('Invoice credited successfully');
+      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] });
+    },
+    onError: (error: any) => {
+      setFeedback(`Failed to credit invoice: ${error.message}`);
+    },
+  });
+
   if (!isStaff) {
     return (
       <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
@@ -44,6 +66,19 @@ export default function InvoiceDetailPage() {
   const handleCharge = () => {
     if (confirm('Create GoCardless payment for this invoice?')) {
       chargeMutation.mutate();
+    }
+  };
+
+  const handleDelete = () => {
+    if (confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
+      deleteMutation.mutate();
+    }
+  };
+
+  const handleCredit = () => {
+    const reason = prompt('Enter reason for crediting this invoice:');
+    if (reason && reason.trim()) {
+      creditMutation.mutate(reason.trim());
     }
   };
 
@@ -329,6 +364,40 @@ export default function InvoiceDetailPage() {
                   <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-3">
                     <p className="text-xs text-rose-200">Payment failed</p>
                   </div>
+                </div>
+              )}
+
+              {invoice.status === 'credited' && (
+                <div className="mt-6 pt-6 border-t border-slate-700">
+                  <div className="rounded-lg bg-purple-500/10 border border-purple-500/30 p-3">
+                    <p className="text-xs text-purple-200">
+                      This invoice has been credited
+                      {invoice.creditReason && `: ${invoice.creditReason}`}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Staff Actions */}
+              {invoice.status !== 'credited' && (
+                <div className="mt-6 pt-6 border-t border-slate-700 space-y-2">
+                  <p className="text-xs text-slate-400 mb-3">Staff Actions</p>
+
+                  <button
+                    onClick={handleCredit}
+                    disabled={creditMutation.isPending}
+                    className="w-full rounded-md bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-500 disabled:opacity-60"
+                  >
+                    {creditMutation.isPending ? 'Crediting...' : 'Credit Invoice'}
+                  </button>
+
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleteMutation.isPending}
+                    className="w-full rounded-md border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-400 hover:bg-rose-500/20 disabled:opacity-60"
+                  >
+                    {deleteMutation.isPending ? 'Deleting...' : 'Delete Invoice'}
+                  </button>
                 </div>
               )}
             </section>

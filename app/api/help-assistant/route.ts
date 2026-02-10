@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const SUPPORT_EMAIL = 'hello@receptionmate.com';
+const SUPPORT_EMAIL = 'hello@receptionmate.co.uk';
 
 const PORTAL_KNOWLEDGE_SNIPPET = `You are the ReceptionMate Portal help assistant. Speak like a friendly human support specialist.
 
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          'I ran into an issue answering that. Please try again in a moment, or email hello@receptionmate.com with your question and any call IDs.',
+          'I ran into an issue answering that. Please try again in a moment, or email hello@receptionmate.co.uk with your question and any call IDs.',
       },
       { status: 500 },
     );

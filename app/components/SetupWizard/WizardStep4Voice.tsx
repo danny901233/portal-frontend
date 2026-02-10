@@ -5,13 +5,13 @@ import { updateAgentConfiguration, generateVoicePreview } from '../../lib/api';
 import type { WizardData } from '../SetupWizard';
 
 const voiceOptions = [
-  { value: 'tom', label: 'Tom', description: 'A friendly mid thirties voice', elevenLabsId: 'Fahco4VZzobUeiPqni1S' },
-  { value: 'leah', label: 'Leah', description: 'A pleasantly clear British female voice', elevenLabsId: 'rfkTsdZrVWEVhDycUYn9' },
-  { value: 'sophie', label: 'Sophie', description: 'A clear and conversational female voice', elevenLabsId: 'fq1SdXsX6OokE10pJ4Xw' },
-  { value: 'gemma', label: 'Gemma', description: 'A modern Northern English friendly female voice', elevenLabsId: 'IosqM5LMIzqPfT0efhhy' },
-  { value: 'isobel', label: 'Isobel', description: 'Scottish female voice, youthful and warm', elevenLabsId: 'h8eW5xfRUGVJrZhAFxqK' },
-  { value: 'fraser', label: 'Fraser', description: 'A soft male Scottish Glaswegian voice', elevenLabsId: 'v2zbX16tJNtRIx8rSHDM' },
-  { value: 'amelia', label: 'Amelia', description: 'A British female voice', elevenLabsId: '21m00Tcm4TlvDq8ikWAM' },
+  { value: 'tom', label: 'Tom', description: 'A friendly mid thirties voice', elevenLabsId: 'Fahco4VZzobUeiPqni1S', recommended: true },
+  { value: 'leah', label: 'Leah', description: 'A pleasantly clear British female voice', elevenLabsId: 'rfkTsdZrVWEVhDycUYn9', recommended: true },
+  { value: 'sophie', label: 'Sophie', description: 'A clear and conversational female voice', elevenLabsId: 'fq1SdXsX6OokE10pJ4Xw', recommended: false },
+  { value: 'gemma', label: 'Gemma', description: 'A modern Northern English friendly female voice', elevenLabsId: 'IosqM5LMIzqPfT0efhhy', recommended: false },
+  { value: 'isobel', label: 'Isobel', description: 'Scottish female voice, youthful and warm', elevenLabsId: 'h8eW5xfRUGVJrZhAFxqK', recommended: false },
+  { value: 'fraser', label: 'Fraser', description: 'A soft male Scottish Glaswegian voice', elevenLabsId: 'v2zbX16tJNtRIx8rSHDM', recommended: false },
+  { value: 'amelia', label: 'Amelia', description: 'A British female voice', elevenLabsId: '21m00Tcm4TlvDq8ikWAM', recommended: false },
 ];
 
 interface WizardStep4VoiceProps {
@@ -36,7 +36,7 @@ export default function WizardStep4Voice({
   const [error, setError] = useState<string | null>(null);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
 
-  const handlePlayVoice = async (elevenLabsId: string, voiceValue: string) => {
+  const handlePlayVoice = async (voiceValue: string) => {
     try {
       // Stop currently playing audio
       if (audioElement) {
@@ -47,13 +47,14 @@ export default function WizardStep4Voice({
       setPlayingVoice(voiceValue);
       setError(null);
 
-      // Generate preview
-      const blob = await generateVoicePreview(elevenLabsId, garageId);
+      // Generate preview - pass voice name, not ElevenLabs ID
+      const blob = await generateVoicePreview(voiceValue, garageId);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
 
       audio.onended = () => {
         setPlayingVoice(null);
+        setError(null); // Clear any previous errors
         URL.revokeObjectURL(url);
       };
 
@@ -65,6 +66,8 @@ export default function WizardStep4Voice({
 
       setAudioElement(audio);
       await audio.play();
+      // Clear error on successful play
+      setError(null);
     } catch (err) {
       console.error('Failed to play voice:', err);
       setError('Failed to play voice preview');
@@ -84,7 +87,21 @@ export default function WizardStep4Voice({
     }
 
     try {
-      await updateAgentConfiguration({ voice: data.voice } as any, garageId);
+      await updateAgentConfiguration({
+        branchName: data.branchName || '',
+        phoneNumber: data.phoneNumber || '',
+        emailAddress: data.emailAddress || '',
+        branchAddress: data.branchAddress || '',
+        websiteUrl: data.websiteUrl || '',
+        weeklyOpeningHours: data.weeklyOpeningHours,
+        holidayClosures: data.holidayClosures || '',
+        greetingLine: data.greetingLine || '',
+        voice: data.voice,
+        notificationEmails: data.notificationEmails || [],
+        tonePreference: 'standard',
+        allowFastFitOnly: data.allowFastFitOnly,
+        enableSmsBookingLinks: data.enableSmsBookingLinks,
+      } as any, garageId);
       onNext();
     } catch (err) {
       console.error('Failed to save voice:', err);
@@ -109,7 +126,11 @@ export default function WizardStep4Voice({
             <div
               key={voice.value}
               className={`flex items-center justify-between rounded-lg border p-4 transition-colors ${
-                data.voice === voice.value
+                voice.recommended
+                  ? data.voice === voice.value
+                    ? 'border-blue-500 bg-blue-500/10'
+                    : 'border-amber-500 bg-amber-500/5 hover:border-amber-400'
+                  : data.voice === voice.value
                   ? 'border-blue-500 bg-blue-500/10'
                   : 'border-slate-700 bg-slate-800 hover:border-slate-600'
               }`}
@@ -124,13 +145,20 @@ export default function WizardStep4Voice({
                   className="mt-1 h-4 w-4 text-blue-600"
                 />
                 <div className="flex-1">
-                  <div className="font-medium text-slate-200">{voice.label}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-slate-200">{voice.label}</span>
+                    {voice.recommended && (
+                      <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">
+                        Recommended
+                      </span>
+                    )}
+                  </div>
                   <div className="text-sm text-slate-400">{voice.description}</div>
                 </div>
               </label>
               <button
                 type="button"
-                onClick={() => handlePlayVoice(voice.elevenLabsId, voice.value)}
+                onClick={() => handlePlayVoice(voice.value)}
                 disabled={playingVoice !== null}
                 className="ml-4 flex items-center gap-2 rounded-lg bg-slate-700 px-4 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-600 disabled:opacity-50"
               >

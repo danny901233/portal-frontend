@@ -29,7 +29,21 @@ export default function WizardStep6BookingPreferences({
 
     try {
       await updateAgentConfiguration(
-        { allowFastFitOnly: data.allowFastFitOnly } as any,
+        {
+          branchName: data.branchName || '',
+          phoneNumber: data.phoneNumber || '',
+          emailAddress: data.emailAddress || '',
+          branchAddress: data.branchAddress || '',
+          websiteUrl: data.websiteUrl || '',
+          weeklyOpeningHours: data.weeklyOpeningHours,
+          holidayClosures: data.holidayClosures || '',
+          greetingLine: data.greetingLine || '',
+          voice: data.voice || 'leah',
+          notificationEmails: data.notificationEmails || [],
+          tonePreference: 'standard',
+          allowFastFitOnly: data.allowFastFitOnly,
+          enableSmsBookingLinks: data.enableSmsBookingLinks,
+        } as any,
         garageId
       );
       onNext();
@@ -91,7 +105,7 @@ export default function WizardStep6BookingPreferences({
             <div className="flex-1">
               <div className="font-medium text-slate-200">Fast Fit Services Only</div>
               <div className="mt-1 text-sm text-slate-400">
-                Only accept fast fit services (tyres, brakes, exhausts, batteries). Other requests will be logged as messages.
+                Only accept fast fit services (tyres, brakes, exhausts, batteries). For other requests, the AI will take details for a callback.
               </div>
             </div>
           </label>

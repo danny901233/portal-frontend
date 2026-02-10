@@ -40,7 +40,22 @@ export default function WizardStep3OpeningHours({
     if (!updated[day]) {
       updated[day] = { open: '09:00', close: '17:00', closed: false };
     }
-    updated[day] = { ...updated[day], [field]: value };
+
+    if (field === 'closed') {
+      if (value === false) {
+        // When unchecking "closed", ensure we have valid times
+        updated[day] = {
+          open: updated[day].open || '09:00',
+          close: updated[day].close || '17:00',
+          closed: false,
+        };
+      } else {
+        // When marking as closed, clear the times
+        updated[day] = { open: null, close: null, closed: true };
+      }
+    } else {
+      updated[day] = { ...updated[day], [field]: value };
+    }
     updateData({ weeklyOpeningHours: updated });
   };
 
@@ -59,8 +74,19 @@ export default function WizardStep3OpeningHours({
     try {
       await updateAgentConfiguration(
         {
+          branchName: data.branchName || '',
+          phoneNumber: data.phoneNumber || '',
+          emailAddress: data.emailAddress || '',
+          branchAddress: data.branchAddress || '',
+          websiteUrl: data.websiteUrl || '',
           weeklyOpeningHours: data.weeklyOpeningHours,
-          holidayClosures: data.holidayClosures || null,
+          holidayClosures: data.holidayClosures || '',
+          greetingLine: data.greetingLine || '',
+          voice: data.voice || 'leah',
+          notificationEmails: data.notificationEmails || [],
+          tonePreference: 'standard',
+          allowFastFitOnly: data.allowFastFitOnly,
+          enableSmsBookingLinks: data.enableSmsBookingLinks,
         } as any,
         garageId
       );

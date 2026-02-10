@@ -319,4 +319,94 @@ router.post('/reset-password', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/verify-magic-link', async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      token: z.string().min(1),
+    });
+    const result = schema.safeParse(req.body);
+
+    if (!result.success) {
+      return res.status(400).json({ error: 'Invalid request' });
+    }
+
+    const { token } = result.data;
+
+    console.log('[MAGIC LINK] Verifying token:', token.substring(0, 20) + '...');
+    console.log('[MAGIC LINK] Full token:', token);
+    console.log('[MAGIC LINK] Current time:', new Date().toISOString());
+
+    // First check if token exists at all
+    const userWithToken = await prisma.user.findFirst({
+      where: { resetToken: token },
+      select: {
+        email: true,
+        resetToken: true,
+        resetTokenExpiry: true,
+      }
+    });
+
+    console.log('[MAGIC LINK] Token exists in DB:', !!userWithToken);
+    if (userWithToken) {
+      console.log('[MAGIC LINK] Token user:', userWithToken.email);
+      console.log('[MAGIC LINK] Token expiry:', userWithToken.resetTokenExpiry?.toISOString());
+    }
+
+    // Find user with this reset token (reusing for magic links)
+    const user = await prisma.user.findFirst({
+      where: {
+        resetToken: token,
+        resetTokenExpiry: { gt: new Date() },
+      },
+    });
+
+    console.log('[MAGIC LINK] User found with expiry check:', !!user, user ? user.email : 'none');
+
+    if (!user) {
+      console.log('[MAGIC LINK] Token not found or expired');
+      return res.status(400).json({ error: 'Invalid or expired link' });
+    }
+
+    console.log('[MAGIC LINK] Token valid, logging in user:', user.email);
+
+    // Clear the used token
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetToken: null,
+        resetTokenExpiry: null,
+      }
+    });
+
+    // Generate JWT token for the user
+    const jwtSecret = process.env.JWT_SECRET || 'default-secret-change-me';
+    const authToken = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      },
+      jwtSecret,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      token: authToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        garageAccessIds: user.garageAccessIds,
+        branchRoles: sanitizeBranchRoles(user.branchRoles),
+        mustChangePassword: user.mustChangePassword,
+        mustSetupPayment: user.mustSetupPayment,
+      }
+    });
+  } catch (error) {
+    console.error('Magic link verification failed:', error);
+    res.status(500).json({ error: 'Failed to verify link' });
+  }
+});
+
 export default router;

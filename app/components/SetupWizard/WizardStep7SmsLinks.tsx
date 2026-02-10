@@ -29,7 +29,21 @@ export default function WizardStep7SmsLinks({
 
     try {
       await updateAgentConfiguration(
-        { enableSmsBookingLinks: data.enableSmsBookingLinks } as any,
+        {
+          branchName: data.branchName || '',
+          phoneNumber: data.phoneNumber || '',
+          emailAddress: data.emailAddress || '',
+          branchAddress: data.branchAddress || '',
+          websiteUrl: data.websiteUrl || '',
+          weeklyOpeningHours: data.weeklyOpeningHours,
+          holidayClosures: data.holidayClosures || '',
+          greetingLine: data.greetingLine || '',
+          voice: data.voice || 'leah',
+          notificationEmails: data.notificationEmails || [],
+          tonePreference: 'standard',
+          allowFastFitOnly: data.allowFastFitOnly,
+          enableSmsBookingLinks: data.enableSmsBookingLinks,
+        } as any,
         garageId
       );
       onNext();

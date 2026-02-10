@@ -376,3 +376,13 @@ export const generateInvoicesForUser = async (userId: string): Promise<any> => {
   const { data } = await api.post(`/api/billing/users/${userId}/generate-invoices`);
   return data;
 };
+
+export const deleteInvoice = async (invoiceId: string): Promise<{ success: boolean }> => {
+  const { data } = await api.delete(`/api/admin/invoices/${invoiceId}`);
+  return data;
+};
+
+export const creditInvoice = async (invoiceId: string, reason: string): Promise<{ invoice: import('../types').Invoice }> => {
+  const { data } = await api.post(`/api/admin/invoices/${invoiceId}/credit`, { reason });
+  return data;
+};

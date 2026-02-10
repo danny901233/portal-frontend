@@ -297,6 +297,8 @@ export interface Invoice {
   status: string;
   gocardlessPaymentId: string | null;
   paidAt: string | null;
+  creditReason?: string | null;
+  creditedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

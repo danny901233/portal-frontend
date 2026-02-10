@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
-const SUPPORT_EMAIL = "hello@receptionmate.com";
+const SUPPORT_EMAIL = "hello@receptionmate.co.uk";
 
 const QUICK_TOPICS = [
   {
@@ -61,7 +61,7 @@ const KNOWLEDGE = [
     keywords: ["garage", "switch", "access", "login"],
     title: "Garage access",
     summary:
-      "Use the garage selector in the top bar. If the list looks empty, refresh or sign out/in. Persistent issues? Email hello@receptionmate.com with the garage name and time.",
+      "Use the garage selector in the top bar. If the list looks empty, refresh or sign out/in. Persistent issues? Email hello@receptionmate.co.uk with the garage name and time.",
     linkLabel: "Getting started",
     linkHref: "/help#getting-started",
   },
@@ -200,7 +200,7 @@ export default function HelpAssistant() {
       } catch (error) {
         console.error("Help assistant request failed", error);
         setErrorMessage(
-          "I hit a snag answering that. Try again in a moment, or email hello@receptionmate.com with your question."
+          "I hit a snag answering that. Try again in a moment, or email hello@receptionmate.co.uk with your question."
         );
         const assistantMessage: Message = {
           id: createId(),

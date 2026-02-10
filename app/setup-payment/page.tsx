@@ -1,13 +1,48 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
 import { TOKEN_STORAGE_KEY } from '../lib/auth';
 
-export default function SetupPaymentPage() {
+function SetupPaymentContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
+  const [isVerifyingToken, setIsVerifyingToken] = useState(false);
+
+  // Check for magic link token on mount
+  useEffect(() => {
+    const token = searchParams?.get('token');
+    if (token && !localStorage.getItem(TOKEN_STORAGE_KEY)) {
+      verifyMagicLinkToken(token);
+    }
+  }, [searchParams]);
+
+  const verifyMagicLinkToken = async (magicToken: string) => {
+    setIsVerifyingToken(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+      const response = await fetch(`${apiUrl}/api/auth/verify-magic-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: magicToken }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Invalid or expired link. Please request a new one.');
+      }
+
+      const data = await response.json();
+      // Store the auth token
+      localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to verify link');
+    } finally {
+      setIsVerifyingToken(false);
+    }
+  };
 
   const createMandateMutation = useMutation({
     mutationFn: async () => {
@@ -96,10 +131,10 @@ export default function SetupPaymentPage() {
 
           <button
             onClick={handleSetupPayment}
-            disabled={createMandateMutation.isPending}
+            disabled={createMandateMutation.isPending || isVerifyingToken}
             className="w-full rounded-lg bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition-transform hover:bg-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
           >
-            {createMandateMutation.isPending ? 'Setting up...' : 'Set Up Direct Debit'}
+            {isVerifyingToken ? 'Verifying link...' : createMandateMutation.isPending ? 'Setting up...' : 'Set Up Direct Debit'}
           </button>
 
           <p className="text-center text-xs text-slate-500">
@@ -108,5 +143,20 @@ export default function SetupPaymentPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SetupPaymentPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-500 mx-auto"></div>
+          <p className="mt-4 text-slate-400">Loading...</p>
+        </div>
+      </div>
+    }>
+      <SetupPaymentContent />
+    </Suspense>
   );
 }

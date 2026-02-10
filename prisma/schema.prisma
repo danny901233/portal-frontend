@@ -324,7 +324,11 @@ model Invoice {
   // GoCardless
   gocardlessPaymentId String?
   paidAt              DateTime?
-  
+
+  // Credit/Void tracking
+  creditReason        String?
+  creditedAt          DateTime?
+
   // Metadata
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

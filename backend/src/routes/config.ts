@@ -490,6 +490,8 @@ router.put(
     const parseResult = upsertAgentConfigurationSchema.safeParse(req.body);
 
     if (!parseResult.success) {
+      console.log('[VALIDATION ERROR] Request body:', JSON.stringify(req.body, null, 2));
+      console.log('[VALIDATION ERROR] Errors:', JSON.stringify(parseResult.error.flatten(), null, 2));
       return res.status(400).json({ error: parseResult.error.flatten() });
     }
 

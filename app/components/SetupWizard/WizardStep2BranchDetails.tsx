@@ -34,17 +34,22 @@ export default function WizardStep2BranchDetails({
 
     setIsSaving(true);
     try {
-      // Save to backend
+      // Save to backend - send all wizard data to preserve previous steps
       await updateAgentConfiguration(
         {
           branchName: data.branchName,
-          phoneNumber: data.phoneNumber || null,
-          emailAddress: data.emailAddress || null,
-          branchAddress: data.branchAddress || null,
-          websiteUrl: data.websiteUrl || null,
-          // Include required fields with defaults
+          phoneNumber: data.phoneNumber || '',
+          emailAddress: data.emailAddress || '',
+          branchAddress: data.branchAddress || '',
+          websiteUrl: data.websiteUrl || '',
+          weeklyOpeningHours: data.weeklyOpeningHours,
+          holidayClosures: data.holidayClosures || '',
+          greetingLine: data.greetingLine || '',
+          voice: data.voice || 'leah',
+          notificationEmails: data.notificationEmails || [],
           tonePreference: 'standard',
-          allowFastFitOnly: false,
+          allowFastFitOnly: data.allowFastFitOnly,
+          enableSmsBookingLinks: data.enableSmsBookingLinks,
         } as any,
         garageId
       );

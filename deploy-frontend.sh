@@ -13,7 +13,7 @@ if [ -z "$1" ]; then
 fi
 
 KEY_FILE="$1"
-EC2_HOST="ubuntu@18.171.230.217"
+EC2_HOST="ec2-user@18.171.230.217"
 
 # Check if key file exists
 if [ ! -f "$KEY_FILE" ]; then
@@ -36,13 +36,16 @@ ssh -i "$KEY_FILE" "$EC2_HOST" << 'ENDSSH'
 set -e
 
 echo "📂 Navigating to portal-frontend directory..."
-cd /home/ubuntu/portal-frontend
+cd /home/ec2-user/portal-frontend
 
 echo "📥 Pulling latest code..."
 git pull origin receptionmate-demo-branch-2
 
 echo "📦 Installing dependencies..."
 npm install
+
+echo "📦 Installing agent-widget-demo dependencies..."
+cd agent-widget-demo && npm install && cd ..
 
 echo "🏗️  Building Next.js application..."
 npm run build

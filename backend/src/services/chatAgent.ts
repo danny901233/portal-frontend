@@ -101,6 +101,8 @@ export async function getChatAgentResponse(
 
       // Execute each tool call
       for (const toolCall of toolCalls) {
+        if (toolCall.type !== 'function') continue;
+
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
 

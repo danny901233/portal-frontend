@@ -515,15 +515,25 @@ function buildSystemPrompt(config: any, knowledgeDocuments: any[], isOpen: boole
     }
   }
 
-  // Booking instructions
-  prompt += `\nBOOKING INSTRUCTIONS:\n`;
-  prompt += `- You have access to booking tools to help customers book appointments\n`;
-  prompt += `- To start a booking, ask for their vehicle registration number\n`;
-  prompt += `- Then use gh_initiate_booking with their registration\n`;
-  prompt += `- Guide them through selecting a service, choosing a time, and confirming details\n`;
-  prompt += `- If they prefer, you can send them a booking link via SMS using send_booking_link_sms\n`;
-  prompt += `- Keep the booking process smooth and conversational\n`;
-  prompt += `- Always confirm the details before finalizing\n\n`;
+  // Booking instructions - only if GarageHive is configured
+  const hasGarageHive = config.integrationProvider === 'garagehive' ||
+                        (config.integrationProviderConfig &&
+                         (config.integrationProviderConfig as any).ghCustomerId);
+
+  if (hasGarageHive) {
+    prompt += `\nBOOKING CAPABILITIES:\n`;
+    prompt += `IMPORTANT: You CAN book appointments directly through this chat!\n`;
+    prompt += `- When a customer wants to book, DO NOT tell them to call or visit the website\n`;
+    prompt += `- Instead, ask for their vehicle registration number\n`;
+    prompt += `- Use gh_initiate_booking to start the booking process\n`;
+    prompt += `- Guide them through: service selection → time slot → contact details\n`;
+    prompt += `- Use the booking tools to complete the entire booking in chat\n`;
+    prompt += `- Only offer SMS booking link as an alternative if they prefer self-service\n\n`;
+  } else {
+    prompt += `\nBOOKING:\n`;
+    prompt += `- For booking appointments, provide the phone number or suggest visiting the website\n`;
+    prompt += `- If asked, you can send the booking link via SMS\n\n`;
+  }
 
   prompt += `TONE: Be friendly, helpful, and professional. Keep responses concise (2-3 sentences unless more detail is needed).\n`;
 

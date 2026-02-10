@@ -25,8 +25,8 @@ router.post('/oauth/meta/initiate', authenticate, async (req: Request, res: Resp
     // Define scopes for each platform
     const scopes: Record<string, string> = {
       whatsapp: 'whatsapp_business_management,whatsapp_business_messaging',
-      facebook: 'pages_messaging,pages_manage_metadata,pages_read_engagement',
-      instagram: 'instagram_basic,instagram_manage_messages,pages_show_list',
+      facebook: 'pages_messaging,pages_manage_metadata,pages_show_list,business_management',
+      instagram: 'instagram_basic,instagram_manage_messages,pages_show_list,business_management',
     };
 
     const scope = scopes[platform];
@@ -105,14 +105,33 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
       }
     } else if (platform === 'facebook' || platform === 'instagram') {
       // Get Facebook Pages
+      console.log('[OAuth] Access token (first 20 chars):', accessToken?.substring(0, 20));
+
+      // Check what user this token belongs to
+      const meResponse = await axios.get('https://graph.facebook.com/v18.0/me', {
+        params: {
+          access_token: accessToken,
+          fields: 'id,name,email'
+        },
+      });
+      console.log('[OAuth] User info:', JSON.stringify(meResponse.data, null, 2));
+
+      // Check permissions
+      const permissionsResponse = await axios.get('https://graph.facebook.com/v18.0/me/permissions', {
+        params: { access_token: accessToken },
+      });
+      console.log('[OAuth] Permissions:', JSON.stringify(permissionsResponse.data, null, 2));
+
       const pagesResponse = await axios.get('https://graph.facebook.com/v18.0/me/accounts', {
         params: { access_token: accessToken },
       });
+      console.log('[OAuth] Full pages response:', JSON.stringify(pagesResponse.data, null, 2));
 
       const page = pagesResponse.data.data[0];
       if (page) {
         connectionData.pageId = page.id;
         connectionData.accessToken = page.access_token; // Use page access token
+        console.log('[OAuth] Page found:', page.id, 'Name:', page.name);
 
         if (platform === 'instagram') {
           // Get Instagram account connected to the page
@@ -124,8 +143,18 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
           });
           connectionData.instagramAccountId = igResponse.data.instagram_business_account?.id;
         }
+      } else {
+        console.error('[OAuth] No Facebook page found in response!');
+        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=no_page_found`);
       }
     }
+
+    console.log('[OAuth] Saving connection data:', {
+      garageId,
+      platform,
+      hasPageId: !!connectionData.pageId,
+      hasAccessToken: !!connectionData.accessToken
+    });
 
     // Check if connection already exists
     const existing = await prisma.socialMediaConnection.findFirst({
@@ -134,21 +163,28 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
 
     if (existing) {
       // Update existing connection
+      console.log('[OAuth] Updating existing connection:', existing.id);
       await prisma.socialMediaConnection.update({
         where: { id: existing.id },
         data: connectionData,
       });
     } else {
       // Create new connection
-      await prisma.socialMediaConnection.create({
+      console.log('[OAuth] Creating new connection');
+      const newConnection = await prisma.socialMediaConnection.create({
         data: connectionData,
       });
+      console.log('[OAuth] Connection created with ID:', newConnection.id);
     }
 
     // Redirect back to integrations page
     res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?success=true&platform=${platform}`);
   } catch (error) {
     console.error('OAuth callback error:', error);
+    if (axios.isAxiosError(error)) {
+      console.error('Response data:', error.response?.data);
+      console.error('Response status:', error.response?.status);
+    }
     res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=callback_failed`);
   }
 });

@@ -832,4 +832,60 @@ router.post('/admin/invoices/:invoiceId/credit', authenticate, requireAdmin, asy
   }
 });
 
+// POST /admin/billing/trigger-invoice-generation
+// Manually trigger invoice generation for a garage/user
+router.post('/billing/trigger-invoice-generation', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { garageId } = req.body;
+
+    if (!garageId) {
+      return res.status(400).json({ error: 'garageId is required' });
+    }
+
+    // Import billing function
+    const { generateInvoicesForUser } = await import('../services/billing.js');
+
+    // Find user with this garage
+    const user = await prisma.user.findFirst({
+      where: {
+        garageAccessIds: { has: garageId }
+      },
+      select: {
+        id: true,
+        email: true,
+        billingCycleStartDate: true,
+        nextBillingDate: true,
+        gocardlessMandateId: true,
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'No user found with access to this garage' });
+    }
+
+    if (!user.gocardlessMandateId) {
+      return res.status(400).json({ error: 'User does not have a GoCardless mandate set up' });
+    }
+
+    if (!user.billingCycleStartDate || !user.nextBillingDate) {
+      return res.status(400).json({ error: 'User billing cycle not configured' });
+    }
+
+    // Generate invoices for this user
+    const result = await generateInvoicesForUser(user.id);
+
+    res.json({
+      success: true,
+      message: 'Invoice generation triggered',
+      result
+    });
+  } catch (error) {
+    console.error('Failed to trigger invoice generation:', error);
+    res.status(500).json({
+      error: 'Failed to trigger invoice generation',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 export default router;

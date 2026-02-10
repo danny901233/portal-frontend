@@ -16,10 +16,10 @@ function getOpenAI(): OpenAI {
   return openaiClient;
 }
 
-// GarageHive configuration from environment
-const GH_CUSTOMER_ID = process.env.GH_CUSTOMER_ID;
-const GH_API_KEY = process.env.GH_API_KEY;
-const GH_LOCATION_ID = process.env.GH_LOCATION_ID || '23';
+// GarageHive configuration - loaded from garage config
+let GH_CUSTOMER_ID: string | undefined;
+let GH_API_KEY: string | undefined;
+let GH_LOCATION_ID: string = '23';
 
 interface ChatAgentResponse {
   content: string;
@@ -52,6 +52,14 @@ export async function getChatAgentResponse(
 
     const config = garage.agentConfiguration;
     const isOpen = checkOpeningHours(config.weeklyOpeningHours);
+
+    // Load GarageHive credentials from integration config
+    if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
+      const ghConfig = config.integrationProviderConfig as any;
+      GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
+      GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
+      GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
+    }
 
     // Build conversation context
     const previousMessages = await prisma.chatMessage.findMany({

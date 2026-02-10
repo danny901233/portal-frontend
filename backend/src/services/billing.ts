@@ -307,18 +307,16 @@ export async function trackConfirmedBooking(garageId: string) {
     });
 
     if (user && !user.billingCycleStartDate) {
-      const nextBillingDate = new Date(now);
-      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
-
+      // Set nextBillingDate to now so user gets billed immediately (not 1 month later)
       await prisma.user.update({
         where: { id: user.id },
         data: {
           billingCycleStartDate: now,
-          nextBillingDate: nextBillingDate,
+          nextBillingDate: now, // Bill immediately when activation threshold reached
         },
       });
 
-      console.log(`✓ Billing cycle started for ${user.email} - first billing on ${nextBillingDate.toISOString().split('T')[0]}`);
+      console.log(`✓ Billing cycle started for ${user.email} - first billing on ${now.toISOString().split('T')[0]}`);
     }
   } else {
     // Just increment count
@@ -376,15 +374,14 @@ export async function activateTrialEndedGarages() {
 
     if (user && !user.billingCycleStartDate) {
       // Start billing cycle from when trial ended
+      // Set nextBillingDate to trial end date so user gets billed immediately (not 1 month later)
       const trialEndDate = garage.trialEndDate!;
-      const nextBillingDate = new Date(trialEndDate);
-      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
 
       await prisma.user.update({
         where: { id: user.id },
         data: {
           billingCycleStartDate: trialEndDate,
-          nextBillingDate: nextBillingDate,
+          nextBillingDate: trialEndDate, // Bill immediately when trial ends
         },
       });
 
@@ -394,10 +391,10 @@ export async function activateTrialEndedGarages() {
         userId: user.id,
         userEmail: user.email,
         trialEndDate: trialEndDate,
-        firstBillingDate: nextBillingDate,
+        firstBillingDate: trialEndDate, // First billing on trial end date
       });
 
-      console.log(`✓ Trial ended for ${garage.name} - billing cycle started, first billing on ${nextBillingDate.toISOString().split('T')[0]}`);
+      console.log(`✓ Trial ended for ${garage.name} - billing cycle started, first billing on ${trialEndDate.toISOString().split('T')[0]}`);
     }
   }
 

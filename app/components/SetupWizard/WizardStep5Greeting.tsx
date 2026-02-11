@@ -90,7 +90,7 @@ export default function WizardStep5Greeting({
               <strong>Tip:</strong> Use <code className="rounded bg-blue-500/20 px-1.5 py-0.5 font-mono text-xs">{'{timeofday}'}</code> in your greeting to automatically say "Good morning", "Good afternoon", or "Good evening" based on the time of the call.
             </p>
             <p className="mt-1 text-xs text-blue-400">
-              Example: "Good {'{timeofday}'}, thank you for calling {branchName || 'our garage'}!"
+              Example: "Good {'{timeofday}'}, thank you for calling Receptionmate"
             </p>
           </div>
         </div>

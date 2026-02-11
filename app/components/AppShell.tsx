@@ -174,7 +174,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     } finally {
       setIsReady(true);
     }
-  }, [router]);
+  }, [pathname, router]);
 
   useEffect(() => {
     if (!shouldShowChrome) {

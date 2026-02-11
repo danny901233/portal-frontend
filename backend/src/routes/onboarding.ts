@@ -337,7 +337,7 @@ router.post('/onboarding/create-business', authenticateApiKey, async (req, res) 
         email: contactEmail,
         passwordHash,
         mustChangePassword: true, // Force change on first login
-        mustSetupPayment: !trialEndDate && !requiresBookingActivation, // No payment setup if in trial
+        mustSetupPayment: true, // Always require payment setup, even for trial users
         garageAccessIds: [garage.id],
         role: 'USER',
         branchRoles: { [garage.id]: 'MANAGER' },
@@ -549,6 +549,7 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
         email: userData.email,
         passwordHash,
         mustChangePassword: true,
+        mustSetupPayment: true, // Always require payment setup
         garageAccessIds: [garage.id],
         role: userData.role,
         branchRoles: { [garage.id]: 'MANAGER' },

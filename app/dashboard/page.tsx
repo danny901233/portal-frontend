@@ -194,6 +194,25 @@ export default function DashboardPage() {
 
   const totalCalls = calls.length;
 
+  const totalDurationSeconds = useMemo(() => {
+    return calls.reduce((acc, call) => acc + (call.durationSeconds || 0), 0);
+  }, [calls]);
+
+  const formatDuration = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (minutes < 60) {
+      return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (remainingMinutes > 0) {
+      return `${hours}h ${remainingMinutes}m`;
+    }
+    return `${hours}h`;
+  };
+
   const callTypeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     calls.forEach((call) => {
@@ -498,12 +517,19 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl bg-gradient-to-br from-sky-500/10 via-sky-500/5 to-sky-500/0 p-5 shadow-sm ring-1 ring-sky-500/20">
           <div className="text-xs uppercase tracking-wide text-slate-300">Total calls</div>
           <div className="mt-3 text-3xl font-semibold text-sky-100">{loading ? '—' : totalCalls}</div>
           <p className="mt-2 text-xs text-slate-400">
             All calls captured within the selected date range.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-gradient-to-br from-purple-500/10 via-purple-500/5 to-purple-500/0 p-5 shadow-sm ring-1 ring-purple-500/20">
+          <div className="text-xs uppercase tracking-wide text-slate-300">Total duration</div>
+          <div className="mt-3 text-3xl font-semibold text-purple-100">{loading ? '—' : formatDuration(totalDurationSeconds)}</div>
+          <p className="mt-2 text-xs text-slate-400">
+            Combined call time for all calls in this period.
           </p>
         </div>
         <div className="rounded-2xl bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-amber-500/0 p-5 shadow-sm ring-1 ring-amber-500/20">

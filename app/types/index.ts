@@ -188,6 +188,7 @@ export interface AgentConfiguration {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   agentType: AgentType;
+  agentScript: 'basic_agent2.py' | 'Newreceptionmateagent.py';
   enableSmsBookingLinks: boolean;
   voice: VoiceOption;
 }

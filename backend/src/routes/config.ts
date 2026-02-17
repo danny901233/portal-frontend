@@ -165,6 +165,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
+    agentScript: config.agentScript === 'Newreceptionmateagent.py' ? 'Newreceptionmateagent.py' : 'basic_agent2.py',
     voice: config.voice ?? 'leah',
   };
 };
@@ -498,13 +499,15 @@ router.put(
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
     let resolvedAgentType: 'assist' | 'automate' = data.agentType === 'automate' ? 'automate' : 'assist';
+    let resolvedAgentScript: 'basic_agent2.py' | 'Newreceptionmateagent.py' = data.agentScript === 'Newreceptionmateagent.py' ? 'Newreceptionmateagent.py' : 'basic_agent2.py';
 
     if (!canEditAgentType) {
       const existingConfig = await prisma.agentConfiguration.findUnique({
         where: { garageId },
-        select: { agentType: true },
+        select: { agentType: true, agentScript: true },
       });
       resolvedAgentType = existingConfig?.agentType === 'automate' ? 'automate' : 'assist';
+      resolvedAgentScript = existingConfig?.agentScript === 'Newreceptionmateagent.py' ? 'Newreceptionmateagent.py' : 'basic_agent2.py';
     }
 
     const normalizedWeeklyOpeningHours = data.weeklyOpeningHours
@@ -556,6 +559,7 @@ router.put(
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,
       agentType: resolvedAgentType,
+      agentScript: resolvedAgentScript,
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
       voice: data.voice || 'leah',
     };

@@ -103,6 +103,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
   agentType: 'assist',
+  agentScript: 'basic_agent2.py',
   enableSmsBookingLinks: true,
   voice: 'leah',
 });
@@ -147,6 +148,11 @@ const integrationProviderOptions: { value: IntegrationProvider; label: string; d
 const agentTypeOptions: { value: AgentType; label: string; description: string }[] = [
   { value: 'assist', label: 'Assist', description: 'Collects enquiries and customer details for callback.' },
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
+];
+
+const agentScriptOptions: { value: 'basic_agent2.py' | 'Newreceptionmateagent.py'; label: string; description: string }[] = [
+  { value: 'basic_agent2.py', label: 'Legacy Agent', description: 'Original stable agent (production)' },
+  { value: 'Newreceptionmateagent.py', label: 'New Agent', description: 'Enhanced agent with supervisor architecture (testing)' },
 ];
 
 const maskSecretValue = (value: string) => {
@@ -1468,6 +1474,40 @@ export default function AgentConfigurationsPage() {
               {!canEditAgentType && (
                 <span className="text-xs text-amber-400">
                   Only ReceptionMate staff can change the agent type.
+                </span>
+              )}
+            </label>
+          </div>
+
+          <div className="mt-6">
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              <span className="text-xs uppercase tracking-wide text-slate-500">Agent Version (A/B Testing)</span>
+              <select
+                value={formState.agentScript}
+                onChange={(event) =>
+                  setFormState((state) => ({
+                    ...state,
+                    agentScript: event.target.value as 'basic_agent2.py' | 'Newreceptionmateagent.py',
+                  }))
+                }
+                disabled={!isEditing || mutation.isPending || !canEditAgentType}
+                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {agentScriptOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-slate-500">
+                {agentScriptOptions.find((option) => option.value === formState.agentScript)?.description ?? ''}
+              </span>
+              <span className="text-xs text-slate-400">
+                🧪 Select which agent script to use for this garage. Use for A/B testing and safe rollback.
+              </span>
+              {!canEditAgentType && (
+                <span className="text-xs text-amber-400">
+                  Only ReceptionMate staff can change agent version.
                 </span>
               )}
             </label>

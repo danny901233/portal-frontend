@@ -16,7 +16,7 @@ npm run build
 
 # Copy files to EC2
 echo "Copying files to EC2..."
-rsync -avz -e "ssh -i $SSH_KEY" --exclude 'node_modules' --exclude '.git' \
+rsync -avz -e "ssh -i $SSH_KEY" --exclude 'node_modules' --exclude '.git' --exclude '.env' \
   ./ $EC2_HOST:~/portal-backend/
 
 # Restart backend on EC2

@@ -149,6 +149,7 @@ export const fetchAgentConfiguration = async (
   const { data } = await api.get<AgentConfigurationResponse>(
     `/api/garages/${targetGarageId}/agent-config`
   );
+  console.log('FRONTEND API: Received agentScript:', data.configuration?.agentScript);
   return data;
 };
 

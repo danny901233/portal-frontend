@@ -103,7 +103,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
   agentType: 'assist',
-  agentScript: 'basic_agent2.py',
+  agentScript: 'receptionmate-agent-v3',
   enableSmsBookingLinks: true,
   voice: 'leah',
 });
@@ -150,9 +150,9 @@ const agentTypeOptions: { value: AgentType; label: string; description: string }
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
-const agentScriptOptions: { value: 'basic_agent2.py' | 'Newreceptionmateagent.py'; label: string; description: string }[] = [
-  { value: 'basic_agent2.py', label: 'Legacy Agent', description: 'Original stable agent (production)' },
-  { value: 'Newreceptionmateagent.py', label: 'New Agent', description: 'Enhanced agent with supervisor architecture (testing)' },
+const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3'; label: string; description: string }[] = [
+  { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
+  { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture' },
 ];
 
 const maskSecretValue = (value: string) => {
@@ -517,6 +517,7 @@ export default function AgentConfigurationsPage() {
     if (!query.data?.configuration) {
       return;
     }
+    console.log('FRONTEND: API response agentScript:', query.data.configuration.agentScript);
     startTransition(() => {
       setFormState(cloneConfiguration(query.data.configuration));
       setKnowledgeBase(query.data.knowledgeBase ?? []);
@@ -1487,7 +1488,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'basic_agent2.py' | 'Newreceptionmateagent.py',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}

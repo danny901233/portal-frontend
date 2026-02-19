@@ -54,6 +54,7 @@ const updateUserSchema = z.object({
   role: z.enum(['ADMIN', 'USER', 'RECEPTIONMATE_STAFF']).optional(),
   garageAccessIds: z.array(z.string().uuid()).optional(),
   branchRoles: branchRolesSchema.optional(),
+  mustSetupPayment: z.boolean().optional(),
 });
 
 const ensureAdminAccessToGarage = async (garageId: string) => {
@@ -555,6 +556,9 @@ router.put('/admin/users/:userId', authenticate, requireAdmin, async (req, res) 
   }
   if (parsed.data.branchRoles) {
     prismaData.branchRoles = parsed.data.branchRoles;
+  }
+  if (typeof parsed.data.mustSetupPayment === 'boolean') {
+    prismaData.mustSetupPayment = parsed.data.mustSetupPayment;
   }
 
   if (Object.keys(prismaData).length === 0) {

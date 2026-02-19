@@ -1663,13 +1663,16 @@ class SupervisorAgent(Agent):
                         f"Address the caller as '{first}' (FIRST name only).\n"
                         f"Registration: {self._state.vrn}\n"
                         "Say: 'No problem, let me check on that for you. What would you like to know?'\n"
-                        f"Then collect their message, {phone_instruction}, and call take_message."
+                        f"Then collect their message, {phone_instruction}, and call take_message.\n"
+                        "DO NOT call lookup_vehicle - this is a message, not a booking."
                     )
                 return (
                     f"Name saved: {first} {last}. Intent: vehicle update.\n"
                     f"Address the caller as '{first}' (FIRST name only).\n"
                     "Say: 'No problem. Could I grab your registration first?'\n"
-                    f"Then collect registration, message, {phone_instruction}, and call take_message."
+                    "When they give it, call collect_registration_for_message(reg='...') to store it.\n"
+                    f"Then collect their message, {phone_instruction}, and call take_message.\n"
+                    "DO NOT call lookup_vehicle - use collect_registration_for_message instead."
                 )
 
             # Booking / quote path
@@ -2820,6 +2823,25 @@ class SupervisorAgent(Agent):
             )
 
         @function_tool
+        async def collect_registration_for_message(context: RunContext, reg: str) -> str:
+            """Collect and confirm a registration for a message/vehicle update (no vehicle lookup needed).
+            Just normalizes the registration and stores it for the callback message.
+            Use this for vehicle updates - NOT lookup_vehicle."""
+            
+            if self._state.step != Step.MESSAGE_ONLY:
+                return "ERROR: This tool is only for message taking, not bookings. Use lookup_vehicle for bookings."
+            
+            normalized = normalize_vehicle_registration(reg)
+            self._state.vrn = normalized
+            logger.info(f"[COLLECT_REG] Stored registration for message: {normalized}")
+            
+            return (
+                f"Registration saved: {normalized}.\n"
+                f"Read it back naturally: 'Okay, {normalized}. What would you like to know about it?'\n"
+                "Then collect their message and call take_message with the message, phone, and vrn."
+            )
+
+        @function_tool
         async def take_message(
             context: RunContext,
             message: str,
@@ -2965,7 +2987,7 @@ TRANSFER REQUEST: "Can I speak to [name]?" / "Is [name] there?" / "Can I talk to
 Say naturally: "Unfortunately the team aren't available at the moment — they're likely helping other customers. However, I can help you with bookings, or I can take a message and get someone to give you a ring back. Which would you prefer?"
 Then route to booking or message flow based on their choice.
 
-VEHICLE UPDATE: "I dropped my car off" / "checking on my vehicle" → collect name + registration (no lookup needed) → message → phone (confirm from CALLER INFO or ask) → take_message.
+VEHICLE UPDATE: "I dropped my car off" / "checking on my vehicle" → collect name + registration (use collect_registration_for_message, NOT lookup_vehicle) → message → phone (confirm from CALLER INFO or ask) → take_message.
 MESSAGE: Collect message → phone (confirm from CALLER INFO or ask) → callback time → take_message.
 CHANGE OF MIND: Booking↔Message works both ways."""
 
@@ -2983,6 +3005,7 @@ CHANGE OF MIND: Booking↔Message works both ways."""
                 select_timeslot,
                 validate_address,
                 submit_booking,
+                collect_registration_for_message,
                 take_message,
             ],
         )

@@ -2809,7 +2809,14 @@ class SupervisorAgent(Agent):
                 return f"ERROR: Wrong step ({self._state.step.value}). Cannot take message now."
 
             self._state.message = (message or "").strip()
-            self._state.contact_phone = (phone or "").strip()
+            
+            # Use caller_phone as fallback if no phone provided
+            phone = (phone or "").strip()
+            if not phone and self._state.caller_phone:
+                phone = self._state.caller_phone
+                logger.info(f"[TAKE_MESSAGE] Using caller_phone as fallback: {phone}")
+            
+            self._state.contact_phone = phone
             self._state.preferred_callback_time = (callback_time or "").strip()
             if name_first:
                 self._state.customer_name_first = name_first.strip()
@@ -2864,10 +2871,17 @@ class SupervisorAgent(Agent):
         tomorrow = now.replace(hour=0, minute=0, second=0) + __import__("datetime").timedelta(days=1)
         tomorrow_str = tomorrow.strftime("%A %d %B %Y")
 
+        # Build caller info context if phone is available
+        caller_context = ""
+        if self._state.caller_phone:
+            last_three = self._state.caller_phone[-3:] if len(self._state.caller_phone) >= 3 else ""
+            last_three_text = f" (last three digits: {last_three})" if last_three else ""
+            caller_context = f"CALLER INFO: Customer is calling from {self._state.caller_phone}{last_three_text}\n\n"
+
         instructions = f"""YOU ARE LEAH — a warm, friendly British receptionist at {AGENT_BRANCH_NAME}.
 One person, one voice, one natural conversation from start to finish.
 
-TODAY: {today_str}. Tomorrow: {tomorrow_str} ({tomorrow.strftime("%Y-%m-%d")}).
+{caller_context}TODAY: {today_str}. Tomorrow: {tomorrow_str} ({tomorrow.strftime("%Y-%m-%d")}).
 
 PERSONALITY: Sound natural and warm, like a real person — not robotic. Vary your phrasing each turn.
 - Mix short replies ("Brilliant.") with slightly longer ones ("Lovely, that's all popped in for you.")
@@ -2911,15 +2925,21 @@ FLOW:
    - DO NOT interrupt. Let them speak fully.
    - After completing the questionnaire, recommend a Diagnostic Check.
 4. TIMESLOT: Offer 2-3 early slots naturally. Call select_timeslot(caller_preference) with the caller's words — tool handles date parsing.
-5. CONTACT (one at a time): surname → phone (read back last 3 digits) → email → postcode (call validate_address) → house number. Then submit_booking.
+5. CONTACT (one at a time): 
+   - surname
+   - phone: If CALLER INFO available, confirm: "Is that the number ending in [last_three]?" If yes, use it. If no, ask for their number.
+   - email
+   - postcode (call validate_address)
+   - house number
+   Then submit_booking.
 6. CLOSE: Confirm booking, "Cheers, have a lovely day!"
 
 TRANSFER REQUEST: "Can I speak to [name]?" / "Is [name] there?" / "Can I talk to a human?" → 
 Say naturally: "Unfortunately the team aren't available at the moment — they're likely helping other customers. However, I can help you with bookings, or I can take a message and get someone to give you a ring back. Which would you prefer?"
 Then route to booking or message flow based on their choice.
 
-VEHICLE UPDATE: "I dropped my car off" / "checking on my vehicle" → collect name + registration (no lookup needed) → message → phone → take_message.
-MESSAGE: Collect message → phone → callback time → take_message.
+VEHICLE UPDATE: "I dropped my car off" / "checking on my vehicle" → collect name + registration (no lookup needed) → message → phone (confirm from CALLER INFO or ask) → take_message.
+MESSAGE: Collect message → phone (confirm from CALLER INFO or ask) → callback time → take_message.
 CHANGE OF MIND: Booking↔Message works both ways."""
 
         super().__init__(
@@ -3060,16 +3080,41 @@ async def entrypoint(ctx: JobContext):
                 logger.info(f"[TRANSCRIPT] Agent speech captured via conversation_item_added: {text_content[:100]}...")
 
     # ── Capture caller's phone number from SIP participant ───────
+    def _extract_phone_from_identity(identity: str | None) -> str | None:
+        """Extract phone number from participant identity (handles sip_ prefix)."""
+        if not identity:
+            return None
+        cleaned = identity.strip()
+        if cleaned.startswith("sip_"):
+            cleaned = cleaned[4:]
+        if cleaned.startswith("+") or cleaned.isdigit():
+            return cleaned
+        return None
+
+    def _set_caller_phone(phone: str, source: str) -> None:
+        """Store caller's phone in state."""
+        if not phone or state.caller_phone == phone:
+            return
+        state.caller_phone = phone
+        logger.info(f"[CALLER] Captured phone from {source}: {phone}")
+
+    # Capture phone from existing SIP participants (already connected)
+    for participant in ctx.room.remote_participants.values():
+        phone = _extract_phone_from_identity(participant.identity)
+        if phone:
+            _set_caller_phone(phone, f"existing SIP participant ({participant.identity})")
+            break
+
+    # Capture phone when SIP participant connects (future connections)
     @ctx.room.on("participant_connected")
     def _on_participant_connected(participant):
         """Extract caller's phone number from SIP participant identity at call start."""
         logger.info(f"[CALLER] Participant connected: identity={participant.identity}, name={participant.name}")
-        if participant.identity and participant.identity.startswith("sip_"):
-            caller_number = participant.identity[4:]  # Remove "sip_" prefix
-            state.caller_phone = caller_number
-            logger.info(f"[CALLER] Extracted phone from SIP: {caller_number}")
+        phone = _extract_phone_from_identity(participant.identity)
+        if phone:
+            _set_caller_phone(phone, f"new SIP participant ({participant.identity})")
         else:
-            logger.warning(f"[CALLER] Could not extract phone - identity format unexpected: {participant.identity}")
+            logger.warning(f"[CALLER] Could not extract phone from identity: {participant.identity}")
 
     # Start session with BVC Telephony noise cancellation
     logger.info("[ENTRYPOINT] Starting session with SupervisorAgent + BVCTelephony noise cancellation")

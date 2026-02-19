@@ -110,6 +110,83 @@ app.post('/provision', async (req: Request, res: Response) => {
 });
 
 /**
+ * Update the agent name for an existing SIP dispatch rule
+ */
+app.post('/update-agent', async (req: Request, res: Response) => {
+  try {
+    const updateSchema = z.object({
+      garageId: z.string().uuid(),
+      agentName: z.string(),
+    });
+
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Invalid payload',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    // Verify shared secret
+    const providedSecret = req.headers['x-onboarding-secret'];
+    const configuredSecret = process.env.ONBOARDING_SECRET;
+    if (configuredSecret && providedSecret !== configuredSecret) {
+      return res.status(401).json({ error: 'Invalid secret' });
+    }
+
+    const { garageId, agentName } = parsed.data;
+    console.log(`[UPDATE-AGENT] Updating dispatch rule for garage ${garageId} to agent: ${agentName}`);
+
+    // List all dispatch rules and find the one for this garage
+    const dispatchRules = await livekitSipClient.listSipDispatchRule();
+    const targetRule = dispatchRules.find(rule => {
+      const metadata = rule.metadata ? JSON.parse(rule.metadata) : {};
+      return metadata.garageId === garageId;
+    });
+
+    if (!targetRule) {
+      console.log(`[UPDATE-AGENT] No dispatch rule found for garage ${garageId}`);
+      return res.status(404).json({ error: 'Dispatch rule not found for this garage' });
+    }
+
+    console.log(`[UPDATE-AGENT] Found rule ${targetRule.sipDispatchRuleId}, current agent: ${targetRule.roomConfig?.agents?.[0]?.agentName}`);
+
+    // Update the dispatch rule with new agent name
+    await livekitSipClient.updateSipDispatchRule(
+      targetRule.sipDispatchRuleId,
+      {
+        ...targetRule,
+        roomConfig: {
+          ...targetRule.roomConfig,
+          agents: [
+            {
+              agentName,
+            },
+          ],
+        } as any,
+      } as any
+    );
+
+    console.log(`✅ Updated dispatch rule ${targetRule.sipDispatchRuleId} to use agent: ${agentName}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Agent updated successfully',
+      garageId,
+      agentName,
+      dispatchRuleId: targetRule.sipDispatchRuleId,
+    });
+
+  } catch (error) {
+    console.error('[UPDATE-AGENT] Error:', error);
+    res.status(500).json({
+      error: 'Failed to update agent',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
  * Create a SIP trunk in LiveKit for this garage
  */
 async function createLiveKitSipTrunk(
@@ -130,6 +207,7 @@ async function createLiveKitSipTrunk(
       `${garageName} (${garageId})`,
       [garageId, twilioNumber.replace('+', '')],
       {
+        krispEnabled: true,
         metadata: JSON.stringify({
           garageId,
           garageName,

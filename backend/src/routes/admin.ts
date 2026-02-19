@@ -334,7 +334,7 @@ router.post('/admin/garages/:garageId/activate', authenticateApiKey, requireAdmi
       headers['x-onboarding-secret'] = onboardingSecret;
     }
 
-    const response = await fetch(onboardingEndpoint, {
+    const response = await fetch(`${onboardingEndpoint}/provision`, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -628,7 +628,14 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     // 5. Activate with Twilio (provision SIP trunk) - ONLY if Twilio number provided
     if (parsed.data.twilioNumber) {
       const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
-      const agentName = 'receptionmate-agent';
+      // Get agent configuration to determine which agent version to use
+      const agentConfig = await prisma.agentConfiguration.findUnique({
+        where: { garageId: garage.id },
+        select: { agentScript: true },
+      });
+      const agentName = agentConfig?.agentScript === 'receptionmate-agent-v3' 
+        ? 'receptionmate-agent-v3' 
+        : 'receptionmate-agent';
       const onboardingSecret = process.env.ONBOARDING_SECRET;
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };

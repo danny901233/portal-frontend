@@ -2460,9 +2460,17 @@ class SupervisorAgent(Agent):
             # Check if we have the caller's phone number from SIP
             phone_prompt = ""
             if self._state.caller_phone:
+                # Auto-populate contact_phone with caller's number
+                self._state.contact_phone = self._state.caller_phone
+                logger.info(f"[SELECT_TIMESLOT] Auto-populated contact_phone: {self._state.caller_phone}")
+                
                 # Extract last 3 digits for confirmation
                 last_digits = self._state.caller_phone[-3:]
-                phone_prompt = f"Say: 'I've got your number ending in {last_digits}, is that the best one for you?'"
+                phone_prompt = (
+                    f"Say: 'I've got your number ending in {last_digits}, is that the best one for you?'\n"
+                    f"If they say YES/that's fine/correct: move directly to asking for email.\n"
+                    f"If they give a DIFFERENT number: ask them to repeat it clearly, then move to email."
+                )
             else:
                 phone_prompt = "ask: 'What's the best number for you?'"
 
@@ -2473,7 +2481,6 @@ class SupervisorAgent(Agent):
                 f"otherwise {phone_prompt}\n"
                 "When they give their surname, call update_caller_name(last_name='...') to save it, "
                 "then KEEP addressing them by their FIRST name — not the surname.\n"
-                "If they confirm the number ending in digits is correct, store the full caller number in contact_phone.\n"
                 "Collect ONE field at a time: surname → phone → email → postcode (call validate_address) → house number.\n"
                 "You MUST collect ALL five fields AND call validate_address BEFORE calling submit_booking.\n"
                 "Do NOT call submit_booking until you have phone, email, postcode, AND house number."

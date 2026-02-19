@@ -8,13 +8,17 @@ work with CallState + GH client and return directives/JSON for Leah to action.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
+import time
 from contextlib import suppress
 from datetime import timedelta
 from pathlib import Path
 from typing import Optional
+
+import requests
 
 from livekit.agents import (
     Agent,
@@ -98,12 +102,88 @@ ELEVEN_SPEAKER_BOOST = os.getenv("ELEVEN_USE_SPEAKER_BOOST", "true").lower() == 
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 ERROR_LOG_EXCEL_PATH = os.getenv("ERROR_LOG_EXCEL_PATH")
 
+# Portal logging configuration
+PORTAL_API_URL = os.getenv("PORTAL_API_URL", "https://portal.receptionmate.co.uk/api/calls")
+PORTAL_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "optional-shared-secret")
+RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()
+
 TRANSCRIPT_HISTORY_LIMIT = 8
 TRANSCRIPT_COMMIT_DEBOUNCE = 0.5
 
 # Log Service Expert configuration
 logger.info("[SETUP] Service Expert: model=%s, timeout=%dms, threshold=%.2f, cache=%d", 
             SERVICE_EXPERT_MODEL, SERVICE_EXPERT_TIMEOUT_MS, SERVICE_EXPERT_CONFIDENCE_THRESHOLD, SERVICE_EXPERT_CACHE_SIZE)
+
+# ---------------------------------------------------------------------------
+# Portal logging
+# ---------------------------------------------------------------------------
+
+async def log_call_to_portal(
+    garage_id: str,
+    room_name: str,
+    duration_seconds: int,
+    transcript: list[dict],
+    summary: str,
+    customer_name: str,
+    customer_phone: str,
+    customer_email: str,
+    call_type: str,
+    registration_number: str = "",
+    vehicle_make: str = "",
+    vehicle_model: str = "",
+    service_name: str = "",
+    booking_date: str = "",
+    booking_time: str = "",
+    message: str = "",
+) -> None:
+    """Log completed call to portal backend.
+    
+    Only logs calls that are 55+ seconds to avoid spam from wrong numbers.
+    """
+    if duration_seconds < 55:
+        logger.info(
+            f"[PORTAL] Skipping portal log for short call ({duration_seconds}s < 55s)"
+        )
+        return
+
+    try:
+        payload = {
+            "garageId": garage_id,
+            "roomName": room_name,
+            "durationSeconds": duration_seconds,
+            "transcript": transcript,
+            "summary": summary,
+            "customerName": customer_name,
+            "customerPhone": customer_phone,
+            "customerEmail": customer_email,
+            "callType": call_type,
+            "registrationNumber": registration_number,
+            "vehicleMake": vehicle_make,
+            "vehicleModel": vehicle_model,
+            "serviceName": service_name,
+            "bookingDate": booking_date,
+            "bookingTime": booking_time,
+            "message": message,
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-Webhook-Secret": PORTAL_WEBHOOK_SECRET,
+        }
+
+        logger.info(f"[PORTAL] Sending call log to {PORTAL_API_URL}")
+        response = requests.post(
+            PORTAL_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+        logger.info(f"[PORTAL] Successfully logged call: {response.status_code}")
+
+    except Exception as e:
+        logger.error(f"[PORTAL] Failed to log call: {e}")
+
 
 # ---------------------------------------------------------------------------
 # Helper prompt builder
@@ -442,6 +522,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     commit_task: asyncio.Task | None = None
     last_final: str = ""
+    call_start_time = time.time()
 
     @session.on("user_input_transcribed")
     def _on_transcript(event) -> None:
@@ -483,6 +564,74 @@ async def entrypoint(ctx: JobContext) -> None:
             session.commit_user_turn()
         except asyncio.CancelledError:
             return
+
+    @ctx.room.on("participant_disconnected")
+    def _on_caller_left(participant) -> None:
+        logger.info(f"[LIFECYCLE] Caller disconnected: {participant.identity}. Logging call and shutting down job for clean session isolation.")
+
+        async def _log_and_shutdown() -> None:
+            try:
+                # Calculate call duration
+                call_duration = int(time.time() - call_start_time)
+                
+                # Build transcript from state.recent_transcripts
+                # Supervisor doesn't distinguish roles in recent_transcripts, so we format as customer utterances
+                transcript = [{"role": "customer", "text": text} for text in state.recent_transcripts]
+                
+                # Build summary from call state
+                customer_name = f"{state.customer_name_first} {state.customer_name_last}".strip()
+                
+                summary_parts = []
+                if state.intent:
+                    summary_parts.append(f"Intent: {state.intent}")
+                if state.vrn:
+                    summary_parts.append(f"Vehicle: {state.vrn}")
+                if state.vehicle_make and state.vehicle_model:
+                    summary_parts.append(f"({state.vehicle_make} {state.vehicle_model})")
+                if state.service_selected_name:
+                    summary_parts.append(f"Service: {state.service_selected_name}")
+                if state.booking_date and state.booking_time:
+                    summary_parts.append(f"Booking: {state.booking_date} at {state.booking_time}")
+                if state.message:
+                    summary_parts.append(f"Message: {state.message}")
+                
+                summary = " | ".join(summary_parts) if summary_parts else "Call completed"
+                
+                # Determine call type
+                call_type = state.intent if state.intent in ["booking", "quote", "message"] else "unknown"
+                
+                # Format booking details if available
+                booking_date_str = ""
+                booking_time_str = ""
+                if state.booking_date and state.booking_time:
+                    booking_date_str = state.booking_date
+                    booking_time_str = state.booking_time
+                
+                # Log to portal
+                await log_call_to_portal(
+                    garage_id=garage_id,
+                    room_name=room_name,
+                    duration_seconds=call_duration,
+                    transcript=transcript,
+                    summary=summary,
+                    customer_name=customer_name,
+                    customer_phone=state.contact_phone,
+                    customer_email=state.contact_email,
+                    call_type=call_type,
+                    registration_number=state.vrn,
+                    vehicle_make=state.vehicle_make,
+                    vehicle_model=state.vehicle_model,
+                    service_name=state.service_selected_name,
+                    booking_date=booking_date_str,
+                    booking_time=booking_time_str,
+                    message=state.message,
+                )
+            except Exception as e:
+                logger.error(f"[PORTAL] Failed to log call: {e}")
+            finally:
+                ctx.shutdown("caller_disconnected")
+        
+        asyncio.create_task(_log_and_shutdown())
 
     try:
         await session.start(room=ctx.room, agent=supervisor)

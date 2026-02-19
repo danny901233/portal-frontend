@@ -161,6 +161,7 @@ export const updateAgentConfiguration = async (
   if (!targetGarageId) {
     throw new Error("Missing garage id. Log in again or set a default garage id.");
   }
+  console.log('FRONTEND API UPDATE: Sending payload with agentScript:', payload.agentScript);
   const { data } = await api.put<AgentConfigurationResponse>(
     `/api/garages/${targetGarageId}/agent-config`,
     payload

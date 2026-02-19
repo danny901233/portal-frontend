@@ -124,7 +124,7 @@ model AgentConfiguration {
   integrationProvider String  @default("none")
   integrationProviderConfig Json?
   agentType         String   @default("assist")
-  agentScript       String   @default("basic_agent2.py")
+  agentScript       String   @default("receptionmate-agent")
   enableSmsBookingLinks Boolean @default(true)
   voice             String   @default("leah")
   createdAt         DateTime @default(now())

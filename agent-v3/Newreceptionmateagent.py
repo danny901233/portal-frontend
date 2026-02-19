@@ -938,7 +938,7 @@ class CallState:
     vrn_partial: str = ""  # accumulates partial VRN segments while caller spells it out
     vrn_pending: str = ""  # normalized VRN awaiting caller confirmation before API lookup
     booking_submit_pending: bool = False  # True when submit_booking failed and needs retry
-    recent_transcripts: list[str] = field(default_factory=list)
+    recent_transcripts: list[dict] = field(default_factory=list)  # {"speaker": "customer"|"agent", "text": "..."}
 
 
 # ============================================================
@@ -1581,7 +1581,7 @@ class SupervisorAgent(Agent):
                 )
 
             # Guard: verify the caller actually said this name (as a whole word)
-            all_speech = " ".join(self._state.recent_transcripts).lower()
+            all_speech = " ".join([t.get("text", "") if isinstance(t, dict) else t for t in self._state.recent_transcripts]).lower()
             # Check as whole word to avoid matching "v" inside "service"
             speech_words = set(re.findall(r"[a-z]+", all_speech))
             if first and first.lower() not in speech_words:
@@ -2923,6 +2923,8 @@ CHANGE OF MIND: Booking↔Message works both ways."""
         if self._agent_session:
             greeting = get_dynamic_greeting(AGENT_BRANCH_NAME)
             self._agent_session.say(text=greeting, allow_interruptions=True)
+            # Track agent speech in transcript
+            self._state.recent_transcripts.append({"speaker": "agent", "text": greeting})
             logger.info("[SUPERVISOR] Delivered greeting via session.say()")
 
 
@@ -2955,6 +2957,8 @@ async def entrypoint(ctx: JobContext):
     supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name)
 
     # Create session — low-latency config with ElevenLabs TTS
+    # Note: Agent speech captured via conversation_item_added event (see below)
+    
     session = AgentSession(
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
@@ -2983,7 +2987,7 @@ async def entrypoint(ctx: JobContext):
 
     # ── Transcript tracker ─────────────────────────────────────
     # Automatic turn detection via MultilingualModel handles end-of-turn.
-    # This handler only tracks recent transcripts for save_caller_name validation.
+    # This handler tracks both customer and agent speech for full transcript.
     _last_final: str = ""
 
     @session.on("user_input_transcribed")
@@ -3001,12 +3005,35 @@ async def entrypoint(ctx: JobContext):
         curr = text.lower().rstrip(".")
         if prev and prev in curr:
             if state.recent_transcripts:
-                state.recent_transcripts[-1] = text
+                state.recent_transcripts[-1] = {"speaker": "customer", "text": text}
             logger.info(f"[TRANSCRIPT] Replaced overlapping final: '{_last_final}' → '{text}'")
         else:
-            state.recent_transcripts.append(text)
+            state.recent_transcripts.append({"speaker": "customer", "text": text})
 
         _last_final = text
+
+    @session.on("conversation_item_added")
+    def _on_conversation_item_added(ev):
+        """Track agent's spoken responses via conversation items (basic_agent2.py pattern)."""
+        if not hasattr(ev, "item"):
+            return
+        
+        text_content = (getattr(ev.item, "text_content", None) or "").strip()
+        if not text_content:
+            return
+        
+        role = getattr(ev.item, "role", "") or "assistant"
+        
+        # Skip user messages (already captured via user_input_transcribed)
+        if role == "user":
+            return
+        
+        # Capture assistant messages (agent speech)
+        if role == "assistant":
+            # Deduplicate - avoid adding the same response twice
+            if not state.recent_transcripts or state.recent_transcripts[-1].get("text") != text_content:
+                state.recent_transcripts.append({"speaker": "agent", "text": text_content})
+                logger.info(f"[TRANSCRIPT] Agent speech captured via conversation_item_added: {text_content[:100]}...")
 
     # Start session with BVC Telephony noise cancellation
     logger.info("[ENTRYPOINT] Starting session with SupervisorAgent + BVCTelephony noise cancellation")
@@ -3073,15 +3100,17 @@ async def entrypoint(ctx: JobContext):
                 # Portal expects: speaker, text, timestamp
                 transcript = [
                     {
-                        "speaker": "customer",
-                        "text": text,
+                        "speaker": t.get("speaker", "customer") if isinstance(t, dict) else "customer",
+                        "text": t.get("text", t) if isinstance(t, dict) else t,
                         "timestamp": i * 5.0  # Approximate timestamps
                     }
-                    for i, text in enumerate(state.recent_transcripts)
+                    for i, t in enumerate(state.recent_transcripts)
                 ]
                 
                 # Generate GPT-powered summary
-                summary = await generate_call_summary(state, state.recent_transcripts)
+                # Extract just text from transcript entries for summary generation
+                transcript_texts = [t.get("text", t) if isinstance(t, dict) else t for t in state.recent_transcripts]
+                summary = await generate_call_summary(state, transcript_texts)
                 
                 # Determine call type based on dashboard categories
                 # Categories: "general enquiry", "confirmed booking", "update", "internal", "complaint", "human request", "other"

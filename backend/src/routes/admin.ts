@@ -687,7 +687,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     });
 
     // 7. Send welcome email with login credentials
-    const portalUrl = process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.ai';
+    const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
     await sendWelcomeEmail({
       to: parsed.data.userEmail,
       businessName: parsed.data.businessName,

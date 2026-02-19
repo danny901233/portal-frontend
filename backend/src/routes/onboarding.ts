@@ -373,6 +373,15 @@ router.post('/onboarding/create-business', authenticateApiKey, async (req, res) 
           headers['x-onboarding-secret'] = onboardingSecret;
         }
 
+        // Get agent configuration to determine which agent version to use
+        const agentConfig = await prisma.agentConfiguration.findUnique({
+          where: { garageId: garage.id },
+          select: { agentScript: true },
+        });
+        const agentName = agentConfig?.agentScript === 'receptionmate-agent-v3' 
+          ? 'receptionmate-agent-v3' 
+          : 'receptionmate-agent';
+
         const response = await fetch(`${onboardingUrl}/provision`, {
           method: 'POST',
           headers,
@@ -382,7 +391,7 @@ router.post('/onboarding/create-business', authenticateApiKey, async (req, res) 
             branchName,
             contactEmail,
             twilioNumber,
-            agentName: 'receptionmate-agent',
+            agentName,
             triggeredAt: new Date().toISOString(),
           }),
         });

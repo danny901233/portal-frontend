@@ -165,7 +165,11 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
-    agentScript: config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent',
+    agentScript: 
+      config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
+      (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
+      (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
+      'receptionmate-agent',
     voice: config.voice ?? 'leah',
   };
 };
@@ -195,7 +199,12 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
-    agentScript: (configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent'),
+    agentScript: (
+      configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
+      (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
+      (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
+      'receptionmate-agent'
+    ),
     ...parseIntegrationSettings(
       configuration.integrationProvider,
       configuration.integrationProviderConfig,
@@ -414,6 +423,8 @@ router.get(
     ]);
 
     const configuration = buildConfigurationResponse(configurationRecord);
+    console.log('[GET_AGENT_CONFIG] Raw agentScript from DB:', configurationRecord?.agentScript);
+    console.log('[GET_AGENT_CONFIG] Normalized agentScript:', configuration.agentScript);
     const knowledgeBase = await loadKnowledgeBase(garageId);
 
     return res.json({
@@ -518,6 +529,15 @@ router.put(
 
     if (!allowedGarages.includes(garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // Migrate old agentScript values before validation
+    if (req.body.agentScript === 'Newreceptionmateagent.py') {
+      console.log('[MIGRATION] Converting Newreceptionmateagent.py -> receptionmate-agent-v3');
+      req.body.agentScript = 'receptionmate-agent-v3';
+    } else if (req.body.agentScript === 'basic_agent2.py') {
+      console.log('[MIGRATION] Converting basic_agent2.py -> receptionmate-agent');
+      req.body.agentScript = 'receptionmate-agent';
     }
 
     const parseResult = upsertAgentConfigurationSchema.safeParse(req.body);

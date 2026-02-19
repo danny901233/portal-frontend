@@ -206,6 +206,9 @@ export default function AgentConfigurationsPage() {
     queryKey: ['agent-config', garageId],
     queryFn: () => fetchAgentConfiguration(garageId ?? undefined),
     enabled: Boolean(garageId),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
   });
 
   const mutation = useMutation({
@@ -743,6 +746,7 @@ export default function AgentConfigurationsPage() {
     if (!isEditing || mutation.isPending) {
       return;
     }
+    console.log('FRONTEND SUBMIT: Sending agentScript:', formState.agentScript);
     mutation.mutate(formState);
   };
 

@@ -202,16 +202,19 @@ async function createLiveKitSipTrunk(
       agentName?.trim() ||
       'receptionmate-agent';
 
+    // Normalize phone number: remove +, spaces, and any other non-digit characters
+    const normalizedPhoneNumber = twilioNumber.replace(/[\s\+\-\(\)]/g, '');
+
     // Create SIP inbound trunk with both garage ID and phone number as identifiers
     const trunk = await livekitSipClient.createSipInboundTrunk(
       `${garageName} (${garageId})`,
-      [garageId, twilioNumber.replace('+', '')],
+      [garageId, normalizedPhoneNumber],
       {
         krispEnabled: true,
         metadata: JSON.stringify({
           garageId,
           garageName,
-          twilioNumber: twilioNumber.replace('+', ''),
+          twilioNumber: normalizedPhoneNumber,
           createdAt: new Date().toISOString(),
         }),
       }

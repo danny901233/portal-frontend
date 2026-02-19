@@ -3059,6 +3059,15 @@ async def entrypoint(ctx: JobContext):
                 state.recent_transcripts.append({"speaker": "agent", "text": text_content})
                 logger.info(f"[TRANSCRIPT] Agent speech captured via conversation_item_added: {text_content[:100]}...")
 
+    # ── Capture caller's phone number from SIP participant ───────
+    @ctx.room.on("participant_connected")
+    def _on_participant_connected(participant):
+        """Extract caller's phone number from SIP participant identity at call start."""
+        if participant.identity and participant.identity.startswith("sip_"):
+            caller_number = participant.identity[4:]  # Remove "sip_" prefix
+            state.caller_phone = caller_number
+            logger.info(f"[CALLER] Incoming call from: {caller_number}")
+
     # Start session with BVC Telephony noise cancellation
     logger.info("[ENTRYPOINT] Starting session with SupervisorAgent + BVCTelephony noise cancellation")
     await session.start(
@@ -3071,15 +3080,6 @@ async def entrypoint(ctx: JobContext):
         ),
     )
     logger.info("[ENTRYPOINT] Session started — supervisor system ready")
-
-    # ── Capture caller's phone number from SIP participant ───────
-    @ctx.room.on("participant_connected")
-    def _on_participant_connected(participant):
-        """Extract caller's phone number from SIP participant identity at call start."""
-        if participant.identity and participant.identity.startswith("sip_"):
-            caller_number = participant.identity[4:]  # Remove "sip_" prefix
-            state.caller_phone = caller_number
-            logger.info(f"[CALLER] Incoming call from: {caller_number}")
 
     # ── Session isolation: shutdown when caller hangs up ───────
     # Prevents stale conversation context (chat history, turn detector state)

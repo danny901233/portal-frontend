@@ -192,8 +192,14 @@ router.post('/calls', async (req: Request, res: Response) => {
       update: {},
     });
 
-    // Use AI classification from agent directly (no pattern matching override)
-    const callType = payload.callType || 'unknown';
+    // Determine call type:
+    // If confirmedBooking is true, always classify as "confirmed booking"
+    // Otherwise use the AI classification from the agent
+    let callType = payload.callType || 'unknown';
+    if (payload.confirmedBooking === true) {
+      callType = 'confirmed booking';
+      console.log(`[CALL] Overriding callType to "confirmed booking" based on confirmedBooking=true`);
+    }
 
     const callId = await generateUniqueCallId();
 

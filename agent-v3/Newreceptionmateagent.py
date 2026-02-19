@@ -3063,10 +3063,13 @@ async def entrypoint(ctx: JobContext):
     @ctx.room.on("participant_connected")
     def _on_participant_connected(participant):
         """Extract caller's phone number from SIP participant identity at call start."""
+        logger.info(f"[CALLER] Participant connected: identity={participant.identity}, name={participant.name}")
         if participant.identity and participant.identity.startswith("sip_"):
             caller_number = participant.identity[4:]  # Remove "sip_" prefix
             state.caller_phone = caller_number
-            logger.info(f"[CALLER] Incoming call from: {caller_number}")
+            logger.info(f"[CALLER] Extracted phone from SIP: {caller_number}")
+        else:
+            logger.warning(f"[CALLER] Could not extract phone - identity format unexpected: {participant.identity}")
 
     # Start session with BVC Telephony noise cancellation
     logger.info("[ENTRYPOINT] Starting session with SupervisorAgent + BVCTelephony noise cancellation")

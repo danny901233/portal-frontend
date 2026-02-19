@@ -74,6 +74,9 @@ const BOOKING_CONFIRMED_PATTERNS = [
   /\blook forward to seeing you\b/i,
   /\byour (?:booking|appointment) is set for\b/i,
   /\bconfirmed for (?:today|tomorrow|monday|tuesday|wednesday|thursday|friday)\b/i,
+  /\bsubmit_booking.*(?:confirmed|success)/i,
+  /\bBOOKING CONFIRMED\b/i,
+  /\bthat'?s all booked in\b/i,
 ];
 
 const BOOKING_FAILED_PATTERNS = [

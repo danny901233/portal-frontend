@@ -916,6 +916,7 @@ class CallState:
     booking_time: str = ""
 
     # Contact
+    caller_phone: str = ""  # Incoming caller's phone number from SIP
     contact_phone: str = ""
     contact_email: str = ""
     house_name_or_number: str = ""
@@ -2456,13 +2457,23 @@ class SupervisorAgent(Agent):
             if not self._state.customer_name_last:
                 surname_note = "IMPORTANT: No surname on file yet. Ask 'And your surname?' first.\n"
 
+            # Check if we have the caller's phone number from SIP
+            phone_prompt = ""
+            if self._state.caller_phone:
+                # Extract last 3 digits for confirmation
+                last_digits = self._state.caller_phone[-3:]
+                phone_prompt = f"Say: 'I've got your number ending in {last_digits}, is that the best one for you?'"
+            else:
+                phone_prompt = "ask: 'What's the best number for you?'"
+
             return (
                 f"Timeslot set: {booking_date} at {booking_time}.\n"
                 f"{surname_note}"
-                "Say: 'Lovely. I just need a couple of details.' then ask for their surname if missing, "
-                "otherwise ask: 'What's the best number for you?'\n"
+                f"Say: 'Lovely. I just need a couple of details.' then ask for their surname if missing, "
+                f"otherwise {phone_prompt}\n"
                 "When they give their surname, call update_caller_name(last_name='...') to save it, "
                 "then KEEP addressing them by their FIRST name — not the surname.\n"
+                "If they confirm the number ending in digits is correct, store the full caller number in contact_phone.\n"
                 "Collect ONE field at a time: surname → phone → email → postcode (call validate_address) → house number.\n"
                 "You MUST collect ALL five fields AND call validate_address BEFORE calling submit_booking.\n"
                 "Do NOT call submit_booking until you have phone, email, postcode, AND house number."
@@ -2573,6 +2584,12 @@ class SupervisorAgent(Agent):
             first = self._state.customer_name_first
             last = self._state.customer_name_last
             phone = _sanitise_phone((phone or "").strip())
+            
+            # If no phone provided but we have caller_phone from SIP, use that
+            if not phone and self._state.caller_phone:
+                phone = _sanitise_phone(self._state.caller_phone)
+                logger.info(f"[SUBMIT_BOOKING] Using caller_phone as fallback: {phone}")
+            
             email = _sanitise_email((email or "").strip().replace(" ", "").lower())
             house_name_or_number = (house_name_or_number or "").strip()
             postcode = (postcode or "").strip()
@@ -3047,6 +3064,15 @@ async def entrypoint(ctx: JobContext):
         ),
     )
     logger.info("[ENTRYPOINT] Session started — supervisor system ready")
+
+    # ── Capture caller's phone number from SIP participant ───────
+    @ctx.room.on("participant_connected")
+    def _on_participant_connected(participant):
+        """Extract caller's phone number from SIP participant identity at call start."""
+        if participant.identity and participant.identity.startswith("sip_"):
+            caller_number = participant.identity[4:]  # Remove "sip_" prefix
+            state.caller_phone = caller_number
+            logger.info(f"[CALLER] Incoming call from: {caller_number}")
 
     # ── Session isolation: shutdown when caller hangs up ───────
     # Prevents stale conversation context (chat history, turn detector state)

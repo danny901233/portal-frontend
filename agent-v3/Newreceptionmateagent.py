@@ -1603,24 +1603,42 @@ class SupervisorAgent(Agent):
                 self._state.intent = "message"
                 self._state.step = Step.MESSAGE_ONLY
                 person_mention = f" for {requested}" if requested else ""
+                
+                # Build phone confirmation prompt
+                phone_instruction = ""
+                if self._state.caller_phone:
+                    last_digits = self._state.caller_phone[-3:]
+                    phone_instruction = f"confirm phone ('Is that the number ending in {last_digits}?')"
+                else:
+                    phone_instruction = "collect phone number"
+                
                 return (
                     f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
                     f"Address the caller as '{first}' (FIRST name only).\n"
                     f"Say naturally: 'Unfortunately the team aren't available at the moment — they're likely helping other customers. "
                     f"However, I can help you with bookings, or I can take a message and get someone to give you a ring back. Which would you prefer?'\n"
                     f"If they want a booking → switch to booking flow (ask what work they need).\n"
-                    f"If they want a message → ask 'What would you like the team to know?' then collect phone number and take_message."
+                    f"If they want a message → ask 'What would you like the team to know?' then {phone_instruction} and take_message."
                 )
 
             # Message path
             if resolved in ("message", "enquiry", "reschedule", "cancel", "complaint", "question"):
                 self._state.intent = "message"
                 self._state.step = Step.MESSAGE_ONLY
+                
+                # Build phone confirmation prompt
+                phone_instruction = ""
+                if self._state.caller_phone:
+                    last_digits = self._state.caller_phone[-3:]
+                    phone_instruction = f"Then confirm their phone: 'Is that the number ending in {last_digits}?' If yes, note it. If different, collect the new number."
+                else:
+                    phone_instruction = "Then collect their phone number."
+                
                 return (
                     f"Name saved: {first} {last}. Intent: message.\n"
                     f"Address the caller as '{first}' (FIRST name only — never use their surname to greet them).\n"
                     "Now take their message. Ask: 'What would you like the team to know?'\n"
-                    "Then collect their phone number and preferred callback time."
+                    f"{phone_instruction} Then ask for preferred callback time."
                 )
 
             # Vehicle update path — caller wants status on a vehicle already at the garage
@@ -1628,6 +1646,15 @@ class SupervisorAgent(Agent):
             if resolved in ("vehicle_update", "update", "status", "progress"):
                 self._state.intent = "vehicle_update"
                 self._state.step = Step.MESSAGE_ONLY
+                
+                # Build phone confirmation prompt
+                phone_instruction = ""
+                if self._state.caller_phone:
+                    last_digits = self._state.caller_phone[-3:]
+                    phone_instruction = f"confirm their phone ('Is that the number ending in {last_digits}?')"
+                else:
+                    phone_instruction = "collect their phone number"
+                
                 if vrn:
                     # Normalize and store the registration
                     self._state.vrn = normalize_vehicle_registration(vrn)
@@ -1636,13 +1663,13 @@ class SupervisorAgent(Agent):
                         f"Address the caller as '{first}' (FIRST name only).\n"
                         f"Registration: {self._state.vrn}\n"
                         "Say: 'No problem, let me check on that for you. What would you like to know?'\n"
-                        "Then collect their message, phone number, and call take_message."
+                        f"Then collect their message, {phone_instruction}, and call take_message."
                     )
                 return (
                     f"Name saved: {first} {last}. Intent: vehicle update.\n"
                     f"Address the caller as '{first}' (FIRST name only).\n"
                     "Say: 'No problem. Could I grab your registration first?'\n"
-                    "Then collect registration, message, phone number, and call take_message."
+                    f"Then collect registration, message, {phone_instruction}, and call take_message."
                 )
 
             # Booking / quote path

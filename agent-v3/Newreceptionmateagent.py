@@ -1559,6 +1559,16 @@ class SupervisorAgent(Agent):
             vrn: vehicle registration if the caller already gave it.
             requested_person: name of person they asked for (e.g. 'John', 'manager', 'human')."""
 
+            # Allow starting a new interaction if the previous one is complete
+            if self._state.step == Step.DONE:
+                logger.info("[SAVE_NAME] Resetting state from DONE to start new interaction")
+                self._state.step = Step.GREETING
+                # Keep the caller's phone number but reset other fields
+                caller_phone = self._state.caller_phone
+                self._state = CallState()
+                self._state.caller_phone = caller_phone
+                self._state.call_start_time = time.time()
+
             if self._state.step != Step.GREETING:
                 return f"ERROR: Wrong step ({self._state.step.value}). Cannot save name now."
 

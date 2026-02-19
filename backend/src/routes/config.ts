@@ -165,7 +165,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
-    agentScript: config.agentScript === 'Newreceptionmateagent.py' ? 'Newreceptionmateagent.py' : 'basic_agent2.py',
+    agentScript: config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent',
     voice: config.voice ?? 'leah',
   };
 };
@@ -195,6 +195,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
+    agentScript: (configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent'),
     ...parseIntegrationSettings(
       configuration.integrationProvider,
       configuration.integrationProviderConfig,
@@ -477,6 +478,37 @@ const sendAgentConfigWebhook = async (garageId: string) => {
   }
 };
 
+const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3') => {
+  const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
+  if (!onboardingUrl) {
+    console.log('[UPDATE_SIP] No onboarding service URL configured');
+    return;
+  }
+
+  try {
+    const agentName = agentScript;
+
+    const onboardingSecret = process.env.ONBOARDING_SECRET;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (onboardingSecret) {
+      headers['x-onboarding-secret'] = onboardingSecret;
+    }
+
+    console.log(`[UPDATE_SIP] Updating dispatch rule for garage ${garageId} to agent: ${agentName}`);
+
+    await fetch(`${onboardingUrl}/update-agent`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        garageId,
+        agentName,
+      }),
+    });
+  } catch (error) {
+    console.error('[UPDATE_SIP] Failed to update SIP dispatch rule:', error);
+  }
+};
+
 router.put(
   '/garages/:garageId/agent-config',
   authenticate,
@@ -499,7 +531,7 @@ router.put(
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
     let resolvedAgentType: 'assist' | 'automate' = data.agentType === 'automate' ? 'automate' : 'assist';
-    let resolvedAgentScript: 'basic_agent2.py' | 'Newreceptionmateagent.py' = data.agentScript === 'Newreceptionmateagent.py' ? 'Newreceptionmateagent.py' : 'basic_agent2.py';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' = data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
 
     if (!canEditAgentType) {
       const existingConfig = await prisma.agentConfiguration.findUnique({
@@ -507,7 +539,7 @@ router.put(
         select: { agentType: true, agentScript: true },
       });
       resolvedAgentType = existingConfig?.agentType === 'automate' ? 'automate' : 'assist';
-      resolvedAgentScript = existingConfig?.agentScript === 'Newreceptionmateagent.py' ? 'Newreceptionmateagent.py' : 'basic_agent2.py';
+      resolvedAgentScript = existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
     }
 
     const normalizedWeeklyOpeningHours = data.weeklyOpeningHours
@@ -564,6 +596,11 @@ router.put(
       voice: data.voice || 'leah',
     };
 
+    const existingConfig = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { agentScript: true },
+    });
+
     const [configuration, garageRecord] = await Promise.all([
       prisma.agentConfiguration.upsert({
         where: { garageId },
@@ -580,6 +617,11 @@ router.put(
     ]);
 
     void sendAgentConfigWebhook(garageId);
+
+    // If agentScript changed and garage has Twilio number, update SIP dispatch rule
+    if (existingConfig && existingConfig.agentScript !== resolvedAgentScript && garageRecord?.twilioNumber) {
+      void updateSipDispatchRule(garageId, resolvedAgentScript);
+    }
 
     const knowledgeBase = await loadKnowledgeBase(garageId);
 

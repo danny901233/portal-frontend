@@ -109,7 +109,7 @@ export type AgentConfigurationPayload = {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   agentType: AgentType;
-  agentScript?: 'basic_agent2.py' | 'Newreceptionmateagent.py';
+  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3';
   enableSmsBookingLinks?: boolean;
   voice?: VoiceOption;
 };

@@ -186,7 +186,7 @@ export const upsertAgentConfigurationSchema = z.object({
   integrationProvider: z.enum(['none', 'garage_hive']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
   agentType: z.enum(['assist', 'automate']).optional(),
-  agentScript: z.enum(['basic_agent2.py', 'Newreceptionmateagent.py']).optional(),
+  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
 }).superRefine((value, ctx) => {

@@ -1712,11 +1712,21 @@ class SupervisorAgent(Agent):
                     )
                 return f"ERROR: Wrong step ({self._state.step.value}). Vehicle lookup not needed now."
 
+            # Prevent lookup_vehicle on vehicle updates - use collect_registration_for_message instead
+            if self._state.step == Step.MESSAGE_ONLY and self._state.intent == "vehicle_update":
+                return (
+                    "WRONG TOOL: This is a vehicle update (message), not a booking.\n"
+                    "DO NOT call lookup_vehicle for vehicle updates.\n"
+                    "Instead, call collect_registration_for_message(reg='...') to store the registration,\n"
+                    "then collect the message and call take_message."
+                )
+
             # Intent recovery: caller was on message path but actually wants to book
             if self._state.step == Step.MESSAGE_ONLY:
                 self._state.intent = "new_booking"
                 self._state.step = Step.NEED_VRN
                 logger.info("[LOOKUP] Intent recovery: MESSAGE_ONLY → NEED_VRN (caller wants to book)")
+
 
             # ── STEP 2: Caller confirmed — do the actual API lookup ──
             if confirmed:

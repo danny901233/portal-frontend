@@ -34,6 +34,7 @@ export const createCallSchema = z
     summary: z.string().min(1),
     customerName: z.string().min(1).optional(),
     customerPhone: z.string().min(1).optional(),
+    fromNumber: z.string().min(1).optional(),
     registrationNumber: z.string().min(1).optional(),
     registration: z.string().min(1).optional(),
     vehicleRegistration: z.string().min(1).optional(),

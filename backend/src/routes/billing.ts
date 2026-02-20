@@ -298,10 +298,18 @@ router.post(
   authenticate,
   requireStaff,
   async (req: Request, res: Response) => {
+    const { invoiceId } = req.params;
+    
     try {
-      const { invoiceId } = req.params;
+      console.log('[BILLING] Creating payment for invoice:', invoiceId);
 
       const result = await createPaymentForInvoice(invoiceId);
+
+      console.log('[BILLING] Payment created successfully:', {
+        invoiceId,
+        paymentId: result.payment.id,
+        amount: result.payment.amount,
+      });
 
       res.json({
         success: true,
@@ -313,7 +321,12 @@ router.post(
         },
       });
     } catch (error) {
-      console.error('Failed to create payment:', error);
+      console.error('[BILLING] Failed to create payment for invoice:', invoiceId);
+      console.error('[BILLING] Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        error,
+      });
       res.status(500).json({
         error: error instanceof Error ? error.message : 'Failed to create payment',
       });

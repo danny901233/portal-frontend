@@ -394,6 +394,63 @@ if PORTAL_GARAGE_ID:
 else:
     logger.info("[MODULE_INIT] No PORTAL_GARAGE_ID set, using .env configuration")
 
+# ============================================================
+# OPENING HOURS CHECKER
+# ============================================================
+
+def is_garage_currently_open() -> tuple[bool, str]:
+    """Check if the garage is currently open based on weeklyOpeningHours configuration.
+    Returns (is_open: bool, message: str explaining the status)"""
+    
+    opening_hours = AGENT_CONFIGURATION.get("weeklyOpeningHours")
+    if not opening_hours or not isinstance(opening_hours, dict):
+        # No opening hours configured - assume always open for bookings
+        return (True, "")
+    
+    now = _current_uk_datetime()
+    day_name = now.strftime("%A").lower()  # monday, tuesday, etc.
+    
+    day_hours = opening_hours.get(day_name)
+    if not day_hours:
+        # Day not in config - assume closed
+        return (False, f"We're currently closed on {now.strftime('%A')}s")
+    
+    # Check if it's a closed day
+    if isinstance(day_hours, dict):
+        if day_hours.get("closed") is True:
+            return (False, f"We're currently closed on {now.strftime('%A')}s")
+        
+        open_time = day_hours.get("open")
+        close_time = day_hours.get("close")
+        
+        if not open_time or not close_time:
+            # No times specified - assume open
+            return (True, "")
+        
+        try:
+            # Parse times (format: "HH:MM")
+            open_hour, open_min = map(int, open_time.split(":"))
+            close_hour, close_min = map(int, close_time.split(":"))
+            
+            current_minutes = now.hour * 60 + now.minute
+            open_minutes = open_hour * 60 + open_min
+            close_minutes = close_hour * 60 + close_min
+            
+            if open_minutes <= current_minutes < close_minutes:
+                return (True, "")
+            else:
+                # Format the opening hours nicely for the message
+                open_12h = f"{open_hour % 12 or 12}:{open_min:02d} {'AM' if open_hour < 12 else 'PM'}"
+                close_12h = f"{close_hour % 12 or 12}:{close_min:02d} {'AM' if close_hour < 12 else 'PM'}"
+                return (False, f"We're currently closed. Our opening hours today are {open_12h} to {close_12h}")
+        except (ValueError, AttributeError):
+            # Malformed time format - assume open
+            return (True, "")
+    
+    # Fallback - assume open
+    return (True, "")
+
+
 # Read environment variable defaults (used as fallback if DynamoDB not configured)
 DEFAULT_GH_CUSTOMER_ID = "devbc24_mpu"
 DEFAULT_GH_LOCATION_ID = "399"
@@ -477,6 +534,22 @@ _DIGIT_WORD_MAP = {
     "three": "3", "tree": "3", "four": "4", "for": "4",
     "five": "5", "fife": "5", "six": "6", "seven": "7",
     "eight": "8", "ate": "8", "nine": "9", "niner": "9",
+    # Compound numbers (10-99) - STT often transcribes as "twenty", "sixty", etc.
+    "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13", "fourteen": "14",
+    "fifteen": "15", "sixteen": "16", "seventeen": "17", "eighteen": "18", "nineteen": "19",
+    "twenty": "20", "thirty": "30", "forty": "40", "fifty": "50",
+    "sixty": "60", "seventy": "70", "eighty": "80", "ninety": "90",
+    # Common compound number patterns (21-29, etc.)
+    "twentyone": "21", "twentytwo": "22", "twentythree": "23", "twentyfour": "24",
+    "twentyfive": "25", "twentysix": "26", "twentyseven": "27", "twentyeight": "28", "twentynine": "29",
+    "thirtyone": "31", "thirtytwo": "32", "thirtythree": "33", "thirtyfour": "34",
+    "thirtyfive": "35", "thirtysix": "36", "thirtyseven": "37", "thirtyeight": "38", "thirtynine": "39",
+    "fortyone": "41", "fortytwo": "42", "fortythree": "43", "fortyfour": "44",
+    "fortyfive": "45", "fortysix": "46", "fortyseven": "47", "fortyeight": "48", "fortynine": "49",
+    "fiftyone": "51", "fiftytwo": "52", "fiftythree": "53", "fiftyfour": "54",
+    "fiftyfive": "55", "fiftysix": "56", "fiftyseven": "57", "fiftyeight": "58", "fiftynine": "59",
+    "sixtyone": "61", "sixtytwo": "62", "sixtythree": "63", "sixtyfour": "64",
+    "sixtyfive": "65", "sixtysix": "66", "sixtyseven": "67", "sixtyeight": "68", "sixtynine": "69",
 }
 
 _ALL_NATO_DIGIT_WORDS: dict[str, str] = {}
@@ -568,6 +641,20 @@ def normalize_vehicle_registration(reg: str) -> str:
         if len(cleaned) == 1:
             converted.append(cleaned.upper())
             continue
+        
+        # Handle compound number patterns like "twenty1" (word + digit)
+        # STT often transcribes "twenty one" as "twenty1", "sixty one" as "sixty1", etc.
+        compound_match = re.match(r"^(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(\d)$", lower)
+        if compound_match:
+            tens_word, ones_digit = compound_match.groups()
+            tens_digit = _DIGIT_WORD_MAP.get(tens_word, "")
+            if tens_digit:
+                # Convert "twenty1" → "21", "sixty3" → "63", etc.
+                compound_number = tens_digit[0] + ones_digit  # "20" + "1" → "21"
+                converted.append(compound_number)
+                logger.info(f"[VRN] Converted compound number: '{cleaned}' → '{compound_number}'")
+                continue
+        
         converted.extend(_scan_nato_blob(cleaned))
     if converted:
         return "".join(converted)
@@ -1620,6 +1707,9 @@ class SupervisorAgent(Agent):
                 self._state.step = Step.MESSAGE_ONLY
                 person_mention = f" for {requested}" if requested else ""
                 
+                # Check opening hours
+                is_open, closed_message = is_garage_currently_open()
+                
                 # Build phone confirmation prompt
                 phone_instruction = ""
                 if self._state.caller_phone:
@@ -1628,9 +1718,22 @@ class SupervisorAgent(Agent):
                 else:
                     phone_instruction = "collect phone number"
                 
+                if not is_open:
+                    # Outside hours - take message first, then inform about closure
+                    return (
+                        f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
+                        f"Caller's name is '{first}' (use sparingly as per system rules).\n"
+                        f"AFTER_HOURS_MODE: {closed_message}\n"
+                        f"Say naturally: 'Unfortunately the team aren't available at the moment. However, I can take a message. What would you like the team to know?'\n"
+                        f"Then collect message and {phone_instruction}.\n"
+                        f"IMPORTANT: Before calling take_message, ADD to the message: 'Note: {closed_message} so the callback will be during opening hours.'\n"
+                        f"Then say: 'As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on.'\n"
+                        f"Then call take_message."
+                    )
+                
                 return (
                     f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
-                    f"Address the caller as '{first}' (FIRST name only).\n"
+                    f"Caller's name is '{first}' (use sparingly as per system rules).\n"
                     f"Say naturally: 'Unfortunately the team aren't available at the moment — they're likely helping other customers. "
                     f"However, I can help you with bookings, or I can take a message and get someone to give you a ring back. Which would you prefer?'\n"
                     f"If they want a booking → switch to booking flow (ask what work they need).\n"
@@ -1642,6 +1745,9 @@ class SupervisorAgent(Agent):
                 self._state.intent = "message"
                 self._state.step = Step.MESSAGE_ONLY
                 
+                # Check opening hours
+                is_open, closed_message = is_garage_currently_open()
+                
                 # Build phone confirmation prompt
                 phone_instruction = ""
                 if self._state.caller_phone:
@@ -1650,9 +1756,22 @@ class SupervisorAgent(Agent):
                 else:
                     phone_instruction = "Then collect their phone number."
                 
+                if not is_open:
+                    # Outside hours - take message first, then inform about closure
+                    return (
+                        f"Name saved: {first} {last}. Intent: message.\n"
+                        f"Caller's name is '{first}' (use sparingly as per system rules).\n"
+                        f"AFTER_HOURS_MODE: {closed_message}\n"
+                        f"Ask: 'What would you like the team to know?'\n"
+                        f"{phone_instruction}\n"
+                        f"IMPORTANT: Before calling take_message, ADD to the message: 'Note: {closed_message} so the callback will be during opening hours.'\n"
+                        f"Then say: 'As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on.'\n"
+                        f"Then call take_message."
+                    )
+                
                 return (
                     f"Name saved: {first} {last}. Intent: message.\n"
-                    f"Address the caller as '{first}' (FIRST name only — never use their surname to greet them).\n"
+                    f"Caller's name is '{first}' (use sparingly as per system rules).\n"
                     "Now take their message. Ask: 'What would you like the team to know?'\n"
                     f"{phone_instruction} Then ask for preferred callback time."
                 )
@@ -1662,6 +1781,9 @@ class SupervisorAgent(Agent):
             if resolved in ("vehicle_update", "update", "status", "progress"):
                 self._state.intent = "vehicle_update"
                 self._state.step = Step.MESSAGE_ONLY
+                
+                # Check opening hours
+                is_open, closed_message = is_garage_currently_open()
                 
                 # Build phone confirmation prompt
                 phone_instruction = ""
@@ -1674,41 +1796,106 @@ class SupervisorAgent(Agent):
                 if vrn:
                     # Normalize and store the registration
                     self._state.vrn = normalize_vehicle_registration(vrn)
+                    if not is_open:
+                        return (
+                            f"Name saved: {first} {last}. Intent: vehicle update.\n"
+                            f"Caller's name is '{first}' (use sparingly as per system rules).\n"
+                            f"Registration: {self._state.vrn}\n"
+                            f"AFTER_HOURS_MODE: {closed_message}\n"
+                            f"Say: 'No problem, I can help with that. What would you like to know about your vehicle?'\n"
+                            f"Then collect their message and {phone_instruction}.\n"
+                            f"IMPORTANT: Before calling take_message, ADD to the message: 'Vehicle update request for {self._state.vrn}. Note: {closed_message} so the callback will be during opening hours.'\n"
+                            f"Then say: 'As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on.'\n"
+                            f"Then call take_message. DO NOT call lookup_vehicle - this is a message, not a booking."
+                        )
                     return (
                         f"Name saved: {first} {last}. Intent: vehicle update.\n"
-                        f"Address the caller as '{first}' (FIRST name only).\n"
+                        f"Caller's name is '{first}' (use sparingly as per system rules).\n"
                         f"Registration: {self._state.vrn}\n"
                         "Say: 'No problem, let me check on that for you. What would you like to know?'\n"
                         f"Then collect their message, {phone_instruction}, and call take_message.\n"
                         "DO NOT call lookup_vehicle - this is a message, not a booking."
                     )
+                
+                if not is_open:
+                    return (
+                        f"Name saved: {first} {last}. Intent: vehicle update.\n"
+                        f"Caller's name is '{first}' (use sparingly as per system rules).\n"
+                        f"AFTER_HOURS_MODE: {closed_message}\n"
+                        f"Say: 'No problem. Could I grab your registration first?'\n"
+                        "When they give it, call collect_registration_for_message(reg='...') to store it.\n"
+                        f"Then ask: 'What would you like to know about your vehicle?'\n"
+                        f"Collect their message and {phone_instruction}.\n"
+                        f"IMPORTANT: Before calling take_message, ADD to the message: 'Vehicle update request. Note: {closed_message} so the callback will be during opening hours.'\n"
+                        f"Then say: 'As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on.'\n"
+                        f"Then call take_message. DO NOT call lookup_vehicle - use collect_registration_for_message instead."
+                    )
                 return (
                     f"Name saved: {first} {last}. Intent: vehicle update.\n"
-                    f"Address the caller as '{first}' (FIRST name only).\n"
+                    f"Caller's name is '{first}' (use sparingly as per system rules).\n"
                     "Say: 'No problem. Could I grab your registration first?'\n"
                     "When they give it, call collect_registration_for_message(reg='...') to store it.\n"
                     f"Then collect their message, {phone_instruction}, and call take_message.\n"
                     "DO NOT call lookup_vehicle - use collect_registration_for_message instead."
                 )
 
-            # Booking / quote path
+            # Check if agent is in ASSIST mode (should not take bookings)
+            agent_type = (AGENT_CONFIGURATION.get("agentType") or "").strip().lower()
+            if agent_type == "assist":
+                # ASSIST MODE: Route all booking requests to message path
+                self._state.intent = "message"
+                self._state.step = Step.MESSAGE_ONLY
+                
+                # Store service hint for the message
+                if service_hint:
+                    self._state.service_hint = service_hint.strip()
+                
+                # Build phone confirmation prompt
+                phone_instruction = ""
+                if self._state.caller_phone:
+                    last_digits = self._state.caller_phone[-3:]
+                    phone_instruction = f"confirm phone ('Is that the number ending in {last_digits}?')"
+                else:
+                    phone_instruction = "collect phone number"
+                
+                booking_context = f" for {service_hint}" if service_hint else ""
+                vrn_context = f" for {vrn}" if vrn else ""
+                
+                return (
+                    f"Name saved: {first} {last}. Intent: booking request{booking_context}{vrn_context}.\n"
+                    f"Address the caller as '{first}' (FIRST name only).\n"
+                    f"⚠️ ASSIST MODE: Cannot take bookings directly.\n"
+                    f"Say naturally: 'I'd love to help you with that{booking_context}. "
+                    f"Let me take down your details and the team will give you a ring back to get that booked in for you. "
+                    f"What would be the best time for them to call you back?'\n"
+                    f"Then {phone_instruction} and call take_message with all the booking details."
+                )
+
+            # Booking / quote path (AUTOMATE MODE only)
             self._state.intent = "quote" if resolved == "quote" else "new_booking"
             if service_hint:
-                self._state.service_hint = service_hint.strip()
+                # Prefix with QUOTE: for quote requests so confirm_vehicle_and_name knows to skip service questions
+                hint = service_hint.strip()
+                self._state.service_hint = f"QUOTE: {hint}" if resolved == "quote" else hint
 
             if vrn:
                 self._state.step = Step.NEED_VRN
                 return (
-                    f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
+                    f"Name saved: {first} {last}. (Name: '{first}' - use sparingly)\n"
                     f"Caller provided registration: '{vrn}'.\n"
                     f"NOW call lookup_vehicle(reg='{vrn}') to parse it. GENERATE ZERO SPEECH."
                 )
 
             self._state.step = Step.NEED_VRN
             return (
-                f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
+                f"Name saved: {first} {last}. (Name: '{first}' - use sparingly)\n"
                 "Say EXACTLY ONE short sentence asking for their registration, e.g. 'Could I grab your registration?'\n"
-                "Then STOP. Generate NOTHING else. Wait for the caller to respond."
+                "Then STOP. Generate NOTHING else.\n"
+                "\n⚠️ CRITICAL PATIENCE INSTRUCTION:\n"
+                "WAIT for the caller to FINISH speaking completely before calling lookup_vehicle.\n"
+                "Callers often pause mid-spelling (e.g., 'A U 2 1' ... 2-second pause ... 'F P M').\n"
+                "DO NOT interrupt. DO NOT call lookup_vehicle until you hear 3+ seconds of clear silence.\n"
+                "ONLY THEN call lookup_vehicle with everything they said."
             )
 
         @function_tool
@@ -1727,6 +1914,16 @@ class SupervisorAgent(Agent):
                         "Do NOT call lookup_vehicle until save_caller_name has succeeded."
                     )
                 return f"ERROR: Wrong step ({self._state.step.value}). Vehicle lookup not needed now."
+
+            # Check if agent is in ASSIST mode (should not take bookings)
+            agent_type = (AGENT_CONFIGURATION.get("agentType") or "").strip().lower()
+            if agent_type == "assist":
+                return (
+                    "BLOCKED: Agent is in ASSIST mode and cannot take bookings.\n"
+                    "DO NOT call lookup_vehicle. Instead, switch to message flow:\n"
+                    "Say: 'Let me take down your details and the team will give you a ring back to get that booked in.'\n"
+                    "Then collect message, phone, callback time and call take_message."
+                )
 
             # Prevent lookup_vehicle on vehicle updates - use collect_registration_for_message instead
             if self._state.step == Step.MESSAGE_ONLY and self._state.intent == "vehicle_update":
@@ -1853,11 +2050,20 @@ class SupervisorAgent(Agent):
             # ── STEP 1: Normalize VRN and return for readback (NO API call) ──
             normalized = normalize_vehicle_registration(reg)
             
-            # If there was a pending VRN and we're getting a new one, caller rejected the previous readback
-            if self._state.vrn_pending and normalized != self._state.vrn_pending:
-                self._state.vrn_readback_rejections += 1
-                logger.info(f"[LOOKUP] Caller rejected previous readback '{self._state.vrn_pending}', "
-                           f"provided new input '{reg}' → '{normalized}' (rejection #{self._state.vrn_readback_rejections})")
+            # If there was a pending VRN and we're getting a new one, check if it's a continuation or rejection
+            if self._state.vrn_pending:
+                # If the new input doesn't overlap with pending, it might be an additional segment
+                if not normalized.startswith(self._state.vrn_pending) and self._state.vrn_pending not in normalized:
+                    # Check if this could be a continuation (e.g., "AU21" then "FPM" = "AU21FPM")
+                    combined = self._state.vrn_pending + normalized
+                    if len(combined) <= 8:  # Reasonable UK reg length
+                        logger.info(f"[LOOKUP] Continuation detected: '{self._state.vrn_pending}' + '{normalized}' = '{combined}'")
+                        normalized = combined[:7]  # UK regs are max 7 chars
+                    else:
+                        # User is providing a different/corrected registration
+                        self._state.vrn_readback_rejections += 1
+                        logger.info(f"[LOOKUP] Caller rejected previous readback '{self._state.vrn_pending}', "
+                                   f"provided new input '{reg}' → '{normalized}' (rejection #{self._state.vrn_readback_rejections})")
 
             # Accumulate partial VRN segments
             if self._state.vrn_partial:
@@ -1870,16 +2076,86 @@ class SupervisorAgent(Agent):
                     logger.info(f"[LOOKUP] Combining partial '{partial}' + '{normalized}' = '{combined}'")
                 normalized = combined
 
-            # VRN validation
-            if len(normalized) < 4:
-                self._state.vrn_partial = normalized
-                logger.info(f"[LOOKUP] Partial VRN stored: '{normalized}' — waiting for more")
-                return (
-                    f"PARTIAL VRN: only got '{normalized}' so far. "
-                    "Ask: 'Could you give me the full registration?' "
-                    "When they reply, call lookup_vehicle with their answer."
-                )
+            # VRN validation - but account for short private/cherished plates (e.g., "A1", "BOB", "F1")
+            # Private plates can be 2-7 characters. Most standard UK plates are 7 chars.
+            # Strategy: For very short VRNs (2-3 chars), check if they have both letters AND numbers
+            # If yes, likely a complete private plate. If no, wait for more.
+            
+            if len(normalized) <= 3:
+                # Very short - could be private plate like "A1" or "BOB" or partial like "AU2"
+                has_digit = any(c.isdigit() for c in normalized)
+                has_letter = any(c.isalpha() for c in normalized)
+                
+                # If it has BOTH letters and numbers, likely complete (e.g., "A1", "B52")
+                if has_digit and has_letter:
+                    logger.info(f"[LOOKUP] Short VRN with letters+numbers: '{normalized}' — treating as complete private plate")
+                    # Continue to readback confirmation below
+                elif not has_digit:
+                    # Only letters, no digits - could be partial or name echo
+                    first_up = self._state.customer_name_first.upper()
+                    last_up = self._state.customer_name_last.upper()
+                    caller_names = set()
+                    if first_up:
+                        caller_names.add(first_up)
+                    if last_up:
+                        caller_names.add(last_up)
+                    if first_up and last_up:
+                        caller_names.add(first_up + last_up)
+                    is_name_echo = (normalized in caller_names)
+                    if not is_name_echo and first_up and normalized.startswith(first_up) and len(normalized) <= len(first_up) + 15:
+                        is_name_echo = True
+                    if is_name_echo:
+                        self._state.vrn_partial = ""
+                        logger.info(f"[LOOKUP] Ignored caller's name '{normalized}' passed as VRN (likely echo)")
+                        return (
+                            f"IGNORED: '{normalized}' is the caller's name, not a registration — this is audio echo. "
+                            "Ask for the registration: 'Could I grab your registration?'"
+                        )
+                    # Just letters, no digits - probably partial
+                    self._state.vrn_partial = normalized
+                    logger.info(f"[LOOKUP] Partial VRN (letters only, no digits): '{normalized}' — waiting for more")
+                    return (
+                        f"⚠️ PARTIAL SEGMENT: Got '{normalized}' (letters only)."
+                        "\n\n🔇 STAY COMPLETELY SILENT. The caller is MID-SPELLING."
+                        "\nDO NOT generate ANY speech. DO NOT acknowledge. DO NOT ask questions."
+                        "\nWAIT for them to finish spelling (they will add numbers)."
+                        "\nWhen you hear more, call lookup_vehicle with the NEW segment only."
+                    )
+                else:
+                    # Only digits, no letters - unusual but might be partial
+                    self._state.vrn_partial = normalized
+                    logger.info(f"[LOOKUP] Partial VRN (digits only): '{normalized}' — waiting for letters")
+                    return (
+                        f"⚠️ PARTIAL SEGMENT: Got '{normalized}' (numbers only)."
+                        "\n\n🔇 STAY COMPLETELY SILENT. The caller is MID-SPELLING."
+                        "\nDO NOT generate ANY speech. DO NOT acknowledge. DO NOT ask questions."
+                        "\nWAIT for them to continue with letters."
+                        "\nWhen you hear more, call lookup_vehicle with the NEW segment only."
+                    )
+            
+            # 4 characters - common for private plates (e.g., "BOB1", "A123") but also could be partial
+            elif len(normalized) == 4:
+                has_digit = any(c.isdigit() for c in normalized)
+                has_letter = any(c.isalpha() for c in normalized)
+                
+                # If it has both letters and numbers, likely complete
+                if has_digit and has_letter:
+                    logger.info(f"[LOOKUP] 4-char VRN with letters+numbers: '{normalized}' — could be complete or partial")
+                    # Let it fall through to tentative handling below
+                else:
+                    # Only one type - probably partial
+                    self._state.vrn_partial = normalized
+                    logger.info(f"[LOOKUP] 4-char partial (only {'letters' if has_letter else 'digits'}): '{normalized}'")
+                    return (
+                        f"⚠️ PARTIAL SEGMENT: Got '{normalized}' (4 chars, {'letters' if has_letter else 'numbers'} only)."
+                        "\n\n🔇 STAY COMPLETELY SILENT. The caller is MID-SPELLING."
+                        "\nDO NOT generate ANY speech. DO NOT acknowledge. DO NOT ask questions."
+                        "\nWAIT for them to continue spelling (UK regs need both letters AND numbers)."
+                        "\nWhen you hear more, call lookup_vehicle with the NEW segment only."
+                    )
+
             if not any(c.isdigit() for c in normalized):
+                # Still no digits after all checks above (5+ chars with no digits)
                 first_up = self._state.customer_name_first.upper()
                 last_up = self._state.customer_name_last.upper()
                 caller_names = set()
@@ -1899,14 +2175,6 @@ class SupervisorAgent(Agent):
                         f"IGNORED: '{normalized}' is the caller's name, not a registration — this is audio echo. "
                         "Ask for the registration: 'Could I grab your registration?'"
                     )
-                if len(normalized) <= 3:
-                    self._state.vrn_partial = normalized
-                    logger.info(f"[LOOKUP] Partial VRN (no digits yet): '{normalized}' — waiting for more")
-                    return (
-                        f"PARTIAL VRN: '{normalized}' has no digits yet — the caller is still spelling. "
-                        "Do NOT ask again. WAIT for them to continue. "
-                        "When they say more, call lookup_vehicle with the new part."
-                    )
                 self._state.vrn_partial = ""
                 return (
                     f"REJECTED: '{normalized}' has no digits — UK registrations ALWAYS contain numbers. "
@@ -1914,12 +2182,52 @@ class SupervisorAgent(Agent):
                     "Ask the caller: 'Could I grab your registration?'"
                 )
 
-            # Full VRN received — clear partial accumulator
-            self._state.vrn_partial = ""
+            # Check if VRN might be incomplete - don't immediately readback for short segments
+            # Store as pending so we can combine if more comes in
+            # BUT: For 4-char VRNs with both letters and numbers, might be complete private plates
+            if 4 <= len(normalized) <= 6:
+                # Check if this looks like a complete private plate
+                has_digit = any(c.isdigit() for c in normalized)
+                has_letter = any(c.isalpha() for c in normalized)
+                
+                # If 4-5 chars with both letters and numbers, might be complete
+                # But also might be "AU21" waiting for "FPM"
+                # Strategy: Store as tentative pending, wait briefly to see if more comes
+                if len(normalized) == 4 and has_digit and has_letter:
+                    # Could be complete private plate like "BOB1" or partial like "AU21" (waiting for FPM)
+                    self._state.vrn_pending = normalized
+                    logger.info(f"[LOOKUP] 4-char tentative: '{normalized}' — could be complete private plate or partial")
+                    return (
+                        f"⚠️ TENTATIVE 4-CHAR: Got '{normalized}' (has letters + numbers)."
+                        "\nCould be: (1) Complete private plate like 'BOB1', OR (2) Partial like 'AU21' waiting for 'FPM'."
+                        "\n\n🔇 STAY COMPLETELY SILENT for 3-4 seconds."
+                        "\nDO NOT speak. DO NOT ask 'is that right?'. DO NOT interrupt."
+                        "\nLET THE CALLER FINISH. If they're mid-spelling, they will continue."
+                        "\n\nIF they continue speaking → call lookup_vehicle with the NEW segment."
+                        "\nIF they stop completely (4+ sec silence) AND ask 'is that it?' → Then read back and confirm."
+                    )
+                elif len(normalized) in [5, 6]:
+                    # 5-6 chars - more likely to be partial (waiting for 7th char)
+                    self._state.vrn_pending = normalized
+                    logger.info(f"[LOOKUP] {len(normalized)}-char tentative: '{normalized}' — likely partial")
+                    return (
+                        f"⚠️ LIKELY PARTIAL: Got '{normalized}' ({len(normalized)} chars)."
+                        "\nStandard UK regs are 7 chars - this is probably incomplete."
+                        "\n\n🔇 STAY COMPLETELY SILENT for 2-3 seconds."
+                        "\nDO NOT speak. DO NOT ask questions. DO NOT interrupt."
+                        "\nLET THE CALLER FINISH spelling."
+                        "\n\nIF they continue → call lookup_vehicle with the NEW segment."
+                        "\nIF they stop and ask 'is that it?' → Then read back and confirm."
+                    )
+
+            # Clear vrn_partial for full-length VRNs (7 chars)
+            if len(normalized) == 7:
+                self._state.vrn_partial = ""
 
             if len(normalized) > 7:
                 logger.warning(f"[LOOKUP] VRN too long ({len(normalized)} chars): '{normalized}' — truncating to 7")
                 normalized = normalized[:7]
+                self._state.vrn_partial = ""
 
             # Store pending VRN for readback confirmation
             self._state.vrn_pending = normalized
@@ -1932,20 +2240,24 @@ class SupervisorAgent(Agent):
                 logger.info(f"[LOOKUP] Requesting phonetic spelling after {self._state.vrn_readback_rejections} rejection(s)")
                 return (
                     f"Parsed registration: {normalized}.\n"
-                    f"Say naturally: 'I'm hearing {normalized}. Is that right? "
+                    f"Say ONLY: 'I'm hearing {normalized}. Is that right? "
                     "If not, could you repeat the full registration slowly using phonetics? "
                     "For example, Alpha for A, Bravo for B.'\n"
-                    "Wait for them. If they say YES, call lookup_vehicle(reg='{normalized}', confirmed=true).\n"
-                    "If NO or they spell it, call lookup_vehicle again with their phonetic spelling."
+                    "Then STOP and WAIT for their response. DO NOT call any tools yet.\n"
+                    "After they respond:\n"
+                    f"  - If YES → call lookup_vehicle(reg='{normalized}', confirmed=true) with ZERO speech\n"
+                    "  - If NO or they spell it → call lookup_vehicle with their new phonetic spelling"
                 )
 
             # First readback - just read it back normally
             return (
                 f"Parsed registration: {normalized}.\n"
-                f"Read back to the caller: '{spaced}. Is that right?'\n"
-                f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true). GENERATE ZERO SPEECH.\n"
-                f"If NO → Say: 'Could you repeat the full registration slowly using phonetics? For example, Alpha for A, Bravo for B.' "
-                "Then WAIT for them to spell it, and call lookup_vehicle with their phonetic spelling."
+                f"Say ONLY: '{spaced}. Is that right?'\n"
+                f"Then STOP and WAIT for caller response. DO NOT call any tools yet.\n"
+                f"After they respond:\n"
+                f"  - If YES → call lookup_vehicle(reg='{normalized}', confirmed=true) with ZERO speech\n"
+                f"  - If NO → ask: 'Could you repeat the full registration slowly using phonetics? For example, Alpha for A, Bravo for B.' "
+                "Then wait for their phonetic spelling and call lookup_vehicle with it."
             )
 
         @function_tool
@@ -2020,6 +2332,112 @@ class SupervisorAgent(Agent):
 
             # NEVER auto-select services based on hints - always ask the customer first
             # This prevents the agent from incorrectly guessing services from vague mentions
+
+            # QUOTE PATH: Try to match service and provide price, or offer callback/booking
+            # Check both intent and hint prefix for quote requests
+            is_quote_request = self._state.intent == "quote" or (self._state.service_hint and self._state.service_hint.startswith("QUOTE:"))
+            
+            if is_quote_request:
+                self._state.intent = "quote"  # Ensure intent is set
+                make = self._state.vehicle_make
+                model = self._state.vehicle_model
+                vrn = self._state.vrn
+                
+                # Strip "QUOTE:" prefix if present
+                hint = self._state.service_hint or "work"
+                if hint.startswith("QUOTE:"):
+                    hint = hint[6:].strip()  # Remove "QUOTE: " prefix
+                
+                hint_lower = hint.lower().strip()
+                
+                # Check if hint is vague "service" request - offer routine options
+                vague_service_keywords = ['service', 'servicing', 'a service', 'work']
+                if hint_lower in vague_service_keywords:
+                    # Filter for routine services
+                    routine_services = []
+                    routine_keywords = ['full', 'interim', 'basic', 'gold', 'silver', 'bronze', 'major', 'minor', 'annual']
+                    
+                    for svc in services:
+                        svc_name_lower = svc.get('name', '').lower()
+                        if any(kw in svc_name_lower for kw in routine_keywords):
+                            routine_services.append(svc)
+                    
+                    if routine_services:
+                        # Build list of routine services with prices
+                        services_list = "\n".join([
+                            f"- {s.get('name', '?')}: £{s.get('price', '?')}"
+                            for s in routine_services
+                        ])
+                        
+                        # Build natural list of first 3 services for speech
+                        service_mentions = []
+                        for s in routine_services[:3]:
+                            service_mentions.append(f"{s.get('name', '?')} for {s.get('price', '?')} pounds")
+                        services_speech = ", ".join(service_mentions)
+                        
+                        self._state.step = Step.NEED_SERVICE
+                        
+                        return (
+                            f"Vehicle confirmed: {make.title()} {model.title()} ({vrn}).\n"
+                            f"Quote request for: service (vague)\n"
+                            f"Routine services available:\n{services_list}\n\n"
+                            f"Say naturally: 'We have several service options for your {make} {model}. {services_speech}. Which would you prefer?'\n"
+                            f"Wait for caller to choose, then call select_service(service_name='<chosen name>')."
+                        )
+                
+                # Try to match the service and get pricing
+                best_match = None
+                best_ratio = 0.0
+                
+                for svc in services:
+                    svc_name = svc.get('name', '').lower()
+                    ratio = SequenceMatcher(None, hint_lower, svc_name).ratio()
+                    # Also check if hint is contained in service name
+                    if hint_lower in svc_name:
+                        ratio = max(ratio, 0.75)
+                    if ratio > best_ratio and ratio > 0.6:
+                        best_ratio = ratio
+                        best_match = svc
+                
+                # Build phone confirmation using actual caller_phone
+                phone_instruction = ""
+                if self._state.caller_phone:
+                    last_digits = self._state.caller_phone[-3:]
+                    phone_instruction = f"confirm their phone: 'Is that the number ending in {last_digits}?'"
+                else:
+                    phone_instruction = "ask: 'What's the best number for you?'"
+                
+                if best_match:
+                    # Found a matching service with price
+                    svc_name = best_match.get('name', '?')
+                    price = best_match.get('price', '')
+                    price_str = f" would be {price} pounds" if price else ""
+                    
+                    # Stay in NEED_SERVICE step to allow booking
+                    self._state.step = Step.NEED_SERVICE
+                    
+                    return (
+                        f"Vehicle confirmed: {make.title()} {model.title()} ({vrn}).\n"
+                        f"Quote request for: {hint}\n"
+                        f"Matched service: {svc_name} (£{price})\n\n"
+                        f"Say naturally: 'A {svc_name} for your {make} {model}{price_str}. Would you like me to book that in for you?'\n"
+                        f"If YES → call select_service(service_name='{svc_name}') to proceed with booking.\n"
+                        f"If NO → ask if they'd like anything else or say 'No problem, is there anything else I can help with today?'"
+                    )
+                else:
+                    # No matching service - offer callback or booking
+                    # Note: Timeslots will be fetched after select_service() is called
+                    self._state.step = Step.NEED_SERVICE  # Allow booking if they choose
+                    
+                    return (
+                        f"Vehicle confirmed: {make.title()} {model.title()} ({vrn}).\n"
+                        f"Quote request for: {hint}\n"
+                        f"No exact match in services list.\n\n"
+                        f"Say naturally: 'I don't have a set price for that right now. I can take your details and get someone to call you back with a quote, "
+                        f"or alternatively I can book you in and they'll call you back with the quote before your appointment. Which would you prefer?'\n"
+                        f"If CALLBACK → {phone_instruction} then call take_message().\n"
+                        f"If BOOKING → ask 'What would you like us to look at?' then call select_service() with their answer."
+                    )
 
             # Check if caller mentioned vague "service" - offer routine service options
             if self._state.service_hint:
@@ -2253,12 +2671,26 @@ class SupervisorAgent(Agent):
                 if self._state.intent == "quote":
                     logger.info(f"[SELECT_SERVICE] No match for quote request '{service_name}' - taking message for callback")
                     self._state.step = Step.MESSAGE_ONLY
+                    
+                    # Build phone confirmation prompt using last 3 digits
+                    phone_instruction = ""
+                    if self._state.caller_phone:
+                        last_digits = self._state.caller_phone[-3:]
+                        phone_instruction = f"confirm their phone: 'Is that the number ending in {last_digits}?' If yes, use {self._state.caller_phone}. If different, ask for the number."
+                    else:
+                        phone_instruction = "ask: 'What's the best number for you?'"
+                    
+                    # Build vehicle context if available
+                    vehicle_context = ""
+                    if self._state.vehicle_make and self._state.vehicle_model:
+                        vehicle_context = f"Vehicle: {self._state.vehicle_make} {self._state.vehicle_model} ({self._state.vrn}). DO NOT ask for make/model - you already have it."
+                    
                     return (
-                        f"No suitable service found for '{service_name}' (quote request).\n\n"
+                        f"No suitable service found for '{service_name}' (quote request).\n"
+                        f"{vehicle_context}\n\n"
                         "Say naturally: 'I don't have that as a set service right now. "
-                        "Let me take your details and one of the team will give you a call back with a quote. "
-                        "What's the best number for you?'\n"
-                        "Then call take_message() to collect their details."
+                        "Let me take your details and one of the team will give you a call back with a quote.'\n"
+                        f"Then {phone_instruction} and call take_message() with all the details."
                     )
                 
                 # No match - book under "Other" or general category (DON'T tell customer there's no option)
@@ -2617,8 +3049,8 @@ class SupervisorAgent(Agent):
                 f"{surname_note}"
                 f"Say: 'Lovely. I just need a couple of details.' then ask for their surname if missing, "
                 f"otherwise {phone_prompt}\n"
-                "When they give their surname, call update_caller_name(last_name='...') to save it, "
-                "then KEEP addressing them by their FIRST name — not the surname.\n"
+                "When they give their surname, call update_caller_name(last_name='...') to save it. "
+                "Use first name sparingly per system rules.\n"
                 "Collect ONE field at a time: surname → phone → email → postcode (call validate_address) → house number.\n"
                 "You MUST collect ALL five fields AND call validate_address BEFORE calling submit_booking.\n"
                 "Do NOT call submit_booking until you have phone, email, postcode, AND house number."
@@ -2925,7 +3357,7 @@ class SupervisorAgent(Agent):
             return (
                 f"Name updated: {', '.join(updated)}. "
                 f"Full name on file: {self._state.customer_name_first} {self._state.customer_name_last}.\n"
-                f"Keep addressing them as '{self._state.customer_name_first}' (first name only).\n"
+                f"(Use first name '{self._state.customer_name_first}' sparingly per system rules)\n"
                 f"NEXT ACTION: {next_action}\n"
                 "Do NOT call update_caller_name again unless the caller EXPLICITLY corrects their name."
             )
@@ -3013,10 +3445,16 @@ class SupervisorAgent(Agent):
                 extra=escalation_extra,
             ))
 
+            # Check if we should mention opening hours callback timing
+            is_open, closed_message = is_garage_currently_open()
+            callback_timing = ""
+            if not is_open:
+                callback_timing = " As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on."
+            
             return (
                 f"Message saved from {first} {last}.\n"
                 "Read back a brief summary to confirm.\n"
-                "Then: 'Lovely, I'll make sure the team gets this. They'll give you a ring back shortly.'\n"
+                f"Then: 'Lovely, I'll make sure the team gets this. They'll give you a ring back shortly.{callback_timing}'\n"
                 "Close: 'Cheers, have a lovely day!'"
             )
 
@@ -3072,7 +3510,10 @@ INTENT DETECTION:
 FLOW:
 1. GREETING: "{greeting}" spoken. Get name + intent (booking/quote/vehicle update/message/transfer). Default booking. If no name: "Can I take your name?" then STOP.
    - If TRANSFER REQUEST: Respond naturally that the team aren't available but offer to help with bookings or take a message.
-2. VEHICLE: Call lookup_vehicle with caller's EXACT words. The tool parses the registration and reads it back for confirmation before looking up.
+2. VEHICLE: ⚠️ WAIT for the caller to FINISH speaking completely (3+ seconds of clear silence) before calling lookup_vehicle.
+   - Callers often pause mid-spelling (e.g., "A U 2 1" ... pause ... "F P M").
+   - DO NOT interrupt them while they're spelling. DO NOT call lookup_vehicle until they've stopped completely.
+   - Once they finish, call lookup_vehicle with their EXACT words. The tool parses and reads it back for confirmation.
 3. SERVICE: Call select_service(service_name). Tool handles matching — just pass what the caller said.
    - DIAGNOSTIC FLOW: If the caller describes a fault/symptom (noise, warning light, problem), the tool will provide a structured diagnostic questionnaire:
      * STEP 1: Broad open question ("Can you tell me what it's doing?")
@@ -3180,7 +3621,7 @@ async def entrypoint(ctx: JobContext):
                 similarity_boost=ELEVEN_SIMILARITY,
                 style=ELEVEN_STYLE,
             ),
-            apply_text_normalization="on",
+            apply_text_normalization="off",  # Disabled to prevent jumbling of vehicle registrations (A U 2 1 F P M)
         ),
     )
 

@@ -10,13 +10,22 @@ const getGocardlessClient = () => {
   const accessToken = process.env.GOCARDLESS_ACCESS_TOKEN;
   const environment = process.env.GOCARDLESS_ENVIRONMENT || 'sandbox';
 
+  console.log('[GOCARDLESS] Initializing client:', {
+    hasAccessToken: !!accessToken,
+    accessTokenLength: accessToken?.length,
+    environment,
+  });
+
   if (!accessToken) {
+    console.error('[GOCARDLESS] GOCARDLESS_ACCESS_TOKEN is not configured!');
     throw new Error('GOCARDLESS_ACCESS_TOKEN is not configured');
   }
 
   const gcEnvironment = environment === 'live'
     ? constants.Environments.Live
     : constants.Environments.Sandbox;
+
+  console.log('[GOCARDLESS] Using environment:', gcEnvironment);
 
   return gocardless(accessToken, gcEnvironment);
 };
@@ -727,6 +736,8 @@ export async function processMonthlyBilling() {
  * Create GoCardless payment for an invoice
  */
 export async function createPaymentForInvoice(invoiceId: string) {
+  console.log('[BILLING] Starting createPaymentForInvoice for:', invoiceId);
+
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
     include: {
@@ -740,10 +751,20 @@ export async function createPaymentForInvoice(invoiceId: string) {
   });
 
   if (!invoice) {
+    console.error('[BILLING] Invoice not found:', invoiceId);
     throw new Error('Invoice not found');
   }
 
+  console.log('[BILLING] Invoice found:', {
+    id: invoice.id,
+    garageId: invoice.garageId,
+    garageName: invoice.garage.name,
+    status: invoice.status,
+    total: invoice.total,
+  });
+
   if (invoice.status === 'paid') {
+    console.error('[BILLING] Invoice already paid:', invoiceId);
     throw new Error('Invoice already paid');
   }
 
@@ -760,25 +781,54 @@ export async function createPaymentForInvoice(invoiceId: string) {
   });
 
   if (!user || !user.gocardlessMandateId) {
+    console.error('[BILLING] No valid mandate found for garage:', {
+      garageId: invoice.garageId,
+      garageName: invoice.garage.name,
+      userFound: !!user,
+      hasMandateId: user?.gocardlessMandateId ? 'yes' : 'no',
+    });
     throw new Error('No valid mandate found for this garage');
   }
 
+  console.log('[BILLING] User with mandate found:', {
+    userId: user.id,
+    email: user.email,
+    mandateId: user.gocardlessMandateId,
+  });
+
+  console.log('[BILLING] Initializing GoCardless client...');
   const client = getGocardlessClient();
 
-  // Create payment (amount in pence)
+  // GoCardless expects amount as string in pence
+  const amountInPence = invoice.total.toString();
+
+  console.log('[BILLING] Creating payment with GoCardless:', {
+    amount: amountInPence,
+    amountType: typeof amountInPence,
+    mandateId: user.gocardlessMandateId,
+    description: `ReceptionMate Invoice ${invoice.id.slice(0, 8)} - ${invoice.garage.name}`,
+  });
+
+  // Create payment (amount in pence as string)
   const payment = await client.payments.create({
-    amount: invoice.total,
+    amount: amountInPence,
     currency: 'GBP',
     description: `ReceptionMate Invoice ${invoice.id.slice(0, 8)} - ${invoice.garage.name}`,
     metadata: {
       invoice_id: invoice.id,
       garage_id: invoice.garageId,
       period_start: invoice.periodStart.toISOString(),
-      period_end: invoice.periodEnd.toISOString(),
+      // Note: GoCardless only allows 3 metadata properties max
     },
     links: {
       mandate: user.gocardlessMandateId,
     },
+  });
+
+  console.log('[BILLING] Payment created with GoCardless:', {
+    paymentId: payment.id,
+    status: payment.status,
+    amount: payment.amount,
   });
 
   // Update invoice with payment ID
@@ -788,6 +838,12 @@ export async function createPaymentForInvoice(invoiceId: string) {
       status: 'pending',
       gocardlessPaymentId: payment.id,
     },
+  });
+
+  console.log('[BILLING] Invoice updated with payment ID:', {
+    invoiceId: updatedInvoice.id,
+    status: updatedInvoice.status,
+    paymentId: updatedInvoice.gocardlessPaymentId,
   });
 
   return {

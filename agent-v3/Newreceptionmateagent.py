@@ -794,6 +794,7 @@ async def log_call_to_portal(
     summary: str,
     customer_name: str = "",
     customer_phone: str = "",
+    from_number: str = "",
     registration_number: str = "",
     confirmed_booking: bool = False,
     booking_details: str = "",
@@ -827,6 +828,8 @@ async def log_call_to_portal(
             payload["customerName"] = customer_name
         if customer_phone:
             payload["customerPhone"] = customer_phone
+        if from_number:
+            payload["fromNumber"] = from_number
         if registration_number:
             payload["registrationNumber"] = registration_number
         if booking_details:
@@ -3376,6 +3379,7 @@ async def entrypoint(ctx: JobContext):
                     summary=summary,
                     customer_name=customer_full_name if customer_full_name else "",
                     customer_phone=final_customer_phone if final_customer_phone else "",
+                    from_number=caller_phone if caller_phone else "",
                     registration_number=state.vrn if state.vrn else "",
                     confirmed_booking=bool(state.booking_date),
                     booking_details=booking_details,

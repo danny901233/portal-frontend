@@ -30,6 +30,7 @@ export interface CallRecord {
   summary: string;
   callerName?: string | null;
   callerNumber?: string | null;
+  fromNumber?: string | null;
   customerName?: string | null;
   customerPhone?: string | null;
   registrationNumber?: string | null;

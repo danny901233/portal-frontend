@@ -52,6 +52,7 @@ model Call {
   recordingDurationSeconds Int?
   recordingCompletedAt DateTime?
   twilioCallSid String?
+  fromNumber     String?
   durationSeconds Int    @default(0)
   callType       String  @default("unknown")
   registrationNumber String?

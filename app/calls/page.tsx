@@ -95,7 +95,12 @@ const deriveCallerName = (call: CallRecord): string => {
 const PHONE_REGEX = /\b(?:\+?\d[\d\s-]{6,})\b/;
 
 const deriveCallerNumber = (call: CallRecord): string | null => {
-  // Use customerPhone if available (stored from agent)
+  // Use fromNumber if available (actual SIP caller ID)
+  if (call.fromNumber) {
+    return call.fromNumber;
+  }
+  
+  // Fallback to customerPhone if fromNumber not available
   if (call.customerPhone) {
     return call.customerPhone;
   }

@@ -214,6 +214,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         durationSeconds: actualDuration,
         callType,
         twilioCallSid: payload.twilioCallSid,
+        fromNumber: payload.fromNumber,
         registrationNumber: payload.registrationNumber,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,

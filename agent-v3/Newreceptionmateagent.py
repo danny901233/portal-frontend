@@ -1916,10 +1916,11 @@ class SupervisorAgent(Agent):
                 logger.info(f"[LOOKUP] Requesting phonetic spelling after {self._state.vrn_readback_rejections} rejection(s)")
                 return (
                     f"Parsed registration: {normalized}.\n"
-                    f"Say naturally: 'I'm hearing {normalized}, but let me make sure I've got this right. "
-                    "Could you spell the full registration back to me using phonetics? "
-                    "For example, Alpha for A, Bravo for B, and so on.'\n"
-                    "Wait for them to spell it phonetically, then call lookup_vehicle again with confirmed=false."
+                    f"Say naturally: 'I'm hearing {normalized}. Is that right? "
+                    "If not, could you repeat the full registration slowly using phonetics? "
+                    "For example, Alpha for A, Bravo for B.'\n"
+                    "Wait for them. If they say YES, call lookup_vehicle(reg='{normalized}', confirmed=true).\n"
+                    "If NO or they spell it, call lookup_vehicle again with their phonetic spelling."
                 )
 
             # First readback - just read it back normally
@@ -1927,7 +1928,7 @@ class SupervisorAgent(Agent):
                 f"Parsed registration: {normalized}.\n"
                 f"Read back to the caller: '{spaced}. Is that right?'\n"
                 f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true). GENERATE ZERO SPEECH.\n"
-                f"If NO → Say naturally: 'Let me make sure I've got this right. Could you spell the full registration back to me using phonetics? For example, Alpha for A, Bravo for B.' "
+                f"If NO → Say: 'Could you repeat the full registration slowly using phonetics? For example, Alpha for A, Bravo for B.' "
                 "Then WAIT for them to spell it, and call lookup_vehicle with their phonetic spelling."
             )
 
@@ -2231,6 +2232,18 @@ class SupervisorAgent(Agent):
                     except Exception as e:
                         logger.error(f"[SELECT_SERVICE] Failed to set Other service: {e}")
                         return f"Failed to set service: {e}. Try again."
+                
+                # No match - check if this is a quote request
+                if self._state.intent == "quote":
+                    logger.info(f"[SELECT_SERVICE] No match for quote request '{service_name}' - taking message for callback")
+                    self._state.step = Step.MESSAGE_ONLY
+                    return (
+                        f"No suitable service found for '{service_name}' (quote request).\n\n"
+                        "Say naturally: 'I don't have that as a set service right now. "
+                        "Let me take your details and one of the team will give you a call back with a quote. "
+                        "What's the best number for you?'\n"
+                        "Then call take_message() to collect their details."
+                    )
                 
                 # No match - book under "Other" or general category (DON'T tell customer there's no option)
                 logger.warning(f"[SELECT_SERVICE] No match for '{service_name}' - booking under Other")

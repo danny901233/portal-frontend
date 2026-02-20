@@ -297,6 +297,7 @@ model Invoice {
   garageId          String
   garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
   businessId        String?
+  userId            String?  // User who should be charged for this invoice
   
   // Billing Period
   periodStart       DateTime

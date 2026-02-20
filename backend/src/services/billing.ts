@@ -192,11 +192,27 @@ export async function generateInvoice(
     throw new Error(`Garage ${garageId} not found`);
   }
 
+  // Find the user who should be charged for this garage
+  const billingUser = await prisma.user.findFirst({
+    where: {
+      garageAccessIds: {
+        has: garageId,
+      },
+      gocardlessMandateId: {
+        not: null,
+      },
+    },
+    orderBy: {
+      createdAt: 'asc', // Prefer the oldest user (likely the owner)
+    },
+  });
+
   // Create invoice
   const invoice = await prisma.invoice.create({
     data: {
       garageId,
       businessId: garage.businessId,
+      userId: billingUser?.id, // Store who should be charged
       periodStart,
       periodEnd,
       minutesUsed: usage.minutesUsed,
@@ -761,6 +777,7 @@ export async function createPaymentForInvoice(invoiceId: string) {
     garageName: invoice.garage.name,
     status: invoice.status,
     total: invoice.total,
+    userId: invoice.userId,
   });
 
   if (invoice.status === 'paid') {
@@ -768,17 +785,40 @@ export async function createPaymentForInvoice(invoiceId: string) {
     throw new Error('Invoice already paid');
   }
 
-  // Find user with mandate for this garage
-  const user = await prisma.user.findFirst({
-    where: {
-      garageAccessIds: {
-        has: invoice.garageId,
+  // Get the user who should be charged (stored on invoice)
+  let user;
+  
+  if (invoice.userId) {
+    // Use the user ID stored on the invoice
+    user = await prisma.user.findUnique({
+      where: { id: invoice.userId },
+    });
+    
+    console.log('[BILLING] Using user from invoice.userId:', {
+      userId: invoice.userId,
+      userFound: !!user,
+      email: user?.email,
+      hasMandateId: user?.gocardlessMandateId ? 'yes' : 'no',
+    });
+  }
+  
+  if (!user || !user.gocardlessMandateId) {
+    // Fallback: find any user with mandate for this garage
+    console.log('[BILLING] Falling back to finding user with garage access...');
+    user = await prisma.user.findFirst({
+      where: {
+        garageAccessIds: {
+          has: invoice.garageId,
+        },
+        gocardlessMandateId: {
+          not: null,
+        },
       },
-      gocardlessMandateId: {
-        not: null,
+      orderBy: {
+        createdAt: 'asc', // Prefer oldest user (likely the owner)
       },
-    },
-  });
+    });
+  }
 
   if (!user || !user.gocardlessMandateId) {
     console.error('[BILLING] No valid mandate found for garage:', {

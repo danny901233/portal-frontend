@@ -712,14 +712,26 @@ async def generate_call_summary(
         if state.vehicle_make and state.vehicle_model:
             vehicle_info = f"{state.vrn} ({state.vehicle_make} {state.vehicle_model})"
         
+        # Determine booking status for summary context
+        booking_status = ""
+        if state.step == Step.CONFIRMED:
+            booking_status = "BOOKING WAS SUCCESSFULLY SUBMITTED TO THE SYSTEM."
+        elif state.booking_date and state.booking_time:
+            booking_status = "TIMESLOT WAS DISCUSSED BUT BOOKING WAS NOT COMPLETED. Customer needs a callback to finalize the booking."
+        elif state.step == Step.MESSAGE_ONLY or state.intent in ["message", "quote"]:
+            booking_status = "Customer requested a MESSAGE/CALLBACK."
+        
         prompt = f"""Create a structured call summary from this garage receptionist call transcript.
+
+BOOKING STATUS: {booking_status}
 
 CRITICAL RULES - READ CAREFULLY:
 1. ONLY summarize information that is ACTUALLY in the transcript below
 2. DO NOT make up or infer details that aren't explicitly stated
-3. DO NOT assume bookings were made if not explicitly confirmed
-4. DO NOT invent customer names, registration numbers, or other details
-5. If the customer only said "hello" then hung up, respond ONLY with "No conversation was had."
+3. Use the BOOKING STATUS above to determine if booking was confirmed or if callback is needed
+4. If BOOKING STATUS says "NOT COMPLETED", you MUST state "Callback required to complete the booking"
+5. DO NOT invent customer names, registration numbers, or other details
+6. If the customer only said "hello" then hung up, respond ONLY with "No conversation was had."
 
 REQUIRED FORMAT:
 Start with: "{customer_name or 'Customer'} called regarding {vehicle_info}."
@@ -730,14 +742,15 @@ Paragraph 1 - Purpose & Vehicle:
 - Why they called (service needed, enquiry, complaint, vehicle update, etc.)
 - Vehicle details if mentioned (make, model, registration, mileage, issues)
 
-Paragraph 2 - Booking Details (ONLY if explicitly confirmed):
-- MUST include: "Booking confirmed for [DAY] [DATE] at [TIME]"
-- MUST include: Specific work booked (e.g., "MOT and full service", "brake inspection")
+Paragraph 2 - Booking Details:
+- If BOOKING STATUS says "SUCCESSFULLY SUBMITTED": "Booking confirmed for [DAY] [DATE] at [TIME]"
+- If BOOKING STATUS says "NOT COMPLETED": "Timeslot discussed: [DAY] [DATE] at [TIME]. Booking was NOT finalized."
+- Specific work discussed (e.g., "MOT retest", "full service", "brake inspection")
 - Total price if mentioned
 
-Paragraph 3 - Callback/Follow-up (if applicable):
-- Explicitly state if callback is needed: "Customer requested a callback regarding [reason]"
-- OR state: "No callback required - issue resolved"
+Paragraph 3 - Callback/Follow-up:
+- If BOOKING STATUS says "NOT COMPLETED" or "MESSAGE/CALLBACK": "Callback required - [specific reason from transcript]"
+- Only state "No callback required" if BOOKING STATUS says "SUCCESSFULLY SUBMITTED" AND all customer needs were met
 - Include any actions garage needs to take
 
 Transcript:
@@ -3381,7 +3394,7 @@ async def entrypoint(ctx: JobContext):
                     customer_phone=final_customer_phone if final_customer_phone else "",
                     from_number=caller_phone if caller_phone else "",
                     registration_number=state.vrn if state.vrn else "",
-                    confirmed_booking=bool(state.booking_date),
+                    confirmed_booking=(state.step == Step.CONFIRMED),
                     booking_details=booking_details,
                     call_type=call_type,
                     twilio_call_sid=twilio_call_sid if twilio_call_sid else "",

@@ -2004,6 +2004,41 @@ class SupervisorAgent(Agent):
             # NEVER auto-select services based on hints - always ask the customer first
             # This prevents the agent from incorrectly guessing services from vague mentions
 
+            # Check if caller mentioned vague "service" - offer routine service options
+            if self._state.service_hint:
+                hint_lower = self._state.service_hint.lower().strip()
+                vague_service_keywords = ['service', 'servicing', 'a service']
+                if hint_lower in vague_service_keywords or hint_lower == 'service':
+                    # Filter for common routine services
+                    routine_services = []
+                    routine_keywords = ['full', 'interim', 'basic', 'gold', 'silver', 'bronze', 'major', 'minor', 'annual']
+                    
+                    for svc in services:
+                        svc_name_lower = svc.get('name', '').lower()
+                        if 'service' in svc_name_lower and any(keyword in svc_name_lower for keyword in routine_keywords):
+                            routine_services.append(svc)
+                    
+                    if routine_services:
+                        # Format service options with prices
+                        service_options = []
+                        for svc in routine_services[:5]:
+                            name = svc.get('name', '')
+                            price = svc.get('price', '')
+                            price_str = f" ({price} pounds)" if price else ""
+                            service_options.append(f"- {name}{price_str}")
+                        
+                        options_text = "\n".join(service_options)
+                        
+                        return (
+                            f"Vehicle confirmed.\n\n"
+                            f"Caller mentioned '{self._state.service_hint}' (too vague).\n"
+                            f"Available service options:\n{options_text}\n\n"
+                            "Say naturally: 'You mentioned a service — we have a few options. "
+                            "Is that a Full Service you're after, or perhaps an Interim Service?'\n"
+                            "Mention 2-3 options from the list above.\n"
+                            "Wait for their answer, then call select_service with their choice."
+                        )
+
             return (
                 f"Vehicle confirmed.{svc_summary}\n\n"
                 "Ask: 'What work does it need?' Wait for their answer, then call select_service."

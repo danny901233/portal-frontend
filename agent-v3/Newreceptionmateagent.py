@@ -2035,6 +2035,40 @@ class SupervisorAgent(Agent):
                 self._state.step = Step.MESSAGE_ONLY
                 return "No services available for this vehicle. Take their details for a callback."
 
+            # Check if caller just said "service" or very vague - offer service options
+            service_lower = service_name.lower().strip()
+            vague_service_keywords = ['service', 'servicing', 'a service']
+            if service_lower in vague_service_keywords or service_lower == 'service':
+                # Filter for common routine services (full, interim, basic, gold, silver, bronze, etc.)
+                routine_services = []
+                routine_keywords = ['full', 'interim', 'basic', 'gold', 'silver', 'bronze', 'major', 'minor', 'annual']
+                
+                for svc in services:
+                    svc_name_lower = svc.get('name', '').lower()
+                    # Include if service name contains 'service' AND any routine keyword
+                    if 'service' in svc_name_lower and any(keyword in svc_name_lower for keyword in routine_keywords):
+                        routine_services.append(svc)
+                
+                if routine_services:
+                    # Format service options with prices
+                    service_options = []
+                    for svc in routine_services[:5]:  # Limit to 5 options
+                        name = svc.get('name', '')
+                        price = svc.get('price', '')
+                        price_str = f" ({price} pounds)" if price else ""
+                        service_options.append(f"- {name}{price_str}")
+                    
+                    options_text = "\n".join(service_options)
+                    
+                    return (
+                        f"Caller mentioned '{service_name}' (too vague).\n\n"
+                        f"Available service options:\n{options_text}\n\n"
+                        "Say naturally: 'You mentioned a service — we have a few options. "
+                        "Is that a Full Service you're after, or perhaps an Interim Service?'\n"
+                        "Mention 2-3 options from the list above.\n"
+                        "Wait for their answer, then call select_service with their choice."
+                    )
+            
             matched = match_service(service_name, services)
             if not matched:
                 # Check if this is a diagnostic/symptom description

@@ -2912,9 +2912,11 @@ class SupervisorAgent(Agent):
             # Booking flow
             return (
                 f"Service set: {svc_name} ({price} pounds).{slot_summary}\n\n"
-                "Now offer 2-3 early timeslots naturally: "
-                "'When suits you? The earliest I have is [date] at [time], or [date] at [time].'\n"
-                "Wait for their preference, then call select_timeslot."
+                "Say naturally: 'I've got that noted down for you. Is there anything else you'd like to add to this booking, "
+                "or shall we go ahead and book a time?'\n"
+                "If YES (they mention another service) → call add_service(service_name='their answer').\n"
+                "If NO (just want timeslot) → offer 2-3 early timeslots: 'The earliest I have is [date] at [time], or [date] at [time].' "
+                "Then wait for their preference and call select_timeslot."
             )
 
         @function_tool

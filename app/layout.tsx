@@ -18,8 +18,9 @@ export default async function RootLayout({
   const headersList = await headers();
   const pathname = headersList.get('x-pathname') || '';
   const isWidget = pathname.startsWith('/widget/');
+  const isChat = pathname.startsWith('/chat/');
 
-  if (isWidget) {
+  if (isWidget || isChat) {
     return (
       <html lang="en">
         <head>

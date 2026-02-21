@@ -879,7 +879,11 @@ Call Summary:"""
             parts.append(f"({state.vehicle_make} {state.vehicle_model})")
         if state.booking_date:
             parts.append(f"Booking confirmed for {state.booking_date} at {state.booking_time}")
-            if state.service_selected_name:
+            # Handle multiple services
+            if state.service_selected_names:
+                services = ", ".join(state.service_selected_names)
+                parts.append(f"for {services}")
+            elif state.service_selected_name:
                 parts.append(f"for {state.service_selected_name}")
         elif state.message:
             parts.append(f"Message: {state.message}")
@@ -1001,6 +1005,11 @@ class CallState:
 
     # Service
     services_available: list[dict] = field(default_factory=list)
+    service_selected_ids: list[str] = field(default_factory=list)  # Multiple service IDs
+    service_selected_names: list[str] = field(default_factory=list)  # Multiple service names
+    service_prices: list[str] = field(default_factory=list)  # Multiple service prices
+    
+    # Legacy single service fields (kept for backward compatibility)
     service_selected_id: str = ""
     service_selected_name: str = ""
     service_price: str = ""
@@ -2841,6 +2850,12 @@ class SupervisorAgent(Agent):
             self._state.service_selected_id = svc_id
             self._state.service_selected_name = svc_name
             self._state.service_price = price
+            
+            # Also add to multi-service lists
+            self._state.service_selected_ids = [svc_id]
+            self._state.service_selected_names = [svc_name]
+            self._state.service_prices = [price]
+            
             logger.info(f"[SELECT_SERVICE] Set: {svc_name} (£{price})")
 
             # Prefetch timeslots
@@ -2900,6 +2915,87 @@ class SupervisorAgent(Agent):
                 "Now offer 2-3 early timeslots naturally: "
                 "'When suits you? The earliest I have is [date] at [time], or [date] at [time].'\n"
                 "Wait for their preference, then call select_timeslot."
+            )
+
+        @function_tool
+        async def add_service(context: RunContext, service_name: str) -> str:
+            """Add an additional service to the current booking. Use this when the caller wants multiple services.
+            Example: After booking MOT, caller says 'and can you do a transmission service too?'
+            This will add the service to the existing booking."""
+            
+            if self._state.step not in [Step.NEED_SERVICE, Step.NEED_TIMESLOT]:
+                return "BLOCKED: Can only add services during service selection or before booking is submitted."
+            
+            # Must have at least one service already selected
+            if not self._state.service_selected_ids:
+                return "BLOCKED: You must select at least one service first using select_service before adding more."
+            
+            services = self._state.services_available
+            if not services:
+                try:
+                    services = await self._gh.list_services(self._state.session_id)
+                    self._state.services_available = services
+                except Exception as e:
+                    return f"Failed to load services: {e}"
+            
+            # Match the service
+            matched = match_service(service_name, services)
+            if not matched:
+                return (
+                    f"Could not find a service matching '{service_name}'.\n"
+                    "Available services: " + ", ".join([s.get("name", "") for s in services[:5]]) + "\n"
+                    "Try calling add_service with the exact service name, or ask the caller to clarify."
+                )
+            
+            svc_id = str(matched.get("service_price_id", ""))
+            svc_name = matched.get("name", "")
+            price = matched.get("price", "")
+            
+            # Check if already added
+            if svc_id in self._state.service_selected_ids:
+                return f"'{svc_name}' is already added to this booking."
+            
+            # Add to lists
+            self._state.service_selected_ids.append(svc_id)
+            self._state.service_selected_names.append(svc_name)
+            self._state.service_prices.append(price)
+            
+            # Update GarageHive with all services (comma-separated)
+            all_service_ids = ",".join(self._state.service_selected_ids)
+            try:
+                await self._gh.set_service(self._state.session_id, all_service_ids)
+            except Exception as e:
+                # Roll back the addition
+                self._state.service_selected_ids.pop()
+                self._state.service_selected_names.pop()
+                self._state.service_prices.pop()
+                return f"Failed to add service: {e}"
+            
+            logger.info(f"[ADD_SERVICE] Added: {svc_name} (£{price}). Total services: {len(self._state.service_selected_ids)}")
+            
+            # Format all services for display
+            service_list = []
+            total_price = 0.0
+            for name, p in zip(self._state.service_selected_names, self._state.service_prices):
+                price_str = f"£{p}" if p else "TBC"
+                service_list.append(f"- {name} ({price_str})")
+                try:
+                    if p:
+                        total_price += float(p)
+                except ValueError:
+                    pass
+            
+            services_text = "\n".join(service_list)
+            total_str = f"£{total_price:.2f}" if total_price > 0 else "TBC"
+            
+            return (
+                f"Service added: {svc_name} (£{price}).\n\n"
+                f"Current booking:\n{services_text}\n"
+                f"Total: {total_str}\n\n"
+                "Say naturally: 'I've added that to your booking. Is there anything else you'd like to add, "
+                "or shall we proceed with booking a time?'\n"
+                "If YES (more services) → call add_service again.\n"
+                "If NO → offer timeslots by calling select_timeslot."
             )
 
         @function_tool
@@ -3317,9 +3413,17 @@ class SupervisorAgent(Agent):
                 except Exception:
                     natural_date = self._state.booking_date
 
+                # Build service description (handle multiple services)
+                if self._state.service_selected_names and len(self._state.service_selected_names) > 1:
+                    service_desc = ", ".join(self._state.service_selected_names[:-1]) + f" and {self._state.service_selected_names[-1]}"
+                elif self._state.service_selected_names:
+                    service_desc = self._state.service_selected_names[0]
+                else:
+                    service_desc = self._state.service_selected_name
+
                 return (
                     "BOOKING CONFIRMED.\n"
-                    f"Say: 'That's all booked in — {self._state.service_selected_name} "
+                    f"Say: 'That's all booked in — {service_desc} "
                     f"for your {vehicle_desc} on {natural_date} at {self._state.booking_time}.'\n"
                     "Then: 'Anything else I can help with?'\n"
                     "When done: 'Brilliant, cheers then. Have a lovely day!'"
@@ -3827,10 +3931,28 @@ async def entrypoint(ctx: JobContext):
                         booking_parts.append(f"Date: {state.booking_date}")
                     if state.booking_time:
                         booking_parts.append(f"Time: {state.booking_time}")
-                    if state.service_selected_name:
+                    
+                    # Handle multiple services if available
+                    if state.service_selected_names:
+                        services_str = ", ".join(state.service_selected_names)
+                        booking_parts.append(f"Services: {services_str}")
+                    elif state.service_selected_name:
                         booking_parts.append(f"Service: {state.service_selected_name}")
-                    if state.service_price:
+                    
+                    # Handle multiple prices
+                    if state.service_prices:
+                        total_price = 0.0
+                        for p in state.service_prices:
+                            try:
+                                if p:
+                                    total_price += float(p)
+                            except ValueError:
+                                pass
+                        if total_price > 0:
+                            booking_parts.append(f"Total Price: £{total_price:.2f}")
+                    elif state.service_price:
                         booking_parts.append(f"Price: {state.service_price}")
+                    
                     booking_details = ", ".join(booking_parts)
                 
                 # Prioritize collected contact phone, fallback to caller phone from SIP

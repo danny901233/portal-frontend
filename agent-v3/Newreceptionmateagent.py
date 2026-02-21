@@ -3235,7 +3235,8 @@ class SupervisorAgent(Agent):
                 "Use first name sparingly per system rules.\n"
                 "Collect ONE field at a time: surname → phone → email → postcode (call validate_address) → house number.\n"
                 "You MUST collect ALL five fields AND call validate_address BEFORE calling submit_booking.\n"
-                "Do NOT call submit_booking until you have phone, email, postcode, AND house number."
+                "Do NOT call submit_booking until you have phone, email, postcode, AND house number.\n"
+                "CRITICAL: Do NOT tell the caller the booking is confirmed until AFTER submit_booking returns success."
             )
 
         @function_tool
@@ -3303,20 +3304,23 @@ class SupervisorAgent(Agent):
                     f"Postcode found: {street}, {city}.\n"
                     f"Confirm with caller: 'Is that {street}, {city}?'\n"
                     "Once confirmed, ask: 'And the house number or name?'\n"
-                    "After they give it, call submit_booking with ALL details."
+                    "CRITICAL: After they give it, you MUST call submit_booking immediately.\n"
+                    "Do NOT tell the caller the booking is confirmed until submit_booking returns success."
                 )
             if city:
                 return (
                     f"Postcode found: {city}.\n"
                     f"Confirm with caller: 'Is that the {city} area?'\n"
                     "Once confirmed, ask: 'And the house number or name?'\n"
-                    "After they give it, call submit_booking with ALL details. "
+                    "CRITICAL: After they give it, you MUST call submit_booking immediately.\n"
+                    "Do NOT tell the caller the booking is confirmed until submit_booking returns success.\n"
                     "No street name needed — some postcodes don't have one."
                 )
             return (
                 f"Postcode accepted: {postcode} (area details not found).\n"
                 "Now ask: 'And the house number or name?'\n"
-                "After they give it, call submit_booking with ALL details."
+                "CRITICAL: After they give it, you MUST call submit_booking immediately.\n"
+                "Do NOT tell the caller the booking is confirmed until submit_booking returns success."
             )
 
         @function_tool
@@ -3681,7 +3685,9 @@ PRONUNCIATION:
 
 RULES:
 - NO filler before/between tool calls. No "one moment", "let me check", "bear with me".
-- NEVER say "confirmed"/"booked" unless a tool directive tells you to.
+- CRITICAL: NEVER say "booked", "confirmed", "all booked in", "that's sorted", or ANY confirmation language until AFTER you have called submit_booking AND it returned "BOOKING CONFIRMED".
+- Do NOT tell the caller their booking is complete just because you collected all their details. You MUST call submit_booking first.
+- Only after submit_booking returns "BOOKING CONFIRMED" can you say the booking is complete.
 - ONE QUESTION PER TURN. Ask one thing, then STOP.
 - Each tool returns a directive — FOLLOW IT EXACTLY.
 - Use the caller's FIRST name sparingly (2-3 times max per call: greeting, key moments, closing). DO NOT repeat their name after every sentence.

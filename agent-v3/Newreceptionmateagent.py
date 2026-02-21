@@ -2506,10 +2506,14 @@ class SupervisorAgent(Agent):
                     )
                 return f"ERROR: Wrong step ({self._state.step.value}). Service selection not allowed in this step."
             
-            # If already in NEED_TIMESLOT, this is an additional service - redirect to add_service
+            # If already in NEED_TIMESLOT, this is an additional service - BLOCK and force add_service
             if self._state.step == Step.NEED_TIMESLOT and self._state.service_selected_ids:
-                logger.info(f"[SELECT_SERVICE] Redirecting to add_service for additional service: {service_name}")
-                return f"REDIRECT: You're trying to add another service. Use add_service(service_name='{service_name}') instead."
+                logger.info(f"[SELECT_SERVICE] BLOCKED - must use add_service for additional service: {service_name}")
+                return (
+                    f"BLOCKED: You cannot use select_service to add additional services.\n"
+                    f"You MUST call add_service(service_name='{service_name}') to add this to the booking.\n"
+                    f"STOP TALKING and call add_service(service_name='{service_name}') RIGHT NOW."
+                )
 
             services = self._state.services_available
             if not services and self._state.session_id:
@@ -3123,7 +3127,11 @@ class SupervisorAgent(Agent):
         async def select_timeslot(context: RunContext, caller_preference: str) -> str:
             """Set the chosen timeslot. Pass the caller's words about when they want to come in.
             Examples: 'Thursday morning', 'the 9:30 one', 'tomorrow at 2pm', 'as soon as possible'.
-            The tool handles all date/time parsing against available slots."""
+            The tool handles all date/time parsing against available slots.
+            
+            IMPORTANT: Before calling this function, you MUST ask the caller what date works for them.
+            Show them 2-3 available options and ask 'Which date works best for you?'
+            DO NOT just pick the earliest slot without asking the caller first."""
 
             if self._state.step != Step.NEED_TIMESLOT:
                 if self._state.step == Step.GREETING:

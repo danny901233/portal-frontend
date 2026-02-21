@@ -36,8 +36,9 @@ from livekit.agents import (
     cli,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import deepgram, elevenlabs, silero
+from livekit.plugins import deepgram, elevenlabs, silero, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from livekit.agents import room_io
 
 # ============================================================
 # LOGGING
@@ -3210,10 +3211,15 @@ async def entrypoint(ctx: JobContext):
         _last_final = text
 
     # Start session
-    logger.info("[ENTRYPOINT] Starting session with SupervisorAgent")
+    logger.info("[ENTRYPOINT] Starting session with SupervisorAgent + BVCTelephony noise cancellation")
     await session.start(
         room=ctx.room,
         agent=supervisor,
+        room_options=room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(
+                noise_cancellation=noise_cancellation.BVCTelephony(),
+            ),
+        ),
     )
     logger.info("[ENTRYPOINT] Session started — supervisor system ready")
 

@@ -2506,14 +2506,11 @@ class SupervisorAgent(Agent):
                     )
                 return f"ERROR: Wrong step ({self._state.step.value}). Service selection not allowed in this step."
             
-            # If already in NEED_TIMESLOT, this is an additional service - BLOCK and force add_service
+            # If already in NEED_TIMESLOT, this is an additional service - AUTO-REDIRECT to add_service
             if self._state.step == Step.NEED_TIMESLOT and self._state.service_selected_ids:
-                logger.info(f"[SELECT_SERVICE] BLOCKED - must use add_service for additional service: {service_name}")
-                return (
-                    f"BLOCKED: You cannot use select_service to add additional services.\n"
-                    f"You MUST call add_service(service_name='{service_name}') to add this to the booking.\n"
-                    f"STOP TALKING and call add_service(service_name='{service_name}') RIGHT NOW."
-                )
+                logger.info(f"[SELECT_SERVICE] Auto-redirecting to add_service for additional service: {service_name}")
+                # Instead of blocking, directly call add_service and return its result
+                return await add_service(context, service_name)
 
             services = self._state.services_available
             if not services and self._state.session_id:

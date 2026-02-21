@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
 
 interface GarageConfig {
   name: string;
@@ -9,14 +10,18 @@ interface GarageConfig {
   primaryColor?: string;
 }
 
-export default function ChatWidget({ params }: { params: { garageId: string } }) {
+export default function ChatWidget() {
+  const params = useParams();
+  const garageId = params?.garageId as string;
   const [isOpen, setIsOpen] = useState(false);
   const [config, setConfig] = useState<GarageConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!garageId) return;
+    
     // Fetch garage configuration
-    fetch(`https://api.receptionmate.co.uk/api/widget/${params.garageId}`)
+    fetch(`https://api.receptionmate.co.uk/api/widget/${garageId}`)
       .then((res) => res.json())
       .then((data) => {
         setConfig(data);
@@ -26,12 +31,13 @@ export default function ChatWidget({ params }: { params: { garageId: string } })
         console.error('Failed to load widget config:', err);
         setLoading(false);
       });
-  }, [params.garageId]);
+  }, [garageId]);
 
   const handleWebChat = () => {
+    if (!garageId) return;
     // Open the agent call interface in a new window
     window.open(
-      `https://portal.receptionmate.co.uk/calls/new?garageId=${params.garageId}&source=widget`,
+      `https://portal.receptionmate.co.uk/calls/new?garageId=${garageId}&source=widget`,
       '_blank',
       'width=400,height=600'
     );

@@ -1,0 +1,997 @@
+{
+	"info": {
+		"_postman_id": "complete-api-collection-12345",
+		"name": "ReceptionMate Portal - Complete API",
+		"description": "Complete API collection for ReceptionMate portal including all major endpoints across authentication, calls, billing, messaging, and admin functions.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{JWT_TOKEN}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('JWT_TOKEN', response.token);",
+									"    console.log('JWT token saved to environment');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"Nomoremissedcalls\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/login",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Request Password Reset",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"test@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/request-password-reset",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "request-password-reset"]
+						}
+					}
+				},
+				{
+					"name": "Reset Password",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"reset-token-from-email\",\n  \"newPassword\": \"NewSecurePassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/auth/reset-password",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "auth", "reset-password"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Calls",
+			"item": [
+				{
+					"name": "Get All Calls",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/calls?garageId={{GARAGE_ID}}&page=1&limit=50",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "calls"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "startDate",
+									"value": "2026-01-01T00:00:00Z",
+									"disabled": true
+								},
+								{
+									"key": "endDate",
+									"value": "2026-02-28T23:59:59Z",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Call By ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/calls/:callId",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "calls", ":callId"],
+							"variable": [
+								{
+									"key": "callId",
+									"value": "call-id-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Calls Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/calls-summary?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "calls-summary"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Submit Call Feedback",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"rating\": 5,\n  \"comment\": \"Excellent service!\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/calls/:callId/feedback",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "calls", ":callId", "feedback"],
+							"variable": [
+								{
+									"key": "callId",
+									"value": "call-id-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Export Calls to CSV",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/calls/export/csv?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "calls", "export", "csv"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Agent Configuration",
+			"item": [
+				{
+					"name": "Get Agent Config",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/agent-config?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "agent-config"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Agent Config",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"garageId\": \"{{GARAGE_ID}}\",\n  \"greetingLine\": \"Good afternoon, Manchester Motors, Leah speaking, how can I help?\",\n  \"tonePreference\": \"upbeat\",\n  \"responseSpeed\": \"fast\",\n  \"agentType\": \"assist\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/agent-config",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "agent-config"]
+						}
+					}
+				},
+				{
+					"name": "Scan Website",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"garageId\": \"{{GARAGE_ID}}\",\n  \"websiteUrl\": \"https://example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/scan-website",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "scan-website"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Onboarding",
+			"item": [
+				{
+					"name": "Create Business - 14 Day Trial",
+					"request": {
+						"auth": {
+							"type": "apikey",
+							"apikey": [
+								{
+									"key": "key",
+									"value": "X-API-Key",
+									"type": "string"
+								},
+								{
+									"key": "value",
+									"value": "{{API_KEY}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"branchName\": \"Manchester Motors\",\n  \"contactName\": \"John Smith\",\n  \"contactEmail\": \"john@manchestermotors.com\",\n  \"websiteUrl\": \"https://manchestermotors.com\",\n  \"agentType\": \"assist\",\n  \"subscriptionCostGbp\": 400,\n  \"includedMinutes\": 400,\n  \"trialType\": \"days\",\n  \"trialDays\": 14,\n  \"autoPurchaseTwilioNumber\": true,\n  \"activateTwilio\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/create-business",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "onboarding", "create-business"]
+						}
+					}
+				},
+				{
+					"name": "Get Onboarding Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/status",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "onboarding", "status"]
+						}
+					}
+				},
+				{
+					"name": "Mark Setup Wizard Complete",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/wizard-complete",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "onboarding", "wizard-complete"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Billing",
+			"item": [
+				{
+					"name": "Get Billing Usage",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/billing/usage?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "billing", "usage"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Subscription Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/billing/subscription-status?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "billing", "subscription-status"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Invoices (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/billing/invoices?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "billing", "invoices"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Customer Billing",
+			"item": [
+				{
+					"name": "Get Customer Invoices",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/customer/billing/invoices?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "customer", "billing", "invoices"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Download Invoice PDF",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/customer/billing/invoices/:invoiceId/pdf",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "customer", "billing", "invoices", ":invoiceId", "pdf"],
+							"variable": [
+								{
+									"key": "invoiceId",
+									"value": "invoice-id-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Business Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/customer/billing/business-info",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "customer", "billing", "business-info"]
+						}
+					}
+				},
+				{
+					"name": "Get Mandate Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/customer/billing/mandate-status",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "customer", "billing", "mandate-status"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Payment Setup",
+			"item": [
+				{
+					"name": "Create Mandate Flow",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/payment/create-mandate-flow",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "payment", "create-mandate-flow"]
+						}
+					}
+				},
+				{
+					"name": "Confirm Mandate",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"flowId\": \"flow-id-from-create\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/payment/confirm-mandate",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "payment", "confirm-mandate"]
+						}
+					}
+				},
+				{
+					"name": "Get Mandate Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/payment/mandate-status",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "payment", "mandate-status"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Messages",
+			"item": [
+				{
+					"name": "Get Messaging Platforms",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/messages/platforms?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "messages", "platforms"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Conversations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/messages/conversations?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "messages", "conversations"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								},
+								{
+									"key": "platform",
+									"value": "whatsapp",
+									"disabled": true
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Unread Count",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/messages/unread-count?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "messages", "unread-count"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Send Message",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"conversationId\": \"conversation-id-here\",\n  \"message\": \"Hello, how can I help you today?\",\n  \"platform\": \"whatsapp\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/messages/send",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "messages", "send"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin - Businesses",
+			"item": [
+				{
+					"name": "Get All Businesses",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/businesses",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "businesses"]
+						}
+					}
+				},
+				{
+					"name": "Create Business",
+					"request": {
+						"auth": {
+							"type": "apikey",
+							"apikey": [
+								{
+									"key": "key",
+									"value": "X-API-Key",
+									"type": "string"
+								},
+								{
+									"key": "value",
+									"value": "{{API_KEY}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New Business\",\n  \"contactName\": \"John Doe\",\n  \"contactEmail\": \"john@newbusiness.com\",\n  \"contactPhone\": \"01234567890\",\n  \"contactRole\": \"Owner\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/businesses",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "businesses"]
+						}
+					}
+				},
+				{
+					"name": "Create Branch",
+					"request": {
+						"auth": {
+							"type": "apikey",
+							"apikey": [
+								{
+									"key": "key",
+									"value": "X-API-Key",
+									"type": "string"
+								},
+								{
+									"key": "value",
+									"value": "{{API_KEY}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"New Branch\",\n  \"subscriptionCostGbp\": 400,\n  \"includedMinutes\": 400\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/businesses/:businessId/branches",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "businesses", ":businessId", "branches"],
+							"variable": [
+								{
+									"key": "businessId",
+									"value": "business-id-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete Business",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/businesses/:businessId",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "businesses", ":businessId"],
+							"variable": [
+								{
+									"key": "businessId",
+									"value": "business-id-here"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin - Users",
+			"item": [
+				{
+					"name": "Get All Users",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/users",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "users"]
+						}
+					}
+				},
+				{
+					"name": "Create User",
+					"request": {
+						"auth": {
+							"type": "apikey",
+							"apikey": [
+								{
+									"key": "key",
+									"value": "X-API-Key",
+									"type": "string"
+								},
+								{
+									"key": "value",
+									"value": "{{API_KEY}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"Nomoremissedcalls\",\n  \"garageAccessIds\": [\"{{GARAGE_ID}}\"],\n  \"role\": \"USER\",\n  \"branchRoles\": { \"{{GARAGE_ID}}\": \"MANAGER\" }\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/users",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "users"]
+						}
+					}
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"updated@example.com\",\n  \"role\": \"ADMIN\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/users/:userId",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "users", ":userId"],
+							"variable": [
+								{
+									"key": "userId",
+									"value": "user-id-here"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/users/:userId",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "users", ":userId"],
+							"variable": [
+								{
+									"key": "userId",
+									"value": "user-id-here"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Admin - Twilio",
+			"item": [
+				{
+					"name": "Search Available Numbers",
+					"request": {
+						"auth": {
+							"type": "apikey",
+							"apikey": [
+								{
+									"key": "key",
+									"value": "X-API-Key",
+									"type": "string"
+								},
+								{
+									"key": "value",
+									"value": "{{API_KEY}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"areaCode\": \"020\",\n  \"country\": \"GB\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/twilio/available-numbers",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "twilio", "available-numbers"]
+						}
+					}
+				},
+				{
+					"name": "Purchase Number",
+					"request": {
+						"auth": {
+							"type": "apikey",
+							"apikey": [
+								{
+									"key": "key",
+									"value": "X-API-Key",
+									"type": "string"
+								},
+								{
+									"key": "value",
+									"value": "{{API_KEY}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phoneNumber\": \"+441234567890\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/admin/twilio/purchase",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "admin", "twilio", "purchase"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "OAuth",
+			"item": [
+				{
+					"name": "Initiate Meta OAuth",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"garageId\": \"{{GARAGE_ID}}\",\n  \"platform\": \"whatsapp\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/oauth/meta/initiate",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "oauth", "meta", "initiate"]
+						}
+					}
+				},
+				{
+					"name": "Get Social Connections",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/social-connections?garageId={{GARAGE_ID}}",
+							"host": ["{{BASE_URL}}"],
+							"path": ["api", "social-connections"],
+							"query": [
+								{
+									"key": "garageId",
+									"value": "{{GARAGE_ID}}"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Health Check",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/health",
+							"host": ["{{BASE_URL}}"],
+							"path": ["health"]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "BASE_URL",
+			"value": "http://18.171.230.217:4000",
+			"type": "string"
+		},
+		{
+			"key": "API_KEY",
+			"value": "your-api-key-here",
+			"type": "string"
+		},
+		{
+			"key": "JWT_TOKEN",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "GARAGE_ID",
+			"value": "your-garage-id-here",
+			"type": "string"
+		}
+	]
+}

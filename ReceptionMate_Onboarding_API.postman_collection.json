@@ -1,0 +1,258 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "ReceptionMate Onboarding API",
+		"description": "Complete API collection for ReceptionMate onboarding endpoints. Includes examples for different trial types and configuration options.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Onboarding",
+			"item": [
+				{
+					"name": "Create Business - 14 Day Trial",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{API_KEY}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"branchName\": \"Manchester Motors\",\n  \"contactName\": \"John Smith\",\n  \"contactEmail\": \"john@manchestermotors.com\",\n  \"websiteUrl\": \"https://manchestermotors.com\",\n  \"agentType\": \"assist\",\n  \"subscriptionCostGbp\": 400,\n  \"includedMinutes\": 400,\n  \"trialType\": \"days\",\n  \"trialDays\": 14,\n  \"autoPurchaseTwilioNumber\": true,\n  \"activateTwilio\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/create-business",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"create-business"
+							]
+						},
+						"description": "Creates a new business with a 14-day trial period. The subscription will activate automatically after 14 days. This is the most common onboarding flow."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Business - Booking Activation (4 bookings)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{API_KEY}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"branchName\": \"Quick Fit Centre\",\n  \"contactName\": \"Jane Doe\",\n  \"contactEmail\": \"jane@quickfit.com\",\n  \"websiteUrl\": \"https://quickfit.com\",\n  \"agentType\": \"automate\",\n  \"subscriptionCostGbp\": 300,\n  \"includedMinutes\": 300,\n  \"trialType\": \"bookings\",\n  \"requireBookings\": 4,\n  \"autoPurchaseTwilioNumber\": true,\n  \"activateTwilio\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/create-business",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"create-business"
+							]
+						},
+						"description": "Creates a business with booking-based activation. The subscription will only activate after 4 successful bookings have been made. No time limit on the trial period."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Business - No Trial (Immediate Billing)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{API_KEY}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"branchName\": \"Elite Garage\",\n  \"contactName\": \"Bob Wilson\",\n  \"contactEmail\": \"bob@elite.com\",\n  \"websiteUrl\": \"https://elite.com\",\n  \"agentType\": \"assist\",\n  \"subscriptionCostGbp\": 500,\n  \"includedMinutes\": 500,\n  \"autoPurchaseTwilioNumber\": true,\n  \"activateTwilio\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/create-business",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"create-business"
+							]
+						},
+						"description": "Creates a business without any trial period. Billing starts immediately upon creation. Use for customers who are ready to commit."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Business - Manual Phone Setup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{API_KEY}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"branchName\": \"Premium Auto Service\",\n  \"contactName\": \"Sarah Johnson\",\n  \"contactEmail\": \"sarah@premiumauto.com\",\n  \"websiteUrl\": \"https://premiumauto.com\",\n  \"agentType\": \"automate\",\n  \"subscriptionCostGbp\": 450,\n  \"includedMinutes\": 450,\n  \"trialType\": \"days\",\n  \"trialDays\": 7,\n  \"autoPurchaseTwilioNumber\": false,\n  \"activateTwilio\": false\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/create-business",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"create-business"
+							]
+						},
+						"description": "Creates a business without auto-purchasing a Twilio number or activating SIP routing. Use when the customer wants to manually configure their phone number or use an existing number."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Business - Assist Agent Type",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{API_KEY}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"branchName\": \"City Garage\",\n  \"contactName\": \"Michael Brown\",\n  \"contactEmail\": \"michael@citygarage.com\",\n  \"websiteUrl\": \"https://citygarage.com\",\n  \"agentType\": \"assist\",\n  \"subscriptionCostGbp\": 350,\n  \"includedMinutes\": 350,\n  \"trialType\": \"days\",\n  \"trialDays\": 14,\n  \"autoPurchaseTwilioNumber\": true,\n  \"activateTwilio\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/create-business",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"create-business"
+							]
+						},
+						"description": "Creates a business with ASSIST agent type. The agent will collect information and hand off to a human for final booking confirmation."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Business - Automate Agent Type",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{API_KEY}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"branchName\": \"AutoFix Center\",\n  \"contactName\": \"Emily Davis\",\n  \"contactEmail\": \"emily@autofix.com\",\n  \"websiteUrl\": \"https://autofix.com\",\n  \"agentType\": \"automate\",\n  \"subscriptionCostGbp\": 400,\n  \"includedMinutes\": 400,\n  \"trialType\": \"days\",\n  \"trialDays\": 14,\n  \"autoPurchaseTwilioNumber\": true,\n  \"activateTwilio\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/onboarding/create-business",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"onboarding",
+								"create-business"
+							]
+						},
+						"description": "Creates a business with AUTOMATE agent type. The agent will handle the entire booking process autonomously without human intervention."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for onboarding new businesses to the ReceptionMate platform"
+		}
+	],
+	"variable": [
+		{
+			"key": "BASE_URL",
+			"value": "http://18.171.230.217:4000",
+			"type": "string"
+		},
+		{
+			"key": "API_KEY",
+			"value": "your-api-key-here",
+			"type": "string"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	]
+}

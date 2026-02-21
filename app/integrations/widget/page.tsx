@@ -1,29 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Copy, Check, ExternalLink } from 'lucide-react';
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
 
 export default function WidgetEmbedPage() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [garageId, setGarageId] = useState<string>('');
   const [garageName, setGarageName] = useState<string>('');
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/login');
-    } else if (session?.user) {
-      // Get the first garage for this user
-      const garages = (session.user as any).garages || [];
-      if (garages.length > 0) {
-        setGarageId(garages[0].id);
-        setGarageName(garages[0].name);
-      }
+    // Get garage info from localStorage or API
+    const storedGarageId = localStorage.getItem('selectedGarageId');
+    const storedGarageName = localStorage.getItem('selectedGarageName') || 'Your Garage';
+    
+    if (storedGarageId) {
+      setGarageId(storedGarageId);
+      setGarageName(storedGarageName);
     }
-  }, [session, status, router]);
+  }, []);
 
   const embedCode = garageId
     ? `<!-- ReceptionMate Chat Widget -->
@@ -49,7 +42,7 @@ export default function WidgetEmbedPage() {
     window.open(`/widget/${garageId}`, '_blank');
   };
 
-  if (status === 'loading' || !garageId) {
+  if (!garageId) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -79,7 +72,9 @@ export default function WidgetEmbedPage() {
                 onClick={handlePreview}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                <ExternalLink className="w-4 h-4" />
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
                 Open Preview
               </button>
             </div>
@@ -98,12 +93,16 @@ export default function WidgetEmbedPage() {
               >
                 {copied ? (
                   <>
-                    <Check className="w-4 h-4" />
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
                     Copied!
                   </>
                 ) : (
                   <>
-                    <Copy className="w-4 h-4" />
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    </svg>
                     Copy Code
                   </>
                 )}

@@ -16,7 +16,7 @@ export default function ChatWidget({ params }: { params: { garageId: string } })
 
   useEffect(() => {
     // Fetch garage configuration
-    fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/widget/${params.garageId}`)
+    fetch(`https://api.receptionmate.co.uk/api/widget/${params.garageId}`)
       .then((res) => res.json())
       .then((data) => {
         setConfig(data);

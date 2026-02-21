@@ -36,9 +36,8 @@ from livekit.agents import (
     cli,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import deepgram, elevenlabs, silero, noise_cancellation
+from livekit.plugins import deepgram, elevenlabs, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
-from livekit.agents import room_io
 
 # ============================================================
 # LOGGING
@@ -247,12 +246,14 @@ def _clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
 
 
-def _apply_agent_configuration(configuration: dict, knowledge_base: list) -> None:
-    """Apply loaded configuration from DynamoDB to global variables."""
+def _apply_agent_configuration(configuration: dict, knowledge_base: list) -> str:
+    """Apply loaded configuration from DynamoDB to global variables.
+    Returns agent_mode ('assist' or 'automate')."""
     global GH_CUSTOMER_ID, GH_LOCATION_ID, GH_API_KEY
     global AGENT_BRANCH_NAME, AGENT_GREETING_LINE
     global ELEVEN_VOICE_ID, ELEVEN_STABILITY, ELEVEN_SIMILARITY, ELEVEN_STYLE
     global AGENT_KNOWLEDGE_BASE, AGENT_CONFIGURATION
+    global GARAGE_HOURS, SERVICE_TYPE
     
     if not isinstance(configuration, dict):
         configuration = {}
@@ -327,6 +328,21 @@ def _apply_agent_configuration(configuration: dict, knowledge_base: list) -> Non
             f"stability={ELEVEN_STABILITY}, similarity={ELEVEN_SIMILARITY}, style={ELEVEN_STYLE}"
         )
     
+    # Apply garage hours
+    garage_hours_config = configuration.get("weeklyOpeningHours") or configuration.get("garageHours") or {}
+    if isinstance(garage_hours_config, dict) and garage_hours_config:
+        GARAGE_HOURS = garage_hours_config
+        logger.info(f"[APPLY_CONFIG] Garage hours: {garage_hours_config}")
+    
+    # Apply service type (fast-fit vs full-service)
+    allow_fast_fit_only = configuration.get("allowFastFitOnly")
+    if allow_fast_fit_only is True:
+        SERVICE_TYPE = "fast-fit"
+        logger.info(f"[APPLY_CONFIG] Service type: fast-fit (allowFastFitOnly=True)")
+    else:
+        SERVICE_TYPE = "full-service"
+        logger.info(f"[APPLY_CONFIG] Service type: full-service")
+    
     # Apply knowledge base (trimmed to reasonable size)
     if isinstance(knowledge_base, list):
         max_docs = 5  # Limit number of documents
@@ -360,16 +376,28 @@ def _apply_agent_configuration(configuration: dict, knowledge_base: list) -> Non
             logger.info("[APPLY_CONFIG] Knowledge base is empty")
     else:
         AGENT_KNOWLEDGE_BASE = []
+    
+    # Read agentType from configuration
+    agent_type = configuration.get("agentType", "automate")
+    if isinstance(agent_type, str):
+        agent_mode = agent_type.strip().lower()
+    else:
+        agent_mode = "automate"
+    
+    logger.info(f"[APPLY_CONFIG] Agent mode: {agent_mode}")
+    return agent_mode
 
 
-def refresh_agent_configuration(garage_id: str) -> None:
-    """Load and apply configuration from DynamoDB."""
+def refresh_agent_configuration(garage_id: str) -> str:
+    """Load and apply configuration from DynamoDB.
+    Returns agent_mode ('assist' or 'automate')."""
     configuration, knowledge_base = load_agent_config(garage_id)
     if not configuration:
         logger.warning(f"[LOAD_CONFIG] No configuration found for garage {garage_id}; using .env defaults")
-        return
+        return "automate"
     logger.info(f"[LOAD_CONFIG] Loaded configuration for garage {garage_id}")
-    _apply_agent_configuration(configuration, knowledge_base)
+    agent_mode = _apply_agent_configuration(configuration, knowledge_base)
+    return agent_mode
 
 
 # ============================================================
@@ -382,6 +410,8 @@ PORTAL_GARAGE_ID = os.getenv("PORTAL_GARAGE_ID", "").strip()
 # Global storage for configuration and knowledge base
 AGENT_CONFIGURATION: dict = {}
 AGENT_KNOWLEDGE_BASE: list = []
+GARAGE_HOURS: dict = {}  # Garage opening hours
+SERVICE_TYPE: str = "full-service"  # Service type: "fast-fit" or "full-service"
 
 # Load configuration if PORTAL_GARAGE_ID is set
 if PORTAL_GARAGE_ID:
@@ -393,63 +423,6 @@ if PORTAL_GARAGE_ID:
         logger.info("[MODULE_INIT] Falling back to .env configuration")
 else:
     logger.info("[MODULE_INIT] No PORTAL_GARAGE_ID set, using .env configuration")
-
-# ============================================================
-# OPENING HOURS CHECKER
-# ============================================================
-
-def is_garage_currently_open() -> tuple[bool, str]:
-    """Check if the garage is currently open based on weeklyOpeningHours configuration.
-    Returns (is_open: bool, message: str explaining the status)"""
-    
-    opening_hours = AGENT_CONFIGURATION.get("weeklyOpeningHours")
-    if not opening_hours or not isinstance(opening_hours, dict):
-        # No opening hours configured - assume always open for bookings
-        return (True, "")
-    
-    now = _current_uk_datetime()
-    day_name = now.strftime("%A").lower()  # monday, tuesday, etc.
-    
-    day_hours = opening_hours.get(day_name)
-    if not day_hours:
-        # Day not in config - assume closed
-        return (False, f"We're currently closed on {now.strftime('%A')}s")
-    
-    # Check if it's a closed day
-    if isinstance(day_hours, dict):
-        if day_hours.get("closed") is True:
-            return (False, f"We're currently closed on {now.strftime('%A')}s")
-        
-        open_time = day_hours.get("open")
-        close_time = day_hours.get("close")
-        
-        if not open_time or not close_time:
-            # No times specified - assume open
-            return (True, "")
-        
-        try:
-            # Parse times (format: "HH:MM")
-            open_hour, open_min = map(int, open_time.split(":"))
-            close_hour, close_min = map(int, close_time.split(":"))
-            
-            current_minutes = now.hour * 60 + now.minute
-            open_minutes = open_hour * 60 + open_min
-            close_minutes = close_hour * 60 + close_min
-            
-            if open_minutes <= current_minutes < close_minutes:
-                return (True, "")
-            else:
-                # Format the opening hours nicely for the message
-                open_12h = f"{open_hour % 12 or 12}:{open_min:02d} {'AM' if open_hour < 12 else 'PM'}"
-                close_12h = f"{close_hour % 12 or 12}:{close_min:02d} {'AM' if close_hour < 12 else 'PM'}"
-                return (False, f"We're currently closed. Our opening hours today are {open_12h} to {close_12h}")
-        except (ValueError, AttributeError):
-            # Malformed time format - assume open
-            return (True, "")
-    
-    # Fallback - assume open
-    return (True, "")
-
 
 # Read environment variable defaults (used as fallback if DynamoDB not configured)
 DEFAULT_GH_CUSTOMER_ID = "devbc24_mpu"
@@ -496,6 +469,72 @@ PORTAL_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "optional-shared-secret")
 RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()  # e.g. https://storage.../recordings
 
 # ============================================================
+# PORTAL CALL LOGGING
+# ============================================================
+
+async def log_call_to_portal(
+    garage_id: str,
+    room_name: str,
+    duration_seconds: int,
+    transcript: list,
+    summary: str,
+    customer_name: str = "",
+    customer_phone: str = "",
+    registration_number: str = "",
+    confirmed_booking: bool = False,
+    booking_details: str = "",
+    call_type: str = "unknown",
+) -> None:
+    """Log call data to the portal backend."""
+    
+    # Only log calls that are 55 seconds or longer
+    if duration_seconds < 55:
+        logger.info(f"[PORTAL] Skipping call log - duration {duration_seconds}s is under 55s threshold")
+        return
+    
+    try:
+        payload = {
+            "garageId": garage_id,
+            "roomName": room_name,
+            "durationSeconds": duration_seconds,
+            "transcript": transcript,
+            "summary": summary,
+            "customerName": customer_name or "Unknown",
+            "customerPhone": customer_phone,
+            "registrationNumber": registration_number,
+            "confirmedBooking": confirmed_booking,
+            "bookingDetails": booking_details,
+            "callType": call_type,
+            "metrics": {},
+        }
+        
+        # Add recording URL if available
+        if RECORDING_BASE_URL:
+            recording_url = f"{RECORDING_BASE_URL.rstrip('/')}/{room_name}.mp4"
+            payload["recordingUrl"] = recording_url
+            logger.info(f"[PORTAL] Including recording URL: {recording_url}")
+        else:
+            logger.warning("[PORTAL] RECORDING_BASE_URL not set; recordingUrl will be omitted")
+        
+        headers = {
+            "Content-Type": "application/json",
+            "X-Webhook-Secret": PORTAL_WEBHOOK_SECRET,
+        }
+        
+        logger.info(f"[PORTAL] Posting call to {PORTAL_API_URL}")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(PORTAL_API_URL, json=payload, headers=headers) as response:
+                if response.status == 201:
+                    data = await response.json()
+                    logger.info(f"[PORTAL] Call logged successfully: {data.get('callId', 'unknown')}")
+                else:
+                    text = await response.text()
+                    logger.error(f"[PORTAL] Failed to log call: {response.status} - {text}")
+    except Exception as e:
+        logger.error(f"[PORTAL] Error logging call: {e}")
+
+# ============================================================
 # NATO / VRN NORMALIZATION
 # ============================================================
 
@@ -534,22 +573,6 @@ _DIGIT_WORD_MAP = {
     "three": "3", "tree": "3", "four": "4", "for": "4",
     "five": "5", "fife": "5", "six": "6", "seven": "7",
     "eight": "8", "ate": "8", "nine": "9", "niner": "9",
-    # Compound numbers (10-99) - STT often transcribes as "twenty", "sixty", etc.
-    "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13", "fourteen": "14",
-    "fifteen": "15", "sixteen": "16", "seventeen": "17", "eighteen": "18", "nineteen": "19",
-    "twenty": "20", "thirty": "30", "forty": "40", "fifty": "50",
-    "sixty": "60", "seventy": "70", "eighty": "80", "ninety": "90",
-    # Common compound number patterns (21-29, etc.)
-    "twentyone": "21", "twentytwo": "22", "twentythree": "23", "twentyfour": "24",
-    "twentyfive": "25", "twentysix": "26", "twentyseven": "27", "twentyeight": "28", "twentynine": "29",
-    "thirtyone": "31", "thirtytwo": "32", "thirtythree": "33", "thirtyfour": "34",
-    "thirtyfive": "35", "thirtysix": "36", "thirtyseven": "37", "thirtyeight": "38", "thirtynine": "39",
-    "fortyone": "41", "fortytwo": "42", "fortythree": "43", "fortyfour": "44",
-    "fortyfive": "45", "fortysix": "46", "fortyseven": "47", "fortyeight": "48", "fortynine": "49",
-    "fiftyone": "51", "fiftytwo": "52", "fiftythree": "53", "fiftyfour": "54",
-    "fiftyfive": "55", "fiftysix": "56", "fiftyseven": "57", "fiftyeight": "58", "fiftynine": "59",
-    "sixtyone": "61", "sixtytwo": "62", "sixtythree": "63", "sixtyfour": "64",
-    "sixtyfive": "65", "sixtysix": "66", "sixtyseven": "67", "sixtyeight": "68", "sixtynine": "69",
 }
 
 _ALL_NATO_DIGIT_WORDS: dict[str, str] = {}
@@ -641,20 +664,6 @@ def normalize_vehicle_registration(reg: str) -> str:
         if len(cleaned) == 1:
             converted.append(cleaned.upper())
             continue
-        
-        # Handle compound number patterns like "twenty1" (word + digit)
-        # STT often transcribes "twenty one" as "twenty1", "sixty one" as "sixty1", etc.
-        compound_match = re.match(r"^(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(\d)$", lower)
-        if compound_match:
-            tens_word, ones_digit = compound_match.groups()
-            tens_digit = _DIGIT_WORD_MAP.get(tens_word, "")
-            if tens_digit:
-                # Convert "twenty1" → "21", "sixty3" → "63", etc.
-                compound_number = tens_digit[0] + ones_digit  # "20" + "1" → "21"
-                converted.append(compound_number)
-                logger.info(f"[VRN] Converted compound number: '{cleaned}' → '{compound_number}'")
-                continue
-        
         converted.extend(_scan_nato_blob(cleaned))
     if converted:
         return "".join(converted)
@@ -667,6 +676,113 @@ def normalize_vehicle_registration(reg: str) -> str:
 
 def _current_uk_datetime() -> datetime:
     return datetime.now(ZoneInfo("Europe/London"))
+
+
+def is_within_business_hours() -> bool:
+    """Check if current UK time is within garage business hours."""
+    if not GARAGE_HOURS:
+        # No hours configured, assume always open
+        return True
+    
+    now = _current_uk_datetime()
+    day_name = now.strftime("%A").lower()  # monday, tuesday, etc.
+    
+    # Check if hours exist for this day
+    day_hours = GARAGE_HOURS.get(day_name)
+    if not day_hours:
+        return False  # Day not configured, assume closed
+    
+    # Handle closed days
+    if day_hours.get("closed") is True or day_hours.get("isClosed") is True:
+        return False
+    
+    # Parse open and close times
+    open_time_str = day_hours.get("open") or day_hours.get("openTime")
+    close_time_str = day_hours.get("close") or day_hours.get("closeTime")
+    
+    if not open_time_str or not close_time_str:
+        return False  # Missing times, assume closed
+    
+    try:
+        # Parse times (format: "08:30" or "8:30")
+        open_hour, open_min = map(int, open_time_str.split(":"))
+        close_hour, close_min = map(int, close_time_str.split(":"))
+        
+        current_minutes = now.hour * 60 + now.minute
+        open_minutes = open_hour * 60 + open_min
+        close_minutes = close_hour * 60 + close_min
+        
+        return open_minutes <= current_minutes < close_minutes
+    except (ValueError, AttributeError):
+        logger.error(f"[HOURS_CHECK] Failed to parse times for {day_name}: open={open_time_str}, close={close_time_str}")
+        return True  # On error, assume open to avoid blocking
+
+
+def get_business_hours_text() -> str:
+    """Generate human-readable business hours text from GARAGE_HOURS."""
+    if not GARAGE_HOURS:
+        return "Monday to Friday, half eight in the morning until six in the evening"
+    
+    # Group consecutive days with same hours
+    days_order = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    hours_text_parts = []
+    
+    i = 0
+    while i < len(days_order):
+        day = days_order[i]
+        day_hours = GARAGE_HOURS.get(day)
+        
+        if not day_hours or day_hours.get("closed") or day_hours.get("isClosed"):
+            i += 1
+            continue
+        
+        open_time = day_hours.get("open") or day_hours.get("openTime")
+        close_time = day_hours.get("close") or day_hours.get("closeTime")
+        
+        if not open_time or not close_time:
+            i += 1
+            continue
+        
+        # Find consecutive days with same hours
+        end_day_idx = i
+        for j in range(i + 1, len(days_order)):
+            next_day = days_order[j]
+            next_hours = GARAGE_HOURS.get(next_day, {})
+            if (next_hours.get("open") or next_hours.get("openTime")) == open_time and \
+               (next_hours.get("close") or next_hours.get("closeTime")) == close_time and \
+               not (next_hours.get("closed") or next_hours.get("isClosed")):
+                end_day_idx = j
+            else:
+                break
+        
+        # Format day range
+        if end_day_idx == i:
+            day_range = days_order[i].capitalize()
+        else:
+            day_range = f"{days_order[i].capitalize()} to {days_order[end_day_idx].capitalize()}"
+        
+        # Format times (convert 24h to 12h with am/pm)
+        def format_time(time_str):
+            hour, minute = map(int, time_str.split(":"))
+            if hour == 0:
+                return f"12:{minute:02d}am"
+            elif hour < 12:
+                return f"{hour}:{minute:02d}am" if minute > 0 else f"{hour}am"
+            elif hour == 12:
+                return f"12:{minute:02d}pm" if minute > 0 else "12pm"
+            else:
+                return f"{hour-12}:{minute:02d}pm" if minute > 0 else f"{hour-12}pm"
+        
+        open_formatted = format_time(open_time)
+        close_formatted = format_time(close_time)
+        
+        hours_text_parts.append(f"{day_range} {open_formatted} to {close_formatted}")
+        i = end_day_idx + 1
+    
+    if not hours_text_parts:
+        return "Monday to Friday, half eight in the morning until six in the evening"
+    
+    return ", ".join(hours_text_parts)
 
 
 def get_dynamic_greeting(branch_name: str) -> str:
@@ -763,210 +879,6 @@ class ErrorMonitor:
 
 
 # ============================================================
-# PORTAL LOGGING
-# ============================================================
-
-# ── Portal logging ──
-
-async def generate_call_summary(
-    state: "CallState",
-    transcript_texts: list[str],
-) -> str:
-    """
-    Generate a human-readable call summary using GPT.
-    Based on basic_agent2.py implementation for consistent, high-quality summaries.
-    """
-    # Check if there was any meaningful conversation
-    if not transcript_texts or len(transcript_texts) < 2:
-        return "No conversation was had."
-    
-    try:
-        client = _get_specialist_llm()
-        if client is None:
-            # Fallback to manual summary if no LLM available
-            name = f"{state.customer_name_first} {state.customer_name_last}".strip() or "Customer"
-            return f"{name} called. " + (f"Vehicle: {state.vrn}. " if state.vrn else "") + (f"Booking: {state.booking_date} at {state.booking_time}." if state.booking_date else "")
-        
-        # Build formatted transcript for AI
-        transcript_text = "\n".join([
-            f"{'Agent' if i % 2 == 0 else 'Customer'}: {text}"
-            for i, text in enumerate(transcript_texts)
-        ])
-        
-        # Get customer name and vehicle for context
-        customer_name = f"{state.customer_name_first} {state.customer_name_last}".strip()
-        vehicle_info = f"{state.vrn}" if state.vrn else "their vehicle"
-        if state.vehicle_make and state.vehicle_model:
-            vehicle_info = f"{state.vrn} ({state.vehicle_make} {state.vehicle_model})"
-        
-        # Determine booking status for summary context
-        booking_status = ""
-        if state.step == Step.CONFIRMED:
-            booking_status = "BOOKING WAS SUCCESSFULLY SUBMITTED TO THE SYSTEM."
-        elif state.booking_date and state.booking_time:
-            booking_status = "TIMESLOT WAS DISCUSSED BUT BOOKING WAS NOT COMPLETED. Customer needs a callback to finalize the booking."
-        elif state.step == Step.MESSAGE_ONLY or state.intent in ["message", "quote"]:
-            booking_status = "Customer requested a MESSAGE/CALLBACK."
-        
-        prompt = f"""Create a structured call summary from this garage receptionist call transcript.
-
-BOOKING STATUS: {booking_status}
-
-CRITICAL RULES - READ CAREFULLY:
-1. ONLY summarize information that is ACTUALLY in the transcript below
-2. DO NOT make up or infer details that aren't explicitly stated
-3. Use the BOOKING STATUS above to determine if booking was confirmed or if callback is needed
-4. If BOOKING STATUS says "NOT COMPLETED", you MUST state "Callback required to complete the booking"
-5. DO NOT invent customer names, registration numbers, or other details
-6. If the customer only said "hello" then hung up, respond ONLY with "No conversation was had."
-
-REQUIRED FORMAT:
-Start with: "{customer_name or 'Customer'} called regarding {vehicle_info}."
-
-Then provide 2-4 paragraphs covering ONLY what was actually discussed:
-
-Paragraph 1 - Purpose & Vehicle:
-- Why they called (service needed, enquiry, complaint, vehicle update, etc.)
-- Vehicle details if mentioned (make, model, registration, mileage, issues)
-
-Paragraph 2 - Booking Details:
-- If BOOKING STATUS says "SUCCESSFULLY SUBMITTED": "Booking confirmed for [DAY] [DATE] at [TIME]"
-- If BOOKING STATUS says "NOT COMPLETED": "Timeslot discussed: [DAY] [DATE] at [TIME]. Booking was NOT finalized."
-- Specific work discussed (e.g., "MOT retest", "full service", "brake inspection")
-- Total price if mentioned
-
-Paragraph 3 - Callback/Follow-up:
-- If BOOKING STATUS says "NOT COMPLETED" or "MESSAGE/CALLBACK": "Callback required - [specific reason from transcript]"
-- Only state "No callback required" if BOOKING STATUS says "SUCCESSFULLY SUBMITTED" AND all customer needs were met
-- Include any actions garage needs to take
-
-Transcript:
-{transcript_text}
-
-Call Summary:"""
-        
-        resp = await asyncio.wait_for(
-            client.chat.completions.create(
-                model="openai/gpt-4o-mini",
-                temperature=0.1,  # Lower temperature for more factual responses
-                max_tokens=500,
-                messages=[
-                    {"role": "system", "content": "You write factual summaries of garage phone calls based ONLY on what was actually said in the transcript. NEVER make up or infer information. Be detailed but only include facts from the transcript. Do not assume bookings were made unless explicitly confirmed. Do not invent names, registration numbers, or other details."},
-                    {"role": "user", "content": prompt},
-                ],
-            ),
-            timeout=10.0,
-        )
-        
-        summary = resp.choices[0].message.content.strip()
-        
-        # Safety check: if AI generated a very short summary, it might indicate no real conversation
-        if not summary or len(summary) < 20:
-            logger.warning("[PORTAL] AI generated very short summary, returning 'no conversation'")
-            return "No conversation was had."
-        
-        logger.info(f"[PORTAL] Generated GPT summary: {summary[:100]}...")
-        return summary
-        
-    except Exception as e:
-        logger.warning(f"[PORTAL] Failed to generate GPT summary: {e}, using fallback")
-        # Fallback to manual summary
-        name = f"{state.customer_name_first} {state.customer_name_last}".strip() or "Customer"
-        parts = [f"{name} called"]
-        if state.vrn:
-            parts.append(f"regarding {state.vrn}")
-        if state.vehicle_make and state.vehicle_model:
-            parts.append(f"({state.vehicle_make} {state.vehicle_model})")
-        if state.booking_date:
-            parts.append(f"Booking confirmed for {state.booking_date} at {state.booking_time}")
-            if state.service_selected_name:
-                parts.append(f"for {state.service_selected_name}")
-        elif state.message:
-            parts.append(f"Message: {state.message}")
-        return ". ".join(parts) + "."
-
-
-async def log_call_to_portal(
-    garage_id: str,
-    room_name: str,
-    duration_seconds: int,
-    transcript: list,
-    summary: str,
-    customer_name: str = "",
-    customer_phone: str = "",
-    from_number: str = "",
-    registration_number: str = "",
-    confirmed_booking: bool = False,
-    booking_details: str = "",
-    call_type: str = "unknown",
-    twilio_call_sid: str = "",
-) -> None:
-    """Log call data to the portal backend."""
-    
-    # Only log calls that are 55 seconds or longer
-    if duration_seconds < 55:
-        logger.info(f"[PORTAL] Skipping call log - duration {duration_seconds}s is under 55s threshold")
-        return
-    
-    try:
-        # Build required payload fields
-        payload = {
-            "garageId": garage_id,
-            "roomName": room_name,
-            "durationSeconds": duration_seconds,
-            "transcript": transcript,
-            "summary": summary,
-            "callType": call_type,
-            "metrics": {
-                "callDuration": duration_seconds,
-                "transcriptLength": len(transcript),
-            },
-        }
-        
-        # Add optional fields only if they have values
-        if customer_name:
-            payload["customerName"] = customer_name
-        if customer_phone:
-            payload["customerPhone"] = customer_phone
-        if from_number:
-            payload["fromNumber"] = from_number
-        if registration_number:
-            payload["registrationNumber"] = registration_number
-        if booking_details:
-            payload["bookingDetails"] = booking_details
-        if confirmed_booking:
-            payload["confirmedBooking"] = confirmed_booking
-        if twilio_call_sid:
-            payload["twilioCallSid"] = twilio_call_sid
-        
-        # Add recording URL if available
-        if RECORDING_BASE_URL:
-            recording_url = f"{RECORDING_BASE_URL.rstrip('/')}/{room_name}.mp4"
-            payload["recordingUrl"] = recording_url
-            logger.info(f"[PORTAL] Including recording URL: {recording_url}")
-        else:
-            logger.warning("[PORTAL] RECORDING_BASE_URL not set; recordingUrl will be omitted")
-        
-        headers = {
-            "Content-Type": "application/json",
-            "X-Webhook-Secret": PORTAL_WEBHOOK_SECRET,
-        }
-        
-        logger.info(f"[PORTAL] Posting call to {PORTAL_API_URL}")
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(PORTAL_API_URL, json=payload, headers=headers) as response:
-                if response.status == 201:
-                    data = await response.json()
-                    logger.info(f"[PORTAL] Call logged successfully: {data.get('callId', 'unknown')}")
-                else:
-                    text = await response.text()
-                    logger.error(f"[PORTAL] Failed to log call: {response.status} - {text}")
-    except Exception as e:
-        logger.error(f"[PORTAL] Error logging call: {e}")
-
-
-# ============================================================
 # STATE MACHINE
 # ============================================================
 
@@ -1019,7 +931,6 @@ class CallState:
     booking_time: str = ""
 
     # Contact
-    caller_phone: str = ""  # Incoming caller's phone number from SIP
     contact_phone: str = ""
     contact_email: str = ""
     house_name_or_number: str = ""
@@ -1042,7 +953,7 @@ class CallState:
     vrn_partial: str = ""  # accumulates partial VRN segments while caller spells it out
     vrn_pending: str = ""  # normalized VRN awaiting caller confirmation before API lookup
     booking_submit_pending: bool = False  # True when submit_booking failed and needs retry
-    recent_transcripts: list[dict] = field(default_factory=list)  # {"speaker": "customer"|"agent", "text": "..."}
+    recent_transcripts: list[str] = field(default_factory=list)
 
 
 # ============================================================
@@ -1629,11 +1540,12 @@ def match_service(name_hint: str, services: list[dict]) -> Optional[dict]:
 class SupervisorAgent(Agent):
     """Single speaking agent that manages the entire call via worker tools."""
 
-    def __init__(self, state: CallState, gh: GHClient, room_name: str = ""):
+    def __init__(self, state: CallState, gh: GHClient, room_name: str = "", assist_mode: bool = False):
         self._state = state
         self._gh = gh
         self._room_name = room_name
         self._agent_session: Optional[AgentSession] = None
+        self._assist_mode = assist_mode  # If True, don't speak first greeting
 
         # ── Worker Tools ─────────────────────────────────────
 
@@ -1648,7 +1560,7 @@ class SupervisorAgent(Agent):
             context: RunContext,
             first_name: str,
             last_name: str = "",
-            intent: str = "booking",
+            intent: str = "",
             service_hint: str = "",
             vrn: str = "",
             requested_person: str = "",
@@ -1685,7 +1597,7 @@ class SupervisorAgent(Agent):
                 )
 
             # Guard: verify the caller actually said this name (as a whole word)
-            all_speech = " ".join([t.get("text", "") if isinstance(t, dict) else t for t in self._state.recent_transcripts]).lower()
+            all_speech = " ".join(self._state.recent_transcripts).lower()
             # Check as whole word to avoid matching "v" inside "service"
             speech_words = set(re.findall(r"[a-z]+", all_speech))
             if first and first.lower() not in speech_words:
@@ -1707,195 +1619,105 @@ class SupervisorAgent(Agent):
                 self._state.step = Step.MESSAGE_ONLY
                 person_mention = f" for {requested}" if requested else ""
                 
-                # Check opening hours
-                is_open, closed_message = is_garage_currently_open()
-                
-                # Build phone confirmation prompt
-                phone_instruction = ""
-                if self._state.caller_phone:
-                    last_digits = self._state.caller_phone[-3:]
-                    phone_instruction = f"confirm phone ('Is that the number ending in {last_digits}?')"
-                else:
-                    phone_instruction = "collect phone number"
-                
-                if not is_open:
-                    # Outside hours - take message first, then inform about closure
+                # Check if we're outside business hours
+                if not is_within_business_hours():
                     return (
                         f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
-                        f"Caller's name is '{first}' (use sparingly as per system rules).\n"
-                        f"AFTER_HOURS_MODE: {closed_message}\n"
-                        f"Say naturally: 'Unfortunately the team aren't available at the moment. However, I can take a message. What would you like the team to know?'\n"
-                        f"Then collect message and {phone_instruction}.\n"
-                        f"IMPORTANT: Before calling take_message, ADD to the message: 'Note: {closed_message} so the callback will be during opening hours.'\n"
-                        f"Then say: 'As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on.'\n"
-                        f"Then call take_message."
+                        f"Address the caller as '{first}' (FIRST name only).\n"
+                        f"OUTSIDE BUSINESS HOURS. Say naturally: 'The team aren't available outside of our opening hours, "
+                        f"but I can take a message and they'll give you a ring back when we're open. What would you like me to pass on?'\n"
+                        f"Then collect message details with take_message."
                     )
                 
                 return (
                     f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
-                    f"Caller's name is '{first}' (use sparingly as per system rules).\n"
+                    f"Address the caller as '{first}' (FIRST name only).\n"
                     f"Say naturally: 'Unfortunately the team aren't available at the moment — they're likely helping other customers. "
                     f"However, I can help you with bookings, or I can take a message and get someone to give you a ring back. Which would you prefer?'\n"
                     f"If they want a booking → switch to booking flow (ask what work they need).\n"
-                    f"If they want a message → ask 'What would you like the team to know?' then {phone_instruction} and take_message."
+                    f"If they want a message → ask 'What would you like the team to know?' then collect phone number and take_message."
                 )
 
             # Message path
             if resolved in ("message", "enquiry", "reschedule", "cancel", "complaint", "question"):
                 self._state.intent = "message"
                 self._state.step = Step.MESSAGE_ONLY
-                
-                # Check opening hours
-                is_open, closed_message = is_garage_currently_open()
-                
-                # Build phone confirmation prompt
-                phone_instruction = ""
-                if self._state.caller_phone:
-                    last_digits = self._state.caller_phone[-3:]
-                    phone_instruction = f"Then confirm their phone: 'Is that the number ending in {last_digits}?' If yes, note it. If different, collect the new number."
-                else:
-                    phone_instruction = "Then collect their phone number."
-                
-                if not is_open:
-                    # Outside hours - take message first, then inform about closure
-                    return (
-                        f"Name saved: {first} {last}. Intent: message.\n"
-                        f"Caller's name is '{first}' (use sparingly as per system rules).\n"
-                        f"AFTER_HOURS_MODE: {closed_message}\n"
-                        f"Ask: 'What would you like the team to know?'\n"
-                        f"{phone_instruction}\n"
-                        f"IMPORTANT: Before calling take_message, ADD to the message: 'Note: {closed_message} so the callback will be during opening hours.'\n"
-                        f"Then say: 'As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on.'\n"
-                        f"Then call take_message."
-                    )
-                
                 return (
                     f"Name saved: {first} {last}. Intent: message.\n"
-                    f"Caller's name is '{first}' (use sparingly as per system rules).\n"
+                    f"Address the caller as '{first}' (FIRST name only — never use their surname to greet them).\n"
                     "Now take their message. Ask: 'What would you like the team to know?'\n"
-                    f"{phone_instruction} Then ask for preferred callback time."
+                    "Then collect their phone number and preferred callback time."
                 )
 
             # Vehicle update path — caller wants status on a vehicle already at the garage
-            # Skip vehicle lookup - just collect registration for callback
             if resolved in ("vehicle_update", "update", "status", "progress"):
                 self._state.intent = "vehicle_update"
-                self._state.step = Step.MESSAGE_ONLY
                 
-                # Check opening hours
-                is_open, closed_message = is_garage_currently_open()
-                
-                # Build phone confirmation prompt
-                phone_instruction = ""
-                if self._state.caller_phone:
-                    last_digits = self._state.caller_phone[-3:]
-                    phone_instruction = f"confirm their phone ('Is that the number ending in {last_digits}?')"
-                else:
-                    phone_instruction = "collect their phone number"
+                # Check if we're outside business hours
+                if not is_within_business_hours():
+                    self._state.step = Step.MESSAGE_ONLY
+                    return (
+                        f"Name saved: {first} {last}. Intent: vehicle update.\n"
+                        f"Address the caller as '{first}' (FIRST name only).\n"
+                        f"OUTSIDE BUSINESS HOURS. Say naturally: 'The team aren't available outside of our opening hours to check on your vehicle, "
+                        f"but I can take a message and they'll give you a ring back when we're open. What would you like me to pass on?'\n"
+                        f"Then collect message details with take_message."
+                    )
                 
                 if vrn:
-                    # Normalize and store the registration
-                    self._state.vrn = normalize_vehicle_registration(vrn)
-                    if not is_open:
-                        return (
-                            f"Name saved: {first} {last}. Intent: vehicle update.\n"
-                            f"Caller's name is '{first}' (use sparingly as per system rules).\n"
-                            f"Registration: {self._state.vrn}\n"
-                            f"AFTER_HOURS_MODE: {closed_message}\n"
-                            f"Say: 'No problem, I can help with that. What would you like to know about your vehicle?'\n"
-                            f"Then collect their message and {phone_instruction}.\n"
-                            f"IMPORTANT: Before calling take_message, ADD to the message: 'Vehicle update request for {self._state.vrn}. Note: {closed_message} so the callback will be during opening hours.'\n"
-                            f"Then say: 'As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on.'\n"
-                            f"Then call take_message. DO NOT call lookup_vehicle - this is a message, not a booking."
-                        )
+                    self._state.step = Step.NEED_VRN
                     return (
                         f"Name saved: {first} {last}. Intent: vehicle update.\n"
-                        f"Caller's name is '{first}' (use sparingly as per system rules).\n"
-                        f"Registration: {self._state.vrn}\n"
-                        "Say: 'No problem, let me check on that for you. What would you like to know?'\n"
-                        f"Then collect their message, {phone_instruction}, and call take_message.\n"
-                        "DO NOT call lookup_vehicle - this is a message, not a booking."
+                        f"Address the caller as '{first}' (FIRST name only).\n"
+                        f"Caller provided registration: '{vrn}'.\n"
+                        f"NOW call lookup_vehicle(reg='{vrn}') to parse it. GENERATE ZERO SPEECH."
                     )
-                
-                if not is_open:
-                    return (
-                        f"Name saved: {first} {last}. Intent: vehicle update.\n"
-                        f"Caller's name is '{first}' (use sparingly as per system rules).\n"
-                        f"AFTER_HOURS_MODE: {closed_message}\n"
-                        f"Say: 'No problem. Could I grab your registration first?'\n"
-                        "When they give it, call collect_registration_for_message(reg='...') to store it.\n"
-                        f"Then ask: 'What would you like to know about your vehicle?'\n"
-                        f"Collect their message and {phone_instruction}.\n"
-                        f"IMPORTANT: Before calling take_message, ADD to the message: 'Vehicle update request. Note: {closed_message} so the callback will be during opening hours.'\n"
-                        f"Then say: 'As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on.'\n"
-                        f"Then call take_message. DO NOT call lookup_vehicle - use collect_registration_for_message instead."
-                    )
+                self._state.step = Step.NEED_VRN
                 return (
                     f"Name saved: {first} {last}. Intent: vehicle update.\n"
-                    f"Caller's name is '{first}' (use sparingly as per system rules).\n"
-                    "Say: 'No problem. Could I grab your registration first?'\n"
-                    "When they give it, call collect_registration_for_message(reg='...') to store it.\n"
-                    f"Then collect their message, {phone_instruction}, and call take_message.\n"
-                    "DO NOT call lookup_vehicle - use collect_registration_for_message instead."
-                )
-
-            # Check if agent is in ASSIST mode (should not take bookings)
-            agent_type = (AGENT_CONFIGURATION.get("agentType") or "").strip().lower()
-            if agent_type == "assist":
-                # ASSIST MODE: Route all booking requests to message path
-                self._state.intent = "message"
-                self._state.step = Step.MESSAGE_ONLY
-                
-                # Store service hint for the message
-                if service_hint:
-                    self._state.service_hint = service_hint.strip()
-                
-                # Build phone confirmation prompt
-                phone_instruction = ""
-                if self._state.caller_phone:
-                    last_digits = self._state.caller_phone[-3:]
-                    phone_instruction = f"confirm phone ('Is that the number ending in {last_digits}?')"
-                else:
-                    phone_instruction = "collect phone number"
-                
-                booking_context = f" for {service_hint}" if service_hint else ""
-                vrn_context = f" for {vrn}" if vrn else ""
-                
-                return (
-                    f"Name saved: {first} {last}. Intent: booking request{booking_context}{vrn_context}.\n"
                     f"Address the caller as '{first}' (FIRST name only).\n"
-                    f"⚠️ ASSIST MODE: Cannot take bookings directly.\n"
-                    f"Say naturally: 'I'd love to help you with that{booking_context}. "
-                    f"Let me take down your details and the team will give you a ring back to get that booked in for you. "
-                    f"What would be the best time for them to call you back?'\n"
-                    f"Then {phone_instruction} and call take_message with all the booking details."
+                    "Say: 'No problem. Could I grab your registration so I can pull up your details?'\n"
+                    "Then STOP. Wait for the caller to respond."
                 )
 
-            # Booking / quote path (AUTOMATE MODE only)
+            # Booking / quote path
             self._state.intent = "quote" if resolved == "quote" else "new_booking"
             if service_hint:
-                # Prefix with QUOTE: for quote requests so confirm_vehicle_and_name knows to skip service questions
-                hint = service_hint.strip()
-                self._state.service_hint = f"QUOTE: {hint}" if resolved == "quote" else hint
+                self._state.service_hint = service_hint.strip()
 
+            # If caller provided both VRN and indicated they want a booking, proceed
+            if vrn and (service_hint or resolved == "booking"):
+                self._state.step = Step.NEED_VRN
+                return (
+                    f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
+                    f"Caller provided registration: '{vrn}'.\n"
+                    f"NOW call lookup_vehicle(reg='{vrn}') to parse it. GENERATE ZERO SPEECH."
+                )
+
+            # If no intent was clearly stated, establish the reason for the call first
+            if not resolved and not service_hint:
+                self._state.step = Step.GREETING  # Stay in greeting until we know why they're calling
+                return (
+                    f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
+                    "ESTABLISH REASON: The caller hasn't said why they're calling.\n"
+                    "Ask naturally: 'How can I help you today?' or 'What can I do for you?'\n"
+                    "Wait for them to explain (booking, quote, question, etc.), then call save_caller_name again with the intent/service_hint."
+                )
+
+            # If they indicated booking/quote but no VRN yet
             if vrn:
                 self._state.step = Step.NEED_VRN
                 return (
-                    f"Name saved: {first} {last}. (Name: '{first}' - use sparingly)\n"
+                    f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
                     f"Caller provided registration: '{vrn}'.\n"
                     f"NOW call lookup_vehicle(reg='{vrn}') to parse it. GENERATE ZERO SPEECH."
                 )
 
             self._state.step = Step.NEED_VRN
             return (
-                f"Name saved: {first} {last}. (Name: '{first}' - use sparingly)\n"
+                f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
                 "Say EXACTLY ONE short sentence asking for their registration, e.g. 'Could I grab your registration?'\n"
-                "Then STOP. Generate NOTHING else.\n"
-                "\n⚠️ CRITICAL PATIENCE INSTRUCTION:\n"
-                "WAIT for the caller to FINISH speaking completely before calling lookup_vehicle.\n"
-                "Callers often pause mid-spelling (e.g., 'A U 2 1' ... 2-second pause ... 'F P M').\n"
-                "DO NOT interrupt. DO NOT call lookup_vehicle until you hear 3+ seconds of clear silence.\n"
-                "ONLY THEN call lookup_vehicle with everything they said."
+                "Then STOP. Generate NOTHING else. Wait for the caller to respond."
             )
 
         @function_tool
@@ -1915,31 +1737,11 @@ class SupervisorAgent(Agent):
                     )
                 return f"ERROR: Wrong step ({self._state.step.value}). Vehicle lookup not needed now."
 
-            # Check if agent is in ASSIST mode (should not take bookings)
-            agent_type = (AGENT_CONFIGURATION.get("agentType") or "").strip().lower()
-            if agent_type == "assist":
-                return (
-                    "BLOCKED: Agent is in ASSIST mode and cannot take bookings.\n"
-                    "DO NOT call lookup_vehicle. Instead, switch to message flow:\n"
-                    "Say: 'Let me take down your details and the team will give you a ring back to get that booked in.'\n"
-                    "Then collect message, phone, callback time and call take_message."
-                )
-
-            # Prevent lookup_vehicle on vehicle updates - use collect_registration_for_message instead
-            if self._state.step == Step.MESSAGE_ONLY and self._state.intent == "vehicle_update":
-                return (
-                    "WRONG TOOL: This is a vehicle update (message), not a booking.\n"
-                    "DO NOT call lookup_vehicle for vehicle updates.\n"
-                    "Instead, call collect_registration_for_message(reg='...') to store the registration,\n"
-                    "then collect the message and call take_message."
-                )
-
             # Intent recovery: caller was on message path but actually wants to book
             if self._state.step == Step.MESSAGE_ONLY:
                 self._state.intent = "new_booking"
                 self._state.step = Step.NEED_VRN
                 logger.info("[LOOKUP] Intent recovery: MESSAGE_ONLY → NEED_VRN (caller wants to book)")
-
 
             # ── STEP 2: Caller confirmed — do the actual API lookup ──
             if confirmed:
@@ -2050,20 +1852,11 @@ class SupervisorAgent(Agent):
             # ── STEP 1: Normalize VRN and return for readback (NO API call) ──
             normalized = normalize_vehicle_registration(reg)
             
-            # If there was a pending VRN and we're getting a new one, check if it's a continuation or rejection
-            if self._state.vrn_pending:
-                # If the new input doesn't overlap with pending, it might be an additional segment
-                if not normalized.startswith(self._state.vrn_pending) and self._state.vrn_pending not in normalized:
-                    # Check if this could be a continuation (e.g., "AU21" then "FPM" = "AU21FPM")
-                    combined = self._state.vrn_pending + normalized
-                    if len(combined) <= 8:  # Reasonable UK reg length
-                        logger.info(f"[LOOKUP] Continuation detected: '{self._state.vrn_pending}' + '{normalized}' = '{combined}'")
-                        normalized = combined[:7]  # UK regs are max 7 chars
-                    else:
-                        # User is providing a different/corrected registration
-                        self._state.vrn_readback_rejections += 1
-                        logger.info(f"[LOOKUP] Caller rejected previous readback '{self._state.vrn_pending}', "
-                                   f"provided new input '{reg}' → '{normalized}' (rejection #{self._state.vrn_readback_rejections})")
+            # If there was a pending VRN and we're getting a new one, caller rejected the previous readback
+            if self._state.vrn_pending and normalized != self._state.vrn_pending:
+                self._state.vrn_readback_rejections += 1
+                logger.info(f"[LOOKUP] Caller rejected previous readback '{self._state.vrn_pending}', "
+                           f"provided new input '{reg}' → '{normalized}' (rejection #{self._state.vrn_readback_rejections})")
 
             # Accumulate partial VRN segments
             if self._state.vrn_partial:
@@ -2076,86 +1869,16 @@ class SupervisorAgent(Agent):
                     logger.info(f"[LOOKUP] Combining partial '{partial}' + '{normalized}' = '{combined}'")
                 normalized = combined
 
-            # VRN validation - but account for short private/cherished plates (e.g., "A1", "BOB", "F1")
-            # Private plates can be 2-7 characters. Most standard UK plates are 7 chars.
-            # Strategy: For very short VRNs (2-3 chars), check if they have both letters AND numbers
-            # If yes, likely a complete private plate. If no, wait for more.
-            
-            if len(normalized) <= 3:
-                # Very short - could be private plate like "A1" or "BOB" or partial like "AU2"
-                has_digit = any(c.isdigit() for c in normalized)
-                has_letter = any(c.isalpha() for c in normalized)
-                
-                # If it has BOTH letters and numbers, likely complete (e.g., "A1", "B52")
-                if has_digit and has_letter:
-                    logger.info(f"[LOOKUP] Short VRN with letters+numbers: '{normalized}' — treating as complete private plate")
-                    # Continue to readback confirmation below
-                elif not has_digit:
-                    # Only letters, no digits - could be partial or name echo
-                    first_up = self._state.customer_name_first.upper()
-                    last_up = self._state.customer_name_last.upper()
-                    caller_names = set()
-                    if first_up:
-                        caller_names.add(first_up)
-                    if last_up:
-                        caller_names.add(last_up)
-                    if first_up and last_up:
-                        caller_names.add(first_up + last_up)
-                    is_name_echo = (normalized in caller_names)
-                    if not is_name_echo and first_up and normalized.startswith(first_up) and len(normalized) <= len(first_up) + 15:
-                        is_name_echo = True
-                    if is_name_echo:
-                        self._state.vrn_partial = ""
-                        logger.info(f"[LOOKUP] Ignored caller's name '{normalized}' passed as VRN (likely echo)")
-                        return (
-                            f"IGNORED: '{normalized}' is the caller's name, not a registration — this is audio echo. "
-                            "Ask for the registration: 'Could I grab your registration?'"
-                        )
-                    # Just letters, no digits - probably partial
-                    self._state.vrn_partial = normalized
-                    logger.info(f"[LOOKUP] Partial VRN (letters only, no digits): '{normalized}' — waiting for more")
-                    return (
-                        f"⚠️ PARTIAL SEGMENT: Got '{normalized}' (letters only)."
-                        "\n\n🔇 STAY COMPLETELY SILENT. The caller is MID-SPELLING."
-                        "\nDO NOT generate ANY speech. DO NOT acknowledge. DO NOT ask questions."
-                        "\nWAIT for them to finish spelling (they will add numbers)."
-                        "\nWhen you hear more, call lookup_vehicle with the NEW segment only."
-                    )
-                else:
-                    # Only digits, no letters - unusual but might be partial
-                    self._state.vrn_partial = normalized
-                    logger.info(f"[LOOKUP] Partial VRN (digits only): '{normalized}' — waiting for letters")
-                    return (
-                        f"⚠️ PARTIAL SEGMENT: Got '{normalized}' (numbers only)."
-                        "\n\n🔇 STAY COMPLETELY SILENT. The caller is MID-SPELLING."
-                        "\nDO NOT generate ANY speech. DO NOT acknowledge. DO NOT ask questions."
-                        "\nWAIT for them to continue with letters."
-                        "\nWhen you hear more, call lookup_vehicle with the NEW segment only."
-                    )
-            
-            # 4 characters - common for private plates (e.g., "BOB1", "A123") but also could be partial
-            elif len(normalized) == 4:
-                has_digit = any(c.isdigit() for c in normalized)
-                has_letter = any(c.isalpha() for c in normalized)
-                
-                # If it has both letters and numbers, likely complete
-                if has_digit and has_letter:
-                    logger.info(f"[LOOKUP] 4-char VRN with letters+numbers: '{normalized}' — could be complete or partial")
-                    # Let it fall through to tentative handling below
-                else:
-                    # Only one type - probably partial
-                    self._state.vrn_partial = normalized
-                    logger.info(f"[LOOKUP] 4-char partial (only {'letters' if has_letter else 'digits'}): '{normalized}'")
-                    return (
-                        f"⚠️ PARTIAL SEGMENT: Got '{normalized}' (4 chars, {'letters' if has_letter else 'numbers'} only)."
-                        "\n\n🔇 STAY COMPLETELY SILENT. The caller is MID-SPELLING."
-                        "\nDO NOT generate ANY speech. DO NOT acknowledge. DO NOT ask questions."
-                        "\nWAIT for them to continue spelling (UK regs need both letters AND numbers)."
-                        "\nWhen you hear more, call lookup_vehicle with the NEW segment only."
-                    )
-
+            # VRN validation
+            if len(normalized) < 4:
+                self._state.vrn_partial = normalized
+                logger.info(f"[LOOKUP] Partial VRN stored: '{normalized}' — waiting for more")
+                return (
+                    f"PARTIAL VRN: only got '{normalized}' so far. "
+                    "Ask: 'Could you give me the full registration?' "
+                    "When they reply, call lookup_vehicle with their answer."
+                )
             if not any(c.isdigit() for c in normalized):
-                # Still no digits after all checks above (5+ chars with no digits)
                 first_up = self._state.customer_name_first.upper()
                 last_up = self._state.customer_name_last.upper()
                 caller_names = set()
@@ -2175,6 +1898,14 @@ class SupervisorAgent(Agent):
                         f"IGNORED: '{normalized}' is the caller's name, not a registration — this is audio echo. "
                         "Ask for the registration: 'Could I grab your registration?'"
                     )
+                if len(normalized) <= 3:
+                    self._state.vrn_partial = normalized
+                    logger.info(f"[LOOKUP] Partial VRN (no digits yet): '{normalized}' — waiting for more")
+                    return (
+                        f"PARTIAL VRN: '{normalized}' has no digits yet — the caller is still spelling. "
+                        "Do NOT ask again. WAIT for them to continue. "
+                        "When they say more, call lookup_vehicle with the new part."
+                    )
                 self._state.vrn_partial = ""
                 return (
                     f"REJECTED: '{normalized}' has no digits — UK registrations ALWAYS contain numbers. "
@@ -2182,52 +1913,12 @@ class SupervisorAgent(Agent):
                     "Ask the caller: 'Could I grab your registration?'"
                 )
 
-            # Check if VRN might be incomplete - don't immediately readback for short segments
-            # Store as pending so we can combine if more comes in
-            # BUT: For 4-char VRNs with both letters and numbers, might be complete private plates
-            if 4 <= len(normalized) <= 6:
-                # Check if this looks like a complete private plate
-                has_digit = any(c.isdigit() for c in normalized)
-                has_letter = any(c.isalpha() for c in normalized)
-                
-                # If 4-5 chars with both letters and numbers, might be complete
-                # But also might be "AU21" waiting for "FPM"
-                # Strategy: Store as tentative pending, wait briefly to see if more comes
-                if len(normalized) == 4 and has_digit and has_letter:
-                    # Could be complete private plate like "BOB1" or partial like "AU21" (waiting for FPM)
-                    self._state.vrn_pending = normalized
-                    logger.info(f"[LOOKUP] 4-char tentative: '{normalized}' — could be complete private plate or partial")
-                    return (
-                        f"⚠️ TENTATIVE 4-CHAR: Got '{normalized}' (has letters + numbers)."
-                        "\nCould be: (1) Complete private plate like 'BOB1', OR (2) Partial like 'AU21' waiting for 'FPM'."
-                        "\n\n🔇 STAY COMPLETELY SILENT for 3-4 seconds."
-                        "\nDO NOT speak. DO NOT ask 'is that right?'. DO NOT interrupt."
-                        "\nLET THE CALLER FINISH. If they're mid-spelling, they will continue."
-                        "\n\nIF they continue speaking → call lookup_vehicle with the NEW segment."
-                        "\nIF they stop completely (4+ sec silence) AND ask 'is that it?' → Then read back and confirm."
-                    )
-                elif len(normalized) in [5, 6]:
-                    # 5-6 chars - more likely to be partial (waiting for 7th char)
-                    self._state.vrn_pending = normalized
-                    logger.info(f"[LOOKUP] {len(normalized)}-char tentative: '{normalized}' — likely partial")
-                    return (
-                        f"⚠️ LIKELY PARTIAL: Got '{normalized}' ({len(normalized)} chars)."
-                        "\nStandard UK regs are 7 chars - this is probably incomplete."
-                        "\n\n🔇 STAY COMPLETELY SILENT for 2-3 seconds."
-                        "\nDO NOT speak. DO NOT ask questions. DO NOT interrupt."
-                        "\nLET THE CALLER FINISH spelling."
-                        "\n\nIF they continue → call lookup_vehicle with the NEW segment."
-                        "\nIF they stop and ask 'is that it?' → Then read back and confirm."
-                    )
-
-            # Clear vrn_partial for full-length VRNs (7 chars)
-            if len(normalized) == 7:
-                self._state.vrn_partial = ""
+            # Full VRN received — clear partial accumulator
+            self._state.vrn_partial = ""
 
             if len(normalized) > 7:
                 logger.warning(f"[LOOKUP] VRN too long ({len(normalized)} chars): '{normalized}' — truncating to 7")
                 normalized = normalized[:7]
-                self._state.vrn_partial = ""
 
             # Store pending VRN for readback confirmation
             self._state.vrn_pending = normalized
@@ -2240,24 +1931,19 @@ class SupervisorAgent(Agent):
                 logger.info(f"[LOOKUP] Requesting phonetic spelling after {self._state.vrn_readback_rejections} rejection(s)")
                 return (
                     f"Parsed registration: {normalized}.\n"
-                    f"Say ONLY: 'I'm hearing {normalized}. Is that right? "
-                    "If not, could you repeat the full registration slowly using phonetics? "
-                    "For example, Alpha for A, Bravo for B.'\n"
-                    "Then STOP and WAIT for their response. DO NOT call any tools yet.\n"
-                    "After they respond:\n"
-                    f"  - If YES → call lookup_vehicle(reg='{normalized}', confirmed=true) with ZERO speech\n"
-                    "  - If NO or they spell it → call lookup_vehicle with their new phonetic spelling"
+                    f"Say naturally: 'I'm hearing {normalized}, but let me make sure I've got this right. "
+                    "Could you spell the full registration back to me using phonetics? "
+                    "For example, Alpha for A, Bravo for B, and so on.'\n"
+                    "Wait for them to spell it phonetically, then call lookup_vehicle again with confirmed=false."
                 )
 
             # First readback - just read it back normally
             return (
                 f"Parsed registration: {normalized}.\n"
-                f"Say ONLY: '{spaced}. Is that right?'\n"
-                f"Then STOP and WAIT for caller response. DO NOT call any tools yet.\n"
-                f"After they respond:\n"
-                f"  - If YES → call lookup_vehicle(reg='{normalized}', confirmed=true) with ZERO speech\n"
-                f"  - If NO → ask: 'Could you repeat the full registration slowly using phonetics? For example, Alpha for A, Bravo for B.' "
-                "Then wait for their phonetic spelling and call lookup_vehicle with it."
+                f"Read back to the caller: '{spaced}. Is that right?'\n"
+                f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true). GENERATE ZERO SPEECH.\n"
+                f"If NO → Say naturally: 'Let me make sure I've got this right. Could you spell the full registration back to me using phonetics? For example, Alpha for A, Bravo for B.' "
+                "Then WAIT for them to spell it, and call lookup_vehicle with their phonetic spelling."
             )
 
         @function_tool
@@ -2313,9 +1999,32 @@ class SupervisorAgent(Agent):
             services: list[dict] = []
             if self._state.session_id:
                 try:
-                    services = await self._gh.list_services(self._state.session_id)
+                    all_services = await self._gh.list_services(self._state.session_id)
+                    
+                    # Filter services based on service type
+                    if SERVICE_TYPE == "fast-fit":
+                        # Fast-fit: include common services + full service, exclude major repairs
+                        fast_fit_keywords = ["brake", "tyre", "mot", "oil", "battery", "wiper", "bulb", "air con", "full service", "service"]
+                        exclude_keywords = ["major service", "clutch", "timing belt", "gearbox", "engine rebuild"]
+                        
+                        services = []
+                        for svc in all_services:
+                            svc_name = svc.get("name", "").lower()
+                            # Exclude if contains any exclude keyword
+                            if any(exclude in svc_name for exclude in exclude_keywords):
+                                logger.info(f"[CONFIRM] Filtered out: {svc.get('name')}")
+                                continue
+                            # Include if contains any fast-fit keyword OR is "Other"
+                            if any(keyword in svc_name for keyword in fast_fit_keywords) or "other" in svc_name:
+                                services.append(svc)
+                        
+                        logger.info(f"[CONFIRM] Fast-fit mode: {len(services)} services (from {len(all_services)} total)")
+                    else:
+                        # Full-service: include everything
+                        services = all_services
+                        logger.info(f"[CONFIRM] Full-service mode: {len(services)} services")
+                    
                     self._state.services_available = services
-                    logger.info(f"[CONFIRM] Prefetched {len(services)} services")
                 except Exception as e:
                     logger.warning(f"[CONFIRM] Service prefetch failed: {e}")
 
@@ -2330,149 +2039,49 @@ class SupervisorAgent(Agent):
                 ]
                 svc_summary = "\nAvailable services:\n" + "\n".join(svc_lines)
 
-            # NEVER auto-select services based on hints - always ask the customer first
-            # This prevents the agent from incorrectly guessing services from vague mentions
-
-            # QUOTE PATH: Try to match service and provide price, or offer callback/booking
-            # Check both intent and hint prefix for quote requests
-            is_quote_request = self._state.intent == "quote" or (self._state.service_hint and self._state.service_hint.startswith("QUOTE:"))
-            
-            if is_quote_request:
-                self._state.intent = "quote"  # Ensure intent is set
-                make = self._state.vehicle_make
-                model = self._state.vehicle_model
-                vrn = self._state.vrn
-                
-                # Strip "QUOTE:" prefix if present
-                hint = self._state.service_hint or "work"
-                if hint.startswith("QUOTE:"):
-                    hint = hint[6:].strip()  # Remove "QUOTE: " prefix
-                
-                hint_lower = hint.lower().strip()
-                
-                # Check if hint is vague "service" request - offer routine options
-                vague_service_keywords = ['service', 'servicing', 'a service', 'work']
-                if hint_lower in vague_service_keywords:
-                    # Filter for routine services
-                    routine_services = []
-                    routine_keywords = ['full', 'interim', 'basic', 'gold', 'silver', 'bronze', 'major', 'minor', 'annual']
-                    
-                    for svc in services:
-                        svc_name_lower = svc.get('name', '').lower()
-                        if any(kw in svc_name_lower for kw in routine_keywords):
-                            routine_services.append(svc)
-                    
-                    if routine_services:
-                        # Build list of routine services with prices
-                        services_list = "\n".join([
-                            f"- {s.get('name', '?')}: £{s.get('price', '?')}"
-                            for s in routine_services
-                        ])
-                        
-                        # Build natural list of first 3 services for speech
-                        service_mentions = []
-                        for s in routine_services[:3]:
-                            service_mentions.append(f"{s.get('name', '?')} for {s.get('price', '?')} pounds")
-                        services_speech = ", ".join(service_mentions)
-                        
-                        self._state.step = Step.NEED_SERVICE
-                        
-                        return (
-                            f"Vehicle confirmed: {make.title()} {model.title()} ({vrn}).\n"
-                            f"Quote request for: service (vague)\n"
-                            f"Routine services available:\n{services_list}\n\n"
-                            f"Say naturally: 'We have several service options for your {make} {model}. {services_speech}. Which would you prefer?'\n"
-                            f"Wait for caller to choose, then call select_service(service_name='<chosen name>')."
-                        )
-                
-                # Try to match the service and get pricing
-                best_match = None
-                best_ratio = 0.0
-                
-                for svc in services:
-                    svc_name = svc.get('name', '').lower()
-                    ratio = SequenceMatcher(None, hint_lower, svc_name).ratio()
-                    # Also check if hint is contained in service name
-                    if hint_lower in svc_name:
-                        ratio = max(ratio, 0.75)
-                    if ratio > best_ratio and ratio > 0.6:
-                        best_ratio = ratio
-                        best_match = svc
-                
-                # Build phone confirmation using actual caller_phone
-                phone_instruction = ""
-                if self._state.caller_phone:
-                    last_digits = self._state.caller_phone[-3:]
-                    phone_instruction = f"confirm their phone: 'Is that the number ending in {last_digits}?'"
-                else:
-                    phone_instruction = "ask: 'What's the best number for you?'"
-                
-                if best_match:
-                    # Found a matching service with price
-                    svc_name = best_match.get('name', '?')
-                    price = best_match.get('price', '')
-                    price_str = f" would be {price} pounds" if price else ""
-                    
-                    # Stay in NEED_SERVICE step to allow booking
-                    self._state.step = Step.NEED_SERVICE
-                    
+            hint = self._state.service_hint
+            if hint:
+                matched = match_service(hint, services)
+                if matched:
                     return (
-                        f"Vehicle confirmed: {make.title()} {model.title()} ({vrn}).\n"
-                        f"Quote request for: {hint}\n"
-                        f"Matched service: {svc_name} (£{price})\n\n"
-                        f"Say naturally: 'A {svc_name} for your {make} {model}{price_str}. Would you like me to book that in for you?'\n"
-                        f"If YES → call select_service(service_name='{svc_name}') to proceed with booking.\n"
-                        f"If NO → ask if they'd like anything else or say 'No problem, is there anything else I can help with today?'"
+                        f"Vehicle confirmed.{svc_summary}\n\n"
+                        f"The caller mentioned '{hint}'. Best match: {matched.get('name')} "
+                        f"(ID: {matched.get('service_price_id')}, £{matched.get('price', '?')}).\n"
+                        f"NOW call select_service(service_name='{matched.get('name')}') immediately. GENERATE ZERO SPEECH."
                     )
-                else:
-                    # No matching service - offer callback or booking
-                    # Note: Timeslots will be fetched after select_service() is called
-                    self._state.step = Step.NEED_SERVICE  # Allow booking if they choose
+                # Service Advisor specialist: ask LLM to match the vague hint
+                suggestion = await specialist_service_match(hint, services)
+                if suggestion:
+                    svc, reason = suggestion
+                    svc_name = svc.get("name", "?")
                     
-                    return (
-                        f"Vehicle confirmed: {make.title()} {model.title()} ({vrn}).\n"
-                        f"Quote request for: {hint}\n"
-                        f"No exact match in services list.\n\n"
-                        f"Say naturally: 'I don't have a set price for that right now. I can take your details and get someone to call you back with a quote, "
-                        f"or alternatively I can book you in and they'll call you back with the quote before your appointment. Which would you prefer?'\n"
-                        f"If CALLBACK → {phone_instruction} then call take_message().\n"
-                        f"If BOOKING → ask 'What would you like us to look at?' then call select_service() with their answer."
-                    )
-
-            # Check if caller mentioned vague "service" - offer routine service options
-            if self._state.service_hint:
-                hint_lower = self._state.service_hint.lower().strip()
-                vague_service_keywords = ['service', 'servicing', 'a service']
-                if hint_lower in vague_service_keywords or hint_lower == 'service':
-                    # Filter for common routine services
-                    routine_services = []
-                    routine_keywords = ['full', 'interim', 'basic', 'gold', 'silver', 'bronze', 'major', 'minor', 'annual']
-                    
-                    for svc in services:
-                        svc_name_lower = svc.get('name', '').lower()
-                        if 'service' in svc_name_lower and any(keyword in svc_name_lower for keyword in routine_keywords):
-                            routine_services.append(svc)
-                    
-                    if routine_services:
-                        # Format service options with prices
-                        service_options = []
-                        for svc in routine_services[:5]:
-                            name = svc.get('name', '')
-                            price = svc.get('price', '')
-                            price_str = f" ({price} pounds)" if price else ""
-                            service_options.append(f"- {name}{price_str}")
-                        
-                        options_text = "\n".join(service_options)
-                        
+                    # Don't suggest "Other" to the caller - silently book it instead
+                    is_other_category = 'other' in svc_name.lower() or 'general' in svc_name.lower()
+                    if not is_other_category:
+                        price = svc.get("price", "")
+                        price_str = f" ({price} pounds)" if price else ""
+                        reason_line = f" — {reason}" if reason else ""
                         return (
-                            f"Vehicle confirmed.\n\n"
-                            f"Caller mentioned '{self._state.service_hint}' (too vague).\n"
-                            f"Available service options:\n{options_text}\n\n"
-                            "Say naturally: 'You mentioned a service — we have a few options. "
-                            "Is that a Full Service you're after, or perhaps an Interim Service?'\n"
-                            "Mention 2-3 options from the list above.\n"
-                            "Wait for their answer, then call select_service with their choice."
+                            f"Vehicle confirmed.{svc_summary}\n\n"
+                            f"The caller mentioned '{hint}'{reason_line}.\n"
+                            f"Suggest: '{svc_name}'{price_str}.\n"
+                            f"Tell the caller: 'I'd suggest a {svc_name}{price_str} — shall I go with that?'\n"
+                            f"If YES → call select_service(service_name='{svc_name}') with ZERO SPEECH.\n"
+                            "If NO → ask what they'd prefer."
                         )
+                    
+                    # If specialist matched "Other" - don't suggest it, just ask what they need
+                    logger.info(f"[CONFIRM_VEHICLE] Specialist matched '{svc_name}' (Other category) - not suggesting, asking for service instead")
+                    return (
+                        f"Vehicle confirmed.{svc_summary}\n\n"
+                        f"The caller mentioned '{hint}' but no specific match. "
+                        "Ask: 'What work does it need?' then call select_service."
+                    )
+                return (
+                    f"Vehicle confirmed.{svc_summary}\n\n"
+                    f"The caller mentioned '{hint}' but no exact match. "
+                    "Ask which service they'd like."
+                )
 
             return (
                 f"Vehicle confirmed.{svc_summary}\n\n"
@@ -2491,6 +2100,28 @@ class SupervisorAgent(Agent):
                     )
                 return f"ERROR: Wrong step ({self._state.step.value}). Service selection not needed now."
 
+            # Check if caller is requesting a major repair in fast-fit mode
+            if SERVICE_TYPE == "fast-fit":
+                major_repair_keywords = [
+                    "engine replacement", "engine rebuild", "new engine",
+                    "clutch", "clutch replacement", "new clutch",
+                    "gearbox", "gearbox replacement", "transmission",
+                    "timing belt", "timing chain", "cam belt",
+                    "major service", "major repair",
+                    "turbo", "turbocharger",
+                    "head gasket"
+                ]
+                service_lower = service_name.lower()
+                if any(keyword in service_lower for keyword in major_repair_keywords):
+                    logger.info(f"[SELECT_SERVICE] Major repair requested in fast-fit mode: {service_name}")
+                    self._state.step = Step.MESSAGE_ONLY
+                    return (
+                        f"MAJOR REPAIR REQUEST IN FAST-FIT MODE: '{service_name}'\n\n"
+                        "Say naturally: 'As this booking's a little more in-depth, I'll need to take your details "
+                        "and get one of the team to give you a ring back to arrange that.'\n"
+                        "Then call take_message() to collect their details."
+                    )
+
             services = self._state.services_available
             if not services and self._state.session_id:
                 try:
@@ -2505,40 +2136,6 @@ class SupervisorAgent(Agent):
                 self._state.step = Step.MESSAGE_ONLY
                 return "No services available for this vehicle. Take their details for a callback."
 
-            # Check if caller just said "service" or very vague - offer service options
-            service_lower = service_name.lower().strip()
-            vague_service_keywords = ['service', 'servicing', 'a service']
-            if service_lower in vague_service_keywords or service_lower == 'service':
-                # Filter for common routine services (full, interim, basic, gold, silver, bronze, etc.)
-                routine_services = []
-                routine_keywords = ['full', 'interim', 'basic', 'gold', 'silver', 'bronze', 'major', 'minor', 'annual']
-                
-                for svc in services:
-                    svc_name_lower = svc.get('name', '').lower()
-                    # Include if service name contains 'service' AND any routine keyword
-                    if 'service' in svc_name_lower and any(keyword in svc_name_lower for keyword in routine_keywords):
-                        routine_services.append(svc)
-                
-                if routine_services:
-                    # Format service options with prices
-                    service_options = []
-                    for svc in routine_services[:5]:  # Limit to 5 options
-                        name = svc.get('name', '')
-                        price = svc.get('price', '')
-                        price_str = f" ({price} pounds)" if price else ""
-                        service_options.append(f"- {name}{price_str}")
-                    
-                    options_text = "\n".join(service_options)
-                    
-                    return (
-                        f"Caller mentioned '{service_name}' (too vague).\n\n"
-                        f"Available service options:\n{options_text}\n\n"
-                        "Say naturally: 'You mentioned a service — we have a few options. "
-                        "Is that a Full Service you're after, or perhaps an Interim Service?'\n"
-                        "Mention 2-3 options from the list above.\n"
-                        "Wait for their answer, then call select_service with their choice."
-                    )
-            
             matched = match_service(service_name, services)
             if not matched:
                 # Check if this is a diagnostic/symptom description
@@ -2667,32 +2264,6 @@ class SupervisorAgent(Agent):
                         logger.error(f"[SELECT_SERVICE] Failed to set Other service: {e}")
                         return f"Failed to set service: {e}. Try again."
                 
-                # No match - check if this is a quote request
-                if self._state.intent == "quote":
-                    logger.info(f"[SELECT_SERVICE] No match for quote request '{service_name}' - taking message for callback")
-                    self._state.step = Step.MESSAGE_ONLY
-                    
-                    # Build phone confirmation prompt using last 3 digits
-                    phone_instruction = ""
-                    if self._state.caller_phone:
-                        last_digits = self._state.caller_phone[-3:]
-                        phone_instruction = f"confirm their phone: 'Is that the number ending in {last_digits}?' If yes, use {self._state.caller_phone}. If different, ask for the number."
-                    else:
-                        phone_instruction = "ask: 'What's the best number for you?'"
-                    
-                    # Build vehicle context if available
-                    vehicle_context = ""
-                    if self._state.vehicle_make and self._state.vehicle_model:
-                        vehicle_context = f"Vehicle: {self._state.vehicle_make} {self._state.vehicle_model} ({self._state.vrn}). DO NOT ask for make/model - you already have it."
-                    
-                    return (
-                        f"No suitable service found for '{service_name}' (quote request).\n"
-                        f"{vehicle_context}\n\n"
-                        "Say naturally: 'I don't have that as a set service right now. "
-                        "Let me take your details and one of the team will give you a call back with a quote.'\n"
-                        f"Then {phone_instruction} and call take_message() with all the details."
-                    )
-                
                 # No match - book under "Other" or general category (DON'T tell customer there's no option)
                 logger.warning(f"[SELECT_SERVICE] No match for '{service_name}' - booking under Other")
                 other_service = None
@@ -2769,14 +2340,16 @@ class SupervisorAgent(Agent):
                             )
                         
                         slot_summary = ""
+                        first_slot = ""
                         if timeslots:
                             slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:6]]
                             slot_summary = "\nAvailable timeslots:\n" + "\n".join(slot_lines)
+                            first_slot = f"{timeslots[0]['date']} at {timeslots[0]['time']}"
                         
                         return (
                             f"Service selected: {service_name}.{slot_summary}\n\n"
-                            "Say naturally: 'I can book that in for you. When would suit you?'\n"
-                            "Offer 2-3 early timeslots from the list above, then call select_timeslot."
+                            f"Say naturally: 'The next available slot is {first_slot}, or do you have a date in mind?'\n"
+                            "Wait for their preference, then call select_timeslot."
                         )
                     except Exception as e:
                         logger.error(f"[SELECT_SERVICE] Failed to set Other service: {e}")
@@ -2847,32 +2420,12 @@ class SupervisorAgent(Agent):
             except Exception as e:
                 logger.warning(f"[SELECT_SERVICE] Timeslot prefetch failed: {e}")
 
-            # Filter out past/invalid timeslots - only show slots from tomorrow onwards
-            # This prevents offering same-day or past times
-            from datetime import datetime, timedelta
-            now = _current_uk_datetime()
-            tomorrow = (now + timedelta(days=1)).date()
-            
-            valid_timeslots = []
-            for slot in timeslots:
-                try:
-                    slot_date = datetime.strptime(slot['date'], '%Y-%m-%d').date()
-                    # Only include slots from tomorrow onwards
-                    if slot_date >= tomorrow:
-                        valid_timeslots.append(slot)
-                except Exception:
-                    # If date parsing fails, skip this slot
-                    continue
-            
-            logger.info(f"[SELECT_SERVICE] Filtered to {len(valid_timeslots)} valid timeslots (tomorrow onwards)")
-            
             slot_summary = ""
-            if valid_timeslots:
-                slot_lines = [f"- {s['date']} at {s['time']}" for s in valid_timeslots[:6]]
+            first_slot = ""
+            if timeslots:
+                slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:6]]
                 slot_summary = "\nAvailable timeslots:\n" + "\n".join(slot_lines)
-            
-            # Use filtered timeslots for offering
-            timeslots = valid_timeslots
+                first_slot = f"{timeslots[0]['date']} at {timeslots[0]['time']}"
 
             self._state.step = Step.NEED_TIMESLOT
             vehicle_desc = f"{self._state.vehicle_make.title()} {self._state.vehicle_model.title()}".strip()
@@ -2884,7 +2437,7 @@ class SupervisorAgent(Agent):
                     f"Service set: {svc_name} ({price_str}).{slot_summary}\n\n"
                     f"NOW tell the caller: 'A {svc_name} for your {vehicle_desc} would be {price_str}.'\n"
                     "Then ask: 'Would you like me to book that in for you?'\n"
-                    "If YES → offer timeslots from the list above.\n"
+                    f"If YES → say 'The next available slot is {first_slot}, or do you have a date in mind?' and wait for their preference.\n"
                     "If NO → say 'No worries, I'll get one of the team to give you a ring if you change your mind.' "
                     "then call take_message."
                 )
@@ -2892,8 +2445,7 @@ class SupervisorAgent(Agent):
             # Booking flow
             return (
                 f"Service set: {svc_name} ({price} pounds).{slot_summary}\n\n"
-                "Now offer 2-3 early timeslots naturally: "
-                "'When suits you? The earliest I have is [date] at [time], or [date] at [time].'\n"
+                f"Say naturally: 'The next available slot is {first_slot}, or do you have a date in mind?'\n"
                 "Wait for their preference, then call select_timeslot."
             )
 
@@ -2980,6 +2532,14 @@ class SupervisorAgent(Agent):
                         "Get the caller's name and intent, then call save_caller_name."
                     )
                 return f"ERROR: Wrong step ({self._state.step.value}). Timeslot selection not needed now."
+            
+            # Validate service was selected before allowing timeslot booking
+            if not self._state.service_selected_name:
+                return (
+                    "BLOCKED: No service has been selected yet. "
+                    "You must call select_service to choose what work needs doing before booking a timeslot. "
+                    "Go back and ask what service they need, then call select_service."
+                )
 
             today_str = _current_uk_datetime().strftime("%A %d %B %Y (%Y-%m-%d)")
 
@@ -3027,30 +2587,13 @@ class SupervisorAgent(Agent):
             if not self._state.customer_name_last:
                 surname_note = "IMPORTANT: No surname on file yet. Ask 'And your surname?' first.\n"
 
-            # Check if we have the caller's phone number from SIP
-            phone_prompt = ""
-            if self._state.caller_phone:
-                # Auto-populate contact_phone with caller's number
-                self._state.contact_phone = self._state.caller_phone
-                logger.info(f"[SELECT_TIMESLOT] Auto-populated contact_phone: {self._state.caller_phone}")
-                
-                # Extract last 3 digits for confirmation
-                last_digits = self._state.caller_phone[-3:]
-                phone_prompt = (
-                    f"Say: 'I've got your number ending in {last_digits}, is that the best one for you?'\n"
-                    f"If they say YES/that's fine/correct: move directly to asking for email.\n"
-                    f"If they give a DIFFERENT number: ask them to repeat it clearly, then move to email."
-                )
-            else:
-                phone_prompt = "ask: 'What's the best number for you?'"
-
             return (
                 f"Timeslot set: {booking_date} at {booking_time}.\n"
                 f"{surname_note}"
-                f"Say: 'Lovely. I just need a couple of details.' then ask for their surname if missing, "
-                f"otherwise {phone_prompt}\n"
-                "When they give their surname, call update_caller_name(last_name='...') to save it. "
-                "Use first name sparingly per system rules.\n"
+                "Say: 'Lovely. I just need a couple of details.' then ask for their surname if missing, "
+                "otherwise ask: 'What's the best number for you?'\n"
+                "When they give their surname, call update_caller_name(last_name='...') to save it, "
+                "then KEEP addressing them by their FIRST name — not the surname.\n"
                 "Collect ONE field at a time: surname → phone → email → postcode (call validate_address) → house number.\n"
                 "You MUST collect ALL five fields AND call validate_address BEFORE calling submit_booking.\n"
                 "Do NOT call submit_booking until you have phone, email, postcode, AND house number."
@@ -3161,12 +2704,6 @@ class SupervisorAgent(Agent):
             first = self._state.customer_name_first
             last = self._state.customer_name_last
             phone = _sanitise_phone((phone or "").strip())
-            
-            # If no phone provided but we have caller_phone from SIP, use that
-            if not phone and self._state.caller_phone:
-                phone = _sanitise_phone(self._state.caller_phone)
-                logger.info(f"[SUBMIT_BOOKING] Using caller_phone as fallback: {phone}")
-            
             email = _sanitise_email((email or "").strip().replace(" ", "").lower())
             house_name_or_number = (house_name_or_number or "").strip()
             postcode = (postcode or "").strip()
@@ -3357,28 +2894,9 @@ class SupervisorAgent(Agent):
             return (
                 f"Name updated: {', '.join(updated)}. "
                 f"Full name on file: {self._state.customer_name_first} {self._state.customer_name_last}.\n"
-                f"(Use first name '{self._state.customer_name_first}' sparingly per system rules)\n"
+                f"Keep addressing them as '{self._state.customer_name_first}' (first name only).\n"
                 f"NEXT ACTION: {next_action}\n"
                 "Do NOT call update_caller_name again unless the caller EXPLICITLY corrects their name."
-            )
-
-        @function_tool
-        async def collect_registration_for_message(context: RunContext, reg: str) -> str:
-            """Collect and confirm a registration for a message/vehicle update (no vehicle lookup needed).
-            Just normalizes the registration and stores it for the callback message.
-            Use this for vehicle updates - NOT lookup_vehicle."""
-            
-            if self._state.step != Step.MESSAGE_ONLY:
-                return "ERROR: This tool is only for message taking, not bookings. Use lookup_vehicle for bookings."
-            
-            normalized = normalize_vehicle_registration(reg)
-            self._state.vrn = normalized
-            logger.info(f"[COLLECT_REG] Stored registration for message: {normalized}")
-            
-            return (
-                f"Registration saved: {normalized}.\n"
-                f"Read it back naturally: 'Okay, {normalized}. What would you like to know about it?'\n"
-                "Then collect their message and call take_message with the message, phone, and vrn."
             )
 
         @function_tool
@@ -3398,14 +2916,7 @@ class SupervisorAgent(Agent):
                 return f"ERROR: Wrong step ({self._state.step.value}). Cannot take message now."
 
             self._state.message = (message or "").strip()
-            
-            # Use caller_phone as fallback if no phone provided
-            phone = (phone or "").strip()
-            if not phone and self._state.caller_phone:
-                phone = self._state.caller_phone
-                logger.info(f"[TAKE_MESSAGE] Using caller_phone as fallback: {phone}")
-            
-            self._state.contact_phone = phone
+            self._state.contact_phone = (phone or "").strip()
             self._state.preferred_callback_time = (callback_time or "").strip()
             if name_first:
                 self._state.customer_name_first = name_first.strip()
@@ -3445,16 +2956,10 @@ class SupervisorAgent(Agent):
                 extra=escalation_extra,
             ))
 
-            # Check if we should mention opening hours callback timing
-            is_open, closed_message = is_garage_currently_open()
-            callback_timing = ""
-            if not is_open:
-                callback_timing = " As we're currently closed, it won't be until we're back open that someone gives you a call back, but I'll ensure the message is passed on."
-            
             return (
                 f"Message saved from {first} {last}.\n"
                 "Read back a brief summary to confirm.\n"
-                f"Then: 'Lovely, I'll make sure the team gets this. They'll give you a ring back shortly.{callback_timing}'\n"
+                "Then: 'Lovely, I'll make sure the team gets this. They'll give you a ring back shortly.'\n"
                 "Close: 'Cheers, have a lovely day!'"
             )
 
@@ -3466,17 +2971,18 @@ class SupervisorAgent(Agent):
         tomorrow = now.replace(hour=0, minute=0, second=0) + __import__("datetime").timedelta(days=1)
         tomorrow_str = tomorrow.strftime("%A %d %B %Y")
 
-        # Build caller info context if phone is available
-        caller_context = ""
-        if self._state.caller_phone:
-            last_three = self._state.caller_phone[-3:] if len(self._state.caller_phone) >= 3 else ""
-            last_three_text = f" (last three digits: {last_three})" if last_three else ""
-            caller_context = f"CALLER INFO: Customer is calling from {self._state.caller_phone}{last_three_text}\n\n"
-
-        instructions = f"""YOU ARE LEAH — a warm, friendly British receptionist at {AGENT_BRANCH_NAME}.
+        # Different instructions based on mode
+        if self._assist_mode:
+            instructions = f"""YOU ARE LEAH — a warm, friendly British receptionist at {AGENT_BRANCH_NAME}.
 One person, one voice, one natural conversation from start to finish.
 
-{caller_context}TODAY: {today_str}. Tomorrow: {tomorrow_str} ({tomorrow.strftime("%Y-%m-%d")}).
+TODAY: {today_str}. Tomorrow: {tomorrow_str} ({tomorrow.strftime("%Y-%m-%d")}).
+OPENING HOURS: {get_business_hours_text()}
+
+MODE: ASSIST MODE - You CANNOT make bookings. Your role is to help callers by:
+- Answering questions about services, pricing, and opening hours
+- Taking messages for the team to call back
+- Collecting caller details for bookings that the team will process
 
 PERSONALITY: Sound natural and warm, like a real person — not robotic. Vary your phrasing each turn.
 - Mix short replies ("Brilliant.") with slightly longer ones ("Lovely, that's all popped in for you.")
@@ -3487,7 +2993,43 @@ PERSONALITY: Sound natural and warm, like a real person — not robotic. Vary yo
 
 PRONUNCIATION:
 - Say "garage" as "garridge" (British pronunciation - rhymes with "carriage", NOT "ga-RAHJ")
-- When reading back phone numbers or registrations with the digit 0, say "zee-roh" (phonetic spelling to ensure correct pronunciation)
+
+RULES:
+- NO filler before/between tool calls. No "one moment", "let me check", "bear with me".
+- ONE QUESTION PER TURN. Ask one thing, then STOP.
+- Use the caller's FIRST name sparingly (2-3 times max per call: greeting, key moments, closing).
+- ALL prices are in British Pounds. Say "fifty pounds" not "fifty dollars".
+
+FIRST STEP: save_caller_name. ALL tools LOCKED until it succeeds. Do NOT hallucinate names.
+
+FLOW FOR ALL ENQUIRIES:
+1. GREETING: "{greeting}" spoken. Get the caller's name first.
+2. Understand what they need - booking, question, price check, callback request, etc.
+3. For ANY booking request: Say naturally: "I can take all your details down and the team will give you a ring back to get that booked in. What work does your vehicle need?"
+4. Collect: name, what they need done, vehicle registration (optional), phone number
+5. Use take_message to save their details (pass null for callback_time)
+6. CLOSE: "Lovely, I'll make sure the team gets this. They'll give you a ring back shortly. Cheers, have a lovely day!"
+
+IMPORTANT: 
+- You CANNOT access the booking system, check availability, or confirm appointments
+- Do NOT ask when they'd like a callback - the team will call them back when available
+- Always route to take_message for bookings"""
+        else:
+            instructions = f"""YOU ARE LEAH — a warm, friendly British receptionist at {AGENT_BRANCH_NAME}.
+One person, one voice, one natural conversation from start to finish.
+
+TODAY: {today_str}. Tomorrow: {tomorrow_str} ({tomorrow.strftime("%Y-%m-%d")}).
+OPENING HOURS: {get_business_hours_text()}
+
+PERSONALITY: Sound natural and warm, like a real person — not robotic. Vary your phrasing each turn.
+- Mix short replies ("Brilliant.") with slightly longer ones ("Lovely, that's all popped in for you.")
+- Use natural British phrases: "lovely", "brilliant", "no worries", "cheers", "pop it in", "give you a ring", "smashing"
+- Say times naturally: 08:30 = "half eight in the morning", 14:00 = "two in the afternoon"
+- NEVER use: "awesome", "gotten", "you guys", "super"
+- Save "Cheers, have a lovely day!" for the very end of the call
+
+PRONUNCIATION:
+- Say "garage" as "garridge" (British pronunciation - rhymes with "carriage", NOT "ga-RAHJ")
 
 RULES:
 - NO filler before/between tool calls. No "one moment", "let me check", "bear with me".
@@ -3507,13 +3049,17 @@ INTENT DETECTION:
 - "How much is a..." / "What's the price for..." → intent='quote'
 - Default → intent='booking'
 
+OUT OF HOURS HANDLING:
+- If caller requests TRANSFER or VEHICLE UPDATE and we're currently OUTSIDE business hours:
+  * Say: "The team aren't available outside of our opening hours, but I can take a message and they'll give you a ring back when we're open. What would you like me to pass on?"
+  * Route to take_message flow
+- Bookings, quotes, and general questions are ALWAYS available regardless of hours
+
 FLOW:
 1. GREETING: "{greeting}" spoken. Get name + intent (booking/quote/vehicle update/message/transfer). Default booking. If no name: "Can I take your name?" then STOP.
-   - If TRANSFER REQUEST: Respond naturally that the team aren't available but offer to help with bookings or take a message.
-2. VEHICLE: ⚠️ WAIT for the caller to FINISH speaking completely (3+ seconds of clear silence) before calling lookup_vehicle.
-   - Callers often pause mid-spelling (e.g., "A U 2 1" ... pause ... "F P M").
-   - DO NOT interrupt them while they're spelling. DO NOT call lookup_vehicle until they've stopped completely.
-   - Once they finish, call lookup_vehicle with their EXACT words. The tool parses and reads it back for confirmation.
+   - If TRANSFER REQUEST: Check business hours. If open: respond naturally that the team aren't available but offer to help with bookings or take a message. If closed: explain they'll call back during business hours and take a message.
+   - If VEHICLE UPDATE: Check business hours. If closed: explain they'll get a callback during business hours and take a message.
+2. VEHICLE: Call lookup_vehicle with caller's EXACT words. The tool parses the registration and reads it back for confirmation before looking up.
 3. SERVICE: Call select_service(service_name). Tool handles matching — just pass what the caller said.
    - DIAGNOSTIC FLOW: If the caller describes a fault/symptom (noise, warning light, problem), the tool will provide a structured diagnostic questionnaire:
      * STEP 1: Broad open question ("Can you tell me what it's doing?")
@@ -3523,26 +3069,29 @@ FLOW:
    - DO NOT interrupt. Let them speak fully.
    - After completing the questionnaire, recommend a Diagnostic Check.
 4. TIMESLOT: Offer 2-3 early slots naturally. Call select_timeslot(caller_preference) with the caller's words — tool handles date parsing.
-5. CONTACT (one at a time): 
-   - surname
-   - phone: If CALLER INFO available, confirm: "Is that the number ending in [last_three]?" If yes, use it. If no, ask for their number.
-   - email
-   - postcode (call validate_address)
-   - house number
-   Then submit_booking.
+5. CONTACT (one at a time): surname → phone (read back last 3 digits) → email → postcode (call validate_address) → house number. Then submit_booking.
 6. CLOSE: Confirm booking, "Cheers, have a lovely day!"
 
 TRANSFER REQUEST: "Can I speak to [name]?" / "Is [name] there?" / "Can I talk to a human?" → 
 Say naturally: "Unfortunately the team aren't available at the moment — they're likely helping other customers. However, I can help you with bookings, or I can take a message and get someone to give you a ring back. Which would you prefer?"
 Then route to booking or message flow based on their choice.
 
-VEHICLE UPDATE: "I dropped my car off" / "checking on my vehicle" → collect name + registration (use collect_registration_for_message, NOT lookup_vehicle) → message → phone (confirm from CALLER INFO or ask) → take_message.
-MESSAGE: Collect message → phone (confirm from CALLER INFO or ask) → callback time → take_message.
+VEHICLE UPDATE: "I dropped my car off" / "checking on my vehicle" → collect name + registration → confirm vehicle → take message for team to call back.
+MESSAGE: Collect message → phone → callback time → take_message.
 CHANGE OF MIND: Booking↔Message works both ways."""
 
-        super().__init__(
-            instructions=instructions,
-            tools=[
+        # Build tool list based on mode
+        if self._assist_mode:
+            # ASSIST MODE: Only basic tools, no GarageHive integration
+            tool_list = [
+                get_current_datetime,
+                save_caller_name,
+                update_caller_name,
+                take_message,
+            ]
+        else:
+            # AUTOMATE MODE: Full booking capability with GarageHive
+            tool_list = [
                 get_current_datetime,
                 save_caller_name,
                 update_caller_name,
@@ -3554,9 +3103,12 @@ CHANGE OF MIND: Booking↔Message works both ways."""
                 select_timeslot,
                 validate_address,
                 submit_booking,
-                collect_registration_for_message,
                 take_message,
-            ],
+            ]
+
+        super().__init__(
+            instructions=instructions,
+            tools=tool_list,
         )
 
     def set_session(self, session: AgentSession) -> None:
@@ -3566,8 +3118,6 @@ CHANGE OF MIND: Booking↔Message works both ways."""
         if self._agent_session:
             greeting = get_dynamic_greeting(AGENT_BRANCH_NAME)
             self._agent_session.say(text=greeting, allow_interruptions=True)
-            # Track agent speech in transcript
-            self._state.recent_transcripts.append({"speaker": "agent", "text": greeting})
             logger.info("[SUPERVISOR] Delivered greeting via session.say()")
 
 
@@ -3577,7 +3127,7 @@ CHANGE OF MIND: Booking↔Message works both ways."""
 
 async def entrypoint(ctx: JobContext):
     logger.info(f"[ENTRYPOINT] Starting supervisor session for room {ctx.room.name}")
-
+    
     # Extract garage_id from room name
     room_name = ctx.room.name
     garage_id = PORTAL_GARAGE_ID
@@ -3586,10 +3136,17 @@ async def entrypoint(ctx: JobContext):
         garage_id = match.group(1)
         logger.info(f"[ENTRYPOINT] Extracted garage_id: {garage_id}")
     
-    # Refresh configuration for this garage
+    # Refresh configuration for this garage and get agent_mode
+    agent_mode = "automate"  # Default
     if garage_id:
-        refresh_agent_configuration(garage_id)
-        logger.info(f"[ENTRYPOINT] Refreshed configuration for garage: {garage_id}")
+        agent_mode = refresh_agent_configuration(garage_id)
+        logger.info(f"[ENTRYPOINT] Refreshed configuration for garage: {garage_id}, agent_mode: {agent_mode}")
+    
+    assist_mode = (agent_mode == "assist")
+    if assist_mode:
+        logger.info("[ENTRYPOINT] Running in ASSIST mode - limited tool set, no bookings")
+    else:
+        logger.info("[ENTRYPOINT] Running in AUTOMATE mode - full booking capability")
 
     # Initialize state and API client
     state = CallState()
@@ -3597,11 +3154,9 @@ async def entrypoint(ctx: JobContext):
     gh = GHClient()
 
     # Create the single supervisor agent
-    supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name)
+    supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name, assist_mode=assist_mode)
 
     # Create session — low-latency config with ElevenLabs TTS
-    # Note: Agent speech captured via conversation_item_added event (see below)
-    
     session = AgentSession(
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
@@ -3621,7 +3176,6 @@ async def entrypoint(ctx: JobContext):
                 similarity_boost=ELEVEN_SIMILARITY,
                 style=ELEVEN_STYLE,
             ),
-            apply_text_normalization="off",  # Disabled to prevent jumbling of vehicle registrations (A U 2 1 F P M)
         ),
     )
 
@@ -3630,7 +3184,7 @@ async def entrypoint(ctx: JobContext):
 
     # ── Transcript tracker ─────────────────────────────────────
     # Automatic turn detection via MultilingualModel handles end-of-turn.
-    # This handler tracks both customer and agent speech for full transcript.
+    # This handler only tracks recent transcripts for save_caller_name validation.
     _last_final: str = ""
 
     @session.on("user_input_transcribed")
@@ -3648,83 +3202,18 @@ async def entrypoint(ctx: JobContext):
         curr = text.lower().rstrip(".")
         if prev and prev in curr:
             if state.recent_transcripts:
-                state.recent_transcripts[-1] = {"speaker": "customer", "text": text}
+                state.recent_transcripts[-1] = text
             logger.info(f"[TRANSCRIPT] Replaced overlapping final: '{_last_final}' → '{text}'")
         else:
-            state.recent_transcripts.append({"speaker": "customer", "text": text})
+            state.recent_transcripts.append(text)
 
         _last_final = text
 
-    @session.on("conversation_item_added")
-    def _on_conversation_item_added(ev):
-        """Track agent's spoken responses via conversation items (basic_agent2.py pattern)."""
-        if not hasattr(ev, "item"):
-            return
-        
-        text_content = (getattr(ev.item, "text_content", None) or "").strip()
-        if not text_content:
-            return
-        
-        role = getattr(ev.item, "role", "") or "assistant"
-        
-        # Skip user messages (already captured via user_input_transcribed)
-        if role == "user":
-            return
-        
-        # Capture assistant messages (agent speech)
-        if role == "assistant":
-            # Deduplicate - avoid adding the same response twice
-            if not state.recent_transcripts or state.recent_transcripts[-1].get("text") != text_content:
-                state.recent_transcripts.append({"speaker": "agent", "text": text_content})
-                logger.info(f"[TRANSCRIPT] Agent speech captured via conversation_item_added: {text_content[:100]}...")
-
-    # ── Capture caller's phone number from SIP participant ───────
-    def _extract_phone_from_identity(identity: str | None) -> str | None:
-        """Extract phone number from participant identity (handles sip_ prefix)."""
-        if not identity:
-            return None
-        cleaned = identity.strip()
-        if cleaned.startswith("sip_"):
-            cleaned = cleaned[4:]
-        if cleaned.startswith("+") or cleaned.isdigit():
-            return cleaned
-        return None
-
-    def _set_caller_phone(phone: str, source: str) -> None:
-        """Store caller's phone in state."""
-        if not phone or state.caller_phone == phone:
-            return
-        state.caller_phone = phone
-        logger.info(f"[CALLER] Captured phone from {source}: {phone}")
-
-    # Capture phone from existing SIP participants (already connected)
-    for participant in ctx.room.remote_participants.values():
-        phone = _extract_phone_from_identity(participant.identity)
-        if phone:
-            _set_caller_phone(phone, f"existing SIP participant ({participant.identity})")
-            break
-
-    # Capture phone when SIP participant connects (future connections)
-    @ctx.room.on("participant_connected")
-    def _on_participant_connected(participant):
-        """Extract caller's phone number from SIP participant identity at call start."""
-        logger.info(f"[CALLER] Participant connected: identity={participant.identity}, name={participant.name}")
-        phone = _extract_phone_from_identity(participant.identity)
-        if phone:
-            _set_caller_phone(phone, f"new SIP participant ({participant.identity})")
-        else:
-            logger.warning(f"[CALLER] Could not extract phone from identity: {participant.identity}")
-
-    # Start session with BVC Telephony noise cancellation
-    logger.info("[ENTRYPOINT] Starting session with SupervisorAgent + BVCTelephony noise cancellation")
+    # Start session
+    logger.info("[ENTRYPOINT] Starting session with SupervisorAgent")
     await session.start(
         room=ctx.room,
         agent=supervisor,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=noise_cancellation.BVCTelephony(),
-            ),
-        ),
     )
     logger.info("[ENTRYPOINT] Session started — supervisor system ready")
 
@@ -3732,121 +3221,82 @@ async def entrypoint(ctx: JobContext):
     # Prevents stale conversation context (chat history, turn detector state)
     # from bleeding into the next caller's session in the same room.
     @ctx.room.on("participant_disconnected")
-    def _on_caller_left(participant):
+    async def _on_caller_left(participant):
         logger.info(
             f"[LIFECYCLE] Caller disconnected: {participant.identity}. "
             "Logging call and shutting down job for clean session isolation."
         )
         
         # Log call to portal before shutdown
-        async def _log_and_shutdown():
-            try:
-                call_duration = int(time.time() - state.call_start_time) if state.call_start_time else 0
-                
-                # Extract caller phone number from participant identity (format: sip_+447976500282)
-                caller_phone = ""
-                if participant.identity and participant.identity.startswith("sip_"):
-                    caller_phone = participant.identity[4:]  # Remove "sip_" prefix
-                    logger.info(f"[PORTAL] Extracted caller phone: {caller_phone}")
-                
-                # Extract Twilio CallSid from participant attributes
-                twilio_call_sid = ""
-                try:
-                    # LiveKit SIP participants have attributes containing call metadata
-                    if hasattr(participant, 'attributes') and participant.attributes:
-                        logger.info(f"[PORTAL] Participant attributes: {participant.attributes}")
-                        # Try to parse as JSON
-                        import json
-                        attrs = json.loads(participant.attributes) if isinstance(participant.attributes, str) else participant.attributes
-                        twilio_call_sid = attrs.get('sip_call_id', '') or attrs.get('call_id', '') or attrs.get('CallSid', '')
-                        if twilio_call_sid:
-                            logger.info(f"[PORTAL] Found Twilio CallSid from participant: {twilio_call_sid}")
-                except Exception as e:
-                    logger.warning(f"[PORTAL] Could not extract CallSid from participant: {e}")
-                
-                # Fallback: try room metadata
-                if not twilio_call_sid and hasattr(ctx.room, 'metadata') and ctx.room.metadata:
-                    try:
-                        import json
-                        metadata = json.loads(ctx.room.metadata)
-                        twilio_call_sid = metadata.get('twilioCallSid', '') or metadata.get('sip_call_id', '')
-                        if twilio_call_sid:
-                            logger.info(f"[PORTAL] Found Twilio CallSid in room metadata: {twilio_call_sid}")
-                    except Exception as e:
-                        logger.warning(f"[PORTAL] Could not parse room metadata: {e}")
-                
-                # Build transcript from state.recent_transcripts
-                # SupervisorAgent stores transcripts in state, not in session.chat_ctx
-                # Portal expects: speaker, text, timestamp
-                transcript = [
-                    {
-                        "speaker": t.get("speaker", "customer") if isinstance(t, dict) else "customer",
-                        "text": t.get("text", t) if isinstance(t, dict) else t,
-                        "timestamp": i * 5.0  # Approximate timestamps
-                    }
-                    for i, t in enumerate(state.recent_transcripts)
-                ]
-                
-                # Generate GPT-powered summary
-                # Extract just text from transcript entries for summary generation
-                transcript_texts = [t.get("text", t) if isinstance(t, dict) else t for t in state.recent_transcripts]
-                summary = await generate_call_summary(state, transcript_texts)
-                
-                # Determine call type based on dashboard categories
-                # Categories: "general enquiry", "confirmed booking", "update", "internal", "complaint", "human request", "other"
-                call_type = "other"
-                if state.intent == "booking" and state.booking_date:
-                    call_type = "confirmed booking"
-                elif state.intent == "booking" or state.intent == "quote":
-                    call_type = "general enquiry"
-                elif state.intent == "vehicle_update":
-                    call_type = "update"
-                elif state.intent == "message":
-                    call_type = "general enquiry"
-                elif state.intent == "transfer":
-                    call_type = "human request"
-                
-                # Build booking details if applicable
-                booking_details = ""
+        try:
+            call_duration = int(time.time() - state.call_start_time) if state.call_start_time else 0
+            
+            # Build transcript from chat history
+            transcript = []
+            for msg in session.chat_ctx.messages:
+                if msg.role == "user":
+                    transcript.append({"role": "customer", "text": msg.text})
+                elif msg.role == "assistant":
+                    transcript.append({"role": "agent", "text": msg.text})
+            
+            # Generate summary from state
+            summary_parts = []
+            if state.customer_name_first:
+                summary_parts.append(f"Customer: {state.customer_name_first} {state.customer_name_last}".strip())
+            if state.intent:
+                summary_parts.append(f"Intent: {state.intent}")
+            if state.vrn:
+                summary_parts.append(f"Vehicle: {state.vrn}")
+            if state.booking_date:
+                summary_parts.append(f"Booking: {state.booking_date} at {state.booking_time}")
+            if state.message:
+                summary_parts.append(f"Message: {state.message}")
+            
+            summary = " | ".join(summary_parts) if summary_parts else "Call completed"
+            
+            # Determine call type
+            call_type = "unknown"
+            if state.intent == "booking" and state.booking_date:
+                call_type = "booking"
+            elif state.intent == "quote":
+                call_type = "quote"
+            elif state.intent == "message":
+                call_type = "message"
+            elif state.intent == "vehicle_update":
+                call_type = "vehicle_update"
+            
+            # Build booking details if applicable
+            booking_details = ""
+            if state.booking_date:
+                booking_parts = []
                 if state.booking_date:
-                    booking_parts = []
-                    if state.booking_date:
-                        booking_parts.append(f"Date: {state.booking_date}")
-                    if state.booking_time:
-                        booking_parts.append(f"Time: {state.booking_time}")
-                    if state.service_selected_name:
-                        booking_parts.append(f"Service: {state.service_selected_name}")
-                    if state.service_price:
-                        booking_parts.append(f"Price: {state.service_price}")
-                    booking_details = ", ".join(booking_parts)
-                
-                # Prioritize collected contact phone, fallback to caller phone from SIP
-                final_customer_phone = state.contact_phone if state.contact_phone else caller_phone
-                
-                # Log to portal
-                customer_full_name = f"{state.customer_name_first} {state.customer_name_last}".strip()
-                await log_call_to_portal(
-                    garage_id=garage_id,
-                    room_name=room_name,
-                    duration_seconds=call_duration,
-                    transcript=transcript,
-                    summary=summary,
-                    customer_name=customer_full_name if customer_full_name else "",
-                    customer_phone=final_customer_phone if final_customer_phone else "",
-                    from_number=caller_phone if caller_phone else "",
-                    registration_number=state.vrn if state.vrn else "",
-                    confirmed_booking=(state.step == Step.CONFIRMED),
-                    booking_details=booking_details,
-                    call_type=call_type,
-                    twilio_call_sid=twilio_call_sid if twilio_call_sid else "",
-                )
-            except Exception as e:
-                logger.error(f"[PORTAL] Failed to log call: {e}")
-            finally:
-                ctx.shutdown("caller_disconnected")
+                    booking_parts.append(f"Date: {state.booking_date}")
+                if state.booking_time:
+                    booking_parts.append(f"Time: {state.booking_time}")
+                if state.service_selected_name:
+                    booking_parts.append(f"Service: {state.service_selected_name}")
+                if state.service_price:
+                    booking_parts.append(f"Price: {state.service_price}")
+                booking_details = ", ".join(booking_parts)
+            
+            # Log to portal
+            await log_call_to_portal(
+                garage_id=garage_id,
+                room_name=room_name,
+                duration_seconds=call_duration,
+                transcript=transcript,
+                summary=summary,
+                customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip(),
+                customer_phone=state.contact_phone,
+                registration_number=state.vrn,
+                confirmed_booking=bool(state.booking_date),
+                booking_details=booking_details,
+                call_type=call_type,
+            )
+        except Exception as e:
+            logger.error(f"[PORTAL] Failed to log call: {e}")
         
-        # Create task to run async logging
-        asyncio.create_task(_log_and_shutdown())
+        ctx.shutdown("caller_disconnected")
 
 
 # ============================================================
@@ -3858,6 +3308,5 @@ if __name__ == "__main__":
         WorkerOptions(
             entrypoint_fnc=entrypoint,
             worker_type=WorkerType.ROOM,
-            agent_name="receptionmate-agent-v3",
         )
     )

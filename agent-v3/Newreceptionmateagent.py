@@ -1406,6 +1406,11 @@ async def specialist_diagnostic_questions(
         "rough", "harsh", "stuttering", "hesitat", "cutting out",
         "loss of power", "lost power", "losing power", "no power", "lack of power",
         "limp mode", "stall", "misfire", "bog", "sluggish",
+        "gear", "gears", "gearbox", "transmission", "clutch", "shifting", "change gear",
+        "brake", "brakes", "braking", "stopping", "pedal",
+        "steering", "steer", "wheel", "turning",
+        "suspension", "handling", "bounce", "sag",
+        "engine", "motor", "starting", "won't start", "cranking",
     ]
     
     symptom_lower = symptom_description.lower()

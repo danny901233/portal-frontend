@@ -1619,6 +1619,20 @@ def match_service(name_hint: str, services: list[dict]) -> Optional[dict]:
     if not target:
         return None
 
+    # Check for specialist keywords that should match "Other" category
+    specialist_keywords = [
+        "transmission", "gearbox", "clutch", "timing belt", "engine rebuild",
+        "major service", "cambelt", "head gasket", "turbo", "injector"
+    ]
+    target_lower = target.lower()
+    
+    # If caller mentions specialist work, prioritize "Other" category
+    if any(keyword in target_lower for keyword in specialist_keywords):
+        for service in services:
+            svc_name = service.get("name", "").lower()
+            if 'other' in svc_name or 'general' in svc_name:
+                return service
+
     best_match: Optional[dict] = None
     best_score = 0.0
     for service in services:
@@ -3043,7 +3057,7 @@ class SupervisorAgent(Agent):
                 f"Service added: {svc_name} (£{price}).\n\n"
                 f"Current booking:\n{services_text}\n"
                 f"Total: {total_str}{slot_summary}\n\n"
-                "IMMEDIATELY ask: 'I've added that to your booking. Is there anything else you'd like to add, "
+                f"IMMEDIATELY say: 'I've added {svc_name} to your booking. Is there anything else you'd like to add, "
                 "or shall we proceed with booking a time?'\n"
                 "If they mention ANY other service → STOP and call add_service again with that service.\n"
                 "DO NOT just verbally acknowledge - you MUST call add_service to actually add it.\n"

@@ -14,9 +14,7 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
       select: {
         id: true,
         name: true,
-        phoneNumber: true,
-        whatsappNumber: true,
-        widgetPrimaryColor: true,
+        twilioNumber: true,
       },
     });
 
@@ -26,9 +24,9 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
 
     res.json({
       name: garage.name,
-      phone: garage.phoneNumber,
-      whatsappNumber: garage.whatsappNumber,
-      primaryColor: garage.widgetPrimaryColor || '#2563eb',
+      phone: garage.twilioNumber,
+      whatsappNumber: null, // TODO: Add whatsappNumber field to schema
+      primaryColor: '#2563eb',
     });
   } catch (error) {
     console.error('Failed to get widget config:', error);

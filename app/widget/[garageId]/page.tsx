@@ -28,6 +28,7 @@ export default function ChatWidget() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -89,19 +90,27 @@ export default function ChatWidget() {
     setSending(true);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/chat/agent`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/chat/widget`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           garageId,
           message: userMessage.content,
-          conversationHistory: messages.map((m) => ({ role: m.role, content: m.content })),
+          conversationId,
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to get response');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to get response');
+      }
 
       const data = await response.json();
+      
+      // Store conversation ID for subsequent messages
+      if (data.conversationId && !conversationId) {
+        setConversationId(data.conversationId);
+      }
       
       setMessages((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
@@ -137,13 +146,13 @@ export default function ChatWidget() {
     return null;
   }
 
-  const primaryColor = config.primaryColor || '#2563eb';
+  const primaryColor = config.primaryColor || '#3b82f6'; // Blue-500 for ReceptionMate
 
   return (
     <>
       {/* Chat Window */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-96 h-[600px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+        <div className="fixed bottom-6 right-6 z-50 w-96 h-[600px] bg-slate-900 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300 border border-slate-700">
           {/* Chat Header */}
           <div 
             className="px-6 py-4 text-white flex items-center justify-between"
@@ -157,7 +166,7 @@ export default function ChatWidget() {
               </div>
               <div>
                 <h3 className="font-semibold text-base">{config.name}</h3>
-                <p className="text-xs text-white/80">AI Assistant</p>
+                <p className="text-xs text-white/80">AI Assistant • Online</p>
               </div>
             </div>
             <button
@@ -171,7 +180,7 @@ export default function ChatWidget() {
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50">
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-slate-950">
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -180,13 +189,13 @@ export default function ChatWidget() {
                 <div
                   className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
                     message.role === 'user'
-                      ? 'text-white shadow-sm'
-                      : 'bg-white text-gray-800 shadow-sm'
+                      ? 'text-white shadow-md'
+                      : 'bg-slate-800 text-slate-100 shadow-sm border border-slate-700'
                   }`}
                   style={message.role === 'user' ? { backgroundColor: primaryColor } : {}}
                 >
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                  <p className={`text-xs mt-1 ${message.role === 'user' ? 'text-white/70' : 'text-gray-400'}`}>
+                  <p className={`text-xs mt-1 ${message.role === 'user' ? 'text-white/70' : 'text-slate-400'}`}>
                     {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
@@ -194,11 +203,11 @@ export default function ChatWidget() {
             ))}
             {sending && (
               <div className="flex justify-start">
-                <div className="bg-white rounded-2xl px-4 py-3 shadow-sm">
+                <div className="bg-slate-800 border border-slate-700 rounded-2xl px-4 py-3 shadow-sm">
                   <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                   </div>
                 </div>
               </div>
@@ -207,7 +216,7 @@ export default function ChatWidget() {
           </div>
 
           {/* Input Area */}
-          <div className="border-t bg-white px-4 py-3">
+          <div className="border-t border-slate-700 bg-slate-900 px-4 py-3">
             <div className="flex gap-2">
               <input
                 type="text"
@@ -216,13 +225,13 @@ export default function ChatWidget() {
                 onKeyPress={handleKeyPress}
                 placeholder="Type your message..."
                 disabled={sending}
-                className="flex-1 px-4 py-2.5 rounded-full border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:border-transparent disabled:bg-gray-100"
+                className="flex-1 px-4 py-2.5 rounded-full bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:border-transparent disabled:bg-slate-800/50"
                 style={{ '--tw-ring-color': primaryColor } as any}
               />
               <button
                 onClick={handleSendMessage}
                 disabled={!input.trim() || sending}
-                className="px-4 py-2.5 rounded-full text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md"
+                className="px-4 py-2.5 rounded-full text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg"
                 style={{ backgroundColor: primaryColor }}
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -230,8 +239,8 @@ export default function ChatWidget() {
                 </svg>
               </button>
             </div>
-            <p className="text-center text-xs text-gray-400 mt-2">
-              Powered by <span className="font-medium">ReceptionMate</span>
+            <p className="text-center text-xs text-slate-500 mt-2">
+              Powered by <span className="font-medium text-slate-400">ReceptionMate</span>
             </p>
           </div>
         </div>
@@ -239,7 +248,7 @@ export default function ChatWidget() {
 
       {/* Menu Options */}
       {viewState === 'menu' && (
-        <div className="fixed bottom-6 right-6 z-50 w-80 bg-white rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+        <div className="fixed bottom-6 right-6 z-50 w-80 bg-slate-900 rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-300 border border-slate-700">
           <div 
             className="px-6 py-4 text-white flex items-center justify-between"
             style={{ backgroundColor: primaryColor }}
@@ -255,15 +264,11 @@ export default function ChatWidget() {
             </button>
           </div>
 
-          <div className="p-4 space-y-2">
+          <div className="p-4 space-y-2 bg-slate-950">
             {/* Start Chat Button */}
             <button
               onClick={handleStartChat}
-              className="w-full flex items-center gap-3 p-4 rounded-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-              style={{ 
-                backgroundColor: `${primaryColor}15`,
-                border: `2px solid ${primaryColor}`
-              }}
+              className="w-full flex items-center gap-3 p-4 rounded-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] bg-slate-800 border border-slate-700 hover:border-blue-500/50"
             >
               <div 
                 className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -274,8 +279,8 @@ export default function ChatWidget() {
                 </svg>
               </div>
               <div className="text-left flex-1">
-                <div className="font-semibold text-gray-900 text-sm">Start a chat</div>
-                <div className="text-xs text-gray-500">We'll reply instantly</div>
+                <div className="font-semibold text-slate-100 text-sm">Start a chat</div>
+                <div className="text-xs text-slate-400">We'll reply instantly</div>
               </div>
             </button>
 
@@ -283,7 +288,7 @@ export default function ChatWidget() {
             {config.phone && (
               <button
                 onClick={handleVoiceCall}
-                className="w-full flex items-center gap-3 p-4 rounded-xl bg-purple-50 border-2 border-purple-200 hover:bg-purple-100 hover:border-purple-300 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                className="w-full flex items-center gap-3 p-4 rounded-xl bg-slate-800 border border-slate-700 hover:border-purple-500/50 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center flex-shrink-0">
                   <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -291,8 +296,8 @@ export default function ChatWidget() {
                   </svg>
                 </div>
                 <div className="text-left flex-1">
-                  <div className="font-semibold text-gray-900 text-sm">Call us</div>
-                  <div className="text-xs text-gray-500">Speak to our AI</div>
+                  <div className="font-semibold text-slate-100 text-sm">Call us</div>
+                  <div className="text-xs text-slate-400">Speak to our AI</div>
                 </div>
               </button>
             )}
@@ -301,7 +306,7 @@ export default function ChatWidget() {
             {config.whatsappNumber && (
               <button
                 onClick={handleWhatsApp}
-                className="w-full flex items-center gap-3 p-4 rounded-xl bg-green-50 border-2 border-green-200 hover:bg-green-100 hover:border-green-300 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                className="w-full flex items-center gap-3 p-4 rounded-xl bg-slate-800 border border-slate-700 hover:border-green-500/50 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center flex-shrink-0">
                   <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -309,15 +314,15 @@ export default function ChatWidget() {
                   </svg>
                 </div>
                 <div className="text-left flex-1">
-                  <div className="font-semibold text-gray-900 text-sm">WhatsApp</div>
-                  <div className="text-xs text-gray-500">Chat on WhatsApp</div>
+                  <div className="font-semibold text-slate-100 text-sm">WhatsApp</div>
+                  <div className="text-xs text-slate-400">Chat on WhatsApp</div>
                 </div>
               </button>
             )}
           </div>
 
-          <div className="px-4 py-3 bg-gray-50 border-t text-center">
-            <p className="text-xs text-gray-400">Powered by <span className="font-medium text-gray-600">ReceptionMate</span></p>
+          <div className="px-4 py-3 bg-slate-900 border-t border-slate-700 text-center">
+            <p className="text-xs text-slate-500">Powered by <span className="font-medium text-slate-400">ReceptionMate</span></p>
           </div>
         </div>
       )}

@@ -16,14 +16,14 @@ router.post('/chat/widget', async (req, res) => {
     // Find or create conversation
     let conversation;
     if (conversationId) {
-      conversation = await prisma.conversation.findUnique({
+      conversation = await prisma.chatConversation.findUnique({
         where: { id: conversationId },
       });
     }
 
     if (!conversation) {
       // Create new web chat conversation
-      conversation = await prisma.conversation.create({
+      conversation = await prisma.chatConversation.create({
         data: {
           garageId,
           platform: 'web',

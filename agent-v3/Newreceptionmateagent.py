@@ -1008,6 +1008,7 @@ class CallState:
     service_selected_ids: list[str] = field(default_factory=list)  # Multiple service IDs
     service_selected_names: list[str] = field(default_factory=list)  # Multiple service names
     service_prices: list[str] = field(default_factory=list)  # Multiple service prices
+    service_customer_descriptions: list[str] = field(default_factory=list)  # Customer's original descriptions (for "Other" services)
     
     # Legacy single service fields (kept for backward compatibility)
     service_selected_id: str = ""
@@ -2876,6 +2877,11 @@ class SupervisorAgent(Agent):
             self._state.service_selected_ids = [svc_id]
             self._state.service_selected_names = [svc_name]
             self._state.service_prices = [price]
+            # Store customer's original description for "Other" services
+            if 'other' in svc_name.lower() or 'general' in svc_name.lower():
+                self._state.service_customer_descriptions = [service_name]
+            else:
+                self._state.service_customer_descriptions = [svc_name]
             
             logger.info(f"[SELECT_SERVICE] Set: {svc_name} (£{price})")
 
@@ -2985,6 +2991,11 @@ class SupervisorAgent(Agent):
             self._state.service_selected_ids.append(svc_id)
             self._state.service_selected_names.append(svc_name)
             self._state.service_prices.append(price)
+            # Store customer's original description for "Other" services
+            if 'other' in svc_name.lower() or 'general' in svc_name.lower():
+                self._state.service_customer_descriptions.append(service_name)
+            else:
+                self._state.service_customer_descriptions.append(svc_name)
             
             # Update GarageHive with all services (comma-separated)
             all_service_ids = ",".join(self._state.service_selected_ids)
@@ -2995,6 +3006,7 @@ class SupervisorAgent(Agent):
                 self._state.service_selected_ids.pop()
                 self._state.service_selected_names.pop()
                 self._state.service_prices.pop()
+                self._state.service_customer_descriptions.pop()
                 return f"Failed to add service: {e}"
             
             logger.info(f"[ADD_SERVICE] Added: {svc_name} (£{price}). Total services: {len(self._state.service_selected_ids)}")
@@ -3425,6 +3437,19 @@ class SupervisorAgent(Agent):
                 all_notes = f"{tyre_section}\n\n{all_notes}".strip() if all_notes else tyre_section
             # Combine user notes with diagnostic notes and tyre info
             all_notes = notes
+            
+            # Add "Other" service descriptions so garage knows what the work is
+            other_services = []
+            for i, svc_name in enumerate(self._state.service_selected_names):
+                if 'other' in svc_name.lower() or 'general' in svc_name.lower():
+                    if i < len(self._state.service_customer_descriptions):
+                        customer_desc = self._state.service_customer_descriptions[i]
+                        if customer_desc and customer_desc.lower() != svc_name.lower():
+                            other_services.append(customer_desc)
+            
+            if other_services:
+                other_section = "OTHER SERVICES REQUESTED:\n" + "\n".join([f"- {s}" for s in other_services])
+                all_notes = f"{other_section}\n\n{all_notes}".strip() if all_notes else other_section
             
             # Add tyre information if present
             if self._state.tyre_size or self._state.tyre_quality:

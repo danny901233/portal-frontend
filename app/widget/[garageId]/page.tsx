@@ -20,8 +20,8 @@ export default function ChatWidget() {
   useEffect(() => {
     if (!garageId) return;
     
-    // Fetch garage configuration
-    fetch(`https://api.receptionmate.co.uk/api/widget/${garageId}`)
+    // Fetch garage configuration from internal API route
+    fetch(`/api/widget/${garageId}`)
       .then((res) => res.json())
       .then((data) => {
         setConfig(data);

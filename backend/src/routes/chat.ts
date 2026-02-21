@@ -28,7 +28,7 @@ router.post('/chat/widget', async (req, res) => {
           garageId,
           platform: 'web',
           platformUserId: `web_${Date.now()}`,
-          platformUserName: 'Website Visitor',
+          customerName: 'Website Visitor',
           status: 'active',
         },
       });

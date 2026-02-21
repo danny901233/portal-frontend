@@ -1,3 +1,10 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Chat Widget',
+  description: 'ReceptionMate Chat Widget',
+};
+
 export default function WidgetLayout({
   children,
 }: {
@@ -5,10 +12,23 @@ export default function WidgetLayout({
 }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, padding: 0, overflow: 'hidden' }}>
+      <head>
+        <style>{`
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          body {
+            overflow: hidden;
+          }
+        `}</style>
+      </head>
+      <body>
         {children}
       </body>
     </html>
   );
 }
+
 

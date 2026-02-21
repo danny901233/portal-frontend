@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { headers } from "next/headers";
 import "./globals.css";
 import Providers from "./providers";
 import AppShell from "./components/AppShell";
@@ -9,11 +10,29 @@ export const metadata: Metadata = {
   description: "Operational dashboard for LiveKit AI call logs",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: ReactNode;
 }) {
+  const headersList = await headers();
+  const pathname = headersList.get('x-pathname') || '';
+  const isWidget = pathname.startsWith('/widget/');
+
+  if (isWidget) {
+    return (
+      <html lang="en">
+        <head>
+          <style>{`
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { overflow: hidden; }
+          `}</style>
+        </head>
+        <body>{children}</body>
+      </html>
+    );
+  }
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body>

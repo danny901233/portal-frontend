@@ -3221,15 +3221,11 @@ class SupervisorAgent(Agent):
             if not self._state.customer_name_last:
                 surname_note = "IMPORTANT: No surname on file yet. Ask 'And your surname?' first.\n"
 
-            # Check if we have the caller's phone number from SIP
+            # Check if we already have the caller's phone number
             phone_prompt = ""
-            if self._state.caller_phone:
-                # Auto-populate contact_phone with caller's number
-                self._state.contact_phone = self._state.caller_phone
-                logger.info(f"[SELECT_TIMESLOT] Auto-populated contact_phone: {self._state.caller_phone}")
-                
+            if self._state.contact_phone:
                 # Extract last 3 digits for confirmation
-                last_digits = self._state.caller_phone[-3:]
+                last_digits = self._state.contact_phone[-3:]
                 phone_prompt = (
                     f"Say: 'I've got your number ending in {last_digits}, is that the best one for you?'\n"
                     f"If they say YES/that's fine/correct: move directly to asking for email.\n"
@@ -3912,11 +3908,16 @@ async def entrypoint(ctx: JobContext):
         return None
 
     def _set_caller_phone(phone: str, source: str) -> None:
-        """Store caller's phone in state."""
+        """Store caller's phone in state and auto-populate contact_phone."""
         if not phone or state.caller_phone == phone:
             return
         state.caller_phone = phone
-        logger.info(f"[CALLER] Captured phone from {source}: {phone}")
+        # Auto-populate contact_phone immediately so agent can confirm it
+        if not state.contact_phone:
+            state.contact_phone = phone
+            logger.info(f"[CALLER] Captured phone from {source}: {phone} (auto-populated contact_phone)")
+        else:
+            logger.info(f"[CALLER] Captured phone from {source}: {phone}")
 
     # Capture phone from existing SIP participants (already connected)
     for participant in ctx.room.remote_participants.values():

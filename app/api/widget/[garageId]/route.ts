@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { garageId: string } }
+  { params }: { params: Promise<{ garageId: string }> }
 ) {
   try {
+    const { garageId } = await params;
+    
     const response = await fetch(
-      `https://api.receptionmate.co.uk/api/widget/${params.garageId}`
+      `https://api.receptionmate.co.uk/api/widget/${garageId}`
     );
 
     if (!response.ok) {

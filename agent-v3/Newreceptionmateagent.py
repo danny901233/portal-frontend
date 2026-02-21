@@ -11,7 +11,7 @@ import re
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from difflib import SequenceMatcher
 from enum import Enum
 from pathlib import Path
@@ -2974,6 +2974,9 @@ class SupervisorAgent(Agent):
             svc_name = matched.get("name", "")
             price = matched.get("price", "")
             
+            # For "Other" category, use the customer's original description instead of "Other Option"
+            display_name = service_name if ('other' in svc_name.lower() or 'general' in svc_name.lower()) else svc_name
+            
             # Check if already added
             if svc_id in self._state.service_selected_ids:
                 return f"'{svc_name}' is already added to this booking."
@@ -3048,8 +3051,8 @@ class SupervisorAgent(Agent):
                     f"Current booking:\n{services_text}\n"
                     f"Total: {total_str}\n\n"
                     "Unfortunately, there are no available timeslots for this combination of services.\n"
-                    "Say: 'I don't have any available slots for both services together. Can I take your number "
-                    "and we'll give you a call back to arrange a time?'\n"
+                    f"Say: 'I've added {display_name} to your booking, but I don't have any available slots for both services together. "
+                    "Can I take your number and we'll give you a call back to arrange a time?'\n"
                     "Then call take_message()."
                 )
             
@@ -3057,7 +3060,7 @@ class SupervisorAgent(Agent):
                 f"Service added: {svc_name} (£{price}).\n\n"
                 f"Current booking:\n{services_text}\n"
                 f"Total: {total_str}{slot_summary}\n\n"
-                f"IMMEDIATELY say: 'I've added {svc_name} to your booking. Is there anything else you'd like to add, "
+                f"IMMEDIATELY say: 'I've added {display_name} to your booking. Is there anything else you'd like to add, "
                 "or shall we proceed with booking a time?'\n"
                 "If they mention ANY other service → STOP and call add_service again with that service.\n"
                 "DO NOT just verbally acknowledge - you MUST call add_service to actually add it.\n"

@@ -2497,13 +2497,19 @@ class SupervisorAgent(Agent):
         async def select_service(context: RunContext, service_name: str) -> str:
             """Select a service by name. Fuzzy matching is applied automatically."""
 
-            if self._state.step != Step.NEED_SERVICE:
+            # Allow service selection in NEED_SERVICE or NEED_TIMESLOT (for adding additional services)
+            if self._state.step not in [Step.NEED_SERVICE, Step.NEED_TIMESLOT]:
                 if self._state.step == Step.GREETING:
                     return (
                         "BLOCKED: You must call save_caller_name FIRST before any other tool. "
                         "Get the caller's name and intent, then call save_caller_name."
                     )
-                return f"ERROR: Wrong step ({self._state.step.value}). Service selection not needed now."
+                return f"ERROR: Wrong step ({self._state.step.value}). Service selection not allowed in this step."
+            
+            # If already in NEED_TIMESLOT, this is an additional service - redirect to add_service
+            if self._state.step == Step.NEED_TIMESLOT and self._state.service_selected_ids:
+                logger.info(f"[SELECT_SERVICE] Redirecting to add_service for additional service: {service_name}")
+                return f"REDIRECT: You're trying to add another service. Use add_service(service_name='{service_name}') instead."
 
             services = self._state.services_available
             if not services and self._state.session_id:
@@ -2912,10 +2918,10 @@ class SupervisorAgent(Agent):
             # Booking flow
             return (
                 f"Service set: {svc_name} ({price} pounds).{slot_summary}\n\n"
-                "Say naturally: 'I've got that noted down for you. Is there anything else you'd like to add to this booking, "
-                "or shall we go ahead and book a time?'\n"
-                "If YES (they mention another service) → call add_service(service_name='their answer').\n"
-                "If NO (just want timeslot) → offer 2-3 early timeslots: 'The earliest I have is [date] at [time], or [date] at [time].' "
+                "IMMEDIATELY ask: 'Is there anything else you'd like to add to this booking, or shall we go ahead and book a time?'\n"
+                "If they mention ANY additional service → STOP talking and call add_service(service_name='exact service they mentioned').\n"
+                "DO NOT just acknowledge it verbally - you MUST call add_service to add it to the booking.\n"
+                "If they say no/just want a time → offer 2-3 early timeslots: 'The earliest I have is [date] at [time], or [date] at [time].' "
                 "Then wait for their preference and call select_timeslot."
             )
 
@@ -2975,6 +2981,30 @@ class SupervisorAgent(Agent):
             
             logger.info(f"[ADD_SERVICE] Added: {svc_name} (£{price}). Total services: {len(self._state.service_selected_ids)}")
             
+            # Refetch timeslots for the combined services
+            timeslots = []
+            try:
+                timeslots = await self._gh.list_timeslots(self._state.session_id)
+                logger.info(f"[ADD_SERVICE] Refetched {len(timeslots)} timeslots for combined services")
+                
+                # Filter to tomorrow onwards
+                today = datetime.now(timezone.utc).date()
+                tomorrow = today + timedelta(days=1)
+                valid_timeslots = []
+                for slot in timeslots:
+                    try:
+                        slot_date = datetime.fromisoformat(slot["date"].replace("Z", "+00:00")).date()
+                        if slot_date >= tomorrow:
+                            valid_timeslots.append(slot)
+                    except Exception:
+                        pass
+                
+                timeslots = valid_timeslots
+                self._state.timeslots_available = timeslots
+                logger.info(f"[ADD_SERVICE] Filtered to {len(timeslots)} valid timeslots (tomorrow onwards)")
+            except Exception as e:
+                logger.warning(f"[ADD_SERVICE] Timeslot refetch failed: {e}")
+            
             # Format all services for display
             service_list = []
             total_price = 0.0
@@ -2990,14 +3020,33 @@ class SupervisorAgent(Agent):
             services_text = "\n".join(service_list)
             total_str = f"£{total_price:.2f}" if total_price > 0 else "TBC"
             
+            # Build timeslot summary
+            slot_summary = ""
+            if timeslots:
+                slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:6]]
+                slot_summary = "\n\nAvailable timeslots:\n" + "\n".join(slot_lines)
+            elif self._state.step == Step.NEED_TIMESLOT:
+                # No timeslots available after adding service - need callback
+                self._state.step = Step.MESSAGE_ONLY
+                return (
+                    f"Service added: {svc_name} (£{price}).\n\n"
+                    f"Current booking:\n{services_text}\n"
+                    f"Total: {total_str}\n\n"
+                    "Unfortunately, there are no available timeslots for this combination of services.\n"
+                    "Say: 'I don't have any available slots for both services together. Can I take your number "
+                    "and we'll give you a call back to arrange a time?'\n"
+                    "Then call take_message()."
+                )
+            
             return (
                 f"Service added: {svc_name} (£{price}).\n\n"
                 f"Current booking:\n{services_text}\n"
-                f"Total: {total_str}\n\n"
-                "Say naturally: 'I've added that to your booking. Is there anything else you'd like to add, "
+                f"Total: {total_str}{slot_summary}\n\n"
+                "IMMEDIATELY ask: 'I've added that to your booking. Is there anything else you'd like to add, "
                 "or shall we proceed with booking a time?'\n"
-                "If YES (more services) → call add_service again.\n"
-                "If NO → offer timeslots by calling select_timeslot."
+                "If they mention ANY other service → STOP and call add_service again with that service.\n"
+                "DO NOT just verbally acknowledge - you MUST call add_service to actually add it.\n"
+                "If NO more services → proceed to offer timeslots from the list above and call select_timeslot."
             )
 
         @function_tool

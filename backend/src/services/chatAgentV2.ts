@@ -1175,6 +1175,8 @@ async function ghSetContactInfo(sessionId: string, contactInfo: any): Promise<an
     { headers }
   );
   
+  console.log(`[GH_SET_CONTACT] HTTP ${response.status} response:`, JSON.stringify(response.data));
+
   if (response.status >= 200 && response.status < 300) {
     return { status: 'success', booking: response.data };
   }

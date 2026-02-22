@@ -157,19 +157,29 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
 
 async function saveSession(conversationId: string, session: ChatSession): Promise<void> {
   console.log(`[SAVE_SESSION] Saving session for conversation ${conversationId}, step: ${session.step}`);
-  console.log(`[SAVE_SESSION] Session data:`, JSON.stringify(session, null, 2));
   
   try {
+    // Check if conversation exists first
+    const conversation = await prisma.chatConversation.findUnique({
+      where: { id: conversationId },
+    });
+    
+    if (!conversation) {
+      console.log(`[SAVE_SESSION] Conversation ${conversationId} does not exist yet, skipping save`);
+      return;
+    }
+    
+    // Update existing conversation
     await prisma.chatConversation.update({
       where: { id: conversationId },
       data: {
         sessionState: session as any,
       },
     });
-    console.log(`[SAVE_SESSION] Successfully saved session for ${conversationId}`);
+    console.log(`[SAVE_SESSION] ✅ Successfully saved session for ${conversationId}`);
   } catch (error) {
-    console.error(`[SAVE_SESSION] Failed to save session for ${conversationId}:`, error);
-    throw error;
+    console.error(`[SAVE_SESSION] ❌ Failed to save session for ${conversationId}:`, error);
+    // Don't throw - log and continue
   }
 }
 

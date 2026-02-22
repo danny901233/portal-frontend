@@ -7,8 +7,10 @@ export async function GET(
   try {
     const { garageId } = await params;
     
+    // Use backend API URL - works for both local dev and production
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://18.171.230.217:3001';
     const response = await fetch(
-      `https://api.receptionmate.co.uk/api/widget/${garageId}`
+      `${backendUrl}/api/widget/${garageId}`
     );
 
     if (!response.ok) {

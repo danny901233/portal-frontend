@@ -262,12 +262,11 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'lookup_vehicle',
-        description: 'TWO-STEP vehicle lookup. Step 1: Pass registration (confirmed=false) to normalize and read back. Step 2: After caller confirms, call again with confirmed=true to do actual API lookup.',
+        description: 'Look up vehicle by registration number.',
         parameters: {
           type: 'object',
           properties: {
-            registration: { type: 'string', description: 'Vehicle registration (e.g., "AB12 CDE")' },
-            confirmed: { type: 'boolean', description: 'Set to true ONLY after caller confirms the readback. Default false.' },
+            registration: { type: 'string', description: 'Vehicle registration (e.g., "AB12CDE" or "AB12 CDE")' },
           },
           required: ['registration'],
         },
@@ -393,6 +392,7 @@ async function executeConversationalTool(
 // Tool handlers (return instructions like voice agent)
 
 async function handleSaveCallerName(args: any, session: ChatSession): Promise<string> {
+async function handleSaveCallerName(args: any, session: ChatSession): Promise<string> {
   const { first_name, last_name = '', intent, service_hint = '' } = args;
   
   session.customerNameFirst = first_name;
@@ -403,14 +403,13 @@ async function handleSaveCallerName(args: any, session: ChatSession): Promise<st
   
   if (intent === 'message') {
     session.step = Step.MESSAGE_ONLY;
-    return `Customer wants to leave a message.\nSay: "Of course ${first_name}, what can I help with?"\nWait for their message, then call take_message.`;
+    return `Customer wants to leave a message.\nSay: "Sure thing ${first_name}, what can I help you with?"\nWait for their message, then call take_message.`;
   }
   
   // Booking or quote flow
   session.step = Step.NEED_VRN;
-  return `Name saved: ${first_name} ${last_name}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay: "Great ${first_name}, can I grab your registration?"\nWait for registration, then call lookup_vehicle.`;
+  return `Name saved: ${first_name} ${last_name}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay: "Nice to meet you ${first_name}! What's your reg?"\nWait for registration, then call lookup_vehicle.`;
 }
-
 async function handleLookupVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { registration, confirmed = false } = args;
   const normalized = registration.replace(/\s+/g, '').toUpperCase();
@@ -421,100 +420,87 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     return `GarageHive not configured.\nSay: "Let me take your details and the team will call you back."\nThen call take_message.`;
   }
   
-  // STEP 2: Caller confirmed the readback - do actual API lookup
-  if (confirmed) {
-    session.vrn = normalized;
-    
-    try {
-      // Call GarageHive API with B/V/P retry logic
-      const regsToTry = [normalized];
-      const firstChar = normalized[0];
-      const bvpSwaps: Record<string, string[]> = { 'B': ['V', 'P'], 'V': ['B', 'P'], 'P': ['B', 'V'] };
-      
-      if (bvpSwaps[firstChar]) {
-        for (const alt of bvpSwaps[firstChar]) {
-          regsToTry.push(alt + normalized.slice(1));
-        }
-      }
-      
-      let result: any = null;
-      let winningReg = normalized;
-      
-      for (const tryReg of regsToTry) {
-        try {
-          const attemptResult = await ghInitAndSetVehicle(tryReg);
-          
-          if (!attemptResult.error) {
-            const booking = attemptResult.booking || {};
-            const vehicle = booking.vehicle || {};
-            if (vehicle.make_name || vehicle.model_name) {
-              result = attemptResult;
-              winningReg = tryReg;
-              if (tryReg !== normalized) {
-                console.log(`[LOOKUP_VEHICLE] B/V/P auto-fix: ${normalized} → ${tryReg}`);
-              }
-              break;
-            }
-          }
-        } catch (e) {
-          console.log(`[LOOKUP_VEHICLE] Try ${tryReg} failed:`, e);
-        }
-      }
-      
-      if (!result || result.error) {
-        console.log('[LOOKUP_VEHICLE] Not found after B/V/P retry');
-        return `Vehicle not found for registration '${normalized}'.\nSay: "I'm not finding that one. Could you spell the registration back to me using phonetics? For example, A for Alpha, B for Bravo."\nWait for them to spell it, then call lookup_vehicle again.`;
-      }
-      
-      const booking = result.booking || {};
-      const vehicle = booking.vehicle || {};
-      const make = vehicle.make_name || '';
-      const model = vehicle.model_name || '';
-      const sessionId = result.session_id || booking.session_id || '';
-      
-      if (!make || !model) {
-        return `Registration '${normalized}' returned but no vehicle details.\nSay: "I'm having trouble looking that up. Could you spell it again?"\nThen call lookup_vehicle.`;
-      }
-      
-      session.vrn = winningReg;
-      session.sessionId = sessionId;
-      session.vehicleMake = make;
-      session.vehicleModel = model;
-      session.step = Step.CONFIRMING_VEHICLE;
-      
-      const first = session.customerNameFirst;
-      const last = session.customerNameLast;
-      
-      console.log(`[LOOKUP_VEHICLE] Found: ${make} ${model}, session: ${sessionId}`);
-      
-      return `Vehicle found: ${make} ${model} (registration ${winningReg}).\n\nSay: "I've got a ${make} ${model} on that registration. Is that right?"\nWait for YES/NO.\nIf YES and you need to confirm name → also ask: "And I've got your name as ${first} ${last} — is that right?"\nIf they confirm both → call confirm_vehicle(confirmed=true).\nIf they correct the name → call confirm_vehicle(confirmed=true, corrected_first_name='...', corrected_last_name='...').\nIf the VEHICLE is wrong → call confirm_vehicle(confirmed=false).`;
-      
-    } catch (error: any) {
-      console.error('[LOOKUP_VEHICLE] API error:', error);
-      return `API error looking up vehicle.\nSay: "I'm having trouble with our system. Let me take your details for a callback."\nThen call take_message.`;
-    }
-  }
-  
-  // STEP 1: Just normalize and read back to caller for confirmation (NO API CALL YET)
-  // Validation
+  // Chat doesn't need two-step confirmation - just look it up directly
+  // Validation first
   if (normalized.length < 4) {
     return `PARTIAL registration: only got '${normalized}' so far.\nSay: "Could you give me the full registration?"\nWait for their complete answer, then call lookup_vehicle again.`;
   }
   
   if (!normalized.match(/\d/)) {
-    return `REJECTED: '${normalized}' has no digits — UK registrations always contain numbers.\nYou may have mistaken their name for the registration.\nSay: "Could I grab your registration?"\nWait for their answer.`;
+    return `REJECTED: '${normalized}' has no digits — UK registrations always contain numbers.\nSay: "Could I grab your registration?"\nWait for their answer.`;
   }
   
   if (normalized.length > 7) {
-    console.log(`[LOOKUP_VEHICLE] Registration too long (${normalized.length} chars), truncating to 7`);
-    const truncated = normalized.slice(0, 7);
-    return `Parsed registration: ${truncated} (truncated from ${normalized}).\n\nRead back to caller: "${truncated.split('').join('  ')}. Is that right?"\nIf YES → call lookup_vehicle(registration="${truncated}", confirmed=true).\nIf NO → say "Let me get that again" and call lookup_vehicle with their correction.`;
+    normalized = normalized.slice(0, 7);
   }
   
-  // Read back for confirmation
-  const spaced = normalized.split('').join('  '); // "V  2  0  A  L  A" for clear pronunciation
+  session.vrn = normalized;
   
-  return `Parsed registration: ${normalized}.\n\nRead back to caller: "${spaced}. Is that right?"\nIf YES → call lookup_vehicle(registration="${normalized}", confirmed=true).\nIf NO → say "Let me get that again. Could you spell it back to me?" then call lookup_vehicle with their correction.`;
+  try {
+    // Call GarageHive API with B/V/P retry logic
+    const regsToTry = [normalized];
+    const firstChar = normalized[0];
+    const bvpSwaps: Record<string, string[]> = { 'B': ['V', 'P'], 'V': ['B', 'P'], 'P': ['B', 'V'] };
+    
+    if (bvpSwaps[firstChar]) {
+      for (const alt of bvpSwaps[firstChar]) {
+        regsToTry.push(alt + normalized.slice(1));
+      }
+    }
+    
+    let result: any = null;
+    let winningReg = normalized;
+    
+    for (const tryReg of regsToTry) {
+      try {
+        const attemptResult = await ghInitAndSetVehicle(tryReg);
+        
+        if (!attemptResult.error) {
+          const booking = attemptResult.booking || {};
+          const vehicle = booking.vehicle || {};
+          if (vehicle.make_name || vehicle.model_name) {
+            result = attemptResult;
+            winningReg = tryReg;
+            if (tryReg !== normalized) {
+              console.log(`[LOOKUP_VEHICLE] B/V/P auto-fix: ${normalized} → ${tryReg}`);
+            }
+            break;
+          }
+        }
+      } catch (e) {
+        console.log(`[LOOKUP_VEHICLE] Try ${tryReg} failed:`, e);
+      }
+    }
+    
+    if (!result || result.error) {
+      console.log('[LOOKUP_VEHICLE] Not found after B/V/P retry');
+      return `Vehicle not found for registration '${normalized}'.\nSay: "Hmm, I'm not finding that one. Could you double check the registration for me?"\nWait for them to provide it again, then call lookup_vehicle.`;
+    }
+    
+    const booking = result.booking || {};
+    const vehicle = booking.vehicle || {};
+    const make = vehicle.make_name || '';
+    const model = vehicle.model_name || '';
+    const sessionId = result.session_id || booking.session_id || '';
+    
+    if (!make || !model) {
+      return `Registration '${normalized}' returned but no vehicle details.\nSay: "Having a bit of trouble looking that up. Mind trying the registration again?"\nThen call lookup_vehicle.`;
+    }
+    
+    session.vrn = winningReg;
+    session.sessionId = sessionId;
+    session.vehicleMake = make;
+    session.vehicleModel = model;
+    session.step = Step.CONFIRMING_VEHICLE;
+    
+    console.log(`[LOOKUP_VEHICLE] Found: ${make} ${model}, session: ${sessionId}`);
+    
+    return `Vehicle found: ${make} ${model} (${winningReg}).\n\nSay: "Perfect! I've got your ${make} ${model}. What work does it need?"\nThen call confirm_vehicle(confirmed=true) with ZERO SPEECH.`;
+    
+  } catch (error: any) {
+    console.error('[LOOKUP_VEHICLE] API error:', error);
+    return `API error looking up vehicle.\nSay: "Our system's being a bit slow. Let me take your details and we'll call you back."\nThen call take_message.`;
+  }
 }
 
 async function handleConfirmVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
@@ -524,7 +510,7 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
     session.step = Step.NEED_VRN;
     session.vrn = '';
     session.sessionId = '';
-    return `Customer said vehicle is wrong.\nSay: "No worries, let me get the right registration from you."\nThen call lookup_vehicle with the correct registration.`;
+    return `Customer said vehicle is wrong.\nSay: "No problem! What's the correct registration?"\nThen call lookup_vehicle with the correct registration.`;
   }
   
   // Apply name corrections if provided
@@ -550,18 +536,18 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
     console.log(`[CONFIRM_VEHICLE] Fetched ${services.length} services`);
     
     if (services.length === 0) {
-      return `Vehicle confirmed but no services available.\nSay: "Let me take your details and the team will call you with a quote."\nThen call take_message.`;
+      return `Vehicle confirmed but no services available.\nSay: "Let me grab your details and we'll give you a call back with a quote."\nThen call take_message.`;
     }
     
     const serviceList = services.slice(0, 5).map((s: any, i: number) => 
       `${i + 1}. ${s.name} - £${s.price}`
     ).join('\n');
     
-    return `Vehicle confirmed: ${session.vehicleMake} ${session.vehicleModel}.\n${services.length} services available.\n\nTop services:\n${serviceList}\n\nSay: "What work does it need?"\nWait for their answer, then call select_service with the service name they mention.`;
+    return `Vehicle confirmed: ${session.vehicleMake} ${session.vehicleModel}.\n${services.length} services available.\n\nTop services:\n${serviceList}\n\nDon't list all services - just ask naturally: "So what work needs doing?"\nWait for their answer, then call select_service with the service name they mention.`;
     
   } catch (error: any) {
     console.error('[CONFIRM_VEHICLE] Failed to fetch services:', error);
-    return `Vehicle confirmed but failed to load services.\nSay: "Let me take your details and the team will call you with a quote." Then call take_message.`;
+    return `Vehicle confirmed but failed to load services.\nSay: "Let me grab your details and we'll call you back with a quote." Then call take_message.`;
   }
 }
 
@@ -582,7 +568,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
       `${i + 1}. ${s.name} - £${s.price}`
     ).join('\n');
     
-    return `No match found for "${service_name}".\nAvailable services:\n${serviceList}\n\nSay: "I don't have that exact service. The closest I have is [suggest one]. Would that work?"\nOr ask them to choose from the list.`;
+    return `No match found for "${service_name}".\nAvailable services:\n${serviceList}\n\nSay: "Hmm, closest I've got is [pick the most relevant one]. That sound right?"\nOr ask what they're looking for if unclear.`;
   }
   
   const serviceId = matched.service_price_id;

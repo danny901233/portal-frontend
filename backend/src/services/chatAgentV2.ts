@@ -310,8 +310,12 @@ export async function getChatAgentResponse(
     // Call OpenAI with function tools (instruction-based)
     const temperature = session.sessionId ? 0.5 : 0.7;
 
+    // Force select_timeslot when customer is choosing a slot
+    let forceTimeslotTool = session.step === Step.NEED_TIMESLOT &&
+      session.timeslotsAvailable && session.timeslotsAvailable.length > 0;
+
     // Retry wrapper for OpenAI 429 rate limit errors
-    async function openAIWithRetry(msgs: OpenAI.Chat.ChatCompletionMessageParam[], temp: number): Promise<OpenAI.Chat.ChatCompletion> {
+    async function openAIWithRetry(msgs: OpenAI.Chat.ChatCompletionMessageParam[], temp: number, forceTool?: string): Promise<OpenAI.Chat.ChatCompletion> {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           return await getOpenAI().chat.completions.create({
@@ -320,7 +324,9 @@ export async function getChatAgentResponse(
             temperature: temp,
             max_tokens: 300,
             tools: getConversationalTools(),
-            tool_choice: 'auto',
+            tool_choice: forceTool
+              ? { type: 'function', function: { name: forceTool } }
+              : 'auto',
           });
         } catch (err: any) {
           if (err?.status === 429 && attempt < 2) {
@@ -336,7 +342,7 @@ export async function getChatAgentResponse(
       throw new Error('OpenAI retries exhausted');
     }
 
-    let response = await openAIWithRetry(messages, temperature);
+    let response = await openAIWithRetry(messages, temperature, forceTimeslotTool ? 'select_timeslot' : undefined);
 
     // Handle function calls (tools return instructions)
     let iterations = 0;
@@ -344,6 +350,7 @@ export async function getChatAgentResponse(
 
     while (response.choices[0]?.finish_reason === 'tool_calls' && iterations < maxIterations) {
       iterations++;
+      forceTimeslotTool = false; // Only force on first call
       const toolCalls = response.choices[0].message.tool_calls;
 
       if (!toolCalls) break;
@@ -1426,6 +1433,16 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], isOpen: boo
   if (session.contactEmail) prompt += `- Email: ✅ ${session.contactEmail}\n`;
   if (session.contactPostcode) prompt += `- Postcode: ✅ ${session.contactPostcode}\n`;
   if (session.contactHouseNumber) prompt += `- House Number: ✅ ${session.contactHouseNumber}\n`;
+
+  // Show available timeslots when waiting for timeslot selection
+  if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
+    prompt += `\n⏰ AVAILABLE TIMESLOTS (call select_timeslot when customer picks one):\n`;
+    const slots = session.timeslotsAvailable.slice(0, 10);
+    for (const slot of slots) {
+      prompt += `  - ${slot.date} at ${slot.time}\n`;
+    }
+    prompt += `\n🚨 The customer is NOW choosing a timeslot. Call select_timeslot immediately with their preference.\n`;
+  }
   
   prompt += `\n📋 BOOKING FLOW:\n`;
   prompt += `1. GREETING: Get name and intent → call save_caller_name\n`;

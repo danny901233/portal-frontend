@@ -239,6 +239,7 @@ model ChatConversation {
   tags          String[] @default([])
   unreadCount   Int      @default(0)
   lastMessageAt DateTime @default(now())
+  sessionState  Json?
   messages      ChatMessage[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

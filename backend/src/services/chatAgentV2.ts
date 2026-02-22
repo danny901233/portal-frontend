@@ -80,40 +80,82 @@ interface ChatSession {
   preferredCallbackTime: string;
 }
 
-// Session storage (in-memory for now)
-const chatSessions = new Map<string, ChatSession>();
+// Session storage - persist to database
+async function getOrCreateSession(conversationId: string): Promise<ChatSession> {
+  // Try to load from database first
+  const conversation = await prisma.chatConversation.findUnique({
+    where: { id: conversationId },
+  });
 
-function getOrCreateSession(conversationId: string): ChatSession {
-  if (!chatSessions.has(conversationId)) {
-    chatSessions.set(conversationId, {
-      step: Step.GREETING,
-      intent: '',
-      customerNameFirst: '',
-      customerNameLast: '',
-      vrn: '',
-      vrnConfirmed: false,
-      sessionId: '',
-      vehicleMake: '',
-      vehicleModel: '',
-      servicesAvailable: [],
-      serviceSelectedId: '',
-      serviceSelectedName: '',
-      servicePrice: '',
-      timeslotsAvailable: [],
-      bookingDate: '',
-      bookingTime: '',
-      contactPhone: '',
-      contactEmail: '',
-      contactPostcode: '',
-      contactStreet: '',
-      contactCity: '',
-      contactHouseNumber: '',
-      notes: '',
-      message: '',
-      preferredCallbackTime: '',
-    });
+  if (conversation && conversation.sessionState) {
+    // Load existing session from database
+    const sessionData = conversation.sessionState as any;
+    return {
+      step: sessionData.step || Step.GREETING,
+      intent: sessionData.intent || '',
+      customerNameFirst: sessionData.customerNameFirst || '',
+      customerNameLast: sessionData.customerNameLast || '',
+      vrn: sessionData.vrn || '',
+      vrnConfirmed: sessionData.vrnConfirmed || false,
+      sessionId: sessionData.sessionId || '',
+      vehicleMake: sessionData.vehicleMake || '',
+      vehicleModel: sessionData.vehicleModel || '',
+      servicesAvailable: sessionData.servicesAvailable || [],
+      serviceSelectedId: sessionData.serviceSelectedId || '',
+      serviceSelectedName: sessionData.serviceSelectedName || '',
+      servicePrice: sessionData.servicePrice || '',
+      timeslotsAvailable: sessionData.timeslotsAvailable || [],
+      bookingDate: sessionData.bookingDate || '',
+      bookingTime: sessionData.bookingTime || '',
+      contactPhone: sessionData.contactPhone || '',
+      contactEmail: sessionData.contactEmail || '',
+      contactPostcode: sessionData.contactPostcode || '',
+      contactStreet: sessionData.contactStreet || '',
+      contactCity: sessionData.contactCity || '',
+      contactHouseNumber: sessionData.contactHouseNumber || '',
+      notes: sessionData.notes || '',
+      message: sessionData.message || '',
+      preferredCallbackTime: sessionData.preferredCallbackTime || '',
+    };
   }
-  return chatSessions.get(conversationId)!;
+
+  // Create new session
+  return {
+    step: Step.GREETING,
+    intent: '',
+    customerNameFirst: '',
+    customerNameLast: '',
+    vrn: '',
+    vrnConfirmed: false,
+    sessionId: '',
+    vehicleMake: '',
+    vehicleModel: '',
+    servicesAvailable: [],
+    serviceSelectedId: '',
+    serviceSelectedName: '',
+    servicePrice: '',
+    timeslotsAvailable: [],
+    bookingDate: '',
+    bookingTime: '',
+    contactPhone: '',
+    contactEmail: '',
+    contactPostcode: '',
+    contactStreet: '',
+    contactCity: '',
+    contactHouseNumber: '',
+    notes: '',
+    message: '',
+    preferredCallbackTime: '',
+  };
+}
+
+async function saveSession(conversationId: string, session: ChatSession): Promise<void> {
+  await prisma.chatConversation.update({
+    where: { id: conversationId },
+    data: {
+      sessionState: session as any,
+    },
+  });
 }
 
 export async function getChatAgentResponse(
@@ -149,7 +191,7 @@ export async function getChatAgentResponse(
     }
 
     // Get or create session state
-    const session = getOrCreateSession(conversationId);
+    const session = await getOrCreateSession(conversationId);
 
     // Build conversation context
     const previousMessages = await prisma.chatMessage.findMany({
@@ -370,7 +412,7 @@ async function executeConversationalTool(
   try {
     switch (toolName) {
       case 'save_caller_name':
-        return await handleSaveCallerName(args, session);
+        return await handleSaveCallerName(args, session, conversationId);
       
       case 'lookup_vehicle':
         return await handleLookupVehicle(args, session, conversationId);
@@ -401,7 +443,7 @@ async function executeConversationalTool(
 
 // Tool handlers (return instructions like voice agent)
 
-async function handleSaveCallerName(args: any, session: ChatSession): Promise<string> {
+async function handleSaveCallerName(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { first_name, last_name = '', intent, service_hint = '' } = args;
   
   session.customerNameFirst = first_name;
@@ -412,11 +454,13 @@ async function handleSaveCallerName(args: any, session: ChatSession): Promise<st
   
   if (intent === 'message') {
     session.step = Step.MESSAGE_ONLY;
+    await saveSession(conversationId, session);
     return `Customer wants to leave a message.\nSay: "Sure thing ${first_name}, what can I help you with?"\nWait for their message, then call take_message.`;
   }
   
   // Booking or quote flow
   session.step = Step.NEED_VRN;
+  await saveSession(conversationId, session);
   return `Name saved: ${first_name} ${last_name}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay: "Nice to meet you ${first_name}! What's your reg?"\nWait for registration, then call lookup_vehicle.`;
 }
 
@@ -445,6 +489,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
   }
   
   session.vrn = normalized;
+  await saveSession(conversationId, session);
   
   try {
     // Call GarageHive API with B/V/P retry logic
@@ -502,6 +547,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     session.vehicleMake = make;
     session.vehicleModel = model;
     session.step = Step.CONFIRMING_VEHICLE;
+    await saveSession(conversationId, session);
     
     console.log(`[LOOKUP_VEHICLE] Found: ${make} ${model}, session: ${sessionId}`);
     
@@ -523,6 +569,7 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
     session.step = Step.NEED_VRN;
     session.vrn = '';
     session.sessionId = '';
+    await saveSession(conversationId, session);
     return `Customer said vehicle is wrong.\nSay: "No problem! What's the correct registration?"\nThen call lookup_vehicle with the correct registration.`;
   }
   
@@ -538,6 +585,7 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
   
   session.vrnConfirmed = true;
   session.step = Step.NEED_SERVICE;
+  await saveSession(conversationId, session);
   
   console.log('[CONFIRM_VEHICLE] Confirmed, fetching services...');
   
@@ -598,6 +646,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     session.serviceSelectedName = serviceName;
     session.servicePrice = price;
     session.step = Step.NEED_TIMESLOT;
+    await saveSession(conversationId, session);
     
     // Fetch timeslots
     const timeslots = await ghListTimeslots(session.sessionId);
@@ -657,6 +706,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     session.bookingDate = date;
     session.bookingTime = time;
     session.step = Step.NEED_CONTACT;
+    await saveSession(conversationId, session);
     
     console.log('[SELECT_TIMESLOT] Timeslot set, need contact info');
     
@@ -711,6 +761,9 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     console.log(`[SET_CONTACT] Saved house number: ${houseNumber}`);
   }
   
+  // Save session after collecting any new info
+  await saveSession(conversationId, session);
+  
   // Check what we still need and ask for it
   if (!session.contactPhone) {
     console.log(`[SET_CONTACT] Need: phone`);
@@ -763,6 +816,7 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     }
     
     session.step = Step.CONFIRMED;
+    await saveSession(conversationId, session);
     
     console.log('[SET_CONTACT] Booking confirmed!');
     
@@ -790,6 +844,7 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
   session.contactPhone = phone;
   session.preferredCallbackTime = callback_time;
   session.step = Step.MESSAGE_ONLY;
+  await saveSession(conversationId, session);
   
   // Store message in database (TODO: create Messages table or use notes)
   // For now, just log it

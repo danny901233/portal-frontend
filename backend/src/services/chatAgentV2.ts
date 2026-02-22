@@ -320,12 +320,12 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'set_contact_info',
-        description: 'Save contact info and confirm booking.',
+        description: 'Save contact info (phone and email) and confirm booking. Ask for email if not provided.',
         parameters: {
           type: 'object',
           properties: {
             phone: { type: 'string', description: 'Customer phone number' },
-            email: { type: 'string', description: 'Customer email (optional)' },
+            email: { type: 'string', description: 'Customer email address (required)' },
           },
           required: ['phone'],
         },
@@ -666,21 +666,32 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   
   console.log(`[SET_CONTACT] Phone: ${phone}, Email: ${email}`);
   
+  // Store phone first
+  if (!session.contactPhone) {
+    session.contactPhone = phone;
+    
+    // If no email yet, ask for it
+    if (!email) {
+      return `Phone number saved: ${phone}.\n\nSay: "Perfect! And what's your email address?"\nWait for their email, then call set_contact_info(phone="${phone}", email="their_email").`;
+    }
+  }
+  
+  // Have both phone and email, proceed with booking
   session.contactPhone = phone;
   session.contactEmail = email;
   
   try {
-    // Submit booking via API
+    // Submit booking via API with all required fields
     const result = await ghSetContactInfo(session.sessionId, {
-      phone,
-      email,
-      firstName: session.customerNameFirst,
-      lastName: session.customerNameLast,
+      contact_phone: phone,
+      contact_email: email,
+      contact_name: session.customerNameFirst,
+      contact_last_name: session.customerNameLast,
     });
     
     if (result.status === 'error') {
       console.error('[SET_CONTACT] Booking failed:', result);
-      return `Failed to confirm booking: ${result.message || 'Unknown error'}.\nSay: "I'm having trouble with our booking system. Let me take your details and the team will call you to confirm." Then call take_message.`;
+      return `Failed to confirm booking: ${result.message || 'Unknown error'}.\nSay: "Having a bit of trouble with the booking system. The team will give you a call to confirm everything. Thanks ${session.customerNameFirst}! 👍"\nDone.`;
     }
     
     session.step = Step.CONFIRMED;
@@ -692,9 +703,9 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     const makeTitle = session.vehicleMake.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = session.vehicleModel.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     
-    const summary = `✅ Booking confirmed!\n- Customer: ${session.customerNameFirst} ${session.customerNameLast}\n- Vehicle: ${makeTitle} ${modelTitle} (${session.vrn})\n- Service: ${session.serviceSelectedName} (£${session.servicePrice})\n- Date/Time: ${dateNatural} at ${timeNatural}\n- Phone: ${session.contactPhone}`;
+    const summary = `✅ Booking confirmed!\n- Customer: ${session.customerNameFirst} ${session.customerNameLast}\n- Vehicle: ${makeTitle} ${modelTitle} (${session.vrn})\n- Service: ${session.serviceSelectedName} (£${session.servicePrice})\n- Date/Time: ${dateNatural} at ${timeNatural}\n- Phone: ${session.contactPhone}\n- Email: ${session.contactEmail}`;
     
-    return `${summary}\n\nSay: "All done! You're booked in for ${dateNatural} at ${timeNatural} for a ${session.serviceSelectedName}. We'll send you a confirmation. See you then! 👍"\n\nBooking complete - conversation can end naturally.`;
+    return `${summary}\n\nSay: "All done! You're booked in for ${dateNatural} at ${timeNatural} for a ${session.serviceSelectedName}. We'll send you a confirmation email. See you then! 👍"\n\nBooking complete - conversation can end naturally.`;
     
   } catch (error: any) {
     console.error('[SET_CONTACT] API error:', error);

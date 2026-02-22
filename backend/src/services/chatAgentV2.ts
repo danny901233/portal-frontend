@@ -467,7 +467,7 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.phone = phoneMatch[0].replace(/\s+/g, '');
   }
 
-  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i);
+  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b/i);
   if (!session.contactPostcode && postcodeMatch) {
     args.postcode = postcodeMatch[1].toUpperCase();
   }
@@ -929,11 +929,9 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   const matched = matchService(service_name, session.servicesAvailable);
   
   if (!matched) {
-    const serviceList = session.servicesAvailable.slice(0, 5).map((s: any, i: number) => 
-      `${i + 1}. ${s.name} - £${s.price}`
-    ).join('\n');
-    
-    return `No match found for "${service_name}".\nAvailable services:\n${serviceList}\n\nSay: "Hmm, closest I've got is [pick the most relevant one]. That sound right?"\nOr ask what they're looking for if unclear.`;
+    const serviceList = session.servicesAvailable.slice(0, 6).map((s: any) => s.name).join(', ');
+
+    return `No match found for "${service_name}". We do not offer that specific service.\nOur available services are: ${serviceList}\n\nSay: "I'm afraid we don't offer ${service_name} specifically — our available services are: ${serviceList}. Is any of those what you need?"\nWait for their response, then call select_service with what they say.`;
   }
   
   const serviceId = matched.service_price_id;
@@ -1309,31 +1307,42 @@ async function ghSetContactInfo(sessionId: string, contactInfo: any): Promise<an
 // Utility functions
 
 function matchService(query: string, services: any[]): any | null {
-  const queryLower = query.toLowerCase();
-  
-  // Exact match first
+  const queryLower = query.toLowerCase().trim();
+
+  // Exact match
   for (const service of services) {
-    if (service.name.toLowerCase() === queryLower) {
-      return service;
+    if (service.name.toLowerCase() === queryLower) return service;
+  }
+
+  // Service name contains query or query contains service name (only if query >= 3 chars)
+  if (queryLower.length >= 3) {
+    for (const service of services) {
+      const sn = service.name.toLowerCase();
+      if (sn.includes(queryLower) || queryLower.includes(sn)) return service;
     }
   }
-  
-  // Contains match
-  for (const service of services) {
-    if (service.name.toLowerCase().includes(queryLower) || queryLower.includes(service.name.toLowerCase())) {
-      return service;
+
+  // Keyword match — but require that matching keywords are meaningful (length >= 4)
+  // AND score must be above a threshold relative to service name length
+  const keywords = queryLower.split(/\s+/).filter(k => k.length >= 4);
+  if (keywords.length > 0) {
+    let bestService: any = null;
+    let bestScore = 0;
+    for (const service of services) {
+      const sn = service.name.toLowerCase();
+      const snWords = sn.split(/\s+/);
+      const matchCount = keywords.filter(k => sn.includes(k)).length;
+      // Score = fraction of service name words that matched
+      const score = matchCount / Math.max(snWords.length, keywords.length);
+      if (score > bestScore) {
+        bestScore = score;
+        bestService = service;
+      }
     }
+    // Only return if at least 50% of words matched — prevents 'tyres' matching 'Full Service'
+    if (bestScore >= 0.5) return bestService;
   }
-  
-  // Keyword match
-  const keywords = queryLower.split(/\s+/);
-  for (const service of services) {
-    const serviceLower = service.name.toLowerCase();
-    if (keywords.some(keyword => serviceLower.includes(keyword))) {
-      return service;
-    }
-  }
-  
+
   return null;
 }
 
@@ -1481,26 +1490,25 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], _isOpen: bo
     const hours = config.weeklyOpeningHours as Record<string, any>;
     const lines: string[] = [];
     for (const [day, times] of Object.entries(hours)) {
-      if (times && typeof times === 'object' && 'open' in times && 'close' in times) {
-        lines.push(`${day.charAt(0).toUpperCase() + day.slice(1)}: ${(times as any).open}–${(times as any).close}`);
+      const t = times as any;
+      if (t && typeof t === 'object' && t.open && t.close) {
+        lines.push(`${day.charAt(0).toUpperCase() + day.slice(1)}: ${t.open}–${t.close}`);
       }
     }
     openingHoursSummary = lines.join(', ');
   }
 
-  // ── Contact details & opening hours (only before booking starts) ─────────
-  if (!session.sessionId) {
-    if (config.branchAddress) prompt += `Address: ${config.branchAddress}\n`;
-    if (config.phoneNumber) prompt += `Phone: ${config.phoneNumber}\n`;
-    if (openingHoursSummary) prompt += `Opening hours: ${openingHoursSummary}\n`;
-    prompt += '\n';
+  // ── Contact details — always include so location/phone questions always work ──
+  if (config.branchAddress) prompt += `Address: ${config.branchAddress}\n`;
+  if (config.phoneNumber) prompt += `Phone: ${config.phoneNumber}\n`;
+  if (openingHoursSummary) prompt += `Opening hours: ${openingHoursSummary}\n`;
+  prompt += '\n';
 
-    // Knowledge base — only before vehicle is looked up to keep token count low
-    if (knowledgeDocuments.length > 0) {
-      for (const doc of knowledgeDocuments) {
-        if (doc.title) prompt += `${doc.title}:\n`;
-        prompt += `${doc.content}\n\n`;
-      }
+  // ── Knowledge base — only before vehicle is looked up to keep token count low ──
+  if (!session.sessionId && knowledgeDocuments.length > 0) {
+    for (const doc of knowledgeDocuments) {
+      if (doc.title) prompt += `${doc.title}:\n`;
+      prompt += `${doc.content}\n\n`;
     }
   }
 

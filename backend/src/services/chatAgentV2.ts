@@ -435,6 +435,14 @@ async function executeConversationalTool(
   conversationId: string
 ): Promise<string> {
   try {
+    if (
+      session.step === Step.NEED_CONTACT &&
+      (toolName === 'save_caller_name' || toolName === 'select_service' || toolName === 'select_timeslot')
+    ) {
+      console.log(`[STATE_GUARD] Blocking ${toolName} while in NEED_CONTACT`);
+      return getNextContactInstruction(session);
+    }
+
     switch (toolName) {
       case 'save_caller_name':
         return await handleSaveCallerName(args, session, conversationId);
@@ -466,10 +474,41 @@ async function executeConversationalTool(
   }
 }
 
+function getNextContactInstruction(session: ChatSession): string {
+  if (!session.contactPhone) {
+    return `Need phone.\n\nSay: "Can I get your phone number?"\nWait for phone, then call set_contact_info.`;
+  }
+
+  if (!session.contactEmail) {
+    return `Need email.\n\nSay: "And your email address?"\nWait for email, then call set_contact_info.`;
+  }
+
+  if (!session.contactPostcode) {
+    return `Need postcode.\n\nSay: "What's your postcode?"\nWait for postcode, then call set_contact_info.`;
+  }
+
+  if (!session.contactHouseNumber) {
+    if (session.contactStreet && session.contactCity) {
+      return `Postcode found: ${session.contactStreet}, ${session.contactCity}.\n\nSay: "Is that ${session.contactStreet}, ${session.contactCity}?"\nOnce confirmed, ask: "And your house number or name?"\nWait for house number, then call set_contact_info.`;
+    }
+    if (session.contactCity) {
+      return `Postcode found: ${session.contactCity}.\n\nSay: "Is that the ${session.contactCity} area?"\nOnce confirmed, ask: "And your house number or name?"\nWait for house number, then call set_contact_info.`;
+    }
+    return `Postcode accepted.\n\nSay: "And your house number or name?"\nWait for house number, then call set_contact_info.`;
+  }
+
+  return `All contact info is already collected.\nSay: "Thanks, I’ve got everything I need to confirm this now."\nCall set_contact_info with ZERO SPEECH to finalize.`;
+}
+
 // Tool handlers (return instructions like voice agent)
 
 async function handleSaveCallerName(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { first_name, last_name = '', intent, service_hint = '' } = args;
+
+  if (session.step === Step.NEED_CONTACT) {
+    console.log('[STATE_GUARD] Ignoring save_caller_name during NEED_CONTACT');
+    return getNextContactInstruction(session);
+  }
   
   session.customerNameFirst = first_name;
   session.customerNameLast = last_name;
@@ -642,6 +681,11 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
 
 async function handleSelectService(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { service_name } = args;
+
+  if (session.step === Step.NEED_CONTACT) {
+    console.log('[STATE_GUARD] Ignoring select_service during NEED_CONTACT');
+    return getNextContactInstruction(session);
+  }
   
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
   
@@ -705,6 +749,11 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 
 async function handleSelectTimeslot(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { preference } = args;
+
+  if (session.step === Step.NEED_CONTACT && session.bookingDate && session.bookingTime) {
+    console.log('[STATE_GUARD] Ignoring select_timeslot during NEED_CONTACT');
+    return getNextContactInstruction(session);
+  }
   
   console.log(`[SELECT_TIMESLOT] Preference: ${preference}`);
   
@@ -1188,6 +1237,9 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], isOpen: boo
   prompt += `- Once you have ALL 4 pieces, the booking will complete automatically\n\n`;
   
   prompt += `⚠️ CRITICAL RULES:\n`;
+  prompt += `- STRICT STATE MACHINE: NEVER go backwards in the booking flow\n`;
+  prompt += `- If Step is need_contact: ONLY call set_contact_info until booking is confirmed\n`;
+  prompt += `- In need_contact state, DO NOT call save_caller_name, select_service, or select_timeslot\n`;
   prompt += `- Tools return INSTRUCTIONS for you to follow - read them CAREFULLY and follow EXACTLY!\n`;
   prompt += `- When instructions say "GENERATE ZERO SPEECH" or "with ZERO SPEECH" → call the tool WITHOUT saying anything\n`;
   prompt += `- When instructions say "Say: '...'" → say EXACTLY that phrase (or a natural variation)\n`;

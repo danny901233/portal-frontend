@@ -322,6 +322,8 @@ export async function getChatAgentResponse(
 
       messages.push(response.choices[0].message);
 
+      let needContactFastPath = false;
+
       for (const toolCall of toolCalls) {
         if (toolCall.type !== 'function') continue;
 
@@ -329,6 +331,20 @@ export async function getChatAgentResponse(
         const functionArgs = JSON.parse(toolCall.function.arguments);
 
         console.log(`[CHAT_AGENT_V2] Calling: ${functionName}`, functionArgs);
+
+        // If we're already in NEED_CONTACT (set by a prior tool in this batch),
+        // skip any remaining tool calls - hand off to the fast-path instead
+        if ((session.step as Step) === Step.NEED_CONTACT || (session.step as Step) === Step.CONFIRMING_POSTCODE) {
+          console.log(`[CHAT_AGENT_V2] Skipping ${functionName} - already in NEED_CONTACT, using fast-path`);
+          needContactFastPath = true;
+          // Still need to push a placeholder tool result so OpenAI message history is valid
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: 'Skipped - contact collection in progress',
+          });
+          continue;
+        }
 
         // Execute tool and get INSTRUCTIONS for the agent
         const instructions = await executeConversationalTool(
@@ -343,11 +359,15 @@ export async function getChatAgentResponse(
           tool_call_id: toolCall.id,
           content: instructions,
         });
+
+        // Check immediately after each tool call
+        if ((session.step as Step) === Step.NEED_CONTACT || (session.step as Step) === Step.CONFIRMING_POSTCODE) {
+          needContactFastPath = true;
+        }
       }
 
-      // If we just transitioned into NEED_CONTACT, hand off to the fast-path
-      // so we don't let OpenAI call set_contact_info with stale/empty session data
-      if ((session.step as Step) === Step.NEED_CONTACT || (session.step as Step) === Step.CONFIRMING_POSTCODE) {
+      // Hand off to fast-path if any tool transitioned us into NEED_CONTACT
+      if (needContactFastPath) {
         const contactArgs = extractContactArgsFromMessage(message, session);
         const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
         return {

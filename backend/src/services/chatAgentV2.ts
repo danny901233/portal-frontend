@@ -1360,42 +1360,92 @@ function formatTimeNaturally(timeStr: string): string {
 
 function matchTimeslot(preference: string, timeslots: any[]): any | null {
   if (!timeslots || timeslots.length === 0) return null;
-  
+
   const prefLower = preference.toLowerCase();
-  
+
+  // Extract a specific time mention like "1:30pm", "9am", "14:00"
+  function extractPrefHour(text: string): number | null {
+    const m = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+    if (!m) return null;
+    let h = parseInt(m[1]);
+    const meridiem = (m[3] || '').toLowerCase();
+    if (meridiem === 'pm' && h < 12) h += 12;
+    if (meridiem === 'am' && h === 12) h = 0;
+    return h;
+  }
+
+  function closestByTime(candidates: any[], prefHour: number | null): any {
+    if (!prefHour || candidates.length === 1) return candidates[0];
+    return candidates.reduce((best, t) => {
+      const tH = parseInt(t.time.split(':')[0]);
+      const bH = parseInt(best.time.split(':')[0]);
+      return Math.abs(tH - prefHour) <= Math.abs(bH - prefHour) ? t : best;
+    });
+  }
+
   // "First", "earliest", "ASAP"
   if (prefLower.includes('first') || prefLower.includes('earliest') || prefLower.includes('asap')) {
     return timeslots[0];
   }
-  
+
+  // Named day — "Monday", "Tuesday", etc.
+  const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  for (const dayName of dayNames) {
+    if (prefLower.includes(dayName)) {
+      const matches = timeslots.filter(t => {
+        const d = new Date(t.date);
+        return d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase() === dayName;
+      });
+      if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    }
+  }
+
   // "Tomorrow"
   if (prefLower.includes('tomorrow')) {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = tomorrow.toISOString().split('T')[0];
-    
-    const match = timeslots.find(t => t.date === tomorrowStr);
-    if (match) return match;
+    const matches = timeslots.filter(t => t.date === tomorrowStr);
+    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
   }
-  
+
+  // "Today"
+  if (prefLower.includes('today')) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const matches = timeslots.filter(t => t.date === todayStr);
+    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+  }
+
+  // "Next week" — skip to slots 7+ days away
+  if (prefLower.includes('next week')) {
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const nwStr = nextWeek.toISOString().split('T')[0];
+    const matches = timeslots.filter(t => t.date >= nwStr);
+    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+  }
+
   // "Morning" (before 12:00)
   if (prefLower.includes('morning')) {
-    const match = timeslots.find(t => {
-      const hour = parseInt(t.time.split(':')[0]);
-      return hour < 12;
-    });
-    if (match) return match;
+    const matches = timeslots.filter(t => parseInt(t.time.split(':')[0]) < 12);
+    if (matches.length > 0) return matches[0];
   }
-  
-  // "Afternoon" (12:00-17:00)
+
+  // "Afternoon" (12:00–17:00)
   if (prefLower.includes('afternoon')) {
-    const match = timeslots.find(t => {
-      const hour = parseInt(t.time.split(':')[0]);
-      return hour >= 12 && hour < 17;
+    const matches = timeslots.filter(t => {
+      const h = parseInt(t.time.split(':')[0]);
+      return h >= 12 && h < 17;
     });
-    if (match) return match;
+    if (matches.length > 0) return matches[0];
   }
-  
+
+  // Specific time only (e.g. "1:30pm", "9am") — find closest across all slots
+  const prefHour = extractPrefHour(prefLower);
+  if (prefHour !== null) {
+    return closestByTime(timeslots, prefHour);
+  }
+
   // Default to first available
   return timeslots[0];
 }

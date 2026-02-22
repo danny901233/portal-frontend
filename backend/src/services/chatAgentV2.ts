@@ -70,7 +70,9 @@ interface ChatSession {
   contactPhone: string;
   contactEmail: string;
   contactPostcode: string;
-  contactAddress: string;
+  contactStreet: string;
+  contactCity: string;
+  contactHouseNumber: string;
   notes: string;
   
   // Message
@@ -103,7 +105,9 @@ function getOrCreateSession(conversationId: string): ChatSession {
       contactPhone: '',
       contactEmail: '',
       contactPostcode: '',
-      contactAddress: '',
+      contactStreet: '',
+      contactCity: '',
+      contactHouseNumber: '',
       notes: '',
       message: '',
       preferredCallbackTime: '',
@@ -324,16 +328,16 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'set_contact_info',
-        description: 'Save contact info and confirm booking. Collect phone, email, postcode, and address line by line.',
+        description: 'Save contact info and confirm booking. Collects phone, email, postcode (auto-looks up location), then house number.',
         parameters: {
           type: 'object',
           properties: {
             phone: { type: 'string', description: 'Customer phone number' },
             email: { type: 'string', description: 'Customer email address' },
-            postcode: { type: 'string', description: 'Customer postcode' },
-            address: { type: 'string', description: 'Customer street address' },
+            postcode: { type: 'string', description: 'UK postcode for address lookup' },
+            houseNumber: { type: 'string', description: 'House number or name' },
           },
-          required: ['phone'],
+          required: [],
         },
       },
     },
@@ -668,47 +672,85 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
 }
 
 async function handleSetContactInfo(args: any, session: ChatSession, conversationId: string): Promise<string> {
-  const { phone, email = '', postcode = '', address = '' } = args;
+  const { phone = '', email = '', postcode = '', houseNumber = '' } = args;
   
-  console.log(`[SET_CONTACT] Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, Address: ${address}`);
+  console.log(`[SET_CONTACT] Args - Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, House: ${houseNumber}`);
+  console.log(`[SET_CONTACT] Session - Phone: ${session.contactPhone}, Email: ${session.contactEmail}, Postcode: ${session.contactPostcode}, Street: ${session.contactStreet}, City: ${session.contactCity}, House: ${session.contactHouseNumber}`);
   
-  // Step 1: Store phone
-  if (!session.contactPhone) {
+  // Save any new information provided
+  if (phone && !session.contactPhone) {
     session.contactPhone = phone;
-    return `Phone saved: ${phone}.\n\nSay: "Great! And your email?"\nWait for email, then call set_contact_info with email.`;
+    console.log(`[SET_CONTACT] Saved phone: ${phone}`);
   }
-  
-  // Step 2: Store email
   if (email && !session.contactEmail) {
     session.contactEmail = email;
-    return `Email saved: ${email}.\n\nSay: "Perfect! What's your postcode?"\nWait for postcode, then call set_contact_info with postcode.`;
+    console.log(`[SET_CONTACT] Saved email: ${email}`);
   }
-  
-  // Step 3: Store postcode
   if (postcode && !session.contactPostcode) {
-    session.contactPostcode = postcode;
-    return `Postcode saved: ${postcode}.\n\nSay: "And your address?"\nWait for address, then call set_contact_info with address.`;
+    // Validate and lookup postcode
+    const cleanPostcode = postcode.replace(/\s+/g, '').toUpperCase();
+    try {
+      const geoResponse = await axios.get(`https://api.postcodes.io/postcodes/${cleanPostcode}`);
+      if (geoResponse.data && geoResponse.data.result) {
+        const result = geoResponse.data.result;
+        session.contactPostcode = postcode;
+        session.contactStreet = result.parish || result.admin_ward || '';
+        session.contactCity = result.admin_district || result.postcode_area || '';
+        console.log(`[SET_CONTACT] Postcode lookup: ${session.contactStreet}, ${session.contactCity}`);
+      } else {
+        session.contactPostcode = postcode;
+        console.log(`[SET_CONTACT] Postcode accepted but no geo data`);
+      }
+    } catch (error) {
+      session.contactPostcode = postcode;
+      console.log(`[SET_CONTACT] Postcode lookup failed, using anyway`);
+    }
+  }
+  if (houseNumber && !session.contactHouseNumber) {
+    session.contactHouseNumber = houseNumber;
+    console.log(`[SET_CONTACT] Saved house number: ${houseNumber}`);
   }
   
-  // Step 4: Have all info - finalize booking
-  if (address) {
-    session.contactAddress = address;
+  // Check what we still need and ask for it
+  if (!session.contactPhone) {
+    console.log(`[SET_CONTACT] Need: phone`);
+    return `Need phone.\n\nSay: "Can I get your phone number?"\nWait for phone.`;
   }
   
-  // Validate we have everything
-  if (!session.contactEmail || !session.contactPostcode || !session.contactAddress) {
-    return `Missing info. Need: email=${!session.contactEmail}, postcode=${!session.contactPostcode}, address=${!session.contactAddress}.\nSay: "I need a few more details..." and ask for what's missing.`;
+  if (!session.contactEmail) {
+    console.log(`[SET_CONTACT] Need: email`);
+    return `Need email.\n\nSay: "And your email address?"\nWait for email.`;
   }
+  
+  if (!session.contactPostcode) {
+    console.log(`[SET_CONTACT] Need: postcode`);
+    return `Need postcode.\n\nSay: "What's your postcode?"\nWait for postcode.`;
+  }
+  
+  // After getting postcode, confirm location and ask for house number
+  if (!session.contactHouseNumber) {
+    console.log(`[SET_CONTACT] Need: house number`);
+    if (session.contactStreet && session.contactCity) {
+      return `Postcode found: ${session.contactStreet}, ${session.contactCity}.\n\nSay: "Is that ${session.contactStreet}, ${session.contactCity}?"\nOnce confirmed, ask: "And your house number or name?"\nWait for house number.`;
+    } else if (session.contactCity) {
+      return `Postcode found: ${session.contactCity}.\n\nSay: "Is that the ${session.contactCity} area?"\nOnce confirmed, ask: "And your house number or name?"\nWait for house number.`;
+    } else {
+      return `Postcode accepted.\n\nSay: "And your house number or name?"\nWait for house number.`;
+    }
+  }
+  
+  console.log(`[SET_CONTACT] All info collected, submitting to GH API`);
   
   try {
     // Submit booking with all required GH fields
+    const contactAddress = `${session.contactHouseNumber}, ${session.contactStreet}`.replace(/^,\s*/, '').replace(/,\s*$/, '');
     const result = await ghSetContactInfo(session.sessionId, {
       contact_name: session.customerNameFirst,
       contact_last_name: session.customerNameLast,
       contact_email: session.contactEmail,
       contact_number: session.contactPhone,
-      contact_address: session.contactAddress,
-      contact_city: '',
+      contact_address: contactAddress,
+      contact_city: session.contactCity,
       contact_postcode: session.contactPostcode,
       contact_salutation: 10,
       contact_address2: '',

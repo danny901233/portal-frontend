@@ -218,6 +218,15 @@ export async function getChatAgentResponse(
     // Get or create session state
     const session = await getOrCreateSession(conversationId);
 
+    if (session.step === Step.NEED_CONTACT) {
+      const contactArgs = extractContactArgsFromMessage(message, session);
+      const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
+      return {
+        content: instructionToCustomerReply(instructions),
+        needsHumanAssistance: false,
+      };
+    }
+
     // Build conversation context
     const previousMessages = await prisma.chatMessage.findMany({
       where: { conversationId },
@@ -311,6 +320,61 @@ export async function getChatAgentResponse(
     console.error('[CHAT_AGENT_V2] Error:', error);
     throw error;
   }
+}
+
+function extractContactArgsFromMessage(message: string, session: ChatSession): any {
+  const args: any = {};
+  const text = message.trim();
+
+  const emailMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  if (!session.contactEmail && emailMatch) {
+    args.email = emailMatch[0].toLowerCase();
+  }
+
+  const phoneMatch = text.match(/(?:\+44\s?7\d{3}|07\d{3})\s?\d{3}\s?\d{3}/i);
+  if (!session.contactPhone && phoneMatch) {
+    args.phone = phoneMatch[0].replace(/\s+/g, '');
+  }
+
+  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i);
+  if (!session.contactPostcode && postcodeMatch) {
+    args.postcode = postcodeMatch[1].toUpperCase();
+  }
+
+  const isLikelyHouseNumber = /^[A-Za-z0-9\-\s]{1,16}$/.test(text) &&
+    !emailMatch && !phoneMatch && !postcodeMatch &&
+    !/^(yes|no|yeah|yep|ok|okay|thanks)$/i.test(text);
+
+  if (!session.contactHouseNumber && session.contactPostcode && isLikelyHouseNumber) {
+    args.houseNumber = text;
+  }
+
+  return args;
+}
+
+function instructionToCustomerReply(instructions: string): string {
+  const sayMatch = instructions.match(/Say:\s*"([\s\S]*?)"/i);
+  if (sayMatch && sayMatch[1]) {
+    return sayMatch[1].trim();
+  }
+
+  if (instructions.startsWith('Need phone')) {
+    return 'Can I get your phone number?';
+  }
+  if (instructions.startsWith('Need email')) {
+    return 'And your email address?';
+  }
+  if (instructions.startsWith('Need postcode')) {
+    return "What's your postcode?";
+  }
+  if (instructions.startsWith('Postcode found')) {
+    return instructions.split('\n\n')[0] + ' And your house number or name?';
+  }
+  if (instructions.startsWith('Postcode accepted')) {
+    return 'And your house number or name?';
+  }
+
+  return 'Thanks — could you repeat that contact detail for me?';
 }
 
 // Conversational tools that return INSTRUCTIONS (like voice agent)

@@ -35,6 +35,7 @@ enum Step {
   NEED_SERVICE = 'need_service',
   NEED_TIMESLOT = 'need_timeslot',
   NEED_CONTACT = 'need_contact',
+  CONFIRMING_POSTCODE = 'confirming_postcode',
   CONFIRMED = 'confirmed',
   DONE = 'done',
   MESSAGE_ONLY = 'message_only',
@@ -73,6 +74,7 @@ interface ChatSession {
   contactStreet: string;
   contactCity: string;
   contactHouseNumber: string;
+  postcodeConfirmed: boolean;
   notes: string;
   
   // Message
@@ -124,6 +126,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
       contactStreet: sessionData.contactStreet || '',
       contactCity: sessionData.contactCity || '',
       contactHouseNumber: sessionData.contactHouseNumber || '',
+      postcodeConfirmed: sessionData.postcodeConfirmed || false,
       notes: sessionData.notes || '',
       message: sessionData.message || '',
       preferredCallbackTime: sessionData.preferredCallbackTime || '',
@@ -159,6 +162,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     contactStreet: '',
     contactCity: '',
     contactHouseNumber: '',
+    postcodeConfirmed: false,
     notes: '',
     message: '',
     preferredCallbackTime: '',
@@ -268,7 +272,7 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
-    if (session.step === Step.NEED_CONTACT) {
+    if (session.step === Step.NEED_CONTACT || (session.step as Step) === Step.CONFIRMING_POSTCODE) {
       const contactArgs = extractContactArgsFromMessage(message, session);
       const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
       return {
@@ -343,7 +347,7 @@ export async function getChatAgentResponse(
 
       // If we just transitioned into NEED_CONTACT, hand off to the fast-path
       // so we don't let OpenAI call set_contact_info with stale/empty session data
-      if ((session.step as Step) === Step.NEED_CONTACT) {
+      if ((session.step as Step) === Step.NEED_CONTACT || (session.step as Step) === Step.CONFIRMING_POSTCODE) {
         const contactArgs = extractContactArgsFromMessage(message, session);
         const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
         return {
@@ -395,17 +399,25 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.postcode = postcodeMatch[1].toUpperCase();
   }
 
+  // Detect yes/no for postcode area confirmation
+  const isYes = /^(yes|yeah|yep|yup|correct|that'?s?\s*(right|correct)|sure|ok|okay|👍)$/i.test(text.trim());
+  const isNo = /^(no|nope|wrong|incorrect|that'?s?\s*(wrong|not right))$/i.test(text.trim());
+  if ((session.step as Step) === Step.CONFIRMING_POSTCODE) {
+    args.postcodeConfirmation = isYes ? 'yes' : isNo ? 'no' : 'unclear';
+  }
+
   // Treat as house number/name if:
   // - no other contact fields detected in this message
-  // - postcode is already collected (in session OR already extracted above)
+  // - postcode is confirmed (or we're past that step)
   // - not a short filler word
   // - reasonably short (up to 40 chars to allow names like "The Old Spinney")
-  const postcodeAlreadyKnown = !!session.contactPostcode || !!args.postcode;
+  const postcodeConfirmed = session.postcodeConfirmed || !!args.postcode;
   const isLikelyHouseNumber = /^[A-Za-z0-9\-\s,\.]{1,40}$/.test(text) &&
     !emailMatch && !phoneMatch && !postcodeMatch &&
-    !/^(yes|no|yeah|yep|ok|okay|thanks|sure|correct|that'?s? (right|correct))$/i.test(text);
+    !isYes && !isNo &&
+    !/^(thanks|cheers)$/i.test(text.trim());
 
-  if (!session.contactHouseNumber && postcodeAlreadyKnown && isLikelyHouseNumber) {
+  if (!session.contactHouseNumber && postcodeConfirmed && isLikelyHouseNumber) {
     args.houseNumber = text;
   }
 
@@ -454,8 +466,8 @@ function instructionToCustomerReply(instructions: string): string {
   if (instructions.startsWith('Need postcode')) {
     return "What's your postcode?";
   }
-  if (instructions.startsWith('Postcode accepted') || instructions.startsWith('Postcode found')) {
-    return 'And your house number or name?';
+  if (instructions.startsWith('Postcode accepted') || instructions.startsWith('Postcode found') || instructions.startsWith('Postcode confirmed')) {
+    return "And what's your house number or name?";
   }
 
   return 'Thanks — could you repeat that contact detail for me?';
@@ -1005,13 +1017,43 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     return `Need postcode.\n\nSay: "What's your postcode?"\nWait for postcode.`;
   }
   
-  // After getting postcode, ask for house number (skip area confirmation to avoid extra loop)
+  // Postcode confirmation flow
+  if (!session.postcodeConfirmed) {
+    // Check if this message is a postcode confirmation response
+    const confirmation = args.postcodeConfirmation;
+    if (confirmation === 'no') {
+      // They said no — clear postcode and ask again
+      session.contactPostcode = '';
+      session.contactStreet = '';
+      session.contactCity = '';
+      session.step = Step.NEED_CONTACT;
+      await saveSession(conversationId, session);
+      return `Postcode rejected.\n\nSay: "Sorry about that! Could you give me your postcode again?"\nWait for postcode.`;
+    } else if (confirmation === 'yes') {
+      // Confirmed — mark as confirmed and ask for house number
+      session.postcodeConfirmed = true;
+      await saveSession(conversationId, session);
+    } else if (session.contactPostcode && (session.step as Step) !== Step.CONFIRMING_POSTCODE) {
+      // We just received the postcode this turn — ask for confirmation
+      const area = session.contactStreet && session.contactCity
+        ? `${session.contactStreet}, ${session.contactCity}`
+        : session.contactCity || session.contactPostcode;
+      session.step = Step.CONFIRMING_POSTCODE;
+      await saveSession(conversationId, session);
+      console.log(`[SET_CONTACT] Asking to confirm postcode area: ${area}`);
+      return `Confirming postcode area: ${area}.\n\nSay: "Is that ${area}?"\nWait for yes or no.`;
+    }
+  }
+
+  // After postcode confirmed, ask for house number
   if (!session.contactHouseNumber) {
     console.log(`[SET_CONTACT] Need: house number`);
-    const locationHint = session.contactStreet && session.contactCity
-      ? ` (${session.contactStreet}, ${session.contactCity})`
-      : session.contactCity ? ` (${session.contactCity})` : '';
-    return `Postcode accepted${locationHint}.\n\nSay: "And your house number or name?"\nWait for house number.`;
+    // Re-set step to NEED_CONTACT so house number message hits fast-path
+    if ((session.step as Step) === Step.CONFIRMING_POSTCODE) {
+      session.step = Step.NEED_CONTACT;
+      await saveSession(conversationId, session);
+    }
+    return `Postcode confirmed.\n\nSay: "And what's your house number or name?"\nWait for house number.`;
   }
   
   console.log(`[SET_CONTACT] All info collected, submitting to GH API`);

@@ -264,7 +264,7 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
-    if (session.step === Step.NEED_CONTACT || (session.step as Step) === Step.CONFIRMING_POSTCODE) {
+    if (session.step === Step.NEED_CONTACT) {
       const contactArgs = extractContactArgsFromMessage(message, session);
       const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
       return {
@@ -293,14 +293,33 @@ export async function getChatAgentResponse(
     // Call OpenAI with function tools (instruction-based)
     const temperature = session.sessionId ? 0.5 : 0.7;
 
-    let response = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o',
-      messages,
-      temperature,
-      max_tokens: 300,
-      tools: getConversationalTools(),
-      tool_choice: 'auto',
-    });
+    // Retry wrapper for OpenAI 429 rate limit errors
+    async function openAIWithRetry(msgs: OpenAI.Chat.ChatCompletionMessageParam[], temp: number): Promise<OpenAI.Chat.ChatCompletion> {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          return await getOpenAI().chat.completions.create({
+            model: 'gpt-4o',
+            messages: msgs,
+            temperature: temp,
+            max_tokens: 300,
+            tools: getConversationalTools(),
+            tool_choice: 'auto',
+          });
+        } catch (err: any) {
+          if (err?.status === 429 && attempt < 2) {
+            const retryMs = parseInt(err?.headers?.['retry-after-ms'] || '1000', 10);
+            const waitMs = Math.min(retryMs + 200, 5000);
+            console.log(`[OPENAI_RETRY] 429 rate limit, waiting ${waitMs}ms (attempt ${attempt + 1})`);
+            await new Promise(r => setTimeout(r, waitMs));
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw new Error('OpenAI retries exhausted');
+    }
+
+    let response = await openAIWithRetry(messages, temperature);
 
     // Handle function calls (tools return instructions)
     let iterations = 0;
@@ -326,7 +345,7 @@ export async function getChatAgentResponse(
 
         // If we're already in NEED_CONTACT (set by a prior tool in this batch),
         // skip any remaining tool calls - hand off to the fast-path instead
-        if ((session.step as Step) === Step.NEED_CONTACT || (session.step as Step) === Step.CONFIRMING_POSTCODE) {
+        if ((session.step as Step) === Step.NEED_CONTACT) {
           console.log(`[CHAT_AGENT_V2] Skipping ${functionName} - already in NEED_CONTACT, using fast-path`);
           needContactFastPath = true;
           // Still need to push a placeholder tool result so OpenAI message history is valid
@@ -353,7 +372,7 @@ export async function getChatAgentResponse(
         });
 
         // Check immediately after each tool call
-        if ((session.step as Step) === Step.NEED_CONTACT || (session.step as Step) === Step.CONFIRMING_POSTCODE) {
+        if ((session.step as Step) === Step.NEED_CONTACT) {
           needContactFastPath = true;
         }
       }
@@ -369,14 +388,7 @@ export async function getChatAgentResponse(
       }
 
       // Get next response with instructions integrated
-      response = await getOpenAI().chat.completions.create({
-        model: 'gpt-4o',
-        messages,
-        temperature,
-        max_tokens: 300,
-        tools: getConversationalTools(),
-        tool_choice: 'auto',
-      });
+      response = await openAIWithRetry(messages, temperature);
     }
 
     const finalResponse = response.choices[0]?.message?.content ||
@@ -411,25 +423,16 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.postcode = postcodeMatch[1].toUpperCase();
   }
 
-  // Detect yes/no for postcode area confirmation
-  const isYes = /^(yes|yeah|yep|yup|correct|that'?s?\s*(right|correct)|sure|ok|okay|👍)$/i.test(text.trim());
-  const isNo = /^(no|nope|wrong|incorrect|that'?s?\s*(wrong|not right))$/i.test(text.trim());
-  if ((session.step as Step) === Step.CONFIRMING_POSTCODE) {
-    args.postcodeConfirmation = isYes ? 'yes' : isNo ? 'no' : 'unclear';
-  }
-
-  // Treat as house number/name if:
-  // - no other contact fields detected in this message
-  // - postcode is confirmed (or we're past that step)
-  // - not a short filler word
-  // - reasonably short (up to 40 chars to allow names like "The Old Spinney")
-  const postcodeConfirmed = session.postcodeConfirmed || !!args.postcode;
+  // Treat as house number/name once we have postcode (no confirmation step needed)
+  const isYes = /^(yes|yeah|yep|yup|correct|sure|ok|okay)$/i.test(text.trim());
+  const isNo = /^(no|nope|wrong|incorrect)$/i.test(text.trim());
   const isLikelyHouseNumber = /^[A-Za-z0-9\-\s,\.]{1,40}$/.test(text) &&
     !emailMatch && !phoneMatch && !postcodeMatch &&
     !isYes && !isNo &&
     !/^(thanks|cheers)$/i.test(text.trim());
 
-  if (!session.contactHouseNumber && postcodeConfirmed && isLikelyHouseNumber) {
+  // Only capture as house number once we already have postcode saved
+  if (!session.contactHouseNumber && session.contactPostcode && isLikelyHouseNumber) {
     args.houseNumber = text;
   }
 
@@ -478,7 +481,7 @@ function instructionToCustomerReply(instructions: string): string {
   if (instructions.startsWith('Need postcode')) {
     return "What's your postcode?";
   }
-  if (instructions.startsWith('Postcode accepted') || instructions.startsWith('Postcode found') || instructions.startsWith('Postcode confirmed')) {
+  if (instructions.startsWith('Postcode')) {
     return "And what's your house number or name?";
   }
 
@@ -1029,43 +1032,13 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     return `Need postcode.\n\nSay: "What's your postcode?"\nWait for postcode.`;
   }
   
-  // Postcode confirmation flow
-  if (!session.postcodeConfirmed) {
-    // Check if this message is a postcode confirmation response
-    const confirmation = args.postcodeConfirmation;
-    if (confirmation === 'no') {
-      // They said no — clear postcode and ask again
-      session.contactPostcode = '';
-      session.contactStreet = '';
-      session.contactCity = '';
-      session.step = Step.NEED_CONTACT;
-      await saveSession(conversationId, session);
-      return `Postcode rejected.\n\nSay: "Sorry about that! Could you give me your postcode again?"\nWait for postcode.`;
-    } else if (confirmation === 'yes') {
-      // Confirmed — mark as confirmed and ask for house number
-      session.postcodeConfirmed = true;
-      await saveSession(conversationId, session);
-    } else if (session.contactPostcode && (session.step as Step) !== Step.CONFIRMING_POSTCODE) {
-      // We just received the postcode this turn — ask for confirmation
-      const area = session.contactStreet && session.contactCity
-        ? `${session.contactStreet}, ${session.contactCity}`
-        : session.contactCity || session.contactPostcode;
-      session.step = Step.CONFIRMING_POSTCODE;
-      await saveSession(conversationId, session);
-      console.log(`[SET_CONTACT] Asking to confirm postcode area: ${area}`);
-      return `Confirming postcode area: ${area}.\n\nSay: "Is that ${area}?"\nWait for yes or no.`;
-    }
-  }
-
-  // After postcode confirmed, ask for house number
+  // After postcode saved, ask for house number directly (no area confirmation step)
   if (!session.contactHouseNumber) {
     console.log(`[SET_CONTACT] Need: house number`);
-    // Re-set step to NEED_CONTACT so house number message hits fast-path
-    if ((session.step as Step) === Step.CONFIRMING_POSTCODE) {
-      session.step = Step.NEED_CONTACT;
-      await saveSession(conversationId, session);
-    }
-    return `Postcode confirmed.\n\nSay: "And what's your house number or name?"\nWait for house number.`;
+    session.step = Step.NEED_CONTACT;
+    await saveSession(conversationId, session);
+    const area = session.contactCity ? ` (${session.contactCity})` : '';
+    return `Postcode${area} saved.\n\nSay: "And what's your house number or name?"\nWait for house number.`;
   }
   
   console.log(`[SET_CONTACT] All info collected, submitting to GH API`);

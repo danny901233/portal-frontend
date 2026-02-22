@@ -977,6 +977,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     session.bookingDate = date;
     session.bookingTime = time;
     session.step = Step.NEED_CONTACT;
+    console.log(`[SELECT_TIMESLOT] ghSetTimeslot succeeded, saving step=need_contact to DB`);
     await saveSession(conversationId, session);
     
     console.log('[SELECT_TIMESLOT] Timeslot set, need contact info');

@@ -476,16 +476,19 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
   session.intent = intent;
   
   console.log(`[SAVE_NAME] ${first_name} ${last_name}, intent: ${intent}`);
+  console.log(`[SAVE_NAME] About to save session...`);
   
   if (intent === 'message') {
     session.step = Step.MESSAGE_ONLY;
     await saveSession(conversationId, session);
+    console.log(`[SAVE_NAME] Session saved for message intent`);
     return `Customer wants to leave a message.\nSay: "Sure thing ${first_name}, what can I help you with?"\nWait for their message, then call take_message.`;
   }
   
   // Booking or quote flow
   session.step = Step.NEED_VRN;
   await saveSession(conversationId, session);
+  console.log(`[SAVE_NAME] Session saved for booking intent`);
   return `Name saved: ${first_name} ${last_name}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay: "Nice to meet you ${first_name}! What's your reg?"\nWait for registration, then call lookup_vehicle.`;
 }
 

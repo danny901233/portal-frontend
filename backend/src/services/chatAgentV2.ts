@@ -80,8 +80,15 @@ interface ChatSession {
   preferredCallbackTime: string;
 }
 
+const inMemorySessionCache = new Map<string, ChatSession>();
+
 // Session storage - persist to database
 async function getOrCreateSession(conversationId: string): Promise<ChatSession> {
+  const cached = inMemorySessionCache.get(conversationId);
+  if (cached) {
+    return { ...cached };
+  }
+
   console.log(`[GET_SESSION] Loading session for conversation ${conversationId}`);
   
   // Try to load from database first
@@ -94,7 +101,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     const sessionData = conversation.sessionState as any;
     console.log(`[GET_SESSION] Found existing session, step: ${sessionData.step}`);
     console.log(`[GET_SESSION] Session data:`, JSON.stringify(sessionData, null, 2));
-    return {
+    const loadedSession: ChatSession = {
       step: sessionData.step || Step.GREETING,
       intent: sessionData.intent || '',
       customerNameFirst: sessionData.customerNameFirst || '',
@@ -121,12 +128,15 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
       message: sessionData.message || '',
       preferredCallbackTime: sessionData.preferredCallbackTime || '',
     };
+
+    inMemorySessionCache.set(conversationId, loadedSession);
+    return loadedSession;
   }
 
   console.log(`[GET_SESSION] No existing session found, creating new one`);
   
   // Create new session
-  return {
+  const newSession: ChatSession = {
     step: Step.GREETING,
     intent: '',
     customerNameFirst: '',
@@ -153,9 +163,13 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     message: '',
     preferredCallbackTime: '',
   };
+
+  inMemorySessionCache.set(conversationId, newSession);
+  return newSession;
 }
 
 async function saveSession(conversationId: string, session: ChatSession): Promise<void> {
+  inMemorySessionCache.set(conversationId, { ...session });
   console.log(`[SAVE_SESSION] Saving session for conversation ${conversationId}, step: ${session.step}`);
   
   try {

@@ -495,8 +495,8 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     
     console.log(`[LOOKUP_VEHICLE] Found: ${make} ${model}, session: ${sessionId}`);
     
-    const makeTitle = make.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    const modelTitle = model.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const makeTitle = make.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const modelTitle = model.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     
     return `Vehicle found: ${makeTitle} ${modelTitle} (${winningReg}).\n\nSay: "Perfect! I've got your ${makeTitle} ${modelTitle}. What work does it need?"\nThen call confirm_vehicle(confirmed=true) with ZERO SPEECH.`;
     

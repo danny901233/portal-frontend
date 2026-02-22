@@ -200,7 +200,8 @@ async function saveSession(conversationId: string, session: ChatSession): Promis
 export async function getChatAgentResponse(
   garageId: string,
   message: string,
-  conversationId: string
+  conversationId: string,
+  seedContact?: { phone?: string; name?: string }
 ): Promise<ChatAgentResponse> {
   try {
     const garage = await prisma.garage.findUnique({
@@ -232,6 +233,18 @@ export async function getChatAgentResponse(
     // Get or create session state
     const session = await getOrCreateSession(conversationId);
 
+    // Seed contact details passed explicitly from the widget pre-chat form
+    if (seedContact?.phone && !session.contactPhone) {
+      session.contactPhone = seedContact.phone.replace(/\s+/g, '');
+      console.log(`[SEED_CONTACT] Phone seeded: ${session.contactPhone}`);
+    }
+    if (seedContact?.name && !session.customerNameFirst) {
+      const parts = seedContact.name.trim().split(/\s+/);
+      session.customerNameFirst = parts[0] || '';
+      session.customerNameLast = parts.slice(1).join(' ') || '';
+      console.log(`[SEED_CONTACT] Name seeded: ${session.customerNameFirst} ${session.customerNameLast}`);
+    }
+
     // Build conversation context
     const previousMessages = await prisma.chatMessage.findMany({
       where: { conversationId },
@@ -240,6 +253,11 @@ export async function getChatAgentResponse(
     });
 
     hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string }>);
+
+    // Re-apply seed after hydration to ensure it wins over any contradictory history
+    if (seedContact?.phone && !session.contactPhone) {
+      session.contactPhone = seedContact.phone.replace(/\s+/g, '');
+    }
 
     if (session.step === Step.NEED_CONTACT) {
       const contactArgs = extractContactArgsFromMessage(message, session);
@@ -347,7 +365,7 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.email = emailMatch[0].toLowerCase();
   }
 
-  const phoneMatch = text.match(/(?:\+44\s?7\d{3}|07\d{3})\s?\d{3}\s?\d{3}/i);
+  const phoneMatch = text.match(/(?:\+44\s?7\d{3}|\b07\d{3})\s?\d{3}\s?\d{3,4}\b/i);
   if (!session.contactPhone && phoneMatch) {
     args.phone = phoneMatch[0].replace(/\s+/g, '');
   }

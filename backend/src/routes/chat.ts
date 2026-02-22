@@ -7,7 +7,7 @@ const router = Router();
 // Web chat endpoint for widget
 router.post('/chat/widget', async (req, res) => {
   try {
-    const { garageId, message, conversationId } = req.body;
+    const { garageId, message, conversationId, contactPhone, contactName } = req.body;
 
     if (!garageId || !message) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -47,7 +47,8 @@ router.post('/chat/widget', async (req, res) => {
     const agentResponse = await getChatAgentResponse(
       garageId,
       message,
-      conversation.id
+      conversation.id,
+      { phone: contactPhone, name: contactName }
     );
 
     // Save AI response

@@ -99,6 +99,8 @@ export default function ChatWidget() {
           garageId,
           message: openingMessage,
           conversationId,
+          contactPhone: preChatPhone.trim(),
+          contactName: preChatName.trim(),
         }),
       });
 
@@ -163,6 +165,8 @@ export default function ChatWidget() {
           garageId,
           message: userMessage.content,
           conversationId,
+          contactPhone: preChatPhone.trim() || undefined,
+          contactName: preChatName.trim() || undefined,
         }),
       });
 

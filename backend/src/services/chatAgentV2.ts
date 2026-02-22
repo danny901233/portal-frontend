@@ -375,11 +375,17 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.postcode = postcodeMatch[1].toUpperCase();
   }
 
-  const isLikelyHouseNumber = /^[A-Za-z0-9\-\s]{1,16}$/.test(text) &&
+  // Treat as house number/name if:
+  // - no other contact fields detected in this message
+  // - postcode is already collected (in session OR already extracted above)
+  // - not a short filler word
+  // - reasonably short (up to 40 chars to allow names like "The Old Spinney")
+  const postcodeAlreadyKnown = !!session.contactPostcode || !!args.postcode;
+  const isLikelyHouseNumber = /^[A-Za-z0-9\-\s,\.]{1,40}$/.test(text) &&
     !emailMatch && !phoneMatch && !postcodeMatch &&
-    !/^(yes|no|yeah|yep|ok|okay|thanks)$/i.test(text);
+    !/^(yes|no|yeah|yep|ok|okay|thanks|sure|correct|that'?s? (right|correct))$/i.test(text);
 
-  if (!session.contactHouseNumber && session.contactPostcode && isLikelyHouseNumber) {
+  if (!session.contactHouseNumber && postcodeAlreadyKnown && isLikelyHouseNumber) {
     args.houseNumber = text;
   }
 
@@ -428,10 +434,7 @@ function instructionToCustomerReply(instructions: string): string {
   if (instructions.startsWith('Need postcode')) {
     return "What's your postcode?";
   }
-  if (instructions.startsWith('Postcode found')) {
-    return instructions.split('\n\n')[0] + ' And your house number or name?';
-  }
-  if (instructions.startsWith('Postcode accepted')) {
+  if (instructions.startsWith('Postcode accepted') || instructions.startsWith('Postcode found')) {
     return 'And your house number or name?';
   }
 
@@ -982,16 +985,13 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     return `Need postcode.\n\nSay: "What's your postcode?"\nWait for postcode.`;
   }
   
-  // After getting postcode, confirm location and ask for house number
+  // After getting postcode, ask for house number (skip area confirmation to avoid extra loop)
   if (!session.contactHouseNumber) {
     console.log(`[SET_CONTACT] Need: house number`);
-    if (session.contactStreet && session.contactCity) {
-      return `Postcode found: ${session.contactStreet}, ${session.contactCity}.\n\nSay: "Is that ${session.contactStreet}, ${session.contactCity}?"\nOnce confirmed, ask: "And your house number or name?"\nWait for house number.`;
-    } else if (session.contactCity) {
-      return `Postcode found: ${session.contactCity}.\n\nSay: "Is that the ${session.contactCity} area?"\nOnce confirmed, ask: "And your house number or name?"\nWait for house number.`;
-    } else {
-      return `Postcode accepted.\n\nSay: "And your house number or name?"\nWait for house number.`;
-    }
+    const locationHint = session.contactStreet && session.contactCity
+      ? ` (${session.contactStreet}, ${session.contactCity})`
+      : session.contactCity ? ` (${session.contactCity})` : '';
+    return `Postcode accepted${locationHint}.\n\nSay: "And your house number or name?"\nWait for house number.`;
   }
   
   console.log(`[SET_CONTACT] All info collected, submitting to GH API`);

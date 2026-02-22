@@ -232,6 +232,15 @@ export async function getChatAgentResponse(
     // Get or create session state
     const session = await getOrCreateSession(conversationId);
 
+    // Build conversation context
+    const previousMessages = await prisma.chatMessage.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      take: 10,
+    });
+
+    hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string }>);
+
     if (session.step === Step.NEED_CONTACT) {
       const contactArgs = extractContactArgsFromMessage(message, session);
       const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
@@ -240,13 +249,6 @@ export async function getChatAgentResponse(
         needsHumanAssistance: false,
       };
     }
-
-    // Build conversation context
-    const previousMessages = await prisma.chatMessage.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: 'asc' },
-      take: 10,
-    });
 
     // Build system prompt with state awareness
     const systemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
@@ -364,6 +366,33 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
   }
 
   return args;
+}
+
+function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<{ role: string; content: string }>): void {
+  if (!messages || messages.length === 0) {
+    return;
+  }
+
+  for (const msg of messages) {
+    if (msg.role !== 'user' || !msg.content) {
+      continue;
+    }
+
+    const extracted = extractContactArgsFromMessage(msg.content, session);
+
+    if (!session.contactPhone && extracted.phone) {
+      session.contactPhone = extracted.phone;
+    }
+    if (!session.contactEmail && extracted.email) {
+      session.contactEmail = extracted.email;
+    }
+    if (!session.contactPostcode && extracted.postcode) {
+      session.contactPostcode = extracted.postcode;
+    }
+    if (!session.contactHouseNumber && extracted.houseNumber) {
+      session.contactHouseNumber = extracted.houseNumber;
+    }
+  }
 }
 
 function instructionToCustomerReply(instructions: string): string {

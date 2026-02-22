@@ -23,7 +23,6 @@ rsync -avz -e "ssh -i $SSH_KEY" --exclude 'node_modules' --exclude '.git' --excl
 echo "Restarting backend on EC2..."
 ssh -i $SSH_KEY $EC2_HOST << 'EOF'
 cd ~/portal-backend
-npm install --production
 pm2 restart portal-backend
 pm2 logs portal-backend --lines 20
 EOF

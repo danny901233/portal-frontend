@@ -69,6 +69,8 @@ interface ChatSession {
   // Contact
   contactPhone: string;
   contactEmail: string;
+  contactPostcode: string;
+  contactAddress: string;
   notes: string;
   
   // Message
@@ -100,6 +102,8 @@ function getOrCreateSession(conversationId: string): ChatSession {
       bookingTime: '',
       contactPhone: '',
       contactEmail: '',
+      contactPostcode: '',
+      contactAddress: '',
       notes: '',
       message: '',
       preferredCallbackTime: '',
@@ -320,12 +324,14 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'set_contact_info',
-        description: 'Save contact info (phone and email) and confirm booking. Ask for email if not provided.',
+        description: 'Save contact info and confirm booking. Collect phone, email, postcode, and address line by line.',
         parameters: {
           type: 'object',
           properties: {
             phone: { type: 'string', description: 'Customer phone number' },
-            email: { type: 'string', description: 'Customer email address (required)' },
+            email: { type: 'string', description: 'Customer email address' },
+            postcode: { type: 'string', description: 'Customer postcode' },
+            address: { type: 'string', description: 'Customer street address' },
           },
           required: ['phone'],
         },
@@ -662,31 +668,51 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
 }
 
 async function handleSetContactInfo(args: any, session: ChatSession, conversationId: string): Promise<string> {
-  const { phone, email = '' } = args;
+  const { phone, email = '', postcode = '', address = '' } = args;
   
-  console.log(`[SET_CONTACT] Phone: ${phone}, Email: ${email}`);
+  console.log(`[SET_CONTACT] Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, Address: ${address}`);
   
-  // Store phone first
+  // Step 1: Store phone
   if (!session.contactPhone) {
     session.contactPhone = phone;
-    
-    // If no email yet, ask for it
-    if (!email) {
-      return `Phone number saved: ${phone}.\n\nSay: "Perfect! And what's your email address?"\nWait for their email, then call set_contact_info(phone="${phone}", email="their_email").`;
-    }
+    return `Phone saved: ${phone}.\n\nSay: "Great! And your email?"\nWait for email, then call set_contact_info with email.`;
   }
   
-  // Have both phone and email, proceed with booking
-  session.contactPhone = phone;
-  session.contactEmail = email;
+  // Step 2: Store email
+  if (email && !session.contactEmail) {
+    session.contactEmail = email;
+    return `Email saved: ${email}.\n\nSay: "Perfect! What's your postcode?"\nWait for postcode, then call set_contact_info with postcode.`;
+  }
+  
+  // Step 3: Store postcode
+  if (postcode && !session.contactPostcode) {
+    session.contactPostcode = postcode;
+    return `Postcode saved: ${postcode}.\n\nSay: "And your address?"\nWait for address, then call set_contact_info with address.`;
+  }
+  
+  // Step 4: Have all info - finalize booking
+  if (address) {
+    session.contactAddress = address;
+  }
+  
+  // Validate we have everything
+  if (!session.contactEmail || !session.contactPostcode || !session.contactAddress) {
+    return `Missing info. Need: email=${!session.contactEmail}, postcode=${!session.contactPostcode}, address=${!session.contactAddress}.\nSay: "I need a few more details..." and ask for what's missing.`;
+  }
   
   try {
-    // Submit booking via API with all required fields
+    // Submit booking with all required GH fields
     const result = await ghSetContactInfo(session.sessionId, {
-      contact_phone: phone,
-      contact_email: email,
       contact_name: session.customerNameFirst,
       contact_last_name: session.customerNameLast,
+      contact_email: session.contactEmail,
+      contact_number: session.contactPhone,
+      contact_address: session.contactAddress,
+      contact_city: '',
+      contact_postcode: session.contactPostcode,
+      contact_salutation: 10,
+      contact_address2: '',
+      notes: session.notes || '',
     });
     
     if (result.status === 'error') {

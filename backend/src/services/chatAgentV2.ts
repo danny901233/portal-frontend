@@ -1467,29 +1467,32 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   return timeslots[0];
 }
 
-function buildSystemPromptV2(config: any, knowledgeDocuments: any[], isOpen: boolean, session: ChatSession): string {
+function buildSystemPromptV2(config: any, knowledgeDocuments: any[], _isOpen: boolean, session: ChatSession): string {
   const branchName = config.branchName || 'our garage';
 
   // ── Persona ──────────────────────────────────────────────────────────────
-  let prompt = `You are Leah, the friendly receptionist at ${branchName}. Help customers book their car in for work.\n`;
+  let prompt = `You are Leah, the AI receptionist at ${branchName}. You are available 24/7 to take bookings and answer questions.\n`;
   if (config.greetingLine) prompt += `${config.greetingLine}\n`;
-  prompt += `We are currently ${isOpen ? 'OPEN' : 'CLOSED'}.\n\n`;
+  prompt += '\n';
 
-  // ── Contact & opening hours (only show if no booking is in progress yet) ──
+  // ── Opening hours info (for when customer asks, not to gate bookings) ────
+  let openingHoursSummary = '';
+  if (config.weeklyOpeningHours) {
+    const hours = config.weeklyOpeningHours as Record<string, any>;
+    const lines: string[] = [];
+    for (const [day, times] of Object.entries(hours)) {
+      if (times && typeof times === 'object' && 'open' in times && 'close' in times) {
+        lines.push(`${day.charAt(0).toUpperCase() + day.slice(1)}: ${(times as any).open}–${(times as any).close}`);
+      }
+    }
+    openingHoursSummary = lines.join(', ');
+  }
+
+  // ── Contact details & opening hours (only before booking starts) ─────────
   if (!session.sessionId) {
     if (config.branchAddress) prompt += `Address: ${config.branchAddress}\n`;
     if (config.phoneNumber) prompt += `Phone: ${config.phoneNumber}\n`;
-
-    if (config.weeklyOpeningHours) {
-      const hours = config.weeklyOpeningHours as Record<string, any>;
-      const lines: string[] = [];
-      for (const [day, times] of Object.entries(hours)) {
-        if (times && typeof times === 'object' && 'open' in times && 'close' in times) {
-          lines.push(`${day.charAt(0).toUpperCase() + day.slice(1)}: ${(times as any).open}–${(times as any).close}`);
-        }
-      }
-      if (lines.length) prompt += `Hours: ${lines.join(', ')}\n`;
-    }
+    if (openingHoursSummary) prompt += `Opening hours: ${openingHoursSummary}\n`;
     prompt += '\n';
 
     // Knowledge base — only before vehicle is looked up to keep token count low
@@ -1500,6 +1503,12 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], isOpen: boo
       }
     }
   }
+
+  // ── Key behaviour rules around opening hours ─────────────────────────────
+  prompt += `OPENING HOURS BEHAVIOUR:
+- You can take bookings at ANY time of day — you are always available.
+- Only mention opening hours if the customer specifically asks about them.
+- If the customer asks to speak to a human/agent/someone, say: "Unfortunately the team are currently outside of office hours, but I can take a message and they'll be in touch during opening hours${openingHoursSummary ? ` (${openingHoursSummary})` : ''}. What would you like to pass on?" Then call take_message.\n\n`;
 
   // ── Current booking state ─────────────────────────────────────────────────
   prompt += `CURRENT STATE: ${session.step}\n`;

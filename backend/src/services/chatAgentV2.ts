@@ -80,6 +80,10 @@ interface ChatSession {
   // Message
   message: string;
   preferredCallbackTime: string;
+
+  // Diagnostics
+  diagnosticNotes: string;      // accumulated symptom notes to put in booking notes
+  diagnosticComplete: boolean;  // true once diagnostic Q&A is done
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -130,6 +134,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         notes: sessionData.notes || '',
         message: sessionData.message || '',
         preferredCallbackTime: sessionData.preferredCallbackTime || '',
+        diagnosticNotes: sessionData.diagnosticNotes || '',
+        diagnosticComplete: sessionData.diagnosticComplete || false,
       };
       inMemorySessionCache.set(conversationId, loadedSession);
       // Auto-advance: if timeslot was already chosen but server restarted before step updated
@@ -173,6 +179,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     notes: '',
     message: '',
     preferredCallbackTime: '',
+    diagnosticNotes: '',
+    diagnosticComplete: false,
   };
 
   inMemorySessionCache.set(conversationId, newSession);
@@ -884,6 +892,9 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
   
   session.vrnConfirmed = true;
   session.step = Step.NEED_SERVICE;
+  // Reset diagnostics so fresh questions fire for this vehicle's booking
+  session.diagnosticComplete = false;
+  session.diagnosticNotes = '';
   await saveSession(conversationId, session);
   
   console.log('[CONFIRM_VEHICLE] Confirmed, fetching services...');
@@ -918,25 +929,61 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     console.log('[STATE_GUARD] Ignoring select_service during NEED_CONTACT');
     return getNextContactInstruction(session);
   }
-  
+
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
-  
+
   if (!session.servicesAvailable || session.servicesAvailable.length === 0) {
     return `No services loaded yet. Call confirm_vehicle first.`;
   }
-  
-  // Fuzzy match service
-  const matched = matchService(service_name, session.servicesAvailable);
-  
-  if (!matched) {
-    const serviceList = session.servicesAvailable.slice(0, 6).map((s: any) => s.name).join(', ');
 
-    return `No match found for "${service_name}". We do not offer that specific service.\nOur available services are: ${serviceList}\n\nSay: "I'm afraid we don't offer ${service_name} specifically — our available services are: ${serviceList}. Is any of those what you need?"\nWait for their response, then call select_service with what they say.`;
+  // ── Run diagnostic questions if this looks like a symptom description ──
+  if (!session.diagnosticComplete) {
+    const diagQuestions = await specialistDiagnosticQuestions(service_name);
+    if (diagQuestions && diagQuestions.length > 0) {
+      // Store the symptom so far as diagnostic notes
+      session.diagnosticNotes = (session.diagnosticNotes ? session.diagnosticNotes + ' | ' : '') + service_name;
+      session.diagnosticComplete = true; // don't ask again on next select_service call
+      await saveSession(conversationId, session);
+      const qs = diagQuestions.join(' ');
+      console.log(`[DIAGNOSTIC_Q] Asking: ${qs}`);
+      return `Symptom detected: "${service_name}"\n\nSay: "${diagQuestions[0]}"\nAsk the remaining questions naturally in sequence:\n${diagQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\nOnce you have the answers, call select_service again with a summary of all the symptoms.`;
+    }
+    // Not a symptom — mark complete so we don't re-check
+    session.diagnosticComplete = true;
   }
-  
+
+  // ── Specialist GPT-4o-mini service match (mirrors Python specialist_service_match) ──
+  let matched = matchService(service_name, session.servicesAvailable);
+  let matchReason = '';
+
+  if (!matched) {
+    const specialistResult = await specialistServiceMatch(service_name, session.servicesAvailable);
+    if (specialistResult) {
+      matched = specialistResult.service;
+      matchReason = specialistResult.reason;
+      console.log(`[SERVICE_ADVISOR] Specialist matched: ${matched.name} — ${matchReason}`);
+    }
+  }
+
+  // ── If still no match, silently book under "Other" (Python behaviour) ──
+  if (!matched) {
+    matched = session.servicesAvailable.find((s: any) => /other|general/i.test(s.name)) || null;
+    if (matched) {
+      console.log(`[SELECT_SERVICE] No match for '${service_name}' — booking under '${matched.name}'`);
+    } else {
+      // Truly nothing — take a message
+      return `No suitable service found for "${service_name}" and no Other/General fallback.\nSay: "I don't have that as a set price right now. Let me take your details and one of the team will give you a call back with a quote."\nThen call take_message.`;
+    }
+  }
+
   const serviceId = matched.service_price_id;
   const serviceName = matched.name;
   const price = matched.price;
+
+  // Append diagnostic notes to booking notes if collected
+  if (session.diagnosticNotes) {
+    session.notes = (session.notes ? session.notes + ' | ' : '') + `Symptom: ${session.diagnosticNotes}`;
+  }
   
   console.log(`[SELECT_SERVICE] Matched: ${serviceName} (${serviceId}), £${price}`);
   
@@ -1305,6 +1352,115 @@ async function ghSetContactInfo(sessionId: string, contactInfo: any): Promise<an
 }
 
 // Utility functions
+
+// ── Specialist: GPT-4o-mini service advisor (mirrors Python specialist_service_match) ──
+async function specialistServiceMatch(callerText: string, services: any[]): Promise<{ service: any; reason: string } | null> {
+  if (!services.length || !callerText) return null;
+  const svcList = services.map((s: any) => `- ${s.name} (£${s.price})`).join('\n');
+  const systemPrompt = `You are an automotive service advisor at a UK garage.
+Given the customer's description and the available services, pick the single most suitable service.
+
+Rules:
+- "hasn't been serviced / long time / overdue" → Full Service
+- Noises, rattles, warning lights, unknown issues → Diagnostic Check
+- Specific systems (brakes, oil, tyres, air con, cam belt) → match to the relevant service
+- MOT / test → MOT
+- Tyres, puncture, wheel → look for a tyre or wheel service; if none exists, return {"service_name":"Other","reason":"no tyre service listed"}
+- If genuinely unclear, return null
+
+Reply with JSON ONLY — no extra text:
+{"service_name": "exact name from the list", "reason": "one short sentence"}`;
+  const userMsg = `Customer said: "${callerText}"\n\nAvailable services:\n${svcList}`;
+  try {
+    const resp = await getOpenAI().chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.1,
+      max_tokens: 120,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMsg },
+      ],
+    });
+    let raw = (resp.choices[0]?.message?.content || '').trim();
+    if (raw.startsWith('```')) raw = raw.split('\n').slice(1).join('\n').replace(/```$/, '').trim();
+    const data = JSON.parse(raw);
+    const svcName: string = data.service_name || '';
+    const reason: string = data.reason || '';
+    if (!svcName || svcName === 'null') return null;
+    // Exact match
+    for (const svc of services) {
+      if (svc.name.toLowerCase() === svcName.toLowerCase()) return { service: svc, reason };
+    }
+    // Fuzzy match
+    const sl = svcName.toLowerCase();
+    for (const svc of services) {
+      const n = svc.name.toLowerCase();
+      if (sl.includes(n) || n.includes(sl)) return { service: svc, reason };
+    }
+    // If specialist said "Other", find an Other/General service
+    if (sl === 'other' || sl === 'general') {
+      const other = services.find((s: any) => /other|general/i.test(s.name));
+      if (other) return { service: other, reason };
+    }
+    return null;
+  } catch (e) {
+    console.warn('[SERVICE_ADVISOR] Error:', e);
+    return null;
+  }
+}
+
+// ── Specialist: GPT-4o-mini diagnostic questions (mirrors Python specialist_diagnostic_questions) ──
+const SYMPTOM_KEYWORDS = [
+  'noise','sound','knock','rattle','squeal','grind','click','clunk',
+  'vibrat','shak','judder','pull','warning','light','dashboard','check engine',
+  'abs','smell','smoke','leak','overheat','hot','burning','problem','issue',
+  'fault','wrong','broken','not working',"won't",'doesn\'t',"can't",'struggling',
+  'rough','stuttering','hesitat','cutting out','loss of power','no power','limp',
+  'stall','misfire','sluggish','gearbox','clutch','suspension','handling',
+];
+
+async function specialistDiagnosticQuestions(symptomText: string): Promise<string[] | null> {
+  const lower = symptomText.toLowerCase();
+  if (!SYMPTOM_KEYWORDS.some(k => lower.includes(k))) return null;
+
+  const systemPrompt = `You are a diagnostic specialist at a UK garage.
+The customer has described a symptom. Generate 2–3 short follow-up questions to help diagnose it.
+
+Symptom types:
+- NOISE: ask when it happens, constant/intermittent, changes with speed
+- WARNING LIGHT: which light, driving normally, limp mode?
+- PERFORMANCE: struggling to start, loss of power, cutting out?
+- OVERHEATING/SMELL/SMOKE: any smoke, burning smell, temperature gauge?
+- Always ask: when did this first start, has it got worse?
+
+Rules:
+- Short conversational UK English questions only
+- Max 3 questions
+- If the description is already very detailed, return {"questions":[]}
+
+Reply with JSON ONLY:
+{"questions": ["q1", "q2", "q3"], "symptom_type": "noise|warning_light|performance|overheating|vague"}`;
+
+  try {
+    const resp = await getOpenAI().chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      max_tokens: 200,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Customer description: "${symptomText}"` },
+      ],
+    });
+    let raw = (resp.choices[0]?.message?.content || '').trim();
+    if (raw.startsWith('```')) raw = raw.split('\n').slice(1).join('\n').replace(/```$/, '').trim();
+    const data = JSON.parse(raw);
+    const qs: string[] = data.questions || [];
+    return qs.length > 0 ? qs : null;
+  } catch (e) {
+    console.warn('[DIAGNOSTIC_Q] Error:', e);
+    return null;
+  }
+}
 
 function matchService(query: string, services: any[]): any | null {
   const queryLower = query.toLowerCase().trim();

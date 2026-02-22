@@ -275,7 +275,29 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
-    // Fast-path: once a timeslot is booked, handle all messages locally (no OpenAI)
+    // Fast-path: timeslot selection — handle locally with matchTimeslot(), no OpenAI call needed
+    // (mirrors the Python voice agent's specialist_timeslot_match approach)
+    if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
+      const matched = matchTimeslot(message, session.timeslotsAvailable);
+      if (matched) {
+        const instructions = await handleSelectTimeslot({ preference: message }, session, conversationId);
+        return {
+          content: instructionToCustomerReply(instructions),
+          needsHumanAssistance: false,
+        };
+      } else {
+        // No match — offer a few options without hitting OpenAI
+        const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
+          `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
+        ).join(', or ');
+        return {
+          content: `I didn't quite catch that — I have ${firstSlots}. Which works for you?`,
+          needsHumanAssistance: false,
+        };
+      }
+    }
+
+    // Fast-path: once a timeslot is booked, handle all contact collection locally (no OpenAI)
     const bookingComplete = !!(session.bookingDate && session.bookingTime);
     if (session.step === Step.NEED_CONTACT || bookingComplete) {
       // Ensure step is correct
@@ -310,12 +332,8 @@ export async function getChatAgentResponse(
     // Call OpenAI with function tools (instruction-based)
     const temperature = session.sessionId ? 0.5 : 0.7;
 
-    // Force select_timeslot when customer is choosing a slot
-    let forceTimeslotTool = session.step === Step.NEED_TIMESLOT &&
-      session.timeslotsAvailable && session.timeslotsAvailable.length > 0;
-
     // Retry wrapper for OpenAI 429 rate limit errors
-    async function openAIWithRetry(msgs: OpenAI.Chat.ChatCompletionMessageParam[], temp: number, forceTool?: string): Promise<OpenAI.Chat.ChatCompletion> {
+    async function openAIWithRetry(msgs: OpenAI.Chat.ChatCompletionMessageParam[], temp: number): Promise<OpenAI.Chat.ChatCompletion> {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           return await getOpenAI().chat.completions.create({
@@ -324,9 +342,7 @@ export async function getChatAgentResponse(
             temperature: temp,
             max_tokens: 300,
             tools: getConversationalTools(),
-            tool_choice: forceTool
-              ? { type: 'function', function: { name: forceTool } }
-              : 'auto',
+            tool_choice: 'auto',
           });
         } catch (err: any) {
           if (err?.status === 429 && attempt < 2) {
@@ -342,7 +358,7 @@ export async function getChatAgentResponse(
       throw new Error('OpenAI retries exhausted');
     }
 
-    let response = await openAIWithRetry(messages, temperature, forceTimeslotTool ? 'select_timeslot' : undefined);
+    let response = await openAIWithRetry(messages, temperature);
 
     // Handle function calls (tools return instructions)
     let iterations = 0;
@@ -350,7 +366,6 @@ export async function getChatAgentResponse(
 
     while (response.choices[0]?.finish_reason === 'tool_calls' && iterations < maxIterations) {
       iterations++;
-      forceTimeslotTool = false; // Only force on first call
       const toolCalls = response.choices[0].message.tool_calls;
 
       if (!toolCalls) break;
@@ -1387,96 +1402,63 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
 
 function buildSystemPromptV2(config: any, knowledgeDocuments: any[], isOpen: boolean, session: ChatSession): string {
   const branchName = config.branchName || 'our garage';
-  
-  let prompt = `You are Leah, the friendly receptionist at ${branchName}. You're here to help with bookings and answer questions. ${config.greetingLine || ''}\n\n`;
-  
-  // Business info
-  prompt += `About ${branchName}:\n`;
-  if (config.branchAddress) prompt += `📍 ${config.branchAddress}\n`;
-  if (config.phoneNumber) prompt += `📞 ${config.phoneNumber}\n`;
-  if (config.emailAddress) prompt += `📧 ${config.emailAddress}\n`;
-  if (config.websiteUrl) prompt += `🌐 ${config.websiteUrl}\n`;
-  prompt += `\n`;
-  
-  // Opening hours
-  if (config.weeklyOpeningHours) {
-    prompt += `Our hours:\n`;
-    const hours = config.weeklyOpeningHours as Record<string, any>;
-    for (const [day, times] of Object.entries(hours)) {
-      if (times && typeof times === 'object' && 'open' in times && 'close' in times) {
-        const dayName = day.charAt(0).toUpperCase() + day.slice(1);
-        prompt += `${dayName}: ${times.open} - ${times.close}\n`;
+
+  // ── Persona ──────────────────────────────────────────────────────────────
+  let prompt = `You are Leah, the friendly receptionist at ${branchName}. Help customers book their car in for work.\n`;
+  if (config.greetingLine) prompt += `${config.greetingLine}\n`;
+  prompt += `We are currently ${isOpen ? 'OPEN' : 'CLOSED'}.\n\n`;
+
+  // ── Contact & opening hours (only show if no booking is in progress yet) ──
+  if (!session.sessionId) {
+    if (config.branchAddress) prompt += `Address: ${config.branchAddress}\n`;
+    if (config.phoneNumber) prompt += `Phone: ${config.phoneNumber}\n`;
+
+    if (config.weeklyOpeningHours) {
+      const hours = config.weeklyOpeningHours as Record<string, any>;
+      const lines: string[] = [];
+      for (const [day, times] of Object.entries(hours)) {
+        if (times && typeof times === 'object' && 'open' in times && 'close' in times) {
+          lines.push(`${day.charAt(0).toUpperCase() + day.slice(1)}: ${(times as any).open}–${(times as any).close}`);
+        }
+      }
+      if (lines.length) prompt += `Hours: ${lines.join(', ')}\n`;
+    }
+    prompt += '\n';
+
+    // Knowledge base — only before vehicle is looked up to keep token count low
+    if (knowledgeDocuments.length > 0) {
+      for (const doc of knowledgeDocuments) {
+        if (doc.title) prompt += `${doc.title}:\n`;
+        prompt += `${doc.content}\n\n`;
       }
     }
-    prompt += `\nWe're currently ${isOpen ? '✅ OPEN' : '🔒 CLOSED'}\n\n`;
   }
-  
-  // Knowledge base
-  if (knowledgeDocuments.length > 0) {
-    prompt += `Here's what you should know:\n`;
-    for (const doc of knowledgeDocuments) {
-      if (doc.title) prompt += `${doc.title}:\n`;
-      prompt += `${doc.content}\n\n`;
-    }
-  }
-  
-  // State-aware instructions
-  prompt += `\n🎯 CURRENT STATE:\n`;
-  prompt += `- Step: ${session.step}\n`;
-  if (session.customerNameFirst) prompt += `- Customer: ${session.customerNameFirst} ${session.customerNameLast}\n`;
-  if (session.intent) prompt += `- Intent: ${session.intent}\n`;
-  if (session.vrn) prompt += `- Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
-  if (session.sessionId) prompt += `- Session ID: ${session.sessionId}\n`;
-  if (session.serviceSelectedName) prompt += `- Service: ${session.serviceSelectedName} (£${session.servicePrice})\n`;
-  if (session.bookingDate) prompt += `- Timeslot: ${session.bookingDate} at ${session.bookingTime}\n`;
-  if (session.contactPhone) prompt += `- Phone: ✅ ${session.contactPhone}\n`;
-  if (session.contactEmail) prompt += `- Email: ✅ ${session.contactEmail}\n`;
-  if (session.contactPostcode) prompt += `- Postcode: ✅ ${session.contactPostcode}\n`;
-  if (session.contactHouseNumber) prompt += `- House Number: ✅ ${session.contactHouseNumber}\n`;
 
-  // Show available timeslots when waiting for timeslot selection
-  if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
-    prompt += `\n⏰ AVAILABLE TIMESLOTS (call select_timeslot when customer picks one):\n`;
-    const slots = session.timeslotsAvailable.slice(0, 10);
-    for (const slot of slots) {
-      prompt += `  - ${slot.date} at ${slot.time}\n`;
-    }
-    prompt += `\n🚨 The customer is NOW choosing a timeslot. Call select_timeslot immediately with their preference.\n`;
-  }
-  
-  prompt += `\n📋 BOOKING FLOW:\n`;
-  prompt += `1. GREETING: Get name and intent → call save_caller_name\n`;
-  prompt += `2. Get registration → call lookup_vehicle\n`;
-  prompt += `3. Confirm vehicle → call confirm_vehicle\n`;
-  prompt += `4. Ask what work needed → call select_service\n`;
-  prompt += `5. Offer timeslots → call select_timeslot\n`;
-  prompt += `6. Collect contact info (phone, email, postcode, house number) → call set_contact_info as you collect each piece\n`;
-  prompt += `7. Booking confirmed! ✅\n\n`;
-  
-  prompt += `\n💡 CONTACT INFO COLLECTION:\n`;
-  prompt += `- After timeslot confirmed, collect: phone → email → postcode → house number\n`;
-  prompt += `- Call set_contact_info each time you get a new piece of info\n`;
-  prompt += `- The tool will tell you what's still needed\n`;
-  prompt += `- Once you have ALL 4 pieces, the booking will complete automatically\n\n`;
-  
-  prompt += `⚠️ CRITICAL RULES:\n`;
-  prompt += `- STRICT STATE MACHINE: NEVER go backwards in the booking flow\n`;
-  prompt += `- If Step is need_contact: ONLY call set_contact_info until booking is confirmed\n`;
-  prompt += `- In need_contact state, DO NOT call save_caller_name, select_service, or select_timeslot\n`;
-  prompt += `- Tools return INSTRUCTIONS for you to follow - read them CAREFULLY and follow EXACTLY!\n`;
-  prompt += `- When instructions say "GENERATE ZERO SPEECH" or "with ZERO SPEECH" → call the tool WITHOUT saying anything\n`;
-  prompt += `- When instructions say "Say: '...'" → say EXACTLY that phrase (or a natural variation)\n`;
-  prompt += `- When instructions say "Wait for..." → STOP and wait for customer response, do NOT continue\n`;
-  prompt += `- When instructions say "Then call..." → call that tool in your next response\n`;
-  prompt += `- Be natural and conversational - you're a real person named Leah, not a robot\n`;
-  prompt += `- Keep responses brief (1-2 sentences max) unless customer needs detail\n`;
-  prompt += `- NEVER make up booking details - only use information from tool responses\n`;
-  prompt += `- If a tool fails 3+ times, offer to take a message for callback\n`;
-  prompt += `- Always address customer by their FIRST name only (never surname)\n`;
-  prompt += `- Read back registrations letter-by-letter with spaces for clarity\n\n`;
-  
-  prompt += `Remember: You're a helpful, friendly receptionist. Be yourself! 😊\n`;
-  
+  // ── Current booking state ─────────────────────────────────────────────────
+  prompt += `CURRENT STATE: ${session.step}\n`;
+  if (session.customerNameFirst) prompt += `Customer: ${session.customerNameFirst} ${session.customerNameLast || ''}\n`;
+  if (session.vrn) prompt += `Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
+  if (session.serviceSelectedName) prompt += `Service: ${session.serviceSelectedName} (£${session.servicePrice})\n`;
+  if (session.bookingDate) prompt += `Slot: ${session.bookingDate} at ${session.bookingTime}\n`;
+  prompt += '\n';
+
+  // ── Booking flow instructions ─────────────────────────────────────────────
+  prompt += `BOOKING FLOW (follow in order):
+1. Get customer name + intent → call save_caller_name
+2. Get vehicle registration → call lookup_vehicle
+3. Confirm vehicle is correct → call confirm_vehicle (automatically calls select_service next)
+4. Customer says what work is needed → call select_service
+5. Offer timeslots from tool response → handled automatically, no tool call needed from you
+6. Contact details collected automatically after timeslot
+7. Booking confirmed ✅
+
+RULES:
+- Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases
+- Keep responses short (1–2 sentences)
+- Address customer by first name only
+- Never invent booking details — only use what tools return
+- If you cannot proceed, offer to take a message for a callback\n`;
+
   return prompt;
 }
 

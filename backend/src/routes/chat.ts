@@ -23,15 +23,28 @@ router.post('/chat/widget', async (req, res) => {
 
     if (!conversation) {
       // Create new web chat conversation
+      const cleanPhone = contactPhone ? String(contactPhone).replace(/\s+/g, '') : undefined;
+      const cleanName = contactName ? String(contactName).trim() : undefined;
       conversation = await prisma.chatConversation.create({
         data: {
           garageId,
           platform: 'web',
           platformUserId: `web_${Date.now()}`,
-          customerName: 'Website Visitor',
+          customerName: cleanName || 'Website Visitor',
+          customerPhone: cleanPhone,
           status: 'active',
         },
       });
+      console.log(`[CHAT_ROUTE] New conversation ${conversation.id}, phone: ${cleanPhone || 'none'}, name: ${cleanName || 'none'}`);
+    } else if (contactPhone && !conversation.customerPhone) {
+      // Update existing conversation with phone if we now have it
+      const cleanPhone = String(contactPhone).replace(/\s+/g, '');
+      await prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: { customerPhone: cleanPhone, customerName: contactName ? String(contactName).trim() : conversation.customerName },
+      });
+      conversation = { ...conversation, customerPhone: cleanPhone };
+      console.log(`[CHAT_ROUTE] Updated conversation ${conversation.id} with phone: ${cleanPhone}`);
     }
 
     // Save user message
@@ -43,12 +56,15 @@ router.post('/chat/widget', async (req, res) => {
       },
     });
 
-    // Get AI response
+    // Get AI response - pass both explicit seed and stored conversation phone
     const agentResponse = await getChatAgentResponse(
       garageId,
       message,
       conversation.id,
-      { phone: contactPhone, name: contactName }
+      { 
+        phone: contactPhone || conversation.customerPhone || undefined, 
+        name: contactName || conversation.customerName || undefined 
+      }
     );
 
     // Save AI response

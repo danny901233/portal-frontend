@@ -93,47 +93,49 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
 
   console.log(`[GET_SESSION] Loading session for conversation ${conversationId}`);
   
-  // Try to load from database first
-  const conversation = await prisma.chatConversation.findUnique({
-    where: { id: conversationId },
-  });
-
-  if (conversation && conversation.sessionState) {
-    // Load existing session from database
-    const sessionData = conversation.sessionState as any;
-    console.log(`[GET_SESSION] Found existing session, step: ${sessionData.step}`);
-    console.log(`[GET_SESSION] Session data:`, JSON.stringify(sessionData, null, 2));
-    const loadedSession: ChatSession = {
-      step: sessionData.step || Step.GREETING,
-      intent: sessionData.intent || '',
-      customerNameFirst: sessionData.customerNameFirst || '',
-      customerNameLast: sessionData.customerNameLast || '',
-      vrn: sessionData.vrn || '',
-      vrnConfirmed: sessionData.vrnConfirmed || false,
-      sessionId: sessionData.sessionId || '',
-      vehicleMake: sessionData.vehicleMake || '',
-      vehicleModel: sessionData.vehicleModel || '',
-      servicesAvailable: sessionData.servicesAvailable || [],
-      serviceSelectedId: sessionData.serviceSelectedId || '',
-      serviceSelectedName: sessionData.serviceSelectedName || '',
-      servicePrice: sessionData.servicePrice || '',
-      timeslotsAvailable: sessionData.timeslotsAvailable || [],
-      bookingDate: sessionData.bookingDate || '',
-      bookingTime: sessionData.bookingTime || '',
-      contactPhone: sessionData.contactPhone || '',
-      contactEmail: sessionData.contactEmail || '',
-      contactPostcode: sessionData.contactPostcode || '',
-      contactStreet: sessionData.contactStreet || '',
-      contactCity: sessionData.contactCity || '',
-      contactHouseNumber: sessionData.contactHouseNumber || '',
-      postcodeConfirmed: sessionData.postcodeConfirmed || false,
-      notes: sessionData.notes || '',
-      message: sessionData.message || '',
-      preferredCallbackTime: sessionData.preferredCallbackTime || '',
-    };
-
-    inMemorySessionCache.set(conversationId, loadedSession);
-    return loadedSession;
+  // Try to load from database using raw SQL (sessionState column may not be in Prisma types)
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ sessionState: any }>>(
+      `SELECT "sessionState" FROM "ChatConversation" WHERE id = $1`,
+      conversationId
+    );
+    
+    if (rows.length > 0 && rows[0].sessionState) {
+      const sessionData = rows[0].sessionState as any;
+      console.log(`[GET_SESSION] Found existing session, step: ${sessionData.step}`);
+      const loadedSession: ChatSession = {
+        step: sessionData.step || Step.GREETING,
+        intent: sessionData.intent || '',
+        customerNameFirst: sessionData.customerNameFirst || '',
+        customerNameLast: sessionData.customerNameLast || '',
+        vrn: sessionData.vrn || '',
+        vrnConfirmed: sessionData.vrnConfirmed || false,
+        sessionId: sessionData.sessionId || '',
+        vehicleMake: sessionData.vehicleMake || '',
+        vehicleModel: sessionData.vehicleModel || '',
+        servicesAvailable: sessionData.servicesAvailable || [],
+        serviceSelectedId: sessionData.serviceSelectedId || '',
+        serviceSelectedName: sessionData.serviceSelectedName || '',
+        servicePrice: sessionData.servicePrice || '',
+        timeslotsAvailable: sessionData.timeslotsAvailable || [],
+        bookingDate: sessionData.bookingDate || '',
+        bookingTime: sessionData.bookingTime || '',
+        contactPhone: sessionData.contactPhone || '',
+        contactEmail: sessionData.contactEmail || '',
+        contactPostcode: sessionData.contactPostcode || '',
+        contactStreet: sessionData.contactStreet || '',
+        contactCity: sessionData.contactCity || '',
+        contactHouseNumber: sessionData.contactHouseNumber || '',
+        postcodeConfirmed: sessionData.postcodeConfirmed || false,
+        notes: sessionData.notes || '',
+        message: sessionData.message || '',
+        preferredCallbackTime: sessionData.preferredCallbackTime || '',
+      };
+      inMemorySessionCache.set(conversationId, loadedSession);
+      return loadedSession;
+    }
+  } catch (error) {
+    console.error(`[GET_SESSION] DB load failed:`, error);
   }
 
   console.log(`[GET_SESSION] No existing session found, creating new one`);
@@ -174,30 +176,20 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
 
 async function saveSession(conversationId: string, session: ChatSession): Promise<void> {
   inMemorySessionCache.set(conversationId, { ...session });
-  process.stdout.write(`[SAVE_SESSION] Saving session for ${conversationId}, step: ${session.step}, phone: ${session.contactPhone}\n`);
+  console.log(`[SAVE_SESSION] Saving session for ${conversationId}, step: ${session.step}, phone: ${session.contactPhone}`);
   
   try {
-    // Check if conversation exists first
-    const conversation = await prisma.chatConversation.findUnique({
-      where: { id: conversationId },
-    });
-    
-    if (!conversation) {
-      console.log(`[SAVE_SESSION] Conversation ${conversationId} does not exist yet, skipping save`);
-      return;
-    }
-    
-    // Update existing conversation
-    await prisma.chatConversation.update({
-      where: { id: conversationId },
-      data: {
-        sessionState: session as any,
-      },
-    });
+    // Use raw SQL to update sessionState (Prisma client may not have the column in its types)
+    const sessionJson = JSON.stringify(session);
+    await prisma.$executeRawUnsafe(
+      `UPDATE "ChatConversation" SET "sessionState" = $1::jsonb WHERE id = $2`,
+      sessionJson,
+      conversationId
+    );
     console.log(`[SAVE_SESSION] ✅ Successfully saved session for ${conversationId}`);
   } catch (error) {
     console.error(`[SAVE_SESSION] ❌ Failed to save session for ${conversationId}:`, error);
-    // Don't throw - log and continue
+    // Don't throw - in-memory cache is the fallback
   }
 }
 

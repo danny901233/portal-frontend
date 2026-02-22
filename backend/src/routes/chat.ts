@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { getChatAgentResponse } from '../services/chatAgent.js';
+import { getChatAgentResponse } from '../services/chatAgentV2.js';
 
 const router = Router();
 

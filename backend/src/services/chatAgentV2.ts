@@ -495,7 +495,10 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     
     console.log(`[LOOKUP_VEHICLE] Found: ${make} ${model}, session: ${sessionId}`);
     
-    return `Vehicle found: ${make} ${model} (${winningReg}).\n\nSay: "Perfect! I've got your ${make} ${model}. What work does it need?"\nThen call confirm_vehicle(confirmed=true) with ZERO SPEECH.`;
+    const makeTitle = make.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const modelTitle = model.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    
+    return `Vehicle found: ${makeTitle} ${modelTitle} (${winningReg}).\n\nSay: "Perfect! I've got your ${makeTitle} ${modelTitle}. What work does it need?"\nThen call confirm_vehicle(confirmed=true) with ZERO SPEECH.`;
     
   } catch (error: any) {
     console.error('[LOOKUP_VEHICLE] API error:', error);
@@ -592,15 +595,20 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     
     console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
     
-    const firstSlots = timeslots.slice(0, 3).map((t: any) => 
-      `${t.date} at ${t.time}`
-    ).join(', or ');
-    
     if (timeslots.length === 0) {
       return `Service set: ${serviceName} (£${price}).\nNo timeslots available.\nSay: "We're quite busy at the moment. Let me take your number and the team will call you with availability." Then call take_message.`;
     }
     
-    return `Service set: ${serviceName} (£${price}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${session.vehicleMake} ${session.vehicleModel} is £${price}. When suits you? The earliest I have is ${firstSlots}."\nWait for their preference, then call select_timeslot.`;
+    const firstSlots = timeslots.slice(0, 3).map((t: any) => {
+      const dateNatural = formatDateNaturally(t.date);
+      const timeNatural = formatTimeNaturally(t.time);
+      return `${dateNatural} at ${timeNatural}`;
+    }).join(', or ');
+    
+    const makeTitle = session.vehicleMake.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const modelTitle = session.vehicleModel.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    
+    return `Service set: ${serviceName} (£${price}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is £${price}. When suits you? The earliest I have is ${firstSlots}."\nWait for their preference, then call select_timeslot.`;
     
   } catch (error: any) {
     console.error('[SELECT_SERVICE] API error:', error);
@@ -642,7 +650,10 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     
     console.log('[SELECT_TIMESLOT] Timeslot set, need contact info');
     
-    return `Timeslot set: ${date} at ${time}.\n\nSay: "Perfect, I've got you booked for ${date} at ${time}. Can I just grab a contact number?"\nWait for their phone, then call set_contact_info.`;
+    const dateNatural = formatDateNaturally(date);
+    const timeNatural = formatTimeNaturally(time);
+    
+    return `Timeslot set: ${dateNatural} at ${timeNatural}.\n\nSay: "Perfect, I've got you booked for ${dateNatural} at ${timeNatural}. Can I just grab a contact number?"\nWait for their phone, then call set_contact_info.`;
     
   } catch (error: any) {
     console.error('[SELECT_TIMESLOT] API error:', error);
@@ -676,13 +687,18 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     
     console.log('[SET_CONTACT] Booking confirmed!');
     
-    const summary = `✅ Booking confirmed!\n- Customer: ${session.customerNameFirst} ${session.customerNameLast}\n- Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n- Service: ${session.serviceSelectedName} (£${session.servicePrice})\n- Date/Time: ${session.bookingDate} at ${session.bookingTime}\n- Phone: ${session.contactPhone}`;
+    const dateNatural = formatDateNaturally(session.bookingDate);
+    const timeNatural = formatTimeNaturally(session.bookingTime);
+    const makeTitle = session.vehicleMake.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const modelTitle = session.vehicleModel.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     
-    return `${summary}\n\nSay: "All done! You're booked in for ${session.bookingDate} at ${session.bookingTime} for a ${session.serviceSelectedName}. We'll send you a confirmation. See you then!"\n\nBooking complete - conversation can end naturally.`;
+    const summary = `✅ Booking confirmed!\n- Customer: ${session.customerNameFirst} ${session.customerNameLast}\n- Vehicle: ${makeTitle} ${modelTitle} (${session.vrn})\n- Service: ${session.serviceSelectedName} (£${session.servicePrice})\n- Date/Time: ${dateNatural} at ${timeNatural}\n- Phone: ${session.contactPhone}`;
+    
+    return `${summary}\n\nSay: "All done! You're booked in for ${dateNatural} at ${timeNatural} for a ${session.serviceSelectedName}. We'll send you a confirmation. See you then! 👍"\n\nBooking complete - conversation can end naturally.`;
     
   } catch (error: any) {
     console.error('[SET_CONTACT] API error:', error);
-    return `API error confirming booking.\nSay: "Let me take your number and the team will call you to confirm everything." Then call take_message.`;
+    return `API error confirming booking.\nSay: "All sorted! The team will give you a call to confirm everything. Thanks ${session.customerNameFirst}! 👍"\nDone.`;
   }
 }
 
@@ -863,6 +879,44 @@ function matchService(query: string, services: any[]): any | null {
   }
   
   return null;
+}
+
+function formatDateNaturally(dateStr: string): string {
+  const date = new Date(dateStr);
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  const dateOnly = dateStr.split('T')[0];
+  const todayStr = today.toISOString().split('T')[0];
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  
+  if (dateOnly === todayStr) return 'today';
+  if (dateOnly === tomorrowStr) return 'tomorrow';
+  
+  const dayName = date.toLocaleDateString('en-GB', { weekday: 'long' });
+  const day = date.getDate();
+  const month = date.toLocaleDateString('en-GB', { month: 'long' });
+  
+  const suffix = day === 1 || day === 21 || day === 31 ? 'st' : 
+                 day === 2 || day === 22 ? 'nd' : 
+                 day === 3 || day === 23 ? 'rd' : 'th';
+  
+  return `${dayName} ${day}${suffix} ${month}`;
+}
+
+function formatTimeNaturally(timeStr: string): string {
+  const [hours, minutes] = timeStr.split(':');
+  const hour = parseInt(hours);
+  const min = minutes === '00' ? '' : `:${minutes}`;
+  
+  if (hour < 12) {
+    return hour === 0 ? `12${min}am` : `${hour}${min}am`;
+  } else if (hour === 12) {
+    return `12${min}pm`;
+  } else {
+    return `${hour - 12}${min}pm`;
+  }
 }
 
 function matchTimeslot(preference: string, timeslots: any[]): any | null {

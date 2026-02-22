@@ -17,7 +17,7 @@ interface GarageConfig {
   primaryColor?: string;
 }
 
-type ViewState = 'closed' | 'menu' | 'chat';
+type ViewState = 'closed' | 'menu' | 'pre-chat' | 'chat';
 
 export default function ChatWidget() {
   const params = useParams();
@@ -30,6 +30,12 @@ export default function ChatWidget() {
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Pre-chat form state
+  const [preChatName, setPreChatName] = useState('');
+  const [preChatPhone, setPreChatPhone] = useState('');
+  const [preChatMessage, setPreChatMessage] = useState('');
+  const [preChatSubmitting, setPreChatSubmitting] = useState(false);
 
   useEffect(() => {
     if (!garageId) return;
@@ -63,14 +69,60 @@ export default function ChatWidget() {
   }, [messages]);
 
   const handleStartChat = () => {
+    setViewState('pre-chat');
+  };
+
+  const handlePreChatSubmit = async () => {
+    if (!preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim()) return;
+    setPreChatSubmitting(true);
+
+    // Build the opening message from the form fields
+    const openingMessage = `My name is ${preChatName.trim()}, my phone number is ${preChatPhone.trim()}. ${preChatMessage.trim()}`;
+
+    // Switch to chat view and show the greeting
     setViewState('chat');
-    if (messages.length === 0 && config) {
-      setMessages([{
-        id: '1',
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: openingMessage,
+      timestamp: new Date(),
+    };
+    setMessages([userMsg]);
+    setSending(true);
+
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://18.171.230.217:4000';
+      const response = await fetch(`${backendUrl}/api/chat/widget`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          garageId,
+          message: openingMessage,
+          conversationId,
+        }),
+      });
+
+      if (!response.ok) throw new Error('Backend unavailable');
+
+      const data = await response.json();
+      if (data.conversationId && !conversationId) setConversationId(data.conversationId);
+
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Hi! I'm the AI assistant for ${config.name}. How can I help you today?`,
+        content: data.response,
         timestamp: new Date(),
       }]);
+    } catch {
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: "I'm sorry, the chat service is currently unavailable. Please try calling us or using WhatsApp instead.",
+        timestamp: new Date(),
+      }]);
+    } finally {
+      setSending(false);
+      setPreChatSubmitting(false);
     }
   };
 
@@ -363,9 +415,87 @@ export default function ChatWidget() {
         </div>
       )}
 
+      {/* Pre-Chat Form */}
+      {viewState === 'pre-chat' && (
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200 bg-white rounded-2xl shadow-2xl overflow-hidden">
+          {/* Header */}
+          <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #5B8DEE 0%, #4776E6 100%)' }}>
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-white font-semibold text-base">{config?.name ?? 'Chat'}</h3>
+                <p className="text-white/70 text-xs">We typically reply instantly</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setViewState('menu')}
+              className="text-white/90 hover:text-white transition-colors p-1 hover:bg-white/10 rounded-lg"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Form */}
+          <div className="p-6 space-y-4">
+            <p className="text-sm text-gray-600">Please share a few details before we get started.</p>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-800 mb-1">Your name <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={preChatName}
+                onChange={(e) => setPreChatName(e.target.value)}
+                placeholder="e.g. John Smith"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-800 mb-1">Phone number <span className="text-red-500">*</span></label>
+              <input
+                type="tel"
+                value={preChatPhone}
+                onChange={(e) => setPreChatPhone(e.target.value)}
+                placeholder="e.g. 07700 900000"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-800 mb-1">How can we help? <span className="text-red-500">*</span></label>
+              <textarea
+                rows={3}
+                value={preChatMessage}
+                onChange={(e) => setPreChatMessage(e.target.value)}
+                placeholder="e.g. I'd like to book a service for my car…"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50 resize-none"
+              />
+            </div>
+
+            <button
+              onClick={handlePreChatSubmit}
+              disabled={!preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting}
+              className="w-full py-3 rounded-xl text-white font-medium transition-all disabled:opacity-40 hover:opacity-90 active:scale-[0.98]"
+              style={{ background: 'linear-gradient(135deg, #5B8DEE 0%, #4776E6 100%)' }}
+            >
+              {preChatSubmitting ? 'Starting chat…' : 'Start Chat'}
+            </button>
+
+            <p className="text-xs text-gray-400 text-center">Powered by <span className="font-medium text-gray-600">ReceptionMate</span></p>
+          </div>
+        </div>
+      )}
+
       {/* Floating Button */}
       <button
         onClick={() => setViewState(viewState === 'closed' ? 'menu' : 'closed')}
+
         className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-2xl hover:shadow-3xl flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
         style={{ 
           background: 'linear-gradient(135deg, #5B8DEE 0%, #4776E6 100%)',

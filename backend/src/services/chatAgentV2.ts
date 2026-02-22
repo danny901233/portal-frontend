@@ -925,11 +925,11 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     session.serviceSelectedName = serviceName;
     session.servicePrice = price;
     session.step = Step.NEED_TIMESLOT;
-    await saveSession(conversationId, session);
     
-    // Fetch timeslots
+    // Fetch timeslots BEFORE saving so the cache has them
     const timeslots = await ghListTimeslots(session.sessionId);
     session.timeslotsAvailable = timeslots;
+    await saveSession(conversationId, session);
     
     console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
     

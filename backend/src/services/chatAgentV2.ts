@@ -132,6 +132,11 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         preferredCallbackTime: sessionData.preferredCallbackTime || '',
       };
       inMemorySessionCache.set(conversationId, loadedSession);
+      // Auto-advance: if timeslot was already chosen but server restarted before step updated
+      if (loadedSession.step === Step.NEED_TIMESLOT && loadedSession.bookingDate && loadedSession.bookingTime) {
+        loadedSession.step = Step.NEED_CONTACT;
+        console.log(`[GET_SESSION] Auto-advanced step to need_contact (timeslot already set)`);
+      }
       return loadedSession;
     }
   } catch (error) {
@@ -179,8 +184,14 @@ async function saveSession(conversationId: string, session: ChatSession): Promis
   console.log(`[SAVE_SESSION] Saving session for ${conversationId}, step: ${session.step}, phone: ${session.contactPhone}`);
   
   try {
+    // Strip large timeslot array before saving to DB (keep only first 5 for recovery)
+    const sessionToSave = {
+      ...session,
+      timeslotsAvailable: (session.timeslotsAvailable || []).slice(0, 5),
+    };
     // Use raw SQL to update sessionState (Prisma client may not have the column in its types)
-    const sessionJson = JSON.stringify(session);
+    const sessionJson = JSON.stringify(sessionToSave);
+    console.log(`[SAVE_SESSION] JSON size: ${sessionJson.length} bytes, timeslots: ${sessionToSave.timeslotsAvailable.length}`);
     await prisma.$executeRawUnsafe(
       `UPDATE "ChatConversation" SET "sessionState" = $1::jsonb WHERE id = $2`,
       sessionJson,
@@ -462,6 +473,14 @@ function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<
     }
     if (!session.contactHouseNumber && extracted.houseNumber) {
       session.contactHouseNumber = extracted.houseNumber;
+    }
+  }
+
+  // If we recovered any contact data and step is behind need_contact, advance it
+  if ((session.contactPhone || session.contactEmail || session.contactPostcode) &&
+      session.step !== Step.NEED_CONTACT && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+    if (session.bookingDate && session.bookingTime) {
+      session.step = Step.NEED_CONTACT;
     }
   }
 }
@@ -977,7 +996,7 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   const { phone = '', email = '', postcode = '', houseNumber = '' } = args;
   
   console.log(`[SET_CONTACT] Args - Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, House: ${houseNumber}`);
-  console.log(`[SET_CONTACT] Session - Phone: ${session.contactPhone}, Email: ${session.contactEmail}, Postcode: ${session.contactPostcode}, Street: ${session.contactStreet}, City: ${session.contactCity}, House: ${session.contactHouseNumber}`);
+  console.log(`[SET_CONTACT] Session step: ${session.step}, Phone: ${session.contactPhone}, Email: ${session.contactEmail}, Postcode: ${session.contactPostcode}, House: ${session.contactHouseNumber}`);
   
   // Save any new information provided
   if (phone && !session.contactPhone) {

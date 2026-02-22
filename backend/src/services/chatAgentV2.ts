@@ -170,7 +170,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
 
 async function saveSession(conversationId: string, session: ChatSession): Promise<void> {
   inMemorySessionCache.set(conversationId, { ...session });
-  console.log(`[SAVE_SESSION] Saving session for conversation ${conversationId}, step: ${session.step}`);
+  process.stdout.write(`[SAVE_SESSION] Saving session for ${conversationId}, step: ${session.step}, phone: ${session.contactPhone}\n`);
   
   try {
     // Check if conversation exists first
@@ -234,15 +234,18 @@ export async function getChatAgentResponse(
     const session = await getOrCreateSession(conversationId);
 
     // Seed contact details passed explicitly from the widget pre-chat form
+    let seedApplied = false;
     if (seedContact?.phone && !session.contactPhone) {
       session.contactPhone = seedContact.phone.replace(/\s+/g, '');
       console.log(`[SEED_CONTACT] Phone seeded: ${session.contactPhone}`);
+      seedApplied = true;
     }
     if (seedContact?.name && !session.customerNameFirst) {
       const parts = seedContact.name.trim().split(/\s+/);
       session.customerNameFirst = parts[0] || '';
       session.customerNameLast = parts.slice(1).join(' ') || '';
       console.log(`[SEED_CONTACT] Name seeded: ${session.customerNameFirst} ${session.customerNameLast}`);
+      seedApplied = true;
     }
 
     // Build conversation context
@@ -257,6 +260,12 @@ export async function getChatAgentResponse(
     // Re-apply seed after hydration to ensure it wins over any contradictory history
     if (seedContact?.phone && !session.contactPhone) {
       session.contactPhone = seedContact.phone.replace(/\s+/g, '');
+      seedApplied = true;
+    }
+
+    // Persist seeded data immediately so a backend restart won't lose it
+    if (seedApplied) {
+      await saveSession(conversationId, session);
     }
 
     if (session.step === Step.NEED_CONTACT) {
@@ -330,6 +339,17 @@ export async function getChatAgentResponse(
           tool_call_id: toolCall.id,
           content: instructions,
         });
+      }
+
+      // If we just transitioned into NEED_CONTACT, hand off to the fast-path
+      // so we don't let OpenAI call set_contact_info with stale/empty session data
+      if ((session.step as Step) === Step.NEED_CONTACT) {
+        const contactArgs = extractContactArgsFromMessage(message, session);
+        const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
+        return {
+          content: instructionToCustomerReply(instructions),
+          needsHumanAssistance: false,
+        };
       }
 
       // Get next response with instructions integrated

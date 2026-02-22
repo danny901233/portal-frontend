@@ -275,7 +275,13 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
-    if (session.step === Step.NEED_CONTACT) {
+    // Fast-path: once a timeslot is booked, handle all messages locally (no OpenAI)
+    const bookingComplete = !!(session.bookingDate && session.bookingTime);
+    if (session.step === Step.NEED_CONTACT || bookingComplete) {
+      // Ensure step is correct
+      if (bookingComplete && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+        session.step = Step.NEED_CONTACT;
+      }
       const contactArgs = extractContactArgsFromMessage(message, session);
       const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
       return {
@@ -999,6 +1005,11 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   console.log(`[SET_CONTACT] Args - Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, House: ${houseNumber}`);
   console.log(`[SET_CONTACT] Session step: ${session.step}, Phone: ${session.contactPhone}, Email: ${session.contactEmail}, Postcode: ${session.contactPostcode}, House: ${session.contactHouseNumber}`);
   
+  // Force correct step — if booking is already set, we're always in contact collection
+  if (session.bookingDate && session.bookingTime && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+    session.step = Step.NEED_CONTACT;
+  }
+  
   // Save any new information provided
   if (phone && !session.contactPhone) {
     session.contactPhone = phone;
@@ -1052,13 +1063,14 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     return `Need postcode.\n\nSay: "What's your postcode?"\nWait for postcode.`;
   }
   
-  // After postcode saved, ask for house number directly (no area confirmation step)
+  // After postcode saved, ask for house number directly and confirm the area
   if (!session.contactHouseNumber) {
     console.log(`[SET_CONTACT] Need: house number`);
     session.step = Step.NEED_CONTACT;
     await saveSession(conversationId, session);
-    const area = session.contactCity ? ` (${session.contactCity})` : '';
-    return `Postcode${area} saved.\n\nSay: "And what's your house number or name?"\nWait for house number.`;
+    const area = session.contactCity || session.contactStreet || '';
+    const areaConfirm = area ? `Is that ${area}? ` : '';
+    return `Postcode saved (${session.contactPostcode}, ${area || 'looked up'}).\n\nSay: "${areaConfirm}And what's your house number or name?"\nWait for house number.`;
   }
   
   console.log(`[SET_CONTACT] All info collected, submitting to GH API`);

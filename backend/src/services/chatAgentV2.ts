@@ -392,7 +392,6 @@ async function executeConversationalTool(
 // Tool handlers (return instructions like voice agent)
 
 async function handleSaveCallerName(args: any, session: ChatSession): Promise<string> {
-async function handleSaveCallerName(args: any, session: ChatSession): Promise<string> {
   const { first_name, last_name = '', intent, service_hint = '' } = args;
   
   session.customerNameFirst = first_name;
@@ -410,9 +409,10 @@ async function handleSaveCallerName(args: any, session: ChatSession): Promise<st
   session.step = Step.NEED_VRN;
   return `Name saved: ${first_name} ${last_name}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay: "Nice to meet you ${first_name}! What's your reg?"\nWait for registration, then call lookup_vehicle.`;
 }
+
 async function handleLookupVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { registration, confirmed = false } = args;
-  const normalized = registration.replace(/\s+/g, '').toUpperCase();
+  let normalized = registration.replace(/\s+/g, '').toUpperCase();
   
   console.log(`[LOOKUP_VEHICLE] ${normalized}, confirmed: ${confirmed}`);
   

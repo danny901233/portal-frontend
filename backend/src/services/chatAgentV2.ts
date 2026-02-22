@@ -82,6 +82,8 @@ interface ChatSession {
 
 // Session storage - persist to database
 async function getOrCreateSession(conversationId: string): Promise<ChatSession> {
+  console.log(`[GET_SESSION] Loading session for conversation ${conversationId}`);
+  
   // Try to load from database first
   const conversation = await prisma.chatConversation.findUnique({
     where: { id: conversationId },
@@ -90,6 +92,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
   if (conversation && conversation.sessionState) {
     // Load existing session from database
     const sessionData = conversation.sessionState as any;
+    console.log(`[GET_SESSION] Found existing session, step: ${sessionData.step}`);
+    console.log(`[GET_SESSION] Session data:`, JSON.stringify(sessionData, null, 2));
     return {
       step: sessionData.step || Step.GREETING,
       intent: sessionData.intent || '',
@@ -119,6 +123,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     };
   }
 
+  console.log(`[GET_SESSION] No existing session found, creating new one`);
+  
   // Create new session
   return {
     step: Step.GREETING,
@@ -150,12 +156,21 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
 }
 
 async function saveSession(conversationId: string, session: ChatSession): Promise<void> {
-  await prisma.chatConversation.update({
-    where: { id: conversationId },
-    data: {
-      sessionState: session as any,
-    },
-  });
+  console.log(`[SAVE_SESSION] Saving session for conversation ${conversationId}, step: ${session.step}`);
+  console.log(`[SAVE_SESSION] Session data:`, JSON.stringify(session, null, 2));
+  
+  try {
+    await prisma.chatConversation.update({
+      where: { id: conversationId },
+      data: {
+        sessionState: session as any,
+      },
+    });
+    console.log(`[SAVE_SESSION] Successfully saved session for ${conversationId}`);
+  } catch (error) {
+    console.error(`[SAVE_SESSION] Failed to save session for ${conversationId}:`, error);
+    throw error;
+  }
 }
 
 export async function getChatAgentResponse(

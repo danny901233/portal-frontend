@@ -1084,6 +1084,10 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], isOpen: boo
   if (session.sessionId) prompt += `- Session ID: ${session.sessionId}\n`;
   if (session.serviceSelectedName) prompt += `- Service: ${session.serviceSelectedName} (£${session.servicePrice})\n`;
   if (session.bookingDate) prompt += `- Timeslot: ${session.bookingDate} at ${session.bookingTime}\n`;
+  if (session.contactPhone) prompt += `- Phone: ✅ ${session.contactPhone}\n`;
+  if (session.contactEmail) prompt += `- Email: ✅ ${session.contactEmail}\n`;
+  if (session.contactPostcode) prompt += `- Postcode: ✅ ${session.contactPostcode}\n`;
+  if (session.contactHouseNumber) prompt += `- House Number: ✅ ${session.contactHouseNumber}\n`;
   
   prompt += `\n📋 BOOKING FLOW:\n`;
   prompt += `1. GREETING: Get name and intent → call save_caller_name\n`;
@@ -1091,8 +1095,14 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], isOpen: boo
   prompt += `3. Confirm vehicle → call confirm_vehicle\n`;
   prompt += `4. Ask what work needed → call select_service\n`;
   prompt += `5. Offer timeslots → call select_timeslot\n`;
-  prompt += `6. Get phone → call set_contact_info\n`;
+  prompt += `6. Collect contact info (phone, email, postcode, house number) → call set_contact_info as you collect each piece\n`;
   prompt += `7. Booking confirmed! ✅\n\n`;
+  
+  prompt += `\n💡 CONTACT INFO COLLECTION:\n`;
+  prompt += `- After timeslot confirmed, collect: phone → email → postcode → house number\n`;
+  prompt += `- Call set_contact_info each time you get a new piece of info\n`;
+  prompt += `- The tool will tell you what's still needed\n`;
+  prompt += `- Once you have ALL 4 pieces, the booking will complete automatically\n\n`;
   
   prompt += `⚠️ CRITICAL RULES:\n`;
   prompt += `- Tools return INSTRUCTIONS for you to follow - read them CAREFULLY and follow EXACTLY!\n`;

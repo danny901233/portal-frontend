@@ -270,6 +270,16 @@ export async function getChatAgentResponse(
       seedApplied = true;
     }
 
+    // Also scan the CURRENT message for contact details (e.g. user puts phone in their first message)
+    if (!session.contactPhone) {
+      const phoneInMsg = message.match(/(?:\+44\s?7\d{3}|\b07\d{3})\s?\d{3}\s?\d{3,4}\b/i);
+      if (phoneInMsg) {
+        session.contactPhone = phoneInMsg[0].replace(/\s+/g, '');
+        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}`);
+        seedApplied = true;
+      }
+    }
+
     // Persist seeded data immediately so a backend restart won't lose it
     if (seedApplied) {
       await saveSession(conversationId, session);
@@ -960,8 +970,10 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     
     const makeTitle = session.vehicleMake.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = session.vehicleModel.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    
-    return `Service set: ${serviceName} (£${price}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is £${price}. When suits you? The earliest I have is ${firstSlots}."\nWait for their preference, then call select_timeslot.`;
+    const priceNum = parseFloat(String(price));
+    const priceDisplay = (!price || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
+
+    return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. When suits you? The earliest I have is ${firstSlots}."\nWait for their preference, then call select_timeslot.`;
     
   } catch (error: any) {
     console.error('[SELECT_SERVICE] API error:', error);
@@ -1013,7 +1025,10 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     const dateNatural = formatDateNaturally(date);
     const timeNatural = formatTimeNaturally(time);
     
-    return `Timeslot set: ${dateNatural} at ${timeNatural}.\n\nSay: "Perfect, I've got you booked for ${dateNatural} at ${timeNatural}. Can I just grab a contact number?"\nWait for their phone, then call set_contact_info.`;
+    const nextContactAsk = session.contactPhone
+      ? (session.contactEmail ? `What's your postcode?` : `Can I grab your email address?`)
+      : `Can I just grab a contact number?`;
+    return `Timeslot set: ${dateNatural} at ${timeNatural}.\n\nSay: "Perfect, I've got you booked for ${dateNatural} at ${timeNatural}. ${nextContactAsk}"\nWait for their response.`;
     
   } catch (error: any) {
     console.error('[SELECT_TIMESLOT] API error:', error);
@@ -1128,9 +1143,11 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     const makeTitle = session.vehicleMake.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = session.vehicleModel.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     
-    const summary = `✅ Booking confirmed!\n- Customer: ${session.customerNameFirst} ${session.customerNameLast}\n- Vehicle: ${makeTitle} ${modelTitle} (${session.vrn})\n- Service: ${session.serviceSelectedName} (£${session.servicePrice})\n- Date/Time: ${dateNatural} at ${timeNatural}\n- Phone: ${session.contactPhone}\n- Email: ${session.contactEmail}`;
+    const confirmedPriceNum = parseFloat(String(session.servicePrice));
+    const confirmedPriceDisplay = (!session.servicePrice || isNaN(confirmedPriceNum) || confirmedPriceNum < 1) ? 'POA' : `£${confirmedPriceNum.toFixed(2).replace(/\.00$/, '')}`;
+    const summary = `✅ Booking confirmed!\n- Customer: ${session.customerNameFirst} ${session.customerNameLast}\n- Vehicle: ${makeTitle} ${modelTitle} (${session.vrn})\n- Service: ${session.serviceSelectedName} (${confirmedPriceDisplay})\n- Date/Time: ${dateNatural} at ${timeNatural}\n- Phone: ${session.contactPhone}\n- Email: ${session.contactEmail}`;
     
-    return `${summary}\n\nSay: "All done! You're booked in for ${dateNatural} at ${timeNatural} for a ${session.serviceSelectedName}. We'll send you a confirmation email. See you then! 👍"\n\nBooking complete - conversation can end naturally.`;
+    return `${summary}\n\nSay: "All done! You're booked in for ${dateNatural} at ${timeNatural} for a ${session.serviceSelectedName}${confirmedPriceDisplay !== 'POA' ? ` (${confirmedPriceDisplay})` : ''}. We'll send you a confirmation email. See you then! 👍"\n\nBooking complete - conversation can end naturally.`;
     
   } catch (error: any) {
     console.error('[SET_CONTACT] API error:', error);

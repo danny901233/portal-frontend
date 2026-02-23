@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
 }
@@ -98,13 +98,19 @@ export default function ChatWidget() {
 
     // Switch to chat view and show the greeting
     setViewState('chat');
+    const joinNotice: Message = {
+      id: 'join-notice',
+      role: 'system',
+      content: 'Leah joined the chat',
+      timestamp: new Date(),
+    };
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
       content: openingMessage,
       timestamp: new Date(),
     };
-    setMessages([userMsg]);
+    setMessages([joinNotice, userMsg]);
     setSending(true);
 
     try {
@@ -254,6 +260,13 @@ export default function ChatWidget() {
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4" style={{ scrollbarWidth: 'thin' }}>
               {messages.map((msg) => (
+                msg.role === 'system' ? (
+                  <div key={msg.id} className="flex items-center gap-2 justify-center py-1">
+                    <div className="h-px flex-1 bg-gray-200" />
+                    <span className="text-[11px] text-gray-400 font-medium px-2 whitespace-nowrap">{msg.content}</span>
+                    <div className="h-px flex-1 bg-gray-200" />
+                  </div>
+                ) : (
                 <div
                   key={msg.id}
                   className={`flex items-start gap-3 ${
@@ -281,6 +294,7 @@ export default function ChatWidget() {
                     {msg.content}
                   </div>
                 </div>
+                )
               ))}
 
               {sending && (

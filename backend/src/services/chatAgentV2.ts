@@ -33,8 +33,9 @@ enum Step {
   NEED_VRN = 'need_vrn',
   CONFIRMING_VEHICLE = 'confirming_vehicle',
   NEED_SERVICE = 'need_service',
-  NEED_BOOKING_CONFIRM = 'need_booking_confirm', // quote flow: waiting for yes/no to "would you like to book?"
+  NEED_BOOKING_CONFIRM = 'need_booking_confirm',
   NEED_TIMESLOT = 'need_timeslot',
+  NEED_SLOT_CONFIRM = 'need_slot_confirm', // waiting for customer to confirm a proposed slot
   NEED_CONTACT = 'need_contact',
   CONFIRMING_POSTCODE = 'confirming_postcode',
   CONFIRMED = 'confirmed',
@@ -65,6 +66,8 @@ interface ChatSession {
   
   // Timeslot
   timeslotsAvailable: any[];
+  pendingSlotDate: string;  // proposed slot awaiting customer confirmation
+  pendingSlotTime: string;
   bookingDate: string;
   bookingTime: string;
   
@@ -124,6 +127,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         serviceSelectedName: sessionData.serviceSelectedName || '',
         servicePrice: sessionData.servicePrice || '',
         timeslotsAvailable: sessionData.timeslotsAvailable || [],
+        pendingSlotDate: sessionData.pendingSlotDate || '',
+        pendingSlotTime: sessionData.pendingSlotTime || '',
         bookingDate: sessionData.bookingDate || '',
         bookingTime: sessionData.bookingTime || '',
         contactPhone: sessionData.contactPhone || '',
@@ -170,6 +175,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     serviceSelectedName: '',
     servicePrice: '',
     timeslotsAvailable: [],
+    pendingSlotDate: '',
+    pendingSlotTime: '',
     bookingDate: '',
     bookingTime: '',
     contactPhone: '',
@@ -295,6 +302,65 @@ export async function getChatAgentResponse(
     // Persist seeded data immediately so a backend restart won't lose it
     if (seedApplied) {
       await saveSession(conversationId, session);
+    }
+
+    // Fast-path: slot confirmation — customer is saying yes/no to a proposed slot
+    if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
+      const isYes = /\b(yes|yeah|yep|yup|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please)\b/i.test(message);
+      const isNo = /\b(no|nope|different|another|change|instead|rather|earlier|later)\b/i.test(message);
+
+      // Extract any note from the message even during slot confirmation
+      const notePattern = /(?:also|and|btw|by the way|ps|p\.s\.?|additionally|there[''s]*s?|it[''s]*s?|she[''s]*s?)\s+(.{10,})/i;
+      const noteMatch = message.match(notePattern);
+      if (noteMatch) {
+        session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${noteMatch[1].trim()}`;
+      }
+
+      if (isNo) {
+        // Customer wants a different slot — go back to timeslot selection
+        session.step = Step.NEED_TIMESLOT;
+        session.pendingSlotDate = '';
+        session.pendingSlotTime = '';
+        await saveSession(conversationId, session);
+        const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
+          `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
+        ).join(', or ');
+        return {
+          content: `No problem — the options I have are ${firstSlots}. Which would you prefer?`,
+          needsHumanAssistance: false,
+        };
+      }
+
+      if (isYes) {
+        // Confirm the pending slot — now actually call the API to book it
+        try {
+          await ghSetTimeslot(session.sessionId, session.pendingSlotDate, session.pendingSlotTime);
+          console.log(`[SLOT_CONFIRM] ghSetTimeslot succeeded for ${session.pendingSlotDate} at ${session.pendingSlotTime}`);
+        } catch (err) {
+          console.error('[SLOT_CONFIRM] ghSetTimeslot failed:', err);
+        }
+        session.bookingDate = session.pendingSlotDate;
+        session.bookingTime = session.pendingSlotTime;
+        session.step = Step.NEED_CONTACT;
+        session.pendingSlotDate = '';
+        session.pendingSlotTime = '';
+        await saveSession(conversationId, session);
+        const nextAsk = session.contactPhone
+          ? (session.contactEmail ? `What's your postcode?` : `Can I grab your email address?`)
+          : `Can I just grab a contact number?`;
+        return {
+          content: `Perfect, you're booked in! ${nextAsk}`,
+          needsHumanAssistance: false,
+        };
+      }
+
+      // Unclear response — ask again
+      const dateNatural = formatDateNaturally(session.pendingSlotDate);
+      const timeNatural = formatTimeNaturally(session.pendingSlotTime);
+      return {
+        content: `Just to confirm — shall I book you in for ${dateNatural} at ${timeNatural}?`,
+        needsHumanAssistance: false,
+      };
     }
 
     // Fast-path: once a timeslot is booked, handle all contact collection locally (no OpenAI)
@@ -1138,6 +1204,13 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     return getNextContactInstruction(session);
   }
 
+  if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
+    console.log('[STATE_GUARD] Already have a pending slot, re-confirming');
+    const dateNatural = formatDateNaturally(session.pendingSlotDate);
+    const timeNatural = formatTimeNaturally(session.pendingSlotTime);
+    return `Proposed slot: ${dateNatural} at ${timeNatural}.\n\nSay ONLY: "I've got ${dateNatural} at ${timeNatural} — does that work for you?" and STOP.`;
+  }
+
   console.log(`[SELECT_TIMESLOT] Preference: "${preference}"`);
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
@@ -1158,33 +1231,31 @@ When they choose, call select_timeslot again.`;
   }
   
   const { date, time } = matched;
-  
-  console.log(`[SELECT_TIMESLOT] Matched: ${date} at ${time}`);
-  
-  try {
-    // Set timeslot via API
-    await ghSetTimeslot(session.sessionId, date, time);
-    
-    session.bookingDate = date;
-    session.bookingTime = time;
-    session.step = Step.NEED_CONTACT;
-    console.log(`[SELECT_TIMESLOT] ghSetTimeslot succeeded, saving step=need_contact to DB`);
-    await saveSession(conversationId, session);
-    
-    console.log('[SELECT_TIMESLOT] Timeslot set, need contact info');
-    
-    const dateNatural = formatDateNaturally(date);
-    const timeNatural = formatTimeNaturally(time);
 
-    const nextContactAsk = session.contactPhone
-      ? (session.contactEmail ? `What's your postcode?` : `Can I grab your email address?`)
-      : `Can I just grab a contact number?`;
-    return `Timeslot set: ${dateNatural} at ${timeNatural}.\n\nSay: "I've got ${dateNatural} at ${timeNatural} available — shall I confirm that for you?"\nIf yes → say "Perfect, you're booked in! ${nextContactAsk}" and wait for their response.\nIf they want a different time → call select_timeslot again with their new preference.`;
-    
-  } catch (error: any) {
-    console.error('[SELECT_TIMESLOT] API error:', error);
-    return `Failed to set timeslot.\nSay: "Let me take your number and the team will confirm that time." Then call take_message.`;
+  console.log(`[SELECT_TIMESLOT] Matched: ${date} at ${time}`);
+
+  // Check if the preference message also contains a note (e.g. "tomorrow at 8:30, also got a knocking noise")
+  const rawPref: string = args.preference || '';
+  const notePattern = /(?:also|and|btw|by the way|ps|p\.s\.?|additionally|there[''s]*s?|it[''s]*s?|she[''s]*s?)\s+(.{10,})/i;
+  const noteInPref = rawPref.match(notePattern);
+  if (noteInPref) {
+    session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${noteInPref[1].trim()}`;
+    console.log(`[SELECT_TIMESLOT] Extracted note from preference: ${noteInPref[1].trim()}`);
   }
+
+  // Store as pending slot — don't book yet, ask customer to confirm first
+  session.pendingSlotDate = date;
+  session.pendingSlotTime = time;
+  session.step = Step.NEED_SLOT_CONFIRM;
+  console.log(`[SELECT_TIMESLOT] Pending slot set: ${date} at ${time}, waiting for confirmation`);
+  await saveSession(conversationId, session);
+
+  const dateNatural = formatDateNaturally(date);
+  const timeNatural = formatTimeNaturally(time);
+
+  return `Proposed slot: ${dateNatural} at ${timeNatural}.
+
+Say ONLY: "I've got ${dateNatural} at ${timeNatural} — does that work for you?" and STOP. Do not ask for contact details yet. Wait for them to confirm.`;
 }
 
 async function handleSetContactInfo(args: any, session: ChatSession, conversationId: string): Promise<string> {

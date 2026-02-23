@@ -879,14 +879,23 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
     session.step = Step.MESSAGE_ONLY;
     await saveSession(conversationId, session);
     console.log(`[SAVE_NAME] Session saved for message intent`);
-    return `Customer wants to leave a message.\nSay: "Sure thing ${first_name}, what can I help you with?"\nWait for their message, then call take_message.`;
+    const hourLondon2 = parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }), 10);
+    const timeGreeting2 = hourLondon2 < 12 ? 'morning' : hourLondon2 < 17 ? 'afternoon' : 'evening';
+    const firstName2 = first_name.charAt(0).toUpperCase() + first_name.slice(1).toLowerCase();
+    return `Customer wants to leave a message.\nSay: "Good ${timeGreeting2}, ${firstName2}! What can I help you with?"\nWait for their message, then call take_message.`;
   }
   
   // Booking or quote flow
   session.step = Step.NEED_VRN;
   await saveSession(conversationId, session);
   console.log(`[SAVE_NAME] Session saved for booking intent`);
-  return `Name saved: ${first_name} ${last_name}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay: "Nice to meet you ${first_name}! What's your reg?"\nWait for registration, then call lookup_vehicle.`;
+
+  // Build a time-appropriate greeting so Leah sounds human and aware of the time of day
+  const hourLondon = parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }), 10);
+  const timeGreeting = hourLondon < 12 ? 'morning' : hourLondon < 17 ? 'afternoon' : 'evening';
+  const firstName = first_name.charAt(0).toUpperCase() + first_name.slice(1).toLowerCase();
+
+  return `Name saved: ${firstName}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay two separate messages:\n1. "Good ${timeGreeting}, ${firstName}!" (warm, brief — just a greeting)\n2. "What's your vehicle registration?" (new bubble — just the question, nothing else)\nDo NOT combine them. Wait for registration, then call lookup_vehicle.`;
 }
 
 async function handleLookupVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {

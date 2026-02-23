@@ -742,7 +742,13 @@ function getNextContactInstruction(session: ChatSession): string {
 // Tool handlers (return instructions like voice agent)
 
 async function handleSaveCallerName(args: any, session: ChatSession, conversationId: string): Promise<string> {
-  const { first_name, last_name = '', intent, service_hint = '' } = args;
+  let { first_name, last_name = '', intent, service_hint = '' } = args;
+
+  // Strip noise words that creep in when customers type multiple things on one line
+  // e.g. "dandan" from "dan" + "quote", "v20alaquote" from reg + intent
+  const noiseWords = /\b(quote|booking|book|service|mot|call|please|thanks|hi|hello|hey)\b/gi;
+  first_name = (first_name || '').replace(noiseWords, '').replace(/\s+/g, ' ').trim();
+  last_name = (last_name || '').replace(noiseWords, '').replace(/\s+/g, ' ').trim();
 
   if (session.step === Step.NEED_CONTACT) {
     console.log('[STATE_GUARD] Ignoring save_caller_name during NEED_CONTACT');
@@ -1149,11 +1155,11 @@ When they choose, call select_timeslot again.`;
     
     const dateNatural = formatDateNaturally(date);
     const timeNatural = formatTimeNaturally(time);
-    
+
     const nextContactAsk = session.contactPhone
       ? (session.contactEmail ? `What's your postcode?` : `Can I grab your email address?`)
       : `Can I just grab a contact number?`;
-    return `Timeslot set: ${dateNatural} at ${timeNatural}.\n\nSay: "Perfect, I've got you booked for ${dateNatural} at ${timeNatural}. ${nextContactAsk}"\nWait for their response.`;
+    return `Timeslot set: ${dateNatural} at ${timeNatural}.\n\nSay: "I've got ${dateNatural} at ${timeNatural} available — shall I confirm that for you?"\nIf yes → say "Perfect, you're booked in! ${nextContactAsk}" and wait for their response.\nIf they want a different time → call select_timeslot again with their new preference.`;
     
   } catch (error: any) {
     console.error('[SELECT_TIMESLOT] API error:', error);

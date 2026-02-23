@@ -58,8 +58,10 @@ const updateUserSchema = z.object({
 });
 
 const ensureAdminAccessToGarage = async (garageId: string) => {
+  // Only grant access to RECEPTIONMATE_STAFF — not all ADMIN users,
+  // since each business has its own ADMIN users who should only see their own garages
   const admins = await prisma.user.findMany({
-    where: { role: 'ADMIN' },
+    where: { role: 'RECEPTIONMATE_STAFF' },
   });
 
   await Promise.all(

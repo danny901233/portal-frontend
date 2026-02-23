@@ -335,13 +335,35 @@ router.post(
 );
 
 // GET /api/billing/users-due - Get users due for billing
+// ?forecast=true returns all users with a billing date (past or future) for revenue forecast
 router.get(
   '/billing/users-due',
   authenticate,
   requireStaff,
   async (req: Request, res: Response) => {
     try {
-      const users = await findUsersDueForBilling();
+      const forecast = req.query.forecast === 'true';
+      let users;
+      if (forecast) {
+        // For forecast: return all users with active billing (any nextBillingDate)
+        users = await prisma.user.findMany({
+          where: {
+            nextBillingDate: { not: null },
+            gocardlessMandateId: { not: null },
+            mustSetupPayment: false,
+          },
+          select: {
+            id: true,
+            email: true,
+            billingCycleStartDate: true,
+            nextBillingDate: true,
+            garageAccessIds: true,
+            gocardlessMandateId: true,
+          },
+        });
+      } else {
+        users = await findUsersDueForBilling();
+      }
 
       // Fetch garage details for each user
       const usersWithGarages = await Promise.all(

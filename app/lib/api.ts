@@ -345,7 +345,7 @@ export const chargeInvoice = async (invoiceId: string): Promise<{ invoice: impor
 };
 
 export const fetchUsersDueForBilling = async (): Promise<{ users: any[] }> => {
-  const { data } = await api.get('/api/billing/users-due');
+  const { data } = await api.get('/api/billing/users-due?forecast=true');
   return data;
 };
 

@@ -969,17 +969,14 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     
     session.vrn = winningReg;
     session.sessionId = sessionId;
-    session.vehicleMake = make;
-    session.vehicleModel = model;
+    session.vehicleMake = make.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    session.vehicleModel = model.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     session.step = Step.CONFIRMING_VEHICLE;
     await saveSession(conversationId, session);
     
-    console.log(`[LOOKUP_VEHICLE] Found: ${make} ${model}, session: ${sessionId}`);
+    console.log(`[LOOKUP_VEHICLE] Found: ${session.vehicleMake} ${session.vehicleModel}, session: ${sessionId}`);
     
-    const makeTitle = make.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    const modelTitle = model.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    
-    return `Vehicle found: ${makeTitle} ${modelTitle} (${winningReg}).\nNOW call confirm_vehicle(confirmed=true) immediately — ZERO SPEECH. Do not wait for customer input.`;
+    return `Vehicle found: ${session.vehicleMake} ${session.vehicleModel} (${winningReg}).\nNOW call confirm_vehicle(confirmed=true) immediately — ZERO SPEECH. Do not wait for customer input.`;
     
   } catch (error: any) {
     console.error('[LOOKUP_VEHICLE] API error:', error);
@@ -2051,7 +2048,9 @@ RULES:
 - Keep responses short (1–2 sentences)
 - Address customer by first name only
 - Never invent booking details — only use what tools return
-- If you cannot proceed, offer to take a message for a callback\n`;
+- If you cannot proceed, offer to take a message for a callback
+- If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT call take_message, do NOT end the conversation
+- Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected\n`;
 
   return prompt;
 }

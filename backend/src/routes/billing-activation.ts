@@ -132,6 +132,37 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
       },
     });
 
+    // Create an invoice record for each active garage
+    if (paymentId) {
+      const costPerGarage = totalSubscriptionCost / activeGarages.length;
+      const vatPerGarage = costPerGarage * vatRate;
+      const totalPerGarage = costPerGarage + vatPerGarage;
+      for (const garage of activeGarages) {
+        await prisma.invoice.create({
+          data: {
+            garageId: garage.id,
+            periodStart: billingCycleStartDate,
+            periodEnd: nextBillingDate,
+            minutesUsed: 0,
+            minutesIncluded: 0,
+            smsCount: 0,
+            subscriptionAmount: Math.round(costPerGarage * 100),
+            minutesAmount: 0,
+            smsAmount: 0,
+            subtotal: Math.round(costPerGarage * 100),
+            vatAmount: Math.round(vatPerGarage * 100),
+            total: Math.round(totalPerGarage * 100),
+            subscriptionCostGbp: costPerGarage / 100,
+            costPerMinuteGbp: 0,
+            vatRate,
+            status: 'pending',
+            gocardlessPaymentId: paymentId,
+          },
+        });
+      }
+      console.log(`✅ Created ${activeGarages.length} invoice(s) for payment ${paymentId}`);
+    }
+
     res.json({
       success: true,
       message: 'Billing activated successfully',

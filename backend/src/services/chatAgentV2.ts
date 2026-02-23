@@ -297,29 +297,22 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
-    // Fast-path: timeslot selection — handle locally with matchTimeslot(), no OpenAI call needed
-    // (mirrors the Python voice agent's specialist_timeslot_match approach)
-    // Skip this fast-path if we're in NEED_BOOKING_CONFIRM (quote flow — waiting for yes/no)
+    // Fast-path: timeslot selection — only fire for clearly structured preferences.
+    // Anything ambiguous ("what about March?", "end of the week", "something later") falls through
+    // to OpenAI so natural language is handled properly.
     if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
-      const matched = matchTimeslot(message, session.timeslotsAvailable);
-      if (matched) {
-        const instructions = await handleSelectTimeslot({ preference: message }, session, conversationId);
-        return {
-          content: instructionToCustomerReply(instructions),
-          needsHumanAssistance: false,
-        };
-      } else {
-        // No match — show all available slots (up to 5) so customer can pick
-        const allSlots = session.timeslotsAvailable.slice(0, 5).map((t: any) =>
-          `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
-        ).join(', or ');
-        const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
-        const lastDate = formatDateNaturally(lastSlot.date);
-        return {
-          content: `I'm afraid our online availability only goes up to ${lastDate}. The slots I have are: ${allSlots} — which of those works for you?`,
-          needsHumanAssistance: false,
-        };
+      if (isClearTimeslotPreference(message)) {
+        const matched = matchTimeslot(message, session.timeslotsAvailable);
+        if (matched) {
+          const instructions = await handleSelectTimeslot({ preference: message }, session, conversationId);
+          return {
+            content: instructionToCustomerReply(instructions),
+            needsHumanAssistance: false,
+          };
+        }
+        // Clear preference but no matching slot — fall through to OpenAI to explain naturally
       }
+      // Ambiguous or no match — fall through to OpenAI with slots injected into context
     }
 
     // Fast-path: once a timeslot is booked, handle all contact collection locally (no OpenAI)
@@ -1665,6 +1658,25 @@ function formatTimeNaturally(timeStr: string): string {
   }
 }
 
+// Returns true only if the message is a clear, structured timeslot preference that
+// can be reliably matched locally (e.g. "Wednesday morning", "the first one", "8:30am").
+// Natural language like "what about March?", "end of the week", "something later" returns false
+// and gets routed to OpenAI instead.
+function isClearTimeslotPreference(msg: string): boolean {
+  const m = msg.toLowerCase().trim();
+  // Explicit day names
+  if (/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(m)) return true;
+  // "First", "earliest", "last", "ASAP"
+  if (/\b(first|earliest|asap|last one|last slot)\b/.test(m)) return true;
+  // "Today" / "Tomorrow"
+  if (/\b(today|tomorrow)\b/.test(m)) return true;
+  // Explicit time (e.g. "8:30", "9am", "1:30pm", "14:00")
+  if (/\b\d{1,2}(:\d{2})?\s*(am|pm)\b/.test(m) || /\b\d{2}:\d{2}\b/.test(m)) return true;
+  // Specific date like "25th", "the 26th", "25 Feb", "25/02"
+  if (/\b\d{1,2}(st|nd|rd|th)?\b/.test(m) && !/\bwhat\b|\babout\b|\bany\b|\bsomething\b/.test(m)) return true;
+  return false;
+}
+
 function matchTimeslot(preference: string, timeslots: any[]): any | null {
   if (!timeslots || timeslots.length === 0) return null;
 
@@ -1842,6 +1854,16 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], _isOpen: bo
     }).join('\n');
     prompt += `\nAVAILABLE SERVICES:\n${svcLines}\n`;
     prompt += `If the customer asks "what are the options", "what services do you offer", or "what are the prices", list these services with their prices naturally. Then ask what they need.\n`;
+  }
+
+  // ── Available timeslots — inject when in timeslot selection so OpenAI can handle any natural language ──
+  if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
+    const slotLines = session.timeslotsAvailable.map((t: any) =>
+      `- ${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)} (${t.date} ${t.time})`
+    ).join('\n');
+    const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
+    prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
+    prompt += `When the customer says what time they'd like, call select_timeslot with their preference. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
   }
 
   prompt += '\n';

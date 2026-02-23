@@ -554,9 +554,11 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
   // Treat as house number/name once we have postcode (no confirmation step needed)
   const isYes = /^(yes|yeah|yep|yup|correct|sure|ok|okay)$/i.test(text.trim());
   const isNo = /^(no|nope|wrong|incorrect)$/i.test(text.trim());
+  // Exclude VRN-like strings (e.g. V20ALA, AB12CDE) — letters+digits 5-8 chars with no spaces
+  const looksLikeVrn = /^[A-Z]{1,3}\d{1,4}[A-Z]{1,3}$/i.test(text.trim());
   const isLikelyHouseNumber = /^[A-Za-z0-9\-\s,\.]{1,40}$/.test(text) &&
     !emailMatch && !phoneMatch && !postcodeMatch &&
-    !isYes && !isNo &&
+    !isYes && !isNo && !looksLikeVrn &&
     !/^(thanks|cheers)$/i.test(text.trim());
 
   // Only capture as house number once we already have postcode saved
@@ -588,9 +590,8 @@ function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<
     if (!session.contactPostcode && extracted.postcode) {
       session.contactPostcode = extracted.postcode;
     }
-    if (!session.contactHouseNumber && extracted.houseNumber) {
-      session.contactHouseNumber = extracted.houseNumber;
-    }
+    // Note: houseNumber is NOT hydrated from history — it's always the last thing asked,
+    // and hydrating it from history causes VRNs (e.g. V20ALA) to be mistaken for house numbers.
   }
 
   // If we recovered any contact data and step is behind need_contact, advance it

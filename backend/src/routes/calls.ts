@@ -771,11 +771,13 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     }
 
     // Strategy 2: Fetch from Twilio API with smart matching
-    if (!call.customerPhone) {
+    // Prefer fromNumber (full E.164) over customerPhone (may be partial/truncated)
+    const phoneForTwilioLookup = call.fromNumber || call.customerPhone;
+    if (!phoneForTwilioLookup) {
       return res.status(404).json({ error: 'No customer phone number available for this call' });
     }
 
-    console.log(`[RECORDING] Strategy 2: Fetching from Twilio API for phone: ${call.customerPhone}`);
+    console.log(`[RECORDING] Strategy 2: Fetching from Twilio API for phone: ${phoneForTwilioLookup}`);
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -786,7 +788,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     }
 
     // Search for recent calls from this number
-    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?From=${encodeURIComponent(call.customerPhone)}&PageSize=20`;
+    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?From=${encodeURIComponent(phoneForTwilioLookup)}&PageSize=20`;
     const callsResponse = await fetch(callsUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),

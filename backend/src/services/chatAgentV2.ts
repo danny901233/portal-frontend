@@ -504,10 +504,27 @@ export async function getChatAgentResponse(
 
       // Hand off to fast-path if any tool transitioned us into NEED_CONTACT
       if (needContactFastPath) {
-        const contactArgs = extractContactArgsFromMessage(message, session);
-        const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
+        // Check if the tool result already contains a Say: instruction we should use directly
+        // (e.g. 0-timeslot path sets a specific "no availability" message)
+        const lastToolResult = messages.filter(m => m.role === 'tool').pop();
+        const toolContent = typeof lastToolResult?.content === 'string' ? lastToolResult.content : '';
+        const sayMatch = toolContent.match(/Say:\s*"([\s\S]*?)"/i);
+        if (sayMatch) {
+          return {
+            content: sayMatch[1].trim(),
+            needsHumanAssistance: false,
+          };
+        }
+        // Otherwise ask for the next missing contact field
+        const nextAsk = !session.contactPhone
+          ? `Can I just grab a contact number?`
+          : !session.contactEmail
+          ? `Can I grab your email address?`
+          : !session.contactPostcode
+          ? `What's your postcode?`
+          : `What's your house number or name?`;
         return {
-          content: instructionToCustomerReply(instructions),
+          content: nextAsk,
           needsHumanAssistance: false,
         };
       }

@@ -623,8 +623,22 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
+        name: 'confirm_booking',
+        description: 'Call this when customer responds to the "would you like to book?" question. confirmed=true if they want to proceed, false if not.',
+        parameters: {
+          type: 'object',
+          properties: {
+            confirmed: { type: 'boolean', description: 'True if customer wants to book, false if they just wanted the quote' },
+          },
+          required: ['confirmed'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'select_timeslot',
-        description: 'Select a booking timeslot based on customer preference.',
+        description: 'Select a booking timeslot based on customer preference. Only call this AFTER confirm_booking(confirmed=true) has been called AND the customer has named a specific date/time from the options you presented.',
         parameters: {
           type: 'object',
           properties: {
@@ -698,6 +712,9 @@ async function executeConversationalTool(
       
       case 'select_service':
         return await handleSelectService(args, session, conversationId);
+
+      case 'confirm_booking':
+        return await handleConfirmBooking(args, session, conversationId);
       
       case 'select_timeslot':
         return await handleSelectTimeslot(args, session, conversationId);
@@ -1068,7 +1085,8 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 
     // Quote flow vs booking flow
     if (session.intent === 'quote') {
-      return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"\nIMPORTANT: Wait for customer response BEFORE doing anything else.\nIf YES → SPEAK: "The earliest I have is ${firstSlots} — does one of those work for you?" — then STOP and wait for the customer to name a specific date/time. Do NOT call select_timeslot yet.\nOnly call select_timeslot AFTER the customer has replied with their chosen slot.\nIf NO → say "No problem! If you'd like to book it in later, just give us a call." then call take_message.`;
+      // Store slots in session but don't reveal them yet — wait for confirm_booking
+      return `QUOTE_READY: ${serviceName} is ${priceDisplay} for the ${makeTitle} ${modelTitle}.\nSay exactly: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"\nThen call confirm_booking with confirmed=true or confirmed=false based on their answer.`;
     }
 
     return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — does one of those work for you?"\nIMPORTANT: Wait for the customer to reply with a specific slot before calling select_timeslot. Do NOT call select_timeslot yet.`;
@@ -1077,6 +1095,27 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     console.error('[SELECT_SERVICE] API error:', error);
     return `Failed to set service.\nSay: "Let me take your details and the team will book that in for you." Then call take_message.`;
   }
+}
+
+async function handleConfirmBooking(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  const { confirmed } = args;
+
+  if (!confirmed) {
+    return `Customer declined booking. Say: "No problem! If you'd like to book it in later, just give us a call." Then call take_message with their phone number.`;
+  }
+
+  // Customer wants to book — present the timeslots
+  if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
+    return `No timeslots available. Say: "Let me take your details and the team will be in touch to get you booked in." Then call take_message.`;
+  }
+
+  const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) => {
+    const dateNatural = formatDateNaturally(t.date);
+    const timeNatural = formatTimeNaturally(t.time);
+    return `${dateNatural} at ${timeNatural}`;
+  }).join(', or ');
+
+  return `BOOKING_CONFIRMED: Customer wants to book.\nSay exactly: "The earliest I have is ${firstSlots} — does one of those work for you?"\nWait for the customer to name a specific slot, then call select_timeslot with their preference.`;
 }
 
 async function handleSelectTimeslot(args: any, session: ChatSession, conversationId: string): Promise<string> {

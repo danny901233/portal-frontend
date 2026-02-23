@@ -6,7 +6,7 @@ type CliOptions = {
   email?: string;
   garages?: string[];
   role?: BranchRole;
-  userRole?: 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
+  userRole?: 'MANAGER' | 'USER' | 'RECEPTIONMATE_STAFF';
   set?: boolean;
 };
 
@@ -33,8 +33,8 @@ const parseArgs = (): CliOptions => {
       i += 1;
     } else if (arg === '--user-role' && args[i + 1]) {
       const value = args[i + 1];
-      if (value !== 'ADMIN' && value !== 'USER' && value !== 'RECEPTIONMATE_STAFF') {
-        throw new Error(`Invalid user role "${value}". Use ADMIN, USER, or RECEPTIONMATE_STAFF.`);
+      if (value !== 'MANAGER' && value !== 'USER' && value !== 'RECEPTIONMATE_STAFF') {
+        throw new Error(`Invalid user role "${value}". Use MANAGER, USER, or RECEPTIONMATE_STAFF.`);
       }
       options.userRole = value;
       i += 1;

@@ -909,6 +909,7 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
     session.servicesAvailable = services;
     
     console.log(`[CONFIRM_VEHICLE] Fetched ${services.length} services`);
+    console.log(`[CONFIRM_VEHICLE] Services: ${services.map((s: any) => `${s.name}(${s.service_price_id})`).join(', ')}`);
     
     if (services.length === 0) {
       return `Vehicle confirmed but no services available.\nSay: "Let me grab your details and we'll give you a call back with a quote."\nThen call take_message.`;

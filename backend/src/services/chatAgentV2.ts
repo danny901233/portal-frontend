@@ -543,9 +543,12 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.phone = phoneMatch[0].replace(/\s+/g, '');
   }
 
-  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b/i);
-  if (!session.contactPostcode && postcodeMatch) {
-    args.postcode = postcodeMatch[1].toUpperCase();
+  // Accept any string that looks vaguely like a UK postcode — loose match so typos aren't treated as notes
+  // Full format: e.g. CV23 9AZ, B1 2AB, SW1A 2AA. Also catches typos like cv239z (missing space/letter)
+  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d?[A-Z]{0,2}\d{0,2}[A-Z]{0,2})\b/i);
+  const looksLikePostcode = !!postcodeMatch && postcodeMatch[1].length >= 4 && /\d/.test(postcodeMatch[1]) && /[A-Z]/i.test(postcodeMatch[1]);
+  if (!session.contactPostcode && looksLikePostcode && postcodeMatch) {
+    args.postcode = postcodeMatch[1].replace(/\s+/g, '').toUpperCase();
   }
 
   // Treat as house number/name once we have postcode (no confirmation step needed)
@@ -1293,9 +1296,17 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
         session.contactPostcode = postcode;
         console.log(`[SET_CONTACT] Postcode accepted but no geo data`);
       }
-    } catch (error) {
-      session.contactPostcode = postcode;
-      console.log(`[SET_CONTACT] Postcode lookup failed, using anyway`);
+    } catch (error: any) {
+      // 404 = invalid postcode — ask the customer to check it rather than silently saving
+      const status = error?.response?.status;
+      if (status === 404) {
+        console.log(`[SET_CONTACT] Invalid postcode "${cleanPostcode}" (404), asking customer to retry`);
+        // Don't save — just fall through so the "Need postcode" branch fires again
+      } else {
+        // Network or other error — accept it and move on
+        session.contactPostcode = postcode;
+        console.log(`[SET_CONTACT] Postcode lookup failed (${status || 'network'}), using anyway`);
+      }
     }
   }
   if (houseNumber && !session.contactHouseNumber) {
@@ -1319,7 +1330,11 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   
   if (!session.contactPostcode) {
     console.log(`[SET_CONTACT] Need: postcode`);
-    return `Need postcode.\n\nSay: "What's your postcode?"\nWait for postcode.`;
+    const hadAttempt = postcode && postcode.length > 0;
+    const msg = hadAttempt
+      ? `Hmm, I couldn't find that postcode — could you double-check it?`
+      : `What's your postcode?`;
+    return `Need postcode.\n\nSay: "${msg}"\nWait for postcode.`;
   }
   
   // After postcode saved, ask for house number directly and confirm the area

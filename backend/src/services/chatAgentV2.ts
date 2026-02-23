@@ -1066,7 +1066,12 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     const priceNum = parseFloat(String(price));
     const priceDisplay = (!price || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
 
-    return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. When suits you? The earliest I have is ${firstSlots}."\nWait for their preference, then call select_timeslot.`;
+    // Quote flow vs booking flow
+    if (session.intent === 'quote') {
+      return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"\nIf YES → say "The earliest I have is ${firstSlots} — does one of those work for you?" and wait for their preference, then call select_timeslot.\nIf NO → say "No problem! If you'd like to book it in later, just give us a call." then call take_message.`;
+    }
+
+    return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — does one of those work for you?"\nWait for their preference, then call select_timeslot.`;
     
   } catch (error: any) {
     console.error('[SELECT_SERVICE] API error:', error);

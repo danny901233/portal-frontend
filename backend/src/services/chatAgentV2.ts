@@ -864,7 +864,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     const makeTitle = make.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = model.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     
-    return `Vehicle found: ${makeTitle} ${modelTitle} (${winningReg}).\n\nSay: "Perfect! I've got your ${makeTitle} ${modelTitle}. What work does it need?"\nThen call confirm_vehicle(confirmed=true) with ZERO SPEECH.`;
+    return `Vehicle found: ${makeTitle} ${modelTitle} (${winningReg}).\nNOW call confirm_vehicle(confirmed=true) immediately — ZERO SPEECH. Do not wait for customer input.`;
     
   } catch (error: any) {
     console.error('[LOOKUP_VEHICLE] API error:', error);
@@ -915,11 +915,18 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
       return `Vehicle confirmed but no services available.\nSay: "Let me grab your details and we'll give you a call back with a quote."\nThen call take_message.`;
     }
     
-    const serviceList = services.slice(0, 5).map((s: any, i: number) => 
-      `${i + 1}. ${s.name} - £${s.price}`
-    ).join('\n');
+    const serviceList = services.slice(0, 5).map((s: any, i: number) => {
+      const p = s.price || 0;
+      let priceStr = '';
+      if (!s.hide_service_prices && p > 0) {
+        if (s.estimate) priceStr = ` — from around £${p}`;
+        else if (s.from_price) priceStr = ` — from £${p}`;
+        else priceStr = ` — £${p}`;
+      }
+      return `${i + 1}. ${s.name}${priceStr}`;
+    }).join('\n');
     
-    return `Vehicle confirmed: ${session.vehicleMake} ${session.vehicleModel}.\n${services.length} services available.\n\nTop services:\n${serviceList}\n\nDon't list all services - just ask naturally: "So what work needs doing?"\nWait for their answer, then call select_service with the service name they mention.`;
+    return `Vehicle confirmed: ${session.vehicleMake} ${session.vehicleModel}.\n${services.length} services available.\n\nTop services:\n${serviceList}\n\nSay: "Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel}. What work does it need?"\nWait for their answer, then call select_service with the service name they mention.`;
     
   } catch (error: any) {
     console.error('[CONFIRM_VEHICLE] Failed to fetch services:', error);
@@ -1398,7 +1405,16 @@ async function ghSetContactInfo(sessionId: string, contactInfo: any): Promise<an
 // ── Specialist: GPT-4o-mini service advisor (mirrors Python specialist_service_match) ──
 async function specialistServiceMatch(callerText: string, services: any[]): Promise<{ service: any; reason: string } | null> {
   if (!services.length || !callerText) return null;
-  const svcList = services.map((s: any) => `- ${s.name} (£${s.price})`).join('\n');
+  const svcList = services.map((s: any) => {
+    const p = s.price || 0;
+    let priceStr = '';
+    if (!s.hide_service_prices && p > 0) {
+      if (s.estimate) priceStr = ` (from around £${p})`;
+      else if (s.from_price) priceStr = ` (from £${p})`;
+      else priceStr = ` (£${p})`;
+    }
+    return `- ${s.name}${priceStr}`;
+  }).join('\n');
   const systemPrompt = `You are an automotive service advisor at a UK garage.
 Given the customer's description and the available services, pick the single most suitable service.
 
@@ -1745,7 +1761,7 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], _isOpen: bo
   prompt += `BOOKING FLOW (follow in order):
 1. Get customer name + intent → call save_caller_name
 2. Get vehicle registration → call lookup_vehicle
-3. Confirm vehicle is correct → call confirm_vehicle (automatically calls select_service next)
+3. IMMEDIATELY call confirm_vehicle(confirmed=true) — do NOT wait for customer input, do NOT ask them to confirm, just call it silently
 4. Customer says what work is needed → call select_service
 5. Offer timeslots from tool response → handled automatically, no tool call needed from you
 6. Contact details collected automatically after timeslot
@@ -1753,6 +1769,8 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], _isOpen: bo
 
 RULES:
 - Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases
+- NEVER answer questions about services/prices from your own knowledge — only use what tools return after confirm_vehicle has been called
+- If the customer asks about services or prices before confirm_vehicle is called, call confirm_vehicle(confirmed=true) first silently, then answer using the tool result
 - Keep responses short (1–2 sentences)
 - Address customer by first name only
 - Never invent booking details — only use what tools return

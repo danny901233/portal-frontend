@@ -1702,14 +1702,33 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
   }
 
-  // Named day — "Monday", "Wednesday morning", etc.
+  // Named day — with "next" prefix means skip to the week AFTER the coming occurrence
+  // e.g. today=Sunday 23 Feb, "next thursday" = 5 Mar (not 26 Feb which is "this thursday")
   const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const isNext = /\bnext\b/.test(prefLower);
   for (const dayName of dayNames) {
     if (new RegExp(`\\b${dayName}\\b`).test(prefLower)) {
-      const matches = timeslots.filter(t => {
-        const d = new Date(t.date + 'T12:00:00');
-        return d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase() === dayName;
-      });
+      const today = new Date();
+      const todayDow = today.getDay(); // 0=Sun
+      const targetDow = dayNames.indexOf(dayName);
+
+      // How many days until the next occurrence of targetDow
+      let daysUntil = (targetDow - todayDow + 7) % 7;
+      if (daysUntil === 0) daysUntil = 7; // "thursday" when today is thursday = next week
+
+      // "next thursday" skips past the coming one to the one after
+      if (isNext && daysUntil <= 7) daysUntil += 7;
+
+      const target = new Date(today);
+      target.setDate(today.getDate() + daysUntil);
+      const targetDateStr = target.toISOString().split('T')[0];
+
+      // Find slots on that exact date, or the nearest date after it
+      let matches = timeslots.filter(t => t.date === targetDateStr);
+      if (matches.length === 0) {
+        // No exact match — find closest slot on or after the target date
+        matches = timeslots.filter(t => t.date >= targetDateStr);
+      }
       if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
     }
   }

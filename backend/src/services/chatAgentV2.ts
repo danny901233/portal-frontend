@@ -1041,7 +1041,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
     
     if (timeslots.length === 0) {
-      return `Service set: ${serviceName} (£${price}).\nNo timeslots available.\nSay: "We're quite busy at the moment. Let me take your number and the team will call you with availability." Then call take_message.`;
+      return `Service set: ${serviceName} (£${price}).\nNo timeslots available.\nSay: "I don't have any online availability showing right now — let me take your details and one of the team will be in touch to get you booked in." Then call take_message.`;
     }
     
     const firstSlots = timeslots.slice(0, 3).map((t: any) => {

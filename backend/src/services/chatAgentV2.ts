@@ -1680,21 +1680,31 @@ function isClearTimeslotPreference(msg: string): boolean {
 function matchTimeslot(preference: string, timeslots: any[]): any | null {
   if (!timeslots || timeslots.length === 0) return null;
 
-  const prefLower = preference.toLowerCase();
+  const prefLower = preference.toLowerCase().trim();
 
-  // Extract a specific time mention like "1:30pm", "9am", "14:00"
+  // Extract a time-of-day hour from text — only matches valid hours (0-23) with am/pm,
+  // or HH:MM format. Ignores bare numbers that could be day-of-month (e.g. "25th").
   function extractPrefHour(text: string): number | null {
-    const m = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-    if (!m) return null;
-    let h = parseInt(m[1]);
-    const meridiem = (m[3] || '').toLowerCase();
-    if (meridiem === 'pm' && h < 12) h += 12;
-    if (meridiem === 'am' && h === 12) h = 0;
-    return h;
+    // HH:MM — always a time
+    const hhmm = text.match(/\b(\d{1,2}):(\d{2})\b/);
+    if (hhmm) {
+      let h = parseInt(hhmm[1]);
+      if (h >= 0 && h <= 23) return h;
+    }
+    // Number followed by am/pm — always a time
+    const ampm = text.match(/\b(\d{1,2})\s*(am|pm)\b/i);
+    if (ampm) {
+      let h = parseInt(ampm[1]);
+      const mer = ampm[2].toLowerCase();
+      if (mer === 'pm' && h < 12) h += 12;
+      if (mer === 'am' && h === 12) h = 0;
+      if (h >= 0 && h <= 23) return h;
+    }
+    return null; // Don't extract bare numbers — they're probably dates
   }
 
   function closestByTime(candidates: any[], prefHour: number | null): any {
-    if (!prefHour || candidates.length === 1) return candidates[0];
+    if (prefHour === null || candidates.length === 1) return candidates[0];
     return candidates.reduce((best, t) => {
       const tH = parseInt(t.time.split(':')[0]);
       const bH = parseInt(best.time.split(':')[0]);
@@ -1703,91 +1713,89 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   }
 
   // "First", "earliest", "ASAP"
-  if (prefLower.includes('first') || prefLower.includes('earliest') || prefLower.includes('asap')) {
-    return timeslots[0];
+  if (/\b(first|earliest|asap|soonest)\b/.test(prefLower)) return timeslots[0];
+
+  // "Last", "latest"
+  if (/\b(last|latest)\b/.test(prefLower)) return timeslots[timeslots.length - 1];
+
+  // "Later", "after that", "something later", "end of the week", "next month"
+  if (/\b(later|after that|end of|next month|further out|something later)\b/.test(prefLower)) {
+    const ph = extractPrefHour(prefLower);
+    return closestByTime(timeslots, ph) ?? timeslots[timeslots.length - 1];
   }
 
-  // Named day — "Monday", "Tuesday", etc.
+  // "Today" / "Tomorrow"
+  if (/\btoday\b/.test(prefLower)) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const matches = timeslots.filter(t => t.date === todayStr);
+    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+  }
+  if (/\btomorrow\b/.test(prefLower)) {
+    const d = new Date(); d.setDate(d.getDate() + 1);
+    const matches = timeslots.filter(t => t.date === d.toISOString().split('T')[0]);
+    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+  }
+
+  // "Next week"
+  if (/\bnext week\b/.test(prefLower)) {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    const matches = timeslots.filter(t => t.date >= d.toISOString().split('T')[0]);
+    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+  }
+
+  // Named day — "Monday", "Wednesday morning", etc.
   const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
   for (const dayName of dayNames) {
-    if (prefLower.includes(dayName)) {
+    if (new RegExp(`\\b${dayName}\\b`).test(prefLower)) {
       const matches = timeslots.filter(t => {
-        const d = new Date(t.date);
+        const d = new Date(t.date + 'T12:00:00');
         return d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase() === dayName;
       });
       if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
     }
   }
 
-  // "Tomorrow"
-  if (prefLower.includes('tomorrow')) {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
-    const matches = timeslots.filter(t => t.date === tomorrowStr);
-    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
-  }
-
-  // "Today"
-  if (prefLower.includes('today')) {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const matches = timeslots.filter(t => t.date === todayStr);
-    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
-  }
-
-  // "Next week" — skip to slots 7+ days away
-  if (prefLower.includes('next week')) {
-    const nextWeek = new Date();
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    const nwStr = nextWeek.toISOString().split('T')[0];
-    const matches = timeslots.filter(t => t.date >= nwStr);
-    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
-  }
-
-  // Month name — "March", "April", etc.
+  // Month name — "March", "in April", etc.
   const monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
   for (let mi = 0; mi < monthNames.length; mi++) {
-    if (prefLower.includes(monthNames[mi])) {
-      const matches = timeslots.filter(t => {
-        const d = new Date(t.date);
-        return d.getMonth() === mi;
-      });
+    if (new RegExp(`\\b${monthNames[mi]}\\b`).test(prefLower)) {
+      const matches = timeslots.filter(t => new Date(t.date + 'T12:00:00').getMonth() === mi);
       if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
-      // Month requested but no slots in that month — return null so we tell the customer
-      return null;
+      return null; // Month exists in preference but no slots — let OpenAI explain
     }
   }
 
-  // "Later", "after that", "something later", "end of the week", "next month"
-  if (prefLower.includes('later') || prefLower.includes('after that') || prefLower.includes('end of') || prefLower.includes('next month') || prefLower.includes('further')) {
-    // Return the last available slot
-    const prefHourLate = extractPrefHour(prefLower);
-    if (prefHourLate !== null) return closestByTime(timeslots, prefHourLate);
-    return timeslots[timeslots.length - 1];
+  // Specific day-of-month — "the 25th", "25th", "25 Feb", "on the 26th"
+  // Extract day number (only 1–31) preceded/followed by ordinal or slash-date pattern
+  const dayOfMonthMatch = prefLower.match(/\b(\d{1,2})(st|nd|rd|th)?\b/);
+  if (dayOfMonthMatch) {
+    const dayNum = parseInt(dayOfMonthMatch[1]);
+    if (dayNum >= 1 && dayNum <= 31) {
+      const matches = timeslots.filter(t => {
+        const d = new Date(t.date + 'T12:00:00');
+        return d.getDate() === dayNum;
+      });
+      if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    }
   }
 
-  // "Morning" (before 12:00)
-  if (prefLower.includes('morning')) {
+  // "Morning" / "Afternoon" / "Evening"
+  if (/\bmorning\b/.test(prefLower)) {
     const matches = timeslots.filter(t => parseInt(t.time.split(':')[0]) < 12);
     if (matches.length > 0) return matches[0];
   }
-
-  // "Afternoon" (12:00–17:00)
-  if (prefLower.includes('afternoon')) {
-    const matches = timeslots.filter(t => {
-      const h = parseInt(t.time.split(':')[0]);
-      return h >= 12 && h < 17;
-    });
+  if (/\b(afternoon|pm)\b/.test(prefLower)) {
+    const matches = timeslots.filter(t => parseInt(t.time.split(':')[0]) >= 12);
     if (matches.length > 0) return matches[0];
   }
 
-  // Specific time only (e.g. "1:30pm", "9am") — find closest across all slots
+  // Specific time (HH:MM or Xam/Xpm) — find closest slot across all dates
   const prefHour = extractPrefHour(prefLower);
   if (prefHour !== null) {
     return closestByTime(timeslots, prefHour);
   }
 
-  // No match found — return null so GPT is told to ask again
+  // No match found — fall through to OpenAI
   return null;
 }
 

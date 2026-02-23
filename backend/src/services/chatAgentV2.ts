@@ -581,8 +581,11 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
   // Crucially the inward section must start with a digit — this prevents VRNs like V20ALA matching
   // Also accepts typos missing the last 1-2 chars (e.g. cv239z, cv239)
   const postcodeMatch = text.match(/\b([A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{0,2})\b/i);
-  // Reject if it looks like a VRN (no space, ends in letters only, typical VRN pattern)
-  const looksLikeVrnPostcode = postcodeMatch && /^[A-Z]{1,3}\d{1,4}[A-Z]{1,3}$/i.test(postcodeMatch[1].replace(/\s/g, ''));
+  // Reject if it looks like a VRN: letters+digits+letters pattern BUT does NOT end in digit+2letters (inward code)
+  // e.g. V20ALA = VRN (ends in ALA not 0AL), cv339bt = postcode (ends in 9BT — digit+2letters ✓)
+  const looksLikeVrnPostcode = postcodeMatch &&
+    /^[A-Z]{1,3}\d{1,4}[A-Z]{1,3}$/i.test(postcodeMatch[1].replace(/\s/g, '')) &&
+    !/\d[A-Z]{2}$/i.test(postcodeMatch[1].replace(/\s/g, ''));
   const looksLikePostcode = !!postcodeMatch && !looksLikeVrnPostcode && postcodeMatch[1].length >= 4;
   if (!session.contactPostcode && looksLikePostcode && postcodeMatch) {
     args.postcode = postcodeMatch[1].replace(/\s+/g, '').toUpperCase();
@@ -591,8 +594,8 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
   // Treat as house number/name once we have postcode (no confirmation step needed)
   const isYes = /^(yes|yeah|yep|yup|correct|sure|ok|okay)$/i.test(text.trim());
   const isNo = /^(no|nope|wrong|incorrect)$/i.test(text.trim());
-  // Exclude VRN-like strings (e.g. V20ALA, AB12CDE) — letters+digits 5-8 chars with no spaces
-  const looksLikeVrn = /^[A-Z]{1,3}\d{1,4}[A-Z]{1,3}$/i.test(text.trim());
+  // Exclude VRN-like strings (e.g. V20ALA, AB12CDE) — letters+digits+letters but NOT ending in digit+2letters
+  const looksLikeVrn = /^[A-Z]{1,3}\d{1,4}[A-Z]{1,3}$/i.test(text.trim()) && !/\d[A-Z]{2}$/i.test(text.trim());
   const isLikelyHouseNumber = /^[A-Za-z0-9\-\s,\.]{1,40}$/.test(text) &&
     !emailMatch && !phoneMatch && !postcodeMatch &&
     !isYes && !isNo && !looksLikeVrn &&

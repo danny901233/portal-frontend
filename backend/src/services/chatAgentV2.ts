@@ -426,7 +426,7 @@ export async function getChatAgentResponse(
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           return await getOpenAI().chat.completions.create({
-            model: 'gpt-4.5-preview',
+            model: 'gpt-4.1',
             messages: msgs,
             temperature: temp,
             max_tokens: 300,
@@ -1980,6 +1980,19 @@ TONE EXAMPLES:
   if (config.branchAddress) prompt += `Address: ${config.branchAddress}\n`;
   if (config.phoneNumber) prompt += `Phone: ${config.phoneNumber}\n`;
   if (openingHoursSummary) prompt += `Opening hours: ${openingHoursSummary}\n`;
+
+  // ── Current date & time (London) ─────────────────────────────────────────
+  const nowLondon = new Date().toLocaleString('en-GB', {
+    timeZone: 'Europe/London',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  prompt += `Current date and time: ${nowLondon}\n`;
   prompt += '\n';
 
   // ── Knowledge base — only before vehicle is looked up to keep token count low ──

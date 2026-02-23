@@ -1168,7 +1168,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
         ? (session.contactEmail ? `What's your postcode?` : `Can I grab your email address?`)
         : `Can I just grab a contact number?`;
       return `No online slots for ${serviceName}.
-Say: "I don't have any online availability for that right now — let me take your details and someone will call you to get you booked in. ${nextAsk}"
+Say: "I'm sorry, I don't have any online availability showing for that at the moment — it could be the team need to assess it first. Let me take your details and someone will give you a call to get you sorted. ${nextAsk}"
 Wait for their response.`;
     }
     
@@ -1645,11 +1645,23 @@ const SYMPTOM_KEYWORDS = [
   'fault','wrong','broken','not working',"won't",'doesn\'t',"can't",'struggling',
   'rough','stuttering','hesitat','cutting out','loss of power','no power','limp',
   'stall','misfire','sluggish','gearbox','clutch','suspension','handling',
+  'bearing','wheel bearing','hub','steering','drifting','pulling','tyre','tire',
+  'brake','braking','stopping','creaking','rubbing','grinding','scraping',
 ];
 
 async function specialistDiagnosticQuestions(symptomText: string): Promise<string[] | null> {
   const lower = symptomText.toLowerCase();
-  if (!SYMPTOM_KEYWORDS.some(k => lower.includes(k))) return null;
+
+  // Skip diagnostic questions for clearly named standard services (MOT, oil change, etc.)
+  const standardServices = /^\s*(mot|oil change|oil service|full service|interim service|major service|tyre(s)?|tire(s)?|tyre change|wheel alignment|wheel balancing|battery|bulb|wiper|air con|air conditioning|recharge|flush|brake pads|brake discs|brake fluid|coolant flush|gearbox oil|transmission service)\s*$/i;
+  if (standardServices.test(lower)) return null;
+
+  // Check for symptom keywords OR specific parts that need diagnostic questions
+  const hasSymptomKeyword = SYMPTOM_KEYWORDS.some(k => lower.includes(k));
+  // Also run diagnostic if it mentions a specific part but not as a clear replacement request
+  const mentionsPart = /bearing|hub|joint|cv|driveshaft|caliper|shock|strut|arm|ball|link|mount/i.test(lower);
+
+  if (!hasSymptomKeyword && !mentionsPart) return null;
 
   const systemPrompt = `You are a diagnostic specialist at a UK garage.
 The customer has described a symptom. Generate 2–3 short follow-up questions to help diagnose it.

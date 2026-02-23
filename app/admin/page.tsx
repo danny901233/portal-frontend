@@ -1252,7 +1252,7 @@ export default function AdminPage() {
                   className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
                 >
                   <option value="USER">Standard user</option>
-                  <option value="ADMIN">Branch admin (manager)</option>
+                  <option value="MANAGER">Manager</option>
                   <option value="RECEPTIONMATE_STAFF">ReceptionMate staff</option>
                 </select>
                 <p className="text-xs text-slate-500">

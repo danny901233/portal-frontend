@@ -13,7 +13,7 @@ function requireManager(req: Request, res: Response, next: Function) {
   const branchRoles = req.user?.branchRoles || {};
   const isManager = Object.values(branchRoles).some((role) => role === 'MANAGER');
 
-  if (!isManager && req.user?.role !== 'ADMIN' && req.user?.role !== 'RECEPTIONMATE_STAFF') {
+  if (!isManager && req.user?.role !== 'MANAGER' && req.user?.role !== 'RECEPTIONMATE_STAFF') {
     return res.status(403).json({ error: 'Manager access required' });
   }
 
@@ -24,7 +24,7 @@ function requireManager(req: Request, res: Response, next: Function) {
  * Get user's managed garage IDs
  */
 function getManagedGarageIds(req: Request): string[] {
-  if (req.user?.role === 'ADMIN' || req.user?.role === 'RECEPTIONMATE_STAFF') {
+  if (req.user?.role === 'MANAGER' || req.user?.role === 'RECEPTIONMATE_STAFF') {
     // Admins and staff see all garages they have access to
     return req.user.garageIds || [];
   }

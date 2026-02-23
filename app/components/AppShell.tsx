@@ -20,6 +20,7 @@ import {
   getUserEmail,
   getUserId,
   isAdmin,
+  isManager,
   isReceptionMateStaff,
   setGarageId,
   setGarages,
@@ -131,7 +132,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setUserIdState(id);
     setGarageIdState(storedGarageId);
     setIsStaffUser(isReceptionMateStaff());
-    setIsAdminUser(isAdmin());
+    setIsAdminUser(isManager());
 
     if (storedGarages.length > 0) {
       setGaragesState(storedGarages);
@@ -317,6 +318,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         showAdminLink={isStaffUser}
         hasMessagingAccess={hasMessagingAccess}
         hasManagerAccess={managedGarageIds.length > 0}
+        isManagerUser={isStaffUser || isAdminUser}
         messagesNeedingAttention={messagesNeedingAttention}
       />
       <div className="flex flex-1 flex-col">

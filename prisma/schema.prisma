@@ -281,7 +281,7 @@ model SocialMediaConnection {
 }
 
 enum UserRole {
-  ADMIN
+  MANAGER
   USER
   RECEPTIONMATE_STAFF
 }

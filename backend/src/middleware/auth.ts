@@ -7,7 +7,7 @@ interface JwtPayload {
   email: string;
   garageIds?: string[];
   garageId?: string;
-  role?: 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
+  role?: 'MANAGER' | 'USER' | 'RECEPTIONMATE_STAFF';
   branchRoles?: Record<string, BranchRole>;
 }
 
@@ -66,6 +66,14 @@ export const authenticateApiKey = (req: Request, res: Response, next: NextFuncti
 export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user || req.user.role !== 'RECEPTIONMATE_STAFF') {
     return res.status(403).json({ error: 'ReceptionMate staff access required' });
+  }
+  next();
+};
+
+// Requires MANAGER or RECEPTIONMATE_STAFF — blocks plain USER role
+export const requireManager = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user || (req.user.role !== 'MANAGER' && req.user.role !== 'RECEPTIONMATE_STAFF')) {
+    return res.status(403).json({ error: 'Manager access required' });
   }
   next();
 };

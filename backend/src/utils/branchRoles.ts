@@ -1,5 +1,5 @@
 export type BranchRole = 'MANAGER' | 'USER';
-export type UserRole = 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
+export type UserRole = 'MANAGER' | 'USER' | 'RECEPTIONMATE_STAFF';
 
 const isBranchRoleValue = (value: unknown): value is BranchRole => value === 'MANAGER' || value === 'USER';
 
@@ -26,7 +26,7 @@ export const isManagerForGarage = (
     return false;
   }
 
-  if (payload.role === 'ADMIN') {
+  if (payload.role === 'MANAGER') {
     return true;
   }
 

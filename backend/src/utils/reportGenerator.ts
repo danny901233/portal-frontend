@@ -81,10 +81,10 @@ export const generateWeeklyReports = async (): Promise<void> => {
 
   console.log(`Report period: ${formatDate(startDate)} - ${formatDate(endDate)}`);
 
-  // Find all ADMIN users
+  // Find all MANAGER users
   const admins = await prisma.user.findMany({
     where: {
-      role: 'ADMIN',
+      role: 'MANAGER',
     },
   });
 
@@ -153,10 +153,10 @@ export const generateMonthlyReports = async (): Promise<void> => {
 
   console.log(`Report period: ${month} ${year}`);
 
-  // Find all ADMIN users
+  // Find all MANAGER users
   const admins = await prisma.user.findMany({
     where: {
-      role: 'ADMIN',
+      role: 'MANAGER',
     },
   });
 

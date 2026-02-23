@@ -44,14 +44,14 @@ const branchRolesSchema = z.record(branchRoleEnum);
 const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
-  role: z.enum(['ADMIN', 'USER', 'RECEPTIONMATE_STAFF']),
+  role: z.enum(['MANAGER', 'USER', 'RECEPTIONMATE_STAFF']),
   garageAccessIds: z.array(z.string().uuid()).min(1),
   branchRoles: branchRolesSchema.optional(),
 });
 
 const updateUserSchema = z.object({
   password: z.string().min(8).optional(),
-  role: z.enum(['ADMIN', 'USER', 'RECEPTIONMATE_STAFF']).optional(),
+  role: z.enum(['MANAGER', 'USER', 'RECEPTIONMATE_STAFF']).optional(),
   garageAccessIds: z.array(z.string().uuid()).optional(),
   branchRoles: branchRolesSchema.optional(),
   mustSetupPayment: z.boolean().optional(),
@@ -590,7 +590,7 @@ const completeOnboardingSchema = z.object({
   twilioNumber: z.string().min(1).max(100).optional(),
   userEmail: z.string().email(),
   userPassword: z.string().min(8).optional(),
-  userRole: z.enum(['USER', 'ADMIN']).optional().default('USER'),
+  userRole: z.enum(['USER', 'MANAGER']).optional().default('USER'),
 });
 
 const DEFAULT_PASSWORD = 'Nomoremissedcalls';

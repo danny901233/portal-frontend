@@ -15,7 +15,7 @@ const baseNavigation = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Calls', href: '/calls' },
   { name: 'Messages', href: '/messages' },
-  { name: 'Agent Configurations', href: '/agent-configurations' },
+  { name: 'Agent Configurations', href: '/agent-configurations', requiresManager: true },
   { name: 'Billing', href: '/billing' },
 ];
 
@@ -28,12 +28,14 @@ export default function Sidebar({
   showAdminLink = false,
   hasMessagingAccess = false,
   hasManagerAccess = false,
+  isManagerUser = false,
   messagesNeedingAttention = 0,
 }: {
   activePath: string;
   showAdminLink?: boolean;
   hasMessagingAccess?: boolean;
   hasManagerAccess?: boolean;
+  isManagerUser?: boolean;
   messagesNeedingAttention?: number;
 }) {
   const items = useMemo(() => {
@@ -46,6 +48,10 @@ export default function Sidebar({
       // Only show Billing link if user is a manager
       if (item.href === '/billing') {
         return hasManagerAccess;
+      }
+      // Agent Configurations only for managers and staff
+      if (item.requiresManager) {
+        return isManagerUser;
       }
       return true;
     });

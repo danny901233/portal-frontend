@@ -111,7 +111,9 @@ export const getUserRole = (): UserRole | null => {
 };
 
 export const isReceptionMateStaff = () => getUserRole() === 'RECEPTIONMATE_STAFF';
-export const isAdmin = () => getUserRole() === 'ADMIN';
+export const isManager = () => getUserRole() === 'MANAGER';
+/** @deprecated use isManager */
+export const isAdmin = () => getUserRole() === 'MANAGER';
 
 export const getUserBranchRoles = (): BranchRolesMap => {
   if (typeof window === 'undefined') {
@@ -137,7 +139,7 @@ export const isManagerForGarage = (garageId: string | null): boolean => {
     return false;
   }
   const role = getUserRole();
-  if (role === 'ADMIN' || role === 'RECEPTIONMATE_STAFF') {
+  if (role === 'MANAGER' || role === 'RECEPTIONMATE_STAFF') {
     return true;
   }
   const branchRoles = getUserBranchRoles();

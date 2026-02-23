@@ -48,7 +48,7 @@ export interface GarageSummary {
 
 export type BranchRole = 'MANAGER' | 'USER';
 export type BranchRolesMap = Record<string, BranchRole>;
-export type UserRole = 'ADMIN' | 'USER' | 'RECEPTIONMATE_STAFF';
+export type UserRole = 'MANAGER' | 'USER' | 'RECEPTIONMATE_STAFF';
 export type ConfirmedBookingCategory = 'service' | 'diagnostic' | 'mot' | 'other';
 
 export interface LoginResponse {

@@ -482,7 +482,7 @@ const onboardingSchema = z.object({
   user: z.object({
     email: z.string().email(),
     password: z.string().min(8),
-    role: z.enum(['USER', 'ADMIN']).default('USER'),
+    role: z.enum(['USER', 'MANAGER']).default('USER'),
   }),
   twilioNumber: z.string().optional(),
   autoPurchaseTwilioNumber: z.boolean().default(false),
@@ -646,7 +646,7 @@ router.post('/onboarding/user', authenticateApiKey, async (req, res) => {
     branchId: z.string().uuid(),
     email: z.string().email(),
     password: z.string().min(8),
-    role: z.enum(['USER', 'ADMIN']).default('USER'),
+    role: z.enum(['USER', 'MANAGER']).default('USER'),
   });
 
   const parsed = schema.safeParse(req.body);

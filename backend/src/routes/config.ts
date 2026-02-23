@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { requireManager } from '../middleware/auth.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import {
@@ -404,6 +405,7 @@ const persistWebsiteKnowledge = async (
 router.get(
   '/garages/:garageId/agent-config',
   authenticate,
+  requireManager,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
     const allowedGarages = resolveAllowedGarages(req.user);
@@ -523,6 +525,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
 router.put(
   '/garages/:garageId/agent-config',
   authenticate,
+  requireManager,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
     const allowedGarages = resolveAllowedGarages(req.user);

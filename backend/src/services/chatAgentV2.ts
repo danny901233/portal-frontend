@@ -1041,7 +1041,11 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
     
     if (timeslots.length === 0) {
-      return `Service set: ${serviceName} (£${price}).\nNo timeslots available.\nSay: "I don't have any online availability showing right now — let me take your details and one of the team will be in touch to get you booked in." Then call take_message.`;
+      // No timeslots — collect contact details then record as a callback request
+      session.notes = (session.notes ? session.notes + ' | ' : '') + `Callback requested for: ${serviceName}`;
+      session.step = Step.NEED_CONTACT;
+      await saveSession(conversationId, session);
+      return `Service noted: ${serviceName}. No online timeslots — switching to callback flow.\nSay: "I don't have any online availability right now — let me take your details and the team will be in touch to get you booked in."\nNow collect contact details using set_contact_info (phone, email, postcode, house number).`;
     }
     
     const firstSlots = timeslots.slice(0, 3).map((t: any) => {
@@ -1251,7 +1255,8 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
   // Store message in database (TODO: create Messages table or use notes)
   // For now, just log it
   
-  return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've got that. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'}. Have a great day!"\n\nConversation complete.`;
+  const serviceContext = session.serviceSelectedName ? ` about ${session.serviceSelectedName}` : '';
+  return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've passed that on${serviceContext}. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'} — have a great day!"\n\nConversation complete.`;
 }
 
 // GarageHive API helpers

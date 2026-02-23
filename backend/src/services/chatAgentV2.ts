@@ -1099,7 +1099,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
       const timeNatural = formatTimeNaturally(t.time);
       return `${dateNatural} at ${timeNatural}`;
     }).join(', or ');
-    return `Do NOT book yet. The customer said "${preference}" but has not chosen a specific slot.\nSay: "The earliest I have is ${firstSlots} — does one of those work for you?"\nWait for the customer to name a specific date/time, then call select_timeslot again with that preference.`;
+    return `TIMESLOT_NEEDED: Customer confirmed they want to book but has not yet chosen a slot.\nYou MUST now say EXACTLY: "The earliest I have is ${firstSlots} — does one of those work for you?"\nDo not say anything else. Wait for the customer to reply with a date/time, then call select_timeslot with their choice.`;
   }
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
@@ -1114,7 +1114,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
       `${t.date} at ${t.time}`
     ).join(', ');
     
-    return `Couldn't match "${preference}" to available slots.\nFirst available: ${firstSlots}\n\nSay: "Let me offer what I have. How about ${firstSlots}?"\nWait for their choice, then call select_timeslot again.`;
+    return `SLOT_NOT_FOUND: Could not match "${preference}" to an available slot.\nYou MUST say EXACTLY: "I have ${firstSlots} — which of those works for you?"\nDo not say anything else. Wait for their choice, then call select_timeslot again.`;
   }
   
   const { date, time } = matched;

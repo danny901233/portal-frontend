@@ -422,11 +422,15 @@ export async function getChatAgentResponse(
     const temperature = session.sessionId ? 0.7 : 0.85;
 
     // Retry wrapper for OpenAI 429 rate limit errors
+    // Falls back from gpt-4.1 → gpt-4o on persistent rate limits (gpt-4o has much higher limits)
+    const MODEL_PRIMARY = 'gpt-4.1';
+    const MODEL_FALLBACK = 'gpt-4o';
     async function openAIWithRetry(msgs: OpenAI.Chat.ChatCompletionMessageParam[], temp: number): Promise<OpenAI.Chat.ChatCompletion> {
-      for (let attempt = 0; attempt < 3; attempt++) {
+      let model = MODEL_PRIMARY;
+      for (let attempt = 0; attempt < 4; attempt++) {
         try {
           return await getOpenAI().chat.completions.create({
-            model: 'gpt-4.1',
+            model,
             messages: msgs,
             temperature: temp,
             max_tokens: 300,
@@ -434,10 +438,15 @@ export async function getChatAgentResponse(
             tool_choice: 'auto',
           });
         } catch (err: any) {
-          if (err?.status === 429 && attempt < 2) {
-            const retryMs = parseInt(err?.headers?.['retry-after-ms'] || '1000', 10);
-            const waitMs = Math.min(retryMs + 200, 5000);
-            console.log(`[OPENAI_RETRY] 429 rate limit, waiting ${waitMs}ms (attempt ${attempt + 1})`);
+          if (err?.status === 429) {
+            // After 2 attempts on primary, switch to fallback model
+            if (attempt === 1 && model === MODEL_PRIMARY) {
+              console.log(`[OPENAI_RETRY] Switching to fallback model ${MODEL_FALLBACK}`);
+              model = MODEL_FALLBACK;
+            }
+            const retryAfterMs = parseInt(err?.headers?.['retry-after-ms'] || err?.headers?.['retry-after'] * 1000 || '2000', 10);
+            const waitMs = Math.min(retryAfterMs + 500, 8000);
+            console.log(`[OPENAI_RETRY] 429 on ${model}, waiting ${waitMs}ms (attempt ${attempt + 1})`);
             await new Promise(r => setTimeout(r, waitMs));
             continue;
           }

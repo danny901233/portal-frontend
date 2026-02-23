@@ -1720,8 +1720,25 @@ function buildSystemPromptV2(config: any, knowledgeDocuments: any[], _isOpen: bo
   prompt += `CURRENT STATE: ${session.step}\n`;
   if (session.customerNameFirst) prompt += `Customer: ${session.customerNameFirst} ${session.customerNameLast || ''}\n`;
   if (session.vrn) prompt += `Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
-  if (session.serviceSelectedName) prompt += `Service: ${session.serviceSelectedName} (£${session.servicePrice})\n`;
+  if (session.serviceSelectedName) prompt += `Service: ${session.serviceSelectedName}${session.servicePrice ? ` (${session.servicePrice})` : ''}\n`;
   if (session.bookingDate) prompt += `Slot: ${session.bookingDate} at ${session.bookingTime}\n`;
+
+  // ── Available services — inject when loaded so agent can answer price/options questions ──
+  if (session.servicesAvailable && session.servicesAvailable.length > 0) {
+    const svcLines = session.servicesAvailable.map((s: any) => {
+      const p = s.price || 0;
+      let priceStr = '';
+      if (!s.hide_service_prices && p > 0) {
+        if (s.estimate) priceStr = ` — from around £${p}`;
+        else if (s.from_price) priceStr = ` — from £${p}`;
+        else priceStr = ` — £${p}`;
+      }
+      return `- ${s.name}${priceStr}`;
+    }).join('\n');
+    prompt += `\nAVAILABLE SERVICES:\n${svcLines}\n`;
+    prompt += `If the customer asks "what are the options", "what services do you offer", or "what are the prices", list these services with their prices naturally. Then ask what they need.\n`;
+  }
+
   prompt += '\n';
 
   // ── Booking flow instructions ─────────────────────────────────────────────

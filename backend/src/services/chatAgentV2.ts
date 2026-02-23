@@ -543,10 +543,13 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.phone = phoneMatch[0].replace(/\s+/g, '');
   }
 
-  // Accept any string that looks vaguely like a UK postcode — loose match so typos aren't treated as notes
-  // Full format: e.g. CV23 9AZ, B1 2AB, SW1A 2AA. Also catches typos like cv239z (missing space/letter)
-  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d?[A-Z]{0,2}\d{0,2}[A-Z]{0,2})\b/i);
-  const looksLikePostcode = !!postcodeMatch && postcodeMatch[1].length >= 4 && /\d/.test(postcodeMatch[1]) && /[A-Z]/i.test(postcodeMatch[1]);
+  // UK postcode: outward (e.g. CV23, B1, SW1A, W1A) + optional space + inward (digit + 2 letters)
+  // Crucially the inward section must start with a digit — this prevents VRNs like V20ALA matching
+  // Also accepts typos missing the last 1-2 chars (e.g. cv239z, cv239)
+  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{0,2})\b/i);
+  // Reject if it looks like a VRN (no space, ends in letters only, typical VRN pattern)
+  const looksLikeVrnPostcode = postcodeMatch && /^[A-Z]{1,3}\d{1,4}[A-Z]{1,3}$/i.test(postcodeMatch[1].replace(/\s/g, ''));
+  const looksLikePostcode = !!postcodeMatch && !looksLikeVrnPostcode && postcodeMatch[1].length >= 4;
   if (!session.contactPostcode && looksLikePostcode && postcodeMatch) {
     args.postcode = postcodeMatch[1].replace(/\s+/g, '').toUpperCase();
   }
@@ -1140,11 +1143,16 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
     
     if (timeslots.length === 0) {
-      // No timeslots — collect contact details then record as a callback request
-      session.notes = (session.notes ? session.notes + ' | ' : '') + `Callback requested for: ${serviceName}`;
+      // No online timeslots — tell customer and collect contact details via the normal fast-path
+      session.notes = (session.notes ? session.notes + ' | ' : '') + `Callback requested: no online availability for ${serviceName}`;
       session.step = Step.NEED_CONTACT;
       await saveSession(conversationId, session);
-      return `Service noted: ${serviceName}. No online timeslots — switching to callback flow.\nSay: "I don't have any online availability right now — let me take your details and the team will be in touch to get you booked in."\nNow collect contact details using set_contact_info (phone, email, postcode, house number).`;
+      const nextAsk = session.contactPhone
+        ? (session.contactEmail ? `What's your postcode?` : `Can I grab your email address?`)
+        : `Can I just grab a contact number?`;
+      return `No online slots for ${serviceName}.
+Say: "I don't have any online availability for that right now — let me take your details and someone will call you to get you booked in. ${nextAsk}"
+Wait for their response.`;
     }
     
     const firstSlots = timeslots.slice(0, 3).map((t: any) => {

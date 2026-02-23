@@ -71,9 +71,23 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
 };
 
 // Requires MANAGER or RECEPTIONMATE_STAFF — blocks plain USER role
+// Also accepts users who have MANAGER in their branchRoles for the requested garage
 export const requireManager = (req: Request, res: Response, next: NextFunction) => {
-  if (!req.user || (req.user.role !== 'MANAGER' && req.user.role !== 'RECEPTIONMATE_STAFF')) {
+  if (!req.user) {
     return res.status(403).json({ error: 'Manager access required' });
   }
-  next();
+  // Staff always allowed
+  if (req.user.role === 'RECEPTIONMATE_STAFF') {
+    return next();
+  }
+  // Top-level MANAGER allowed
+  if (req.user.role === 'MANAGER') {
+    return next();
+  }
+  // Check branchRoles for the specific garage being accessed (from route params)
+  const garageId = req.params.garageId;
+  if (garageId && req.user.branchRoles && req.user.branchRoles[garageId] === 'MANAGER') {
+    return next();
+  }
+  return res.status(403).json({ error: 'Manager access required' });
 };

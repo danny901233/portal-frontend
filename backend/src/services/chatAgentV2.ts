@@ -84,6 +84,7 @@ interface ChatSession {
   // Diagnostics
   diagnosticNotes: string;      // accumulated symptom notes to put in booking notes
   diagnosticComplete: boolean;  // true once diagnostic Q&A is done
+  diagnosticQuestions: string[]; // questions asked — used to detect if answers are still coming in
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -136,6 +137,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         preferredCallbackTime: sessionData.preferredCallbackTime || '',
         diagnosticNotes: sessionData.diagnosticNotes || '',
         diagnosticComplete: sessionData.diagnosticComplete || false,
+        diagnosticQuestions: sessionData.diagnosticQuestions || [],
       };
       inMemorySessionCache.set(conversationId, loadedSession);
       // Auto-advance: if timeslot was already chosen but server restarted before step updated
@@ -181,6 +183,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     preferredCallbackTime: '',
     diagnosticNotes: '',
     diagnosticComplete: false,
+    diagnosticQuestions: [],
   };
 
   inMemorySessionCache.set(conversationId, newSession);
@@ -895,6 +898,7 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
   // Reset diagnostics so fresh questions fire for this vehicle's booking
   session.diagnosticComplete = false;
   session.diagnosticNotes = '';
+  session.diagnosticQuestions = [];
   await saveSession(conversationId, session);
   
   console.log('[CONFIRM_VEHICLE] Confirmed, fetching services...');
@@ -940,24 +944,56 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   if (!session.diagnosticComplete) {
     const diagQuestions = await specialistDiagnosticQuestions(service_name);
     if (diagQuestions && diagQuestions.length > 0) {
-      // Store the symptom so far as diagnostic notes
-      session.diagnosticNotes = (session.diagnosticNotes ? session.diagnosticNotes + ' | ' : '') + service_name;
-      session.diagnosticComplete = true; // don't ask again on next select_service call
+      // Store the symptom and questions in session
+      session.diagnosticNotes = service_name;
+      session.diagnosticQuestions = diagQuestions;
+      session.diagnosticComplete = true; // prevents re-running diagnostic check
       await saveSession(conversationId, session);
-      const qs = diagQuestions.join(' ');
-      console.log(`[DIAGNOSTIC_Q] Asking: ${qs}`);
-      return `Symptom detected: "${service_name}"\n\nSay: "${diagQuestions[0]}"\nAsk the remaining questions naturally in sequence:\n${diagQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\nOnce you have the answers, call select_service again with a summary of all the symptoms.`;
+      console.log(`[DIAGNOSTIC_Q] Asking ${diagQuestions.length} questions for: ${service_name}`);
+      // Return instruction that tells LLM to chat naturally — NO tool calls until all answers collected
+      const qList = diagQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n');
+      return `DIAGNOSTIC MODE — symptom: "${service_name}"\n\nAsk these questions ONE BY ONE in natural conversation (do NOT call any tool yet):\n${qList}\n\nIMPORTANT: Do NOT call select_service until you have asked ALL questions and received ALL answers. Once you have all the answers, call select_service with a full symptom summary like: "knocking noise from front, constant, gets worse when braking, started 2 weeks ago".`;
     }
     // Not a symptom — mark complete so we don't re-check
     session.diagnosticComplete = true;
   }
 
+  // ── If diagnosticComplete is set but service_name looks like a diagnostic answer (short, no service match likely), accumulate it ──
+  // This catches cases where LLM incorrectly calls select_service with answer text like "constant" or "yes it is"
+  if (session.diagnosticQuestions && session.diagnosticQuestions.length > 0) {
+    const isLikelyAnswer = service_name.split(' ').length <= 4 && !session.servicesAvailable.some(
+      (s: any) => s.name.toLowerCase().includes(service_name.toLowerCase().slice(0, 5))
+    );
+    if (isLikelyAnswer) {
+      // Accumulate answer into diagnostic notes
+      session.diagnosticNotes = (session.diagnosticNotes ? session.diagnosticNotes + ', ' : '') + service_name;
+      // Remove first unanswered question
+      session.diagnosticQuestions = session.diagnosticQuestions.slice(1);
+      await saveSession(conversationId, session);
+      console.log(`[DIAGNOSTIC_Q] Answer accumulated: "${service_name}", ${session.diagnosticQuestions.length} questions remaining`);
+      if (session.diagnosticQuestions.length > 0) {
+        return `Answer noted. Now ask: "${session.diagnosticQuestions[0]}" — do NOT call any tool yet. Continue asking the remaining questions. Once all answered, call select_service with a full symptom summary.`;
+      } else {
+        // All answered — clear questions array and proceed to service selection below with the accumulated notes
+        console.log(`[DIAGNOSTIC_Q] All answered, proceeding to service match with notes: ${session.diagnosticNotes}`);
+        session.diagnosticQuestions = [];
+        // Fall through to service matching below using diagnosticNotes as the effective service_name
+      }
+    }
+  }
+
+  // ── Use diagnostic notes as the effective service description if available ──
+  // (when all diagnostic Q&A has been collected and LLM calls select_service with a summary)
+  const effectiveServiceName = session.diagnosticNotes && session.diagnosticQuestions.length === 0
+    ? session.diagnosticNotes
+    : service_name;
+
   // ── Specialist GPT-4o-mini service match (mirrors Python specialist_service_match) ──
-  let matched = matchService(service_name, session.servicesAvailable);
+  let matched = matchService(effectiveServiceName, session.servicesAvailable);
   let matchReason = '';
 
   if (!matched) {
-    const specialistResult = await specialistServiceMatch(service_name, session.servicesAvailable);
+    const specialistResult = await specialistServiceMatch(effectiveServiceName, session.servicesAvailable);
     if (specialistResult) {
       matched = specialistResult.service;
       matchReason = specialistResult.reason;
@@ -969,10 +1005,10 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   if (!matched) {
     matched = session.servicesAvailable.find((s: any) => /other|general/i.test(s.name)) || null;
     if (matched) {
-      console.log(`[SELECT_SERVICE] No match for '${service_name}' — booking under '${matched.name}'`);
+      console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' — booking under '${matched.name}'`);
     } else {
       // Truly nothing — take a message
-      return `No suitable service found for "${service_name}" and no Other/General fallback.\nSay: "I don't have that as a set price right now. Let me take your details and one of the team will give you a call back with a quote."\nThen call take_message.`;
+      return `No suitable service found for "${effectiveServiceName}" and no Other/General fallback.\nSay: "I don't have that as a set price right now. Let me take your details and one of the team will give you a call back with a quote."\nThen call take_message.`;
     }
   }
 

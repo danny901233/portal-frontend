@@ -423,7 +423,7 @@ export async function getChatAgentResponse(
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           return await getOpenAI().chat.completions.create({
-            model: 'gpt-4o',
+            model: 'gpt-4.5-preview',
             messages: msgs,
             temperature: temp,
             max_tokens: 300,

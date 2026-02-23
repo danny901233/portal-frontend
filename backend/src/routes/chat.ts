@@ -6,51 +6,47 @@ const router = Router();
 
 /**
  * Split a single agent response into multiple natural chat bubbles.
- * Splits on: sentence boundaries before questions, em-dashes, and explicit \n\n.
+ * Only splits when it genuinely feels human — short warm opener + distinct question,
+ * or explicit paragraph break. Long flowing answers stay as one bubble.
  */
 function splitIntoMessages(text: string): string[] {
-  if (!text) return [];
+  if (!text) return [text];
 
-  // First split on explicit double newlines
+  // Always split on explicit double newlines (agent intentionally separated them)
   const paragraphs = text.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
-
-  const bubbles: string[] = [];
-
-  for (const para of paragraphs) {
-    // Split a paragraph into sentence-level bubbles.
-    // Strategy: split before a question sentence if there's already a statement before it.
-    // e.g. "Nice to meet you Dan! What's your reg?" → ["Nice to meet you Dan!", "What's your reg?"]
-    const sentences = para.match(/[^.!?]+[.!?]+[\s"')]*|[^.!?]+$/g) || [para];
-    const cleaned = sentences.map(s => s.trim()).filter(Boolean);
-
-    if (cleaned.length <= 1) {
-      bubbles.push(para);
-      continue;
+  if (paragraphs.length > 1) {
+    // Cap at 3 bubbles
+    if (paragraphs.length > 3) {
+      return [...paragraphs.slice(0, 2), paragraphs.slice(2).join(' ')];
     }
-
-    // Group: keep running text together until we hit a question, then split
-    let current = '';
-    for (const sentence of cleaned) {
-      const isQuestion = sentence.trim().endsWith('?');
-      if (isQuestion && current.trim()) {
-        bubbles.push(current.trim());
-        bubbles.push(sentence.trim());
-        current = '';
-      } else {
-        current = current ? current + ' ' + sentence : sentence;
-      }
-    }
-    if (current.trim()) bubbles.push(current.trim());
+    return paragraphs;
   }
 
-  // Never return more than 3 bubbles — merge excess back together
-  if (bubbles.length > 3) {
-    const merged = bubbles.slice(0, 2);
-    merged.push(bubbles.slice(2).join(' '));
-    return merged;
+  // Single paragraph — only split if it has a short warm opener followed by a question.
+  // Pattern: "<opener of ≤90 chars ending in ! or .> <question ending in ?>"
+  // This catches "Nice to meet you Dan! What's your reg?" but NOT long explanatory sentences.
+  const sentences = text.match(/[^.!?]+[.!?]+[\s"')]*|[^.!?]+$/g) || [];
+  const cleaned = sentences.map(s => s.trim()).filter(Boolean);
+
+  if (cleaned.length < 2) return [text];
+
+  // Find the first question sentence
+  const firstQIdx = cleaned.findIndex(s => s.endsWith('?'));
+  if (firstQIdx <= 0) return [text]; // no question, or question is the very first sentence
+
+  const intro = cleaned.slice(0, firstQIdx).join(' ');
+  const rest = cleaned.slice(firstQIdx).join(' ');
+
+  // Only split if the intro is short (feels like a warm acknowledgement, not a full explanation)
+  // and the rest is a single clear question (not a long compound sentence)
+  const introShort = intro.length <= 90;
+  const restConcise = rest.length <= 120;
+
+  if (introShort && restConcise) {
+    return [intro, rest];
   }
 
-  return bubbles.length > 0 ? bubbles : [text];
+  return [text];
 }
 
 // Web chat endpoint for widget

@@ -438,6 +438,11 @@ export async function getChatAgentResponse(
             tool_choice: 'auto',
           });
         } catch (err: any) {
+          // insufficient_quota = account out of credits — no point retrying
+          if (err?.code === 'insufficient_quota' || err?.error?.code === 'insufficient_quota') {
+            console.error('[OPENAI] Account out of credits — top up at platform.openai.com');
+            throw new Error('INSUFFICIENT_QUOTA');
+          }
           if (err?.status === 429) {
             // After 2 attempts on primary, switch to fallback model
             if (attempt === 1 && model === MODEL_PRIMARY) {

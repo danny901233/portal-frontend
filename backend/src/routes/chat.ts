@@ -131,9 +131,12 @@ router.post('/chat/widget', async (req, res) => {
     });
   } catch (error) {
     console.error('Web chat error:', error);
+    const isQuota = error instanceof Error && error.message === 'INSUFFICIENT_QUOTA';
     res.status(500).json({ 
-      error: 'Failed to process message',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      error: isQuota ? 'Chat temporarily unavailable' : 'Failed to process message',
+      message: isQuota
+        ? 'Our chat service is temporarily unavailable. Please call us directly.'
+        : error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });

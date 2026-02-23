@@ -4,6 +4,55 @@ import { getChatAgentResponse } from '../services/chatAgentV2.js';
 
 const router = Router();
 
+/**
+ * Split a single agent response into multiple natural chat bubbles.
+ * Splits on: sentence boundaries before questions, em-dashes, and explicit \n\n.
+ */
+function splitIntoMessages(text: string): string[] {
+  if (!text) return [];
+
+  // First split on explicit double newlines
+  const paragraphs = text.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+
+  const bubbles: string[] = [];
+
+  for (const para of paragraphs) {
+    // Split a paragraph into sentence-level bubbles.
+    // Strategy: split before a question sentence if there's already a statement before it.
+    // e.g. "Nice to meet you Dan! What's your reg?" → ["Nice to meet you Dan!", "What's your reg?"]
+    const sentences = para.match(/[^.!?]+[.!?]+[\s"')]*|[^.!?]+$/g) || [para];
+    const cleaned = sentences.map(s => s.trim()).filter(Boolean);
+
+    if (cleaned.length <= 1) {
+      bubbles.push(para);
+      continue;
+    }
+
+    // Group: keep running text together until we hit a question, then split
+    let current = '';
+    for (const sentence of cleaned) {
+      const isQuestion = sentence.trim().endsWith('?');
+      if (isQuestion && current.trim()) {
+        bubbles.push(current.trim());
+        bubbles.push(sentence.trim());
+        current = '';
+      } else {
+        current = current ? current + ' ' + sentence : sentence;
+      }
+    }
+    if (current.trim()) bubbles.push(current.trim());
+  }
+
+  // Never return more than 3 bubbles — merge excess back together
+  if (bubbles.length > 3) {
+    const merged = bubbles.slice(0, 2);
+    merged.push(bubbles.slice(2).join(' '));
+    return merged;
+  }
+
+  return bubbles.length > 0 ? bubbles : [text];
+}
+
 // Web chat endpoint for widget
 router.post('/chat/widget', async (req, res) => {
   try {
@@ -67,7 +116,7 @@ router.post('/chat/widget', async (req, res) => {
       }
     );
 
-    // Save AI response
+    // Save AI response (store as single string for history)
     await prisma.chatMessage.create({
       data: {
         conversationId: conversation.id,
@@ -76,9 +125,12 @@ router.post('/chat/widget', async (req, res) => {
       },
     });
 
+    const messagesBubbles = splitIntoMessages(agentResponse.content);
+
     res.json({
       conversationId: conversation.id,
       response: agentResponse.content,
+      messages: messagesBubbles,
       needsHumanAssistance: agentResponse.needsHumanAssistance,
     });
   } catch (error) {

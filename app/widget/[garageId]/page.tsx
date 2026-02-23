@@ -31,6 +31,23 @@ export default function ChatWidget() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Add multiple messages sequentially with typing indicator between each
+  const addMessagesSequentially = async (bubbles: string[]) => {
+    for (let i = 0; i < bubbles.length; i++) {
+      if (i > 0) {
+        // Show typing indicator between messages
+        await new Promise(resolve => setTimeout(resolve, 600 + bubbles[i].length * 18));
+      }
+      setMessages(prev => [...prev, {
+        id: `${Date.now()}-${i}`,
+        role: 'assistant' as const,
+        content: bubbles[i],
+        timestamp: new Date(),
+      }]);
+    }
+    setSending(false);
+  };
+
   // Pre-chat form state
   const [preChatName, setPreChatName] = useState('');
   const [preChatPhone, setPreChatPhone] = useState('');
@@ -109,12 +126,8 @@ export default function ChatWidget() {
       const data = await response.json();
       if (data.conversationId && !conversationId) setConversationId(data.conversationId);
 
-      setMessages((prev) => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.response,
-        timestamp: new Date(),
-      }]);
+      const bubbles: string[] = data.messages && data.messages.length > 0 ? data.messages : [data.response];
+      await addMessagesSequentially(bubbles);
     } catch {
       setMessages((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
@@ -123,7 +136,6 @@ export default function ChatWidget() {
         timestamp: new Date(),
       }]);
     } finally {
-      setSending(false);
       setPreChatSubmitting(false);
     }
   };
@@ -180,12 +192,8 @@ export default function ChatWidget() {
         setConversationId(data.conversationId);
       }
       
-      setMessages((prev) => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.response,
-        timestamp: new Date(),
-      }]);
+      const bubbles: string[] = data.messages && data.messages.length > 0 ? data.messages : [data.response];
+      await addMessagesSequentially(bubbles);
     } catch (error) {
       console.error('Chat error:', error);
       setMessages((prev) => [...prev, {
@@ -194,7 +202,6 @@ export default function ChatWidget() {
         content: "I'm sorry, the chat service is currently unavailable. Please try calling us or using WhatsApp instead.",
         timestamp: new Date(),
       }]);
-    } finally {
       setSending(false);
     }
   };

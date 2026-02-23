@@ -1068,10 +1068,10 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 
     // Quote flow vs booking flow
     if (session.intent === 'quote') {
-      return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"\nIf YES → say "The earliest I have is ${firstSlots} — does one of those work for you?" and wait for their preference, then call select_timeslot.\nIf NO → say "No problem! If you'd like to book it in later, just give us a call." then call take_message.`;
+      return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"\nIMPORTANT: Wait for customer response BEFORE doing anything else.\nIf YES → SPEAK: "The earliest I have is ${firstSlots} — does one of those work for you?" — then STOP and wait for the customer to name a specific date/time. Do NOT call select_timeslot yet.\nOnly call select_timeslot AFTER the customer has replied with their chosen slot.\nIf NO → say "No problem! If you'd like to book it in later, just give us a call." then call take_message.`;
     }
 
-    return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — does one of those work for you?"\nWait for their preference, then call select_timeslot.`;
+    return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — does one of those work for you?"\nIMPORTANT: Wait for the customer to reply with a specific slot before calling select_timeslot. Do NOT call select_timeslot yet.`;
     
   } catch (error: any) {
     console.error('[SELECT_SERVICE] API error:', error);
@@ -1088,7 +1088,20 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
   }
   
   console.log(`[SELECT_TIMESLOT] Preference: ${preference}`);
-  
+
+  // Guard: if preference is an affirmative ("yes", "yes please", "sure", etc.) rather than
+  // an actual time/date choice, GPT called this too early. Redirect it to present slots first.
+  const prefTrimmed = (preference || '').trim().toLowerCase();
+  const isAffirmative = /^(yes|yeah|yep|yup|sure|ok|okay|please|yes please|sounds good|go ahead|book it|that works|perfect)$/i.test(prefTrimmed);
+  if (isAffirmative && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
+    const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) => {
+      const dateNatural = formatDateNaturally(t.date);
+      const timeNatural = formatTimeNaturally(t.time);
+      return `${dateNatural} at ${timeNatural}`;
+    }).join(', or ');
+    return `Do NOT book yet. The customer said "${preference}" but has not chosen a specific slot.\nSay: "The earliest I have is ${firstSlots} — does one of those work for you?"\nWait for the customer to name a specific date/time, then call select_timeslot again with that preference.`;
+  }
+
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
     return `No timeslots loaded. Call select_service first.`;
   }
@@ -1691,8 +1704,8 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     return closestByTime(timeslots, prefHour);
   }
 
-  // Default to first available
-  return timeslots[0];
+  // No match found — return null so GPT is told to ask again
+  return null;
 }
 
 function buildSystemPromptV2(config: any, knowledgeDocuments: any[], _isOpen: boolean, session: ChatSession): string {

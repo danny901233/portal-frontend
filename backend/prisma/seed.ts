@@ -57,7 +57,7 @@ const main = async () => {
     update: {
       passwordHash,
       garageAccessIds: [garageId],
-      role: 'ADMIN',
+      role: 'MANAGER',
       branchRoles,
     },
   });

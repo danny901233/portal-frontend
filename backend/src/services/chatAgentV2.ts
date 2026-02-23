@@ -33,6 +33,7 @@ enum Step {
   NEED_VRN = 'need_vrn',
   CONFIRMING_VEHICLE = 'confirming_vehicle',
   NEED_SERVICE = 'need_service',
+  NEED_BOOKING_CONFIRM = 'need_booking_confirm', // quote flow: waiting for yes/no to "would you like to book?"
   NEED_TIMESLOT = 'need_timeslot',
   NEED_CONTACT = 'need_contact',
   CONFIRMING_POSTCODE = 'confirming_postcode',
@@ -298,6 +299,7 @@ export async function getChatAgentResponse(
 
     // Fast-path: timeslot selection — handle locally with matchTimeslot(), no OpenAI call needed
     // (mirrors the Python voice agent's specialist_timeslot_match approach)
+    // Skip this fast-path if we're in NEED_BOOKING_CONFIRM (quote flow — waiting for yes/no)
     if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
       const matched = matchTimeslot(message, session.timeslotsAvailable);
       if (matched) {
@@ -1085,7 +1087,9 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 
     // Quote flow vs booking flow
     if (session.intent === 'quote') {
-      // Store slots in session but don't reveal them yet — wait for confirm_booking
+      // Store slots in session but set step to NEED_BOOKING_CONFIRM so the timeslot fast-path doesn't fire
+      session.step = Step.NEED_BOOKING_CONFIRM;
+      await saveSession(conversationId, session);
       return `QUOTE_READY: ${serviceName} is ${priceDisplay} for the ${makeTitle} ${modelTitle}.\nSay exactly: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"\nThen call confirm_booking with confirmed=true or confirmed=false based on their answer.`;
     }
 
@@ -1108,6 +1112,10 @@ async function handleConfirmBooking(args: any, session: ChatSession, conversatio
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
     return `No timeslots available. Say: "Let me take your details and the team will be in touch to get you booked in." Then call take_message.`;
   }
+
+  // Advance step so the timeslot fast-path can now fire
+  session.step = Step.NEED_TIMESLOT;
+  await saveSession(conversationId, session);
 
   const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) => {
     const dateNatural = formatDateNaturally(t.date);

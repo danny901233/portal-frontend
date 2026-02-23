@@ -306,8 +306,10 @@ export async function getChatAgentResponse(
 
     // Fast-path: slot confirmation — customer is saying yes/no to a proposed slot
     if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
-      const isYes = /\b(yes|yeah|yep|yup|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please)\b/i.test(message);
-      const isNo = /\b(no|nope|different|another|change|instead|rather|earlier|later)\b/i.test(message);
+      // Strip emoji, punctuation, and normalise repeated words before testing intent
+      const stripped = message.toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\b(\w+)\s+\1\b/g, '$1');
+      const isYes = /\b(yes|yeah|yep|yup|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please|fine|brilliant|lovely|brill|ace|spot on|do it|book it|book me in)\b/.test(stripped);
+      const isNo = /\b(no|nope|different|another|change|instead|rather|earlier|later|different)\b/.test(stripped);
 
       // Extract any note from the message even during slot confirmation
       const notePattern = /(?:also|and|btw|by the way|ps|p\.s\.?|additionally|there[''s]*s?|it[''s]*s?|she[''s]*s?)\s+(.{10,})/i;

@@ -31,19 +31,24 @@ export default function ChatWidget() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Add multiple messages sequentially with typing indicator between each
+  // Add multiple messages sequentially with typing indicator before each bubble
   const addMessagesSequentially = async (bubbles: string[]) => {
     for (let i = 0; i < bubbles.length; i++) {
-      if (i > 0) {
-        // Show typing indicator between messages
-        await new Promise(resolve => setTimeout(resolve, 600 + bubbles[i].length * 18));
-      }
+      // Show typing indicator before every bubble (setSending(true) is already set by caller)
+      // Wait proportional to message length — feels like Leah is typing it
+      const delay = 500 + bubbles[i].length * 22;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      // Add the bubble, then briefly keep the indicator on before the next one
       setMessages(prev => [...prev, {
         id: `${Date.now()}-${i}`,
         role: 'assistant' as const,
         content: bubbles[i],
         timestamp: new Date(),
       }]);
+      // Short pause between consecutive bubbles so they don't pop in simultaneously
+      if (i < bubbles.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
     }
     setSending(false);
   };

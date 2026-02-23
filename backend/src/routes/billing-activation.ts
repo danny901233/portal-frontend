@@ -59,6 +59,7 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
         id: true,
         name: true,
         subscriptionCostGbp: true,
+        vatRate: true,
         trialEndDate: true,
         requiresBookingActivation: true,
       },
@@ -85,7 +86,11 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
     }
 
     const totalSubscriptionCost = activeGarages.reduce((sum, g) => sum + g.subscriptionCostGbp, 0);
-    const totalInPence = Math.round(totalSubscriptionCost * 100);
+    // Apply VAT — use the first garage's vatRate (all garages on one mandate share the same rate)
+    const vatRate = activeGarages[0]?.vatRate ?? 0.2;
+    const vatAmount = totalSubscriptionCost * vatRate;
+    const totalIncVat = totalSubscriptionCost + vatAmount;
+    const totalInPence = Math.round(totalIncVat * 100);
 
     // Set billing dates
     const billingCycleStartDate = now;
@@ -111,7 +116,7 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
           },
         });
         paymentId = payment.id;
-        console.log(`✅ Activated billing for ${user.email} - Charged £${totalSubscriptionCost} (Payment ID: ${paymentId})`);
+        console.log(`✅ Activated billing for ${user.email} - Charged £${totalIncVat.toFixed(2)} inc VAT (Payment ID: ${paymentId})`);
       } catch (error) {
         console.error('Failed to charge first month subscription:', error);
         return res.status(500).json({ error: 'Failed to create payment in GoCardless' });
@@ -132,7 +137,10 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
       message: 'Billing activated successfully',
       billingCycleStartDate,
       nextBillingDate,
-      chargedAmount: totalSubscriptionCost,
+      chargedAmount: totalIncVat,
+      chargedAmountExVat: totalSubscriptionCost,
+      vatAmount,
+      vatRate,
       paymentId,
       garages: activeGarages.map(g => ({ id: g.id, name: g.name, cost: g.subscriptionCostGbp })),
     });

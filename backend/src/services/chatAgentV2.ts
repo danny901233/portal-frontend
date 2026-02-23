@@ -297,24 +297,6 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
-    // Fast-path: timeslot selection — only fire for clearly structured preferences.
-    // Anything ambiguous ("what about March?", "end of the week", "something later") falls through
-    // to OpenAI so natural language is handled properly.
-    if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
-      if (isClearTimeslotPreference(message)) {
-        const matched = matchTimeslot(message, session.timeslotsAvailable);
-        if (matched) {
-          const instructions = await handleSelectTimeslot({ preference: message }, session, conversationId);
-          return {
-            content: instructionToCustomerReply(instructions),
-            needsHumanAssistance: false,
-          };
-        }
-        // Clear preference but no matching slot — fall through to OpenAI to explain naturally
-      }
-      // Ambiguous or no match — fall through to OpenAI with slots injected into context
-    }
-
     // Fast-path: once a timeslot is booked, handle all contact collection locally (no OpenAI)
     const bookingComplete = !!(session.bookingDate && session.bookingTime);
     if (session.step === Step.NEED_CONTACT || bookingComplete) {
@@ -1082,13 +1064,16 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 
     // Quote flow vs booking flow
     if (session.intent === 'quote') {
-      // Store slots in session but set step to NEED_BOOKING_CONFIRM so the timeslot fast-path doesn't fire
       session.step = Step.NEED_BOOKING_CONFIRM;
       await saveSession(conversationId, session);
-      return `QUOTE_READY: ${serviceName} is ${priceDisplay} for the ${makeTitle} ${modelTitle}.\nSay exactly: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"\nThen call confirm_booking with confirmed=true or confirmed=false based on their answer.`;
+      return `QUOTE: ${serviceName} for the ${makeTitle} ${modelTitle} is ${priceDisplay}.
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"
+Call confirm_booking(confirmed=true) if yes, confirm_booking(confirmed=false) if no.`;
     }
 
-    return `Service set: ${serviceName} (${priceDisplay}).\n${timeslots.length} timeslots available.\n\nFirst available: ${firstSlots}\n\nSay: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — does one of those work for you?"\nIMPORTANT: Wait for the customer to reply with a specific slot before calling select_timeslot. Do NOT call select_timeslot yet.`;
+    return `SERVICE_SET: ${serviceName} (${priceDisplay}).
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — or do you have a particular date in mind?"
+When the customer responds, call select_timeslot with whatever they say.`;
     
   } catch (error: any) {
     console.error('[SELECT_SERVICE] API error:', error);
@@ -1100,25 +1085,23 @@ async function handleConfirmBooking(args: any, session: ChatSession, conversatio
   const { confirmed } = args;
 
   if (!confirmed) {
-    return `Customer declined booking. Say: "No problem! If you'd like to book it in later, just give us a call." Then call take_message with their phone number.`;
+    return `Customer doesn't want to book. Say: "No problem at all! If you change your mind, just give us a call." Then call take_message with their phone number.`;
   }
 
-  // Customer wants to book — present the timeslots
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
     return `No timeslots available. Say: "Let me take your details and the team will be in touch to get you booked in." Then call take_message.`;
   }
 
-  // Advance step so the timeslot fast-path can now fire
   session.step = Step.NEED_TIMESLOT;
   await saveSession(conversationId, session);
 
-  const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) => {
-    const dateNatural = formatDateNaturally(t.date);
-    const timeNatural = formatTimeNaturally(t.time);
-    return `${dateNatural} at ${timeNatural}`;
-  }).join(', or ');
+  const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
+    `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
+  ).join(', or ');
 
-  return `BOOKING_CONFIRMED: Customer wants to book.\nSay exactly: "The earliest I have is ${firstSlots} — does one of those work for you?"\nWait for the customer to name a specific slot, then call select_timeslot with their preference.`;
+  return `SLOTS: The earliest available are ${firstSlots}.
+Say: "The earliest I have is ${firstSlots} — or do you have a particular date in mind?"
+When the customer responds, call select_timeslot with whatever they say.`;
 }
 
 async function handleSelectTimeslot(args: any, session: ChatSession, conversationId: string): Promise<string> {
@@ -1128,35 +1111,24 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     console.log('[STATE_GUARD] Ignoring select_timeslot during NEED_CONTACT');
     return getNextContactInstruction(session);
   }
-  
-  console.log(`[SELECT_TIMESLOT] Preference: ${preference}`);
 
-  // Guard: if preference is an affirmative ("yes", "yes please", "sure", etc.) rather than
-  // an actual time/date choice, GPT called this too early. Redirect it to present slots first.
-  const prefTrimmed = (preference || '').trim().toLowerCase();
-  const isAffirmative = /^(yes|yeah|yep|yup|sure|ok|okay|please|yes please|sounds good|go ahead|book it|that works|perfect)$/i.test(prefTrimmed);
-  if (isAffirmative && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
-    const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) => {
-      const dateNatural = formatDateNaturally(t.date);
-      const timeNatural = formatTimeNaturally(t.time);
-      return `${dateNatural} at ${timeNatural}`;
-    }).join(', or ');
-    return `TIMESLOT_NEEDED: Customer confirmed they want to book but has not yet chosen a slot.\nYou MUST now say EXACTLY: "The earliest I have is ${firstSlots} — does one of those work for you?"\nDo not say anything else. Wait for the customer to reply with a date/time, then call select_timeslot with their choice.`;
-  }
+  console.log(`[SELECT_TIMESLOT] Preference: "${preference}"`);
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
     return `No timeslots loaded. Call select_service first.`;
   }
-  
-  // Simple matching (in voice agent, there's a specialist LLM for this)
+
   const matched = matchTimeslot(preference, session.timeslotsAvailable);
-  
+
   if (!matched) {
-    const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) => 
-      `${t.date} at ${t.time}`
-    ).join(', ');
-    
-    return `SLOT_NOT_FOUND: Could not match "${preference}" to an available slot.\nYou MUST say EXACTLY: "I have ${firstSlots} — which of those works for you?"\nDo not say anything else. Wait for their choice, then call select_timeslot again.`;
+    // No match — tell the agent to explain what’s available and ask again
+    const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
+      `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
+    ).join(', or ');
+    const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
+    return `NO_MATCH: "${preference}" didn't match any available slot. Online availability ends ${formatDateNaturally(lastSlot.date)}.
+Say: "I'm afraid our online diary only goes up to ${formatDateNaturally(lastSlot.date)}. The slots I have are ${firstSlots} — would any of those work?"
+When they choose, call select_timeslot again.`;
   }
   
   const { date, time } = matched;
@@ -1656,25 +1628,6 @@ function formatTimeNaturally(timeStr: string): string {
   } else {
     return `${hour - 12}${min}pm`;
   }
-}
-
-// Returns true only if the message is a clear, structured timeslot preference that
-// can be reliably matched locally (e.g. "Wednesday morning", "the first one", "8:30am").
-// Natural language like "what about March?", "end of the week", "something later" returns false
-// and gets routed to OpenAI instead.
-function isClearTimeslotPreference(msg: string): boolean {
-  const m = msg.toLowerCase().trim();
-  // Explicit day names
-  if (/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(m)) return true;
-  // "First", "earliest", "last", "ASAP"
-  if (/\b(first|earliest|asap|last one|last slot)\b/.test(m)) return true;
-  // "Today" / "Tomorrow"
-  if (/\b(today|tomorrow)\b/.test(m)) return true;
-  // Explicit time (e.g. "8:30", "9am", "1:30pm", "14:00")
-  if (/\b\d{1,2}(:\d{2})?\s*(am|pm)\b/.test(m) || /\b\d{2}:\d{2}\b/.test(m)) return true;
-  // Specific date like "25th", "the 26th", "25 Feb", "25/02"
-  if (/\b\d{1,2}(st|nd|rd|th)?\b/.test(m) && !/\bwhat\b|\babout\b|\bany\b|\bsomething\b/.test(m)) return true;
-  return false;
 }
 
 function matchTimeslot(preference: string, timeslots: any[]): any | null {

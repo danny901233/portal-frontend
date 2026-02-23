@@ -309,12 +309,14 @@ export async function getChatAgentResponse(
           needsHumanAssistance: false,
         };
       } else {
-        // No match — offer a few options without hitting OpenAI
-        const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
+        // No match — show all available slots (up to 5) so customer can pick
+        const allSlots = session.timeslotsAvailable.slice(0, 5).map((t: any) =>
           `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
         ).join(', or ');
+        const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
+        const lastDate = formatDateNaturally(lastSlot.date);
         return {
-          content: `I didn't quite catch that — I have ${firstSlots}. Which works for you?`,
+          content: `I'm afraid our online availability only goes up to ${lastDate}. The slots I have are: ${allSlots} — which of those works for you?`,
           needsHumanAssistance: false,
         };
       }
@@ -1728,6 +1730,28 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     const nwStr = nextWeek.toISOString().split('T')[0];
     const matches = timeslots.filter(t => t.date >= nwStr);
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+  }
+
+  // Month name — "March", "April", etc.
+  const monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+  for (let mi = 0; mi < monthNames.length; mi++) {
+    if (prefLower.includes(monthNames[mi])) {
+      const matches = timeslots.filter(t => {
+        const d = new Date(t.date);
+        return d.getMonth() === mi;
+      });
+      if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+      // Month requested but no slots in that month — return null so we tell the customer
+      return null;
+    }
+  }
+
+  // "Later", "after that", "something later", "end of the week", "next month"
+  if (prefLower.includes('later') || prefLower.includes('after that') || prefLower.includes('end of') || prefLower.includes('next month') || prefLower.includes('further')) {
+    // Return the last available slot
+    const prefHourLate = extractPrefHour(prefLower);
+    if (prefHourLate !== null) return closestByTime(timeslots, prefHourLate);
+    return timeslots[timeslots.length - 1];
   }
 
   // "Morning" (before 12:00)

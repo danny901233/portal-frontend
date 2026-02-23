@@ -304,7 +304,27 @@ export async function getChatAgentResponse(
       if (bookingComplete && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
         session.step = Step.NEED_CONTACT;
       }
+
+      // Check if the message looks like a note/question rather than contact info
+      // If so, append to session notes and acknowledge, then re-ask for the missing contact field
       const contactArgs = extractContactArgsFromMessage(message, session);
+      const hasContactInfo = contactArgs.phone || contactArgs.email || contactArgs.postcode || contactArgs.houseNumber;
+      const looksLikeNote = !hasContactInfo && message.trim().length > 10 &&
+        !/^(yes|no|yeah|yep|correct|sure|ok|okay|thanks|cheers)$/i.test(message.trim());
+
+      if (looksLikeNote) {
+        // Save as a note and continue contact collection
+        session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${message.trim()}`;
+        await saveSession(conversationId, session);
+        const nextAsk = session.contactPhone
+          ? (session.contactEmail ? (session.contactPostcode ? `What's your house number or name?` : `What's your postcode?`) : `Can I grab your email address?`)
+          : `Can I just grab a contact number?`;
+        return {
+          content: `Got it, I'll make sure the team knows. ${nextAsk}`,
+          needsHumanAssistance: false,
+        };
+      }
+
       const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
       return {
         content: instructionToCustomerReply(instructions),
@@ -1733,26 +1753,39 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     }
   }
 
-  // Month name — "March", "in April", etc.
+  // Month name — check BEFORE day-of-month so "5th March" filters by month first
+  // e.g. "Thursday 5th March" → find slots in March, then pick day 5, then closest time
   const monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+  let monthFilter: number | null = null;
   for (let mi = 0; mi < monthNames.length; mi++) {
     if (new RegExp(`\\b${monthNames[mi]}\\b`).test(prefLower)) {
-      const matches = timeslots.filter(t => new Date(t.date + 'T12:00:00').getMonth() === mi);
-      if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
-      return null; // Month exists in preference but no slots — let OpenAI explain
+      monthFilter = mi;
+      break;
     }
   }
+  if (monthFilter !== null) {
+    const inMonth = timeslots.filter(t => new Date(t.date + 'T12:00:00').getMonth() === monthFilter);
+    if (inMonth.length === 0) return null; // Month mentioned but no slots — let OpenAI explain
+    // Try to also narrow by day-of-month within the month
+    const domMatch = prefLower.match(/\b(\d{1,2})(st|nd|rd|th)?\b/);
+    if (domMatch) {
+      const dayNum = parseInt(domMatch[1]);
+      if (dayNum >= 1 && dayNum <= 31) {
+        const onDay = inMonth.filter(t => new Date(t.date + 'T12:00:00').getDate() === dayNum);
+        if (onDay.length > 0) return closestByTime(onDay, extractPrefHour(prefLower));
+        // Day not available in that month — return nearest slot in that month
+        return closestByTime(inMonth, extractPrefHour(prefLower));
+      }
+    }
+    return closestByTime(inMonth, extractPrefHour(prefLower));
+  }
 
-  // Specific day-of-month — "the 25th", "25th", "25 Feb", "on the 26th"
-  // Extract day number (only 1–31) preceded/followed by ordinal or slash-date pattern
-  const dayOfMonthMatch = prefLower.match(/\b(\d{1,2})(st|nd|rd|th)?\b/);
+  // Specific day-of-month only (no month name) — "the 25th", "25th", "on the 26th"
+  const dayOfMonthMatch = prefLower.match(/\b(\d{1,2})(st|nd|rd|th)\b/);
   if (dayOfMonthMatch) {
     const dayNum = parseInt(dayOfMonthMatch[1]);
     if (dayNum >= 1 && dayNum <= 31) {
-      const matches = timeslots.filter(t => {
-        const d = new Date(t.date + 'T12:00:00');
-        return d.getDate() === dayNum;
-      });
+      const matches = timeslots.filter(t => new Date(t.date + 'T12:00:00').getDate() === dayNum);
       if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
     }
   }

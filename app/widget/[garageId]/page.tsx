@@ -433,7 +433,7 @@ export default function ChatWidget() {
           <div style={{ 
             backgroundColor: 'white', 
             borderRadius: '24px',
-            padding: '24px 20px 28px',
+            padding: '24px 20px 24px',
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)'
           }}>
             <h4 className="text-gray-900 font-medium text-lg mb-5" style={{ fontFamily: "'Poppins', sans-serif" }}>Message us on...</h4>
@@ -572,7 +572,7 @@ export default function ChatWidget() {
           <div style={{ 
             backgroundColor: 'white', 
             borderRadius: '24px',
-            padding: '28px 24px',
+            padding: '24px',
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)'
           }}>
             {/* Header with back button */}

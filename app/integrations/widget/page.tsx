@@ -35,12 +35,12 @@ export default function WidgetEmbedPage() {
     : '';
 
   const voiceEmbedCode = garageId
-    ? `<!-- ReceptionMate Voice Widget -->
-<script 
-  src="https://portal.receptionmate.co.uk/voice-widget/embed.js" 
-  data-garage-id="${garageId}"
-  async
-></script>`
+    ? `<!-- ReceptionMate Voice Widget (iframe) -->
+<iframe 
+  src="https://portal.receptionmate.co.uk/voice-widget/embed?theme=dark" 
+  style="width: 320px; height: 64px; border: none;"
+  allow="microphone"
+></iframe>`
     : '';
 
   const handleCopyChat = () => {

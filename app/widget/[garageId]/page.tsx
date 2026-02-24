@@ -558,128 +558,152 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Pre-Chat Form - Fuzey Style */}
+      {/* Pre-Chat Form - Overlay Style */}
       {viewState === 'pre-chat' && (
-        <div className="fixed bottom-24 right-6 z-50 w-[400px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          borderRadius: '24px',
-          backgroundColor: '#fafafa',
-          boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.2), 0 5px 32px 0 rgba(203, 195, 212, 0.2), 0 8px 58px 0 rgba(216, 212, 221, 0.1)',
+        <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
+          width: '480px',
+          borderRadius: '36px',
+          background: config?.primaryColor || '#1e3a8a',
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '16px',
-          fontFamily: "'Poppins', sans-serif"
+          fontFamily: "'Poppins', sans-serif",
+          padding: '36px'
         }}>
-          {/* Header */}
-          <div className="px-6 pt-8 pb-6 flex flex-col items-center relative" style={{
-            background: config?.primaryColor || '#3f51b5',
-            borderTopLeftRadius: '24px',
-            borderTopRightRadius: '24px'
+          {/* White overlay rectangle */}
+          <div style={{ 
+            backgroundColor: 'white', 
+            borderRadius: '28px',
+            padding: '32px 28px',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)'
           }}>
-            <button
-              onClick={() => setViewState('menu')}
-              className="absolute top-4 left-4 p-2 rounded-full transition-colors"
-              style={{ color: 'rgba(255, 255, 255, 0.9)' }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-3">
-              <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+            {/* Header with back button */}
+            <div className="flex items-center mb-6">
+              <button
+                onClick={() => setViewState('menu')}
+                className="p-2 rounded-full transition-all mr-3"
+                style={{ color: '#666' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+                  e.currentTarget.style.transform = 'translateX(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.transform = 'translateX(0)';
+                }}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div>
+                <h3 className="text-gray-900 font-semibold text-lg" style={{ fontFamily: "'Poppins', sans-serif" }}>{config?.name ?? 'ReceptionMate'}</h3>
+                <p className="text-gray-500 text-sm" style={{ fontFamily: "'Poppins', sans-serif" }}>We typically reply instantly</p>
+              </div>
             </div>
-            <h3 className="text-white font-semibold text-base">{config?.name ?? 'ReceptionMate'}</h3>
-            <p className="text-white/90 text-sm mt-1">We typically reply instantly</p>
+
+            {/* Form content */}
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={preChatName}
+                onChange={(e) => setPreChatName(e.target.value)}
+                placeholder="First name"
+                style={{
+                  width: '100%',
+                  padding: '14px 18px',
+                  backgroundColor: 'white',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  color: '#000',
+                  outline: 'none',
+                  fontFamily: "'Poppins', sans-serif",
+                  transition: 'border-color 0.2s'
+                }}
+                onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#5DDCC2'}
+                onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
+              />
+
+              <input
+                type="tel"
+                value={preChatPhone}
+                onChange={(e) => setPreChatPhone(e.target.value)}
+                placeholder="Phone number (e.g. 07700 900000)"
+                style={{
+                  width: '100%',
+                  padding: '14px 18px',
+                  backgroundColor: 'white',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  color: '#000',
+                  outline: 'none',
+                  fontFamily: "'Poppins', sans-serif",
+                  transition: 'border-color 0.2s'
+                }}
+                onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#5DDCC2'}
+                onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
+              />
+
+              <textarea
+                rows={4}
+                value={preChatMessage}
+                onChange={(e) => setPreChatMessage(e.target.value)}
+                placeholder="Please, type your message here..."
+                style={{
+                  width: '100%',
+                  padding: '14px 18px',
+                  backgroundColor: 'white',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  color: '#000',
+                  outline: 'none',
+                  resize: 'none',
+                  fontFamily: "'Poppins', sans-serif",
+                  transition: 'border-color 0.2s'
+                }}
+                onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#5DDCC2'}
+                onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
+              />
+
+              <button
+                onClick={handlePreChatSubmit}
+                disabled={!preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting}
+                style={{ 
+                  width: '100%',
+                  padding: '16px 20px',
+                  backgroundColor: config?.primaryColor || '#1e3a8a',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '16px',
+                  fontSize: '17px',
+                  fontWeight: 600,
+                  cursor: !preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: !preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting ? 0.4 : 1,
+                  transition: 'all 0.2s',
+                  fontFamily: "'Poppins', sans-serif"
+                }}
+                onMouseEnter={(e) => {
+                  if (!(!preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting)) {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                {preChatSubmitting ? 'Starting chat…' : 'Start Chat'}
+              </button>
+            </div>
+
           </div>
-
-          {/* Form content */}
-          <div style={{ backgroundColor: '#fafafa' }} className="px-5 pt-5 pb-5 space-y-3">
-            <input
-              type="text"
-              value={preChatName}
-              onChange={(e) => setPreChatName(e.target.value)}
-              placeholder="First name"
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                backgroundColor: 'white',
-                border: '1px solid rgba(0, 0, 0, 0.12)',
-                borderRadius: '8px',
-                fontSize: '16px',
-                color: '#000',
-                outline: 'none'
-              }}
-              onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#3f51b5'}
-              onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.12)'}
-            />
-
-            <input
-              type="tel"
-              value={preChatPhone}
-              onChange={(e) => setPreChatPhone(e.target.value)}
-              placeholder="Phone number (e.g. 07700 900000)"
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                backgroundColor: 'white',
-                border: '1px solid rgba(0, 0, 0, 0.12)',
-                borderRadius: '8px',
-                fontSize: '16px',
-                color: '#000',
-                outline: 'none'
-              }}
-              onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#3f51b5'}
-              onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.12)'}
-            />
-
-            <textarea
-              rows={4}
-              value={preChatMessage}
-              onChange={(e) => setPreChatMessage(e.target.value)}
-              placeholder="Please, type your message here..."
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                backgroundColor: 'white',
-                border: '1px solid rgba(0, 0, 0, 0.12)',
-                borderRadius: '8px',
-                fontSize: '16px',
-                color: '#000',
-                outline: 'none',
-                resize: 'none'
-              }}
-              onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#3f51b5'}
-              onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.12)'}
-            />
-
-            <button
-              onClick={handlePreChatSubmit}
-              disabled={!preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting}
-              style={{ 
-                width: '100%',
-                padding: '12px 20px',
-                backgroundColor: config?.primaryColor || '#3f51b5',
-                color: 'white',
-                border: 'none',
-                borderRadius: '24px',
-                fontSize: '16px',
-                fontWeight: 700,
-                cursor: !preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting ? 'not-allowed' : 'pointer',
-                opacity: !preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting ? 0.4 : 1,
-                transition: 'transform 0.1s'
-              }}
-              onMouseDown={(e) => !(!preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting) && (e.currentTarget.style.transform = 'scale(0.95)')}
-              onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-            >
-              {preChatSubmitting ? 'Starting chat…' : 'Start Chat'}
-            </button>
-
-            {/* Powered by */}
-            <div className="pt-3 mt-2 text-center" style={{ borderTop: '1px solid rgba(0, 0, 0, 0.05)' }}>
-              <p className="text-xs" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-semibold" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
-            </div>
+          
+          {/* Powered by - outside white rectangle */}
+          <div className="mt-6 text-center">
+            <p className="text-base font-medium" style={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Powered by ReceptionMate</p>
           </div>
         </div>
       )}

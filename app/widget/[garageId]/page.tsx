@@ -424,76 +424,65 @@ export default function ChatWidget() {
 
       {/* Pre-Chat Form */}
       {viewState === 'pre-chat' && (
-        <div className="fixed bottom-24 right-6 z-50 w-[380px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200 rounded-2xl shadow-2xl overflow-hidden border border-slate-800" style={{ backgroundColor: '#020617' }}>
-          {/* Header */}
-          <div className="px-5 py-4 flex items-center justify-between border-b border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-sky-500/20 border border-sky-500/30 flex items-center justify-center">
-                <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-slate-100 font-semibold text-sm">{config?.name ?? 'Chat'}</h3>
-                <p className="text-slate-500 text-xs">We typically reply instantly</p>
-              </div>
-            </div>
+        <div className="fixed bottom-24 right-6 z-50 w-[340px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200 rounded-2xl shadow-2xl overflow-hidden">
+          {/* Dark branded header */}
+          <div className="px-5 pt-5 pb-5 flex flex-col items-center relative" style={{ backgroundColor: '#0f172a' }}>
             <button
               onClick={() => setViewState('menu')}
-              className="text-slate-400 hover:text-slate-100 transition-colors p-1.5 hover:bg-slate-800 rounded-lg"
+              className="absolute top-3 left-3 text-slate-400 hover:text-white transition-colors p-1.5 hover:bg-white/10 rounded-lg"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
+            <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-500/30 flex items-center justify-center mb-3">
+              <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-white font-bold text-base">{config?.name ?? 'Live Chat'}</h3>
+            <p className="text-slate-400 text-xs mt-0.5">We typically reply instantly</p>
           </div>
 
-          {/* Form */}
-          <div className="p-5 space-y-4">
-            <p className="text-xs text-slate-500">Please share a few details before we get started.</p>
+          {/* White card form */}
+          <div className="bg-white px-5 pt-5 pb-4 space-y-3">
+            <input
+              type="text"
+              value={preChatName}
+              onChange={(e) => setPreChatName(e.target.value)}
+              placeholder="First name"
+              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-full text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-400/50 focus:border-sky-400"
+            />
 
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Your name <span className="text-red-400">*</span></label>
-              <input
-                type="text"
-                value={preChatName}
-                onChange={(e) => setPreChatName(e.target.value)}
-                placeholder="e.g. John Smith"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50"
-              />
-            </div>
+            <input
+              type="tel"
+              value={preChatPhone}
+              onChange={(e) => setPreChatPhone(e.target.value)}
+              placeholder="Phone number (e.g. 07700 900000)"
+              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-full text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-400/50 focus:border-sky-400"
+            />
 
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Phone number <span className="text-red-400">*</span></label>
-              <input
-                type="tel"
-                value={preChatPhone}
-                onChange={(e) => setPreChatPhone(e.target.value)}
-                placeholder="e.g. 07700 900000"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">How can we help? <span className="text-red-400">*</span></label>
-              <textarea
-                rows={3}
-                value={preChatMessage}
-                onChange={(e) => setPreChatMessage(e.target.value)}
-                placeholder="e.g. I'd like to book a service for my car…"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/50 resize-none"
-              />
-            </div>
+            <textarea
+              rows={3}
+              value={preChatMessage}
+              onChange={(e) => setPreChatMessage(e.target.value)}
+              placeholder="Please, type your message here..."
+              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-2xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-400/50 focus:border-sky-400 resize-none"
+            />
 
             <button
               onClick={handlePreChatSubmit}
               disabled={!preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting}
-              className="w-full py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-sm font-semibold transition-all disabled:opacity-40 active:scale-[0.98]"
+              className="w-full py-3 rounded-full text-white text-sm font-bold transition-all disabled:opacity-40 active:scale-[0.98] hover:opacity-90"
+              style={{ backgroundColor: '#38bdf8' }}
             >
               {preChatSubmitting ? 'Starting chat…' : 'Start Chat'}
             </button>
+          </div>
 
-            <p className="text-xs text-slate-600 text-center">Powered by <span className="font-medium text-slate-500">ReceptionMate</span></p>
+          {/* Powered by — outside white card */}
+          <div className="bg-white px-5 pb-4 text-center">
+            <p className="text-xs text-gray-400">Powered by <span className="font-semibold text-gray-600">ReceptionMate</span></p>
           </div>
         </div>
       )}

@@ -529,7 +529,7 @@ async def log_call_to_portal(
             "X-Webhook-Secret": PORTAL_WEBHOOK_SECRET,
         }
         
-        logger.info(f"[PORTAL] Posting call to {PORTAL_API_URL}")
+        logger.info(f"[PORTAL] Posting call to {PORTAL_API_URL} | transcript={len(transcript)} entries | metrics_keys={list(metrics.keys())} | customerPhone={'YES' if customer_phone else 'OMITTED'}")
         
         async with aiohttp.ClientSession() as session:
             async with session.post(PORTAL_API_URL, json=payload, headers=headers) as response:
@@ -3356,7 +3356,7 @@ async def entrypoint(ctx: JobContext):
                     transcript=transcript,
                     summary=summary,
                     customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip() or "Unknown",
-                    customer_phone=caller_phone or None,
+                    customer_phone=caller_phone,
                     registration_number=state.vrn,
                     confirmed_booking=bool(state.booking_date),
                     booking_details=booking_details,

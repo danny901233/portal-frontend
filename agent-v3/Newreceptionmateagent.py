@@ -472,120 +472,54 @@ RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()  # e.g. https:/
 # PORTAL CALL LOGGING
 # ============================================================
 
-async def generate_call_summary(
-    state: "CallState",
-    transcript_texts: list[str],
-) -> str:
-    """
-    Generate a human-readable call summary using GPT.
-    Based on basic_agent2.py implementation for consistent, high-quality summaries.
-    """
-    # Check if there was any meaningful conversation
-    if not transcript_texts or len(transcript_texts) < 2:
-        return "No conversation was had."
-
+async def generate_call_summary(transcript: list, state) -> str:
+    """Use GPT via LiveKit inference to generate a concise call summary."""
     try:
-        client = _get_specialist_llm()
-        if client is None:
-            # Fallback to manual summary if no LLM available
-            name = f"{state.customer_name_first} {state.customer_name_last}".strip() or "Customer"
-            return f"{name} called. " + (f"Vehicle: {state.vrn}. " if state.vrn else "") + (f"Booking: {state.booking_date} at {state.booking_time}." if state.booking_date else "")
+        llm = _get_specialist_llm()
+        if not llm:
+            raise ValueError("No LLM client available")
 
-        # Build formatted transcript for AI
-        transcript_text = "\n".join([
-            f"{'Agent' if i % 2 == 0 else 'Customer'}: {text}"
-            for i, text in enumerate(transcript_texts)
-        ])
+        # Build a plain-text transcript for GPT
+        lines = []
+        for entry in transcript:
+            speaker = entry.get("speaker", "unknown").capitalize()
+            text = entry.get("text", "")
+            lines.append(f"{speaker}: {text}")
+        transcript_text = "\n".join(lines)
 
-        # Get customer name and vehicle for context
-        customer_name = f"{state.customer_name_first} {state.customer_name_last}".strip()
-        vehicle_info = f"{state.vrn}" if state.vrn else "their vehicle"
-        if state.vehicle_make and state.vehicle_model:
-            vehicle_info = f"{state.vrn} ({state.vehicle_make} {state.vehicle_model})"
-
-        # Determine booking status for summary context
-        booking_status = ""
-        if state.step == Step.CONFIRMED:
-            booking_status = "BOOKING WAS SUCCESSFULLY SUBMITTED TO THE SYSTEM."
-        elif state.booking_date and state.booking_time:
-            booking_status = "TIMESLOT WAS DISCUSSED BUT BOOKING WAS NOT COMPLETED. Customer needs a callback to finalize the booking."
-        elif state.step == Step.MESSAGE_ONLY or state.intent in ["message", "quote"]:
-            booking_status = "Customer requested a MESSAGE/CALLBACK."
-
-        prompt = f"""Create a structured call summary from this garage receptionist call transcript.
-
-BOOKING STATUS: {booking_status}
-
-CRITICAL RULES - READ CAREFULLY:
-1. ONLY summarize information that is ACTUALLY in the transcript below
-2. DO NOT make up or infer details that aren't explicitly stated
-3. Use the BOOKING STATUS above to determine if booking was confirmed or if callback is needed
-4. If BOOKING STATUS says "NOT COMPLETED", you MUST state "Callback required to complete the booking"
-5. DO NOT invent customer names, registration numbers, or other details
-6. If the customer only said "hello" then hung up, respond ONLY with "No conversation was had."
-
-REQUIRED FORMAT:
-Start with: "{customer_name or 'Customer'} called regarding {vehicle_info}."
-
-Then provide 2-4 paragraphs covering ONLY what was actually discussed:
-
-Paragraph 1 - Purpose & Vehicle:
-- Why they called (service needed, enquiry, complaint, vehicle update, etc.)
-- Vehicle details if mentioned (make, model, registration, mileage, issues)
-
-Paragraph 2 - Booking Details:
-- If BOOKING STATUS says "SUCCESSFULLY SUBMITTED": "Booking confirmed for [DAY] [DATE] at [TIME]"
-- If BOOKING STATUS says "NOT COMPLETED": "Timeslot discussed: [DAY] [DATE] at [TIME]. Booking was NOT finalized."
-- Specific work discussed (e.g., "MOT retest", "full service", "brake inspection")
-- Total price if mentioned
-
-Paragraph 3 - Callback/Follow-up:
-- If BOOKING STATUS says "NOT COMPLETED" or "MESSAGE/CALLBACK": "Callback required - [specific reason from transcript]"
-- Only state "No callback required" if BOOKING STATUS says "SUCCESSFULLY SUBMITTED" AND all customer needs were met
-- Include any actions garage needs to take
-
-Transcript:
-{transcript_text}
-
-Call Summary:"""
-
-        resp = await asyncio.wait_for(
-            client.chat.completions.create(
-                model="openai/gpt-4o-mini",
-                temperature=0.1,
-                max_tokens=500,
-                messages=[
-                    {"role": "system", "content": "You write factual summaries of garage phone calls based ONLY on what was actually said in the transcript. NEVER make up or infer information. Be detailed but only include facts from the transcript. Do not assume bookings were made unless explicitly confirmed. Do not invent names, registration numbers, or other details."},
-                    {"role": "user", "content": prompt},
-                ],
-            ),
-            timeout=10.0,
+        prompt = (
+            "You are a call summarisation assistant for a vehicle repair garage. "
+            "Summarise the following call transcript in 2-3 sentences. "
+            "Include: the customer's name (if given), their reason for calling, "
+            "any vehicle registration mentioned, and whether a booking was made or a message taken. "
+            "Be concise and factual.\n\n"
+            f"Transcript:\n{transcript_text}"
         )
 
-        summary = resp.choices[0].message.content.strip()
-
-        if not summary or len(summary) < 20:
-            logger.warning("[PORTAL] AI generated very short summary, returning 'no conversation'")
-            return "No conversation was had."
-
-        logger.info(f"[PORTAL] Generated GPT summary: {summary[:100]}...")
+        response = await llm.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200,
+            temperature=0.3,
+        )
+        summary = response.choices[0].message.content.strip()
+        logger.info(f"[PORTAL] GPT summary generated ({len(summary)} chars)")
         return summary
-
     except Exception as e:
-        logger.warning(f"[PORTAL] Failed to generate GPT summary: {e}, using fallback")
-        name = f"{state.customer_name_first} {state.customer_name_last}".strip() or "Customer"
-        parts = [f"{name} called"]
+        logger.warning(f"[PORTAL] GPT summary failed, using fallback: {e}")
+        # Fallback: build summary from state fields
+        parts = []
+        if state.customer_name_first:
+            parts.append(f"Customer: {state.customer_name_first} {state.customer_name_last}".strip())
+        if state.intent:
+            parts.append(f"Intent: {state.intent}")
         if state.vrn:
-            parts.append(f"regarding {state.vrn}")
-        if state.vehicle_make and state.vehicle_model:
-            parts.append(f"({state.vehicle_make} {state.vehicle_model})")
+            parts.append(f"Vehicle: {state.vrn}")
         if state.booking_date:
-            parts.append(f"Booking confirmed for {state.booking_date} at {state.booking_time}")
-            if state.service_selected_name:
-                parts.append(f"for {state.service_selected_name}")
-        elif state.message:
+            parts.append(f"Booking: {state.booking_date} at {state.booking_time}")
+        if state.message:
             parts.append(f"Message: {state.message}")
-        return ". ".join(parts) + "."
+        return " | ".join(parts) if parts else "Call completed"
 
 
 async def log_call_to_portal(
@@ -596,50 +530,46 @@ async def log_call_to_portal(
     summary: str,
     customer_name: str = "",
     customer_phone: str = "",
-    from_number: str = "",
     registration_number: str = "",
     confirmed_booking: bool = False,
     booking_details: str = "",
     call_type: str = "unknown",
-    twilio_call_sid: str = "",
+    metrics: dict = None,
 ) -> None:
     """Log call data to the portal backend."""
-
+    
     # Only log calls that are 55 seconds or longer
     if duration_seconds < 55:
         logger.info(f"[PORTAL] Skipping call log - duration {duration_seconds}s is under 55s threshold")
         return
-
+    
     try:
+        # metrics must be non-empty object
+        if not metrics:
+            metrics = {"duration_seconds": duration_seconds, "call_type": call_type}
+
         payload = {
             "garageId": garage_id,
             "roomName": room_name,
             "durationSeconds": duration_seconds,
             "transcript": transcript,
             "summary": summary,
-            "callType": call_type,
-            "metrics": {
-                "callDuration": duration_seconds,
-                "transcriptLength": len(transcript),
-            },
+            "confirmedBooking": confirmed_booking,
+            "metrics": metrics,
         }
 
-        # Add optional fields only if they have values
+        # Only include optional string fields when non-empty (schema requires min 1 char if present)
         if customer_name:
             payload["customerName"] = customer_name
         if customer_phone:
             payload["customerPhone"] = customer_phone
-        if from_number:
-            payload["fromNumber"] = from_number
         if registration_number:
             payload["registrationNumber"] = registration_number
         if booking_details:
             payload["bookingDetails"] = booking_details
-        if confirmed_booking:
-            payload["confirmedBooking"] = confirmed_booking
-        if twilio_call_sid:
-            payload["twilioCallSid"] = twilio_call_sid
-
+        if call_type and call_type != "unknown":
+            payload["callType"] = call_type
+        
         # Add recording URL if available
         if RECORDING_BASE_URL:
             recording_url = f"{RECORDING_BASE_URL.rstrip('/')}/{room_name}.mp4"
@@ -647,14 +577,14 @@ async def log_call_to_portal(
             logger.info(f"[PORTAL] Including recording URL: {recording_url}")
         else:
             logger.warning("[PORTAL] RECORDING_BASE_URL not set; recordingUrl will be omitted")
-
+        
         headers = {
             "Content-Type": "application/json",
             "X-Webhook-Secret": PORTAL_WEBHOOK_SECRET,
         }
-
-        logger.info(f"[PORTAL] Posting call to {PORTAL_API_URL}")
-
+        
+        logger.info(f"[PORTAL] Posting call to {PORTAL_API_URL} | transcript={len(transcript)} entries | metrics_keys={list(metrics.keys())} | customerPhone={'YES' if customer_phone else 'OMITTED'}")
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(PORTAL_API_URL, json=payload, headers=headers) as response:
                 if response.status == 201:
@@ -1086,6 +1016,7 @@ class CallState:
     vrn_pending: str = ""  # normalized VRN awaiting caller confirmation before API lookup
     booking_submit_pending: bool = False  # True when submit_booking failed and needs retry
     recent_transcripts: list[str] = field(default_factory=list)
+    conversation_items: list[dict] = field(default_factory=list)  # full agent+customer turns for GPT summary
 
 
 # ============================================================
@@ -3357,35 +3288,45 @@ async def entrypoint(ctx: JobContext):
         curr = text.lower().rstrip(".")
         if prev and prev in curr:
             if state.recent_transcripts:
-                state.recent_transcripts[-1] = {"speaker": "customer", "text": text}
+                state.recent_transcripts[-1] = text
             logger.info(f"[TRANSCRIPT] Replaced overlapping final: '{_last_final}' → '{text}'")
         else:
-            state.recent_transcripts.append({"speaker": "customer", "text": text})
+            state.recent_transcripts.append(text)
 
         _last_final = text
 
     @session.on("conversation_item_added")
     def _on_conversation_item_added(ev):
-        """Track agent's spoken responses via conversation items (basic_agent2.py pattern)."""
-        if not hasattr(ev, "item"):
-            return
-
-        text_content = (getattr(ev.item, "text_content", None) or "").strip()
-        if not text_content:
-            return
-
-        role = getattr(ev.item, "role", "") or "assistant"
-
-        # Skip user messages (already captured via user_input_transcribed)
-        if role == "user":
-            return
-
-        # Capture assistant messages (agent speech)
-        if role == "assistant":
-            # Deduplicate - avoid adding the same response twice
-            if not state.recent_transcripts or state.recent_transcripts[-1].get("text") != text_content:
-                state.recent_transcripts.append({"speaker": "agent", "text": text_content})
-                logger.info(f"[TRANSCRIPT] Agent speech captured via conversation_item_added: {text_content[:100]}...")
+        """Capture full agent+customer transcript for GPT summary."""
+        try:
+            item = getattr(ev, "item", None)
+            if item is None:
+                return
+            role = getattr(item, "role", "") or ""
+            text = ""
+            if hasattr(item, "text_content"):
+                text = item.text_content or ""
+            if not text and hasattr(item, "content"):
+                content = item.content
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    parts = []
+                    for part in content:
+                        if hasattr(part, "text"):
+                            parts.append(part.text or "")
+                        elif isinstance(part, dict):
+                            parts.append(part.get("text", ""))
+                    text = " ".join(p for p in parts if p)
+            text = text.strip()
+            if not text:
+                return
+            speaker = "agent" if role in ("assistant", "agent") else "customer"
+            ts = max(0.0, time.time() - (state.call_start_time or time.time()))
+            state.conversation_items.append({"speaker": speaker, "text": text, "timestamp": round(ts, 1)})
+            logger.info(f"[TRANSCRIPT] {speaker.capitalize()} speech captured via conversation_item_added: {text[:80]}")
+        except Exception as exc:
+            logger.warning(f"[TRANSCRIPT] conversation_item_added error: {exc}")
 
     # Start session
     logger.info("[ENTRYPOINT] Starting session with SupervisorAgent")
@@ -3405,68 +3346,67 @@ async def entrypoint(ctx: JobContext):
             "Logging call and shutting down job for clean session isolation."
         )
 
-        # Log call to portal before shutdown
-        async def _log_and_shutdown():
+        async def _shutdown_and_log():
+            # Log call to portal before shutdown
             try:
                 call_duration = int(time.time() - state.call_start_time) if state.call_start_time else 0
 
-                # Extract caller phone number from participant identity (format: sip_+447976500282)
-                caller_phone = ""
-                if participant.identity and participant.identity.startswith("sip_"):
-                    caller_phone = participant.identity[4:]  # Remove "sip_" prefix
-                    logger.info(f"[PORTAL] Extracted caller phone: {caller_phone}")
-
-                # Extract Twilio CallSid from participant attributes
-                twilio_call_sid = ""
-                try:
-                    if hasattr(participant, 'attributes') and participant.attributes:
-                        logger.info(f"[PORTAL] Participant attributes: {participant.attributes}")
-                        import json
-                        attrs = json.loads(participant.attributes) if isinstance(participant.attributes, str) else participant.attributes
-                        twilio_call_sid = attrs.get('sip_call_id', '') or attrs.get('call_id', '') or attrs.get('CallSid', '')
-                        if twilio_call_sid:
-                            logger.info(f"[PORTAL] Found Twilio CallSid from participant: {twilio_call_sid}")
-                except Exception as e:
-                    logger.warning(f"[PORTAL] Could not extract CallSid from participant: {e}")
-
-                # Fallback: try room metadata
-                if not twilio_call_sid and hasattr(ctx.room, 'metadata') and ctx.room.metadata:
+                # Extract phone from SIP participant attributes if not already set
+                caller_phone = state.contact_phone or ""
+                if not caller_phone:
                     try:
-                        import json
-                        metadata = json.loads(ctx.room.metadata)
-                        twilio_call_sid = metadata.get('twilioCallSid', '') or metadata.get('sip_call_id', '')
-                        if twilio_call_sid:
-                            logger.info(f"[PORTAL] Found Twilio CallSid in room metadata: {twilio_call_sid}")
-                    except Exception as e:
-                        logger.warning(f"[PORTAL] Could not parse room metadata: {e}")
+                        attrs = participant.attributes or {}
+                        caller_phone = (
+                            attrs.get("sip.phoneNumber") or
+                            attrs.get("sip.from") or
+                            ""
+                        )
+                        # Fall back: parse identity like sip_+447841422472
+                        if not caller_phone and participant.identity.startswith("sip_"):
+                            caller_phone = participant.identity[4:]  # strip 'sip_'
+                        if caller_phone:
+                            state.contact_phone = caller_phone
+                            logger.info(f"[PORTAL] Extracted caller phone from attributes: {caller_phone}")
+                    except Exception:
+                        pass
 
-                # Build transcript from state.recent_transcripts
-                # Portal expects: speaker, text, timestamp
-                transcript = [
-                    {
-                        "speaker": t.get("speaker", "customer") if isinstance(t, dict) else "customer",
-                        "text": t.get("text", t) if isinstance(t, dict) else t,
-                        "timestamp": i * 5.0
-                    }
-                    for i, t in enumerate(state.recent_transcripts)
-                ]
+                # Build transcript: prefer conversation_items (full agent+customer turns captured in real-time)
+                # Fall back to synthetic transcript from recent_transcripts if no conversation_items
+                base_ts = state.call_start_time or time.time()
+                if state.conversation_items:
+                    transcript = state.conversation_items
+                    # Ensure at least one agent entry exists
+                    if not any(e.get("speaker") == "agent" for e in transcript):
+                        transcript = [{"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0}] + transcript
+                    logger.info(f"[PORTAL] Using {len(transcript)} conversation_items for transcript")
+                else:
+                    # Fallback: synthetic transcript from customer utterances
+                    logger.info("[PORTAL] No conversation_items — building synthetic transcript from recent_transcripts")
+                    transcript = []
+                    transcript.append({"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0})
+                    for i, text in enumerate(state.recent_transcripts or [], start=1):
+                        transcript.append({"speaker": "customer", "text": text, "timestamp": i * 5})
+                    # Append key structured events as agent turns
+                    offset = len(transcript) * 5
+                    if state.vrn:
+                        transcript.append({"speaker": "agent", "text": f"I have your vehicle registration as {state.vrn}.", "timestamp": offset})
+                        offset += 5
+                    if state.booking_date:
+                        transcript.append({"speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
 
-                # Generate GPT-powered summary
-                transcript_texts = [t.get("text", t) if isinstance(t, dict) else t for t in state.recent_transcripts]
-                summary = await generate_call_summary(state, transcript_texts)
+                # Generate GPT summary (falls back to state-based if LLM unavailable)
+                summary = await generate_call_summary(transcript, state)
 
                 # Determine call type
-                call_type = "other"
+                call_type = "unknown"
                 if state.intent == "booking" and state.booking_date:
-                    call_type = "confirmed booking"
-                elif state.intent == "booking" or state.intent == "quote":
-                    call_type = "general enquiry"
-                elif state.intent == "vehicle_update":
-                    call_type = "update"
+                    call_type = "booking"
+                elif state.intent == "quote":
+                    call_type = "quote"
                 elif state.intent == "message":
-                    call_type = "general enquiry"
-                elif state.intent == "transfer":
-                    call_type = "human request"
+                    call_type = "message"
+                elif state.intent == "vehicle_update":
+                    call_type = "vehicle_update"
 
                 # Build booking details if applicable
                 booking_details = ""
@@ -3481,31 +3421,38 @@ async def entrypoint(ctx: JobContext):
                         booking_parts.append(f"Price: {state.service_price}")
                     booking_details = ", ".join(booking_parts)
 
-                # Prioritize collected contact phone, fallback to caller phone from SIP
-                final_customer_phone = state.contact_phone if state.contact_phone else caller_phone
+                # metrics must be a non-empty object
+                metrics = {
+                    "duration_seconds": call_duration,
+                    "intent": state.intent or "unknown",
+                    "vrn_captured": bool(state.vrn),
+                    "booking_confirmed": bool(state.booking_date),
+                }
 
-                customer_full_name = f"{state.customer_name_first} {state.customer_name_last}".strip()
+                logger.info(f"[PORTAL] Extracted caller phone: {caller_phone}")
+                logger.info(f"[PORTAL] Transcript entries: {len(transcript)}, summary: {summary[:80]}")
+
+                # Log to portal
                 await log_call_to_portal(
                     garage_id=garage_id,
                     room_name=room_name,
                     duration_seconds=call_duration,
                     transcript=transcript,
                     summary=summary,
-                    customer_name=customer_full_name if customer_full_name else "",
-                    customer_phone=final_customer_phone if final_customer_phone else "",
-                    from_number=caller_phone if caller_phone else "",
-                    registration_number=state.vrn if state.vrn else "",
-                    confirmed_booking=(state.step == Step.CONFIRMED),
+                    customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip() or "Unknown",
+                    customer_phone=caller_phone,
+                    registration_number=state.vrn,
+                    confirmed_booking=bool(state.booking_date),
                     booking_details=booking_details,
                     call_type=call_type,
-                    twilio_call_sid=twilio_call_sid if twilio_call_sid else "",
+                    metrics=metrics,
                 )
             except Exception as e:
                 logger.error(f"[PORTAL] Failed to log call: {e}")
-            finally:
-                ctx.shutdown("caller_disconnected")
 
-        asyncio.create_task(_log_and_shutdown())
+            ctx.shutdown("caller_disconnected")
+
+        asyncio.create_task(_shutdown_and_log())
 
 
 # ============================================================

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { getGarageId, getGarages } from '../../lib/auth';
 
 export default function WidgetEmbedPage() {
   const [copied, setCopied] = useState(false);
@@ -8,13 +9,15 @@ export default function WidgetEmbedPage() {
   const [garageName, setGarageName] = useState<string>('');
 
   useEffect(() => {
-    // Get garage info from localStorage or API
-    const storedGarageId = localStorage.getItem('selectedGarageId');
-    const storedGarageName = localStorage.getItem('selectedGarageName') || 'Your Garage';
-    
+    // Get garage info using the auth helper (uses 'rm_garage_id' key)
+    const storedGarageId = getGarageId();
+    const garages = getGarages();
+    const garage = garages.find(g => g.id === storedGarageId);
+    const name = garage?.name || 'Your Garage';
+
     if (storedGarageId) {
       setGarageId(storedGarageId);
-      setGarageName(storedGarageName);
+      setGarageName(name);
     }
   }, []);
 

@@ -22,7 +22,7 @@ function SetupPaymentContent() {
   const verifyMagicLinkToken = async (magicToken: string) => {
     setIsVerifyingToken(true);
     try {
-      const response = await fetch('/internal-api/api/auth/verify-magic-link', {
+      const response = await fetch('/internal-api/auth/verify-magic-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: magicToken }),
@@ -50,7 +50,7 @@ function SetupPaymentContent() {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch('/internal-api/api/payment/create-mandate-flow', {
+      const response = await fetch('/internal-api/payment/create-mandate-flow', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

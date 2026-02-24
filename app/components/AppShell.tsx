@@ -268,7 +268,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           // If has access, fetch needs attention count
           if (hasAccess) {
             const statsResponse = await fetch(
-              `/internal-api/api/garages/${garageId}/messages/needs-attention-count`,
+              `/internal-api/garages/${garageId}/messages/needs-attention-count`,
               {
                 headers: {
                   Authorization: `Bearer ${token}`,

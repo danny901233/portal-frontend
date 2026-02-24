@@ -18,7 +18,7 @@ function CallbackContent() {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch(`/internal-api/api/payment/confirm-mandate`, {
+      const response = await fetch(`/internal-api/payment/confirm-mandate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

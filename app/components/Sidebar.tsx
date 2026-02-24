@@ -16,7 +16,7 @@ const baseNavigation = [
   { name: 'Calls', href: '/calls' },
   { name: 'Messages', href: '/messages' },
   { name: 'Agent Configurations', href: '/agent-configurations', requiresManager: true },
-  { name: 'Integrations', href: '/integrations/widget' },
+  { name: 'Integrations', href: '/integrations/widget', requiresStaff: true },
   { name: 'Billing', href: '/billing' },
 ];
 
@@ -53,6 +53,10 @@ export default function Sidebar({
       // Agent Configurations only for managers and staff
       if (item.requiresManager) {
         return isManagerUser;
+      }
+      // Integrations only for ReceptionMate staff
+      if (item.requiresStaff) {
+        return showAdminLink;
       }
       return true;
     });

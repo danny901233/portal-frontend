@@ -523,7 +523,7 @@ export default function ChatWidget() {
       {/* Floating Pill Button */}
       <button
         onClick={() => setViewState(viewState === 'closed' ? 'menu' : 'closed')}
-        className="fixed bottom-6 right-6 z-50 h-12 px-5 rounded-full flex items-center gap-2.5 transition-all duration-300 hover:scale-105 active:scale-95 border border-slate-700 bg-slate-900 hover:bg-slate-800"
+        className="fixed bottom-6 right-6 z-50 h-12 px-5 rounded-full flex items-center gap-2.5 transition-all duration-300 hover:scale-105 active:scale-95 border border-slate-700 bg-slate-900 hover:bg-slate-800 whitespace-nowrap"
         style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >

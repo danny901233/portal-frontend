@@ -236,7 +236,7 @@ export default function ChatWidget() {
     <>
       {/* Chat Window */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[400px] max-w-[calc(100vw-48px)] h-[600px] max-h-[calc(100vh-48px)] flex flex-col animate-in slide-in-from-bottom-4 duration-200 rounded-2xl shadow-2xl overflow-hidden" style={{ backgroundColor: '#F5F5F7' }}>
+        <div className="fixed bottom-24 right-6 z-50 w-[400px] max-w-[calc(100vw-48px)] h-[600px] max-h-[calc(100vh-120px)] flex flex-col animate-in slide-in-from-bottom-4 duration-200 rounded-3xl shadow-2xl overflow-hidden" style={{ backgroundColor: '#F5F5F7' }}>
           {/* Header with gradient blue */}
           <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #5B8DEE 0%, #4776E6 100%)' }}>
             <div className="flex items-center gap-3">
@@ -357,9 +357,9 @@ export default function ChatWidget() {
 
       {/* Menu Options */}
       {viewState === 'menu' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] animate-in slide-in-from-bottom-4 duration-200 bg-white rounded-xl shadow-2xl overflow-hidden">
+        <div className="fixed bottom-24 right-6 z-50 w-[380px] animate-in slide-in-from-bottom-4 duration-200 bg-white rounded-3xl shadow-2xl overflow-hidden">
           {/* Simple Header */}
-          <div className="px-5 py-4 flex items-center justify-between" style={{ backgroundColor: '#2C50EF' }}>
+          <div className="px-5 py-4 flex items-center justify-between rounded-t-3xl" style={{ backgroundColor: '#2C50EF' }}>
             <h3 className="text-white font-semibold text-lg">Get in Touch</h3>
             <button
               onClick={() => setViewState('closed')}
@@ -447,7 +447,7 @@ export default function ChatWidget() {
 
       {/* Pre-Chat Form */}
       {viewState === 'pre-chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200 bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="fixed bottom-24 right-6 z-50 w-[380px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200 bg-white rounded-3xl shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #5B8DEE 0%, #4776E6 100%)' }}>
             <div className="flex items-center gap-3">
@@ -522,11 +522,10 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Floating Button */}
+      {/* Floating Pill Button */}
       <button
         onClick={() => setViewState(viewState === 'closed' ? 'menu' : 'closed')}
-
-        className="fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full shadow-2xl hover:shadow-3xl flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
+        className="fixed bottom-6 right-6 z-50 h-14 px-5 rounded-full shadow-2xl flex items-center gap-2.5 transition-all duration-300 hover:scale-105 active:scale-95"
         style={{ 
           background: 'linear-gradient(135deg, #5B8DEE 0%, #4776E6 100%)',
           boxShadow: '0 8px 24px rgba(75, 118, 230, 0.4)'
@@ -534,13 +533,19 @@ export default function ChatWidget() {
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >
         {viewState === 'closed' ? (
-          <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <>
+            <svg className="w-5 h-5 text-white flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-white font-semibold text-sm">Chat with us</span>
+          </>
         ) : (
-          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-          </svg>
+          <>
+            <svg className="w-5 h-5 text-white flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <span className="text-white font-semibold text-sm">Close</span>
+          </>
         )}
       </button>
     </>

@@ -1544,7 +1544,7 @@ async def specialist_timeslot_match(
         return None
 
     slot_list = "\n".join(
-        f"- {s.get('date', '?')} at {s.get('time', '?')}" for s in available_slots[:10]
+        f"- {s.get('date', '?')} at {s.get('time', '?')}" for s in available_slots[:30]
     )
     user_msg = f"Today is {today}.\nCaller said: \"{caller_preference}\"\n\nAvailable timeslots:\n{slot_list}"
 
@@ -2396,13 +2396,14 @@ class SupervisorAgent(Agent):
                         
                         slot_summary = ""
                         if timeslots:
-                            slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:6]]
-                            slot_summary = "\nAvailable timeslots:\n" + "\n".join(slot_lines)
+                            slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:9]]
+                            extra = f" (+{len(timeslots)-9} more available)" if len(timeslots) > 9 else ""
+                            slot_summary = f"\nAvailable timeslots (showing {min(9, len(timeslots))} of {len(timeslots)}{extra}):\n" + "\n".join(slot_lines)
                         
                         return (
                             f"Service selected: {service_name}.{slot_summary}\n\n"
                             "Say naturally: 'I can book that in for you. When would suit you?'\n"
-                            "Offer 2-3 early timeslots from the list above, then call select_timeslot."
+                            "Offer 2-3 early timeslots from the list above. If the caller asks for a date not listed, call select_timeslot with their preference — more slots exist beyond the ones shown."
                         )
                     except Exception as e:
                         logger.error(f"[SELECT_SERVICE] Failed to set Other service: {e}")
@@ -2486,14 +2487,15 @@ class SupervisorAgent(Agent):
                         slot_summary = ""
                         first_slot = ""
                         if timeslots:
-                            slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:6]]
-                            slot_summary = "\nAvailable timeslots:\n" + "\n".join(slot_lines)
+                            slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:9]]
+                            extra = f" (+{len(timeslots)-9} more available)" if len(timeslots) > 9 else ""
+                            slot_summary = f"\nAvailable timeslots (showing {min(9, len(timeslots))} of {len(timeslots)}{extra}):\n" + "\n".join(slot_lines)
                             first_slot = f"{timeslots[0]['date']} at {timeslots[0]['time']}"
                         
                         return (
                             f"Service selected: {service_name}.{slot_summary}\n\n"
                             f"Say naturally: 'The next available slot is {first_slot}, or do you have a date in mind?'\n"
-                            "Wait for their preference, then call select_timeslot."
+                            "Wait for their preference, then call select_timeslot. If the caller asks for a later date, call select_timeslot with their preference — more slots exist beyond those shown."
                         )
                     except Exception as e:
                         logger.error(f"[SELECT_SERVICE] Failed to set Other service: {e}")
@@ -2571,8 +2573,9 @@ class SupervisorAgent(Agent):
             slot_summary = ""
             first_slot = ""
             if timeslots:
-                slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:6]]
-                slot_summary = "\nAvailable timeslots:\n" + "\n".join(slot_lines)
+                slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:9]]
+                extra = f" (+{len(timeslots)-9} more available)" if len(timeslots) > 9 else ""
+                slot_summary = f"\nAvailable timeslots (showing {min(9, len(timeslots))} of {len(timeslots)}{extra}):\n" + "\n".join(slot_lines)
                 first_slot = f"{timeslots[0]['date']} at {timeslots[0]['time']}"
 
             self._state.step = Step.NEED_TIMESLOT
@@ -2585,7 +2588,7 @@ class SupervisorAgent(Agent):
                     f"Service set: {svc_name} ({price_str}).{slot_summary}\n\n"
                     f"NOW tell the caller: 'A {svc_name} for your {vehicle_desc} would be {price_str}.'\n"
                     "Then ask: 'Would you like me to book that in for you?'\n"
-                    f"If YES → say 'The next available slot is {first_slot}, or do you have a date in mind?' and wait for their preference.\n"
+                    f"If YES → say 'The next available slot is {first_slot}, or do you have a date in mind?' and wait for their preference. If they ask for a date not in the list, call select_timeslot with their preference — more slots are available beyond those shown.\n"
                     "If NO → say 'No worries, I'll get one of the team to give you a ring if you change your mind.' "
                     "then call take_message."
                 )
@@ -2595,7 +2598,7 @@ class SupervisorAgent(Agent):
             return (
                 f"Service set: {svc_name}{price_str}.{slot_summary}\n\n"
                 f"Say naturally: 'The next available slot is {first_slot}, or do you have a date in mind?'\n"
-                "Wait for their preference, then call select_timeslot."
+                "Wait for their preference, then call select_timeslot. If the caller asks for a later date not in the list, call select_timeslot with their preference — more slots are available."
             )
 
         @function_tool
@@ -2710,11 +2713,21 @@ class SupervisorAgent(Agent):
                 # No match — list available slots
                 slots = self._state.timeslots_available
                 if slots:
-                    slot_lines = [f"- {s['date']} at {s['time']}" for s in slots[:6]]
+                    # Group slots by date to show range more clearly
+                    dates_seen = {}
+                    for s in slots:
+                        d = s['date']
+                        if d not in dates_seen:
+                            dates_seen[d] = s['time']
+                    # Show first 9 slots (covers ~3 days)
+                    slot_lines = [f"- {s['date']} at {s['time']}" for s in slots[:9]]
+                    first_date = slots[0]['date'] if slots else '?'
+                    last_date = slots[-1]['date'] if slots else '?'
                     return (
                         f"Couldn't match '{caller_preference}' to an available slot.\n"
+                        f"Slots available from {first_date} to {last_date}:\n"
                         "Available timeslots:\n" + "\n".join(slot_lines) + "\n"
-                        "Read 2-3 options and ask: 'Which works best for you?'"
+                        "Read 2-3 options from different days and ask: 'Which works best for you?'"
                     )
                 return "No timeslots available. Take their details for a callback."
 

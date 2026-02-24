@@ -484,6 +484,7 @@ async def log_call_to_portal(
     confirmed_booking: bool = False,
     booking_details: str = "",
     call_type: str = "unknown",
+    metrics: dict = None,
 ) -> None:
     """Log call data to the portal backend."""
     
@@ -493,6 +494,10 @@ async def log_call_to_portal(
         return
     
     try:
+        # metrics must be non-empty object
+        if not metrics:
+            metrics = {"duration_seconds": duration_seconds, "call_type": call_type}
+
         payload = {
             "garageId": garage_id,
             "roomName": room_name,
@@ -500,13 +505,16 @@ async def log_call_to_portal(
             "transcript": transcript,
             "summary": summary,
             "customerName": customer_name or "Unknown",
-            "customerPhone": customer_phone,
             "registrationNumber": registration_number,
             "confirmedBooking": confirmed_booking,
-            "bookingDetails": booking_details,
+            "bookingDetails": booking_details or "N/A",
             "callType": call_type,
-            "metrics": {},
+            "metrics": metrics,
         }
+
+        # Only include customerPhone if non-empty (schema requires min 1 char if present)
+        if customer_phone:
+            payload["customerPhone"] = customer_phone
         
         # Add recording URL if available
         if RECORDING_BASE_URL:
@@ -3255,19 +3263,40 @@ async def entrypoint(ctx: JobContext):
             try:
                 call_duration = int(time.time() - state.call_start_time) if state.call_start_time else 0
 
-                # Build transcript from state (chat_ctx no longer available in this SDK version)
+                # Extract phone from SIP participant attributes if not already set
+                caller_phone = state.contact_phone or ""
+                if not caller_phone:
+                    try:
+                        attrs = participant.attributes or {}
+                        caller_phone = (
+                            attrs.get("sip.phoneNumber") or
+                            attrs.get("sip.from") or
+                            ""
+                        )
+                        # Fall back: parse identity like sip_+447841422472
+                        if not caller_phone and participant.identity.startswith("sip_"):
+                            caller_phone = participant.identity[4:]  # strip 'sip_'
+                        if caller_phone:
+                            state.contact_phone = caller_phone
+                            logger.info(f"[PORTAL] Extracted caller phone from attributes: {caller_phone}")
+                    except Exception:
+                        pass
+
+                # Build transcript from real-time user turns + key agent moments
+                # recent_transcripts holds finalised user utterances collected by _on_user_transcript
+                base_ts = state.call_start_time or time.time()
                 transcript = []
-                if state.customer_name_first:
-                    transcript.append({"role": "agent", "text": f"Hello, who am I speaking with?"})
-                    transcript.append({"role": "customer", "text": state.customer_name_first + (" " + state.customer_name_last if state.customer_name_last else "")})
-                if state.intent:
-                    transcript.append({"role": "customer", "text": f"Intent: {state.intent}"})
+                # Always include a synthetic agent greeting as first entry
+                transcript.append({"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0})
+                for i, text in enumerate(state.recent_transcripts or [], start=1):
+                    transcript.append({"speaker": "customer", "text": text, "timestamp": i * 5})
+                # Append key structured events as agent turns
+                offset = len(transcript) * 5
                 if state.vrn:
-                    transcript.append({"role": "customer", "text": f"Registration: {state.vrn}"})
-                if state.message:
-                    transcript.append({"role": "customer", "text": state.message})
+                    transcript.append({"speaker": "agent", "text": f"I have your vehicle registration as {state.vrn}.", "timestamp": offset})
+                    offset += 5
                 if state.booking_date:
-                    transcript.append({"role": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}"})
+                    transcript.append({"speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
 
                 # Generate summary from state
                 summary_parts = []
@@ -3299,8 +3328,7 @@ async def entrypoint(ctx: JobContext):
                 booking_details = ""
                 if state.booking_date:
                     booking_parts = []
-                    if state.booking_date:
-                        booking_parts.append(f"Date: {state.booking_date}")
+                    booking_parts.append(f"Date: {state.booking_date}")
                     if state.booking_time:
                         booking_parts.append(f"Time: {state.booking_time}")
                     if state.service_selected_name:
@@ -3309,6 +3337,17 @@ async def entrypoint(ctx: JobContext):
                         booking_parts.append(f"Price: {state.service_price}")
                     booking_details = ", ".join(booking_parts)
 
+                # metrics must be a non-empty object
+                metrics = {
+                    "duration_seconds": call_duration,
+                    "intent": state.intent or "unknown",
+                    "vrn_captured": bool(state.vrn),
+                    "booking_confirmed": bool(state.booking_date),
+                }
+
+                logger.info(f"[PORTAL] Extracted caller phone: {caller_phone}")
+                logger.info(f"[PORTAL] Transcript entries: {len(transcript)}, summary: {summary[:80]}")
+
                 # Log to portal
                 await log_call_to_portal(
                     garage_id=garage_id,
@@ -3316,12 +3355,13 @@ async def entrypoint(ctx: JobContext):
                     duration_seconds=call_duration,
                     transcript=transcript,
                     summary=summary,
-                    customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip(),
-                    customer_phone=state.contact_phone,
+                    customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip() or "Unknown",
+                    customer_phone=caller_phone or None,
                     registration_number=state.vrn,
                     confirmed_booking=bool(state.booking_date),
                     booking_details=booking_details,
                     call_type=call_type,
+                    metrics=metrics,
                 )
             except Exception as e:
                 logger.error(f"[PORTAL] Failed to log call: {e}")

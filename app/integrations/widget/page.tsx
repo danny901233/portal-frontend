@@ -37,7 +37,7 @@ export default function WidgetEmbedPage() {
   const voiceEmbedCode = garageId
     ? `<!-- ReceptionMate Voice Widget -->
 <script 
-  src="https://widget.receptionmate.co.uk/embed.js" 
+  src="https://portal.receptionmate.co.uk/voice-widget/embed.js" 
   data-garage-id="${garageId}"
   async
 ></script>`
@@ -150,7 +150,7 @@ export default function WidgetEmbedPage() {
             <p className="text-xs text-slate-400">Let customers speak directly to your AI agent from your website</p>
           </div>
           <button
-            onClick={() => window.open('https://widget.receptionmate.co.uk', '_blank')}
+            onClick={() => window.open('https://portal.receptionmate.co.uk/voice-widget/', '_blank')}
             className="ml-auto flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

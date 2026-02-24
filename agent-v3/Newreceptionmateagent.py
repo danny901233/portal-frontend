@@ -3499,7 +3499,7 @@ async def entrypoint(ctx: JobContext):
                     "duration_seconds": call_duration,
                     "intent": state.intent or "unknown",
                     "vrn_captured": bool(state.vrn),
-                    "booking_confirmed": bool(state.booking_date),
+                    "booking_confirmed": state.step == Step.CONFIRMED,
                 }
 
                 logger.info(f"[PORTAL] Extracted caller phone: {caller_phone}")
@@ -3515,7 +3515,7 @@ async def entrypoint(ctx: JobContext):
                     customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip() or "Unknown",
                     customer_phone=caller_phone,
                     registration_number=state.vrn,
-                    confirmed_booking=bool(state.booking_date),
+                    confirmed_booking=state.step == Step.CONFIRMED,
                     booking_details=booking_details,
                     call_type=call_type,
                     metrics=metrics,

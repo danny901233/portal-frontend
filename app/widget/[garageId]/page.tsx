@@ -246,19 +246,19 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[480px] h-[700px] flex flex-col" style={{
+        <div className="fixed bottom-6 right-6 z-50 w-[420px] h-[650px] flex flex-col" style={{
           background: config?.primaryColor || '#1e3a8a',
-          borderRadius: '36px',
+          borderRadius: '32px',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
-          padding: '36px',
-          paddingBottom: '44px'
+          padding: '32px',
+          paddingBottom: '40px'
         }}>
           {/* White overlay rectangle for chat */}
           <div className="flex flex-col flex-1 overflow-hidden" style={{ 
             backgroundColor: 'white', 
-            borderRadius: '28px',
+            borderRadius: '24px',
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
             display: 'flex',
             flexDirection: 'column'
@@ -422,19 +422,19 @@ export default function ChatWidget() {
       {/* Menu Options - Overlay Style: Large background with smaller white rectangle */}
       {viewState === 'menu' && (
         <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '480px',
-          borderRadius: '36px',
+          width: '420px',
+          borderRadius: '32px',
           background: config?.primaryColor || '#1e3a8a',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '17px',
           fontFamily: "'Poppins', sans-serif",
-          padding: '36px'
+          padding: '32px'
         }}>
           {/* White overlay rectangle */}
           <div style={{ 
             backgroundColor: 'white', 
-            borderRadius: '28px',
-            padding: '28px 24px 32px',
+            borderRadius: '24px',
+            padding: '24px 20px 28px',
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)'
           }}>
             <h4 className="text-gray-900 font-medium text-lg mb-5" style={{ fontFamily: "'Poppins', sans-serif" }}>Message us on...</h4>
@@ -561,19 +561,19 @@ export default function ChatWidget() {
       {/* Pre-Chat Form - Overlay Style */}
       {viewState === 'pre-chat' && (
         <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '480px',
-          borderRadius: '36px',
+          width: '420px',
+          borderRadius: '32px',
           background: config?.primaryColor || '#1e3a8a',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '16px',
           fontFamily: "'Poppins', sans-serif",
-          padding: '36px'
+          padding: '32px'
         }}>
           {/* White overlay rectangle */}
           <div style={{ 
             backgroundColor: 'white', 
-            borderRadius: '28px',
-            padding: '32px 28px',
+            borderRadius: '24px',
+            padding: '28px 24px',
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)'
           }}>
             {/* Header with back button */}

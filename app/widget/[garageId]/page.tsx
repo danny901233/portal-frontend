@@ -246,19 +246,19 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[550px] h-[780px] flex flex-col" style={{
+        <div className="fixed bottom-6 right-6 z-50 w-[480px] h-[700px] flex flex-col" style={{
           background: config?.primaryColor || '#1e3a8a',
-          borderRadius: '40px',
+          borderRadius: '36px',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
-          padding: '40px',
-          paddingBottom: '50px'
+          padding: '36px',
+          paddingBottom: '44px'
         }}>
           {/* White overlay rectangle for chat */}
           <div className="flex flex-col flex-1 overflow-hidden" style={{ 
             backgroundColor: 'white', 
-            borderRadius: '32px',
+            borderRadius: '28px',
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
             display: 'flex',
             flexDirection: 'column'
@@ -422,19 +422,19 @@ export default function ChatWidget() {
       {/* Menu Options - Overlay Style: Large background with smaller white rectangle */}
       {viewState === 'menu' && (
         <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '550px',
-          borderRadius: '40px',
+          width: '480px',
+          borderRadius: '36px',
           background: config?.primaryColor || '#1e3a8a',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '17px',
           fontFamily: "'Poppins', sans-serif",
-          padding: '40px'
+          padding: '36px'
         }}>
           {/* White overlay rectangle */}
           <div style={{ 
             backgroundColor: 'white', 
-            borderRadius: '32px',
-            padding: '32px 28px 36px',
+            borderRadius: '28px',
+            padding: '28px 24px 32px',
             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)'
           }}>
             <h4 className="text-gray-900 font-medium text-lg mb-5" style={{ fontFamily: "'Poppins', sans-serif" }}>Message us on...</h4>

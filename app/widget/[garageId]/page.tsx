@@ -252,7 +252,10 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
-          padding: '40px 32px 48px'
+          paddingTop: '60px',
+          paddingBottom: '48px',
+          paddingLeft: '32px',
+          paddingRight: '32px'
         }}>
           {/* White overlay rectangle for chat */}
           <div className="flex flex-col flex-1 overflow-hidden" style={{ 
@@ -427,7 +430,10 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '17px',
           fontFamily: "'Poppins', sans-serif",
-          padding: '40px 32px'
+          paddingTop: '60px',
+          paddingBottom: '40px',
+          paddingLeft: '32px',
+          paddingRight: '32px'
         }}>
           {/* White overlay rectangle */}
           <div style={{ 
@@ -566,7 +572,10 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '16px',
           fontFamily: "'Poppins', sans-serif",
-          padding: '40px 32px'
+          paddingTop: '60px',
+          paddingBottom: '40px',
+          paddingLeft: '32px',
+          paddingRight: '32px'
         }}>
           {/* White overlay rectangle */}
           <div style={{ 

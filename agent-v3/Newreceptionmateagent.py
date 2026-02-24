@@ -1039,6 +1039,9 @@ class CallState:
     
     # Diagnostic notes (collected during questionnaire)
     diagnostic_notes: list[str] = field(default_factory=list)
+    
+    # Description of work for "Other" / vague service bookings (passed to GarageHive notes)
+    other_service_description: str = ""
 
     # Timeslot
     timeslots_available: list[dict] = field(default_factory=list)
@@ -2365,6 +2368,7 @@ class SupervisorAgent(Agent):
                         self._state.service_selected_id = svc_id
                         self._state.service_selected_name = svc_name
                         self._state.service_price = _format_price(svc)
+                        self._state.other_service_description = service_name  # store original description for notes
                         logger.info(f"[SELECT_SERVICE] Booked under '{svc_name}' for: {service_name}")
                         
                         # Prefetch timeslots
@@ -2916,6 +2920,10 @@ class SupervisorAgent(Agent):
             # Combine user notes with diagnostic notes and tyre info
             all_notes = notes
             
+            # Add service description for "Other" category bookings
+            if self._state.other_service_description:
+                all_notes = f"{self._state.other_service_description}\n\n{all_notes}".strip() if all_notes else self._state.other_service_description
+
             # Add tyre information if present
             if self._state.tyre_size or self._state.tyre_quality:
                 tyre_info_parts = []

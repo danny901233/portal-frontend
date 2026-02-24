@@ -473,53 +473,106 @@ RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()  # e.g. https:/
 # ============================================================
 
 async def generate_call_summary(transcript: list, state) -> str:
-    """Use GPT via LiveKit inference to generate a concise call summary."""
+    """Use GPT via LiveKit inference to generate a detailed structured call summary."""
+    # Build plain-text transcript from entries
+    lines = []
+    for entry in transcript:
+        speaker = entry.get("speaker", "unknown").capitalize()
+        text = entry.get("text", "")
+        if text:
+            lines.append(f"{speaker}: {text}")
+    transcript_text = "\n".join(lines)
+
+    if not transcript_text or len(lines) < 2:
+        return "No conversation was had."
+
     try:
         llm = _get_specialist_llm()
         if not llm:
             raise ValueError("No LLM client available")
 
-        # Build a plain-text transcript for GPT
-        lines = []
-        for entry in transcript:
-            speaker = entry.get("speaker", "unknown").capitalize()
-            text = entry.get("text", "")
-            lines.append(f"{speaker}: {text}")
-        transcript_text = "\n".join(lines)
+        # Build context from state for the prompt
+        customer_name = f"{state.customer_name_first} {state.customer_name_last}".strip() or "Customer"
+        vehicle_info = state.vrn or "their vehicle"
+        if state.vrn and state.vehicle_make and state.vehicle_model:
+            vehicle_info = f"{state.vrn} ({state.vehicle_make} {state.vehicle_model})"
 
-        prompt = (
-            "You are a call summarisation assistant for a vehicle repair garage. "
-            "Summarise the following call transcript in 2-3 sentences. "
-            "Include: the customer's name (if given), their reason for calling, "
-            "any vehicle registration mentioned, and whether a booking was made or a message taken. "
-            "Be concise and factual.\n\n"
-            f"Transcript:\n{transcript_text}"
-        )
+        booking_status = ""
+        if state.step == Step.CONFIRMED:
+            booking_status = "BOOKING WAS SUCCESSFULLY SUBMITTED TO THE SYSTEM."
+        elif state.booking_date and state.booking_time:
+            booking_status = "TIMESLOT WAS DISCUSSED BUT BOOKING WAS NOT COMPLETED. Customer needs a callback to finalize the booking."
+        elif state.intent in ("message", "quote"):
+            booking_status = "Customer requested a MESSAGE/CALLBACK."
 
-        response = await llm.chat.completions.create(
-            model="openai/gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
-            temperature=0.3,
+        prompt = f"""Create a structured call summary from this garage receptionist call transcript.
+
+BOOKING STATUS: {booking_status}
+
+CRITICAL RULES:
+1. ONLY summarize information that is ACTUALLY in the transcript below
+2. DO NOT make up or infer details that aren't explicitly stated
+3. Use the BOOKING STATUS above to determine if booking was confirmed or callback needed
+4. If BOOKING STATUS says "NOT COMPLETED", you MUST state "Callback required to complete the booking"
+5. If the customer only said "hello" then hung up, respond ONLY with "No conversation was had."
+
+REQUIRED FORMAT:
+Start with: "{customer_name} called regarding {vehicle_info}."
+
+Then provide 2-4 paragraphs covering ONLY what was actually discussed:
+
+Paragraph 1 - Purpose & Vehicle:
+- Why they called (service needed, enquiry, complaint, etc.)
+- Vehicle details if mentioned (make, model, registration, issues)
+
+Paragraph 2 - Services/Booking Details:
+- Specific work discussed, prices quoted
+- If booking confirmed: "Booking confirmed for [DATE] at [TIME]"
+- If not completed: "Booking was NOT finalized."
+
+Paragraph 3 - Callback/Follow-up:
+- If callback needed: "Callback required - [specific reason]"
+- Only state "No callback required" if booking was SUCCESSFULLY SUBMITTED
+
+Transcript:
+{transcript_text}
+
+Call Summary:"""
+
+        response = await asyncio.wait_for(
+            llm.chat.completions.create(
+                model="openai/gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You write factual, detailed summaries of garage phone calls based ONLY on what was actually said in the transcript. Never invent names, registrations, or details not present in the transcript."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=500,
+                temperature=0.1,
+            ),
+            timeout=10.0,
         )
         summary = response.choices[0].message.content.strip()
+        if not summary or len(summary) < 20:
+            return "No conversation was had."
         logger.info(f"[PORTAL] GPT summary generated ({len(summary)} chars)")
         return summary
     except Exception as e:
         logger.warning(f"[PORTAL] GPT summary failed, using fallback: {e}")
         # Fallback: build summary from state fields
         parts = []
-        if state.customer_name_first:
-            parts.append(f"Customer: {state.customer_name_first} {state.customer_name_last}".strip())
-        if state.intent:
-            parts.append(f"Intent: {state.intent}")
+        name = f"{state.customer_name_first} {state.customer_name_last}".strip() or "Customer"
+        parts.append(f"{name} called")
         if state.vrn:
-            parts.append(f"Vehicle: {state.vrn}")
+            parts.append(f"regarding {state.vrn}")
+            if state.vehicle_make and state.vehicle_model:
+                parts.append(f"({state.vehicle_make} {state.vehicle_model})")
         if state.booking_date:
             parts.append(f"Booking: {state.booking_date} at {state.booking_time}")
-        if state.message:
+        elif state.message:
             parts.append(f"Message: {state.message}")
-        return " | ".join(parts) if parts else "Call completed"
+        elif state.intent:
+            parts.append(f"Intent: {state.intent}")
+        return ". ".join(parts) + "."
 
 
 async def log_call_to_portal(

@@ -15,7 +15,7 @@ function ResetPasswordForm() {
 
   const resetPasswordMutation = useMutation({
     mutationFn: async ({ token, password }: { token: string; password: string }) => {
-      const response = await fetch('/api/auth/reset-password', {
+      const response = await fetch('/internal-api/auth/reset-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -26,7 +26,7 @@ function ResetPasswordForm() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to reset password');
+        throw new Error(data.error || data.message || 'Failed to reset password');
       }
 
       return data;

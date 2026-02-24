@@ -252,7 +252,7 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
-          paddingTop: '60px',
+          paddingTop: '80px',
           paddingBottom: '48px',
           paddingLeft: '32px',
           paddingRight: '32px'
@@ -430,7 +430,7 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '17px',
           fontFamily: "'Poppins', sans-serif",
-          paddingTop: '60px',
+          paddingTop: '80px',
           paddingBottom: '40px',
           paddingLeft: '32px',
           paddingRight: '32px'
@@ -572,7 +572,7 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '16px',
           fontFamily: "'Poppins', sans-serif",
-          paddingTop: '60px',
+          paddingTop: '80px',
           paddingBottom: '40px',
           paddingLeft: '32px',
           paddingRight: '32px'

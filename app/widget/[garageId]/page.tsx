@@ -247,7 +247,7 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] h-[650px] flex flex-col animate-in slide-in-from-bottom-4 duration-200" style={{
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] h-[650px] flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
           background: config?.primaryColor || '#1e3a8a',
           borderRadius: '32px',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',

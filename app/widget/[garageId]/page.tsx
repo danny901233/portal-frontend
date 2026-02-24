@@ -756,19 +756,22 @@ export default function ChatWidget() {
         {viewState === 'closed' ? (
           <>
             {isSpinning ? (
-              // Tire/wheel icon when spinning
-              <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <circle cx="12" cy="12" r="10" />
-                <circle cx="12" cy="12" r="6" />
-                <circle cx="12" cy="12" r="2" fill="currentColor" />
-                <line x1="12" y1="2" x2="12" y2="6" />
-                <line x1="12" y1="18" x2="12" y2="22" />
-                <line x1="2" y1="12" x2="6" y2="12" />
-                <line x1="18" y1="12" x2="22" y2="12" />
-                <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-                <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-                <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-                <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
+              // Car wheel/tire icon when spinning
+              <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                {/* Outer tire */}
+                <circle cx="12" cy="12" r="10" strokeWidth={2.5} />
+                {/* Inner rim */}
+                <circle cx="12" cy="12" r="7" strokeWidth={2} />
+                {/* Center hub */}
+                <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+                {/* 5 spokes pattern like real car wheel */}
+                <path d="M12 4.5 L12 9.5" strokeWidth={2} strokeLinecap="round" />
+                <path d="M16.95 6.55 L14.12 10.38" strokeWidth={2} strokeLinecap="round" />
+                <path d="M18.45 12 L13.45 12" strokeWidth={2} strokeLinecap="round" />
+                <path d="M16.95 17.45 L14.12 13.62" strokeWidth={2} strokeLinecap="round" />
+                <path d="M12 19.5 L12 14.5" strokeWidth={2} strokeLinecap="round" />
+                {/* Tire tread pattern (small lines on outer circle) */}
+                <circle cx="12" cy="12" r="8.5" strokeWidth={0.5} strokeDasharray="2 2" opacity="0.6" />
               </svg>
             ) : (
               <>

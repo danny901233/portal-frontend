@@ -282,18 +282,27 @@ export default function ChatWidget() {
                   }`}
                 >
                   {msg.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-lg bg-sky-500/20 border border-sky-500/30 flex items-center justify-center flex-shrink-0">
-                      <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                      background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+                      boxShadow: '0 2px 8px rgba(14, 165, 233, 0.3)'
+                    }}>
+                      <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                       </svg>
                     </div>
                   )}
                   <div
-                    className={`flex-1 max-w-[75%] rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
+                    className={`flex-1 max-w-[75%] px-4 py-3 text-sm leading-relaxed ${
                       msg.role === 'user'
-                        ? 'bg-sky-500/20 text-slate-100 border border-sky-500/30'
-                        : 'bg-slate-800/80 text-slate-200 border border-slate-700'
+                        ? 'rounded-2xl rounded-br-md text-white'
+                        : 'rounded-2xl rounded-bl-md bg-white text-gray-900'
                     }`}
+                    style={msg.role === 'user' ? {
+                      background: config?.primaryColor ? `linear-gradient(135deg, ${config.primaryColor} 0%, ${config.primaryColor}dd 100%)` : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                      boxShadow: '0 2px 8px rgba(37, 99, 235, 0.25)'
+                    } : {
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
+                    }}
                   >
                     {msg.content}
                   </div>
@@ -303,15 +312,20 @@ export default function ChatWidget() {
 
               {sending && (
                 <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-sky-500/20 border border-sky-500/30 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                    background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+                    boxShadow: '0 2px 8px rgba(14, 165, 233, 0.3)'
+                  }}>
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                     </svg>
                   </div>
-                  <div className="flex gap-1.5 px-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700">
-                    <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></div>
-                    <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  <div className="flex gap-1.5 px-4 py-3 rounded-2xl rounded-bl-md bg-white" style={{
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
+                  }}>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                   </div>
                 </div>
               )}
@@ -353,99 +367,148 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Menu Options */}
+      {/* Menu Options - Cognigy Style */}
       {viewState === 'menu' && (
-        <div className="fixed bottom-24 right-6 z-50 w-[380px] animate-in slide-in-from-bottom-4 duration-200 rounded-3xl shadow-2xl overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
-          {/* Dark branded header */}
-          <div className="px-6 pt-8 pb-6 flex flex-col items-center">
-            <div className="w-16 h-16 rounded-2xl bg-blue-600/80 flex items-center justify-center mb-4">
+        <div className="fixed bottom-24 right-6 z-50 w-[380px] animate-in slide-in-from-bottom-4 duration-200" style={{ 
+          borderRadius: '16px',
+          backgroundColor: 'white',
+          boxShadow: '0 5px 18px 0 rgba(0, 0, 0, 0.08), 0 5px 32px 0 rgba(0, 0, 0, 0.08), 0 8px 58px 0 rgba(0, 0, 0, 0.08)'
+        }}>
+          {/* Header with gradient */}
+          <div className="px-6 pt-8 pb-6 flex flex-col items-center" style={{
+            background: config?.primaryColor ? `linear-gradient(135deg, ${config.primaryColor} 0%, ${config.primaryColor}dd 100%)` : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+            borderTopLeftRadius: '16px',
+            borderTopRightRadius: '16px'
+          }}>
+            <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-4" style={{
+              boxShadow: '0 4px 14px 0 rgba(0, 0, 0, 0.1)'
+            }}>
               <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <h3 className="text-white font-bold text-xl">{config?.name ?? 'ReceptionMate Branch'}</h3>
-            <p className="text-slate-400 text-base mt-1.5">We typically reply instantly</p>
+            <p className="text-white/80 text-base mt-1.5">We typically reply instantly</p>
           </div>
 
-          {/* White card body */}
-          <div className="bg-white px-6 pt-5 pb-5 rounded-t-3xl">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">MESSAGE US ON...</p>
+          {/* Messenger-style button list */}
+          <div className="bg-white px-4 pt-4 pb-5">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 px-2">Choose how to reach us</p>
 
-            <div className="space-y-3">
-              {/* WhatsApp Button */}
+            <div className="space-y-0 overflow-hidden" style={{ borderRadius: '12px' }}>
+              {/* WhatsApp Button - Messenger Style */}
               <button
                 onClick={handleWhatsApp}
-                className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all bg-white hover:bg-gray-50 active:scale-[0.98] border-2 border-blue-200"
+                className="w-full flex items-center gap-4 px-5 py-4 transition-all bg-white hover:bg-gray-50 active:bg-gray-100 border-b border-gray-100 first:rounded-t-xl last:rounded-b-xl last:border-b-0"
+                style={{ outline: 'none' }}
               >
-                <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="w-11 h-11 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                  boxShadow: '0 2px 8px rgba(34, 197, 94, 0.25)'
+                }}>
                   <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                   </svg>
                 </div>
-                <span className="text-lg font-bold text-gray-900">WhatsApp</span>
+                <div className="flex-1 text-left">
+                  <span className="text-base font-semibold text-gray-900 block">WhatsApp</span>
+                  <span className="text-xs text-gray-500">Chat on WhatsApp</span>
+                </div>
+                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
               </button>
 
-              {/* Live Chat Button */}
+              {/* Live Chat Button - Messenger Style */}
               <button
                 onClick={handleStartChat}
-                className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all bg-white hover:bg-gray-50 active:scale-[0.98] border-2 border-blue-200"
+                className="w-full flex items-center gap-4 px-5 py-4 transition-all bg-white hover:bg-gray-50 active:bg-gray-100 border-b border-gray-100"
+                style={{ outline: 'none' }}
               >
-                <div className="w-12 h-12 bg-sky-500 rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                  background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+                  boxShadow: '0 2px 8px rgba(14, 165, 233, 0.25)'
+                }}>
                   <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <span className="text-lg font-bold text-gray-900">Live Chat</span>
+                <div className="flex-1 text-left">
+                  <span className="text-base font-semibold text-gray-900 block">Live Chat</span>
+                  <span className="text-xs text-gray-500">Start a conversation</span>
+                </div>
+                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
               </button>
 
-              {/* Phone Button */}
+              {/* Phone Button - Messenger Style */}
               {config.phone && (
                 <button
                   onClick={handleVoiceCall}
-                  className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all bg-white hover:bg-gray-50 active:scale-[0.98] border-2 border-blue-200"
+                  className="w-full flex items-center gap-4 px-5 py-4 transition-all bg-white hover:bg-gray-50 active:bg-gray-100"
+                  style={{ outline: 'none' }}
                 >
-                  <div className="w-12 h-12 bg-violet-600 rounded-full flex items-center justify-center flex-shrink-0">
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                    boxShadow: '0 2px 8px rgba(139, 92, 246, 0.25)'
+                  }}>
                     <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                     </svg>
                   </div>
-                  <span className="text-lg font-bold text-gray-900">Phone</span>
+                  <div className="flex-1 text-left">
+                    <span className="text-base font-semibold text-gray-900 block">Phone</span>
+                    <span className="text-xs text-gray-500">Call us directly</span>
+                  </div>
+                  <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </button>
               )}
             </div>
 
             {/* Powered by */}
-            <div className="mt-5 pt-4 text-center">
-              <p className="text-xs text-gray-400">Powered by <span className="font-bold text-gray-700">ReceptionMate</span></p>
+            <div className="mt-4 pt-3 text-center border-t border-gray-100">
+              <p className="text-xs text-gray-400">Powered by <span className="font-semibold text-gray-600">ReceptionMate</span></p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Pre-Chat Form */}
+      {/* Pre-Chat Form - Cognigy Style */}
       {viewState === 'pre-chat' && (
-        <div className="fixed bottom-24 right-6 z-50 w-[380px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200 rounded-3xl shadow-2xl overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
-          {/* Dark branded header */}
-          <div className="px-6 pt-8 pb-6 flex flex-col items-center relative">
+        <div className="fixed bottom-24 right-6 z-50 w-[380px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200\" style={{ 
+          borderRadius: '16px',
+          backgroundColor: 'white',
+          boxShadow: '0 5px 18px 0 rgba(0, 0, 0, 0.08), 0 5px 32px 0 rgba(0, 0, 0, 0.08), 0 8px 58px 0 rgba(0, 0, 0, 0.08)'
+        }}>
+          {/* Header with gradient */}
+          <div className="px-6 pt-8 pb-6 flex flex-col items-center relative\" style={{
+            background: config?.primaryColor ? `linear-gradient(135deg, ${config.primaryColor} 0%, ${config.primaryColor}dd 100%)` : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+            borderTopLeftRadius: '16px',
+            borderTopRightRadius: '16px'
+          }}>
             <button
               onClick={() => setViewState('menu')}
-              className="absolute top-5 left-5 text-slate-400 hover:text-white transition-colors p-2 rounded-full hover:bg-white/10"
+              className="absolute top-5 left-5 text-white/80 hover:text-white transition-colors p-2 rounded-full hover:bg-white/10"
             >
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <div className="w-16 h-16 rounded-2xl bg-blue-600/80 flex items-center justify-center mb-4">
+            <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-4" style={{
+              boxShadow: '0 4px 14px 0 rgba(0, 0, 0, 0.1)'
+            }}>
               <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <h3 className="text-white font-bold text-xl">{config?.name ?? 'ReceptionMate Branch'}</h3>
-            <p className="text-slate-400 text-base mt-1.5">We typically reply instantly</p>
+            <p className="text-white/80 text-base mt-1.5">We typically reply instantly</p>
           </div>
 
-          {/* White card form */}
-          <div className="bg-white px-6 pt-6 pb-6 rounded-t-3xl space-y-3.5">
+          {/* Form content */}
+          <div className="bg-white px-6 pt-6 pb-6 space-y-3.5">
             <input
               type="text"
               value={preChatName}
@@ -473,25 +536,33 @@ export default function ChatWidget() {
             <button
               onClick={handlePreChatSubmit}
               disabled={!preChatName.trim() || !preChatPhone.trim() || !preChatMessage.trim() || preChatSubmitting}
-              className="w-full py-4 rounded-full text-white text-base font-bold transition-all disabled:opacity-40 active:scale-[0.98] hover:brightness-110"
-              style={{ backgroundColor: '#38bdf8' }}
+              className="w-full py-4 rounded-full text-white text-base font-bold transition-all disabled:opacity-40 active:scale-95 hover:shadow-lg"
+              style={{ 
+                background: config?.primaryColor ? `linear-gradient(135deg, ${config.primaryColor} 0%, ${config.primaryColor}dd 100%)` : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                boxShadow: '0 2px 8px rgba(37, 99, 235, 0.25)'
+              }}
             >
               {preChatSubmitting ? 'Starting chat…' : 'Start Chat'}
             </button>
 
             {/* Powered by */}
             <div className="pt-4 mt-2 text-center border-t border-gray-100">
-              <p className="text-xs text-gray-400">Powered by <span className="font-bold text-gray-700">ReceptionMate</span></p>
+              <p className="text-xs text-gray-400">Powered by <span className="font-semibold text-gray-600">ReceptionMate</span></p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Floating Pill Button */}
+      {/* Floating Action Button - Cognigy Style */}
       <button
         onClick={() => setViewState(viewState === 'closed' ? 'menu' : 'closed')}
-        className="fixed bottom-6 right-6 z-50 h-16 px-7 rounded-full flex items-center gap-3 transition-all duration-300 hover:scale-105 active:scale-95 whitespace-nowrap"
-        style={{ backgroundColor: '#1e293b', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}
+        className="fixed bottom-6 right-6 z-50 h-16 px-7 rounded-full flex items-center gap-3 transition-all duration-300 ease-out hover:scale-110 active:scale-95 whitespace-nowrap"
+        style={{ 
+          background: config?.primaryColor ? `linear-gradient(135deg, ${config.primaryColor} 0%, ${config.primaryColor}dd 100%)` : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+          boxShadow: viewState === 'closed' 
+            ? '0 5px 18px 0 rgba(0, 0, 0, 0.12), 0 8px 32px 0 rgba(0, 0, 0, 0.16)'
+            : '0 5px 18px 0 rgba(0, 0, 0, 0.08), 0 8px 32px 0 rgba(0, 0, 0, 0.12)'
+        }}
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >
         {viewState === 'closed' ? (

@@ -244,49 +244,55 @@ export default function ChatWidget() {
 
   return (
     <>
-      {/* Chat Window - Fuzey Style: Large Rectangle */}
+      {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[500px] h-[750px] flex flex-col" style={{
-          backgroundColor: '#f5f5f5',
-          borderRadius: '32px',
-          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+        <div className="fixed bottom-6 right-6 z-50 w-[550px] h-[780px] flex flex-col" style={{
+          background: config?.primaryColor || '#1e3a8a',
+          borderRadius: '40px',
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
-          overflow: 'hidden'
+          padding: '40px',
+          paddingBottom: '50px'
         }}>
-          {/* Header - Colored Rectangle with Curved Top */}
-          <div className="flex items-center justify-between px-6 py-5 flex-shrink-0" style={{
-            background: config?.primaryColor || '#5DDCC2',
-            borderTopLeftRadius: '32px',
-            borderTopRightRadius: '32px',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+          {/* White overlay rectangle for chat */}
+          <div className="flex flex-col flex-1 overflow-hidden" style={{ 
+            backgroundColor: 'white', 
+            borderRadius: '32px',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+            display: 'flex',
+            flexDirection: 'column'
           }}>
-            <div className="flex items-center gap-4">
+            {/* Header inside white rectangle */}
+            <div className="flex items-center justify-between px-6 py-5 flex-shrink-0" style={{
+              borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
+            }}>
               <div className="flex items-center gap-3">
-                <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-                </svg>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
+                  background: config?.primaryColor || '#1e3a8a'
+                }}>
+                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                  </svg>
+                </div>
                 <div>
-                  <h3 className="text-white font-semibold text-xl" style={{ fontFamily: "'Poppins', sans-serif" }}>{config?.name || 'fuzey'}</h3>
+                  <h3 className="font-semibold text-lg" style={{ fontFamily: "'Poppins', sans-serif", color: '#1f2937' }}>{config?.name || 'ReceptionMate'}</h3>
                 </div>
               </div>
+              
+              <button onClick={() => setViewState('closed')} className="transition-all" style={{
+                fontSize: '28px',
+                lineHeight: '28px',
+                fontWeight: 300,
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                color: '#6b7280'
+              }}>
+                ×
+              </button>
             </div>
-            
-            <button onClick={() => setViewState('closed')} className="text-white transition-all" style={{
-              fontSize: '32px',
-              lineHeight: '32px',
-              fontWeight: 300,
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              padding: 0
-            }}>
-              ×
-            </button>
-          </div>
-
-          {/* Chat Content - White Rectangle */}
-          <div className="flex flex-col flex-1 overflow-hidden" style={{ backgroundColor: 'white', borderRadius: '0 0 32px 32px' }}>
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3" style={{ scrollbarWidth: 'thin' }}>
               {messages.map((msg) => (
@@ -413,34 +419,24 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Menu Options - Fuzey Style: Large Rectangle */}
+      {/* Menu Options - Overlay Style: Large background with smaller white rectangle */}
       {viewState === 'menu' && (
         <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '500px',
-          borderRadius: '32px',
-          backgroundColor: 'white',
-          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+          width: '550px',
+          borderRadius: '40px',
+          background: config?.primaryColor || '#1e3a8a',
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '17px',
           fontFamily: "'Poppins', sans-serif",
-          overflow: 'hidden'
+          padding: '40px'
         }}>
-          {/* Header - Colored Rectangle */}
-          <div className="px-8 py-10 flex flex-col items-center" style={{
-            background: config?.primaryColor || '#5DDCC2',
-            borderTopLeftRadius: '32px',
-            borderTopRightRadius: '32px'
+          {/* White overlay rectangle */}
+          <div style={{ 
+            backgroundColor: 'white', 
+            borderRadius: '32px',
+            padding: '32px 28px 36px',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)'
           }}>
-            <svg className="w-16 h-16 text-white mb-4" fill="currentColor" viewBox="0 0 24 24">
-              <circle cx="9" cy="7" r="2" opacity="0.4"/>
-              <circle cx="15" cy="7" r="2" opacity="0.4"/>
-              <circle cx="12" cy="12" r="2" opacity="0.4"/>
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-            </svg>
-            <h3 className="text-white font-semibold text-2xl mb-1" style={{ fontFamily: "'Poppins', sans-serif" }}>{config?.name || 'fuzey'}</h3>
-          </div>
-
-          {/* White content area with rounded bottom */}
-          <div style={{ backgroundColor: 'white', padding: '32px 24px 40px' }}>
             <h4 className="text-gray-900 font-medium text-lg mb-5" style={{ fontFamily: "'Poppins', sans-serif" }}>Message us on...</h4>
             
             <div className="space-y-3">
@@ -553,10 +549,11 @@ export default function ChatWidget() {
               )}
             </div>
 
-            {/* Powered by */}
-            <div className="mt-8 text-center">
-              <p className="text-sm" style={{ color: config?.primaryColor || '#5DDCC2', fontFamily: "'Poppins', sans-serif" }}>Powered by Fuzey</p>
-            </div>
+          </div>
+          
+          {/* Powered by - outside white rectangle */}
+          <div className="mt-6 text-center">
+            <p className="text-base font-medium" style={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Powered by ReceptionMate</p>
           </div>
         </div>
       )}

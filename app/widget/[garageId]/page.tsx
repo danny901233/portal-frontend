@@ -246,13 +246,13 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[420px] h-[650px] flex flex-col" style={{
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] h-[650px] flex flex-col" style={{
           background: config?.primaryColor || '#1e3a8a',
           borderRadius: '32px',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
-          paddingTop: '80px',
+          paddingTop: '120px',
           paddingBottom: '48px',
           paddingLeft: '32px',
           paddingRight: '32px'
@@ -424,13 +424,13 @@ export default function ChatWidget() {
       {/* Menu Options - Overlay Style: Large background with smaller white rectangle */}
       {viewState === 'menu' && (
         <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '420px',
+          width: '380px',
           borderRadius: '32px',
           background: config?.primaryColor || '#1e3a8a',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '17px',
           fontFamily: "'Poppins', sans-serif",
-          paddingTop: '80px',
+          paddingTop: '120px',
           paddingBottom: '40px',
           paddingLeft: '32px',
           paddingRight: '32px'
@@ -566,13 +566,13 @@ export default function ChatWidget() {
       {/* Pre-Chat Form - Overlay Style */}
       {viewState === 'pre-chat' && (
         <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '420px',
+          width: '380px',
           borderRadius: '32px',
           background: config?.primaryColor || '#1e3a8a',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '16px',
           fontFamily: "'Poppins', sans-serif",
-          paddingTop: '80px',
+          paddingTop: '120px',
           paddingBottom: '40px',
           paddingLeft: '32px',
           paddingRight: '32px'

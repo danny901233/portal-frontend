@@ -1,6 +1,6 @@
 #!/bin/bash
 # Deploy backend updates to EC2
-# Run this on the EC2 server: ubuntu@18.171.230.217
+# Run this on the EC2 server: ubuntu@18.171.223.223
 
 set -e
 

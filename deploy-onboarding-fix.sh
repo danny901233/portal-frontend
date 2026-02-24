@@ -13,9 +13,9 @@ tar -czf ../onboarding-fix.tar.gz -C . dist node_modules package.json
 cd ..
 
 # Upload and deploy
-scp onboarding-fix.tar.gz ubuntu@18.171.230.217:/home/ubuntu/
+scp onboarding-fix.tar.gz ubuntu@18.171.223.223:/home/ubuntu/
 
-ssh ubuntu@18.171.230.217 << 'EOF'
+ssh ubuntu@18.171.223.223 << 'EOF'
 cd /home/ubuntu/portal-frontend/onboarding-service
 
 # Backup current

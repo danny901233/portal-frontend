@@ -13,7 +13,7 @@ if [ -z "$1" ]; then
 fi
 
 KEY_FILE="$1"
-EC2_HOST="ec2-user@18.171.230.217"
+EC2_HOST="ec2-user@18.171.223.223"
 
 # Check if key file exists
 if [ ! -f "$KEY_FILE" ]; then

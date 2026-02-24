@@ -3,7 +3,7 @@
 
 echo "Adding LIVEKIT_SIP_DOMAIN to backend .env on EC2..."
 
-ssh ubuntu@18.171.230.217 << 'EOF'
+ssh ubuntu@18.171.223.223 << 'EOF'
 cd /home/ubuntu/portal-frontend/backend
 
 # Check if LIVEKIT_SIP_DOMAIN already exists

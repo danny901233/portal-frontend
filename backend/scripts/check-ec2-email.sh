@@ -3,7 +3,7 @@
 # EC2 Email Configuration Checker
 # Run this from your local machine to diagnose email issues on EC2
 
-EC2_HOST="ec2-user@18.171.230.217"
+EC2_HOST="ec2-user@18.171.223.223"
 EC2_PATH="/home/ec2-user/portal-frontend/backend"
 
 echo "================================================"

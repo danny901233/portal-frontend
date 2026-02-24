@@ -31,7 +31,7 @@ else
   echo "    LIVEKIT_URL=wss://n4s20ufg0v7.livekit.cloud"
   echo "    LIVEKIT_API_KEY=your_api_key"
   echo "    LIVEKIT_API_SECRET=your_api_secret"
-  echo "    PORTAL_BASE_URL=http://18.171.230.217:4000"
+  echo "    PORTAL_BASE_URL=http://18.171.223.223:4000"
   echo "    ONBOARDING_SECRET=ob-secret-7h9k2m4p6q8r1s3t5v"
   echo ""
   read -p "Press Enter to continue after creating .env file..."

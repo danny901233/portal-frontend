@@ -7,7 +7,7 @@ echo "Deploying backend to EC2..."
 
 # SSH config
 SSH_KEY=~/Downloads/ReceptionMatebackend.pem
-EC2_HOST=ec2-user@18.171.230.217
+EC2_HOST=ec2-user@18.171.223.223
 
 # Push latest code via git (EC2 pulls from GitHub)
 echo "Pushing to GitHub and deploying..."

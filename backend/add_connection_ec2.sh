@@ -1,5 +1,5 @@
 #!/bin/bash
-ssh -i ~/Downloads/ReceptionMatebackend.pem ec2-user@18.171.230.217 << 'REMOTESCRIPT'
+ssh -i ~/Downloads/ReceptionMatebackend.pem ec2-user@18.171.223.223 << 'REMOTESCRIPT'
 export DATABASE_URL="postgresql://daniel:BpJHzsb3Vq3HHcBfMbzC@localhost:5432/receptionmate"
 psql $DATABASE_URL << 'SQL'
 INSERT INTO "SocialMediaConnection" (id, "garageId", platform, "pageId", "accessToken", "isActive", "createdAt", "updatedAt")

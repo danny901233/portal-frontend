@@ -3,6 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 
+// Load Poppins font
+if (typeof window !== 'undefined') {
+  const link = document.createElement('link');
+  link.href = 'https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap';
+  link.rel = 'stylesheet';
+  document.head.appendChild(link);
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -236,49 +244,51 @@ export default function ChatWidget() {
 
   return (
     <>
-      {/* Chat Window - EXACT Cognigy Style */}
+      {/* Chat Window - Fuzey Style: Large Rectangle */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-96 h-[600px] flex flex-col" style={{
-          backgroundColor: '#fafafa',
-          borderRadius: '16px',
-          boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.2), 0 5px 32px 0 rgba(203, 195, 212, 0.2), 0 8px 58px 0 rgba(216, 212, 221, 0.1)',
-          fontFamily: 'sans-serif',
-          fontSize: '16px'
+        <div className="fixed bottom-6 right-6 z-50 w-[500px] h-[750px] flex flex-col" style={{
+          backgroundColor: '#f5f5f5',
+          borderRadius: '32px',
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+          fontFamily: "'Poppins', sans-serif",
+          fontSize: '16px',
+          overflow: 'hidden'
         }}>
-          {/* Header - EXACT Cognigy Style */}
-          <div className="flex items-center px-4 py-3 flex-shrink-0" style={{
-            background: config?.primaryColor || '#3f51b5',
-            height: '56px',
-            boxShadow: '0 5px 18px 0 rgba(0, 0, 0, 0.08), 0 5px 32px 0 rgba(0, 0, 0, 0.08), 0 8px 58px 0 rgba(0, 0, 0, 0.08)',
-            zIndex: 2,
-            fontSize: '16px',
-            fontWeight: 700,
-            borderTopLeftRadius: '16px',
-            borderTopRightRadius: '16px'
+          {/* Header - Colored Rectangle with Curved Top */}
+          <div className="flex items-center justify-between px-6 py-5 flex-shrink-0" style={{
+            background: config?.primaryColor || '#5DDCC2',
+            borderTopLeftRadius: '32px',
+            borderTopRightRadius: '32px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
           }}>
-            <div className="flex items-center gap-3 flex-1">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255, 255, 255, 0.2)' }}>
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
                 </svg>
-              </div>
-              <div>
-                <h3 className="text-white font-semibold text-sm">{config?.name || 'ReceptionMate'}</h3>
-                <p className="text-white text-xs" style={{ opacity: 0.8 }}>Online now</p>
+                <div>
+                  <h3 className="text-white font-semibold text-xl" style={{ fontFamily: "'Poppins', sans-serif" }}>{config?.name || 'fuzey'}</h3>
+                </div>
               </div>
             </div>
             
-            <button onClick={() => setViewState('closed')} className="w-10 h-10 flex items-center justify-center rounded-full transition-colors" style={{ color: 'rgba(255, 255, 255, 0.9)' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+            <button onClick={() => setViewState('closed')} className="text-white transition-all" style={{
+              fontSize: '32px',
+              lineHeight: '32px',
+              fontWeight: 300,
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0
+            }}>
+              ×
             </button>
           </div>
 
-          {/* Chat Content - EXACT Cognigy Style */}
-          <div className="flex flex-col flex-1 overflow-hidden" style={{ backgroundColor: '#fafafa' }}>
+          {/* Chat Content - White Rectangle */}
+          <div className="flex flex-col flex-1 overflow-hidden" style={{ backgroundColor: 'white', borderRadius: '0 0 32px 32px' }}>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3" style={{ scrollbarWidth: 'thin' }}>
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3" style={{ scrollbarWidth: 'thin' }}>
               {messages.map((msg) => (
                 msg.role === 'system' ? (
                   <div key={msg.id} className="flex items-center gap-2 justify-center py-1">
@@ -403,155 +413,168 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Menu Options - EXACT Cognigy Style */}
+      {/* Menu Options - Fuzey Style: Large Rectangle */}
       {viewState === 'menu' && (
-        <div className="fixed bottom-24 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '250px',
-          borderRadius: '16px',
-          backgroundColor: '#fafafa',
-          boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.2), 0 5px 32px 0 rgba(203, 195, 212, 0.2), 0 8px 58px 0 rgba(216, 212, 221, 0.1)',
-          fontSize: '16px',
-          fontFamily: 'sans-serif'
+        <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
+          width: '500px',
+          borderRadius: '32px',
+          backgroundColor: 'white',
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.15)',
+          fontSize: '17px',
+          fontFamily: "'Poppins', sans-serif",
+          overflow: 'hidden'
         }}>
-          {/* Header */}
-          <div className="px-5 pt-6 pb-5 flex flex-col items-center" style={{
-            background: config?.primaryColor || '#3f51b5',
-            borderTopLeftRadius: '16px',
-            borderTopRightRadius: '16px'
+          {/* Header - Colored Rectangle */}
+          <div className="px-8 py-10 flex flex-col items-center" style={{
+            background: config?.primaryColor || '#5DDCC2',
+            borderTopLeftRadius: '32px',
+            borderTopRightRadius: '32px'
           }}>
-            <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-3">
-              <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h3 className="text-white font-semibold text-base">{config?.name ?? 'ReceptionMate'}</h3>
-            <p className="text-white/90 text-sm mt-1">We typically reply instantly</p>
+            <svg className="w-16 h-16 text-white mb-4" fill="currentColor" viewBox="0 0 24 24">
+              <circle cx="9" cy="7" r="2" opacity="0.4"/>
+              <circle cx="15" cy="7" r="2" opacity="0.4"/>
+              <circle cx="12" cy="12" r="2" opacity="0.4"/>
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+            </svg>
+            <h3 className="text-white font-semibold text-2xl mb-1" style={{ fontFamily: "'Poppins', sans-serif" }}>{config?.name || 'fuzey'}</h3>
           </div>
 
-          {/* Messenger-style button list - EXACT Cognigy */}
-          <div style={{ backgroundColor: '#fafafa' }} className="px-3 pt-3 pb-4">
-            <div className="space-y-0">
-              {/* WhatsApp Button - EXACT Cognigy Messenger Style */}
+          {/* White content area with rounded bottom */}
+          <div style={{ backgroundColor: 'white', padding: '32px 24px 40px' }}>
+            <h4 className="text-gray-900 font-medium text-lg mb-5" style={{ fontFamily: "'Poppins', sans-serif" }}>Message us on...</h4>
+            
+            <div className="space-y-3">
+              {/* WhatsApp Button */}
               <button
                 onClick={handleWhatsApp}
-                className="w-full flex items-center gap-3 transition-all"
+                className="w-full flex items-center gap-4 transition-all"
                 style={{ 
                   backgroundColor: 'white',
-                  color: config?.primaryColor || '#3f51b5',
-                  padding: '10px 20px',
-                  fontSize: '15px',
-                  borderRadius: '0',
-                  border: 'none',
+                  color: '#333',
+                  padding: '16px 20px',
+                  fontSize: '17px',
+                  borderRadius: '16px',
+                  border: '2px solid #5DDCC2',
                   outline: 'none',
                   cursor: 'pointer',
-                  borderBottom: '1px solid rgba(0, 0, 0, 0.05)'
+                  fontFamily: "'Poppins', sans-serif"
                 }}
-                onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => e.currentTarget.style.backgroundColor = 'hsl(0, 0%, 97%)'}
-                onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => e.currentTarget.style.backgroundColor = 'white'}
+                onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.currentTarget.style.backgroundColor = '#f0fdf9';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.currentTarget.style.backgroundColor = 'white';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
               >
-                <div className="w-9 h-9 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
+                  <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
                   </svg>
                 </div>
                 <div className="flex-1 text-left">
-                  <span className="block font-medium">Chat on WhatsApp</span>
+                  <span className="block font-medium">WhatsApp</span>
                 </div>
-                <svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
               </button>
 
-              {/* Live Chat Button - EXACT Cognigy Messenger Style */}
+              {/* Live Chat Button */}
               <button
                 onClick={handleStartChat}
-                className="w-full flex items-center gap-3 transition-all"
+                className="w-full flex items-center gap-4 transition-all"
                 style={{ 
                   backgroundColor: 'white',
-                  color: config?.primaryColor || '#3f51b5',
-                  padding: '10px 20px',
-                  fontSize: '15px',
-                  borderRadius: '0',
-                  border: 'none',
+                  color: '#333',
+                  padding: '16px 20px',
+                  fontSize: '17px',
+                  borderRadius: '16px',
+                  border: '2px solid #5DDCC2',
                   outline: 'none',
                   cursor: 'pointer',
-                  borderBottom: '1px solid rgba(0, 0, 0, 0.05)'
+                  fontFamily: "'Poppins', sans-serif"
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'hsl(0, 0%, 97%)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.currentTarget.style.backgroundColor = '#f0fdf9';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.currentTarget.style.backgroundColor = 'white';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
               >
-                <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                  background: config?.primaryColor || '#3f51b5'
+                <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                  background: config?.primaryColor || '#5DDCC2'
                 }}>
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div className="flex-1 text-left">
-                  <span className="block font-medium">Start a conversation</span>
+                  <span className="block font-medium">Live Chat</span>
                 </div>
-                <svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
               </button>
 
-              {/* Phone Button - EXACT Cognigy Messenger Style */}
+              {/* Phone Button */}
               {config.phone && (
                 <button
                   onClick={handleVoiceCall}
-                  className="w-full flex items-center gap-3 transition-all"
+                  className="w-full flex items-center gap-4 transition-all"
                   style={{ 
                     backgroundColor: 'white',
-                    color: config?.primaryColor || '#3f51b5',
-                    padding: '10px 20px',
-                    fontSize: '15px',
-                    borderRadius: '0',
-                    border: 'none',
+                    color: '#333',
+                    padding: '16px 20px',
+                    fontSize: '17px',
+                    borderRadius: '16px',
+                    border: '2px solid #5DDCC2',
                     outline: 'none',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    fontFamily: "'Poppins', sans-serif"
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'hsl(0, 0%, 97%)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                  onMouseEnter={(e: React.MouseEvent<HTMLButtonElement>) => {
+                    e.currentTarget.style.backgroundColor = '#f0fdf9';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e: React.MouseEvent<HTMLButtonElement>) => {
+                    e.currentTarget.style.backgroundColor = 'white';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
                 >
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                    background: config?.primaryColor || '#3f51b5'
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{
+                    background: config?.primaryColor || '#5DDCC2'
                   }}>
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                     </svg>
                   </div>
                   <div className="flex-1 text-left">
-                    <span className="block font-medium">Call us directly</span>
+                    <span className="block font-medium">Phone</span>
                   </div>
-                  <svg className="w-4 h-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
                 </button>
               )}
             </div>
 
             {/* Powered by */}
-            <div className="mt-3 pt-3 text-center border-t" style={{ borderColor: 'rgba(0, 0, 0, 0.05)' }}>
-              <p className="text-xs" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-semibold" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
+            <div className="mt-8 text-center">
+              <p className="text-sm" style={{ color: config?.primaryColor || '#5DDCC2', fontFamily: "'Poppins', sans-serif" }}>Powered by Fuzey</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Pre-Chat Form - EXACT Cognigy Style */}
+      {/* Pre-Chat Form - Fuzey Style */}
       {viewState === 'pre-chat' && (
-        <div className="fixed bottom-24 right-6 z-50 w-[350px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          borderRadius: '16px',
+        <div className="fixed bottom-24 right-6 z-50 w-[400px] max-w-[calc(100vw-48px)] animate-in slide-in-from-bottom-4 duration-200" style={{ 
+          borderRadius: '24px',
           backgroundColor: '#fafafa',
           boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.2), 0 5px 32px 0 rgba(203, 195, 212, 0.2), 0 8px 58px 0 rgba(216, 212, 221, 0.1)',
           fontSize: '16px',
-          fontFamily: 'sans-serif'
+          fontFamily: "'Poppins', sans-serif"
         }}>
           {/* Header */}
-          <div className="px-5 pt-6 pb-5 flex flex-col items-center relative" style={{
+          <div className="px-6 pt-8 pb-6 flex flex-col items-center relative" style={{
             background: config?.primaryColor || '#3f51b5',
-            borderTopLeftRadius: '16px',
-            borderTopRightRadius: '16px'
+            borderTopLeftRadius: '24px',
+            borderTopRightRadius: '24px'
           }}>
             <button
               onClick={() => setViewState('menu')}
@@ -664,21 +687,22 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Floating Action Button - EXACT Cognigy Style */}
+      {/* Floating Action Button - Larger Design */}
       <button
         onClick={() => setViewState(viewState === 'closed' ? 'menu' : 'closed')}
         className="fixed bottom-6 right-6 z-50 rounded-full flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
         style={{ 
-          width: viewState === 'closed' ? '160px' : '56px',
-          height: '56px',
+          width: viewState === 'closed' ? '180px' : '64px',
+          height: '64px',
           background: config?.primaryColor || '#3f51b5',
           boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.2), 0 5px 32px 0 rgba(203, 195, 212, 0.2), 0 8px 58px 0 rgba(216, 212, 221, 0.1)',
           justifyContent: 'center',
-          padding: '0 20px',
+          padding: '0 24px',
           border: 'none',
           cursor: 'pointer',
-          fontSize: '16px',
-          fontWeight: 700
+          fontSize: '17px',
+          fontWeight: 700,
+          fontFamily: "'Poppins', sans-serif"
         }}
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >

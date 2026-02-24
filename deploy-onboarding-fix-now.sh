@@ -1,7 +1,7 @@
 #!/bin/bash
 # One-command deployment of onboarding service fix
 
-ssh ubuntu@18.171.230.217 << 'ENDSSH'
+ssh ubuntu@18.171.223.223 << 'ENDSSH'
 echo "📦 Deploying onboarding service fix..."
 cd /home/ubuntu/portal-frontend
 

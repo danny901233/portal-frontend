@@ -3,7 +3,7 @@
 set -e
 
 KEY_FILE="${1:-$HOME/.ssh/receptionmate-ec2.pem}"
-EC2_HOST="ec2-user@18.171.230.217"
+EC2_HOST="ec2-user@18.171.223.223"
 
 if [ ! -f "$KEY_FILE" ]; then
   echo "❌ Key file not found: $KEY_FILE"

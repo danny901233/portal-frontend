@@ -51,7 +51,7 @@ fi
 echo ""
 echo "🔧 Updating EC2 .env..."
 
-ssh ec2-user@18.171.230.217 << EOF
+ssh ec2-user@18.171.223.223 << EOF
 cd /home/ec2-user/portal-frontend/backend
 
 # Backup existing .env
@@ -87,7 +87,7 @@ echo "✅ Email configuration restored!"
 echo "================================================"
 echo ""
 echo "Next steps:"
-echo "1. Check logs: ssh ec2-user@18.171.230.217 'pm2 logs backend'"
+echo "1. Check logs: ssh ec2-user@18.171.223.223 'pm2 logs backend'"
 echo "2. Trigger a test call to verify emails are sent"
 echo "3. Look for: 'Email sent successfully via Mailgun'"
 echo ""

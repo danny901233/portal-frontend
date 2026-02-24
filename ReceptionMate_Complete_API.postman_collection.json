@@ -975,7 +975,7 @@
 	"variable": [
 		{
 			"key": "BASE_URL",
-			"value": "http://18.171.230.217:4000",
+			"value": "http://18.171.223.223:4000",
 			"type": "string"
 		},
 		{

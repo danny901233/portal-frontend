@@ -5,11 +5,11 @@ echo ""
 
 # Check EC2 logs
 echo "1. Checking backend logs:"
-ssh -i ~/Downloads/ReceptionMatebackend.pem ec2-user@18.171.230.217 "pm2 logs portal-backend --lines 100 --nostream" | grep -A5 -B2 "OAuth\|Connection created\|Page found" | tail -20
+ssh -i ~/Downloads/ReceptionMatebackend.pem ec2-user@18.171.223.223 "pm2 logs portal-backend --lines 100 --nostream" | grep -A5 -B2 "OAuth\|Connection created\|Page found" | tail -20
 
 echo ""
 echo "2. Checking database on EC2:"
-ssh -i ~/Downloads/ReceptionMatebackend.pem ec2-user@18.171.230.217 << 'EOF'
+ssh -i ~/Downloads/ReceptionMatebackend.pem ec2-user@18.171.223.223 << 'EOF'
 cd ~/portal-backend
 cat > check_connection.js << 'SCRIPT'
 const { PrismaClient } = require('.prisma/client');

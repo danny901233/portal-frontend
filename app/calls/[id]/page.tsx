@@ -380,18 +380,18 @@ export default function CallDetailPage() {
               <div className="space-y-3">
                 <audio
                   src={
-                    (call.recordingUrl || recordingUrl || '').startsWith('/api/')
+                    (call.recordingUrl || recordingUrl || '').startsWith('/internal-api/')
                       ? call.recordingUrl || recordingUrl || ''
-                      : `/api/calls/${call.id}/recording/audio`
+                      : `/internal-api/calls/${call.id}/recording/audio`
                   }
                   controls
                   className="w-full"
                 />
                 <a
                   href={
-                    (call.recordingUrl || recordingUrl || '').startsWith('/api/')
+                    (call.recordingUrl || recordingUrl || '').startsWith('/internal-api/')
                       ? call.recordingUrl || recordingUrl || ''
-                      : `/api/calls/${call.id}/recording/audio`
+                      : `/internal-api/calls/${call.id}/recording/audio`
                   }
                   download={`call-${call.id}-recording.mp3`}
                   className="inline-flex items-center rounded-md border border-slate-700 px-3 py-1 text-xs text-sky-400 hover:border-slate-500 hover:text-sky-300"

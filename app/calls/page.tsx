@@ -898,9 +898,9 @@ export default function CallsPage() {
                         {call.recordingUrl ? (
                           <audio
                             src={
-                              call.recordingUrl.startsWith('/api/')
+                              call.recordingUrl.startsWith('/internal-api/')
                                 ? call.recordingUrl
-                                : `/api/calls/${call.id}/recording/audio`
+                                : `/internal-api/calls/${call.id}/recording/audio`
                             }
                             controls
                             className="h-8"

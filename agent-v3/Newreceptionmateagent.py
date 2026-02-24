@@ -2211,17 +2211,19 @@ class SupervisorAgent(Agent):
                             "If NO → ask what they'd prefer."
                         )
                     
-                    # If specialist matched "Other" - don't suggest it, just ask what they need
+                    # If specialist matched "Other" - ask for more detail, then book as "Other"
                     logger.info(f"[CONFIRM_VEHICLE] Specialist matched '{svc_name}' (Other category) - not suggesting, asking for service instead")
                     return (
                         f"Vehicle confirmed.{svc_summary}\n\n"
-                        f"The caller mentioned '{hint}' but no specific match. "
-                        "Ask: 'What work does it need?' then call select_service."
+                        f"The caller mentioned '{hint}' — this will be booked under a general slot. "
+                        f"Ask ONE short follow-up question to clarify the work needed (e.g. 'What work does it need on the {hint}?'). "
+                        f"Once you have their answer, call select_service(service_name='{svc_name}') immediately with ZERO SPEECH. "
+                        f"Do NOT try to match a different service from the list — use '{svc_name}' exactly."
                     )
                 return (
                     f"Vehicle confirmed.{svc_summary}\n\n"
                     f"The caller mentioned '{hint}' but no exact match. "
-                    "Ask which service they'd like."
+                    "Ask which service they'd like, then call select_service with exactly what they describe."
                 )
 
             return (
@@ -2551,6 +2553,10 @@ class SupervisorAgent(Agent):
             self._state.service_selected_id = svc_id
             self._state.service_selected_name = svc_name
             self._state.service_price = price
+            # If booked under "Other" category, store the original hint for GarageHive notes
+            if 'other' in svc_name.lower() or 'general' in svc_name.lower():
+                if self._state.service_hint and not self._state.other_service_description:
+                    self._state.other_service_description = self._state.service_hint
             logger.info(f"[SELECT_SERVICE] Set: {svc_name} ({price or 'no price'})")
 
             # Prefetch timeslots

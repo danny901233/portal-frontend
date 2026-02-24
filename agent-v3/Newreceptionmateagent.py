@@ -2912,38 +2912,31 @@ class SupervisorAgent(Agent):
                         "update_caller_name(first_name='...', last_name='...') to save it. "
                         "After that, call submit_booking again."
                     )
+            # Build notes: start with any agent-passed notes, then append extras
+            all_notes = notes
+
+            # Add service description for "Other" category bookings
+            if self._state.other_service_description:
+                all_notes = f"{self._state.other_service_description}\n\n{all_notes}".strip() if all_notes else self._state.other_service_description
+
             # Add tyre information if present
             if self._state.tyre_position or self._state.tyre_size or self._state.tyre_quality:
                 tyre_info_parts = []
                 if self._state.tyre_position:
                     tyre_info_parts.append(f"Position: {self._state.tyre_position}")
                 if self._state.tyre_size:
-                    tyre_info_parts.append(f"Size: {self._state.tyre_size}")
-                if self._state.tyre_quality:
-                    tyre_info_parts.append(f"Quality: {self._state.tyre_quality}")
-                tyre_section = "TYRE INFORMATION:\n" + "\n".join(tyre_info_parts)
-                all_notes = f"{tyre_section}\n\n{all_notes}".strip() if all_notes else tyre_section
-            # Combine user notes with diagnostic notes and tyre info
-            all_notes = notes
-            
-            # Add service description for "Other" category bookings
-            if self._state.other_service_description:
-                all_notes = f"{self._state.other_service_description}\n\n{all_notes}".strip() if all_notes else self._state.other_service_description
-
-            # Add tyre information if present
-            if self._state.tyre_size or self._state.tyre_quality:
-                tyre_info_parts = []
-                if self._state.tyre_size:
                     tyre_info_parts.append(f"Tyre size: {self._state.tyre_size}")
                 if self._state.tyre_quality:
                     tyre_info_parts.append(f"Quality: {self._state.tyre_quality}")
                 tyre_section = "TYRE INFORMATION:\n" + "\n".join(tyre_info_parts)
-                all_notes = f"{tyre_section}\n\n{all_notes}".strip() if all_notes else tyre_section
-            
+                all_notes = f"{all_notes}\n\n{tyre_section}".strip() if all_notes else tyre_section
+
             # Add diagnostic notes if present
             if self._state.diagnostic_notes:
                 diagnostic_section = "DIAGNOSTIC INFO:\n" + "\n".join(self._state.diagnostic_notes)
-                all_notes = f"{diagnostic_section}\n\n{all_notes}".strip() if all_notes else diagnostic_section
+                all_notes = f"{all_notes}\n\n{diagnostic_section}".strip() if all_notes else diagnostic_section
+
+            logger.info(f"[SUBMIT_BOOKING] Notes to GarageHive: '{all_notes}'")
 
             contact_address = f"{house_name_or_number}, {street}".strip(", ").lower()
             try:

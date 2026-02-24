@@ -504,17 +504,21 @@ async def log_call_to_portal(
             "durationSeconds": duration_seconds,
             "transcript": transcript,
             "summary": summary,
-            "customerName": customer_name or "Unknown",
-            "registrationNumber": registration_number,
             "confirmedBooking": confirmed_booking,
-            "bookingDetails": booking_details or "N/A",
-            "callType": call_type,
             "metrics": metrics,
         }
 
-        # Only include customerPhone if non-empty (schema requires min 1 char if present)
+        # Only include optional string fields when non-empty (schema requires min 1 char if present)
+        if customer_name:
+            payload["customerName"] = customer_name
         if customer_phone:
             payload["customerPhone"] = customer_phone
+        if registration_number:
+            payload["registrationNumber"] = registration_number
+        if booking_details:
+            payload["bookingDetails"] = booking_details
+        if call_type and call_type != "unknown":
+            payload["callType"] = call_type
         
         # Add recording URL if available
         if RECORDING_BASE_URL:

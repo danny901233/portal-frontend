@@ -16,6 +16,7 @@ const baseNavigation = [
   { name: 'Calls', href: '/calls' },
   { name: 'Messages', href: '/messages' },
   { name: 'Agent Configurations', href: '/agent-configurations', requiresManager: true },
+  { name: 'Integrations', href: '/integrations/widget' },
   { name: 'Billing', href: '/billing' },
 ];
 

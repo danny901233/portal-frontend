@@ -22,16 +22,14 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const url = config.url ?? "";
-    if (!url.startsWith(API_PROXY_PREFIX) && !/^https?:\/\//i.test(url)) {
-      if (url.startsWith("/")) {
-        config.url = `${API_PROXY_PREFIX}${url}`;
-      } else {
-        config.url = `${API_PROXY_PREFIX}/${url}`;
-      }
+  // Always use the backend origin directly, prepend /api to all relative paths
+  const url = config.url ?? "";
+  if (!url.startsWith("/api") && !/^https?:\/\//i.test(url)) {
+    if (url.startsWith("/")) {
+      config.url = `/api${url}`;
+    } else {
+      config.url = `/api/${url}`;
     }
-    config.baseURL = undefined;
   }
   return config;
 });

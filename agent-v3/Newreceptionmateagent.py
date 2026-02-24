@@ -472,6 +472,56 @@ RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()  # e.g. https:/
 # PORTAL CALL LOGGING
 # ============================================================
 
+async def generate_call_summary(transcript: list, state) -> str:
+    """Use GPT via LiveKit inference to generate a concise call summary."""
+    try:
+        llm = _get_specialist_llm()
+        if not llm:
+            raise ValueError("No LLM client available")
+
+        # Build a plain-text transcript for GPT
+        lines = []
+        for entry in transcript:
+            speaker = entry.get("speaker", "unknown").capitalize()
+            text = entry.get("text", "")
+            lines.append(f"{speaker}: {text}")
+        transcript_text = "\n".join(lines)
+
+        prompt = (
+            "You are a call summarisation assistant for a vehicle repair garage. "
+            "Summarise the following call transcript in 2-3 sentences. "
+            "Include: the customer's name (if given), their reason for calling, "
+            "any vehicle registration mentioned, and whether a booking was made or a message taken. "
+            "Be concise and factual.\n\n"
+            f"Transcript:\n{transcript_text}"
+        )
+
+        response = await llm.chat.completions.create(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200,
+            temperature=0.3,
+        )
+        summary = response.choices[0].message.content.strip()
+        logger.info(f"[PORTAL] GPT summary generated ({len(summary)} chars)")
+        return summary
+    except Exception as e:
+        logger.warning(f"[PORTAL] GPT summary failed, using fallback: {e}")
+        # Fallback: build summary from state fields
+        parts = []
+        if state.customer_name_first:
+            parts.append(f"Customer: {state.customer_name_first} {state.customer_name_last}".strip())
+        if state.intent:
+            parts.append(f"Intent: {state.intent}")
+        if state.vrn:
+            parts.append(f"Vehicle: {state.vrn}")
+        if state.booking_date:
+            parts.append(f"Booking: {state.booking_date} at {state.booking_time}")
+        if state.message:
+            parts.append(f"Message: {state.message}")
+        return " | ".join(parts) if parts else "Call completed"
+
+
 async def log_call_to_portal(
     garage_id: str,
     room_name: str,
@@ -3302,20 +3352,8 @@ async def entrypoint(ctx: JobContext):
                 if state.booking_date:
                     transcript.append({"speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
 
-                # Generate summary from state
-                summary_parts = []
-                if state.customer_name_first:
-                    summary_parts.append(f"Customer: {state.customer_name_first} {state.customer_name_last}".strip())
-                if state.intent:
-                    summary_parts.append(f"Intent: {state.intent}")
-                if state.vrn:
-                    summary_parts.append(f"Vehicle: {state.vrn}")
-                if state.booking_date:
-                    summary_parts.append(f"Booking: {state.booking_date} at {state.booking_time}")
-                if state.message:
-                    summary_parts.append(f"Message: {state.message}")
-
-                summary = " | ".join(summary_parts) if summary_parts else "Call completed"
+                # Generate GPT summary (falls back to state-based if LLM unavailable)
+                summary = await generate_call_summary(transcript, state)
 
                 # Determine call type
                 call_type = "unknown"

@@ -31,6 +31,7 @@ export default function ChatWidget() {
   const params = useParams();
   const garageId = params?.garageId as string;
   const [viewState, setViewState] = useState<ViewState>('closed');
+  const [isSpinning, setIsSpinning] = useState(false);
   const [config, setConfig] = useState<GarageConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -557,7 +558,7 @@ export default function ChatWidget() {
           </div>
           
           {/* Powered by - outside white rectangle */}
-          <div className="mt-6 text-center">
+          <div className="mt-10 text-center">
             <p className="text-base font-medium" style={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Powered by ReceptionMate</p>
           </div>
         </div>
@@ -710,15 +711,31 @@ export default function ChatWidget() {
           </div>
           
           {/* Powered by - outside white rectangle */}
-          <div className="mt-6 text-center">
+          <div className="mt-10 text-center">
             <p className="text-base font-medium" style={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Powered by ReceptionMate</p>
           </div>
         </div>
       )}
 
       {/* Floating Action Button - Larger Design */}
+      <style jsx>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
       <button
-        onClick={() => setViewState(viewState === 'closed' ? 'menu' : 'closed')}
+        onClick={() => {
+          if (viewState === 'closed') {
+            setIsSpinning(true);
+            setTimeout(() => {
+              setViewState('menu');
+              setIsSpinning(false);
+            }, 600);
+          } else {
+            setViewState('closed');
+          }
+        }}
         className="fixed bottom-6 right-6 z-50 rounded-full flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
         style={{ 
           width: viewState === 'closed' ? '180px' : '64px',
@@ -731,16 +748,36 @@ export default function ChatWidget() {
           cursor: 'pointer',
           fontSize: '17px',
           fontWeight: 700,
-          fontFamily: "'Poppins', sans-serif"
+          fontFamily: "'Poppins', sans-serif",
+          animation: isSpinning ? 'spin 0.6s linear' : 'none'
         }}
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >
         {viewState === 'closed' ? (
           <>
-            <svg className="w-6 h-6 text-white flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-white font-bold">Chat now!</span>
+            {isSpinning ? (
+              // Tire/wheel icon when spinning
+              <svg className="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="6" />
+                <circle cx="12" cy="12" r="2" fill="currentColor" />
+                <line x1="12" y1="2" x2="12" y2="6" />
+                <line x1="12" y1="18" x2="12" y2="22" />
+                <line x1="2" y1="12" x2="6" y2="12" />
+                <line x1="18" y1="12" x2="22" y2="12" />
+                <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
+                <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
+                <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
+                <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
+              </svg>
+            ) : (
+              <>
+                <svg className="w-6 h-6 text-white flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-white font-bold">Chat now!</span>
+              </>
+            )}
           </>
         ) : (
           <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>

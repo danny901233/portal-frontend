@@ -35,7 +35,7 @@ export default function WizardStep9Billing({
     setIsSaving(true);
     try {
       // Save billing info to backend
-      await api.put('/api/customer/billing/business-info', {
+      await api.put('/customer/billing/business-info', {
         billingAddress: data.billingAddress || null,
         billingCity: data.billingCity || null,
         billingPostcode: data.billingPostcode || null,

@@ -32,7 +32,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
   const searchNumbersMutation = useMutation({
     mutationFn: async () => {
-      const { data } = await api.post('/api/admin/twilio/available-numbers', {
+      const { data } = await api.post('/admin/twilio/available-numbers', {
         countryCode: 'GB',
         areaCode: searchAreaCode || undefined,
         limit: 20,
@@ -48,7 +48,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
   const purchaseNumberMutation = useMutation({
     mutationFn: async (phoneNumber: string) => {
-      const { data } = await api.post('/api/admin/twilio/purchase', {
+      const { data } = await api.post('/admin/twilio/purchase', {
         phoneNumber,
       });
       return data;
@@ -64,7 +64,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const onboardMutation = useMutation({
     mutationFn: async () => {
       const finalNumber = useManualEntry ? manualNumber : twilioNumber;
-      const { data } = await api.post('/api/admin/onboard', {
+      const { data } = await api.post('/admin/onboard', {
         businessName,
         branchName,
         twilioNumber: finalNumber || undefined,

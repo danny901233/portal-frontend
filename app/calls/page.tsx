@@ -715,7 +715,7 @@ export default function CallsPage() {
 
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('rm_token') : null;
-        const response = await fetch(`/api/calls/${callId}/recording`, {
+        const response = await fetch(`/internal-api/calls/${callId}/recording`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
 

@@ -248,7 +248,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         // Fetch messaging access
         const accessResponse = await fetch(
-          `/internal-api/api/garages/${garageId}/messaging-access`,
+          `/internal-api/garages/${garageId}/messaging-access`,
           {
             headers: {
               Authorization: `Bearer ${token}`,

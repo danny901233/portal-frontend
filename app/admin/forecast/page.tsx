@@ -29,7 +29,7 @@ export default function BillingForecastPage() {
   const { data: businessesData } = useQuery({
     queryKey: ['adminBusinesses'],
     queryFn: async () => {
-      const { data } = await api.get('/api/admin/businesses');
+      const { data } = await api.get('/admin/businesses');
       return data;
     },
     enabled: isStaff,

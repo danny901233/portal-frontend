@@ -98,7 +98,7 @@ export const updateGarageTwilioNumber = async (payload: { garageId: string; twil
 
 export const updateGarageMessagingAccess = async (payload: { garageId: string; hasMessagingAccess: boolean }) => {
   const { data } = await api.patch<{ hasMessagingAccess: boolean }>(
-    `/api/garages/${payload.garageId}/messaging-access`,
+    `/garages/${payload.garageId}/messaging-access`,
     { hasMessagingAccess: payload.hasMessagingAccess },
   );
   return data;

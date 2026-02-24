@@ -1016,6 +1016,7 @@ class CallState:
     vrn_pending: str = ""  # normalized VRN awaiting caller confirmation before API lookup
     booking_submit_pending: bool = False  # True when submit_booking failed and needs retry
     recent_transcripts: list[str] = field(default_factory=list)
+    conversation_items: list[dict] = field(default_factory=list)  # full agent+customer turns for GPT summary
 
 
 # ============================================================
@@ -3294,6 +3295,39 @@ async def entrypoint(ctx: JobContext):
 
         _last_final = text
 
+    @session.on("conversation_item_added")
+    def _on_conversation_item_added(ev):
+        """Capture full agent+customer transcript for GPT summary."""
+        try:
+            item = getattr(ev, "item", None)
+            if item is None:
+                return
+            role = getattr(item, "role", "") or ""
+            text = ""
+            if hasattr(item, "text_content"):
+                text = item.text_content or ""
+            if not text and hasattr(item, "content"):
+                content = item.content
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    parts = []
+                    for part in content:
+                        if hasattr(part, "text"):
+                            parts.append(part.text or "")
+                        elif isinstance(part, dict):
+                            parts.append(part.get("text", ""))
+                    text = " ".join(p for p in parts if p)
+            text = text.strip()
+            if not text:
+                return
+            speaker = "agent" if role in ("assistant", "agent") else "customer"
+            ts = max(0.0, time.time() - (state.call_start_time or time.time()))
+            state.conversation_items.append({"speaker": speaker, "text": text, "timestamp": round(ts, 1)})
+            logger.info(f"[TRANSCRIPT] {speaker.capitalize()} speech captured via conversation_item_added: {text[:80]}")
+        except Exception as exc:
+            logger.warning(f"[TRANSCRIPT] conversation_item_added error: {exc}")
+
     # Start session
     logger.info("[ENTRYPOINT] Starting session with SupervisorAgent")
     await session.start(
@@ -3336,21 +3370,29 @@ async def entrypoint(ctx: JobContext):
                     except Exception:
                         pass
 
-                # Build transcript from real-time user turns + key agent moments
-                # recent_transcripts holds finalised user utterances collected by _on_user_transcript
+                # Build transcript: prefer conversation_items (full agent+customer turns captured in real-time)
+                # Fall back to synthetic transcript from recent_transcripts if no conversation_items
                 base_ts = state.call_start_time or time.time()
-                transcript = []
-                # Always include a synthetic agent greeting as first entry
-                transcript.append({"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0})
-                for i, text in enumerate(state.recent_transcripts or [], start=1):
-                    transcript.append({"speaker": "customer", "text": text, "timestamp": i * 5})
-                # Append key structured events as agent turns
-                offset = len(transcript) * 5
-                if state.vrn:
-                    transcript.append({"speaker": "agent", "text": f"I have your vehicle registration as {state.vrn}.", "timestamp": offset})
-                    offset += 5
-                if state.booking_date:
-                    transcript.append({"speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
+                if state.conversation_items:
+                    transcript = state.conversation_items
+                    # Ensure at least one agent entry exists
+                    if not any(e.get("speaker") == "agent" for e in transcript):
+                        transcript = [{"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0}] + transcript
+                    logger.info(f"[PORTAL] Using {len(transcript)} conversation_items for transcript")
+                else:
+                    # Fallback: synthetic transcript from customer utterances
+                    logger.info("[PORTAL] No conversation_items — building synthetic transcript from recent_transcripts")
+                    transcript = []
+                    transcript.append({"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0})
+                    for i, text in enumerate(state.recent_transcripts or [], start=1):
+                        transcript.append({"speaker": "customer", "text": text, "timestamp": i * 5})
+                    # Append key structured events as agent turns
+                    offset = len(transcript) * 5
+                    if state.vrn:
+                        transcript.append({"speaker": "agent", "text": f"I have your vehicle registration as {state.vrn}.", "timestamp": offset})
+                        offset += 5
+                    if state.booking_date:
+                        transcript.append({"speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
 
                 # Generate GPT summary (falls back to state-based if LLM unavailable)
                 summary = await generate_call_summary(transcript, state)

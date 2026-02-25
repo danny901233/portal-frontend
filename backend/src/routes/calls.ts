@@ -779,6 +779,22 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     console.log(`[RECORDING] Strategy 2: Fetching from Twilio API for phone: ${phoneForTwilioLookup}`);
 
+    // CRITICAL SECURITY FIX: Get garage's phone number to validate recording matches
+    const garageConfig = await prisma.agentConfiguration.findUnique({
+      where: { garageId: call.garageId },
+      select: { phoneNumber: true },
+    });
+
+    if (!garageConfig?.phoneNumber) {
+      console.error('[RECORDING] Cannot fetch recording: garage phone number not configured');
+      return res.status(404).json({ 
+        error: 'Recording not available: garage configuration incomplete' 
+      });
+    }
+
+    const garagePhoneNumber = garageConfig.phoneNumber;
+    console.log(`[RECORDING] Validating recordings match garage number: ${garagePhoneNumber}`);
+
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -787,8 +803,8 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.status(500).json({ error: 'Recording service not configured' });
     }
 
-    // Search for recent calls from this number
-    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?From=${encodeURIComponent(phoneForTwilioLookup)}&PageSize=20`;
+    // Search for recent calls FROM customer TO this specific garage
+    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?From=${encodeURIComponent(phoneForTwilioLookup)}&To=${encodeURIComponent(garagePhoneNumber)}&PageSize=20`;
     const callsResponse = await fetch(callsUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
@@ -847,6 +863,14 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     for (const { twilioCall, timeDiff, durationDiff, score } of scoredCalls) {
       const withinTightWindow = timeDiff < tightTolerance;
       console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: timeDiff=${timeDiff}ms, durationDiff=${durationDiff}s, score=${score}, inTightWindow=${withinTightWindow}`);
+
+      // CRITICAL SECURITY: Verify this call was TO our garage's number
+      // Prevents cross-garage contamination when same customer calls multiple garages
+      if (twilioCall.to !== garagePhoneNumber) {
+        console.log(`[RECORDING] ❌ REJECTED: Call ${twilioCall.sid} was to ${twilioCall.to}, not our garage ${garagePhoneNumber}`);
+        continue;
+      }
+      console.log(`[RECORDING] ✅ Validated: Call ${twilioCall.sid} was to correct garage ${garagePhoneNumber}`);
 
       // Check if this call has recordings
       const recordingsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls/${twilioCall.sid}/Recordings.json`;
@@ -907,8 +931,8 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
   }
 });
 
-// Proxy endpoint to stream recording audio (no auth - call ID provides security)
-router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => {
+// Proxy endpoint to stream recording audio - with authentication
+router.get('/calls/:id/recording/audio', authenticate, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
@@ -919,6 +943,13 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
 
     if (!call) {
       return res.status(404).send('Recording not found');
+    }
+
+    // SECURITY: Verify user has access to this garage's recordings
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (!allowedGarages.includes(call.garageId) && req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      console.warn(`[RECORDING] Access denied: User tried to access call ${id} from garage ${call.garageId}`);
+      return res.status(403).send('Access denied');
     }
 
     if (!call.recordingUrl) {

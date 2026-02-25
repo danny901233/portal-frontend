@@ -29,7 +29,7 @@ import { fetchGarages } from '../lib/api';
 import { fetchOnboardingStatus } from '../lib/onboarding';
 import type { GarageSummary } from '../types';
 
-const publicPaths = new Set(['/login', '/reset-password']);
+const publicPaths = new Set(['/login', '/reset-password', '/terms']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {

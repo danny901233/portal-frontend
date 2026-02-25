@@ -51,8 +51,8 @@ function ResetPasswordForm() {
       return;
     }
 
-    if (password.length < 6) {
-      setMessage({ type: 'error', text: 'Password must be at least 6 characters' });
+    if (password.length < 8) {
+      setMessage({ type: 'error', text: 'Password must be at least 8 characters' });
       return;
     }
 
@@ -118,9 +118,9 @@ function ResetPasswordForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 transition-colors focus:border-sky-500 focus:outline-none"
-              placeholder="Enter new password"
+              placeholder="Enter new password (min 8 characters)"
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </div>
@@ -137,7 +137,7 @@ function ResetPasswordForm() {
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 transition-colors focus:border-sky-500 focus:outline-none"
               placeholder="Confirm new password"
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </div>

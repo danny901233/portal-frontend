@@ -3340,15 +3340,27 @@ class SupervisorAgent(Agent):
             # Different response for ASSIST mode vs AUTOMATE mode
             if self._assist_mode:
                 # ASSIST mode - taking details for team to call back
-                return (
-                    f"Message saved from {first} {last}.\n"
-                    "Say: 'Thanks, {first}. I've taken down all your details — your registration {vrn_display}, and the work you need done. "
-                    "The team will give you a ring back shortly to arrange that for you.'\n"
-                    "Close: 'Cheers, have a lovely day!'"
-                ).format(
-                    first=first,
-                    vrn_display=f"({self._state.vrn})" if self._state.vrn else "",
-                )
+                # Check if we're outside hours or team is busy
+                if not is_within_business_hours():
+                    return (
+                        f"Message saved from {first} {last}.\n"
+                        "Say: 'Thanks, {first}. I've got all your details down — your registration {vrn_display} and the work you need done. "
+                        "The team aren't available outside of our opening hours, but they'll give you a ring back when we're open to arrange that for you.'\n"
+                        "Close: 'Cheers, have a lovely day!'"
+                    ).format(
+                        first=first,
+                        vrn_display=f"({self._state.vrn})" if self._state.vrn else "",
+                    )
+                else:
+                    return (
+                        f"Message saved from {first} {last}.\n"
+                        "Say: 'Thanks, {first}. I've got all your details down — your registration {vrn_display} and the work you need done. "
+                        "The team are busy helping other customers at the moment, but they'll give you a ring back shortly to arrange that for you.'\n"
+                        "Close: 'Cheers, have a lovely day!'"
+                    ).format(
+                        first=first,
+                        vrn_display=f"({self._state.vrn})" if self._state.vrn else "",
+                    )
             else:
                 # AUTOMATE mode - standard message confirmation
                 return (

@@ -2330,6 +2330,35 @@ class SupervisorAgent(Agent):
                         f"(ID: {matched.get('service_price_id')}{(', ' + _format_price(matched)) if _format_price(matched) else ''}).\n"
                         f"NOW call select_service(service_name='{matched.get('name')}') immediately. GENERATE ZERO SPEECH."
                     )
+                
+                # Check if this is a diagnostic/symptom description BEFORE calling service advisor
+                diagnostic_result = await specialist_diagnostic_questions(hint)
+                if diagnostic_result:
+                    questions = diagnostic_result.get("questions", [])
+                    symptom_type = diagnostic_result.get("symptom_type", "unknown")
+                    
+                    # Store the symptom description for notes
+                    if not self._state.diagnostic_notes:
+                        self._state.diagnostic_notes = []
+                    self._state.diagnostic_notes.append(f"Initial symptom: {hint}")
+                    self._state.diagnostic_notes.append(f"Symptom type: {symptom_type}")
+                    
+                    # Format questions for the agent
+                    questions_formatted = "\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))
+                    logger.info(f"[DIAGNOSTIC] Starting {symptom_type} questionnaire for: {hint}")
+                    
+                    return (
+                        f"Vehicle confirmed.{svc_summary}\n\n"
+                        f"DIAGNOSTIC MODE: Customer described a {symptom_type} issue.\n"
+                        f"Initial description: '{hint}'\n\n"
+                        f"IMPORTANT: Follow the structured diagnostic flow. Ask these questions ONE AT A TIME:\n"
+                        f"{questions_formatted}\n\n"
+                        f"After each answer, use record_diagnostic_info to save the response.\n"
+                        f"Once all questions are answered, say: 'Right, based on what you've told me, "
+                        f"I'd recommend a Diagnostic Check to identify the exact issue — shall I book that in?'\n"
+                        "Then call select_service(service_name='Diagnostic Check') with ZERO SPEECH."
+                    )
+                
                 # Service Advisor specialist: ask LLM to match the vague hint
                 suggestion = await specialist_service_match(hint, services)
                 if suggestion:

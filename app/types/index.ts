@@ -38,6 +38,7 @@ export interface CallRecord {
   confirmedBooking?: boolean | null;
   confirmedBookingCategory?: ConfirmedBookingCategory | null;
   capturedRevenue?: number | null;
+  bookingDetails?: string | null;
   createdAt: string;
 }
 

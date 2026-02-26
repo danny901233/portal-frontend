@@ -288,6 +288,18 @@ export default function DashboardPage() {
         }
       }
       
+      // Try to extract price from bookingDetails text (e.g., "Date: 2026-03-02, Time: 13:30, Service: Full Service, Price: ¤289.20")
+      if (typeof call.bookingDetails === 'string') {
+        // Match patterns like "Price: ¤289.20", "Price: £289.20", "Total Price: ¤0.30"
+        const priceMatch = call.bookingDetails.match(/(?:Total\s+)?Price:\s*[¤£$€]?(\d+(?:\.\d{2})?)/i);
+        if (priceMatch && priceMatch[1]) {
+          const price = parseFloat(priceMatch[1]);
+          if (Number.isFinite(price)) {
+            return acc + price;
+          }
+        }
+      }
+      
       // Fallback to checking metrics object (legacy format)
       const metrics = call.metrics ?? {};
       const valueCandidate = BOOKING_VALUE_KEYS.reduce<number | undefined>((found, key) => {

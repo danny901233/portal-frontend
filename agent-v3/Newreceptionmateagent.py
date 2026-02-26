@@ -624,13 +624,47 @@ async def log_call_to_portal(
         if call_type and call_type != "unknown":
             payload["callType"] = call_type
         
-        # Add recording URL if available
-        if RECORDING_BASE_URL:
-            recording_url = f"{RECORDING_BASE_URL.rstrip('/')}/{room_name}.mp4"
-            payload["recordingUrl"] = recording_url
-            logger.info(f"[PORTAL] Including recording URL: {recording_url}")
-        else:
-            logger.warning("[PORTAL] RECORDING_BASE_URL not set; recordingUrl will be omitted")
+        # Query LiveKit for recording URL
+        recording_url = None
+        try:
+            lk_client = lk_api.LiveKitAPI(
+                url=os.getenv("LIVEKIT_URL", ""),
+                api_key=os.getenv("LIVEKIT_API_KEY", ""),
+                api_secret=os.getenv("LIVEKIT_API_SECRET", ""),
+            )
+            
+            # List egress for this room to get recording URL
+            egress_list = await lk_client.egress.list_egress(
+                lk_api.ListEgressRequest(room_name=room_name)
+            )
+            
+            # Find the track composite egress (recording) and get its URL
+            for egress in egress_list:
+                if egress.status == lk_api.EgressStatus.EGRESS_COMPLETE or egress.status == lk_api.EgressStatus.EGRESS_ACTIVE:
+                    if hasattr(egress, 'file') and egress.file:
+                        if hasattr(egress.file, 'download_url') and egress.file.download_url:
+                            recording_url = egress.file.download_url
+                            logger.info(f"[PORTAL] Found recording URL from LiveKit egress: {recording_url}")
+                            break
+                        elif hasattr(egress.file, 'location') and egress.file.location:
+                            recording_url = egress.file.location
+                            logger.info(f"[PORTAL] Found recording location from LiveKit egress: {recording_url}")
+                            break
+            
+            await lk_client.aclose()
+            
+            if recording_url:
+                payload["recordingUrl"] = recording_url
+            else:
+                logger.warning(f"[PORTAL] No recording URL found for room {room_name}")
+                
+        except Exception as e:
+            logger.error(f"[PORTAL] Failed to query LiveKit egress for recording: {e}")
+            # Fallback to constructed URL if RECORDING_BASE_URL is set
+            if RECORDING_BASE_URL:
+                recording_url = f"{RECORDING_BASE_URL.rstrip('/')}/{room_name}.mp4"
+                payload["recordingUrl"] = recording_url
+                logger.info(f"[PORTAL] Using fallback recording URL: {recording_url}")
         
         headers = {
             "Content-Type": "application/json",

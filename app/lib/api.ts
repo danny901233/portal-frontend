@@ -90,7 +90,7 @@ export const downloadConfirmedBookingsCsv = async (
 
 export const fetchCalls = async (
   garageId?: string,
-  filters?: CallFilters
+  filters?: CallFilters & { page?: number; pageSize?: number }
 ): Promise<CallsResponse> => {
   const targetGarageId = garageId ?? getGarageId();
   if (!targetGarageId) {
@@ -108,6 +108,12 @@ export const fetchCalls = async (
   }
   if (filters?.garageIds && filters.garageIds.length > 0) {
     filters.garageIds.forEach(id => params.append("garageIds", id));
+  }
+  if (filters?.page) {
+    params.set("page", filters.page.toString());
+  }
+  if (filters?.pageSize) {
+    params.set("pageSize", filters.pageSize.toString());
   }
 
   const querySuffix = params.toString();

@@ -69,6 +69,12 @@ export interface LoginResponse {
 
 export interface CallsResponse {
   calls: CallRecord[];
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface CallResponse {

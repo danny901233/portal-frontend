@@ -412,12 +412,14 @@ export default function CallsPage() {
   const [loadingRecordings, setLoadingRecordings] = useState<Set<string>>(new Set());
   const [recordingErrors, setRecordingErrors] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(100);
 
   const startDateIso = useMemo(() => toIsoDate(startDateInput), [startDateInput]);
   const endDateIso = useMemo(() => toIsoDate(endDateInput, true), [endDateInput]);
   const callsQueryKey = useMemo(
-    () => ['calls', garageId, callTagFilter, startDateIso, endDateIso] as const,
-    [garageId, callTagFilter, startDateIso, endDateIso],
+    () => ['calls', garageId, callTagFilter, startDateIso, endDateIso, currentPage, pageSize] as const,
+    [garageId, callTagFilter, startDateIso, endDateIso, currentPage, pageSize],
   );
   const isModalOpen = feedbackModal.callId !== null;
   const isSummaryModalOpen = summaryModalCallId !== null;
@@ -430,11 +432,19 @@ export default function CallsPage() {
         callType: callTagFilter,
         startDate: startDateIso,
         endDate: endDateIso,
+        page: currentPage,
+        pageSize,
       }),
     enabled: Boolean(garageId),
   });
 
   const calls = useMemo<CallRecord[]>(() => query.data?.calls ?? [], [query.data]);
+  const pagination = query.data?.pagination;
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [callTagFilter, startDateIso, endDateIso]);
 
   useEffect(() => {
     startTransition(() => {
@@ -989,6 +999,73 @@ export default function CallsPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {pagination && pagination.totalPages > 1 && (
+          <div className="mt-6 flex items-center justify-between border-t border-slate-800 pt-6">
+            <div className="text-sm text-slate-400">
+              Showing page {pagination.page} of {pagination.totalPages} ({pagination.total} total calls)
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1 || query.isLoading}
+                className={cn(
+                  'rounded-md border px-4 py-2 text-sm font-medium transition-colors',
+                  currentPage === 1 || query.isLoading
+                    ? 'cursor-not-allowed border-slate-800 text-slate-600'
+                    : 'border-slate-700 text-slate-200 hover:border-sky-500 hover:text-sky-400',
+                )}
+              >
+                Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {/* Show page numbers */}
+                {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (pagination.totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= pagination.totalPages - 2) {
+                    pageNum = pagination.totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      disabled={query.isLoading}
+                      className={cn(
+                        'h-10 w-10 rounded-md text-sm font-medium transition-colors',
+                        currentPage === pageNum
+                          ? 'bg-sky-500 text-slate-950'
+                          : 'border border-slate-700 text-slate-300 hover:border-sky-500 hover:text-sky-400',
+                        query.isLoading && 'cursor-not-allowed opacity-50',
+                      )}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setCurrentPage(Math.min(pagination.totalPages, currentPage + 1))}
+                disabled={currentPage === pagination.totalPages || query.isLoading}
+                className={cn(
+                  'rounded-md border px-4 py-2 text-sm font-medium transition-colors',
+                  currentPage === pagination.totalPages || query.isLoading
+                    ? 'cursor-not-allowed border-slate-800 text-slate-600'
+                    : 'border-slate-700 text-slate-200 hover:border-sky-500 hover:text-sky-400',
+                )}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {query.isError ? (

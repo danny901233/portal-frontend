@@ -139,6 +139,7 @@ export default function DashboardPage() {
           startDate: startBoundary,
           endDate: endBoundary,
           ...(shouldAggregateAllBranches ? { garageIds: assignedGarageIds } : {}),
+          pageSize: 10000, // Dashboard needs all calls for accurate totals
         };
         const garageParam = shouldAggregateAllBranches ? undefined : selectedGarageId ?? undefined;
         const { calls: responseCalls } = await fetchCalls(garageParam, filters);

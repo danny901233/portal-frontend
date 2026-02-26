@@ -270,13 +270,22 @@ export default function DashboardPage() {
   const bookingRevenueTotal = useMemo(() => {
     return calls.reduce((acc, call) => {
       const tag = (call.callType ?? '').trim().toLowerCase();
-      if (tag !== 'confirmed booking') {
+      // Match any variation of "confirmed" and "booking"
+      if (!tag.includes('confirmed') || !tag.includes('booking')) {
         return acc;
       }
       
       // First check if capturedRevenue exists at the top level (new format)
       if (typeof call.capturedRevenue === 'number' && Number.isFinite(call.capturedRevenue)) {
         return acc + call.capturedRevenue;
+      }
+      
+      // Check if capturedRevenue is a string that can be parsed
+      if (typeof call.capturedRevenue === 'string') {
+        const parsed = parseFloat(call.capturedRevenue);
+        if (Number.isFinite(parsed)) {
+          return acc + parsed;
+        }
       }
       
       // Fallback to checking metrics object (legacy format)
@@ -288,6 +297,13 @@ export default function DashboardPage() {
         const metricValue = metrics[key];
         if (typeof metricValue === 'number' && Number.isFinite(metricValue)) {
           return metricValue;
+        }
+        // Also try parsing strings in metrics
+        if (typeof metricValue === 'string') {
+          const parsed = parseFloat(metricValue);
+          if (Number.isFinite(parsed)) {
+            return parsed;
+          }
         }
         return undefined;
       }, undefined);

@@ -1853,7 +1853,7 @@ class SupervisorAgent(Agent):
                     'vehicle_update' for callers checking on a vehicle already at the garage,
                     'message' for everything else,
                     'transfer' for asking to speak to someone specific or a human.
-            service_hint: what work they mentioned (e.g. 'MOT', 'full service').
+            service_hint: the full description of what work they need in their own words (e.g. 'my brakes are making a grinding noise', 'I need an MOT and full service', 'the engine warning light came on'). Pass the complete sentence, not just keywords.
             vrn: vehicle registration if the caller already gave it.
             requested_person: name of person they asked for (e.g. 'John', 'manager', 'human')."""
 
@@ -1912,6 +1912,17 @@ class SupervisorAgent(Agent):
                         f"Then collect message details with take_message."
                     )
                 
+                # Check if this is ASSIST mode - cannot make bookings
+                if self._config.get("MODE", "AUTOMATE") == "ASSIST":
+                    return (
+                        f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
+                        f"Address the caller as '{first}' (FIRST name only).\n"
+                        f"Say naturally: 'Unfortunately the team aren't available at the moment — they're likely helping other customers. "
+                        f"I can take a message and get someone to give you a ring back. What would you like me to pass on?'\n"
+                        f"Then collect message details with take_message."
+                    )
+                
+                # AUTOMATE mode - can offer booking help
                 return (
                     f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
                     f"Address the caller as '{first}' (FIRST name only).\n"
@@ -2327,9 +2338,11 @@ class SupervisorAgent(Agent):
             if hint:
                 matched = match_service(hint, services)
                 if matched:
+                    # Show full description of what caller said for context
+                    hint_display = f"The caller said: '{hint}'"
                     return (
                         f"Vehicle confirmed.{svc_summary}\n\n"
-                        f"The caller mentioned '{hint}'. Best match: {matched.get('name')} "
+                        f"{hint_display}. Best match: {matched.get('name')} "
                         f"(ID: {matched.get('service_price_id')}{(', ' + _format_price(matched)) if _format_price(matched) else ''}).\n"
                         f"NOW call select_service(service_name='{matched.get('name')}') immediately. GENERATE ZERO SPEECH."
                     )
@@ -2374,9 +2387,10 @@ class SupervisorAgent(Agent):
                         price_str = _format_price(svc)
                         price_spoken = f" ({price_str})" if price_str else ""
                         reason_line = f" — {reason}" if reason else ""
+                        hint_display = f"The caller said: '{hint}'"
                         return (
                             f"Vehicle confirmed.{svc_summary}\n\n"
-                            f"The caller mentioned '{hint}'{reason_line}.\n"
+                            f"{hint_display}{reason_line}.\n"
                             f"Suggest: '{svc_name}'{price_spoken}.\n"
                             f"Tell the caller: 'I'd suggest a {svc_name}{price_spoken} — shall I go with that?'\n"
                             f"If YES → call select_service(service_name='{svc_name}') with ZERO SPEECH.\n"
@@ -2385,16 +2399,18 @@ class SupervisorAgent(Agent):
                     
                     # If specialist matched "Other" - ask for more detail, then book as "Other"
                     logger.info(f"[CONFIRM_VEHICLE] Specialist matched '{svc_name}' (Other category) - not suggesting, asking for service instead")
+                    hint_display = f"The caller said: '{hint}'"
                     return (
                         f"Vehicle confirmed.{svc_summary}\n\n"
-                        f"The caller mentioned '{hint}' — this will be booked under a general slot. "
+                        f"{hint_display} — this will be booked under a general slot. "
                         f"Ask ONE short follow-up question to clarify the work needed (e.g. 'What work does it need on the {hint}?'). "
                         f"Once you have their answer, call select_service(service_name='{svc_name}') immediately with ZERO SPEECH. "
                         f"Do NOT try to match a different service from the list — use '{svc_name}' exactly."
                     )
+                hint_display = f"The caller said: '{hint}'"
                 return (
                     f"Vehicle confirmed.{svc_summary}\n\n"
-                    f"The caller mentioned '{hint}' but no exact match. "
+                    f"{hint_display} but no exact match. "
                     "Ask which service they'd like, then call select_service with exactly what they describe."
                 )
 

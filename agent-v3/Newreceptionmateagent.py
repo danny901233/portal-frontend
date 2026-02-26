@@ -3504,6 +3504,23 @@ async def entrypoint(ctx: JobContext):
         preemptive_generation=True,  # Enable preemptive generation for lower latency
     )
 
+    # ── Text normalization for British pronunciation ─────────────
+    def normalize_text_for_british_tts(text: str) -> str:
+        """Replace words with phonetic spellings for proper British pronunciation."""
+        # Replace "garage" (all forms) with "garridge" for British pronunciation
+        text = re.sub(r'\bgarage\b', 'garridge', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bGarage\b', 'Garridge', text)
+        text = re.sub(r'\bGARAGE\b', 'GARRIDGE', text)
+        return text
+    
+    @session.before_tts_cb
+    def before_tts(text: str) -> str:
+        """Normalize text before sending to TTS for proper pronunciation."""
+        normalized = normalize_text_for_british_tts(text)
+        if normalized != text:
+            logger.debug(f"[TTS] Normalized: '{text}' → '{normalized}'")
+        return normalized
+    
     # Give the agent a reference to the session for session.say()
     supervisor.set_session(session)
 

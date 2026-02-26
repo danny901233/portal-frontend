@@ -589,6 +589,7 @@ async def log_call_to_portal(
     booking_details: str = "",
     call_type: str = "unknown",
     metrics: dict = None,
+    captured_revenue: float = None,
 ) -> None:
     """Log call data to the portal backend."""
     
@@ -623,6 +624,8 @@ async def log_call_to_portal(
             payload["bookingDetails"] = booking_details
         if call_type and call_type != "unknown":
             payload["callType"] = call_type
+        if captured_revenue is not None:
+            payload["capturedRevenue"] = captured_revenue
         
         # Query LiveKit for recording URL
         recording_url = None
@@ -3700,6 +3703,7 @@ async def entrypoint(ctx: JobContext):
 
             # Build booking details
             booking_details = ""
+            captured_revenue = None
             if state.booking_date:
                 booking_parts = [f"Date: {state.booking_date}"]
                 if state.booking_time:
@@ -3708,6 +3712,13 @@ async def entrypoint(ctx: JobContext):
                     booking_parts.append(f"Service: {state.service_selected_name}")
                 if state.service_price:
                     booking_parts.append(f"Price: {state.service_price}")
+                    # Extract numeric value from price string (remove currency symbols, commas, etc.)
+                    try:
+                        import re
+                        price_clean = re.sub(r'[^\d.]', '', state.service_price)
+                        captured_revenue = float(price_clean)
+                    except (ValueError, AttributeError):
+                        logger.warning(f"[PORTAL] Could not parse price from: {state.service_price}")
                 booking_details = ", ".join(booking_parts)
 
             # Build metrics
@@ -3734,6 +3745,7 @@ async def entrypoint(ctx: JobContext):
                 booking_details=booking_details,
                 call_type=call_type,
                 metrics=metrics,
+                captured_revenue=captured_revenue,
             )
         except Exception as e:
             logger.error(f"[PORTAL] Failed to log call: {e}")

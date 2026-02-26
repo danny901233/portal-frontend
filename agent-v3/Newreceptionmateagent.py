@@ -3311,8 +3311,9 @@ PERSONALITY: Sound natural and warm, like a real person — not robotic. Vary yo
 - NEVER use: "awesome", "gotten", "you guys", "super"
 - Save "Cheers, have a lovely day!" for the very end of the call
 
-PRONUNCIATION:
-- Say "garage" as "garridge" (British pronunciation - rhymes with "carriage", NOT "ga-RAHJ")
+PRONUNCIATION & SPELLING:
+- ALWAYS write "garridge" not "garage" - this ensures proper British pronunciation (rhymes with "carriage")
+- Example: "You're through to the garridge" NOT "You're through to the garage"
 
 RULES:
 - NO filler before/between tool calls. No "one moment", "let me check", "bear with me".
@@ -3504,23 +3505,22 @@ async def entrypoint(ctx: JobContext):
         preemptive_generation=True,  # Enable preemptive generation for lower latency
     )
 
-    # ── Text normalization for British pronunciation ─────────────
-    def normalize_text_for_british_tts(text: str) -> str:
-        """Replace words with phonetic spellings for proper British pronunciation."""
-        # Replace "garage" (all forms) with "garridge" for British pronunciation
-        text = re.sub(r'\bgarage\b', 'garridge', text, flags=re.IGNORECASE)
-        text = re.sub(r'\bGarage\b', 'Garridge', text)
-        text = re.sub(r'\bGARAGE\b', 'GARRIDGE', text)
-        return text
+    # Patch session.say() to normalize text for British pronunciation
+    _original_say = session.say
     
-    @session.before_tts_cb
-    def before_tts(text: str) -> str:
-        """Normalize text before sending to TTS for proper pronunciation."""
-        normalized = normalize_text_for_british_tts(text)
-        if normalized != text:
-            logger.debug(f"[TTS] Normalized: '{text}' → '{normalized}'")
-        return normalized
+    def _normalize_british_pronunciation(text: str) -> str:
+        """Replace 'garage' with 'garridge' for proper British pronunciation."""
+        return re.sub(r'\bgarage\b', 'garridge', text, flags=re.IGNORECASE)
     
+    async def _patched_say(text: str, **kwargs):
+        """Wrapper around session.say() that normalizes pronunciation."""
+        normalized_text = _normalize_british_pronunciation(text)
+        if normalized_text != text:
+            logger.debug(f"[TTS] Normalized: '{text}' → '{normalized_text}'")
+        return await _original_say(normalized_text, **kwargs)
+    
+    session.say = _patched_say
+
     # Give the agent a reference to the session for session.say()
     supervisor.set_session(session)
 

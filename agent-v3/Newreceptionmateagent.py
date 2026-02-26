@@ -3602,6 +3602,11 @@ async def entrypoint(ctx: JobContext):
     )
     logger.info("[ENTRYPOINT] Session started — supervisor system ready")
     
+    # Send initial greeting immediately
+    greeting = get_dynamic_greeting(AGENT_BRANCH_NAME)
+    logger.info(f"[ENTRYPOINT] Sending initial greeting: {greeting}")
+    await session.say(greeting, allow_interruptions=True)
+    
     # Initialize inactivity tracking
     state.last_user_speech_time = time.time()
     

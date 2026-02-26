@@ -1992,6 +1992,37 @@ class SupervisorAgent(Agent):
             if service_hint:
                 self._state.service_hint = service_hint.strip()
 
+            # ASSIST MODE: If SMS booking links are enabled, offer that option instead of taking a message
+            if self._assist_mode and AGENT_CONFIGURATION.get("ENABLE_SMS_BOOKING_LINK", False):
+                self._state.step = Step.MESSAGE_ONLY
+                return (
+                    f"Name saved: {first} {last}. Intent: booking request in ASSIST mode with SMS enabled.\n"
+                    f"Address the caller as '{first}' (FIRST name only).\n"
+                    f"Say naturally: 'I can send you a link to book online directly, or I can take a message and get the team to give you a ring back. Which would you prefer?'\n"
+                    f"If they want the SMS link → call send_sms_booking_link.\n"
+                    f"If they want a message → collect message details with take_message."
+                )
+            
+            # ASSIST MODE: No SMS booking links configured, take message only
+            if self._assist_mode:
+                self._state.step = Step.MESSAGE_ONLY
+                # Check if we're outside business hours for appropriate messaging
+                if not is_within_business_hours():
+                    return (
+                        f"Name saved: {first} {last}. Intent: booking request in ASSIST mode (outside hours).\n"
+                        f"Address the caller as '{first}' (FIRST name only).\n"
+                        f"Say naturally: 'The team aren't available outside of our opening hours to help with bookings, "
+                        f"but I can take a message and they'll give you a ring back when we're open. What would you like me to pass on?'\n"
+                        f"Then collect message details with take_message."
+                    )
+                return (
+                    f"Name saved: {first} {last}. Intent: booking request in ASSIST mode (during hours).\n"
+                    f"Address the caller as '{first}' (FIRST name only).\n"
+                    f"Say naturally: 'The team are busy helping other customers at the moment, "
+                    f"but I can take a message and they'll give you a ring back as soon as they're free. What would you like me to pass on?'\n"
+                    f"Then collect message details with take_message."
+                )
+
             # If caller provided both VRN and indicated they want a booking, proceed
             if vrn and (service_hint or resolved == "booking"):
                 self._state.step = Step.NEED_VRN

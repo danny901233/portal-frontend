@@ -3439,10 +3439,8 @@ CRITICAL: When the tool says "Say naturally: [exact phrase]", use that phrase. D
         self._agent_session = session
 
     async def on_enter(self) -> None:
-        if self._agent_session:
-            greeting = get_dynamic_greeting(AGENT_BRANCH_NAME)
-            await self._agent_session.say(text=greeting, allow_interruptions=True)
-            logger.info("[SUPERVISOR] Delivered greeting via session.say()")
+        # Greeting is now handled in entrypoint after session.start()
+        pass
 
 
 # ============================================================

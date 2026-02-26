@@ -1913,9 +1913,9 @@ class SupervisorAgent(Agent):
                     )
                 
                 # Check if this is ASSIST mode - cannot make bookings (but can send SMS booking link if configured)
-                if self._config.get("MODE", "AUTOMATE") == "ASSIST":
+                if AGENT_CONFIGURATION.get("MODE", "AUTOMATE") == "ASSIST":
                     # Check if SMS booking link is configured
-                    has_sms_booking = self._config.get("ENABLE_SMS_BOOKING_LINK", False)
+                    has_sms_booking = AGENT_CONFIGURATION.get("ENABLE_SMS_BOOKING_LINK", False)
                     
                     if has_sms_booking:
                         return (
@@ -3364,7 +3364,7 @@ MODE: ASSIST MODE - You CANNOT make bookings. Your role is to help callers by:
 - Answering questions about services, pricing, and opening hours
 - Taking messages for the team to call back
 - Collecting caller details for bookings that the team will process
-{('- Sending SMS booking links to customers (when configured)' if self._config.get('ENABLE_SMS_BOOKING_LINK', False) else '')}
+{('- Sending SMS booking links to customers (when configured)' if AGENT_CONFIGURATION.get('ENABLE_SMS_BOOKING_LINK', False) else '')}
 
 PERSONALITY: Sound natural and warm, like a real person — not robotic. Vary your phrasing each turn.
 - Mix short replies ("Brilliant.") with slightly longer ones ("Lovely, that's all popped in for you.")

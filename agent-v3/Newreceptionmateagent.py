@@ -24,7 +24,7 @@ import aiohttp
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-from livekit import api as lk_api
+from livekit import api as lk_api, rtc
 from livekit.agents import (
     Agent,
     AgentSession,
@@ -34,9 +34,10 @@ from livekit.agents import (
     WorkerOptions,
     WorkerType,
     cli,
+    room_io,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import deepgram, elevenlabs, silero
+from livekit.plugins import deepgram, elevenlabs, noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 # ============================================================
@@ -591,9 +592,9 @@ async def log_call_to_portal(
 ) -> None:
     """Log call data to the portal backend."""
     
-    # Only log calls that are 55 seconds or longer
-    if duration_seconds < 55:
-        logger.info(f"[PORTAL] Skipping call log - duration {duration_seconds}s is under 55s threshold")
+    # Only log calls that are 40 seconds or longer
+    if duration_seconds < 40:
+        logger.info(f"[PORTAL] Skipping call log - duration {duration_seconds}s is under 40s threshold")
         return
     
     try:
@@ -701,8 +702,70 @@ _SORTED_NATO_DIGIT_WORDS: list[tuple[str, str]] = sorted(
 
 
 def _scan_nato_blob(text: str) -> list[str]:
+    # Preprocess: Convert spoken number phrases to digits
+    # This fixes STT misinterpretations like "twenty two" → "TWENTY2" instead of "22"
+    text_preprocessed = text.lower()
+    
+    # Two-digit numbers (20-99)
+    number_phrases = {
+        'twenty one': '21', 'twenty-one': '21', 'twentyone': '21',
+        'twenty two': '22', 'twenty-two': '22', 'twentytwo': '22',
+        'twenty three': '23', 'twenty-three': '23', 'twentythree': '23',
+        'twenty four': '24', 'twenty-four': '24', 'twentyfour': '24',
+        'twenty five': '25', 'twenty-five': '25', 'twentyfive': '25',
+        'twenty six': '26', 'twenty-six': '26', 'twentysix': '26',
+        'twenty seven': '27', 'twenty-seven': '27', 'twentyseven': '27',
+        'twenty eight': '28', 'twenty-eight': '28', 'twentyeight': '28',
+        'twenty nine': '29', 'twenty-nine': '29', 'twentynine': '29',
+        'thirty one': '31', 'thirty-one': '31', 'thirtyone': '31',
+        'thirty two': '32', 'thirty-two': '32', 'thirtytwo': '32',
+        'thirty three': '33', 'thirty-three': '33', 'thirtythree': '33',
+        'thirty four': '34', 'thirty-four': '34', 'thirtyfour': '34',
+        'thirty five': '35', 'thirty-five': '35', 'thirtyfive': '35',
+        'thirty six': '36', 'thirty-six': '36', 'thirtysix': '36',
+        'thirty seven': '37', 'thirty-seven': '37', 'thirtyseven': '37',
+        'thirty eight': '38', 'thirty-eight': '38', 'thirtyeight': '38',
+        'thirty nine': '39', 'thirty-nine': '39', 'thirtynine': '39',
+        'forty one': '41', 'forty-one': '41', 'fortyone': '41',
+        'forty two': '42', 'forty-two': '42', 'fortytwo': '42',
+        'forty three': '43', 'forty-three': '43', 'fortythree': '43',
+        'forty four': '44', 'forty-four': '44', 'fortyfour': '44',
+        'forty five': '45', 'forty-five': '45', 'fortyfive': '45',
+        'forty six': '46', 'forty-six': '46', 'fortysix': '46',
+        'forty seven': '47', 'forty-seven': '47', 'fortyseven': '47',
+        'forty eight': '48', 'forty-eight': '48', 'fortyeight': '48',
+        'forty nine': '49', 'forty-nine': '49', 'fortynine': '49',
+        'fifty one': '51', 'fifty-one': '51', 'fiftyone': '51',
+        'fifty two': '52', 'fifty-two': '52', 'fiftytwo': '52',
+        'fifty three': '53', 'fifty-three': '53', 'fiftythree': '53',
+        'fifty four': '54', 'fifty-four': '54', 'fiftyfour': '54',
+        'fifty five': '55', 'fifty-five': '55', 'fiftyfive': '55',
+        'fifty six': '56', 'fifty-six': '56', 'fiftysix': '56',
+        'fifty seven': '57', 'fifty-seven': '57', 'fiftyseven': '57',
+        'fifty eight': '58', 'fifty-eight': '58', 'fiftyeight': '58',
+        'fifty nine': '59', 'fifty-nine': '59', 'fiftynine': '59',
+        'sixty one': '61', 'sixty-one': '61', 'sixtyone': '61',
+        'sixty two': '62', 'sixty-two': '62', 'sixtytwo': '62',
+        'sixty three': '63', 'sixty-three': '63', 'sixtythree': '63',
+        'sixty four': '64', 'sixty-four': '64', 'sixtyfour': '64',
+        'sixty five': '65', 'sixty-five': '65', 'sixtyfive': '65',
+        'sixty six': '66', 'sixty-six': '66', 'sixtysix': '66',
+        'sixty seven': '67', 'sixty-seven': '67', 'sixtyseven': '67',
+        'sixty eight': '68', 'sixty-eight': '68', 'sixtyeight': '68',
+        'sixty nine': '69', 'sixty-nine': '69', 'sixtynine': '69',
+        'seventy one': '71', 'seventy-one': '71', 'seventyone': '71',
+        'seventy two': '72', 'seventy-two': '72', 'seventytwo': '72',
+        # Plus stand-alone tens
+        'twenty': '20', 'thirty': '30', 'forty': '40', 'fifty': '50',
+        'sixty': '60', 'seventy': '70', 'eighty': '80', 'ninety': '90',
+    }
+    
+    # Replace number phrases with digits (longest first to avoid partial matches)
+    for phrase in sorted(number_phrases.keys(), key=len, reverse=True):
+        text_preprocessed = text_preprocessed.replace(phrase, number_phrases[phrase])
+    
     result: list[str] = []
-    lower = text.lower()
+    lower = text_preprocessed
     i = 0
     while i < len(lower):
         if not lower[i].isalnum():
@@ -728,6 +791,30 @@ def _scan_nato_blob(text: str) -> list[str]:
     return result
 
 
+def vrm_to_phonetics(vrm: str) -> str:
+    """Convert a UK VRM to NATO phonetic alphabet for clear readback.
+    
+    Converts each character to its NATO phonetic equivalent:
+    - Letters: Alpha, Bravo, Charlie, etc.
+    - Numbers: Zero, One, Two, Three, etc.
+    
+    Example: 'AB12CDE' → 'Alpha Bravo One Two Charlie Delta Echo'
+    """
+    _PHONETIC_ALPHABET = {
+        'A': 'Alpha', 'B': 'Bravo', 'C': 'Charlie', 'D': 'Delta',
+        'E': 'Echo', 'F': 'Foxtrot', 'G': 'Golf', 'H': 'Hotel',
+        'I': 'India', 'J': 'Juliet', 'K': 'Kilo', 'L': 'Lima',
+        'M': 'Mike', 'N': 'November', 'O': 'Oscar', 'P': 'Papa',
+        'Q': 'Quebec', 'R': 'Romeo', 'S': 'Sierra', 'T': 'Tango',
+        'U': 'Uniform', 'V': 'Victor', 'W': 'Whiskey', 'X': 'X-ray',
+        'Y': 'Yankee', 'Z': 'Zulu',
+        '0': 'Zero', '1': 'One', '2': 'Two', '3': 'Three',
+        '4': 'Four', '5': 'Five', '6': 'Six', '7': 'Seven',
+        '8': 'Eight', '9': 'Nine'
+    }
+    return ' '.join(_PHONETIC_ALPHABET.get(c, c) for c in vrm.upper())
+
+
 _CAR_MAKE_MODEL_WORDS = {
     "land", "rover", "range", "landrover", "rangerover",
     "bmw", "audi", "ford", "vauxhall", "volkswagen", "vw", "toyota",
@@ -736,7 +823,8 @@ _CAR_MAKE_MODEL_WORDS = {
     "hyundai", "kia", "mazda", "subaru", "suzuki", "mitsubishi",
     "volvo", "jaguar", "bentley", "porsche", "mini", "jeep",
     "lexus", "infiniti", "tesla", "mg", "dacia", "cupra",
-    "evoque", "sportage", "corsa", "fiesta", "focus", "golf",
+    "evoque", "sportage", "corsa", "fiesta", "focus",
+    # Note: "golf" removed - it's NATO phonetic for "G" and causes VRN parsing issues
     "polo", "civic", "yaris", "qashqai", "tucson", "tiguan",
 }
 
@@ -760,6 +848,7 @@ def normalize_vehicle_registration(reg: str) -> str:
         tokens_raw = [blob]
     tokens = re.split(r"[\s,;:/\\-_]+", " ".join(tokens_raw))
     converted: list[str] = []
+    logger.info(f"[VRN_DEBUG] Tokens: {tokens}")
     for token in tokens:
         if not token:
             continue
@@ -767,19 +856,29 @@ def normalize_vehicle_registration(reg: str) -> str:
         if not cleaned:
             continue
         lower = cleaned.lower()
+        logger.info(f"[VRN_DEBUG] Processing token '{token}' → cleaned '{cleaned}' → lower '{lower}'")
         # Skip standalone make/model words (e.g. "Land" "Rover" as separate tokens)
         if lower in _CAR_MAKE_MODEL_WORDS and len(lower) > 2:
+            logger.info(f"[VRN_DEBUG] Skipping car make/model word: '{lower}'")
             continue
         if lower in _NATO_LETTER_MAP:
-            converted.append(_NATO_LETTER_MAP[lower])
+            result_char = _NATO_LETTER_MAP[lower]
+            logger.info(f"[VRN_DEBUG] NATO letter '{lower}' → '{result_char}'")
+            converted.append(result_char)
             continue
         if lower in _DIGIT_WORD_MAP:
-            converted.append(_DIGIT_WORD_MAP[lower])
+            result_char = _DIGIT_WORD_MAP[lower]
+            logger.info(f"[VRN_DEBUG] Digit word '{lower}' → '{result_char}'")
+            converted.append(result_char)
             continue
         if len(cleaned) == 1:
+            logger.info(f"[VRN_DEBUG] Single char '{cleaned}' → '{cleaned.upper()}'")
             converted.append(cleaned.upper())
             continue
-        converted.extend(_scan_nato_blob(cleaned))
+        scanned = _scan_nato_blob(cleaned)
+        logger.info(f"[VRN_DEBUG] _scan_nato_blob('{cleaned}') → {scanned}")
+        converted.extend(scanned)
+    logger.info(f"[VRN_DEBUG] Final converted: {converted}")
     if converted:
         return "".join(converted)
     return "".join(c.upper() for c in reg if c.isalnum())
@@ -1073,6 +1172,11 @@ class CallState:
     booking_submit_pending: bool = False  # True when submit_booking failed and needs retry
     recent_transcripts: list[str] = field(default_factory=list)
     conversation_items: list[dict] = field(default_factory=list)  # full agent+customer turns for GPT summary
+    
+    # Inactivity tracking
+    last_user_speech_time: float = 0.0  # timestamp of last user speech
+    inactivity_warning_given: bool = False  # True after asking "are you still there?"
+    inactivity_final_warning_time: float = 0.0  # timestamp when final warning was given
 
 
 # ============================================================
@@ -1522,6 +1626,7 @@ Rules:
 - "morning" = before 12:00, "afternoon" = 12:00-17:00
 - "tomorrow" = the day after today
 - "next week" = Monday of the following week onward
+- Can book up to 4-6 weeks in advance - all dates in the available slots list are valid
 - "ASAP" / "first available" / "earliest" = the earliest slot in the list
 - "the first one" / "the morning one" = match to the first/morning slot from those offered
 - If the caller picks a specific slot, match it exactly
@@ -1931,11 +2036,11 @@ class SupervisorAgent(Agent):
                         room_name=self._room_name, error_type="api_error",
                         extra={"reg": normalized},
                     ))
-                    if self._state.vrn_attempts >= 3:
+                    if self._state.vrn_attempts >= 2:
                         self._state.step = Step.MESSAGE_ONLY
                         return (
-                            "Vehicle not found after 3 attempts. Say: 'I'm having trouble finding that one. "
-                            "Let me take your details and get the team to ring you back.'\n"
+                            "Vehicle not found after 2 attempts. Say: 'I'm having trouble finding that registration. "
+                            "Let me take your details and the team will call you back to help with that.'\n"
                             "Then collect message, phone, callback time and call take_message."
                         )
                     
@@ -1966,9 +2071,9 @@ class SupervisorAgent(Agent):
                 session_id = result.get("session_id", "")
 
                 if not make and not model:
-                    if self._state.vrn_attempts >= 3:
+                    if self._state.vrn_attempts >= 2:
                         self._state.step = Step.MESSAGE_ONLY
-                        return "Vehicle data empty after 3 attempts. Take their details for a callback."
+                        return "Vehicle data empty after 2 attempts. Take their details for a callback."
                     return f"Registration '{normalized}' returned but no vehicle details. Ask them to spell it again."
 
                 self._state.session_id = session_id
@@ -1999,16 +2104,24 @@ class SupervisorAgent(Agent):
                 logger.info(f"[LOOKUP] Caller rejected previous readback '{self._state.vrn_pending}', "
                            f"provided new input '{reg}' → '{normalized}' (rejection #{self._state.vrn_readback_rejections})")
 
-            # Accumulate partial VRN segments
+            # Accumulate partial VRN segments - ALWAYS check for pending partials
+            # This handles cases where caller says reg in chunks: "Gulf X-ray" ... "Two two BWW"
             if self._state.vrn_partial:
                 partial = self._state.vrn_partial
-                if normalized.startswith(partial) or partial in normalized:
+                # Check if new input already contains the partial (avoid duplication)
+                if normalized.startswith(partial):
                     combined = normalized
                     logger.info(f"[LOOKUP] Partial '{partial}' already in '{normalized}' — using '{combined}'")
+                elif partial in normalized:
+                    combined = normalized
+                    logger.info(f"[LOOKUP] Partial '{partial}' contained in '{normalized}' — using '{combined}'")
                 else:
+                    # Combine: previous partial + new input
                     combined = partial + normalized
                     logger.info(f"[LOOKUP] Combining partial '{partial}' + '{normalized}' = '{combined}'")
                 normalized = combined
+                # Clear partial after combining (will be reset below if still incomplete)
+                self._state.vrn_partial = ""
 
             # VRN validation
             if len(normalized) < 4:
@@ -2039,7 +2152,9 @@ class SupervisorAgent(Agent):
                         f"IGNORED: '{normalized}' is the caller's name, not a registration — this is audio echo. "
                         "Ask for the registration: 'Could I grab your registration?'"
                     )
-                if len(normalized) <= 3:
+                # Store as partial if it's a reasonable length (1-4 chars, no digits yet)
+                # This handles cases like "GX" or "ABC" where caller is spelling letter-by-letter
+                if len(normalized) <= 4:
                     self._state.vrn_partial = normalized
                     logger.info(f"[LOOKUP] Partial VRN (no digits yet): '{normalized}' — waiting for more")
                     return (
@@ -2061,30 +2176,21 @@ class SupervisorAgent(Agent):
                 logger.warning(f"[LOOKUP] VRN too long ({len(normalized)} chars): '{normalized}' — truncating to 7")
                 normalized = normalized[:7]
 
-            # Store pending VRN for readback confirmation
+            # Store for confirmation step
             self._state.vrn_pending = normalized
             
-            spaced = "  ".join(normalized)  # "V  2  0  A  L  A" — TTS reads each char
-            logger.info(f"[LOOKUP] Parsed '{reg}' → '{normalized}' — awaiting caller confirmation (rejection count: {self._state.vrn_readback_rejections})")
+            # Generate phonetic readback
+            phonetics = vrm_to_phonetics(normalized)
             
-            # If this is a retry after caller rejected previous readback, ask for phonetic spelling
-            if self._state.vrn_readback_rejections >= 1:
-                logger.info(f"[LOOKUP] Requesting phonetic spelling after {self._state.vrn_readback_rejections} rejection(s)")
-                return (
-                    f"Parsed registration: {normalized}.\n"
-                    f"Say naturally: 'I'm hearing {normalized}, but let me make sure I've got this right. "
-                    "Could you spell the full registration back to me using phonetics? "
-                    "For example, Alpha for A, Bravo for B, and so on.'\n"
-                    "Wait for them to spell it phonetically, then call lookup_vehicle again with confirmed=false."
-                )
-
-            # First readback - just read it back normally
+            logger.info(f"[LOOKUP] Parsed '{reg}' → '{normalized}' → phonetics: {phonetics}")
+            
             return (
-                f"Parsed registration: {normalized}.\n"
-                f"Read back to the caller: '{spaced}. Is that right?'\n"
-                f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true). GENERATE ZERO SPEECH.\n"
-                f"If NO → Say naturally: 'Let me make sure I've got this right. Could you spell the full registration back to me using phonetics? For example, Alpha for A, Bravo for B.' "
-                "Then WAIT for them to spell it, and call lookup_vehicle with their phonetic spelling."
+                f"Parsed registration: {normalized}\n"
+                f"Phonetic readback: {phonetics}\n\n"
+                f"Say to caller: '{phonetics}. Is that right?'\n\n"
+                f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true)\n"
+                f"If NO → Say: 'Let me get that again. Could you spell it out letter by letter?' "
+                f"Then call lookup_vehicle with their new input."
             )
 
         @function_tool
@@ -2710,19 +2816,40 @@ class SupervisorAgent(Agent):
                     logger.info(f"[SELECT_TIMESLOT] Regex fallback: {match}")
 
             if match is None:
-                # No match — list available slots
+                # No match — check if they requested a specific date beyond available range
                 slots = self._state.timeslots_available
                 if slots:
-                    # Group slots by date to show range more clearly
-                    dates_seen = {}
-                    for s in slots:
-                        d = s['date']
-                        if d not in dates_seen:
-                            dates_seen[d] = s['time']
-                    # Show first 9 slots (covers ~3 days)
-                    slot_lines = [f"- {s['date']} at {s['time']}" for s in slots[:9]]
+                    # Check if caller mentioned a specific date beyond what's available
+                    pref_lower = caller_preference.lower()
                     first_date = slots[0]['date'] if slots else '?'
                     last_date = slots[-1]['date'] if slots else '?'
+                    
+                    # Common month names and date patterns
+                    future_months = ['march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+                    specific_date_requested = False
+                    
+                    # Check if they mentioned a specific month or date number beyond current availability
+                    if any(month in pref_lower for month in future_months):
+                        specific_date_requested = True
+                    elif re.search(r'\b(1[5-9]|2[0-9]|3[0-1])(st|nd|rd|th)?\b', pref_lower):  # dates 15-31
+                        specific_date_requested = True
+                    elif re.search(r'\b\d{1,2}[/-]\d{1,2}\b', pref_lower):  # date formats like 15/3 or 3-15
+                        specific_date_requested = True
+                    
+                    if specific_date_requested:
+                        # They asked for a specific date not in our range
+                        slot_lines = [f"- {s['date']} at {s['time']}" for s in slots[:6]]
+                        return (
+                            f"SPECIFIC DATE UNAVAILABLE:\n"
+                            f"The caller asked for '{caller_preference}' but the system only shows slots from {first_date} to {last_date}.\n\n"
+                            "Say: \"I don't have [their requested date] showing in the system right now. The latest I can see is [last_date]. "
+                            "Would you like one of these earlier slots or I can take your details and the team will call you back to arrange [their date]?\"\n\n"
+                            "Here are some options if they want earlier:\n" + "\n".join(slot_lines) + "\n\n"
+                            "If they want the later date, say you'll take a message and call leave_message with their request."
+                        )
+                    
+                    # Generic no match - show available slots
+                    slot_lines = [f"- {s['date']} at {s['time']}" for s in slots[:9]]
                     return (
                         f"Couldn't match '{caller_preference}' to an available slot.\n"
                         f"Slots available from {first_date} to {last_date}:\n"
@@ -3203,7 +3330,8 @@ FIRST STEP: save_caller_name. ALL tools LOCKED until it succeeds. Do NOT halluci
 
 INTENT DETECTION:
 - "Can I speak to [name]" / "Is [name] available" / "Can I talk to a human" → intent='transfer', requested_person='[name]'
-- "I dropped my car off" / "Checking on my vehicle" → intent='vehicle_update'
+- "I dropped my car off" / "Checking on my vehicle" / "What's the status" / "Is it ready" → intent='vehicle_update' (vehicle ALREADY AT GARAGE)
+- "Book my car in" / "Make an appointment" / "Need a service" / "Get my car looked at" → intent='booking' (NEW appointment)
 - "Just have a question" / "Need to reschedule" / "Want to cancel" → intent='message'
 - "How much is a..." / "What's the price for..." → intent='quote'
 - Default → intent='booking'
@@ -3227,7 +3355,7 @@ FLOW:
    - Ask questions ONE AT A TIME. Wait for answer. Call record_diagnostic_info to save each response.
    - DO NOT interrupt. Let them speak fully.
    - After completing the questionnaire, recommend a Diagnostic Check.
-4. TIMESLOT: Offer 2-3 early slots naturally. Call select_timeslot(caller_preference) with the caller's words — tool handles date parsing.
+4. TIMESLOT: Offer 2-3 slots naturally (can offer dates up to 4-6 weeks ahead). Call select_timeslot(caller_preference) with the caller's words — tool handles date parsing.
 5. CONTACT (one at a time): surname → phone (read back last 3 digits) → email → postcode (call validate_address) → house number. Then submit_booking.
 6. CLOSE: Confirm booking, "Cheers, have a lovely day!"
 
@@ -3337,7 +3465,9 @@ async def entrypoint(ctx: JobContext):
                 similarity_boost=ELEVEN_SIMILARITY,
                 style=ELEVEN_STYLE,
             ),
+            apply_text_normalization="on",
         ),
+        preemptive_generation=True,  # Enable preemptive generation for lower latency
     )
 
     # Give the agent a reference to the session for session.say()
@@ -3357,6 +3487,10 @@ async def entrypoint(ctx: JobContext):
         text = ev.transcript.strip()
         if not text:
             return
+        
+        # Update last user speech time for inactivity tracking
+        state.last_user_speech_time = time.time()
+        state.inactivity_warning_given = False  # Reset warning flag when user speaks
 
         # Deduplicate overlapping Deepgram finals.
         prev = _last_final.lower().rstrip(".")
@@ -3408,14 +3542,193 @@ async def entrypoint(ctx: JobContext):
     await session.start(
         room=ctx.room,
         agent=supervisor,
+        # Background voice cancellation optimized for telephony applications
+        room_options=room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(
+                noise_cancellation=noise_cancellation.BVCTelephony(),
+            ),
+        ),
     )
     logger.info("[ENTRYPOINT] Session started — supervisor system ready")
+    
+    # Initialize inactivity tracking
+    state.last_user_speech_time = time.time()
+    
+    # Helper function to log call to portal (shared by inactivity timeout and normal disconnect)
+    async def log_current_call(participant_identity: str = "unknown"):
+        """Log the current call to the portal."""
+        try:
+            call_duration = int(time.time() - state.call_start_time) if state.call_start_time else 0
+
+            # ALWAYS extract phone from SIP participant identity (caller ID) as it's the most reliable
+            # Don't trust state.contact_phone as it may be misheard/partial from customer speech
+            caller_phone = ""
+            if participant_identity.startswith("sip_"):
+                caller_phone = participant_identity[4:]  # strip 'sip_' prefix
+                logger.info(f"[PORTAL] Using SIP caller ID: {caller_phone}")
+            elif room_name and "_+" in room_name:
+                # Fallback: extract from room name format: garage-{id}_{phone}_{suffix}
+                parts = room_name.split("_")
+                if len(parts) >= 2:
+                    caller_phone = parts[1]  # e.g., "+447716362078"
+                    logger.info(f"[PORTAL] Extracted phone from room name: {caller_phone}")
+            
+            # Final fallback to state.contact_phone only if we couldn't get SIP caller ID
+            if not caller_phone:
+                caller_phone = state.contact_phone or ""
+                logger.info(f"[PORTAL] Using state.contact_phone as fallback: {caller_phone}")
+
+            # Build transcript: prefer conversation_items
+            if state.conversation_items:
+                transcript = state.conversation_items
+                if not any(e.get("speaker") == "agent" for e in transcript):
+                    transcript = [{"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0}] + transcript
+                logger.info(f"[PORTAL] Using {len(transcript)} conversation_items for transcript")
+            else:
+                # Fallback: synthetic transcript
+                logger.info("[PORTAL] No conversation_items — building synthetic transcript")
+                transcript = [{"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0}]
+                for i, text in enumerate(state.recent_transcripts or [], start=1):
+                    transcript.append({"speaker": "customer", "text": text, "timestamp": i * 5})
+                offset = len(transcript) * 5
+                if state.vrn:
+                    transcript.append({"speaker": "agent", "text": f"I have your vehicle registration as {state.vrn}.", "timestamp": offset})
+                    offset += 5
+                if state.booking_date:
+                    transcript.append({"speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
+
+            # Generate summary
+            summary = await generate_call_summary(transcript, state)
+
+            # Determine call type
+            call_type = "other"
+            if state.intent == "booking" and state.booking_date:
+                call_type = "confirmed booking"
+            elif state.intent == "booking":
+                call_type = "general enquiry"
+            elif state.intent == "quote":
+                call_type = "general enquiry"
+            elif state.intent == "message":
+                call_type = "general enquiry"
+            elif state.intent == "vehicle_update":
+                call_type = "update"
+            elif state.intent == "transfer":
+                call_type = "human request"
+
+            # Build booking details
+            booking_details = ""
+            if state.booking_date:
+                booking_parts = [f"Date: {state.booking_date}"]
+                if state.booking_time:
+                    booking_parts.append(f"Time: {state.booking_time}")
+                if state.service_selected_name:
+                    booking_parts.append(f"Service: {state.service_selected_name}")
+                if state.service_price:
+                    booking_parts.append(f"Price: {state.service_price}")
+                booking_details = ", ".join(booking_parts)
+
+            # Build metrics
+            metrics = {
+                "duration_seconds": call_duration,
+                "intent": state.intent or "unknown",
+                "vrn_captured": bool(state.vrn),
+                "booking_confirmed": state.step == Step.CONFIRMED,
+            }
+
+            logger.info(f"[PORTAL] Logging call: duration={call_duration}s, transcript={len(transcript)} entries, summary={summary[:80]}")
+
+            # Log to portal
+            await log_call_to_portal(
+                garage_id=garage_id,
+                room_name=room_name,
+                duration_seconds=call_duration,
+                transcript=transcript,
+                summary=summary,
+                customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip() or "Unknown",
+                customer_phone=caller_phone,
+                registration_number=state.vrn,
+                confirmed_booking=state.step == Step.CONFIRMED,
+                booking_details=booking_details,
+                call_type=call_type,
+                metrics=metrics,
+            )
+        except Exception as e:
+            logger.error(f"[PORTAL] Failed to log call: {e}")
+
+    # Helper function to hangup the call properly
+    async def hangup_call():
+        """Hangup the call by deleting the room, which ends the call for all participants."""
+        try:
+            lk_client = lk_api.LiveKitAPI(
+                url=os.getenv("LIVEKIT_URL", ""),
+                api_key=os.getenv("LIVEKIT_API_KEY", ""),
+                api_secret=os.getenv("LIVEKIT_API_SECRET", ""),
+            )
+            await lk_client.room.delete_room(
+                lk_api.DeleteRoomRequest(room=ctx.room.name)
+            )
+            await lk_client.aclose()
+            logger.info(f"[HANGUP] Successfully deleted room {ctx.room.name}")
+        except Exception as e:
+            logger.error(f"[HANGUP] Failed to delete room: {e}")
+    
+    # ── Inactivity monitor: prevent abandoned calls ───────────
+    # Monitors user silence and prompts after 10s, disconnects after 20s more
+    _inactivity_task_active = True
+    
+    async def _monitor_inactivity():
+        """Background task to monitor user inactivity and prevent abandoned calls."""
+        await asyncio.sleep(5)  # Wait 5 seconds before starting monitoring
+        
+        while _inactivity_task_active:
+            try:
+                await asyncio.sleep(2)  # Check every 2 seconds
+                
+                if not state.last_user_speech_time:
+                    continue
+                
+                time_since_last_speech = time.time() - state.last_user_speech_time
+                
+                # First warning: 25 seconds of silence
+                if time_since_last_speech >= 25 and not state.inactivity_warning_given:
+                    state.inactivity_warning_given = True
+                    state.inactivity_final_warning_time = time.time()
+                    logger.warning(f"[INACTIVITY] 25s silence detected, prompting user")
+                    await session.say("Hello? Are you still there?", allow_interruptions=True)
+                
+                # Final action: 20 more seconds after warning (45s total)
+                elif state.inactivity_warning_given and state.inactivity_final_warning_time:
+                    time_since_warning = time.time() - state.inactivity_final_warning_time
+                    if time_since_warning >= 20:
+                        logger.warning(f"[INACTIVITY] No response after 20s, ending call")
+                        await session.say("I'm sorry, I haven't heard anything. I'll let you go now. Goodbye!", allow_interruptions=False)
+                        
+                        # Wait for the goodbye message to finish playing
+                        await ctx.wait_for_playout()
+                        
+                        # Log call to portal BEFORE deleting room to ensure logging completes
+                        logger.info("[INACTIVITY] Logging call before hangup")
+                        await log_current_call("inactivity_timeout")
+                        
+                        # Hangup the call by deleting the room
+                        await hangup_call()
+                        break
+                        
+            except Exception as e:
+                logger.error(f"[INACTIVITY] Monitor error: {e}")
+                await asyncio.sleep(5)
+    
+    # Start inactivity monitor as background task
+    inactivity_task = asyncio.create_task(_monitor_inactivity())
+    logger.info("[INACTIVITY] Monitor started")
 
     # ── Session isolation: shutdown when caller hangs up ───────
     # Prevents stale conversation context (chat history, turn detector state)
     # from bleeding into the next caller's session in the same room.
     @ctx.room.on("participant_disconnected")
     def _on_caller_left(participant):
+        nonlocal _inactivity_task_active
+        _inactivity_task_active = False  # Stop inactivity monitoring
         logger.info(
             f"[LIFECYCLE] Caller disconnected: {participant.identity}. "
             "Logging call and shutting down job for clean session isolation."
@@ -3423,108 +3736,7 @@ async def entrypoint(ctx: JobContext):
 
         async def _shutdown_and_log():
             # Log call to portal before shutdown
-            try:
-                call_duration = int(time.time() - state.call_start_time) if state.call_start_time else 0
-
-                # Extract phone from SIP participant attributes if not already set
-                caller_phone = state.contact_phone or ""
-                if not caller_phone:
-                    try:
-                        attrs = participant.attributes or {}
-                        caller_phone = (
-                            attrs.get("sip.phoneNumber") or
-                            attrs.get("sip.from") or
-                            ""
-                        )
-                        # Fall back: parse identity like sip_+447841422472
-                        if not caller_phone and participant.identity.startswith("sip_"):
-                            caller_phone = participant.identity[4:]  # strip 'sip_'
-                        if caller_phone:
-                            state.contact_phone = caller_phone
-                            logger.info(f"[PORTAL] Extracted caller phone from attributes: {caller_phone}")
-                    except Exception:
-                        pass
-
-                # Build transcript: prefer conversation_items (full agent+customer turns captured in real-time)
-                # Fall back to synthetic transcript from recent_transcripts if no conversation_items
-                base_ts = state.call_start_time or time.time()
-                if state.conversation_items:
-                    transcript = state.conversation_items
-                    # Ensure at least one agent entry exists
-                    if not any(e.get("speaker") == "agent" for e in transcript):
-                        transcript = [{"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0}] + transcript
-                    logger.info(f"[PORTAL] Using {len(transcript)} conversation_items for transcript")
-                else:
-                    # Fallback: synthetic transcript from customer utterances
-                    logger.info("[PORTAL] No conversation_items — building synthetic transcript from recent_transcripts")
-                    transcript = []
-                    transcript.append({"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0})
-                    for i, text in enumerate(state.recent_transcripts or [], start=1):
-                        transcript.append({"speaker": "customer", "text": text, "timestamp": i * 5})
-                    # Append key structured events as agent turns
-                    offset = len(transcript) * 5
-                    if state.vrn:
-                        transcript.append({"speaker": "agent", "text": f"I have your vehicle registration as {state.vrn}.", "timestamp": offset})
-                        offset += 5
-                    if state.booking_date:
-                        transcript.append({"speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
-
-                # Generate GPT summary (falls back to state-based if LLM unavailable)
-                summary = await generate_call_summary(transcript, state)
-
-                # Determine call type
-                call_type = "unknown"
-                if state.intent == "booking" and state.booking_date:
-                    call_type = "booking"
-                elif state.intent == "quote":
-                    call_type = "quote"
-                elif state.intent == "message":
-                    call_type = "message"
-                elif state.intent == "vehicle_update":
-                    call_type = "vehicle_update"
-
-                # Build booking details if applicable
-                booking_details = ""
-                if state.booking_date:
-                    booking_parts = []
-                    booking_parts.append(f"Date: {state.booking_date}")
-                    if state.booking_time:
-                        booking_parts.append(f"Time: {state.booking_time}")
-                    if state.service_selected_name:
-                        booking_parts.append(f"Service: {state.service_selected_name}")
-                    if state.service_price:
-                        booking_parts.append(f"Price: {state.service_price}")
-                    booking_details = ", ".join(booking_parts)
-
-                # metrics must be a non-empty object
-                metrics = {
-                    "duration_seconds": call_duration,
-                    "intent": state.intent or "unknown",
-                    "vrn_captured": bool(state.vrn),
-                    "booking_confirmed": state.step == Step.CONFIRMED,
-                }
-
-                logger.info(f"[PORTAL] Extracted caller phone: {caller_phone}")
-                logger.info(f"[PORTAL] Transcript entries: {len(transcript)}, summary: {summary[:80]}")
-
-                # Log to portal
-                await log_call_to_portal(
-                    garage_id=garage_id,
-                    room_name=room_name,
-                    duration_seconds=call_duration,
-                    transcript=transcript,
-                    summary=summary,
-                    customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip() or "Unknown",
-                    customer_phone=caller_phone,
-                    registration_number=state.vrn,
-                    confirmed_booking=state.step == Step.CONFIRMED,
-                    booking_details=booking_details,
-                    call_type=call_type,
-                    metrics=metrics,
-                )
-            except Exception as e:
-                logger.error(f"[PORTAL] Failed to log call: {e}")
-
+            await log_current_call(participant.identity)
             ctx.shutdown("caller_disconnected")
 
         asyncio.create_task(_shutdown_and_log())

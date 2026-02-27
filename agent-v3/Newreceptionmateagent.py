@@ -1992,7 +1992,7 @@ class SupervisorAgent(Agent):
             if service_hint:
                 self._state.service_hint = service_hint.strip()
 
-            # ASSIST MODE: If SMS booking links are enabled, offer that option instead of taking a message
+            # ASSIST MODE: If SMS booking links are enabled, offer that option (available 24/7)
             if self._assist_mode and AGENT_CONFIGURATION.get("ENABLE_SMS_BOOKING_LINK", False):
                 self._state.step = Step.MESSAGE_ONLY
                 return (
@@ -2000,26 +2000,16 @@ class SupervisorAgent(Agent):
                     f"Address the caller as '{first}' (FIRST name only).\n"
                     f"Say naturally: 'I can send you a link to book online directly, or I can take a message and get the team to give you a ring back. Which would you prefer?'\n"
                     f"If they want the SMS link → call send_sms_booking_link.\n"
-                    f"If they want a message → collect message details with take_message."
+                    f"If they want a message → ask 'What would you like me to pass on?' then collect message details with take_message."
                 )
             
             # ASSIST MODE: No SMS booking links configured, take message only
             if self._assist_mode:
                 self._state.step = Step.MESSAGE_ONLY
-                # Check if we're outside business hours for appropriate messaging
-                if not is_within_business_hours():
-                    return (
-                        f"Name saved: {first} {last}. Intent: booking request in ASSIST mode (outside hours).\n"
-                        f"Address the caller as '{first}' (FIRST name only).\n"
-                        f"Say naturally: 'The team aren't available outside of our opening hours to help with bookings, "
-                        f"but I can take a message and they'll give you a ring back when we're open. What would you like me to pass on?'\n"
-                        f"Then collect message details with take_message."
-                    )
                 return (
-                    f"Name saved: {first} {last}. Intent: booking request in ASSIST mode (during hours).\n"
+                    f"Name saved: {first} {last}. Intent: booking request in ASSIST mode.\n"
                     f"Address the caller as '{first}' (FIRST name only).\n"
-                    f"Say naturally: 'The team are busy helping other customers at the moment, "
-                    f"but I can take a message and they'll give you a ring back as soon as they're free. What would you like me to pass on?'\n"
+                    f"Say naturally: 'What would you like me to pass on to the team?'\n"
                     f"Then collect message details with take_message."
                 )
 
@@ -3312,6 +3302,69 @@ class SupervisorAgent(Agent):
             )
 
         @function_tool
+        async def send_sms_booking_link(context: RunContext, mobile_number: str) -> str:
+            """Send an SMS with the online booking link to the customer's mobile.
+            Only available in ASSIST mode when ENABLE_SMS_BOOKING_LINK is configured.
+            mobile_number: Customer's mobile phone number (can be in any format)."""
+            
+            if not self._assist_mode:
+                return "ERROR: SMS booking links are only available in ASSIST mode."
+            
+            if not AGENT_CONFIGURATION.get("ENABLE_SMS_BOOKING_LINK", False):
+                return "ERROR: SMS booking links are not configured for this garage."
+            
+            # Normalize phone number (remove spaces, dashes, etc.)
+            normalized_phone = re.sub(r'[^\d+]', '', mobile_number)
+            if not normalized_phone:
+                return "ERROR: Invalid phone number provided."
+            
+            # Build the booking URL
+            garage_id = PORTAL_GARAGE_ID
+            match = re.match(r'^garage-([a-f0-9-]+)', self._room_name)
+            if match:
+                garage_id = match.group(1)
+            
+            booking_url = f"https://portal.receptionmate.co.uk/book/{garage_id}"
+            
+            # Log the SMS send via backend API
+            try:
+                sms_api_url = f"https://portal.receptionmate.co.uk/api/sms/log"
+                payload = {
+                    "garageId": garage_id,
+                    "phoneNumber": normalized_phone,
+                    "status": "sent"
+                }
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-API-Key": PORTAL_API_KEY
+                }
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(sms_api_url, json=payload, headers=headers) as response:
+                        if response.status != 200:
+                            logger.error(f"[SMS] Failed to log SMS send: {response.status}")
+                        else:
+                            logger.info(f"[SMS] Logged SMS booking link send to {normalized_phone}")
+                
+                # Mark call as done
+                self._state.step = Step.DONE
+                
+                first = self._state.customer_name_first or "there"
+                return (
+                    f"SMS booking link sent to {normalized_phone}.\n"
+                    f"Say: 'Perfect, {first}. I've sent you the link to book online — it should come through in just a moment. "
+                    f"If you have any questions, feel free to give us a ring back.'\n"
+                    "Close: 'Cheers, have a lovely day!'"
+                )
+                
+            except Exception as e:
+                logger.error(f"[SMS] Error sending booking link: {e}")
+                return (
+                    f"ERROR sending SMS: {str(e)}\n"
+                    "Apologize and offer to take a message instead."
+                )
+
+        @function_tool
         async def take_message(
             context: RunContext,
             message: str,
@@ -3376,7 +3429,7 @@ class SupervisorAgent(Agent):
                     return (
                         f"Message saved from {first} {last}.\n"
                         "Say: 'Thanks, {first}. I've got all your details down — your registration {vrn_display} and the work you need done. "
-                        "The team aren't available outside of our opening hours, but they'll give you a ring back when we're open to arrange that for you.'\n"
+                        "The team aren't available outside of our opening hours at the moment, but I'll pass this on and they'll give you a ring back when we're open to arrange that for you.'\n"
                         "Close: 'Cheers, have a lovely day!'"
                     ).format(
                         first=first,
@@ -3386,7 +3439,7 @@ class SupervisorAgent(Agent):
                     return (
                         f"Message saved from {first} {last}.\n"
                         "Say: 'Thanks, {first}. I've got all your details down — your registration {vrn_display} and the work you need done. "
-                        "The team are busy helping other customers at the moment, but they'll give you a ring back shortly to arrange that for you.'\n"
+                        "The team are busy helping other customers at the moment, but I'll pass this on and they'll give you a ring back as soon as they're free to arrange that for you.'\n"
                         "Close: 'Cheers, have a lovely day!'"
                     ).format(
                         first=first,

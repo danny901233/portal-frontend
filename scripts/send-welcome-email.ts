@@ -1,5 +1,10 @@
 import { PrismaClient } from '../backend/node_modules/.prisma/client/index.js';
 import { sendWelcomeEmail } from '../backend/src/utils/email.js';
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load environment variables from backend/.env
+config({ path: resolve(process.cwd(), 'backend', '.env') });
 
 const prisma = new PrismaClient();
 

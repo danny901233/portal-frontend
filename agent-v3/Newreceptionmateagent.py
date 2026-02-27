@@ -1164,6 +1164,10 @@ class CallState:
 
     # Service
     services_available: list[dict] = field(default_factory=list)
+    services_selected_ids: list[str] = field(default_factory=list)  # Support multiple services
+    services_selected_names: list[str] = field(default_factory=list)
+    services_selected_prices: list[str] = field(default_factory=list)
+    # Legacy single service fields (kept for backward compatibility checks)
     service_selected_id: str = ""
     service_selected_name: str = ""
     service_price: str = ""
@@ -2483,7 +2487,10 @@ class SupervisorAgent(Agent):
 
         @function_tool
         async def select_service(context: RunContext, service_name: str) -> str:
-            """Select a service by name. Fuzzy matching is applied automatically."""
+            """Select a service by name. Fuzzy matching is applied automatically.
+            If customer requests multiple services (e.g., 'major service and brake pads'),
+            call this function multiple times - once for each service.
+            Example: select_service('major service'), then select_service('brake pads')."""
 
             if self._state.step != Step.NEED_SERVICE:
                 if self._state.step == Step.GREETING:
@@ -2616,11 +2623,21 @@ class SupervisorAgent(Agent):
                             )
                     
                     try:
-                        await self._gh.set_service(self._state.session_id, svc_id)
+                        # Add to services list
+                        if svc_id not in self._state.services_selected_ids:
+                            self._state.services_selected_ids.append(svc_id)
+                            self._state.services_selected_names.append(svc_name)
+                            self._state.services_selected_prices.append(_format_price(svc) or "")
+                        
+                        # Update legacy fields
                         self._state.service_selected_id = svc_id
                         self._state.service_selected_name = svc_name
                         self._state.service_price = _format_price(svc)
-                        self._state.other_service_description = service_name  # store original description for notes
+                        self._state.other_service_description = service_name
+                        
+                        # Set all services via API
+                        all_service_ids = ",".join(self._state.services_selected_ids)
+                        await self._gh.set_service(self._state.session_id, all_service_ids)
                         logger.info(f"[SELECT_SERVICE] Booked under '{svc_name}' for: {service_name}")
                         
                         # Prefetch timeslots
@@ -2645,15 +2662,19 @@ class SupervisorAgent(Agent):
                             )
                         
                         slot_summary = ""
+                        first_slot = ""
                         if timeslots:
                             slot_lines = [f"- {s['date']} at {s['time']}" for s in timeslots[:9]]
                             extra = f" (+{len(timeslots)-9} more available)" if len(timeslots) > 9 else ""
                             slot_summary = f"\nAvailable timeslots (showing {min(9, len(timeslots))} of {len(timeslots)}{extra}):\n" + "\n".join(slot_lines)
+                            first_slot = f"{timeslots[0]['date']} at {timeslots[0]['time']}"
                         
+                        services_summary = ", ".join(self._state.services_selected_names)
                         return (
-                            f"Service selected: {service_name}.{slot_summary}\n\n"
-                            "Say naturally: 'I can book that in for you. When would suit you?'\n"
-                            "Offer 2-3 early timeslots from the list above. If the caller asks for a date not listed, call select_timeslot with their preference — more slots exist beyond the ones shown."
+                            f"Services selected: {services_summary}.\n\n"
+                            f"Ask: 'Is there anything else you'd like done while it's in? Or shall I find you a time?'\n\n"
+                            f"If they want ANOTHER service → call select_service again.\n"
+                            f"If they're done → say 'The next available slot is {first_slot}, or do you have a date in mind?' then wait for their preference.\n"
                         )
                     except Exception as e:
                         logger.error(f"[SELECT_SERVICE] Failed to set Other service: {e}")
@@ -2707,10 +2728,20 @@ class SupervisorAgent(Agent):
                     
                     # Call set_service directly and continue
                     try:
-                        await self._gh.set_service(self._state.session_id, svc_id)
+                        # Add to services list
+                        if svc_id not in self._state.services_selected_ids:
+                            self._state.services_selected_ids.append(svc_id)
+                            self._state.services_selected_names.append(svc_name)
+                            self._state.services_selected_prices.append(_format_price(other_service) or "")
+                        
+                        # Update legacy fields
                         self._state.service_selected_id = svc_id
                         self._state.service_selected_name = svc_name
                         self._state.service_price = _format_price(other_service)
+                        
+                        # Set all services via API
+                        all_service_ids = ",".join(self._state.services_selected_ids)
+                        await self._gh.set_service(self._state.session_id, all_service_ids)
                         logger.info(f"[SELECT_SERVICE] Booked under '{svc_name}' for: {service_name}")
                         
                         # Prefetch timeslots
@@ -2742,10 +2773,12 @@ class SupervisorAgent(Agent):
                             slot_summary = f"\nAvailable timeslots (showing {min(9, len(timeslots))} of {len(timeslots)}{extra}):\n" + "\n".join(slot_lines)
                             first_slot = f"{timeslots[0]['date']} at {timeslots[0]['time']}"
                         
+                        services_summary = ", ".join(self._state.services_selected_names)
                         return (
-                            f"Service selected: {service_name}.{slot_summary}\n\n"
-                            f"Say naturally: 'The next available slot is {first_slot}, or do you have a date in mind?'\n"
-                            "Wait for their preference, then call select_timeslot. If the caller asks for a later date, call select_timeslot with their preference — more slots exist beyond those shown."
+                            f"Services selected: {services_summary}.\n\n"
+                            f"Ask: 'Is there anything else you'd like done while it's in? Or shall I find you a time?'\n\n"
+                            f"If they want ANOTHER service → call select_service again.\n"
+                            f"If they're done → say 'The next available slot is {first_slot}, or do you have a date in mind?' then wait for their preference.\n"
                         )
                     except Exception as e:
                         logger.error(f"[SELECT_SERVICE] Failed to set Other service: {e}")
@@ -2795,21 +2828,34 @@ class SupervisorAgent(Agent):
                         "Wait for their answer, then call collect_tyre_info(tyre_quality='their answer')."
                     )
 
-            # Set service via API
-            try:
-                await self._gh.set_service(self._state.session_id, svc_id)
-            except Exception as e:
-                logger.error(f"[SELECT_SERVICE] API failed: {e}")
-                return f"Failed to set service: {e}. Try again."
-
+            # Add service to the list (don't replace - support multiple services)
+            if svc_id not in self._state.services_selected_ids:
+                self._state.services_selected_ids.append(svc_id)
+                self._state.services_selected_names.append(svc_name)
+                self._state.services_selected_prices.append(price or "")
+            
+            # Update legacy single service fields for backward compatibility
             self._state.service_selected_id = svc_id
             self._state.service_selected_name = svc_name
             self._state.service_price = price
+            
             # If booked under "Other" category, store the original hint for GarageHive notes
             if 'other' in svc_name.lower() or 'general' in svc_name.lower():
                 if self._state.service_hint and not self._state.other_service_description:
                     self._state.other_service_description = self._state.service_hint
-            logger.info(f"[SELECT_SERVICE] Set: {svc_name} ({price or 'no price'})")
+            
+            # Set service via API with all selected services
+            all_service_ids = ",".join(self._state.services_selected_ids)
+            try:
+                await self._gh.set_service(self._state.session_id, all_service_ids)
+                logger.info(f"[SELECT_SERVICE] Set services: {', '.join(self._state.services_selected_names)}")
+            except Exception as e:
+                logger.error(f"[SELECT_SERVICE] API failed: {e}")
+                # Remove the service we just added since API failed
+                self._state.services_selected_ids.pop()
+                self._state.services_selected_names.pop()
+                self._state.services_selected_prices.pop()
+                return f"Failed to set service: {e}. Try again."
 
             # Prefetch timeslots
             timeslots: list[dict] = []
@@ -2834,20 +2880,30 @@ class SupervisorAgent(Agent):
             # Quote flow
             if self._state.intent == "quote":
                 price_str = price if price else "available on request"
+                services_summary = ", ".join(self._state.services_selected_names)
+                num_services = len(self._state.services_selected_names)
+                
                 return (
-                    f"Service set: {svc_name} ({price_str}).{slot_summary}\n\n"
-                    f"NOW tell the caller: 'A {svc_name} for your {vehicle_desc} would be {price_str}.'\n"
+                    f"Services selected: {services_summary}.{slot_summary}\n\n"
+                    f"Ask: 'Is there anything else you'd like done? Or shall I give you the quote?'\n\n"
+                    f"If they want ANOTHER service → call select_service again.\n"
+                    f"If they're ready for quote → tell them: 'For your {vehicle_desc}, that would be {price_str} for the {svc_name}.' (quote all services if multiple)\n"
                     "Then ask: 'Would you like me to book that in for you?'\n"
-                    f"If YES → say 'The next available slot is {first_slot}, or do you have a date in mind?' and wait for their preference. If they ask for a date not in the list, call select_timeslot with their preference — more slots are available beyond those shown.\n"
-                    "If NO → say 'No worries, I'll get one of the team to give you a ring if you change your mind.' "
-                    "then call take_message."
+                    f"If YES → say 'The next available slot is {first_slot}, or do you have a date in mind?' and wait for their preference.\n"
+                    "If NO → say 'No worries, I'll get one of the team to give you a ring if you change your mind.' then call take_message."
                 )
 
             # Booking flow
-            price_str = f" — {price}" if price else ""
+            services_summary = ", ".join(self._state.services_selected_names)
+            num_services = len(self._state.services_selected_names)
+            service_word = "service" if num_services == 1 else "services"
+            
+            # Ask if they want to add more services
             return (
-                f"Service set: {svc_name}{price_str}.{slot_summary}\n\n"
-                f"Say naturally: 'The next available slot is {first_slot}, or do you have a date in mind?'\n"
+                f"Services selected so far: {services_summary}.\n\n"
+                f"Ask: 'Is there anything else you'd like done while it's in? I can add another service if you need.\nOr shall I go ahead and find you a time?'\n\n"
+                f"If they want ANOTHER service → call select_service again with the new service name.\n"
+                f"If they're done → say 'The next available slot is {first_slot}, or do you have a date in mind?' then wait for their preference.\n"
                 "Wait for their preference, then call select_timeslot. If the caller asks for a later date not in the list, call select_timeslot with their preference — more slots are available."
             )
 
@@ -2936,7 +2992,7 @@ class SupervisorAgent(Agent):
                 return f"ERROR: Wrong step ({self._state.step.value}). Timeslot selection not needed now."
             
             # Validate service was selected before allowing timeslot booking
-            if not self._state.service_selected_name:
+            if not self._state.services_selected_names and not self._state.service_selected_name:
                 return (
                     "BLOCKED: No service has been selected yet. "
                     "You must call select_service to choose what work needs doing before booking a timeslot. "
@@ -3154,7 +3210,7 @@ class SupervisorAgent(Agent):
             pipeline_missing = []
             if not self._state.session_id:
                 pipeline_missing.append("booking session (lookup_vehicle never succeeded)")
-            if not self._state.service_selected_name:
+            if not self._state.services_selected_names and not self._state.service_selected_name:
                 pipeline_missing.append("service (select_service never called)")
             if not self._state.booking_date or not self._state.booking_time:
                 pipeline_missing.append("timeslot (select_timeslot never called)")
@@ -3271,9 +3327,18 @@ class SupervisorAgent(Agent):
                 except Exception:
                     natural_date = self._state.booking_date
 
+                # Format services list for confirmation
+                services_list = self._state.services_selected_names if self._state.services_selected_names else [self._state.service_selected_name]
+                if len(services_list) == 1:
+                    services_text = services_list[0]
+                elif len(services_list) == 2:
+                    services_text = f"{services_list[0]} and {services_list[1]}"
+                else:
+                    services_text = ", ".join(services_list[:-1]) + f", and {services_list[-1]}"
+                
                 return (
                     "BOOKING CONFIRMED.\n"
-                    f"Say: 'That's all booked in — {self._state.service_selected_name} "
+                    f"Say: 'That's all booked in — {services_text} "
                     f"for your {vehicle_desc} on {natural_date} at {self._state.booking_time}.'\n"
                     "Then: 'Anything else I can help with?'\n"
                     "When done: 'Brilliant, cheers then. Have a lovely day!'"
@@ -3876,7 +3941,10 @@ async def entrypoint(ctx: JobContext):
                 booking_parts = [f"Date: {state.booking_date}"]
                 if state.booking_time:
                     booking_parts.append(f"Time: {state.booking_time}")
-                if state.service_selected_name:
+                if state.services_selected_names:
+                    services_text = ", ".join(state.services_selected_names)
+                    booking_parts.append(f"Services: {services_text}")
+                elif state.service_selected_name:
                     booking_parts.append(f"Service: {state.service_selected_name}")
                 if state.service_price:
                     booking_parts.append(f"Price: {state.service_price}")

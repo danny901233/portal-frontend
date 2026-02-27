@@ -42,7 +42,7 @@ async function sendTestWelcomeEmail() {
         garageAccessIds: {
           has: garage.id
         },
-        role: 'owner'
+        role: 'MANAGER'
       }
     });
 

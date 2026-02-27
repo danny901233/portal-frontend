@@ -1167,6 +1167,7 @@ class CallState:
     services_selected_ids: list[str] = field(default_factory=list)  # Support multiple services
     services_selected_names: list[str] = field(default_factory=list)
     services_selected_prices: list[str] = field(default_factory=list)
+    services_descriptions: list[str] = field(default_factory=list)  # Description for each service (mainly for 'Other')
     # Legacy single service fields (kept for backward compatibility checks)
     service_selected_id: str = ""
     service_selected_name: str = ""
@@ -2628,6 +2629,7 @@ class SupervisorAgent(Agent):
                             self._state.services_selected_ids.append(svc_id)
                             self._state.services_selected_names.append(svc_name)
                             self._state.services_selected_prices.append(_format_price(svc) or "")
+                            self._state.services_descriptions.append(service_name)  # Track what customer requested
                         
                         # Update legacy fields
                         self._state.service_selected_id = svc_id
@@ -2733,11 +2735,13 @@ class SupervisorAgent(Agent):
                             self._state.services_selected_ids.append(svc_id)
                             self._state.services_selected_names.append(svc_name)
                             self._state.services_selected_prices.append(_format_price(other_service) or "")
+                            self._state.services_descriptions.append(service_name)  # Track what customer requested
                         
                         # Update legacy fields
                         self._state.service_selected_id = svc_id
                         self._state.service_selected_name = svc_name
                         self._state.service_price = _format_price(other_service)
+                        self._state.other_service_description = service_name
                         
                         # Set all services via API
                         all_service_ids = ",".join(self._state.services_selected_ids)
@@ -2833,6 +2837,7 @@ class SupervisorAgent(Agent):
                 self._state.services_selected_ids.append(svc_id)
                 self._state.services_selected_names.append(svc_name)
                 self._state.services_selected_prices.append(price or "")
+                self._state.services_descriptions.append("")  # No description needed for exact matches
             
             # Update legacy single service fields for backward compatibility
             self._state.service_selected_id = svc_id
@@ -3255,8 +3260,13 @@ class SupervisorAgent(Agent):
             # Build notes: start with any agent-passed notes, then append extras
             all_notes = notes
 
-            # Add service description for "Other" category bookings
-            if self._state.other_service_description:
+            # Add service descriptions (for "Other" category bookings)
+            service_descriptions = [desc for desc in self._state.services_descriptions if desc]
+            if service_descriptions:
+                descriptions_text = "SERVICES REQUESTED:\n" + "\n".join(f"- {desc}" for desc in service_descriptions)
+                all_notes = f"{descriptions_text}\n\n{all_notes}".strip() if all_notes else descriptions_text
+            # Legacy fallback for old single-service bookings
+            elif self._state.other_service_description:
                 all_notes = f"{self._state.other_service_description}\n\n{all_notes}".strip() if all_notes else self._state.other_service_description
 
             # Add tyre information if present

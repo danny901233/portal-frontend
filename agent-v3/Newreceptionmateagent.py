@@ -1432,9 +1432,15 @@ Given the customer's description and the available services, pick the single mos
 Rules:
 - "hasn't been serviced in ages/long time/overdue" → Full Service
 - Noises, rattles, warning lights, unknown issues → Diagnostic Check
-- Specific systems (brakes, oil, tyres, air con, cam belt) → match to the relevant service
+- Specific brake work:
+  * "brake pads" / "replace pads" / "new pads" → Brake Pads Replacement (NOT brake fluid)
+  * "brake discs" / "brake rotors" → Brake Discs Replacement
+  * "brake fluid" / "fluid change" → Brake Fluid Replacement
+  * "brakes squeaking" / "brake noise" → likely Brake Pads Replacement
+  * Generic "brakes" / "brake work" → look for general brake service or use "other"
+- Oil, tyres, air con, cam belt → match to the relevant service
 - MOT/test → MOT
-- If genuinely unclear, return null
+- If genuinely unclear or doesn't match any service closely, return null
 
 Reply with JSON ONLY — no extra text:
 {"service_name": "exact name from the list", "reason": "one short sentence for the receptionist to say"}\
@@ -1799,20 +1805,42 @@ def match_service(name_hint: str, services: list[dict]) -> Optional[dict]:
     if not target:
         return None
 
+    # Extract key words from the hint
+    target_words = set(target.split())
+
     best_match: Optional[dict] = None
     best_score = 0.0
     for service in services:
         svc_name = _normalize_service_text(service.get("name", ""))
         if not svc_name:
             continue
+        
+        # Exact match
         if svc_name == target:
             return service
+        
+        # Calculate base similarity
         score = SequenceMatcher(None, target, svc_name).ratio()
-        if target in svc_name or svc_name in target:
-            score += 0.25
+        
+        # Word overlap bonus - more precise than substring matching
+        svc_words = set(svc_name.split())
+        word_overlap = len(target_words & svc_words)
+        if word_overlap > 0:
+            score += 0.15 * word_overlap
+        
+        # Penalize if target mentions something specific not in service name
+        # e.g., "brake pads" should not strongly match "brake fluid"
+        if "pads" in target_words and "pads" not in svc_words:
+            score -= 0.3
+        if "fluid" in target_words and "fluid" not in svc_words:
+            score -= 0.3
+        if "discs" in target_words and "discs" not in svc_words:
+            score -= 0.3
+        
         if score > best_score:
             best_score = score
             best_match = service
+    
     return best_match if best_score >= 0.45 else None
 
 

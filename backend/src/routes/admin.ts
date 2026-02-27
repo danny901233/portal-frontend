@@ -639,9 +639,11 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         where: { garageId: garage.id },
         select: { agentScript: true },
       });
-      const agentName = agentConfig?.agentScript === 'receptionmate-agent-v3' 
-        ? 'receptionmate-agent-v3' 
-        : 'receptionmate-agent';
+      const agentName = agentConfig?.agentScript === 'tyresoft-agent'
+          ? 'tyresoft-agent'
+          : agentConfig?.agentScript === 'receptionmate-agent-v3' 
+            ? 'receptionmate-agent-v3' 
+            : 'receptionmate-agent';
       const onboardingSecret = process.env.ONBOARDING_SECRET;
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };

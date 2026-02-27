@@ -167,6 +167,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     garageHiveSettings,
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
     agentScript: 
+      config.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
@@ -201,6 +202,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
     agentScript: (
+      configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :

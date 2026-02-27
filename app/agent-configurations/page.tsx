@@ -150,11 +150,11 @@ const agentTypeOptions: { value: AgentType; label: string; description: string }
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
-const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3'; label: string; description: string }[] = [
+const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent'; label: string; description: string }[] = [
   { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
   { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture' },
+  { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre centre integration with inventory management' },
 ];
-
 const maskSecretValue = (value: string) => {
   if (!value) {
     return 'Not set';

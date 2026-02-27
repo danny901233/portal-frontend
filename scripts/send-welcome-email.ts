@@ -26,16 +26,7 @@ async function sendTestWelcomeEmail() {
         }
       },
       include: {
-        business: {
-          include: {
-            users: {
-              where: {
-                role: 'owner'
-              },
-              take: 1
-            }
-          }
-        }
+        business: true
       }
     });
 
@@ -45,7 +36,16 @@ async function sendTestWelcomeEmail() {
       return;
     }
 
-    const owner = garage.business?.users[0];
+    // Find the owner user for this garage
+    const owner = await prisma.user.findFirst({
+      where: {
+        garageAccessIds: {
+          has: garage.id
+        },
+        role: 'owner'
+      }
+    });
+
     if (!owner) {
       console.log(`❌ No owner user found for ${garage.name}`);
       await prisma.$disconnect();
@@ -88,7 +88,7 @@ async function sendTestWelcomeEmail() {
         businessName: garage.business?.name || garage.name,
         branchName: garage.name,
         email: owner.email,
-        password: owner.temporaryPassword || '[Password Reset Required]',
+        password: '[Existing Account - Password Reset Required]',
         portalUrl: 'https://portal.receptionmate.co.uk'
       });
 

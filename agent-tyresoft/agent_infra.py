@@ -35,16 +35,6 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
-try:
-    import boto3
-    from botocore.exceptions import BotoCoreError, ClientError
-    HAS_BOTO3 = True
-except ImportError:
-    HAS_BOTO3 = False
-    boto3 = None
-    BotoCoreError = Exception
-    ClientError = Exception
-
 load_dotenv(".env.local")
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -66,177 +56,8 @@ def uk_date() -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# DYNAMODB CONFIGURATION LOADING
-# ═══════════════════════════════════════════════════════════════════════════
-_dynamo_client = None
-
-def _get_dynamo_client():
-    """Lazy-init DynamoDB client."""
-    global _dynamo_client
-    if _dynamo_client is None and HAS_BOTO3:
-        try:
-            region = os.getenv("AWS_REGION", "eu-west-2")
-            aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
-            aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-            
-            if aws_access_key and aws_secret_key:
-                _dynamo_client = boto3.client(
-                    "dynamodb",
-                    region_name=region,
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                )
-                print(f"[DYNAMO_INIT] DynamoDB client initialized with explicit credentials for region: {region}")
-            else:
-                # Fall back to IAM role or default credentials
-                _dynamo_client = boto3.client("dynamodb", region_name=region)
-                print(f"[DYNAMO_INIT] DynamoDB client initialized with default credentials for region: {region}")
-        except Exception as e:
-            print(f"[DYNAMO_INIT] Failed to create DynamoDB client: {e}")
-    return _dynamo_client
-
-
-def _deserialize_dynamodb_value(attr_value):
-    """Convert DynamoDB AttributeValue format to Python objects."""
-    if "S" in attr_value:
-        return attr_value["S"]
-    if "N" in attr_value:
-        return float(attr_value["N"])
-    if "BOOL" in attr_value:
-        return attr_value["BOOL"]
-    if "NULL" in attr_value:
-        return None
-    if "M" in attr_value:
-        return {k: _deserialize_dynamodb_value(v) for k, v in attr_value["M"].items()}
-    if "L" in attr_value:
-        return [_deserialize_dynamodb_value(item) for item in attr_value["L"]]
-    return None
-
-
-def load_agent_config(garage_id: str) -> dict:
-    """Load agent configuration from DynamoDB."""
-    client = _get_dynamo_client()
-    if not garage_id or client is None:
-        return {}
-    
-    print(f"[LOAD_CONFIG] Loading configuration for garage_id: {garage_id}")
-    try:
-        response = client.get_item(
-            TableName="AgentConfig",
-            Key={"garageId": {"S": garage_id}},
-        )
-    except (BotoCoreError, ClientError) as error:
-        print(f"[LOAD_CONFIG] Failed to load agent config: {error}")
-        return {}
-
-    item = response.get("Item")
-    if not item:
-        print(f"[LOAD_CONFIG] No configuration found for garage_id: {garage_id}")
-        return {}
-
-    config_attr = item.get("configuration", {})
-    if "M" in config_attr:
-        configuration = _deserialize_dynamodb_value(config_attr)
-    elif "S" in config_attr:
-        try:
-            configuration = json.loads(config_attr.get("S", "{}"))
-        except json.JSONDecodeError:
-            configuration = {}
-    else:
-        configuration = {}
-    
-    return configuration
-
-
-def apply_agent_configuration(configuration: dict):
-    """Apply loaded configuration to global variables."""
-    global AGENT_BRANCH_NAME, AGENT_GREETING_LINE, ELEVEN_VOICE_ID, ELEVEN_STABILITY, ELEVEN_SIMILARITY, ELEVEN_STYLE
-    global GARAGE_HOURS
-    
-    if not isinstance(configuration, dict):
-        return
-    
-    # Apply branch name
-    branch_name = configuration.get("branchName") or configuration.get("businessName")
-    if branch_name and isinstance(branch_name, str):
-        AGENT_BRANCH_NAME = branch_name.strip()
-        print(f"[APPLY_CONFIG] Branch name: {AGENT_BRANCH_NAME}")
-    
-    # Apply greeting line
-    greeting_line = (configuration.get("greetingLine") or "").strip()
-    if greeting_line:
-        AGENT_GREETING_LINE = greeting_line
-        print(f"[APPLY_CONFIG] Greeting line: {greeting_line[:50]}...")
-    
-    # Apply garage hours
-    garage_hours_config = configuration.get("weeklyOpeningHours") or configuration.get("garageHours") or {}
-    if isinstance(garage_hours_config, dict) and garage_hours_config:
-        GARAGE_HOURS = garage_hours_config
-        print(f"[APPLY_CONFIG] Loaded garage hours for {len(garage_hours_config)} days")
-    
-    # Apply greeting line
-    greeting_line = (configuration.get("greetingLine") or "").strip()
-    if greeting_line:
-        AGENT_GREETING_LINE = greeting_line
-        print(f"[APPLY_CONFIG] Greeting line: {greeting_line[:50]}...")
-    
-    # Apply voice selection by name
-    voice_name = configuration.get("voice")
-    if voice_name and isinstance(voice_name, str):
-        voice_mapping = {
-            "tom": "Fahco4VZzobUeiPqni1S",
-            "leah": "rfkTsdZrVWEVhDycUYn9",
-            "sophie": "fq1SdXsX6OokE10pJ4Xw",
-            "gemma": "IosqM5LMIzqPfT0efhhy",
-            "isobel": "h8eW5xfRUGVJrZhAFxqK",
-            "fraser": "v2zbX16tJNtRIx8rSHDM",
-        }
-        normalized_voice = voice_name.strip().lower()
-        if normalized_voice in voice_mapping:
-            ELEVEN_VOICE_ID = voice_mapping[normalized_voice]
-            print(f"[APPLY_CONFIG] Voice set to: {voice_name} (ID: {ELEVEN_VOICE_ID})")
-    
-    # Apply voice settings overrides
-    voice_settings = configuration.get("voiceSettings")
-    if isinstance(voice_settings, dict):
-        if "voiceId" in voice_settings:
-            voice_id = voice_settings["voiceId"]
-            if isinstance(voice_id, str) and voice_id.strip():
-                ELEVEN_VOICE_ID = voice_id.strip()
-                print(f"[APPLY_CONFIG] Voice ID override: {ELEVEN_VOICE_ID}")
-        if "elevenStability" in voice_settings:
-            ELEVEN_STABILITY = float(voice_settings["elevenStability"])
-        if "elevenSimilarity" in voice_settings:
-            ELEVEN_SIMILARITY = float(voice_settings["elevenSimilarity"])
-        if "elevenStyle" in voice_settings:
-            ELEVEN_STYLE = float(voice_settings["elevenStyle"])
-        print(f"[APPLY_CONFIG] Voice settings: stability={ELEVEN_STABILITY}, similarity={ELEVEN_SIMILARITY}, style={ELEVEN_STYLE}")
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
-# Read PORTAL_GARAGE_ID early so we can load config from DynamoDB
-PORTAL_GARAGE_ID = os.getenv("PORTAL_GARAGE_ID", "").strip()
-
-# Load configuration if PORTAL_GARAGE_ID is set
-if PORTAL_GARAGE_ID and HAS_BOTO3:
-    try:
-        config = load_agent_config(PORTAL_GARAGE_ID)
-        if config:
-            apply_agent_configuration(config)
-            print(f"[MODULE_INIT] Loaded configuration for garage: {PORTAL_GARAGE_ID}")
-        else:
-            print("[MODULE_INIT] No configuration found, using .env defaults")
-    except Exception as e:
-        print(f"[MODULE_INIT] Failed to load configuration: {e}")
-        print("[MODULE_INIT] Falling back to .env configuration")
-elif PORTAL_GARAGE_ID and not HAS_BOTO3:
-    print("[MODULE_INIT] boto3 not installed; configuration loading from DynamoDB unavailable")
-else:
-    print("[MODULE_INIT] No PORTAL_GARAGE_ID set, using .env configuration")
-
-# Environment variable defaults (fallback if DynamoDB not configured)
 ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 ELEVEN_TTS_MODEL = os.getenv("ELEVEN_TTS_MODEL", "eleven_turbo_v2_5")
 ELEVEN_STABILITY = float(os.getenv("ELEVEN_STABILITY", "0.45"))
@@ -259,8 +80,6 @@ ERROR_LOG_PATH = os.getenv(
     "ERROR_LOG_PATH", os.path.join(os.path.dirname(__file__), "error_log.xlsx")
 )
 AGENT_BRANCH_NAME = os.getenv("AGENT_BRANCH_NAME", "Tyresoft")
-AGENT_GREETING_LINE = os.getenv("AGENT_GREETING_LINE", "")
-GARAGE_HOURS: dict = {}  # Loaded from portal configuration
 
 # LiveKit Inference Gateway
 _LIVEKIT_INFERENCE_URL = "https://agent-gateway.livekit.cloud/v1"
@@ -349,128 +168,6 @@ _SPOKEN_DIGITS = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# BUSINESS HOURS CHECKING
-# ═══════════════════════════════════════════════════════════════════════════
-def is_within_business_hours() -> bool:
-    """Check if current UK time is within garage business hours."""
-    if not GARAGE_HOURS:
-        # No hours configured, assume always open
-        return True
-    
-    now = uk_now()
-    day_name = now.strftime("%A").lower()  # monday, tuesday, etc.
-    
-    # Check if hours exist for this day
-    day_hours = GARAGE_HOURS.get(day_name)
-    if not day_hours:
-        return False  # Day not configured, assume closed
-    
-    # Handle closed days
-    if day_hours.get("closed") is True or day_hours.get("isClosed") is True:
-        return False
-    
-    # Parse open and close times
-    open_time_str = day_hours.get("open") or day_hours.get("openTime")
-    close_time_str = day_hours.get("close") or day_hours.get("closeTime")
-    
-    if not open_time_str or not close_time_str:
-        return False  # Missing times, assume closed
-    
-    try:
-        # Parse times (format: "08:30" or "8:30")
-        open_hour, open_min = map(int, open_time_str.split(":"))
-        close_hour, close_min = map(int, close_time_str.split(":"))
-        
-        current_minutes = now.hour * 60 + now.minute
-        open_minutes = open_hour * 60 + open_min
-        close_minutes = close_hour * 60 + close_min
-        
-        return open_minutes <= current_minutes < close_minutes
-    except (ValueError, AttributeError):
-        print(f"[HOURS_CHECK] Failed to parse times for {day_name}: open={open_time_str}, close={close_time_str}")
-        return True  # On error, assume open to avoid blocking
-
-
-def get_business_hours_text() -> str:
-    """Generate human-readable business hours text from GARAGE_HOURS."""
-    if not GARAGE_HOURS:
-        return "Monday to Friday, half eight in the morning until six in the evening"
-    
-    # Group consecutive days with same hours
-    days_order = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-    hours_text_parts = []
-    
-    i = 0
-    while i < len(days_order):
-        day = days_order[i]
-        day_hours = GARAGE_HOURS.get(day)
-        
-        if not day_hours or day_hours.get("closed") or day_hours.get("isClosed"):
-            i += 1
-            continue
-        
-        open_time = day_hours.get("open") or day_hours.get("openTime")
-        close_time = day_hours.get("close") or day_hours.get("closeTime")
-        
-        if not open_time or not close_time:
-            i += 1
-            continue
-        
-        # Find consecutive days with same hours
-        end_day_idx = i
-        for j in range(i + 1, len(days_order)):
-            next_day = days_order[j]
-            next_hours = GARAGE_HOURS.get(next_day, {})
-            if (next_hours.get("open") or next_hours.get("openTime")) == open_time and \
-               (next_hours.get("close") or next_hours.get("closeTime")) == close_time and \
-               not (next_hours.get("closed") or next_hours.get("isClosed")):
-                end_day_idx = j
-            else:
-                break
-        
-        # Format day range
-        if end_day_idx == i:
-            day_range = days_order[i].capitalize()
-        else:
-            day_range = f"{days_order[i].capitalize()} to {days_order[end_day_idx].capitalize()}"
-        
-        # Format times naturally for speech
-        def format_time(time_str):
-            hour, minute = map(int, time_str.split(":"))
-            if hour < 12:
-                if minute == 0:
-                    return f"{hour} in the morning"
-                elif minute == 30:
-                    return f"half {hour} in the morning"
-                else:
-                    return f"{hour}:{minute:02d} in the morning"
-            elif hour == 12:
-                if minute == 0:
-                    return "midday"
-                else:
-                    return f"{hour}:{minute:02d}"
-            else:
-                hour_12 = hour - 12
-                if minute == 0:
-                    return f"{hour_12} in the evening"
-                elif minute == 30:
-                    return f"half {hour_12} in the evening"
-                else:
-                    return f"{hour_12}:{minute:02d} in the evening"
-        
-        open_formatted = format_time(open_time)
-        close_formatted = format_time(close_time)
-        
-        hours_text_parts.append(f"{day_range}, {open_formatted} until {close_formatted}")
-        i = end_day_idx + 1
-    
-    if not hours_text_parts:
-        return "Monday to Friday, half eight in the morning until six in the evening"
-    
-    return ", ".join(hours_text_parts)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # STEP ENUM + CALLSTATE
 # ═══════════════════════════════════════════════════════════════════════════
 class Step(Enum):
@@ -488,8 +185,7 @@ class Step(Enum):
 @dataclass
 class CallState:
     step: Step = Step.GREETING
-    intent: str = ""  # "tyre_purchase", "service_booking", "combined", "message", "vehicle_update", "quote"
-    service_hint: str = ""
+    intent: str = ""  # "tyre_purchase", "service_booking", "combined", "message"
 
     # Caller
     customer_name_first: str = ""
@@ -534,32 +230,11 @@ class CallState:
     customer_id: int = 0
     vehicle_id: int = 0
 
-    # Message
-    message: str = ""
-    preferred_callback_time: str = ""
-
-    # Diagnostic notes
-    diagnostic_notes: list = field(default_factory=list)
-
-    # Tyre information (for booking notes)
-    tyre_position: str = ""
-    tyre_quality: str = ""
-
-    # Address
-    postcode: str = ""
-    street: str = ""
-    city: str = ""
-
-    # VRN validation
-    vrn_readback_rejections: int = 0
-
     # Transcripts
     recent_transcripts: list = field(default_factory=list)
-    conversation_items: list = field(default_factory=list)  # Full agent+customer transcript for portal
 
     # Session
     call_ended: bool = False
-    call_start_time: float = 0.0  # Unix timestamp when call started
     room_name: str = ""
 
 
@@ -1541,11 +1216,6 @@ async def ask_message_summariser(message: str, caller_name: str = "", phone: str
 # DYNAMIC GREETING
 # ═══════════════════════════════════════════════════════════════════════════
 def get_dynamic_greeting() -> str:
-    # Use custom greeting line if configured
-    if AGENT_GREETING_LINE:
-        return AGENT_GREETING_LINE
-    
-    # Otherwise use default time-based greeting
     hour = uk_now().hour
     if hour < 12:
         tod = "morning"

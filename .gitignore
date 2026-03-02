@@ -45,8 +45,3 @@ agent.log
 backend.log
 deploy.log
 scripts/aws.env
-
-# LiveKit agent secrets
-.secrets
-agent-tyresoft/.secrets
-agent-v3/.secrets

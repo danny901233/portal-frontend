@@ -9,26 +9,8 @@ import re
 import json
 import asyncio
 import datetime
-import time
-import aiohttp
-import datetime as _dt
-from pathlib import Path
-from dotenv import load_dotenv
-from typing import Optional
-from openai import AsyncOpenAI
 
-# Load environment variables from .env file
-_DOTENV_CANDIDATES = [
-    Path(__file__).parent / ".env",
-    Path(__file__).parent / ".env.local",
-]
-for candidate in _DOTENV_CANDIDATES:
-    if candidate.exists():
-        load_dotenv(dotenv_path=candidate, override=True)
-        print(f"[STARTUP] Loaded environment from {candidate}")
-        break
-
-from livekit import agents, api as lk_api
+from livekit import agents
 from livekit.agents import AgentSession, Agent, function_tool, JobContext, WorkerOptions, WorkerType, cli
 from livekit.plugins import silero, deepgram, elevenlabs
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -53,13 +35,9 @@ from agent_infra import (
     uk_now, uk_timestamp, uk_date,
     match_full_service, normalize_vrn,
     format_vrm_for_speech, format_price_for_speech, format_date_for_speech,
-    # Configuration loading
-    load_agent_config, apply_agent_configuration,
     format_time_for_speech, format_tyre_size_for_speech, format_brand_for_speech,
     format_vehicle_for_speech,
     sanitise_phone, sanitise_email,
-    # Business hours
-    is_within_business_hours, get_business_hours_text,
     # API
     lookup_vehicle_by_vrm, get_available_slots, save_customer, save_vehicle,
     create_sale, build_tyre_item, build_service_item,
@@ -72,231 +50,6 @@ from agent_infra import (
     # Greeting
     get_dynamic_greeting,
 )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# PORTAL LOGGING CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════
-PORTAL_API_URL = os.getenv("PORTAL_API_URL", "https://portal.receptionmate.co.uk/api/calls")
-PORTAL_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "optional-shared-secret")
-RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()
-
-_LIVEKIT_INFERENCE_URL = "https://agent-gateway.livekit.cloud/v1"
-_specialist_llm: Optional[AsyncOpenAI] = None
-
-
-def _create_inference_token() -> str:
-    """Mint a short-lived JWT for LiveKit Cloud inference gateway."""
-    grant = lk_api.access_token.InferenceGrants(perform=True)
-    return (
-        lk_api.AccessToken(
-            os.getenv("LIVEKIT_API_KEY", ""),
-            os.getenv("LIVEKIT_API_SECRET", ""),
-        )
-        .with_identity("agent")
-        .with_inference_grants(grant)
-        .with_ttl(_dt.timedelta(seconds=600))
-        .to_jwt()
-    )
-
-
-def _get_specialist_llm() -> Optional[AsyncOpenAI]:
-    """Lazy-init an AsyncOpenAI client routed through LiveKit Cloud inference.
-    Uses LIVEKIT_API_KEY + LIVEKIT_API_SECRET (no separate OPENAI_API_KEY needed).
-    Returns None if LiveKit credentials are missing."""
-    global _specialist_llm
-    if _specialist_llm is None:
-        if not os.getenv("LIVEKIT_API_KEY") or not os.getenv("LIVEKIT_API_SECRET"):
-            return None
-        _specialist_llm = AsyncOpenAI(
-            api_key=_create_inference_token(),
-            base_url=_LIVEKIT_INFERENCE_URL,
-        )
-    else:
-        # Refresh the JWT before each use (10-min TTL)
-        _specialist_llm.api_key = _create_inference_token()
-    return _specialist_llm
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# PORTAL LOGGING FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════
-async def generate_call_summary(transcript: list, state) -> str:
-    """Use GPT via LiveKit inference to generate a detailed structured call summary."""
-    # Build plain-text transcript from entries
-    lines = []
-    for entry in transcript:
-        speaker = entry.get("speaker", "unknown").capitalize()
-        text = entry.get("text", "")
-        if text:
-            lines.append(f"{speaker}: {text}")
-    transcript_text = "\n".join(lines)
-
-    if not transcript_text or len(lines) < 2:
-        return "No conversation was had."
-
-    try:
-        llm = _get_specialist_llm()
-        if not llm:
-            raise ValueError("No LLM client available")
-
-        # Build context from state
-        customer_name = f"{state.customer_name_first} {state.customer_name_last}".strip() or "Customer"
-        vehicle_info = state.vrn or "their vehicle"
-        if state.vrn and state.vehicle_make and state.vehicle_model:
-            vehicle_info = f"{state.vrn} ({state.vehicle_make} {state.vehicle_model})"
-
-        booking_status = ""
-        if state.step == Step.CONFIRMED:
-            booking_status = "BOOKING WAS SUCCESSFULLY SUBMITTED TO THE SYSTEM."
-        elif state.booking_date and state.booking_time:
-            booking_status = "TIMESLOT WAS DISCUSSED BUT BOOKING WAS NOT COMPLETED. Customer needs a callback to finalize the booking."
-        elif state.intent in ("message", "quote", "vehicle_update"):
-            booking_status = "Customer requested a MESSAGE/CALLBACK."
-
-        prompt = f"""Create a structured call summary from this garage receptionist call transcript.
-
-BOOKING STATUS: {booking_status}
-
-CRITICAL RULES:
-1. ONLY summarize information that is ACTUALLY in the transcript below
-2. DO NOT make up or infer details that aren't explicitly stated
-3. Use the BOOKING STATUS above to determine if booking was confirmed or callback needed
-4. If BOOKING STATUS says "NOT COMPLETED", you MUST state "Callback required to complete the booking"
-5. If the customer only said "hello" then hung up, respond ONLY with "No conversation was had."
-
-REQUIRED FORMAT:
-Start with: "{customer_name} called regarding {vehicle_info}."
-
-Then provide 2-4 paragraphs covering ONLY what was actually discussed:
-
-Paragraph 1 - Purpose & Vehicle:
-- Why they called (service needed, enquiry, complaint, etc.)
-- Vehicle details if mentioned (make, model, registration, issues)
-
-Paragraph 2 - Services/Booking Details:
-- Specific work discussed, prices quoted
-- If booking confirmed: "Booking confirmed for [DATE] at [TIME]"
-- If not completed: "Booking was NOT finalized."
-
-Paragraph 3 - Callback/Follow-up:
-- If callback needed: "Callback required - [specific reason]"
-- Only state "No callback required" if booking was SUCCESSFULLY SUBMITTED
-
-Transcript:
-{transcript_text}
-
-Call Summary:"""
-
-        response = await asyncio.wait_for(
-            llm.chat.completions.create(
-                model="openai/gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You write factual, detailed summaries of garage phone calls based ONLY on what was actually said in the transcript. Never invent names, registrations, or details not present in the transcript."},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=500,
-                temperature=0.1,
-            ),
-            timeout=10.0,
-        )
-        summary = response.choices[0].message.content.strip()
-        if not summary or len(summary) < 20:
-            return "No conversation was had."
-        print(f"[PORTAL] GPT summary generated ({len(summary)} chars)")
-        return summary
-    except Exception as e:
-        print(f"[PORTAL] GPT summary failed, using fallback: {e}")
-        # Fallback: build summary from state fields
-        parts = []
-        name = f"{state.customer_name_first} {state.customer_name_last}".strip() or "Customer"
-        parts.append(f"{name} called")
-        if state.vrn:
-            parts.append(f"regarding {state.vrn}")
-            if state.vehicle_make and state.vehicle_model:
-                parts.append(f"({state.vehicle_make} {state.vehicle_model})")
-        if state.booking_date:
-            parts.append(f"Booking: {state.booking_date} at {state.booking_time}")
-        elif state.message:
-            parts.append(f"Message: {state.message}")
-        elif state.intent:
-            parts.append(f"Intent: {state.intent}")
-        return ". ".join(parts) + "."
-
-
-async def log_call_to_portal(
-    garage_id: str,
-    room_name: str,
-    duration_seconds: int,
-    transcript: list,
-    summary: str,
-    customer_name: str = "",
-    customer_phone: str = "",
-    registration_number: str = "",
-    confirmed_booking: bool = False,
-    booking_details: str = "",
-    call_type: str = "unknown",
-    metrics: dict = None,
-) -> None:
-    """Log call data to the portal backend."""
-    
-    # Only log calls that are 55 seconds or longer
-    if duration_seconds < 55:
-        print(f"[PORTAL] Skipping call log - duration {duration_seconds}s is under 55s threshold")
-        return
-    
-    try:
-        # metrics must be non-empty object
-        if not metrics:
-            metrics = {"duration_seconds": duration_seconds, "call_type": call_type}
-
-        payload = {
-            "garageId": garage_id,
-            "roomName": room_name,
-            "durationSeconds": duration_seconds,
-            "transcript": transcript,
-            "summary": summary,
-            "confirmedBooking": confirmed_booking,
-            "metrics": metrics,
-        }
-
-        # Only include optional string fields when non-empty (schema requires min 1 char if present)
-        if customer_name:
-            payload["customerName"] = customer_name
-        if customer_phone:
-            payload["customerPhone"] = customer_phone
-        if registration_number:
-            payload["registrationNumber"] = registration_number
-        if booking_details:
-            payload["bookingDetails"] = booking_details
-        if call_type and call_type != "unknown":
-            payload["callType"] = call_type
-        
-        # Add recording URL if available
-        if RECORDING_BASE_URL:
-            recording_url = f"{RECORDING_BASE_URL.rstrip('/')}/{room_name}.mp4"
-            payload["recordingUrl"] = recording_url
-            print(f"[PORTAL] Including recording URL: {recording_url}")
-        else:
-            print("[PORTAL] RECORDING_BASE_URL not set; recordingUrl will be omitted")
-        
-        headers = {
-            "Content-Type": "application/json",
-            "X-Webhook-Secret": PORTAL_WEBHOOK_SECRET,
-        }
-        
-        print(f"[PORTAL] Posting call to {PORTAL_API_URL} | transcript={len(transcript)} entries | metrics_keys={list(metrics.keys())} | customerPhone={'YES' if customer_phone else 'OMITTED'}")
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(PORTAL_API_URL, json=payload, headers=headers) as response:
-                if response.status == 201:
-                    data = await response.json()
-                    print(f"[PORTAL] Call logged successfully: {data.get('callId', 'unknown')}")
-                else:
-                    text = await response.text()
-                    print(f"[PORTAL] Failed to log call: {response.status} - {text}")
-    except Exception as e:
-        print(f"[PORTAL] Error logging call: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -350,11 +103,8 @@ WORKFLOW:
    - Say: "Before I look into that, could I get your name please?"
    - Do NOT call ANY other tool until save_caller_name has succeeded.
 2. Follow the directive from save_caller_name.
-3. REGISTRATION COLLECTION:
-   - BOOKINGS/QUOTES → Ask for VRN → call lookup_vehicle to get make/model
-   - MESSAGES/UPDATES/CALLBACKS → Ask for VRN but DO NOT call lookup_vehicle (just collect it)
-   - OPENING HOURS → No VRN needed at all
-4. For bookings: Follow EVERY tool directive EXACTLY.
+3. If they need tyres or engine-dependent service → ask for registration → call lookup_vehicle.
+4. Follow EVERY tool directive EXACTLY.
 5. Build their basket (tyres + services).
 6. When done adding → call proceed_to_booking. GENERATE ZERO SPEECH.
    IMPORTANT: You MUST call proceed_to_booking BEFORE select_timeslot. Never skip it.
@@ -392,24 +142,9 @@ class TyresoftSupervisor(Agent):
     # TOOL 1: save_caller_name
     # ───────────────────────────────────────────────────────────────────
     @function_tool()
-    @function_tool()
-    async def save_caller_name(
-        self,
-        first_name: str,
-        last_name: str = "",
-        intent: str = "",
-        service_hint: str = "",
-        vrn: str = "",
-        requested_person: str = "",
-    ) -> str:
-        """Save the caller's name and determine intent.
-        intent: 'booking' for appointments, 'quote' for price enquiries,
-                'vehicle_update' for callers checking on a vehicle already at the garage,
-                'message' for taking messages/enquiries,
-                'transfer' for asking to speak to someone specific.
-        service_hint: what work they mentioned (e.g. 'tyres', 'MOT', 'full service').
-        vrn: vehicle registration if the caller already gave it.
-        requested_person: name of person they asked for (e.g. 'manager', 'someone').
+    async def save_caller_name(self, first_name: str, last_name: str = "") -> str:
+        """Save the caller's name. Call this FIRST before anything else.
+        Pass the caller's EXACT spoken name. Do NOT modify or guess.
         GENERATE ZERO SPEECH before calling this tool."""
         s = self._state
         if s.step != Step.GREETING:
@@ -417,7 +152,6 @@ class TyresoftSupervisor(Agent):
 
         first = first_name.strip().title()
         last = last_name.strip().title()
-        requested = (requested_person or "").strip()
 
         # Stutter detection: "Gab Gabriel" → "Gabriel"
         if first and last and last.lower().startswith(first.lower()) and len(first) < len(last):
@@ -432,108 +166,19 @@ class TyresoftSupervisor(Agent):
                 "Then STOP."
             )
 
-        # Hallucination guard: check against recent transcripts (word boundaries)
+        # Hallucination guard: check against recent transcripts
         if s.recent_transcripts:
-            all_speech = " ".join(s.recent_transcripts).lower()
-            speech_words = set(re.findall(r"[a-z]+", all_speech))
-            if first and first.lower() not in speech_words:
-                return (
-                    f"REJECTED: The caller has NOT said the name '{first}'. "
-                    "You are hallucinating a name. ASK the caller: 'Can I take your name?' "
-                    "and WAIT for their response. Only call save_caller_name with the name they actually say."
-                )
+            all_text = " ".join(s.recent_transcripts[-3:]).lower()
+            if first.lower() not in all_text and len(s.recent_transcripts) > 0:
+                print(f"[WARN] Name '{first}' not found in recent transcripts, accepting anyway")
 
         s.customer_name_first = first
         s.customer_name_last = last
-
-        resolved = (intent or "").strip().lower()
-        print(f"[SAVE_NAME] {first} {last}, intent={resolved}, hint={service_hint}, vrn={vrn}, requested_person={requested}")
-
-        # Transfer request - asking for a specific person or human
-        if resolved in ("transfer", "speak_to", "ask_for") or requested:
-            s.intent = "message"
-            s.step = Step.MESSAGE_ONLY
-            person_mention = f" for {requested}" if requested else ""
-            
-            # Check if we're outside business hours
-            if not is_within_business_hours():
-                return (
-                    f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
-                    f"Address the caller as '{first}' (FIRST name only).\n"
-                    f"OUTSIDE BUSINESS HOURS. Say naturally: 'The team aren't available outside of our opening hours, "
-                    f"but I can take a message and they'll give you a ring back when we're open. What would you like me to pass on?'\n"
-                    f"After they explain, ask: 'And could I grab your vehicle registration and a contact number?'\n"
-                    f"Then collect VRN, phone, and callback preference before calling take_message."
-                )
-            
-            return (
-                f"Name saved: {first} {last}. Intent: transfer request{person_mention}.\n"
-                f"Address the caller as '{first}' (FIRST name only).\n"
-                f"Say naturally: 'Unfortunately the team aren't available at the moment — they're likely helping other customers. "
-                f"However, I can help you with tyres and bookings, or I can take a message and get someone to give you a ring back. Which would you prefer?'\n"
-                f"If they want a booking → continue with booking flow (ask what work they need).\n"
-                f"If they want a message → ask 'What would you like the team to know?' then collect VRN, phone, and callback time before calling take_message."
-            )
-
-        # Message path - general enquiries, questions, complaints
-        if resolved in ("message", "enquiry", "reschedule", "cancel", "complaint", "question"):
-            s.intent = "message"
-            s.step = Step.MESSAGE_ONLY
-            return (
-                f"Name saved: {first} {last}. Intent: message.\n"
-                f"Address the caller as '{first}' (FIRST name only).\n"
-                "Ask: 'What would you like the team to know?'\n"
-                "After they explain, ask: 'And could I grab your vehicle registration and a contact number?'\n"
-                "Then collect VRN, phone, and callback time before calling take_message."
-            )
-
-        # Vehicle update path — caller wants status on existing vehicle
-        if resolved in ("vehicle_update", "update", "status", "progress"):
-            s.intent = "vehicle_update"
-            
-            # Check if we're outside business hours
-            if not is_within_business_hours():
-                s.step = Step.MESSAGE_ONLY
-                return (
-                    f"Name saved: {first} {last}. Intent: vehicle update.\n"
-                    f"Address the caller as '{first}' (FIRST name only).\n"
-                    f"OUTSIDE BUSINESS HOURS. Say naturally: 'The team aren't available outside of our opening hours to check on your vehicle, "
-                    f"but I can take a message and they'll give you a ring back when we're open. What would you like me to pass on?'\n"
-                    f"After they explain, ask: 'And could I grab your vehicle registration and a contact number?'\n"
-                    f"Then collect VRN, phone, and any callback preference before calling take_message."
-                )
-            
-            s.step = Step.MESSAGE_ONLY
-            return (
-                f"Name saved: {first} {last}. Intent: vehicle update.\n"
-                f"Address the caller as '{first}' (FIRST name only).\n"
-                "Say: 'The team are currently with customers, but I can take a message about your vehicle "
-                "and they'll give you a ring back shortly. What would you like them to know?'\n"
-                "After they explain, ask: 'And could I grab your vehicle registration and a contact number?'\n"
-                "Then collect VRN, phone, and callback time before calling take_message."
-            )
-
-        # Opening hours query
-        if resolved in ("hours", "opening_hours", "when_open", "open_times"):
-            business_hours = get_business_hours_text()
-            return (
-                f"Name saved: {first} {last}. Intent: opening hours query.\n"
-                f"Address the caller as '{first}' (FIRST name only).\n"
-                f"Say: 'We're open {business_hours}.'\n"
-                "Then ask: 'Is there anything else I can help you with today?' and wait for their response.\n"
-                "If they need a booking → continue with booking flow.\n"
-                "If nothing else → thank them and end the call politely."
-            )
-
-        # Booking / quote path (default)
-        s.intent = "quote" if resolved == "quote" else "tyre_purchase"
-        if service_hint:
-            s.service_hint = service_hint.strip()
-
         s.step = Step.BUILDING_BASKET
+
         print(f"[STATE] Name: {first} {last} | Step → BUILDING_BASKET")
 
-        # Check transcripts for earlier requests
+        # Check transcripts for earlier requests so LLM doesn't have to guess
         earlier_request = ""
         if s.recent_transcripts:
             all_text = " ".join(s.recent_transcripts).lower()
@@ -570,9 +215,9 @@ class TyresoftSupervisor(Agent):
                 f"Say: 'Lovely, thanks {first}. What can I help you with today?'\n"
                 "Then STOP. Wait for the caller to respond.\n"
                 "Based on their response:\n"
-                "- If they need TYRES or a SERVICE BOOKING → ask for their vehicle registration and perform lookup\n"
-                "- If they want OPENING HOURS → tell them our hours (no lookup needed)\n"
-                "- If they want a MESSAGE, VEHICLE UPDATE, or CALLBACK → collect message, VRN, and phone (no lookup needed)\n"
+                "- If they need tyres → ask for their vehicle registration\n"
+                "- If they mention a service → ask for registration if needed, or add directly\n"
+                "- If they want a callback → take their message\n"
                 "ONE QUESTION ONLY. Then STOP."
             )
 
@@ -612,25 +257,13 @@ class TyresoftSupervisor(Agent):
 
         if not confirmed:
             # STEP 1: Normalize + readback
-            # If there was a pending VRN and we're getting a new one, caller rejected the previous readback
-            normalized = normalize_vrn(reg)
-            
-            if s.vrn_pending and normalized != s.vrn_pending:
-                s.vrn_readback_rejections += 1
-                print(f"[LOOKUP] Caller rejected previous readback '{s.vrn_pending}', "
-                     f"provided new input '{reg}' → '{normalized}' (rejection #{s.vrn_readback_rejections})")
-            
             # Check for partial accumulation
             raw = reg.strip()
             if s.vrn_partial:
-                if normalized.startswith(s.vrn_partial) or s.vrn_partial in normalized:
-                    combined = normalized
-                    print(f"[LOOKUP] Partial '{s.vrn_partial}' already in '{normalized}' — using '{combined}'")
-                else:
-                    combined = s.vrn_partial + normalized
-                    print(f"[LOOKUP] Combining partial '{s.vrn_partial}' + '{normalized}' = '{combined}'")
-                normalized = combined
+                raw = s.vrn_partial + " " + raw
                 s.vrn_partial = ""
+
+            normalized = normalize_vrn(raw)
 
             # Name echo protection
             caller_names = {s.customer_name_first.upper(), s.customer_name_last.upper()} - {""}
@@ -639,23 +272,6 @@ class TyresoftSupervisor(Agent):
                     f"IGNORED: '{normalized}' is the caller's name, not a registration.\n"
                     "Ask: 'Could you give me your vehicle registration number?'\n"
                     "Then STOP."
-                )
-            
-            # VRN validation - check for no digits
-            if not any(c.isdigit() for c in normalized):
-                if len(normalized) <= 3:
-                    s.vrn_partial = normalized
-                    print(f"[LOOKUP] Partial VRN (no digits yet): '{normalized}' — waiting for more")
-                    return (
-                        f"PARTIAL VRN: '{normalized}' has no digits yet — the caller is still spelling. "
-                        "Do NOT ask again. WAIT for them to continue. "
-                        "When they say more, call lookup_vehicle with the new part."
-                    )
-                s.vrn_partial = ""
-                return (
-                    f"REJECTED: '{normalized}' has no digits — UK registrations ALWAYS contain numbers. "
-                    "You may have passed the caller's name instead of their registration. "
-                    "Ask the caller: 'Could I grab your registration?'"
                 )
 
             # Partial VRN (less than 4 chars)
@@ -667,13 +283,6 @@ class TyresoftSupervisor(Agent):
                     "Say: 'I've got {spaced} so far. Could you give me the rest of the registration?'\n"
                     "Then STOP. Wait for the rest."
                 )
-            
-            # Clear partial accumulator
-            s.vrn_partial = ""
-            
-            if len(normalized) > 7:
-                print(f"[LOOKUP] VRN too long ({len(normalized)} chars): '{normalized}' — truncating to 7")
-                normalized = normalized[:7]
 
             s.vrn_pending = normalized
 
@@ -687,26 +296,13 @@ class TyresoftSupervisor(Agent):
             spaced = format_vrm_for_speech(normalized)
 
             print(f"[STATE] VRN pending: {normalized} | Step → NEED_VRN | Attempt {s.vrn_attempts}")
-            
-            # If this is a retry after caller rejected previous readback, ask for phonetic spelling
-            if s.vrn_readback_rejections >= 1:
-                print(f"[LOOKUP] Requesting phonetic spelling after {s.vrn_readback_rejections} rejection(s)")
-                return (
-                    f"Parsed registration: {normalized}.\n"
-                    f"Say naturally: 'I'm hearing {normalized}, but let me make sure I've got this right. "
-                    "Could you spell the full registration back to me using phonetics? "
-                    "For example, Alpha for A, Bravo for B, and so on.'\n"
-                    "Wait for them to spell it phonetically, then call lookup_vehicle again with confirmed=false."
-                )
-            
-            # First readback - just read it back normally
             return (
                 f"Normalized registration: {spaced}\n"
                 f"Say: 'Just to confirm, that registration is {spaced}. Is that right?'\n"
                 "Wait for YES/NO.\n"
-                f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true). GENERATE ZERO SPEECH.\n"
-                f"If NO → Say naturally: 'Let me make sure I've got this right. Could you spell the full registration back to me using phonetics? For example, Alpha for A, Bravo for B.' "
-                "Then WAIT for them to spell it, and call lookup_vehicle with their phonetic spelling."
+                "If YES → call lookup_vehicle with the same reg and confirmed=true. GENERATE ZERO SPEECH.\n"
+                "If NO → ask them to say it again.\n"
+                "If they say a different registration → call lookup_vehicle with the new one."
             )
 
         else:
@@ -744,23 +340,11 @@ class TyresoftSupervisor(Agent):
                         "Let me arrange for someone to call you back to help.'\n"
                         "Then collect their phone number for a callback."
                     )
-                
-                # First attempt failed - ask for phonetic spelling
-                if s.vrn_attempts == 1:
-                    return (
-                        f"Vehicle not found for registration '{normalized}'. "
-                        "Say naturally: 'I'm not finding that one. Could you spell the full registration back to me using phonetics? "
-                        "For example, A for Alpha, B for Bravo, and so on.'\n"
-                        "Wait for them to spell it phonetically, then call lookup_vehicle again."
-                    )
-                
-                # Subsequent attempts
                 spaced = format_vrm_for_speech(normalized)
                 return (
-                    f"Vehicle still not found for {spaced}.\n"
-                    "Ask the caller to read it out one letter at a time. "
-                    "Common mishearings: B↔V, M↔N, S↔F, D↔T. "
-                    "Read back what YOU heard so they can spot the error."
+                    f"Vehicle not found for {spaced}.\n"
+                    f"Say: 'I couldn't find a vehicle on that registration. Could you double-check and tell me again?'\n"
+                    "Then STOP. Wait for response."
                 )
 
             # Success — store vehicle info
@@ -950,81 +534,41 @@ class TyresoftSupervisor(Agent):
         )
 
     # ───────────────────────────────────────────────────────────────────
-    # TOOL 5: search_tyres (with intelligent info gathering)
+    # TOOL 5: search_tyres
     # ───────────────────────────────────────────────────────────────────
     @function_tool()
-    async def search_tyres(
-        self,
-        tyre_position: str = "",
-        tyre_quality: str = "",
-        brand: str = "",
-    ) -> str:
-        """Search for tyres and recommend best options based on caller's needs.
-        tyre_position: e.g., 'front left', 'both fronts', 'all four', 'rear right'
-        tyre_quality: 'budget', 'mid-range', or 'premium'
-        brand: specific brand if requested (optional)
-        
-        The tool will ask for missing information (position, quality) before searching.
-        Uses the already-selected tyre size from confirm_vehicle.
+    async def search_tyres(self, brand: str = "", max_results: int = 6) -> str:
+        """Search for tyres. Uses the already-selected tyre size.
+        Optionally filter by brand name.
         GENERATE ZERO SPEECH before calling this tool."""
         s = self._state
         if s.step != Step.BUILDING_BASKET:
             return f"ERROR: Wrong step ({s.step.value})."
         if not s.selected_tyre_size:
             return "ERROR: No tyre size selected. Need to select_tyre_size first."
-        
-        # Save any provided info to state
-        if tyre_position:
-            s.tyre_position = tyre_position.strip().lower()
-            print(f"[TYRE_SEARCH] Position: {s.tyre_position}")
-        if tyre_quality:
-            s.tyre_quality = tyre_quality.strip().lower()
-            print(f"[TYRE_SEARCH] Quality: {s.tyre_quality}")
-        
-        # Check if we need position
-        if not s.tyre_position:
-            return (
-                "TYRE POSITION REQUIRED.\n"
-                "Ask the caller: 'Which tyres need replacing — all four, just the fronts, or specific ones?'\n"
-                "Then STOP. Wait for their answer.\n"
-                "When they respond, call search_tyres again with tyre_position='their answer'."
-            )
-        
-        # Check if we need quality preference
-        if not s.tyre_quality:
-            return (
-                f"Tyre position recorded: {s.tyre_position}.\n"
-                "QUALITY PREFERENCE REQUIRED.\n"
-                "Ask the caller: 'Are you looking for budget, mid-range, or premium tyres?'\n"
-                "Then STOP. Wait for their answer.\n"
-                "When they respond, call search_tyres again with tyre_quality='their answer'."
-            )
-        
-        # Now we have position and quality — search inventory
+
         parsed = parse_tyre_size(s.selected_tyre_size)
         results = search_inventory(
             s.selected_branch,
             width=parsed["width"], aspect=parsed["aspect"], rim=parsed["rim"],
-            brand=brand,
+            brand=brand, max_results=max_results,
         )
         spoken_size = format_tyre_size_for_speech(s.selected_tyre_size)
-        
+
         # Auto-search other branch if current branch has nothing
-        searched_branch = s.selected_branch
         if not results:
             other_branch = 2 if s.selected_branch == 1 else 1
             results = search_inventory(
                 other_branch,
                 width=parsed["width"], aspect=parsed["aspect"], rim=parsed["rim"],
-                brand=brand,
+                brand=brand, max_results=max_results,
             )
             if results:
-                searched_branch = other_branch
                 s.selected_branch = other_branch
                 print(f"[STATE] Auto-switched to Branch {other_branch} for search")
-        
+
         s.last_search_results = results
-        
+
         if not results:
             if brand:
                 return (
@@ -1038,76 +582,17 @@ class TyresoftSupervisor(Agent):
                 "Would you like me to arrange a callback so the team can source them for you?'\n"
                 "Then STOP."
             )
-        
-        # Calculate quantity based on position
-        qty_map = {
-            "all four": 4, "all 4": 4, "four": 4, "full set": 4, "all": 4,
-            "both fronts": 2, "front": 2, "fronts": 2, "both front": 2,
-            "both rears": 2, "rear": 2, "rears": 2, "both rear": 2, "back": 2,
-            "front left": 1, "front right": 1, "rear left": 1, "rear right": 1,
-            "one": 1, "single": 1,
-        }
-        quantity = 4  # default
-        for key, val in qty_map.items():
-            if key in s.tyre_position:
-                quantity = val
-                break
-        
-        # Filter/sort by quality preference
-        quality_pref = s.tyre_quality
-        if quality_pref == "budget":
-            # Sort by price ascending, show cheapest first
-            results.sort(key=lambda x: x.get("price", 999999))
-            results = results[:6]
-        elif quality_pref == "premium":
-            # Sort by price descending, show most expensive first
-            results.sort(key=lambda x: x.get("price", 0), reverse=True)
-            results = results[:6]
-        else:  # mid-range or unspecified
-            # Sort by price, take middle range
-            results.sort(key=lambda x: x.get("price", 0))
-            mid = len(results) // 2
-            start = max(0, mid - 3)
-            results = results[start:start+6]
-        
-        s.last_search_results = results
-        
-        # Format results with quantity context
+
         lines = []
         for i, t in enumerate(results, 1):
             b = format_brand_for_speech(t.get("brand", ""))
             p = format_price_for_speech(t.get("price", 0))
-            total = t.get("price", 0) * quantity
-            total_spoken = format_price_for_speech(total)
             rf = " (Run Flat)" if t.get("runflat") else ""
-            lines.append(f"  {i}. {b} — {p} per tyre ({total_spoken} for {quantity}){rf}")
-        result_text = "\n".join(lines)
-        
-        # Build recommendation
-        top_tyre = results[0]
-        top_brand = format_brand_for_speech(top_tyre.get("brand", ""))
-        top_price = format_price_for_speech(top_tyre.get("price", 0))
-        top_total = format_price_for_speech(top_tyre.get("price", 0) * quantity)
-        
-        position_text = s.tyre_position
-        quality_desc = {
-            "budget": "best value",
-            "mid-range": "mid-range",
-            "premium": "premium quality",
-        }.get(quality_pref, quality_pref)
-        
-        branch_name = BRANCHES.get(searched_branch, {}).get("name", f"Branch {searched_branch}")
-        print(f"[TYRE_SEARCH] {len(results)} {quality_desc} results | {position_text} = {quantity} tyres | Branch {searched_branch}")
-        
+            lines.append(f"  {i}. {b} — {p} per tyre{rf}")
         return (
-            f"Found {len(results)} {quality_desc} options for {spoken_size} at {branch_name}:\n{result_text}\n\n"
-            f"RECOMMENDATION: For {position_text} ({quantity} tyres) in the {quality_desc} range, "
-            f"the best option is {top_brand} at {top_price} per tyre — that's {top_total} total.\n\n"
-            f"Say to caller: 'For {position_text}, I'd recommend {top_brand} at {top_price} per tyre — "
-            f"that comes to {top_total} for the {quantity}.'\n"
-            "Then briefly mention 1-2 alternatives from the list.\n"
-            "Ask: 'Would you like to go with those?'\n"
-            "Then STOP. When they choose → call add_tyre_to_basket with the selection_number and quantity={quantity}."
+            f"Found {len(results)} tyres for {spoken_size}:\n" + "\n".join(lines) + "\n\n"
+            "Present the options to the caller. Ask which they'd like.\n"
+            "Then STOP. When they choose → call add_tyre_to_basket."
         )
 
     # ───────────────────────────────────────────────────────────────────
@@ -1810,162 +1295,7 @@ class TyresoftSupervisor(Agent):
         )
 
     # ───────────────────────────────────────────────────────────────────
-    # TOOL 15: update_caller_name
-    # ───────────────────────────────────────────────────────────────────
-    @function_tool()
-    async def update_caller_name(
-        self,
-        first_name: str = "",
-        last_name: str = "",
-    ) -> str:
-        """Update the caller's name AFTER save_caller_name has already been called.
-        Use when the caller corrects their name or gives their surname later.
-        GENERATE ZERO SPEECH before calling this tool."""
-        s = self._state
-        
-        if s.step == Step.GREETING:
-            return (
-                "WRONG TOOL: You are still in GREETING step. "
-                "Call save_caller_name (not update_caller_name) to save the name AND set the intent. "
-                "save_caller_name advances the call. update_caller_name is only for corrections later."
-            )
-        
-        updated = []
-        if first_name and first_name.strip():
-            s.customer_name_first = first_name.strip()
-            updated.append(f"first_name='{first_name.strip()}'")
-        if last_name and last_name.strip():
-            s.customer_name_last = last_name.strip()
-            updated.append(f"last_name='{last_name.strip()}'")
-        if not updated:
-            return "ERROR: Provide at least first_name or last_name to update."
-        
-        print(f"[UPDATE_NAME] Updated: {', '.join(updated)}")
-        
-        # Give a specific next-action based on current step
-        step_next = {
-            Step.NEED_VRN: "Say ONE short sentence asking for their registration, then STOP and WAIT.",
-            Step.CONFIRMING_VEHICLE: "Now confirm the vehicle with the caller.",
-            Step.BUILDING_BASKET: "Continue with building the basket or booking.",
-            Step.NEED_TIMESLOT: "Now offer available timeslots.",
-            Step.CONFIRMED: "Continue collecting contact details (phone → email).",
-            Step.MESSAGE_ONLY: "Continue collecting message details.",
-        }
-        next_action = step_next.get(s.step, "Continue the conversation.")
-        
-        return (
-            f"Name updated: {', '.join(updated)}. "
-            f"Full name on file: {s.customer_name_first} {s.customer_name_last}.\n"
-            f"Keep addressing them as '{s.customer_name_first}' (first name only).\n"
-            f"NEXT ACTION: {next_action}\n"
-            "Do NOT call update_caller_name again unless the caller EXPLICITLY corrects their name."
-        )
-
-    # ───────────────────────────────────────────────────────────────────
-    # TOOL 16: record_diagnostic_info
-    # ───────────────────────────────────────────────────────────────────
-    @function_tool()
-    async def record_diagnostic_info(
-        self,
-        diagnostic_answer: str,
-    ) -> str:
-        """Record the caller's answer to a diagnostic question.
-        Use this to save important details about symptoms, timing, frequency, etc.
-        Example: 'When braking at speed', 'Constant for 2 weeks', 'Engine light came on yesterday'
-        GENERATE ZERO SPEECH before calling this tool."""
-        s = self._state
-        
-        if not s.diagnostic_notes:
-            s.diagnostic_notes = []
-        
-        s.diagnostic_notes.append(diagnostic_answer)
-        print(f"[DIAGNOSTIC] Recorded: {diagnostic_answer}")
-        
-        return (
-            f"Diagnostic info recorded: '{diagnostic_answer}'\n"
-            "Continue with the next diagnostic question if there are more, "
-            "or proceed to recommend the appropriate service based on the symptoms described."
-        )
-
-    # ───────────────────────────────────────────────────────────────────
-    # TOOL 17: take_message
-    # ───────────────────────────────────────────────────────────────────
-    @function_tool()
-    async def take_message(
-        self,
-        message: str,
-        phone: str,
-        name_first: str = "",
-        name_last: str = "",
-        vrn: str = "",
-        callback_time: str = "",
-    ) -> str:
-        """Save a message for the team to call back. Use this for message-only calls.
-        message: What the caller wants the team to know
-        phone: Caller's phone number
-        callback_time: When they prefer to be called back (optional)
-        GENERATE ZERO SPEECH before calling this tool."""
-        s = self._state
-
-        s.message = (message or "").strip()
-        s.contact_phone = (phone or "").strip()
-        s.preferred_callback_time = (callback_time or "").strip()
-        
-        if name_first:
-            s.customer_name_first = name_first.strip()
-        if name_last:
-            s.customer_name_last = name_last.strip()
-        if vrn:
-            s.vrn = normalize_vrn(vrn)
-
-        s.step = Step.DONE
-        first = s.customer_name_first
-        last = s.customer_name_last
-        
-        # Aggregate all notes (diagnostic + tyre + message)
-        all_notes_parts = []
-        
-        if s.tyre_position or s.selected_tyre_size or s.tyre_quality:
-            tyre_parts = []
-            if s.tyre_position:
-                tyre_parts.append(f"Position: {s.tyre_position}")
-            if s.selected_tyre_size:
-                tyre_parts.append(f"Size: {s.selected_tyre_size}")
-            if s.tyre_quality:
-                tyre_parts.append(f"Quality: {s.tyre_quality}")
-            all_notes_parts.append("TYRE INFORMATION:\n" + "\n".join(tyre_parts))
-        
-        if s.diagnostic_notes:
-            all_notes_parts.append("DIAGNOSTIC INFO:\n" + "\n".join(s.diagnostic_notes))
-        
-        if message:
-            all_notes_parts.append(f"MESSAGE: {message}")
-        
-        full_message = "\n\n".join(all_notes_parts) if all_notes_parts else message
-        
-        print(f"[TAKE_MESSAGE] From {first} {last}: {full_message[:200]}")
-
-        # Send Discord notification
-        await send_discord_notification(
-            title="MESSAGE FOR TEAM",
-            description=f"From: {first} {last}",
-            color="info",
-            fields=[
-                {"name": "Phone", "value": phone, "inline": True},
-                {"name": "Callback Time", "value": callback_time or "ASAP", "inline": True},
-                {"name": "Message", "value": full_message[:500], "inline": False},
-            ],
-        )
-
-        return (
-            f"Message saved from {first} {last}.\n"
-            "Read back a brief summary to confirm.\n"
-            "Then say: 'Lovely, I'll make sure the team gets this. They'll give you a ring back shortly.'\n"
-            "Close: 'Cheers, have a lovely day!'"
-        )
-
-    # ───────────────────────────────────────────────────────────────────
-    # TOOL 18: set_branch
+    # TOOL 15: set_branch
     # ───────────────────────────────────────────────────────────────────
     @function_tool()
     async def set_branch(self, branch_id: int) -> str:
@@ -1979,7 +1309,7 @@ class TyresoftSupervisor(Agent):
         return f"Branch set to {name}. Continue with current task."
 
     # ───────────────────────────────────────────────────────────────────
-    # TOOL 19: get_current_datetime
+    # TOOL 16: get_current_datetime
     # ───────────────────────────────────────────────────────────────────
     @function_tool()
     async def get_current_datetime(self) -> str:
@@ -1993,7 +1323,7 @@ class TyresoftSupervisor(Agent):
         )
 
     # ───────────────────────────────────────────────────────────────────
-    # TOOL 20: end_call
+    # TOOL 17: end_call
     # ───────────────────────────────────────────────────────────────────
     @function_tool()
     async def end_call(self) -> str:
@@ -2030,56 +1360,46 @@ class TyresoftSupervisor(Agent):
 async def entrypoint(ctx: JobContext):
     print(f"[SESSION START] {uk_timestamp()} | Room: {ctx.room.name}")
 
-    # Extract garage_id from room name and load configuration
-    room_name = ctx.room.name
-    garage_id = None
-    match = re.match(r'^garage-([a-f0-9-]+)', room_name)
-    if match:
-        garage_id = match.group(1)
-        print(f"[ENTRYPOINT] Extracted garage_id: {garage_id}")
-        # Load configuration for this garage
-        try:
-            config = load_agent_config(garage_id)
-            if config:
-                apply_agent_configuration(config)
-                print(f"[ENTRYPOINT] Loaded configuration for garage: {garage_id}")
-        except Exception as e:
-            print(f"[ENTRYPOINT] Failed to load garage config: {e}")
-            import traceback
-            traceback.print_exc()
+    # VAD
+    vad = silero.VAD.load(
+        min_speech_duration=0.1,
+        min_silence_duration=0.5,
+        activation_threshold=0.6,
+        sample_rate=16000,
+    )
 
     # Agent
     supervisor = TyresoftSupervisor()
     supervisor._state.room_name = ctx.room.name
-    supervisor._state.call_start_time = time.time()  # Track call start for portal logging
-    
-    # Store references for portal logging
-    s = supervisor._state
-    room_name = ctx.room.name
 
-    # Session - matching newreceptionmateagent.py configuration
-    # Use agent_infra module directly to get current voice settings
-    import agent_infra
+    # TTS
+    tts = elevenlabs.TTS(
+        voice_id=ELEVEN_VOICE_ID,
+        model=ELEVEN_TTS_MODEL,
+        voice_settings=elevenlabs.VoiceSettings(
+            stability=ELEVEN_STABILITY,
+            similarity_boost=ELEVEN_SIMILARITY,
+            style=ELEVEN_STYLE,
+            use_speaker_boost=True,
+        ),
+    )
+
+    # Session
     session = AgentSession(
-        vad=silero.VAD.load(),
-        turn_detection=MultilingualModel(),
         stt=deepgram.STT(
             model="nova-3",
             language="en-GB",
-            interim_results=True,
             smart_format=True,
             punctuate=True,
         ),
-        llm="openai/gpt-4.1-mini",
-        tts=elevenlabs.TTS(
-            model=agent_infra.ELEVEN_TTS_MODEL,
-            voice_id=agent_infra.ELEVEN_VOICE_ID,
-            voice_settings=elevenlabs.VoiceSettings(
-                stability=agent_infra.ELEVEN_STABILITY,
-                similarity_boost=agent_infra.ELEVEN_SIMILARITY,
-                style=agent_infra.ELEVEN_STYLE,
-            ),
-        ),
+        llm=SPEAKING_MODEL,
+        tts=tts,
+        turn_detection=MultilingualModel(),
+        vad=vad,
+        preemptive_generation=True,
+        resume_false_interruption=True,
+        false_interruption_timeout=1.0,
+        user_away_timeout=4.0,
     )
 
     # Transcript tracking for hallucination detection
@@ -2093,145 +1413,11 @@ async def entrypoint(ctx: JobContext):
             supervisor._state.recent_transcripts.append(text)
             print(f"[USER] {text[:80]}{'...' if len(text) > 80 else ''}")
 
-    # Capture full conversation for portal transcript
-    @session.on("conversation_item_added")
-    def _on_conversation_item(item):
-        try:
-            role = getattr(item, "role", "")
-            text = getattr(item, "text", "")
-            if not text and hasattr(item, "content"):
-                content = item.content
-                if isinstance(content, str):
-                    text = content
-                elif isinstance(content, list):
-                    parts = []
-                    for part in content:
-                        if hasattr(part, "text"):
-                            parts.append(part.text or "")
-                        elif isinstance(part, dict):
-                            parts.append(part.get("text", ""))
-                    text = " ".join(p for p in parts if p)
-            text = text.strip()
-            if not text:
-                return
-            speaker = "agent" if role in ("assistant", "agent") else "customer"
-            ts = max(0.0, time.time() - (s.call_start_time or time.time()))
-            s.conversation_items.append({"speaker": speaker, "text": text, "timestamp": round(ts, 1)})
-            print(f"[TRANSCRIPT] {speaker.capitalize()}: {text[:80]}{'...' if len(text) > 80 else ''}")
-        except Exception as exc:
-            print(f"[TRANSCRIPT] conversation_item_added error: {exc}")
-
     # Session isolation — prevent context bleeding
     @ctx.room.on("participant_disconnected")
     def _on_caller_left(participant):
         print(f"[SESSION] Caller disconnected: {participant.identity}")
-        
-        async def _shutdown_and_log():
-            # Log call to portal before shutdown
-            try:
-                call_duration = int(time.time() - s.call_start_time) if s.call_start_time else 0
-
-                # Extract phone from SIP participant attributes if not already set
-                caller_phone = s.contact_phone or ""
-                if not caller_phone:
-                    try:
-                        attrs = participant.attributes or {}
-                        caller_phone = (
-                            attrs.get("sip.phoneNumber") or
-                            attrs.get("sip.from") or
-                            ""
-                        )
-                        # Fall back: parse identity like sip_+447841422472
-                        if not caller_phone and participant.identity.startswith("sip_"):
-                            caller_phone = participant.identity[4:]  # strip 'sip_'
-                        if caller_phone:
-                            s.contact_phone = caller_phone
-                            print(f"[PORTAL] Extracted caller phone from attributes: {caller_phone}")
-                    except Exception:
-                        pass
-
-                # Build transcript: prefer conversation_items (full agent+customer turns captured in real-time)
-                # Fall back to synthetic transcript from recent_transcripts if no conversation_items
-                base_ts = s.call_start_time or time.time()
-                if s.conversation_items:
-                    transcript = s.conversation_items
-                    # Ensure at least one agent entry exists
-                    if not any(e.get("speaker") == "agent" for e in transcript):
-                        transcript = [{"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0}] + transcript
-                    print(f"[PORTAL] Using {len(transcript)} conversation_items for transcript")
-                else:
-                    # Fallback: synthetic transcript from customer utterances
-                    print("[PORTAL] No conversation_items — building synthetic transcript from recent_transcripts")
-                    transcript = []
-                    transcript.append({"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0})
-                    for i, text in enumerate(s.recent_transcripts or [], start=1):
-                        transcript.append({"speaker": "customer", "text": text, "timestamp": i * 5})
-                    # Append key structured events as agent turns
-                    offset = len(transcript) * 5
-                    if s.vrn:
-                        transcript.append({"speaker": "agent", "text": f"I have your vehicle registration as {s.vrn}.", "timestamp": offset})
-                        offset += 5
-                    if s.booking_date:
-                        transcript.append({"speaker": "agent", "text": f"Booking confirmed for {s.booking_date} at {s.booking_time}.", "timestamp": offset})
-
-                # Generate GPT summary (falls back to state-based if LLM unavailable)
-                summary = await generate_call_summary(transcript, s)
-
-                # Determine call type
-                call_type = "unknown"
-                if s.intent == "tyre_purchase" and s.booking_date:
-                    call_type = "booking"
-                elif s.intent == "quote":
-                    call_type = "quote"
-                elif s.intent == "message":
-                    call_type = "message"
-                elif s.intent == "vehicle_update":
-                    call_type = "vehicle_update"
-
-                # Build booking details if applicable
-                booking_details = ""
-                if s.booking_date:
-                    booking_parts = []
-                    booking_parts.append(f"Date: {s.booking_date}")
-                    if s.booking_time:
-                        booking_parts.append(f"Time: {s.booking_time}")
-                    if s.basket_items:
-                        for item in s.basket_items:
-                            if item.get("name"):
-                                booking_parts.append(f"Item: {item['name']}")
-                    booking_details = ", ".join(booking_parts)
-
-                # metrics must be a non-empty object
-                metrics = {
-                    "duration_seconds": call_duration,
-                    "intent": s.intent or "unknown",
-                    "vrn_captured": bool(s.vrn),
-                    "booking_confirmed": s.step == Step.CONFIRMED,
-                }
-
-                print(f"[PORTAL] Call duration: {call_duration}s, Transcript entries: {len(transcript)}")
-
-                # Log to portal
-                await log_call_to_portal(
-                    garage_id=garage_id,
-                    room_name=room_name,
-                    duration_seconds=call_duration,
-                    transcript=transcript,
-                    summary=summary,
-                    customer_name=f"{s.customer_name_first} {s.customer_name_last}".strip() or "Unknown",
-                    customer_phone=caller_phone,
-                    registration_number=s.vrn,
-                    confirmed_booking=s.step == Step.CONFIRMED,
-                    booking_details=booking_details,
-                    call_type=call_type,
-                    metrics=metrics,
-                )
-            except Exception as e:
-                print(f"[PORTAL] Failed to log call: {e}")
-
-            ctx.shutdown("caller_disconnected")
-
-        asyncio.create_task(_shutdown_and_log())
+        ctx.shutdown("caller_disconnected")
 
     # Start session with noise cancellation if available
     if HAS_NC:

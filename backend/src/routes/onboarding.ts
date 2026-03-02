@@ -714,8 +714,8 @@ router.get('/onboarding/status', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // ReceptionMate staff (ADMIN role) never need setup wizard
-    const isReceptionMateStaff = user.role === 'ADMIN';
+    // ReceptionMate staff never need setup wizard
+    const isReceptionMateStaff = user.role === 'RECEPTIONMATE_STAFF';
 
     // Get garage setup status and agent type from first garage
     let agentType = 'assist'; // default

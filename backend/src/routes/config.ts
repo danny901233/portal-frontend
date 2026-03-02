@@ -493,7 +493,7 @@ const sendAgentConfigWebhook = async (garageId: string) => {
   }
 };
 
-const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3') => {
+const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent') => {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
   if (!onboardingUrl) {
     console.log('[UPDATE_SIP] No onboarding service URL configured');
@@ -556,7 +556,7 @@ router.put(
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
     let resolvedAgentType: 'assist' | 'automate' = data.agentType === 'automate' ? 'automate' : 'assist';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' = data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
 
     if (!canEditAgentType) {
       const existingConfig = await prisma.agentConfiguration.findUnique({
@@ -564,7 +564,7 @@ router.put(
         select: { agentType: true, agentScript: true },
       });
       resolvedAgentType = existingConfig?.agentType === 'automate' ? 'automate' : 'assist';
-      resolvedAgentScript = existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
+      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
     }
 
     const normalizedWeeklyOpeningHours = data.weeklyOpeningHours

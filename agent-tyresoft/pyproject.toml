@@ -1,0 +1,23 @@
+[project]
+name = "tyresoft-agent"
+version = "0.1.0"
+description = "Tyresoft Tyre Centre Voice AI Agent for bookings and tyre sales"
+
+requires-python = ">=3.13"
+dependencies = [
+    "livekit>=1.0.23",
+    "livekit-agents>=1.4.2",
+    "livekit-plugins-deepgram>=1.0.0",
+    "livekit-plugins-elevenlabs>=1.0.0",
+    "livekit-plugins-silero>=1.0.0",
+    "livekit-plugins-turn-detector>=1.0.0",
+    "livekit-plugins-noise-cancellation>=1.0.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.2.1",
+    "aiohttp>=3.9.0",
+    "openpyxl>=3.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

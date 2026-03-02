@@ -644,8 +644,20 @@ router.put(
     void sendAgentConfigWebhook(garageId);
 
     // If agentScript changed and garage has Twilio number, update SIP dispatch rule
+    console.log('[UPDATE_AGENT] Checking dispatch rule update:', {
+      garageId,
+      existingAgentScript: existingConfig?.agentScript,
+      newAgentScript: resolvedAgentScript,
+      hasChanged: existingConfig?.agentScript !== resolvedAgentScript,
+      hasTwilioNumber: !!garageRecord?.twilioNumber,
+      twilioNumber: garageRecord?.twilioNumber
+    });
+    
     if (existingConfig && existingConfig.agentScript !== resolvedAgentScript && garageRecord?.twilioNumber) {
+      console.log('[UPDATE_AGENT] Updating SIP dispatch rule for garage', garageId, 'to agent:', resolvedAgentScript);
       void updateSipDispatchRule(garageId, resolvedAgentScript);
+    } else {
+      console.log('[UPDATE_AGENT] Skipping dispatch rule update - conditions not met');
     }
 
     const knowledgeBase = await loadKnowledgeBase(garageId);

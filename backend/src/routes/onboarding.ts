@@ -705,6 +705,8 @@ router.get('/onboarding/status', authenticate, async (req, res) => {
       where: { id: req.user.userId },
       select: {
         garageAccessIds: true,
+        email: true,
+        role: true,
       },
     });
 
@@ -712,11 +714,17 @@ router.get('/onboarding/status', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // ReceptionMate staff (ADMIN role) never need setup wizard
+    const isReceptionMateStaff = user.role === 'ADMIN';
+
     // Get garage setup status and agent type from first garage
     let agentType = 'assist'; // default
     let needsSetup = false;
 
-    if (user.garageAccessIds && user.garageAccessIds.length > 0) {
+    // Skip setup wizard for ReceptionMate staff
+    if (isReceptionMateStaff) {
+      needsSetup = false;
+    } else if (user.garageAccessIds && user.garageAccessIds.length > 0) {
       const garage = await prisma.garage.findUnique({
         where: { id: user.garageAccessIds[0] },
         select: {
@@ -760,6 +768,8 @@ router.post('/onboarding/wizard-complete', authenticate, async (req, res) => {
       where: { id: req.user.userId },
       select: {
         garageAccessIds: true,
+        email: true,
+        role: true,
       },
     });
 
@@ -805,6 +815,8 @@ router.get('/onboarding/initial-data', authenticate, async (req, res) => {
       where: { id: req.user.userId },
       select: {
         garageAccessIds: true,
+        email: true,
+        role: true,
       },
     });
 

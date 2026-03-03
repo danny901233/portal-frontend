@@ -1061,6 +1061,44 @@ class ErrorMonitor:
 
 
 # ============================================================
+# STATE-AWARE TURN DETECTION
+# ============================================================
+
+class StateAwareTurnDetection:
+    """Wrapper around MultilingualModel that adds extra delay during VRM capture.
+    When in NEED_VRN state, injects additional wait time to prevent interrupting
+    slow speakers spelling registrations letter by letter."""
+    
+    def __init__(self, state_ref, base_model, vrm_extra_delay: float = 1.0):
+        self._state = state_ref
+        self._base_model = base_model
+        self._vrm_extra_delay = vrm_extra_delay
+        self._last_speech_time = 0.0
+        
+    async def detect_turn(self, *args, **kwargs):
+        """Intercept turn detection and add delay if in VRM state."""
+        import time
+        
+        # Call base model's turn detection
+        result = await self._base_model.detect_turn(*args, **kwargs)
+        
+        # If in VRM capture state and turn was detected, add extra delay
+        if hasattr(self._state, 'step') and self._state.step == Step.NEED_VRN:
+            current_time = time.time()
+            # Only add delay if we haven't already waited
+            if current_time - self._last_speech_time < 1.5:
+                logger.debug(f"[TURN_DETECTION] VRM state detected - adding {self._vrm_extra_delay}s delay")
+                await asyncio.sleep(self._vrm_extra_delay)
+            self._last_speech_time = current_time
+            
+        return result
+    
+    def __getattr__(self, name):
+        """Delegate all other attributes to base model."""
+        return getattr(self._base_model, name)
+
+
+# ============================================================
 # STATE MACHINE
 # ============================================================
 
@@ -3454,11 +3492,14 @@ async def entrypoint(ctx: JobContext):
     # Create the single supervisor agent
     supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name, assist_mode=assist_mode)
 
-    # Create session — low-latency config with ElevenLabs TTS
-    # Using 1.5s min_silence_duration globally to prevent interrupting slow speakers during VRM spelling
+    # Create session with state-aware turn detection
+    # Adds 1s extra delay during VRM capture to prevent interrupting slow speakers
+    base_turn_model = MultilingualModel()
+    turn_detector = StateAwareTurnDetection(state_ref=state, base_model=base_turn_model, vrm_extra_delay=1.0)
+    
     session = AgentSession(
-        vad=silero.VAD.load(min_silence_duration=1.5),
-        turn_detection=MultilingualModel(),
+        vad=silero.VAD.load(),
+        turn_detection=turn_detector,
         stt=deepgram.STT(
             model="nova-3",
             language="en-GB",

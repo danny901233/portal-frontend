@@ -3407,24 +3407,28 @@ async def entrypoint(ctx: JobContext):
             try:
                 call_duration = int(time.time() - state.call_start_time) if state.call_start_time else 0
 
-                # Extract phone from SIP participant attributes if not already set
-                caller_phone = state.contact_phone or ""
-                if not caller_phone:
-                    try:
-                        attrs = participant.attributes or {}
-                        caller_phone = (
-                            attrs.get("sip.phoneNumber") or
-                            attrs.get("sip.from") or
-                            ""
-                        )
-                        # Fall back: parse identity like sip_+447841422472
-                        if not caller_phone and participant.identity.startswith("sip_"):
-                            caller_phone = participant.identity[4:]  # strip 'sip_'
-                        if caller_phone:
-                            state.contact_phone = caller_phone
-                            logger.info(f"[PORTAL] Extracted caller phone from attributes: {caller_phone}")
-                    except Exception:
-                        pass
+                # ALWAYS use incoming phone number from SIP participant (not what customer says)
+                # This ensures accuracy regardless of customer errors when saying their number
+                caller_phone = ""
+                try:
+                    attrs = participant.attributes or {}
+                    caller_phone = (
+                        attrs.get("sip.phoneNumber") or
+                        attrs.get("sip.from") or
+                        ""
+                    )
+                    # Fall back: parse identity like sip_+447841422472
+                    if not caller_phone and participant.identity.startswith("sip_"):
+                        caller_phone = participant.identity[4:]  # strip 'sip_'
+                    if caller_phone:
+                        logger.info(f"[PORTAL] Using incoming caller phone from SIP: {caller_phone}")
+                    else:
+                        # Only if we can't get SIP phone, use what customer said
+                        caller_phone = state.contact_phone or ""
+                        logger.info(f"[PORTAL] No SIP phone available, using customer-provided: {caller_phone}")
+                except Exception:
+                    caller_phone = state.contact_phone or ""
+                    logger.warning(f"[PORTAL] Error extracting SIP phone, using customer-provided: {caller_phone}")
 
                 # Build transcript: prefer conversation_items (full agent+customer turns captured in real-time)
                 # Fall back to synthetic transcript from recent_transcripts if no conversation_items

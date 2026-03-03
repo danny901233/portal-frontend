@@ -3072,9 +3072,20 @@ class SupervisorAgent(Agent):
             allowed = (Step.GREETING, Step.MESSAGE_ONLY, Step.NEED_VRN, Step.NEED_SERVICE, Step.NEED_TIMESLOT, Step.NEED_CONTACT)
             if self._state.step not in allowed:
                 return f"ERROR: Wrong step ({self._state.step.value}). Cannot take message now."
+            
+            # Validate phone is provided
+            phone_clean = (phone or "").strip()
+            if not phone_clean:
+                # Provide phone verification prompt if SIP number available
+                if self._state.incoming_sip_number:
+                    digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
+                    if len(digits_only) >= 3:
+                        last_three = digits_only[-3:]
+                        return f"Missing phone number. Ask: 'Is the number ending in {last_three} the best number for you?' If YES, call take_message with phone='{self._state.incoming_sip_number}'. If NO, ask 'What's the best number for you?' and collect it."
+                return "Missing phone number. Ask: 'What's the best number for you?' then call take_message with it."
 
             self._state.message = (message or "").strip()
-            self._state.contact_phone = (phone or "").strip()
+            self._state.contact_phone = phone_clean
             self._state.preferred_callback_time = (callback_time or "").strip()
             if name_first:
                 self._state.customer_name_first = name_first.strip()
@@ -3238,7 +3249,9 @@ SPECIAL SITUATIONS - FOLLOW TOOL INSTRUCTIONS EXACTLY:
   * During hours → "team are busy helping other customers" (NOT "outside hours")
   * Outside hours → "team unavailable outside opening hours"
 - VEHICLE UPDATE: The tool will check business hours and provide the exact script. Follow it word-for-word.
-- MESSAGE: Collect message → phone → callback time → take_message.
+- MESSAGE: Collect message → verify phone (if available, confirm last 3 digits; otherwise collect full number) → callback time → take_message.
+  * PHONE VERIFICATION: Same as booking - if caller's number available, say 'Is the number ending in [last 3 digits] the best number for you?'
+  * If YES: Use verified number. If NO or ANONYMOUS: Ask 'What's the best number for you?'
 - CHANGE OF MIND: Booking↔Message works both ways.
 
 CRITICAL: When the tool says "Say naturally: [exact phrase]", use that phrase. Don't mix phrases from different scenarios."""

@@ -1816,11 +1816,25 @@ class SupervisorAgent(Agent):
             if resolved in ("message", "enquiry", "reschedule", "cancel", "complaint", "question"):
                 self._state.intent = "message"
                 self._state.step = Step.MESSAGE_ONLY
+                
+                # Prepare phone verification prompt with actual last 3 digits
+                phone_instruction = ""
+                if self._state.incoming_sip_number:
+                    digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
+                    if len(digits_only) >= 3:
+                        last_three = digits_only[-3:]
+                        phone_instruction = f"After they tell you the message, ask: 'Is the number ending in {last_three} the best number for you?' If YES, call take_message with phone='{self._state.incoming_sip_number}'. If NO, ask 'What's the best number for you?' and use that number."
+                    else:
+                        phone_instruction = "After they tell you the message, ask: 'What's the best number for you?' and collect it for take_message."
+                else:
+                    phone_instruction = "After they tell you the message, ask: 'What's the best number for you?' and collect it for take_message."
+                
                 return (
                     f"Name saved: {first} {last}. Intent: message.\n"
                     f"Address the caller as '{first}' (FIRST name only — never use their surname to greet them).\n"
-                    "Now take their message. Ask: 'What would you like the team to know?'\n"
-                    "Then collect their phone number and preferred callback time."
+                    f"Now take their message. Ask: 'What would you like the team to know?'\n"
+                    f"{phone_instruction}\n"
+                    "Then ask for preferred callback time if needed."
                 )
 
             # Vehicle update path — caller wants status on a vehicle already at the garage
@@ -2107,10 +2121,23 @@ class SupervisorAgent(Agent):
                 self._state.step = Step.MESSAGE_ONLY
                 first = self._state.customer_name_first
                 logger.info(f"[CONFIRM] Vehicle update path — {make} {model}")
+                
+                # Prepare phone verification prompt with actual last 3 digits
+                phone_instruction = ""
+                if self._state.incoming_sip_number:
+                    digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
+                    if len(digits_only) >= 3:
+                        last_three = digits_only[-3:]
+                        phone_instruction = f"Then ask: 'Is the number ending in {last_three} the best number for you to receive a callback?' If YES, call take_message with phone='{self._state.incoming_sip_number}'. If NO, ask 'What's the best number for you?' and use that number."
+                    else:
+                        phone_instruction = "Then ask: 'What's the best number for you?' and collect the phone number for take_message."
+                else:
+                    phone_instruction = "Then ask: 'What's the best number for you?' and collect the phone number for take_message."
+                
                 return (
                     f"Vehicle confirmed: {make.title()} {model.title()}.\n"
                     f"Say: 'Lovely, I've got that pulled up, {first}. What would you like me to pass on to the team?'\n"
-                    "Collect their message and phone number, then call take_message.\n"
+                    f"After they give you the message: {phone_instruction}\n"
                     "Close: 'I'll make sure the team gets this. They'll give you a ring back with an update shortly.'"
                 )
 

@@ -1944,8 +1944,8 @@ class SupervisorAgent(Agent):
             self._state.step = Step.NEED_VRN
             return (
                 f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
-                "Say EXACTLY ONE short sentence asking for their registration, e.g. 'Could I grab your registration?'\n"
-                "Then STOP. Generate NOTHING else. Wait patiently - they may spell it slowly letter by letter."
+                "Say EXACTLY ONE short sentence asking for their COMPLETE registration all at once, e.g. 'Could I grab your full registration please?'\n"
+                "Then STOP. Generate NOTHING else. Wait for them to say the COMPLETE registration before responding."
             )
 
         @function_tool
@@ -3455,10 +3455,8 @@ async def entrypoint(ctx: JobContext):
     supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name, assist_mode=assist_mode)
 
     # Create session — low-latency config with ElevenLabs TTS
-    # Using 1.5s min_silence_duration globally - necessary to prevent interrupting slow VRM spelling
-    # Trade-off: Slightly slower responses throughout call, but prevents VRM capture failures
     session = AgentSession(
-        vad=silero.VAD.load(min_silence_duration=1.5),
+        vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
         stt=deepgram.STT(
             model="nova-3",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
@@ -33,12 +33,27 @@ const InstagramIcon = () => (
   </svg>
 );
 
+// LiveChat icon
+const LiveChatIcon = () => (
+  <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
+    <path d="M12 2C6.477 2 2 6.263 2 11.5c0 2.605 1.074 4.963 2.816 6.68L4 22l4.064-1.542A10.26 10.26 0 0012 21c5.523 0 10-4.263 10-9.5S17.523 2 12 2zm0 17a8.28 8.28 0 01-3.794-.91L5 19l.97-2.997A8.177 8.177 0 014 11.5C4 7.358 7.582 4 12 4s8 3.358 8 7.5-3.582 7.5-8 7.5z"/>
+  </svg>
+);
+
 export default function IntegrationsPage() {
   const router = useRouter();
   const [connections, setConnections] = useState<SocialConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
+  // LiveChat connect form state
+  const [showLiveChatForm, setShowLiveChatForm] = useState(false);
+  const [lcLicenseId, setLcLicenseId] = useState('');
+  const [lcEntityId, setLcEntityId] = useState('');
+  const [lcPat, setLcPat] = useState('');
+  const [lcSaving, setLcSaving] = useState(false);
+  const lcFormRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const garageId = getGarageId();
@@ -135,6 +150,38 @@ export default function IntegrationsPage() {
     } catch (error) {
       console.error('Error initiating OAuth:', error);
       alert('Failed to connect. Please try again or contact support.');
+    }
+  };
+
+  const connectLiveChat = async () => {
+    if (!selectedGarageId || !lcLicenseId.trim() || !lcPat.trim()) return;
+    setLcSaving(true);
+    try {
+      const token = getSessionToken();
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${selectedGarageId}/social-connections/livechat`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            licenseId: lcLicenseId.trim(),
+            entityId: lcEntityId.trim() || undefined,
+            personalAccessToken: lcPat.trim(),
+          }),
+        }
+      );
+      if (!response.ok) throw new Error('Failed to connect LiveChat');
+      setShowLiveChatForm(false);
+      setLcLicenseId('');
+      setLcEntityId('');
+      setLcPat('');
+      setStatusMessage({ type: 'success', text: 'LiveChat connected! The AI agent will now respond to incoming chats.' });
+      await fetchConnections();
+    } catch (error) {
+      console.error('LiveChat connect error:', error);
+      setStatusMessage({ type: 'error', text: 'Failed to connect LiveChat. Please check your credentials and try again.' });
+    } finally {
+      setLcSaving(false);
     }
   };
 
@@ -296,6 +343,130 @@ export default function IntegrationsPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* LiveChat Integration */}
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold text-slate-100 mb-1">LiveChat</h2>
+        <p className="text-sm text-slate-400 mb-4">
+          Connect your LiveChat account so the AI agent handles incoming chats automatically.
+        </p>
+
+        {(() => {
+          const lcConnection = connections.find((c) => c.platform === 'livechat');
+          return (
+            <div className="bg-slate-900/40 border border-slate-800 rounded-lg p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 rounded-lg bg-orange-600">
+                    <LiveChatIcon />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-slate-100 mb-1">LiveChat</h3>
+                    <p className="text-sm text-slate-400 mb-3">
+                      AI responds to incoming LiveChat conversations using your garage's booking tools.
+                    </p>
+                    {lcConnection && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                          <span className="text-green-400">Connected</span>
+                        </div>
+                        <span className="text-slate-600">•</span>
+                        <span className="text-slate-500">
+                          Since {new Date(lcConnection.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  {lcConnection ? (
+                    <button
+                      onClick={() => disconnectPlatform(lcConnection.id)}
+                      className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setShowLiveChatForm(true)}
+                      className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 text-white rounded-md transition-colors"
+                    >
+                      Connect
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* LiveChat credentials form */}
+              {showLiveChatForm && (
+                <div ref={lcFormRef} className="mt-6 border-t border-slate-700 pt-6 space-y-4">
+                  <h4 className="text-sm font-semibold text-slate-200">LiveChat Credentials</h4>
+                  <p className="text-xs text-slate-400">
+                    Enter your LiveChat license ID and a Personal Access Token (PAT) with agent scopes.
+                    You can generate a PAT in LiveChat Settings → Integrations → Personal Access Tokens.
+                  </p>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">License ID *</label>
+                    <input
+                      type="text"
+                      value={lcLicenseId}
+                      onChange={(e) => setLcLicenseId(e.target.value)}
+                      placeholder="e.g. 12345678"
+                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-orange-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Entity ID (Account ID) — optional</label>
+                    <input
+                      type="text"
+                      value={lcEntityId}
+                      onChange={(e) => setLcEntityId(e.target.value)}
+                      placeholder="e.g. abc123@livechat.com"
+                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-orange-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Personal Access Token *</label>
+                    <input
+                      type="password"
+                      value={lcPat}
+                      onChange={(e) => setLcPat(e.target.value)}
+                      placeholder="Bearer token from LiveChat settings"
+                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-orange-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="mt-4 bg-slate-800/60 rounded-md p-3 text-xs text-slate-400">
+                    <p className="font-medium text-slate-300 mb-1">Webhook URL to configure in LiveChat</p>
+                    <code className="text-orange-400 break-all">
+                      {`${process.env.NEXT_PUBLIC_API_URL}/api/webhooks/livechat`}
+                    </code>
+                    <p className="mt-2">
+                      In LiveChat go to <strong>Settings → Integrations → Webhooks</strong> and add the above URL
+                      for the <em>incoming_message</em> and <em>incoming_chat</em> events.
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={connectLiveChat}
+                      disabled={lcSaving || !lcLicenseId.trim() || !lcPat.trim()}
+                      className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-md transition-colors"
+                    >
+                      {lcSaving ? 'Saving...' : 'Save Connection'}
+                    </button>
+                    <button
+                      onClick={() => { setShowLiveChatForm(false); setLcLicenseId(''); setLcEntityId(''); setLcPat(''); }}
+                      className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-lg p-6">

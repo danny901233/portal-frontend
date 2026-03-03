@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { getChatAgentResponse } from '../services/chatAgentV2.js';
+import { routeChatMessage } from '../services/chatAgentRouter.js';
 
 const router = Router();
 
@@ -101,14 +101,14 @@ router.post('/chat/widget', async (req, res) => {
       },
     });
 
-    // Get AI response - pass both explicit seed and stored conversation phone
-    const agentResponse = await getChatAgentResponse(
+    // Get AI response — router selects the correct agent based on agentScript
+    const agentResponse = await routeChatMessage(
       garageId,
       message,
       conversation.id,
-      { 
-        phone: contactPhone || conversation.customerPhone || undefined, 
-        name: contactName || conversation.customerName || undefined 
+      {
+        phone: contactPhone || conversation.customerPhone || undefined,
+        name: contactName || conversation.customerName || undefined
       }
     );
 

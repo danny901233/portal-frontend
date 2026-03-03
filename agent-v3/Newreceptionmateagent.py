@@ -1076,7 +1076,8 @@ class CallState:
     booking_time: str = ""
 
     # Contact
-    contact_phone: str = ""
+    incoming_sip_number: str = ""  # Actual caller's phone number from SIP (always used for portal "from")
+    contact_phone: str = ""  # Verified/alternate contact number for message summary
     contact_email: str = ""
     house_name_or_number: str = ""
     postcode: str = ""
@@ -2729,15 +2730,32 @@ class SupervisorAgent(Agent):
             surname_note = ""
             if not self._state.customer_name_last:
                 surname_note = "IMPORTANT: No surname on file yet. Ask 'And your surname?' first.\n"
+            
+            # Prepare phone verification prompt based on whether we have incoming SIP number
+            phone_prompt = ""
+            if self._state.incoming_sip_number:
+                # Extract last 3 digits for verification
+                digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
+                if len(digits_only) >= 3:
+                    last_three = digits_only[-3:]
+                    phone_prompt = f"Ask: 'Is the number ending in {last_three} the best number for you?'\n"
+                    phone_prompt += "If YES: They confirm (no need to collect number). If NO: Ask 'What's the best number for you?' and collect it.\n"
+                else:
+                    phone_prompt = "Ask: 'What's the best number for you?'\n"
+            else:
+                # Anonymous caller or SIP number unavailable
+                phone_prompt = "Ask: 'What's the best number for you?'\n"
 
             return (
                 f"Timeslot set: {booking_date} at {booking_time}.\n"
                 f"{surname_note}"
-                "Say: 'Lovely. I just need a couple of details.' then ask for their surname if missing, "
-                "otherwise ask: 'What's the best number for you?'\n"
+                f"Say: 'Lovely. I just need a couple of details.' then ask for their surname if missing, "
+                f"otherwise verify their phone number.\n"
+                f"{phone_prompt}"
                 "When they give their surname, call update_caller_name(last_name='...') to save it, "
                 "then KEEP addressing them by their FIRST name — not the surname.\n"
                 "Collect ONE field at a time: surname → phone → email → postcode (call validate_address) → house number.\n"
+                "When they confirm phone with 'yes', you already have it. When they say 'no' or give a different number, collect and store it.\n"
                 "You MUST collect ALL five fields AND call validate_address BEFORE calling submit_booking.\n"
                 "Do NOT call submit_booking until you have phone, email, postcode, AND house number."
             )
@@ -3209,7 +3227,10 @@ FLOW:
    - DO NOT interrupt. Let them speak fully.
    - After completing the questionnaire, recommend a Diagnostic Check.
 4. TIMESLOT: Offer 2-3 early slots naturally. Call select_timeslot(caller_preference) with the caller's words — tool handles date parsing.
-5. CONTACT (one at a time): surname → phone (read back last 3 digits) → email → postcode (call validate_address) → house number. Then submit_booking.
+5. CONTACT (one at a time): surname → phone (if available, verify by reading last 3 digits; otherwise collect full number) → email → postcode (call validate_address) → house number. Then submit_booking.
+   PHONE VERIFICATION: If caller's number is available, say: 'Is the number ending in [last 3 digits] the best number for you?'
+   - If YES: Use verified number for contact details
+   - If NO or ANONYMOUS: Ask 'What's the best number for you?' and collect it accurately
 6. CLOSE: Confirm booking, "Cheers, have a lovely day!"
 
 SPECIAL SITUATIONS - FOLLOW TOOL INSTRUCTIONS EXACTLY:
@@ -3294,6 +3315,24 @@ async def entrypoint(ctx: JobContext):
     state = CallState()
     state.call_start_time = time.time()
     gh = GHClient()
+    
+    # Extract incoming SIP number from first participant (if available)
+    # This will be used as the authoritative "from" number for portal
+    @ctx.room.on("participant_connected")
+    def _on_participant_connected(participant):
+        if not state.incoming_sip_number and participant.identity.startswith("sip_"):
+            try:
+                attrs = participant.attributes or {}
+                sip_number = (
+                    attrs.get("sip.phoneNumber") or
+                    attrs.get("sip.from") or
+                    participant.identity[4:]  # strip 'sip_' prefix
+                )
+                if sip_number:
+                    state.incoming_sip_number = sip_number
+                    logger.info(f"[SIP] Incoming number captured: {sip_number}")
+            except Exception as e:
+                logger.warning(f"[SIP] Could not extract incoming number: {e}")
 
     # Create the single supervisor agent
     supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name, assist_mode=assist_mode)
@@ -3409,26 +3448,40 @@ async def entrypoint(ctx: JobContext):
 
                 # ALWAYS use incoming phone number from SIP participant (not what customer says)
                 # This ensures accuracy regardless of customer errors when saying their number
-                caller_phone = ""
+                caller_phone_for_portal = ""  # Used as "from" number in portal
+                caller_phone_for_summary = ""  # Used in message summary (may differ if customer provides alternate)
+                
                 try:
                     attrs = participant.attributes or {}
-                    caller_phone = (
+                    caller_phone_for_portal = (
                         attrs.get("sip.phoneNumber") or
                         attrs.get("sip.from") or
                         ""
                     )
                     # Fall back: parse identity like sip_+447841422472
-                    if not caller_phone and participant.identity.startswith("sip_"):
-                        caller_phone = participant.identity[4:]  # strip 'sip_'
-                    if caller_phone:
-                        logger.info(f"[PORTAL] Using incoming caller phone from SIP: {caller_phone}")
+                    if not caller_phone_for_portal and participant.identity.startswith("sip_"):
+                        caller_phone_for_portal = participant.identity[4:]  # strip 'sip_'
+                    
+                    # Use incoming SIP number if we captured it earlier
+                    if not caller_phone_for_portal and state.incoming_sip_number:
+                        caller_phone_for_portal = state.incoming_sip_number
+                    
+                    if caller_phone_for_portal:
+                        logger.info(f"[PORTAL] Using incoming caller phone from SIP for 'from' field: {caller_phone_for_portal}")
                     else:
-                        # Only if we can't get SIP phone, use what customer said
-                        caller_phone = state.contact_phone or ""
-                        logger.info(f"[PORTAL] No SIP phone available, using customer-provided: {caller_phone}")
+                        # Only if we can't get SIP phone at all, use what customer said
+                        caller_phone_for_portal = state.contact_phone or ""
+                        logger.info(f"[PORTAL] No SIP phone available, using customer-provided for 'from': {caller_phone_for_portal}")
+                    
+                    # For message summary: use alternate contact phone if provided, otherwise use SIP number
+                    caller_phone_for_summary = state.contact_phone or caller_phone_for_portal
+                    if state.contact_phone and state.contact_phone != caller_phone_for_portal:
+                        logger.info(f"[PORTAL] Using alternate contact number for message summary: {caller_phone_for_summary}")
+                    
                 except Exception:
-                    caller_phone = state.contact_phone or ""
-                    logger.warning(f"[PORTAL] Error extracting SIP phone, using customer-provided: {caller_phone}")
+                    caller_phone_for_portal = state.contact_phone or ""
+                    caller_phone_for_summary = state.contact_phone or ""
+                    logger.warning(f"[PORTAL] Error extracting SIP phone, using customer-provided: {caller_phone_for_portal}")
 
                 # Build transcript: prefer conversation_items (full agent+customer turns captured in real-time)
                 # Fall back to synthetic transcript from recent_transcripts if no conversation_items
@@ -3489,10 +3542,11 @@ async def entrypoint(ctx: JobContext):
                     "booking_confirmed": state.step == Step.CONFIRMED,
                 }
 
-                logger.info(f"[PORTAL] Extracted caller phone: {caller_phone}")
+                logger.info(f"[PORTAL] Caller phone for portal 'from': {caller_phone_for_portal}")
+                logger.info(f"[PORTAL] Caller phone for message summary: {caller_phone_for_summary}")
                 logger.info(f"[PORTAL] Transcript entries: {len(transcript)}, summary: {summary[:80]}")
 
-                # Log to portal
+                # Log to portal - use SIP number as "from" (authoritative caller ID)
                 await log_call_to_portal(
                     garage_id=garage_id,
                     room_name=room_name,
@@ -3500,7 +3554,7 @@ async def entrypoint(ctx: JobContext):
                     transcript=transcript,
                     summary=summary,
                     customer_name=f"{state.customer_name_first} {state.customer_name_last}".strip() or "Unknown",
-                    customer_phone=caller_phone,
+                    customer_phone=caller_phone_for_portal,  # Always use SIP number for portal "from"
                     registration_number=state.vrn,
                     confirmed_booking=state.step == Step.CONFIRMED,
                     booking_details=booking_details,

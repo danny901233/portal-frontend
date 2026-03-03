@@ -3391,6 +3391,7 @@ async def entrypoint(ctx: JobContext):
             interim_results=True,
             smart_format=True,
             punctuate=True,
+            keywords=["Krisp:1"],  # Enable Krisp noise cancellation
         ),
         llm="openai/gpt-4.1-mini",
         tts=elevenlabs.TTS(

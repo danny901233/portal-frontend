@@ -7,7 +7,7 @@ import AppShell from "./components/AppShell";
 
 export const metadata: Metadata = {
   title: "ReceptionMate Portal",
-  description: "Operational dashboard for LiveKit AI call logs",
+  description: "Operational dashboard for AI call logs",
 };
 
 export default async function RootLayout({

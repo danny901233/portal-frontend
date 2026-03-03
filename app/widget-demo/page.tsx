@@ -33,7 +33,7 @@ export default function WidgetDemo() {
           <div className="border rounded-lg p-6 bg-gradient-to-br from-blue-50 to-purple-50">
             <h2 className="text-xl font-semibold text-gray-900 mb-3">🎤 Voice Chat Widget</h2>
             <p className="text-gray-600 mb-4">
-              LiveKit-powered voice chat with your AI receptionist.
+              Real-time voice chat with your AI receptionist.
             </p>
             <ul className="text-sm text-gray-500 space-y-2 mb-4">
               <li>✓ Real-time voice conversation</li>
@@ -96,7 +96,7 @@ export default function WidgetDemo() {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Embed on Your Website:</h3>
           <div className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
             <code className="text-sm">
-              {`<!-- Text Chat Widget -->\n<script src="https://portal.receptionmate.co.uk/widget/YOUR_GARAGE_ID"></script>\n\n<!-- Voice Chat Widget -->\n<script src="https://portal.receptionmate.co.uk/widget-livekit/YOUR_GARAGE_ID"></script>`}
+              {`<!-- Text Chat Widget -->\n<script src="https://portal.receptionmate.co.uk/widget/YOUR_GARAGE_ID"></script>\n\n<!-- Voice Chat Widget -->\n<script src="https://portal.receptionmate.co.uk/widget-voice/YOUR_GARAGE_ID"></script>`}
             </code>
           </div>
         </div>

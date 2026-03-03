@@ -1061,6 +1061,28 @@ class ErrorMonitor:
 
 
 # ============================================================
+# STATE-AWARE VAD WRAPPER
+# ============================================================
+
+class StateAwareVAD:
+    """VAD wrapper that adjusts min_silence_duration based on call state.
+    During VRM capture (NEED_VRN), uses longer silence threshold (1.5s) to prevent
+    interrupting slow speakers spelling registrations letter by letter.
+    Otherwise uses default (0.5s) for normal conversation."""
+    
+    def __init__(self, state_ref, normal_vad, vrm_capture_vad):
+        self._state = state_ref
+        self._normal_vad = normal_vad
+        self._vrm_vad = vrm_capture_vad
+    
+    def __getattr__(self, name):
+        # Dynamically choose VAD based on current state
+        if hasattr(self._state, 'step') and str(self._state.step) == 'Step.NEED_VRN':
+            return getattr(self._vrm_vad, name)
+        return getattr(self._normal_vad, name)
+
+
+# ============================================================
 # STATE MACHINE
 # ============================================================
 
@@ -1945,7 +1967,7 @@ class SupervisorAgent(Agent):
             return (
                 f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
                 "Say EXACTLY ONE short sentence asking for their registration, e.g. 'Could I grab your registration?'\n"
-                "Then STOP. Generate NOTHING else. Wait for the caller to respond."
+                "Then STOP. Generate NOTHING else. Wait patiently - they may spell it slowly letter by letter."
             )
 
         @function_tool
@@ -3141,7 +3163,7 @@ class SupervisorAgent(Agent):
 
             # Give a specific next-action based on current step
             step_next = {
-                Step.NEED_VRN: "Say ONE short sentence asking for their registration, then STOP and WAIT.",
+                Step.NEED_VRN: "Say ONE short sentence asking for their registration, then STOP and WAIT. Take your time - let them spell it slowly.",
                 Step.CONFIRMING_VEHICLE: "Now confirm the vehicle with the caller.",
                 Step.NEED_SERVICE: "Now ask what service they need.",
                 Step.NEED_TIMESLOT: "Now offer available timeslots.",
@@ -3454,11 +3476,14 @@ async def entrypoint(ctx: JobContext):
     # Create the single supervisor agent
     supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name, assist_mode=assist_mode)
 
+    # Create state-aware VAD: normal (0.5s) for general conversation, patient (1.5s) for VRM capture
+    normal_vad = silero.VAD.load()
+    vrm_vad = silero.VAD.load(min_silence_duration=1.5)
+    state_vad = StateAwareVAD(state_ref=state, normal_vad=normal_vad, vrm_capture_vad=vrm_vad)
+
     # Create session — low-latency config with ElevenLabs TTS
     session = AgentSession(
-        vad=silero.VAD.load(
-            min_silence_duration=1.5,  # Increased from default 0.5s to 1.5s for slow speakers spelling VRNs
-        ),
+        vad=state_vad,
         turn_detection=MultilingualModel(),
         stt=deepgram.STT(
             model="nova-3",

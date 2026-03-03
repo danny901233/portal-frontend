@@ -92,16 +92,30 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
 
     if (platform === 'whatsapp') {
       // Get WhatsApp Business Account and Phone Number ID
-      const wabResponse = await axios.get('https://graph.facebook.com/v18.0/me/businesses', {
-        params: { access_token: accessToken },
-      });
-
-      const businessId = wabResponse.data.data[0]?.id;
-      if (businessId) {
-        const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${businessId}/phone_numbers`, {
+      try {
+        const wabResponse = await axios.get('https://graph.facebook.com/v18.0/me/businesses', {
           params: { access_token: accessToken },
         });
-        connectionData.whatsappPhoneNumberId = phoneResponse.data.data[0]?.id;
+
+        const businessId = wabResponse.data.data[0]?.id;
+        if (businessId) {
+          try {
+            const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${businessId}/phone_numbers`, {
+              params: { access_token: accessToken },
+            });
+            connectionData.whatsappPhoneNumberId = phoneResponse.data.data[0]?.id;
+          } catch (phoneError) {
+            console.log('[OAuth] No WhatsApp phone numbers found - this is OK for initial setup');
+            // Store a placeholder - user needs to configure WhatsApp Business in Meta Business Manager
+            connectionData.whatsappPhoneNumberId = 'pending_setup';
+          }
+        } else {
+          console.log('[OAuth] No business account found - storing connection for future setup');
+          connectionData.whatsappPhoneNumberId = 'pending_setup';
+        }
+      } catch (wabError) {
+        console.log('[OAuth] WhatsApp Business not yet configured - this is expected for new apps');
+        connectionData.whatsappPhoneNumberId = 'pending_setup';
       }
     } else if (platform === 'facebook' || platform === 'instagram') {
       // Get Facebook Pages

@@ -15,6 +15,9 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
         id: true,
         name: true,
         twilioNumber: true,
+        agentConfiguration: {
+          select: { phoneNumber: true },
+        },
       },
     });
 
@@ -22,10 +25,15 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Garage not found' });
     }
 
+    // Build a wa.me-compatible number from the agent's phoneNumber (strip spaces/dashes,
+    // convert leading 0 → 44 for UK numbers).
+    const rawPhone = garage.agentConfiguration?.phoneNumber || garage.twilioNumber || '';
+    const whatsappNumber = rawPhone.replace(/[^0-9+]/g, '').replace(/^\+/, '').replace(/^0+/, '44') || null;
+
     res.json({
       name: garage.name,
       phone: garage.twilioNumber,
-      whatsappNumber: null, // TODO: Add whatsappNumber field to schema
+      whatsappNumber,
       primaryColor: '#2563eb',
     });
   } catch (error) {

@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
-import { getChatAgentResponse } from '../../services/chatAgent.js';
+import { routeChatMessage } from '../../services/chatAgentRouter.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
 
 const router = Router();
@@ -146,8 +146,8 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
 
         // Only send agent response if agent is not paused
         if (!isAgentPaused) {
-          // Get AI response
-          const agentResponse = await getChatAgentResponse(
+            // Get AI response — router selects the correct agent based on agentScript
+          const agentResponse = await routeChatMessage(
             connection.garageId,
             messageText,
             conversation.id

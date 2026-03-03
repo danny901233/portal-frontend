@@ -1061,28 +1061,6 @@ class ErrorMonitor:
 
 
 # ============================================================
-# STATE-AWARE VAD WRAPPER
-# ============================================================
-
-class StateAwareVAD:
-    """VAD wrapper that adjusts min_silence_duration based on call state.
-    During VRM capture (NEED_VRN), uses longer silence threshold (1.5s) to prevent
-    interrupting slow speakers spelling registrations letter by letter.
-    Otherwise uses default (0.5s) for normal conversation."""
-    
-    def __init__(self, state_ref, normal_vad, vrm_capture_vad):
-        self._state = state_ref
-        self._normal_vad = normal_vad
-        self._vrm_vad = vrm_capture_vad
-    
-    def __getattr__(self, name):
-        # Dynamically choose VAD based on current state
-        if hasattr(self._state, 'step') and str(self._state.step) == 'Step.NEED_VRN':
-            return getattr(self._vrm_vad, name)
-        return getattr(self._normal_vad, name)
-
-
-# ============================================================
 # STATE MACHINE
 # ============================================================
 
@@ -3476,14 +3454,10 @@ async def entrypoint(ctx: JobContext):
     # Create the single supervisor agent
     supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name, assist_mode=assist_mode)
 
-    # Create state-aware VAD: normal (0.5s) for general conversation, patient (1.5s) for VRM capture
-    normal_vad = silero.VAD.load()
-    vrm_vad = silero.VAD.load(min_silence_duration=1.5)
-    state_vad = StateAwareVAD(state_ref=state, normal_vad=normal_vad, vrm_capture_vad=vrm_vad)
-
     # Create session — low-latency config with ElevenLabs TTS
+    # Using 1.5s min_silence_duration globally to prevent interrupting slow speakers during VRM spelling
     session = AgentSession(
-        vad=state_vad,
+        vad=silero.VAD.load(min_silence_duration=1.5),
         turn_detection=MultilingualModel(),
         stt=deepgram.STT(
             model="nova-3",

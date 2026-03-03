@@ -2185,6 +2185,18 @@ class SupervisorAgent(Agent):
                 ]
                 svc_summary = "\nAvailable services:\n" + "\n".join(svc_lines)
 
+            # If diagnostic notes were collected, recommend Diagnostic Assessment
+            if self._state.diagnostic_notes:
+                logger.info(f"[CONFIRM] Diagnostic notes exist ({len(self._state.diagnostic_notes)} notes) - recommending Diagnostic Assessment")
+                return (
+                    f"Vehicle confirmed.{svc_summary}\n\n"
+                    f"Diagnostic symptoms collected: {len(self._state.diagnostic_notes)} notes.\n"
+                    "Tell the caller: 'Right, based on what you've told me, I'd recommend a Diagnostic Assessment "
+                    "to identify the exact issue. Shall I book that in for you?'\n"
+                    "If YES → call select_service(service_name='Diagnostic Assessment') with ZERO SPEECH.\n"
+                    "If NO → ask what they'd prefer."
+                )
+
             hint = self._state.service_hint
             if hint:
                 matched = match_service(hint, services)
@@ -2249,15 +2261,6 @@ class SupervisorAgent(Agent):
                     return (
                         "BLOCKED: You must call save_caller_name FIRST before any other tool. "
                         "Get the caller's name and intent, then call save_caller_name."
-                    )
-                # Allow pre-selecting service during CONFIRMING_VEHICLE if it's from diagnostic flow
-                if self._state.step == Step.CONFIRMING_VEHICLE:
-                    # Store as hint for after confirmation completes
-                    self._state.service_hint = service_name
-                    logger.info(f"[SELECT_SERVICE] Pre-selected '{service_name}' during vehicle confirmation")
-                    return (
-                        f"Service '{service_name}' noted. Complete vehicle confirmation first.\n"
-                        "Call confirm_vehicle() to proceed."
                     )
                 return f"ERROR: Wrong step ({self._state.step.value}). Service selection not needed now."
 

@@ -34,9 +34,10 @@ from livekit.agents import (
     WorkerOptions,
     WorkerType,
     cli,
+    room_io,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import deepgram, elevenlabs, silero
+from livekit.plugins import deepgram, elevenlabs, silero, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 # ============================================================
@@ -3403,7 +3404,6 @@ async def entrypoint(ctx: JobContext):
             interim_results=True,
             smart_format=True,
             punctuate=True,
-            keywords=["Krisp:1"],  # Enable Krisp noise cancellation
         ),
         llm="openai/gpt-4.1-mini",
         tts=elevenlabs.TTS(
@@ -3485,6 +3485,11 @@ async def entrypoint(ctx: JobContext):
     await session.start(
         room=ctx.room,
         agent=supervisor,
+        room_options=room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(
+                noise_cancellation=noise_cancellation.BVC(),
+            ),
+        ),
     )
     logger.info("[ENTRYPOINT] Session started — supervisor system ready")
 

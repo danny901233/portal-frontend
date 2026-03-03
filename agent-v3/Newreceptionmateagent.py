@@ -701,6 +701,45 @@ _SORTED_NATO_DIGIT_WORDS: list[tuple[str, str]] = sorted(
 )
 
 
+def validate_uk_vrm_format(vrm: str) -> tuple[bool, str | None]:
+    """Validate UK VRM format and suggest 0/O corrections.
+    
+    UK VRM patterns:
+    - AB12CDE (current format: 2 letters, 2 digits, 3 letters)
+    - AB12CD (old format: 2 letters, 2 digits, 2 letters)
+    - A123BCD (prefix format: 1 letter, 3 digits, 3 letters)
+    
+    Returns: (is_valid, suggested_correction)
+    """
+    if len(vrm) < 5:
+        return (True, None)  # Too short to validate format
+    
+    # Check if last 2-3 chars contain digits (likely 0 instead of O)
+    last_three = vrm[-3:]
+    last_two = vrm[-2:]
+    
+    suggestion = None
+    
+    # Current format: AB12CDE (last 3 should be letters)
+    if len(vrm) == 7:
+        if any(c.isdigit() for c in last_three):
+            # Found digit(s) in last 3 chars - suggest replacing 0 with O
+            corrected = vrm[:-3] + last_three.replace('0', 'O')
+            if corrected != vrm:
+                suggestion = corrected
+                logger.info(f"[VRM_VALIDATE] Format suggests 0→O correction: '{vrm}' → '{corrected}'")
+    
+    # Old format: AB12CD (last 2 should be letters)
+    elif len(vrm) == 6 and vrm[0:2].isalpha() and vrm[2:4].isdigit():
+        if any(c.isdigit() for c in last_two):
+            corrected = vrm[:-2] + last_two.replace('0', 'O')
+            if corrected != vrm:
+                suggestion = corrected
+                logger.info(f"[VRM_VALIDATE] Format suggests 0→O correction: '{vrm}' → '{corrected}'")
+    
+    return (True, suggestion)
+
+
 def vrm_to_phonetics(vrm: str) -> str:
     """Convert a UK VRM to NATO phonetic alphabet for clear readback.
     Example: 'AB12CDE' → 'Alpha Bravo One Two Charlie Delta Echo'
@@ -1942,13 +1981,21 @@ class SupervisorAgent(Agent):
                 
                 logger.info(f"[LOOKUP] Caller confirmed '{normalized}' — API lookup (attempt {self._state.vrn_attempts})")
 
+                # Check UK VRM format and add 0→O correction if suggested
+                regs_to_try = [normalized]
+                _, format_correction = validate_uk_vrm_format(normalized)
+                if format_correction and format_correction not in regs_to_try:
+                    regs_to_try.append(format_correction)
+                    logger.info(f"[LOOKUP] Added format-based 0→O correction: '{format_correction}'")
+
                 # Try automatic B↔V↔P correction (common misheard letters)
                 _BVP_SWAPS = {"B": ["V", "P"], "V": ["B", "P"], "P": ["B", "V"]}
-                regs_to_try = [normalized]
                 first_char = normalized[0] if normalized else ""
                 if first_char in _BVP_SWAPS:
                     for alt in _BVP_SWAPS[first_char]:
-                        regs_to_try.append(alt + normalized[1:])
+                        variant = alt + normalized[1:]
+                        if variant not in regs_to_try:
+                            regs_to_try.append(variant)
 
                 result = None
                 winning_reg = normalized
@@ -2069,12 +2116,25 @@ class SupervisorAgent(Agent):
             # Generate phonetic readback
             phonetics = vrm_to_phonetics(normalized)
             
+            # Check if we should clarify 0 vs O
+            has_zero_or_o = '0' in normalized or 'O' in normalized
+            clarification_needed = ""
+            if has_zero_or_o:
+                # Check UK format to see if 0 in letter position suggests confusion
+                _, format_suggestion = validate_uk_vrm_format(normalized)
+                if format_suggestion:
+                    clarification_needed = (
+                        f"\n⚠️ CLARIFY: Registration has '0' where letter 'O' is expected. "
+                        f"After readback, ask: 'Just to confirm, is that the number Zero or the letter O as in Oscar?'"
+                    )
+            
             logger.info(f"[LOOKUP] Parsed '{reg}' → '{normalized}' → phonetics: {phonetics}")
             
             return (
                 f"Parsed registration: {normalized}\n"
                 f"Phonetic readback: {phonetics}\n\n"
-                f"Say to caller: '{phonetics}. Is that right?'\n\n"
+                f"⏸️ IMPORTANT: PAUSE and wait for the caller to finish speaking before you respond.\n"
+                f"Say to caller SLOWLY: '{phonetics}. Is that right?'{clarification_needed}\n\n"
                 f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true)\n"
                 f"If NO → Say: 'Let me get that again. Could you spell it out letter by letter?' "
                 f"Then call lookup_vehicle with their new input."

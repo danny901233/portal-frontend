@@ -3457,7 +3457,9 @@ async def entrypoint(ctx: JobContext):
     # Create session — low-latency config with ElevenLabs TTS
     session = AgentSession(
         vad=silero.VAD.load(),
-        turn_detection=MultilingualModel(),
+        turn_detection=MultilingualModel(
+            end_of_turn_threshold=1.5,  # Increased from default 0.5s to 1.5s for slow speakers spelling VRNs
+        ),
         stt=deepgram.STT(
             model="nova-3",
             language="en-GB",

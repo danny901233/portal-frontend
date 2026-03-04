@@ -809,28 +809,28 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     console.log(`[RECORDING] Strategy 2: Fetching from Twilio API for phone: ${phoneForTwilioLookup}`);
 
-    // CRITICAL SECURITY FIX: Get garage's phone number to validate recording matches
-    const garageConfig = await prisma.agentConfiguration.findUnique({
-      where: { garageId: call.garageId },
-      select: { phoneNumber: true },
+    // CRITICAL SECURITY FIX: Get garage's ReceptionMate number to validate recording matches
+    const garage = await prisma.garage.findUnique({
+      where: { id: call.garageId },
+      select: { twilioNumber: true },
     });
 
-    if (!garageConfig?.phoneNumber) {
-      console.error('[RECORDING] Cannot fetch recording: garage phone number not configured');
+    if (!garage?.twilioNumber) {
+      console.error('[RECORDING] Cannot fetch recording: garage ReceptionMate number not configured');
       return res.status(404).json({ 
-        error: 'Recording not available: garage configuration incomplete' 
+        error: 'Recording not available: garage ReceptionMate number not configured' 
       });
     }
 
-    let garagePhoneNumber = garageConfig.phoneNumber;
-    console.log(`[RECORDING] Original garage phone: ${garagePhoneNumber}`);
+    let garagePhoneNumber = garage.twilioNumber;
+    console.log(`[RECORDING] ReceptionMate number: ${garagePhoneNumber}`);
     
     // Normalize garage phone to E.164 format for Twilio API (same as customer phone normalization)
     garagePhoneNumber = garagePhoneNumber.replace(/\s+/g, ''); // Remove spaces
     if (garagePhoneNumber.startsWith('0') && garagePhoneNumber.length >= 10) {
       // UK number without country code: 01905xxx -> +441905xxx
       garagePhoneNumber = '+44' + garagePhoneNumber.substring(1);
-      console.log(`[RECORDING] Normalized garage phone to E.164: ${garagePhoneNumber}`);
+      console.log(`[RECORDING] Normalized ReceptionMate number to E.164: ${garagePhoneNumber}`);
     }
     
     console.log(`[RECORDING] Validating recordings match garage number: ${garagePhoneNumber}`);

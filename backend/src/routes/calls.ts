@@ -825,11 +825,16 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     let garagePhoneNumber = garage.twilioNumber;
     console.log(`[RECORDING] ReceptionMate number: ${garagePhoneNumber}`);
     
-    // Normalize garage phone to E.164 format for Twilio API (same as customer phone normalization)
+    // Normalize garage phone to E.164 format for Twilio API
     garagePhoneNumber = garagePhoneNumber.replace(/\s+/g, ''); // Remove spaces
-    if (garagePhoneNumber.startsWith('0') && garagePhoneNumber.length >= 10) {
-      // UK number without country code: 01905xxx -> +441905xxx
-      garagePhoneNumber = '+44' + garagePhoneNumber.substring(1);
+    if (!garagePhoneNumber.startsWith('+')) {
+      // Add + prefix if missing (e.g., "441603249593" -> "+441603249593")
+      if (garagePhoneNumber.startsWith('44')) {
+        garagePhoneNumber = '+' + garagePhoneNumber;
+      } else if (garagePhoneNumber.startsWith('0') && garagePhoneNumber.length >= 10) {
+        // UK number without country code: 01905xxx -> +441905xxx
+        garagePhoneNumber = '+44' + garagePhoneNumber.substring(1);
+      }
       console.log(`[RECORDING] Normalized ReceptionMate number to E.164: ${garagePhoneNumber}`);
     }
     

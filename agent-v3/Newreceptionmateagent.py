@@ -2953,7 +2953,9 @@ class SupervisorAgent(Agent):
             city: str = "",
             notes: str = "",
         ) -> str:
-            """Finalize the booking. ALL fields except notes are required."""
+            """Finalize the booking. ALL fields except notes are required.
+            
+            For phone: Pass 'verified' to use the caller's SIP number, or provide the actual number."""
 
             if self._state.step != Step.NEED_CONTACT:
                 if self._state.step == Step.GREETING:
@@ -2965,7 +2967,15 @@ class SupervisorAgent(Agent):
 
             first = self._state.customer_name_first
             last = self._state.customer_name_last
-            phone = _sanitise_phone((phone or "").strip())
+            
+            # Handle phone verification - if 'verified', use SIP number
+            phone_raw = (phone or "").strip()
+            if phone_raw.lower() == 'verified' and self._state.incoming_sip_number:
+                phone = _sanitise_phone(self._state.incoming_sip_number)
+                logger.info(f"[SUBMIT_BOOKING] Using verified SIP number: {phone}")
+            else:
+                phone = _sanitise_phone(phone_raw)
+            
             email = _sanitise_email((email or "").strip().replace(" ", "").lower())
             house_name_or_number = (house_name_or_number or "").strip()
             postcode = (postcode or "").strip()
@@ -2993,6 +3003,10 @@ class SupervisorAgent(Agent):
                     "These steps must complete before submitting. Go back and complete them first."
                 )
 
+            # Store contact phone for later use
+            if phone:
+                self._state.contact_phone = phone
+            
             # Validate contact fields
             missing = []
             if not first:
@@ -3000,6 +3014,16 @@ class SupervisorAgent(Agent):
             if not last:
                 missing.append("surname")
             if not phone:
+                # Provide phone verification prompt if SIP number available
+                if self._state.incoming_sip_number:
+                    digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
+                    if len(digits_only) >= 3:
+                        last_three = digits_only[-3:]
+                        return (
+                            f"Missing phone number. Ask: 'Is the number ending in {last_three} the best number for you?'\n"
+                            f"If YES → call submit_booking with phone='verified' (this will use {self._state.incoming_sip_number})\n"
+                            f"If NO → ask 'What's the best number for you?' and use that number."
+                        )
                 missing.append("phone number")
             # Reject obviously fake/placeholder emails the LLM may hallucinate
             _fake_email_domains = ("domain.com", "example.com", "email.com", "test.com", "placeholder.com")
@@ -3025,6 +3049,17 @@ class SupervisorAgent(Agent):
                         "update_caller_name(first_name='...', last_name='...') to save it. "
                         "After that, call submit_booking again."
                     )
+                # If only phone is missing and we have SIP, prompt for verification
+                if len(missing) == 1 and 'phone' in missing[0].lower() and self._state.incoming_sip_number:
+                    digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
+                    if len(digits_only) >= 3:
+                        last_three = digits_only[-3:]
+                        return (
+                            f"Ask: 'Is the number ending in {last_three} the best number for you?'\n"
+                            f"If YES → call submit_booking with phone='verified'\n"
+                            f"If NO → ask 'What's the best number for you?' and use that number."
+                        )
+                return f"Cannot submit — missing: {', '.join(missing)}. Collect these details from the caller first."
             # Build notes: start with any agent-passed notes, then append extras
             all_notes = notes
 
@@ -3175,15 +3210,22 @@ class SupervisorAgent(Agent):
                 return f"ERROR: Wrong step ({self._state.step.value}). Cannot take message now."
             
             # Validate phone is provided
-            phone_clean = (phone or "").strip()
-            if not phone_clean:
+            phone_raw = (phone or "").strip()
+            if not phone_raw:
                 # Provide phone verification prompt if SIP number available
                 if self._state.incoming_sip_number:
                     digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
                     if len(digits_only) >= 3:
                         last_three = digits_only[-3:]
-                        return f"Missing phone number. Ask: 'Is the number ending in {last_three} the best number for you?' If YES, call take_message with phone='{self._state.incoming_sip_number}'. If NO, ask 'What's the best number for you?' and collect it."
+                        return f"Missing phone number. Ask: 'Is the number ending in {last_three} the best number for you?' If YES, call take_message with phone='verified'. If NO, ask 'What's the best number for you?' and collect it."
                 return "Missing phone number. Ask: 'What's the best number for you?' then call take_message with it."
+            
+            # Handle phone verification - if 'verified', use SIP number
+            if phone_raw.lower() == 'verified' and self._state.incoming_sip_number:
+                phone_clean = _sanitise_phone(self._state.incoming_sip_number)
+                logger.info(f"[TAKE_MESSAGE] Using verified SIP number: {phone_clean}")
+            else:
+                phone_clean = _sanitise_phone(phone_raw)
 
             self._state.message = (message or "").strip()
             self._state.contact_phone = phone_clean
@@ -3249,7 +3291,11 @@ One person, one voice, one natural conversation from start to finish.
 TODAY: {today_str}. Tomorrow: {tomorrow_str} ({tomorrow.strftime("%Y-%m-%d")}).
 OPENING HOURS: {get_business_hours_text()}
 
-CALLER'S PHONE NUMBER: You have access to the caller's incoming phone number for verification purposes. When collecting their contact number, ask: "Is the number ending in [last 3 digits] the best number for you?" The tools will provide you with the correct digits to use.
+CALLER'S PHONE NUMBER: You have access to the caller's incoming SIP phone number. When collecting contact details:
+- For bookings/messages: The tools will prompt you to verify with last 3 digits ("Is the number ending in [last 3 digits] the best number for you?")
+- If YES: Call the tool with phone='verified' (the system will automatically use the SIP number)
+- If NO or unknown/empty: Ask "What's the best number for you?" and pass that number to the tool
+- The SIP number is ALWAYS used for the portal "from" field regardless of which number is used for callback
 
 MODE: ASSIST MODE - You CANNOT make bookings. Your role is to help callers by:
 - Answering questions about services, pricing, and opening hours
@@ -3572,12 +3618,13 @@ async def entrypoint(ctx: JobContext):
             try:
                 call_duration = int(time.time() - state.call_start_time) if state.call_start_time else 0
 
-                # ALWAYS use incoming phone number from SIP participant (not what customer says)
-                # This ensures accuracy regardless of customer errors when saying their number
-                caller_phone_for_portal = ""  # Used as "from" number in portal
-                caller_phone_for_summary = ""  # Used in message summary (may differ if customer provides alternate)
+                # ALWAYS use incoming phone number from SIP participant for portal "from" field
+                # This ensures accuracy regardless of what customer says
+                caller_phone_for_portal = ""  # Used as "from" number in portal (ALWAYS SIP)
+                caller_phone_for_summary = ""  # Used for callbacks/messages (may be alternate number)
                 
                 try:
+                    # Try to get SIP number from participant attributes
                     attrs = participant.attributes or {}
                     caller_phone_for_portal = (
                         attrs.get("sip.phoneNumber") or
@@ -3592,22 +3639,24 @@ async def entrypoint(ctx: JobContext):
                     if not caller_phone_for_portal and state.incoming_sip_number:
                         caller_phone_for_portal = state.incoming_sip_number
                     
+                    # ALWAYS use SIP number for portal 'from' field
                     if caller_phone_for_portal:
                         logger.info(f"[PORTAL] Using incoming caller phone from SIP for 'from' field: {caller_phone_for_portal}")
                     else:
-                        # Only if we can't get SIP phone at all, use what customer said
+                        # Last resort: use customer-provided (should rarely happen)
                         caller_phone_for_portal = state.contact_phone or ""
                         logger.info(f"[PORTAL] No SIP phone available, using customer-provided for 'from': {caller_phone_for_portal}")
                     
-                    # For message summary: use alternate contact phone if provided, otherwise use SIP number
-                    caller_phone_for_summary = state.contact_phone or caller_phone_for_portal
+                    # Customer phone for message summary and callbacks
+                    # Use contact_phone if different from SIP (caller provided alternate), otherwise use SIP
+                    caller_phone_for_summary = state.contact_phone if state.contact_phone else caller_phone_for_portal
                     if state.contact_phone and state.contact_phone != caller_phone_for_portal:
-                        logger.info(f"[PORTAL] Using alternate contact number for message summary: {caller_phone_for_summary}")
-                    
-                except Exception:
-                    caller_phone_for_portal = state.contact_phone or ""
-                    caller_phone_for_summary = state.contact_phone or ""
-                    logger.warning(f"[PORTAL] Error extracting SIP phone, using customer-provided: {caller_phone_for_portal}")
+                        logger.info(f"[PORTAL] Caller provided alternate phone for callback: {caller_phone_for_summary}")
+                except Exception as e:
+                    # Fallback: still try to use SIP if available
+                    caller_phone_for_portal = state.incoming_sip_number if state.incoming_sip_number else (state.contact_phone or "")
+                    caller_phone_for_summary = state.contact_phone if state.contact_phone else caller_phone_for_portal
+                    logger.warning(f"[PORTAL] Error extracting phones, using: from={caller_phone_for_portal}, callback={caller_phone_for_summary}")
 
                 # Build transcript: prefer conversation_items (full agent+customer turns captured in real-time)
                 # Fall back to synthetic transcript from recent_transcripts if no conversation_items

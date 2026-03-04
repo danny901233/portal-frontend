@@ -1,36 +1,119 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## ReceptionMate Portal
 
-## Getting Started
+ReceptionMate is an end-to-end portal for reviewing AI-assisted phone calls. A LiveKit-based voice agent posts call payloads into this system, which stores them in PostgreSQL and exposes a secure dashboard for operators.
 
-First, run the development server:
+### Tech Stack
+
+- **Frontend:** Next.js 14 (App Router), TypeScript, TailwindCSS, TanStack React Query, Axios
+- **Backend:** Node.js, Express, TypeScript, Prisma ORM, PostgreSQL, JWT auth, Zod validation
+
+---
+
+## Prerequisites
+
+- Node.js 18+
+- npm 9+
+- PostgreSQL 14+ (or compatible managed instance)
+
+---
+
+## Environment Configuration
+
+### Frontend
+
+Copy `.env.local.example` into `.env.local` at the repository root and adjust URLs if required:
+
+```bash
+cp .env.local.example .env.local
+# edit NEXT_PUBLIC_API_BASE_URL if your backend runs on a different host
+```
+
+### Backend
+
+Copy `backend/.env.example` into `backend/.env` and configure secrets/database credentials:
+
+```bash
+cp backend/.env.example backend/.env
+# update PORT, DATABASE_URL, JWT_SECRET, etc.
+```
+
+`ONBOARDING_SERVICE_URL` should point to the workflow endpoint that provisions LiveKit/Twilio resources. If it is left empty the new "Activate garage" button will simply log requests for manual follow-up.
+
+---
+
+## Installation & Setup
+
+Install dependencies for both frontend and backend:
+
+```bash
+# from repo root
+npm install
+
+cd backend
+npm install
+```
+
+Generate the Prisma client, run migrations, and seed an initial admin user/garage:
+
+```bash
+cd backend
+npm run prisma:generate
+npm run migrate:dev
+npm run seed
+```
+
+The seed script respects the `SEED_*` variables defined in `backend/.env`; default credentials are `admin@receptionmate.ai` / `ChangeMe123!` with garage ID `d5a97619-c212-4c22-8973-fc946b06ad59`.
+
+---
+
+## Running the Stack Locally
+
+Run the backend API on port 4000:
+
+```bash
+cd backend
+npm run dev
+```
+
+In a separate terminal, start the Next.js frontend (defaults to port 3000):
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Log in at `http://localhost:3000/login` using the seeded credentials. The dashboard under `/calls` provides a LiveKit-style SaaS UI with a call list and detailed transcript view.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Webhook
 
-## Learn More
+The LiveKit AI agent should POST call payloads to the backend endpoint:
 
-To learn more about Next.js, take a look at the following resources:
+```
+POST http://localhost:4000/api/calls
+Headers: Optional `x-webhook-secret: <secret>` if configured
+Body: {
+	"garageId": "<uuid>",
+	"roomName": "playground-1234",
+	"recordingUrl": "https://...",
+	"metrics": { "llm_prompt_tokens": 0, ... },
+	"transcript": [{ "speaker": "user", "text": "hello", "timestamp": 123456 }],
+	"summary": "User said hello"
+}
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Calls are automatically associated with garages (created on demand) and made available through the protected routes:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `POST /api/calls`
+- `GET /api/garages/:garageId/calls`
+- `GET /api/garages/:garageId/calls/:callId`
+- `POST /api/auth/login`
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Production Notes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Use a strong `JWT_SECRET` and configure HTTPS/secure deployment settings.
+- For multi-garage access, provision user records with hashed passwords via Prisma or an admin workflow.
+- Consider enabling Prisma logging only in development (already configured).
+- Remember to rotate the optional webhook secret regularly.

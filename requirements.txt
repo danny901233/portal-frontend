@@ -1,0 +1,10 @@
+livekit-agents
+livekit-plugins-openai
+livekit-plugins-elevenlabs
+livekit-plugins-deepgram
+livekit-plugins-turn-detector
+livekit
+requests
+python-dotenv
+openpyxl
+boto3

@@ -1,0 +1,661 @@
+'use client';
+
+import { useState } from 'react';
+import { Bot, Sparkles } from 'lucide-react';
+
+export default function Home() {
+  const [showModal, setShowModal] = useState(true);
+  const [selectedOption, setSelectedOption] = useState<'marketplace' | 'custom' | null>(null);
+  const [currentStep, setCurrentStep] = useState(1); // 1: Agent Details, 2: Agent Goals, 3: Phone & Availability
+
+  return (
+    <main className="min-h-screen bg-gray-50">
+      {/* Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full p-8 relative animate-in fade-in duration-300">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-receptionmate-100 rounded-full mb-4">
+                <Bot className="w-8 h-8 text-receptionmate-600" />
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                Create Voice AI Agent
+              </h1>
+              <p className="text-gray-600 text-lg">
+                Choose how you'd like to get started with ReceptionMate
+              </p>
+            </div>
+
+            {/* Options Grid */}
+            <div className="grid md:grid-cols-2 gap-6 mb-6">
+              {/* Browse Marketplace */}
+              <button
+                onClick={() => setSelectedOption('marketplace')}
+                className={`group relative p-8 rounded-xl border-2 transition-all duration-200 text-left ${
+                  selectedOption === 'marketplace'
+                    ? 'border-receptionmate-600 bg-receptionmate-50 shadow-lg'
+                    : 'border-gray-200 hover:border-receptionmate-300 hover:shadow-md'
+                }`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-purple-100 rounded-lg group-hover:bg-purple-200 transition-colors">
+                    <Sparkles className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                      Browse Marketplace
+                    </h3>
+                    <p className="text-gray-600 text-sm leading-relaxed">
+                      Explore pre-built AI agents optimized for various industries. 
+                      Quick setup with proven configurations ready to deploy.
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
+                        Auto Shop
+                      </span>
+                      <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
+                        Medical
+                      </span>
+                      <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
+                        Restaurant
+                      </span>
+                      <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-full">
+                        +12 more
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {selectedOption === 'marketplace' && (
+                  <div className="absolute top-4 right-4">
+                    <div className="w-6 h-6 bg-receptionmate-600 rounded-full flex items-center justify-center">
+                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  </div>
+                )}
+              </button>
+
+              {/* Create Custom Agent */}
+              <button
+                onClick={() => setSelectedOption('custom')}
+                className={`group relative p-8 rounded-xl border-2 transition-all duration-200 text-left ${
+                  selectedOption === 'custom'
+                    ? 'border-receptionmate-600 bg-receptionmate-50 shadow-lg'
+                    : 'border-gray-200 hover:border-receptionmate-300 hover:shadow-md'
+                }`}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-receptionmate-100 rounded-lg group-hover:bg-blue-200 transition-colors">
+                    <Bot className="w-6 h-6 text-receptionmate-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                      Create Custom Agent
+                    </h3>
+                    <p className="text-gray-600 text-sm leading-relaxed">
+                      Build a custom AI agent from scratch with full control over personality, 
+                      knowledge base, tools, and call flows tailored to your business.
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="px-2 py-1 bg-receptionmate-50 text-receptionmate-700 text-xs rounded-full">
+                        Custom Greetings
+                      </span>
+                      <span className="px-2 py-1 bg-receptionmate-50 text-receptionmate-700 text-xs rounded-full">
+                        FAQs
+                      </span>
+                      <span className="px-2 py-1 bg-receptionmate-50 text-receptionmate-700 text-xs rounded-full">
+                        Call Routing
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {selectedOption === 'custom' && (
+                  <div className="absolute top-4 right-4">
+                    <div className="w-6 h-6 bg-receptionmate-600 rounded-full flex items-center justify-center">
+                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  </div>
+                )}
+              </button>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowModal(false)}
+                className="px-6 py-2.5 text-gray-700 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!selectedOption}
+                onClick={() => {
+                  if (selectedOption === 'custom') {
+                    // For demo: just close modal and show configurator
+                    setShowModal(false);
+                  }
+                }}
+                className={`px-6 py-2.5 rounded-lg font-medium transition-all ${
+                  selectedOption
+                    ? 'bg-receptionmate-600 hover:bg-receptionmate-700 text-white shadow-lg shadow-receptionmate-600/30'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content - Shows after modal is dismissed */}
+      {!showModal && (
+        <div className="container mx-auto px-4 py-12 max-w-6xl">
+          {/* Header */}
+          <div className="mb-6">
+            <h1 className="text-2xl font-semibold text-gray-900 mb-1">Create a New Agent</h1>
+            <p className="text-gray-500 text-sm">Customize Agents for your Business</p>
+          </div>
+
+          {/* Progress Steps */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between max-w-4xl mx-auto">
+              {/* Step 1: Agent Details */}
+              <div className="flex flex-col items-center flex-1">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  currentStep >= 1 ? 'bg-receptionmate-600' : 'bg-gray-300'
+                }`}>
+                  {currentStep > 1 ? (
+                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <span className="text-white font-medium">1</span>
+                  )}
+                </div>
+                <span className="mt-2 text-sm font-medium text-gray-900">Agent Details</span>
+              </div>
+
+              {/* Connector Line */}
+              <div className={`flex-1 h-1 mx-4 ${currentStep >= 2 ? 'bg-receptionmate-600' : 'bg-gray-300'}`} />
+
+              {/* Step 2: Agent Goals */}
+              <div className="flex flex-col items-center flex-1">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  currentStep >= 2 ? 'bg-receptionmate-600' : 'bg-gray-300'
+                }`}>
+                  {currentStep > 2 ? (
+                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <span className="text-white font-medium">2</span>
+                  )}
+                </div>
+                <span className="mt-2 text-sm font-medium text-gray-900">Agent Goals</span>
+              </div>
+
+              {/* Connector Line */}
+              <div className={`flex-1 h-1 mx-4 ${currentStep >= 3 ? 'bg-receptionmate-600' : 'bg-gray-300'}`} />
+
+              {/* Step 3: Phone & Availability */}
+              <div className="flex flex-col items-center flex-1">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  currentStep >= 3 ? 'bg-receptionmate-600' : 'bg-gray-300'
+                }`}>
+                  <span className="text-white font-medium">3</span>
+                </div>
+                <span className="mt-2 text-sm font-medium text-receptionmate-600">Phone & Availability</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column - Main Form */}
+            <div className="lg:col-span-2">
+              {/* Step 2: Agent Goals */}
+              {currentStep === 2 && (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h2 className="text-lg font-semibold text-gray-900">Agent goals</h2>
+                      <p className="text-sm text-gray-600">Set up Agent's personality and actions</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button className="text-receptionmate-600 hover:text-receptionmate-700 text-sm font-medium">
+                        Switch to advanced mode
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    {/* Knowledge Base Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Select knowledge base
+                      </label>
+                      <div className="flex gap-3">
+                        <select className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-receptionmate-500 focus:border-transparent outline-none bg-white text-gray-500">
+                          <option>Select knowledge base for this agent</option>
+                        </select>
+                        <button className="flex items-center gap-2 px-4 py-2 text-receptionmate-600 hover:text-receptionmate-700 font-medium border border-receptionmate-200 rounded-md hover:bg-receptionmate-50 transition-colors">
+                          Create New
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Details to Collect */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <label className="text-sm font-medium text-gray-900">
+                          Details to collect from the Contact
+                        </label>
+                        <button className="text-gray-400 hover:text-gray-600">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <label className="flex items-center gap-2 px-4 py-3 border-2 border-gray-200 rounded-lg hover:border-receptionmate-300 cursor-pointer transition-colors">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" />
+                          <span className="text-sm font-medium text-gray-700">Name</span>
+                        </label>
+                        <label className="flex items-center gap-2 px-4 py-3 border-2 border-gray-200 rounded-lg hover:border-receptionmate-300 cursor-pointer transition-colors">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" />
+                          <span className="text-sm font-medium text-gray-700">Email</span>
+                        </label>
+                        <label className="flex items-center gap-2 px-4 py-3 border-2 border-gray-200 rounded-lg hover:border-receptionmate-300 cursor-pointer transition-colors">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" />
+                          <span className="text-sm font-medium text-gray-700">Address</span>
+                        </label>
+                        <label className="flex items-center gap-2 px-4 py-3 border-2 border-gray-200 rounded-lg hover:border-receptionmate-300 cursor-pointer transition-colors">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" />
+                          <span className="text-sm font-medium text-gray-700">Contact's Issue</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Add call summary checkbox */}
+                    <div>
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" className="mt-1 w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" defaultChecked />
+                        <span className="text-sm text-gray-600">Add call summary as a note to the contact</span>
+                      </label>
+                    </div>
+
+                    {/* Email Notification */
+                    <div className="space-y-3">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <div className="relative mt-0.5">
+                          <input type="checkbox" className="sr-only peer" defaultChecked />
+                          <div className="w-11 h-6 bg-receptionmate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                        </div>
+                        <span className="text-sm text-gray-900 font-medium">Receive Email notification post call completion</span>
+                      </label>
+
+                      {/* Email Recipients */}
+                      <div className="ml-14 space-y-2">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" defaultChecked />
+                          <span className="text-sm text-gray-700">All Admins</span>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" />
+                          <span className="text-sm text-gray-700">All Users</span>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" />
+                          <span className="text-sm text-gray-700">Contact's Assigned User</span>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" />
+                          <span className="text-sm text-gray-700">Specific Users</span>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input type="checkbox" className="w-4 h-4 text-receptionmate-600 border-gray-300 rounded focus:ring-receptionmate-500" />
+                          <span className="text-sm text-gray-700">Custom Email</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex justify-between pt-6 border-t border-gray-200 mt-8">
+                    <button
+                      onClick={() => setCurrentStep(1)}
+                      className="px-6 py-2.5 text-gray-700 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+                    >
+                      Back
+                    </button>
+                    <button 
+                      onClick={() => setCurrentStep(3)}
+                      className="px-6 py-2.5 bg-receptionmate-600 hover:bg-receptionmate-700 text-white rounded-lg font-medium shadow-sm transition-all"
+                    >
+                      Next: Phone & Availability
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {currentStep === 3 && (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-1">SIP Bridge Configuration</h2>
+                  <p className="text-sm text-gray-600 mb-6">
+                    Configure your SIP bridge settings and agent availability
+                  </p>
+
+                  <div className="mb-6 space-y-6">
+                    {/* SIP Trunk Information */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div>
+                          <h3 className="text-sm font-semibold text-blue-900 mb-1">SIP Bridge Mode</h3>
+                          <p className="text-xs text-blue-800">
+                            This agent will receive calls via SIP trunk forwarding from your existing phone system. No phone number purchase required.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* SIP Endpoint Display */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        SIP Endpoint
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value="sip:leah@receptionmate.co.uk"
+                          readOnly
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 outline-none"
+                        />
+                        <button className="px-4 py-2 text-receptionmate-600 hover:text-receptionmate-700 font-medium border border-receptionmate-200 rounded-md hover:bg-receptionmate-50 transition-colors">
+                          Copy
+                        </button>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-600">
+                        Configure your phone system to forward calls to this SIP endpoint
+                      </p>
+                    </div>
+
+                    {/* Authentication Details */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Authentication
+                      </label>
+                      <div className="bg-gray-50 rounded-md p-4 space-y-2 text-sm font-mono">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Username:</span>
+                          <span className="text-gray-900">leah-agent-01</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Password:</span>
+                          <span className="text-gray-900">••••••••••••</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Domain:</span>
+                          <span className="text-gray-900">receptionmate.co.uk</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Set Working Hours Toggle */}
+                    <div>
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <div className="relative">
+                          <input type="checkbox" className="sr-only peer" />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-receptionmate-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">
+                            Set working hours for the agent
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            The agent is active 24/7 by default
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex justify-between pt-6 border-t border-gray-200">
+                    <button
+                      onClick={() => setCurrentStep(2)}
+                      className="px-6 py-2.5 text-gray-700 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+                    >
+                      Back
+                    </button>
+                    <button className="px-6 py-2.5 bg-receptionmate-600 hover:bg-receptionmate-700 text-white rounded-lg font-medium shadow-sm transition-all">
+                      Save Configuration
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {currentStep === 1 && (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 space-y-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-lg font-semibold text-gray-900">Agent details</h2>
+                      <p className="text-sm text-gray-600">Customize your Agent according to your needs</p>
+                    </div>
+                    <button className="flex items-center gap-2 text-receptionmate-600 hover:text-receptionmate-700">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Advanced Settings
+                    </button>
+                  </div>
+
+                  {/* Agent Name & Business Name Row */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Agent name <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Leah"
+                          defaultValue="Leah"
+                          maxLength={40}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-receptionmate-500 focus:border-transparent outline-none"
+                        />
+                        <span className="absolute right-3 top-2 text-xs text-gray-400">4 / 40</span>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">Enter the name of the Agent</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Business name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="ReceptionMate"
+                        defaultValue="ReceptionMate"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-receptionmate-500 focus:border-transparent outline-none"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Enter the name of the Business</p>
+                    </div>
+                  </div>
+
+                  {/* Voice Row */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">Voice</label>
+                    <div className="flex gap-2">
+                      <div className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">Leah</span>
+                          <button className="flex items-center gap-1 text-receptionmate-600 hover:text-receptionmate-700">
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            Listen
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">English, British, Female</p>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">Browse and select the perfect AI voice for your project</p>
+                  </div>
+
+                  {/* Timezone Row */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Timezone <span className="text-red-500">*</span>
+                    </label>
+                    <select className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-receptionmate-500 focus:border-transparent outline-none bg-white">
+                      <option>GMT+00:00 Europe/London (GMT)</option>
+                      <option>GMT-05:00 America/New_York (EST)</option>
+                      <option>GMT-08:00 America/Los_Angeles (PST)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">Select the timezone for your AI agent</p>
+                  </div>
+
+                  {/* Greeting Message Configuration */}
+                  <div className="pt-6 border-t border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Greeting Message</h2>
+
+                    {/* Agent's Initial Message */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-2">
+                        Agent's Initial Message <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <textarea
+                          rows={4}
+                          defaultValue="Hey, you have reached ReceptionMate. How can I help you today?"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-receptionmate-500 focus:border-transparent outline-none resize-none"
+                        />
+                        <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                          <span className="text-xs text-gray-400">62 / 190</span>
+                          <button className="text-gray-400 hover:text-gray-600">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
+                    <button
+                      onClick={() => setShowModal(true)}
+                      className="px-6 py-2.5 text-gray-700 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={() => setCurrentStep(2)}
+                      className="px-6 py-2.5 bg-receptionmate-600 hover:bg-receptionmate-700 text-white rounded-lg font-medium shadow-sm transition-all"
+                    >
+                      Next: Agent Goals
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column - Test Your Agent Panel - Only on Step 3 */}
+            {currentStep === 3 && (
+            <div className="lg:col-span-1">
+              <div className="bg-gradient-to-br from-receptionmate-500 to-receptionmate-600 rounded-lg shadow-lg p-6 text-white sticky top-6">
+                <h3 className="text-xl font-semibold mb-6">Test Your Agent</h3>
+
+                {/* Call Type Selection */}
+                <div className="mb-6">
+                  <p className="text-sm font-medium mb-3">Choose Call Type</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button className="bg-white text-receptionmate-600 px-4 py-3 rounded-lg font-medium text-sm hover:bg-receptionmate-50 transition-colors flex items-center justify-center gap-2">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                      </svg>
+                      Phone Call
+                    </button>
+                    <button className="bg-receptionmate-700 text-white px-4 py-3 rounded-lg font-medium text-sm hover:bg-receptionmate-800 transition-colors flex items-center justify-center gap-2 border border-receptionmate-500">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+                      </svg>
+                      Web Call
+                    </button>
+                  </div>
+                </div>
+
+                {/* Phone Icon */}
+                <div className="flex justify-center mb-6">
+                  <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
+                    <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                    </svg>
+                  </div>
+                </div>
+
+                <p className="text-center font-medium mb-6">Test Your Agent</p>
+
+                {/* Phone Number Inputs */}
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Select The Number To Call From <span className="text-red-300">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="+447426943017"
+                      className="w-full px-3 py-2 rounded-lg bg-white/90 text-gray-900 placeholder-gray-500 outline-none focus:ring-2 focus:ring-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Enter The Number To Receive The Call <span className="text-red-300">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="+1 (555) 000-0000"
+                      className="w-full px-3 py-2 rounded-lg bg-white/90 text-gray-900 placeholder-gray-500 outline-none focus:ring-2 focus:ring-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Call Me Button */}
+                <button className="w-full bg-white text-receptionmate-600 py-3 rounded-lg font-medium hover:bg-receptionmate-50 transition-colors flex items-center justify-center gap-2 mb-4">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                  </svg>
+                  Call Me
+                </button>
+
+                <p className="text-center text-sm">(10 minutes left today)</p>
+
+                {/* Call History */}
+                <div className="mt-6">
+                  <p className="text-sm font-medium mb-2">Call History</p>
+                  <select className="w-full px-3 py-2 rounded-lg bg-white/90 text-gray-500 outline-none">
+                    <option>Choose date to view history</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            )}
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}

@@ -1,0 +1,9 @@
+Service Code,Service Name,Service Vat Rate,Service Export Sell Price,Service Engine Size From,Service Engine Size To,Service Fuel Type Restriction
+AIR1,Air Con Recharge - R134a,S,84,,,
+FS1,Full Service 0cc-1199cc,S,132,0,1199,Diesel or Petrol
+FS2,Full Service 1200cc - 1599cc,S,156,1200,1599,Diesel or Petrol
+FS3,Full Service 1600cc-1999cc,S,175,1600,1999,Diesel or Petrol
+FSE1,Hybrid Vehicle Service,S,155.94,,,Hybrid
+MOT-4,MOT Class 4 Online,0,50,,,
+PUNC,Puncture Repair,S,12,,,
+WA,Wheel Alignment,S,47.99,,,

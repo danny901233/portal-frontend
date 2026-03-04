@@ -1,0 +1,343 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../backend/node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Garage {
+  id    String @id @default(uuid())
+  name  String
+  twilioNumber String?
+  hasMessagingAccess Boolean @default(false)
+
+  // Billing Configuration
+  subscriptionCostGbp Float @default(0)
+  includedMinutes Int @default(0)
+  costPerMinuteGbp Float @default(0)
+  vatRate Float @default(0.20)
+
+  // Trial and Activation
+  trialEndDate DateTime?
+  requiresBookingActivation Boolean @default(false)
+  bookingsRequiredForActivation Int @default(4)
+  activationBookingsCount Int @default(0)
+  subscriptionActivatedAt DateTime?
+
+  // Setup Wizard
+  setupWizardCompleted Boolean @default(false)
+  setupWizardCompletedAt DateTime?
+
+  calls Call[]
+  agentConfiguration AgentConfiguration?
+  knowledgeDocuments AgentKnowledgeDocument[]
+  business   Business? @relation(fields: [businessId], references: [id])
+  businessId String?
+  conversations ChatConversation[]
+  socialMediaConnections SocialMediaConnection[]
+  customers Customer[]
+  smsBookingLinks SmsBookingLink[]
+  invoices Invoice[]
+}
+
+model Call {
+  id           String   @id @default(cuid())
+  garageId     String
+  garage       Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  roomName     String
+  recordingUrl String?
+  recordingDurationSeconds Int?
+  recordingCompletedAt DateTime?
+  twilioCallSid String?
+  fromNumber     String?
+  durationSeconds Int    @default(0)
+  callType       String  @default("unknown")
+  registrationNumber String?
+  customerName   String?
+  customerPhone  String?
+  confirmedBooking Boolean @default(false)
+  confirmedBookingCategory ConfirmedBookingCategory?
+  capturedRevenue Float?
+  bookingDetails String?
+  metrics      Json
+  transcript   Json
+  summary      String
+  emotionData  Json?
+  createdAt    DateTime @default(now())
+  feedback     CallFeedback?
+}
+
+model TwilioRecording {
+  id        String   @id @default(cuid())
+  callSid   String   @unique
+  recordingSid String?
+  recordingUrl String
+  recordingDurationSeconds Int?
+  completedAt DateTime?
+  roomName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id           String @id @default(cuid())
+  email        String @unique
+  passwordHash String
+  mustChangePassword Boolean @default(false)
+  mustSetupPayment   Boolean @default(false)
+  gocardlessMandateId String?
+  gocardlessCustomerId String?
+  billingCycleStartDate DateTime?
+  nextBillingDate      DateTime?
+  garageAccessIds String[] @default([])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  role         UserRole @default(USER)
+  branchRoles  Json @default("{}")
+  resetToken       String?
+  resetTokenExpiry DateTime?
+
+  // Onboarding tracking
+  setupWizardCompleted Boolean @default(false)
+  setupWizardCompletedAt DateTime?
+}
+
+model AgentConfiguration {
+  id                String   @id @default(cuid())
+  garageId          String   @unique
+  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  branchName        String
+  phoneNumber       String?
+  emailAddress      String?
+  branchAddress     String?
+  websiteUrl        String?
+  weeklyOpeningHours Json?
+  holidayClosures   String?
+  greetingLine      String?
+  tonePreference    String   @default("standard")
+  responseSpeed     String   @default("normal")
+  interruptionSensitivity Float @default(0.5)
+  allowFastFitOnly  Boolean  @default(false)
+  notificationEmails String[] @default([])
+  integrationProvider String  @default("none")
+  integrationProviderConfig Json?
+  agentType         String   @default("assist")
+  agentScript       String   @default("receptionmate-agent")
+  enableSmsBookingLinks Boolean @default(true)
+  voice             String   @default("leah")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model AgentKnowledgeDocument {
+  id        String   @id @default(cuid())
+  garageId  String
+  garage    Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  source    String
+  title     String?
+  url       String?
+  content   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([garageId, source])
+  @@index([garageId])
+}
+
+model CallFeedback {
+  id        String   @id @default(cuid())
+  callId    String   @unique
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  rating    String
+  reasons   String[] @default([])
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SmsBookingLink {
+  id              String   @id @default(cuid())
+  garageId        String
+  garage          Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  phoneNumber     String
+  twilioMessageSid String?
+  status          String   @default("sent")
+  costGbp         Float    @default(0.99)
+  createdAt       DateTime @default(now())
+
+  @@index([garageId, createdAt])
+  @@index([garageId])
+}
+
+model Business {
+  id           String   @id @default(cuid())
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  contactRole  String?
+  garages      Garage[]
+
+  // Billing Information
+  billingAddress      String?
+  billingCity         String?
+  billingPostcode     String?
+  billingCountry      String? @default("United Kingdom")
+  vatNumber           String?
+  companyRegNumber    String?
+  billingEmail        String?
+  billingInfoUpdatedAt DateTime?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Customer {
+  id                String   @id @default(cuid())
+  garageId          String
+  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  name              String?
+  phone             String?
+  email             String?
+  whatsappId        String?
+  facebookUserId    String?
+  instagramUserId   String?
+  notes             String?
+  metadata          Json?
+  conversations     ChatConversation[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([garageId])
+  @@index([garageId, phone])
+  @@index([garageId, email])
+}
+
+model ChatConversation {
+  id            String   @id @default(cuid())
+  garageId      String
+  garage        Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  customerId    String?
+  customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  platform      String
+  customerPhone String?
+  platformUserId String?
+  customerName  String?
+  status        String   @default("active")
+  agentPaused   Boolean  @default(false)
+  agentPausedUntil DateTime?
+  needsAttention Boolean @default(false)
+  messageType   String?
+  confirmedBooking Boolean @default(false)
+  confirmedBookingCategory ConfirmedBookingCategory?
+  capturedRevenue Float?
+  bookingDetails String?
+  tags          String[] @default([])
+  unreadCount   Int      @default(0)
+  lastMessageAt DateTime @default(now())
+  sessionState  Json?
+  messages      ChatMessage[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([garageId, status])
+  @@index([garageId, platform])
+  @@index([garageId, customerId])
+  @@index([garageId, needsAttention])
+}
+
+model ChatMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  mediaUrl       String?
+  mediaType      String?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model SocialMediaConnection {
+  id                    String   @id @default(cuid())
+  garageId              String
+  garage                Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  platform              String
+  whatsappPhoneNumberId String?
+  pageId                String?
+  instagramAccountId    String?
+  accessToken           String
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([garageId, platform])
+  @@index([garageId])
+}
+
+enum UserRole {
+  MANAGER
+  USER
+  RECEPTIONMATE_STAFF
+}
+
+enum ConfirmedBookingCategory {
+  service
+  diagnostic
+  mot
+  other
+}
+
+model Invoice {
+  id                String   @id @default(cuid())
+  garageId          String
+  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  businessId        String?
+  userId            String?  // User who should be charged for this invoice
+  
+  // Billing Period
+  periodStart       DateTime
+  periodEnd         DateTime
+  
+  // Usage
+  minutesUsed       Int      @default(0)
+  minutesIncluded   Int      @default(0)
+  smsCount          Int      @default(0)
+  
+  // Costs (in pence for precision)
+  subscriptionAmount Int     // Base subscription cost
+  minutesAmount      Int     @default(0) // Overage minutes cost
+  smsAmount          Int     @default(0) // SMS cost
+  subtotal           Int     // Before VAT
+  vatAmount          Int     // VAT only
+  total              Int     // Final amount
+  
+  // Rates used (stored for audit trail)
+  subscriptionCostGbp Float
+  costPerMinuteGbp    Float
+  vatRate             Float
+  
+  // Status
+  status            String   @default("draft") // draft, pending, paid, failed, cancelled
+  
+  // GoCardless
+  gocardlessPaymentId String?
+  paidAt              DateTime?
+
+  // Credit/Void tracking
+  creditReason        String?
+  creditedAt          DateTime?
+
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([garageId, periodStart])
+  @@index([businessId, periodStart])
+  @@index([status])
+}

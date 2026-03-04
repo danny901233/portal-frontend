@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "mustSetupPayment" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "gocardlessMandateId" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "gocardlessCustomerId" TEXT;

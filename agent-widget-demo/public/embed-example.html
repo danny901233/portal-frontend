@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReceptionMate Widget Embed Example</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #f9fafb;
+    }
+    h1 {
+      color: #111827;
+      margin-bottom: 10px;
+    }
+    p {
+      color: #6b7280;
+      margin-bottom: 30px;
+    }
+    .widget-container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      margin-bottom: 30px;
+    }
+    iframe {
+      width: 100%;
+      height: 800px;
+      border: none;
+      display: block;
+    }
+    .code-block {
+      background: #1f2937;
+      color: #e5e7eb;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .note {
+      background: #dbeafe;
+      border-left: 4px solid #0ea5e9;
+      padding: 16px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+    .note h3 {
+      margin: 0 0 8px 0;
+      color: #0c4a6e;
+    }
+    .note p {
+      margin: 0;
+      color: #075985;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎯 ReceptionMate Widget - Embed Example</h1>
+  <p>This page demonstrates how to embed the ReceptionMate AI Agent Configurator in your website using an iframe.</p>
+
+  <div class="widget-container">
+    <iframe 
+      src="http://localhost:3001" 
+      title="ReceptionMate AI Agent Configurator"
+      allow="microphone"
+    ></iframe>
+  </div>
+
+  <div class="note">
+    <h3>📋 Integration Instructions</h3>
+    <p>Copy the code below to embed the ReceptionMate widget in your website. Replace <code>localhost:3001</code> with your production URL.</p>
+  </div>
+
+  <div class="code-block">
+&lt;!-- ReceptionMate AI Agent Widget --&gt;
+&lt;div style="width: 100%; max-width: 1200px; margin: 0 auto;"&gt;
+  &lt;iframe 
+    src="https://your-domain.com/widget" 
+    title="ReceptionMate AI Agent Configurator"
+    style="width: 100%; height: 800px; border: none; border-radius: 12px;"
+    allow="microphone"
+  &gt;&lt;/iframe&gt;
+&lt;/div&gt;
+  </div>
+
+  <div class="note">
+    <h3>🔐 Security Considerations</h3>
+    <p>
+      • Set <code>frame-ancestors</code> in CSP headers to control which domains can embed your widget<br>
+      • Implement authentication tokens for customer-specific configurations<br>
+      • Use HTTPS in production for secure communication
+    </p>
+  </div>
+
+  <div class="code-block">
+// Example: Passing customer context via URL parameters
+const customerId = "cust_123456";
+const garageId = "garage_abc";
+
+const widgetUrl = `https://your-domain.com/widget?customer=${customerId}&garage=${garageId}`;
+
+// Embed with authentication
+&lt;iframe 
+  src={widgetUrl}
+  title="ReceptionMate AI Agent Configurator"
+&gt;&lt;/iframe&gt;
+  </div>
+
+</body>
+</html>

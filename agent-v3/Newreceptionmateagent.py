@@ -1975,7 +1975,10 @@ class SupervisorAgent(Agent):
 
             # ── STEP 2: Caller confirmed — do the actual API lookup ──
             if confirmed:
-                normalized = self._state.vrn_pending or normalize_vehicle_registration(reg)
+                # IMPORTANT: Use the reg parameter (which may have been updated by LLM)
+                # rather than vrn_pending (which may be stale if caller added more letters)
+                normalized = normalize_vehicle_registration(reg)
+                logger.info(f"[LOOKUP] Caller confirmed '{reg}' — API lookup (attempt {self._state.vrn_attempts + 1})")
                 self._state.vrn_pending = ""
                 self._state.vrn = normalized
                 self._state.vrn_attempts += 1

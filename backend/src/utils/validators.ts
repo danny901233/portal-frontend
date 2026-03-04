@@ -2,11 +2,55 @@ import { z } from 'zod';
 
 import { WEEKDAY_ORDER } from './types.js';
 
-export const transcriptEntrySchema = z.object({
+// Base message entry (conversation turns) - with explicit type
+const messageEntryWithTypeSchema = z.object({
+  type: z.literal('message'),
   speaker: z.string().min(1),
   text: z.string().min(1),
   timestamp: z.number().nonnegative(),
+  confidence: z.number().min(0).max(1).optional(), // STT confidence score
+  latency_ms: z.number().nonnegative().optional(), // Response latency
 });
+
+// Legacy message entry without type field
+const messageLegacySchema = z.object({
+  speaker: z.string().min(1),
+  text: z.string().min(1),
+  timestamp: z.number().nonnegative(),
+  confidence: z.number().min(0).max(1).optional(),
+  latency_ms: z.number().nonnegative().optional(),
+});
+
+// Tool call entry
+const toolCallEntrySchema = z.object({
+  type: z.literal('tool_call'),
+  tool: z.string().min(1),
+  parameters: z.record(z.any()).nullable().optional(),
+  result: z.any().nullable().optional(),
+  success: z.boolean(),
+  duration_ms: z.number(),
+  error: z.string().nullable().optional(),
+  retry_count: z.number().nullable().optional(),
+  timestamp: z.number().nonnegative(),
+});
+
+// Log entry
+const logEntrySchema = z.object({
+  type: z.literal('log'),
+  level: z.enum(['INFO', 'WARN', 'ERROR', 'DEBUG']),
+  logger: z.string().min(1),
+  message: z.string().min(1),
+  timestamp: z.number().nonnegative(),
+  attributes: z.record(z.any()).optional(),
+});
+
+// Union of all transcript entry types
+export const transcriptEntrySchema = z.union([
+  messageEntryWithTypeSchema,
+  toolCallEntrySchema,
+  logEntrySchema,
+  messageLegacySchema, // Last so it doesn't match entries with type field
+]);
 
 export const metricsSchema = z
   .record(z.any())

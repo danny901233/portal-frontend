@@ -9,6 +9,41 @@ import { getGarageId, isReceptionMateStaff } from '../../lib/auth';
 import { getFeedbackReasonLabel } from '../../lib/callFeedback';
 import { getCallTagLabel, getCallTagStyle } from '../../lib/callTags';
 import type { CallRecord } from '../../types';
+import { ToolCallEntry } from './components/ToolCallEntry';
+import { LogEntry } from './components/LogEntry';
+
+// Define transcript entry types
+type MessageEntry = {
+  type?: 'message';
+  speaker: string;
+  text: string;
+  timestamp: number;
+  confidence?: number; // STT confidence (0-1)
+  latency_ms?: number; // Response latency in milliseconds
+};
+
+type ToolCallEntry_Type = {
+  type: 'tool_call';
+  tool: string;
+  parameters: Record<string, any>;
+  result?: any;
+  success: boolean;
+  duration_ms: number;
+  error?: string;
+  retry_count?: number;
+  timestamp: number;
+};
+
+type LogEntry_Type = {
+  type: 'log';
+  level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
+  logger: string;
+  message: string;
+  timestamp: number;
+  attributes?: Record<string, any>;
+};
+
+type TranscriptEntry_Union = MessageEntry | ToolCallEntry_Type | LogEntry_Type;
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
@@ -47,15 +82,67 @@ const TranscriptEntry = ({
   entry,
   offsetSeconds,
 }: {
-  entry: CallRecord['transcript'][number];
+  entry: TranscriptEntry_Union;
   offsetSeconds: number;
-}) => (
-  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
-    <div className="text-xs uppercase tracking-wide text-slate-400">{entry.speaker}</div>
-    <div className="mt-2 whitespace-pre-line text-sm text-slate-100">{entry.text}</div>
-    <div className="mt-2 text-xs text-slate-500">{offsetSeconds}s</div>
-  </div>
-);
+}) => {
+  // Handle tool calls
+  if ('type' in entry && entry.type === 'tool_call') {
+    return (
+      <ToolCallEntry
+        tool={entry.tool || 'unknown'}
+        parameters={entry.parameters || {}}
+        result={entry.result}
+        success={entry.success ?? true}
+        duration={entry.duration_ms || 0}
+        error={entry.error}
+        retryCount={entry.retry_count}
+        timestamp={entry.timestamp}
+      />
+    );
+  }
+
+  // Handle log entries
+  if ('type' in entry && entry.type === 'log') {
+    return (
+      <LogEntry
+        level={entry.level || 'INFO'}
+        logger={entry.logger || 'unknown'}
+        message={entry.message || ''}
+        timestamp={entry.timestamp ? new Date(entry.timestamp * 1000).toISOString() : new Date().toISOString()}
+        attributes={entry.attributes}
+      />
+    );
+  }
+
+  // Regular conversation message
+  const isStaff = isReceptionMateStaff();
+  const confidence = 'confidence' in entry ? entry.confidence : undefined;
+  const latency = 'latency_ms' in entry ? entry.latency_ms : undefined;
+  
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-xs uppercase tracking-wide text-slate-400">{entry.speaker}</div>
+        {isStaff && (confidence !== undefined || latency !== undefined) && (
+          <div className="flex items-center gap-3 text-[10px] text-slate-500">
+            {confidence !== undefined && (
+              <span className={confidence > 0.9 ? 'text-emerald-500' : confidence > 0.7 ? 'text-amber-500' : 'text-rose-500'}>
+                {(confidence * 100).toFixed(0)}% confidence
+              </span>
+            )}
+            {latency !== undefined && (
+              <span className={latency < 500 ? 'text-emerald-500' : latency < 1500 ? 'text-amber-500' : 'text-rose-500'}>
+                {latency}ms
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="mt-2 whitespace-pre-line text-sm text-slate-100">{entry.text}</div>
+      <div className="mt-2 text-xs text-slate-500">{offsetSeconds}s</div>
+    </div>
+  );
+};
 
 const PHONE_REGEX = /\b(?:\+?\d[\d\s-]{6,})\b/;
 
@@ -236,7 +323,17 @@ export default function CallDetailPage() {
 
   const callerName = deriveCallerName(call);
   const callerNumber = formatPhoneNumber(deriveCallerNumber(call));
-  const transcript = [...call.transcript].sort((a, b) => a.timestamp - b.timestamp);
+  
+  // Filter transcript based on user role
+  const allTranscript = [...call.transcript].sort((a, b) => a.timestamp - b.timestamp);
+  const transcript = isStaff
+    ? allTranscript // Staff sees everything
+    : allTranscript.filter((entry) => {
+        // Non-staff users only see messages, not tool_calls or logs
+        const entryType = 'type' in entry ? entry.type : 'message';
+        return entryType === 'message' || !('type' in entry);
+      });
+  
   const firstTimestamp = transcript[0]?.timestamp ?? 0;
   const showTranscriptHint = transcript.length > 3;
   const metricEntries = Object.entries(call.metrics ?? {})

@@ -3458,7 +3458,7 @@ async def entrypoint(ctx: JobContext):
     # Create session — low-latency config with ElevenLabs TTS
     # Turn detection: MultilingualModel detects end-of-turn automatically
     # VAD: Silero Voice Activity Detection filters out silence
-    # Noise cancellation: Krisp removes background noise from caller's audio
+    # Krisp noise cancellation is enabled by default in LiveKit for telephony
     session = AgentSession(
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
@@ -3479,7 +3479,6 @@ async def entrypoint(ctx: JobContext):
                 style=ELEVEN_STYLE,
             ),
         ),
-        encryption_type=room_io.EncryptionType.GCM,
     )
 
     # Give the agent a reference to the session for session.say()

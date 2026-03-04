@@ -476,6 +476,8 @@ export async function getChatAgentResponse(
       messages.push(response.choices[0].message);
 
       let needContactFastPath = false;
+      let needTimeslotFastPath = false;
+      let timeslotFastPathContent = '';
 
       for (const toolCall of toolCalls) {
         if (toolCall.type !== 'function') continue;
@@ -499,6 +501,17 @@ export async function getChatAgentResponse(
           continue;
         }
 
+        // If service was already set this batch, skip remaining tool calls
+        if (needTimeslotFastPath) {
+          console.log(`[CHAT_AGENT_V2] Skipping ${functionName} - service already set, using timeslot fast-path`);
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: 'Skipped - service already selected, awaiting timeslot choice',
+          });
+          continue;
+        }
+
         // Execute tool and get INSTRUCTIONS for the agent
         const instructions = await executeConversationalTool(
           functionName,
@@ -516,6 +529,16 @@ export async function getChatAgentResponse(
         // Check immediately after each tool call
         if ((session.step as Step) === Step.NEED_CONTACT) {
           needContactFastPath = true;
+        }
+
+        // If select_service just succeeded and transitioned to NEED_TIMESLOT, short-circuit
+        if (functionName === 'select_service' && (session.step as Step) === Step.NEED_TIMESLOT) {
+          const sayMatch = instructions.match(/Say:\s*"([\s\S]*?)"/i);
+          if (sayMatch) {
+            needTimeslotFastPath = true;
+            timeslotFastPathContent = sayMatch[1].trim();
+            console.log(`[CHAT_AGENT_V2] Service set — using timeslot fast-path`);
+          }
         }
       }
 
@@ -546,6 +569,14 @@ export async function getChatAgentResponse(
         };
       }
 
+      // Service was just set — return the timeslot prompt directly without another GPT call
+      if (needTimeslotFastPath && timeslotFastPathContent) {
+        return {
+          content: timeslotFastPathContent,
+          needsHumanAssistance: false,
+        };
+      }
+
       // Get next response with instructions integrated
       response = await openAIWithRetry(messages, temperature);
     }
@@ -572,7 +603,7 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.email = emailMatch[0].toLowerCase();
   }
 
-  const phoneMatch = text.match(/(?:\+44\s?7\d{3}|\b07\d{3})\s?\d{3}\s?\d{3,4}\b/i);
+  const phoneMatch = text.match(/\+[\d\s\-]{7,18}|\b0\d[\d\s\-]{8,13}/);
   if (!session.contactPhone && phoneMatch) {
     args.phone = phoneMatch[0].replace(/\s+/g, '');
   }
@@ -1078,6 +1109,18 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   if (session.step === Step.NEED_CONTACT) {
     console.log('[STATE_GUARD] Ignoring select_service during NEED_CONTACT');
     return getNextContactInstruction(session);
+  }
+
+  if (session.step === Step.NEED_TIMESLOT && session.serviceSelectedName && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
+    console.log('[STATE_GUARD] select_service called again after service already set — re-presenting timeslots');
+    const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) => {
+      return `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`;
+    }).join(', or ');
+    const makeTitle = (session.vehicleMake || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const priceNum = parseFloat(String(session.servicePrice));
+    const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
+    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — or do you have a particular date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
   }
 
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
@@ -1814,14 +1857,14 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   // Extract a time-of-day hour from text — only matches valid hours (0-23) with am/pm,
   // or HH:MM format. Ignores bare numbers that could be day-of-month (e.g. "25th").
   function extractPrefHour(text: string): number | null {
-    // HH:MM — always a time
-    const hhmm = text.match(/\b(\d{1,2}):(\d{2})\b/);
+    // HH:MM or HH:MMam/pm — trailing \b removed so "9:30am" matches correctly
+    const hhmm = text.match(/\b(\d{1,2}):(\d{2})/);
     if (hhmm) {
       let h = parseInt(hhmm[1]);
       if (h >= 0 && h <= 23) return h;
     }
-    // Number followed by am/pm — always a time
-    const ampm = text.match(/\b(\d{1,2})\s*(am|pm)\b/i);
+    // Number followed by am/pm — negative lookbehind prevents matching "30am" from "9:30am"
+    const ampm = text.match(/(?<![\d:])\b(\d{1,2})\s*(am|pm)\b/i);
     if (ampm) {
       let h = parseInt(ampm[1]);
       const mer = ampm[2].toLowerCase();

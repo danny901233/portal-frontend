@@ -3465,7 +3465,6 @@ async def entrypoint(ctx: JobContext):
             interim_results=True,
             smart_format=True,
             punctuate=True,
-            endpointing_ms=1500,  # Wait 1500ms (1.5s) after speech stops before finalizing - allows slow VRM spelling
         ),
         llm="openai/gpt-4.1-mini",
         tts=elevenlabs.TTS(

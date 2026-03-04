@@ -7,10 +7,7 @@ async function main() {
   console.log('Finding user with email chris@vwgs.uk...');
   
   const user = await prisma.user.findFirst({
-    where: { email: 'chris@vwgs.uk' },
-    include: {
-      garages: true
-    }
+    where: { email: 'chris@vwgs.uk' }
   });
 
   if (!user) {
@@ -18,8 +15,8 @@ async function main() {
     return;
   }
 
-  console.log(`Found user: ${user.name} (${user.email})`);
-  console.log('Garages:', user.garages.map(g => g.name).join(', '));
+  console.log(`Found user: ${user.email}`);
+  console.log('User has access to garage IDs:', user.garageAccessIds);
   console.log('\nUpdating email to chris@vwsperformance.co.uk...');
 
   await prisma.user.update({
@@ -44,46 +41,32 @@ async function main() {
   console.log('\n✓ Password reset token generated');
   console.log(`Reset link: https://portal.receptionmate.co.uk/reset-password?token=${resetToken}`);
   
-  // Now trigger welcome email via backend API
-  console.log('\nSending welcome email via backend...');
+  // Fetch garage info if user has access to garages
+  console.log('\nLooking up garage information...');
   
-  const garage = user.garages[0];
-  if (!garage) {
-    console.log('No garage found for user, skipping email');
-    return;
-  }
-
-  try {
-    const response = await fetch('https://portal.receptionmate.co.uk/internal-api/admin/send-welcome', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userId: user.id,
-        email: 'chris@vwsperformance.co.uk',
-        name: user.name,
-        businessName: garage.businessName || garage.name,
-        branchName: garage.name,
-        resetToken: resetToken
-      })
+  let garageName = null;
+  if (user.garageAccessIds.length > 0) {
+    const garage = await prisma.garage.findFirst({
+      where: { id: user.garageAccessIds[0] }
     });
-
-    if (response.ok) {
-      console.log('✓ Welcome email sent successfully');
-    } else {
-      console.log('Backend endpoint not available, email will need to be sent manually');
-      console.log('\nPlease send Chris an email with:');
-      console.log(`  Email: chris@vwsperformance.co.uk`);
-      console.log(`  Reset link: https://portal.receptionmate.co.uk/reset-password?token=${resetToken}`);
+    if (garage) {
+      garageName = garage.name;
+      console.log(`Found garage: ${garageName}`);
     }
-  } catch (error) {
-    console.log('Could not connect to backend API');
-    console.log('\nPlease send Chris an email with:');
-    console.log(`  Email: chris@vwsperformance.co.uk`);
-    console.log(`  Name: ${user.name}`);
-    console.log(`  Reset link: https://portal.receptionmate.co.uk/reset-password?token=${resetToken}`);
   }
+
+  // Send welcome email manually since we need to provide reset link
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('Email update complete! Please send welcome email manually.');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`\nTo: chris@vwsperformance.co.uk`);
+  if (garageName) {
+    console.log(`Business: ${garageName}`);
+  }
+  console.log(`\nSubject: Welcome to ReceptionMate Portal`);
+  console.log(`\nPassword Reset Link (valid 24 hours):`);
+  console.log(`https://portal.receptionmate.co.uk/reset-password?token=${resetToken}`);
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 }
 
 main()

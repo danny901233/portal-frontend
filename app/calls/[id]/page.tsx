@@ -22,7 +22,7 @@ const METRIC_EXCLUDE_KEYS = new Set([
   'ttscharacterscount',
 ]);
 
-const MetricCard = ({ label, value }: { label: string; value: number | string | boolean | null }) => {
+const MetricCard = ({ label, value }: { label: string; value: number | string | boolean | null | object }) => {
   let displayValue: string;
   if (typeof value === 'number') {
     displayValue = numberFormatter.format(value);
@@ -30,13 +30,15 @@ const MetricCard = ({ label, value }: { label: string; value: number | string | 
     displayValue = value ? 'Yes' : 'No';
   } else if (value === null) {
     displayValue = '—';
+  } else if (typeof value === 'object' && value !== null) {
+    displayValue = JSON.stringify(value, null, 2);
   } else {
-    displayValue = value;
+    displayValue = String(value);
   }
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
       <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-slate-100">{displayValue}</div>
+      <div className="mt-1 text-2xl font-semibold text-slate-100 whitespace-pre-wrap break-words text-sm">{displayValue}</div>
     </div>
   );
 };
@@ -237,12 +239,16 @@ export default function CallDetailPage() {
   const firstTimestamp = transcript[0]?.timestamp ?? 0;
   const showTranscriptHint = transcript.length > 3;
   const metricEntries = Object.entries(call.metrics ?? {})
-    .filter(([key]) => {
+    .filter(([key, value]) => {
       const normalised = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
       if (normalised.includes('token')) {
         return false;
       }
       if (normalised.includes('sttaudio')) {
+        return false;
+      }
+      // Filter out arrays and large objects (like tool_calls, llm_responses)
+      if (Array.isArray(value)) {
         return false;
       }
       return !METRIC_EXCLUDE_KEYS.has(normalised);

@@ -9,7 +9,7 @@ export const transcriptEntrySchema = z.object({
 });
 
 export const metricsSchema = z
-  .record(z.union([z.number(), z.string(), z.boolean(), z.null()]))
+  .record(z.any())
   .refine((metrics) => Object.keys(metrics).length > 0, {
     message: 'Metrics cannot be empty',
   });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getGarageId } from '../../lib/auth';
+import { getGarageId, getSessionToken } from '../../lib/auth';
 
 interface ToolCall {
   tool_name: string;
@@ -65,6 +65,12 @@ export function ObservabilityDashboard() {
     setLoading(true);
     try {
       const garageId = getGarageId() || 'any';
+      const token = getSessionToken();
+      
+      if (!token) {
+        console.error('No session token found');
+        return;
+      }
       
       // Calculate date range
       const now = new Date();
@@ -78,13 +84,25 @@ export function ObservabilityDashboard() {
       }
 
       const response = await fetch(
-        `/api/garages/${garageId}/calls?startDate=${startDate.toISOString()}&endDate=${now.toISOString()}`
+        `/api/garages/${garageId}/calls?startDate=${startDate.toISOString()}&endDate=${now.toISOString()}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
       );
       
-      if (!response.ok) throw new Error('Failed to fetch calls');
+      if (!response.ok) {
+        console.error('Failed to fetch calls:', response.status, response.statusText);
+        throw new Error('Failed to fetch calls');
+      }
       
       const data = await response.json();
       const callsData = data.calls || [];
+      
+      console.log('Fetched calls:', callsData.length, 'calls');
+      console.log('Sample call metrics:', callsData[0]?.metrics);
       
       setCalls(callsData);
       aggregateStats(callsData);

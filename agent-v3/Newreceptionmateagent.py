@@ -3456,6 +3456,9 @@ async def entrypoint(ctx: JobContext):
     supervisor = SupervisorAgent(state=state, gh=gh, room_name=room_name, assist_mode=assist_mode)
 
     # Create session — low-latency config with ElevenLabs TTS
+    # Turn detection: MultilingualModel detects end-of-turn automatically
+    # VAD: Silero Voice Activity Detection filters out silence
+    # Noise cancellation: Krisp removes background noise from caller's audio
     session = AgentSession(
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
@@ -3476,6 +3479,7 @@ async def entrypoint(ctx: JobContext):
                 style=ELEVEN_STYLE,
             ),
         ),
+        encryption_type=room_io.EncryptionType.GCM,
     )
 
     # Give the agent a reference to the session for session.say()

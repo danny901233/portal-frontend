@@ -1944,8 +1944,9 @@ class SupervisorAgent(Agent):
             self._state.step = Step.NEED_VRN
             return (
                 f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
-                "Say EXACTLY ONE short sentence asking for their COMPLETE registration all at once, e.g. 'Could I grab your full registration please?'\n"
-                "Then STOP. Generate NOTHING else. Wait for them to say the COMPLETE registration before responding."
+                "Say EXACTLY ONE short sentence asking for their full registration, e.g. 'Could I grab your full registration please?'\n"
+                "Then STOP and WAIT PATIENTLY. Callers often spell slowly with pauses between letters (V... K... 1... 5...).\n"
+                "Do NOT interrupt. Wait for the COMPLETE registration before responding."
             )
 
         @function_tool
@@ -3464,6 +3465,7 @@ async def entrypoint(ctx: JobContext):
             interim_results=True,
             smart_format=True,
             punctuate=True,
+            endpointing=1500,  # Wait 1500ms (1.5s) after speech stops before finalizing - allows slow VRM spelling
         ),
         llm="openai/gpt-4.1-mini",
         tts=elevenlabs.TTS(

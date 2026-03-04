@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import OpenAI from 'openai';
 import axios from 'axios';
+import { sendNeedsAttentionEmail } from '../utils/email.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -89,6 +90,9 @@ interface ChatSession {
   diagnosticNotes: string;      // accumulated symptom notes to put in booking notes
   diagnosticComplete: boolean;  // true once diagnostic Q&A is done
   diagnosticQuestions: string[]; // questions asked — used to detect if answers are still coming in
+
+  // Escalation tracking
+  escalationWarned: boolean;    // true after first "speak to human" deflection
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -144,6 +148,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         diagnosticNotes: sessionData.diagnosticNotes || '',
         diagnosticComplete: sessionData.diagnosticComplete || false,
         diagnosticQuestions: sessionData.diagnosticQuestions || [],
+        escalationWarned: sessionData.escalationWarned || false,
       };
       inMemorySessionCache.set(conversationId, loadedSession);
       // Auto-advance: if timeslot was already chosen but server restarted before step updated
@@ -192,6 +197,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     diagnosticNotes: '',
     diagnosticComplete: false,
     diagnosticQuestions: [],
+    escalationWarned: false,
   };
 
   inMemorySessionCache.set(conversationId, newSession);
@@ -220,6 +226,39 @@ async function saveSession(conversationId: string, session: ChatSession): Promis
   } catch (error) {
     console.error(`[SAVE_SESSION] ❌ Failed to save session for ${conversationId}:`, error);
     // Don't throw - in-memory cache is the fallback
+  }
+}
+
+/** Fire-and-forget: fetch conversation + agent config and send needs-attention email */
+async function fireNeedsAttentionEmail(conversationId: string, garageId: string): Promise<void> {
+  try {
+    const [conversation, agentConfig, recentMessages] = await Promise.all([
+      prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+        select: { customerName: true, customerPhone: true },
+      }),
+      prisma.agentConfiguration.findUnique({
+        where: { garageId },
+        select: { notificationEmails: true, branchName: true },
+      }),
+      prisma.chatMessage.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+      }),
+    ]);
+
+    if (!agentConfig?.notificationEmails?.length) return;
+
+    await sendNeedsAttentionEmail(agentConfig.notificationEmails, {
+      branchName: agentConfig.branchName,
+      customerName: conversation?.customerName ?? null,
+      customerPhone: conversation?.customerPhone ?? null,
+      conversationId,
+      recentMessages: recentMessages.reverse().map(m => ({ role: m.role, content: m.content })),
+    });
+  } catch (err) {
+    console.error('[ESCALATION] Failed to send needs-attention email:', err);
   }
 }
 
@@ -302,6 +341,32 @@ export async function getChatAgentResponse(
     // Persist seeded data immediately so a backend restart won't lose it
     if (seedApplied) {
       await saveSession(conversationId, session);
+    }
+
+    // Human escalation detection — intercept before calling OpenAI
+    const HUMAN_ESCALATION = /\b(speak to a human|human agent|real person|speak to staff|speak to someone else|talk to a person|someone else|speak to a real|talk to a human|want a human|need a human|get a human)\b/i;
+    if (HUMAN_ESCALATION.test(message)) {
+      if (!session.escalationWarned) {
+        // First mention — soft redirect
+        session.escalationWarned = true;
+        await saveSession(conversationId, session);
+        return {
+          content: "I can help with bookings and general enquiries. Is there something specific I can help you with?",
+          needsHumanAssistance: false,
+        };
+      } else {
+        // Customer persists — flag for human team and pause agent
+        await prisma.chatConversation.update({
+          where: { id: conversationId },
+          data: { needsAttention: true, agentPaused: true },
+        });
+        // Send notification email (non-blocking)
+        void fireNeedsAttentionEmail(conversationId, garageId);
+        return {
+          content: "No problem — I've flagged this for the team. Someone will be with you shortly.",
+          needsHumanAssistance: true,
+        };
+      }
     }
 
     // Fast-path: slot confirmation — customer is saying yes/no to a proposed slot
@@ -1424,7 +1489,13 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     
     session.step = Step.CONFIRMED;
     await saveSession(conversationId, session);
-    
+
+    // Mark conversation as booking confirmed + resolved
+    await prisma.chatConversation.update({
+      where: { id: conversationId },
+      data: { confirmedBooking: true, status: 'resolved' },
+    }).catch(err => console.error('[SET_CONTACT] Failed to update conversation:', err));
+
     console.log('[SET_CONTACT] Booking confirmed!');
     
     const dateNatural = formatDateNaturally(session.bookingDate);

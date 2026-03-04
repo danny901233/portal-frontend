@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { fetchCallById } from '../../lib/api';
-import { getGarageId } from '../../lib/auth';
+import { getGarageId, isReceptionMateStaff } from '../../lib/auth';
 import { getFeedbackReasonLabel } from '../../lib/callFeedback';
 import { getCallTagLabel, getCallTagStyle } from '../../lib/callTags';
 import type { CallRecord } from '../../types';
@@ -131,6 +131,7 @@ export default function CallDetailPage() {
   const rawId = params?.id;
   const callId = Array.isArray(rawId) ? rawId[0] : rawId;
   const garageId = getGarageId();
+  const isStaff = isReceptionMateStaff();
   const [copied, setCopied] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [fetchingRecording, setFetchingRecording] = useState(false);
@@ -292,7 +293,7 @@ export default function CallDetailPage() {
         <MetricCard label="Caller Number" value={callerNumber} />
       </section>
 
-      {metricEntries.length > 0 ? (
+      {isStaff && metricEntries.length > 0 ? (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {metricEntries.map(([key, value]) => (
             <MetricCard key={key} label={key.replace(/_/g, ' ')} value={value} />

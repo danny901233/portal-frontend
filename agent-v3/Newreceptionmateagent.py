@@ -1341,73 +1341,6 @@ def _sanitise_email(raw: str) -> str:
 
 
 # ============================================================
-# HOUSE NUMBER NORMALIZATION
-# ============================================================
-
-# Map written numbers to digits for house numbers
-_NUMBER_WORDS = {
-    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
-    "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
-    "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13", "fourteen": "14",
-    "fifteen": "15", "sixteen": "16", "seventeen": "17", "eighteen": "18", "nineteen": "19",
-    "twenty": "20", "thirty": "30", "forty": "40", "fifty": "50",
-    "sixty": "60", "seventy": "70", "eighty": "80", "ninety": "90",
-    "hundred": "100", "thousand": "1000",
-}
-
-
-def _normalize_house_number(raw: str) -> str:
-    """Normalize house numbers from written form to digits.
-    'Fifty five' → '55'
-    'Twenty one' → '21'
-    'One hundred and twenty three' → '123'
-    """
-    if not raw:
-        return raw
-    
-    # If it's already all digits, return as-is
-    if raw.strip().isdigit():
-        return raw.strip()
-    
-    # If it contains any letters and no number words, it's likely a house name (e.g., "The Cottage")
-    lower = raw.lower().strip()
-    has_number_word = any(word in lower for word in _NUMBER_WORDS.keys())
-    if not has_number_word and not any(c.isdigit() for c in raw):
-        return raw  # House name, not a number
-    
-    # Parse compound numbers like "fifty five", "twenty one", "one hundred and twenty three"
-    tokens = re.findall(r'\b\w+\b', lower)
-    result = 0
-    current = 0
-    
-    for token in tokens:
-        if token in _NUMBER_WORDS:
-            num = int(_NUMBER_WORDS[token])
-            if num >= 100:
-                # Multiply current by hundred/thousand
-                current = current * num if current > 0 else num
-            elif num >= 20:
-                # Tens place
-                current += num
-            else:
-                # Ones place (1-19)
-                current += num
-        elif token == "and":
-            continue  # Skip "and"
-        elif token.isdigit():
-            # Already a digit, add it
-            current = current * 10 + int(token)
-    
-    result += current
-    
-    if result > 0:
-        return str(result)
-    
-    # Fallback: return original if we couldn't parse it
-    return raw
-
-
-# ============================================================
 # SERVICE MATCHING
 # ============================================================
 
@@ -2905,17 +2838,12 @@ class SupervisorAgent(Agent):
             # Prepare phone verification prompt based on whether we have incoming SIP number
             phone_prompt = ""
             if self._state.incoming_sip_number:
-                # Store the incoming SIP number as contact phone when timeslot is confirmed
-                if not self._state.contact_phone:
-                    self._state.contact_phone = self._state.incoming_sip_number
-                    logger.info(f"[SELECT_TIMESLOT] Pre-storing SIP number as contact phone: {self._state.contact_phone}")
-                
                 # Extract last 3 digits for verification
                 digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
                 if len(digits_only) >= 3:
                     last_three = digits_only[-3:]
                     phone_prompt = f"Ask: 'Is the number ending in {last_three} the best number for you?'\n"
-                    phone_prompt += f"If YES: Use phone='{self._state.incoming_sip_number}' when calling submit_booking. If NO: Ask 'What's the best number for you?' and use that number.\n"
+                    phone_prompt += "If YES: They confirm (no need to collect number). If NO: Ask 'What's the best number for you?' and collect it.\n"
                 else:
                     phone_prompt = "Ask: 'What's the best number for you?'\n"
             else:
@@ -2931,6 +2859,7 @@ class SupervisorAgent(Agent):
                 "When they give their surname, call update_caller_name(last_name='...') to save it, "
                 "then KEEP addressing them by their FIRST name — not the surname.\n"
                 "Collect ONE field at a time: surname → phone → email → postcode (call validate_address) → house number.\n"
+                "When they confirm phone with 'yes', you already have it. When they say 'no' or give a different number, collect and store it.\n"
                 "You MUST collect ALL five fields AND call validate_address BEFORE calling submit_booking.\n"
                 "Do NOT call submit_booking until you have phone, email, postcode, AND house number."
             )
@@ -3042,28 +2971,16 @@ class SupervisorAgent(Agent):
             first = self._state.customer_name_first
             last = self._state.customer_name_last
             
-            # Handle phone number - support "verified" keyword or direct number
+            # Handle phone verification - if 'verified', use SIP number
             phone_raw = (phone or "").strip()
-            if phone_raw.lower() == 'verified':
-                # LLM passed "verified" - use the contact_phone we pre-stored
-                if self._state.contact_phone:
-                    phone = _sanitise_phone(self._state.contact_phone)
-                    logger.info(f"[SUBMIT_BOOKING] Using pre-stored contact phone: {phone}")
-                elif self._state.incoming_sip_number:
-                    phone = _sanitise_phone(self._state.incoming_sip_number)
-                    logger.info(f"[SUBMIT_BOOKING] Using incoming SIP number: {phone}")
-                else:
-                    logger.error(f"[SUBMIT_BOOKING] 'verified' passed but no phone available!")
-                    phone = ""
+            if phone_raw.lower() == 'verified' and self._state.incoming_sip_number:
+                phone = _sanitise_phone(self._state.incoming_sip_number)
+                logger.info(f"[SUBMIT_BOOKING] Using verified SIP number: {phone}")
             else:
                 phone = _sanitise_phone(phone_raw)
-                if phone:
-                    logger.info(f"[SUBMIT_BOOKING] Using provided phone number: {phone}")
-                else:
-                    logger.warning(f"[SUBMIT_BOOKING] No phone number provided!")
             
             email = _sanitise_email((email or "").strip().replace(" ", "").lower())
-            house_name_or_number = _normalize_house_number((house_name_or_number or "").strip())
+            house_name_or_number = (house_name_or_number or "").strip()
             postcode = (postcode or "").strip()
             street = (street or self._state.street or "").strip()
             city = (city or self._state.city or "").strip()
@@ -3107,7 +3024,7 @@ class SupervisorAgent(Agent):
                         last_three = digits_only[-3:]
                         return (
                             f"Missing phone number. Ask: 'Is the number ending in {last_three} the best number for you?'\n"
-                            f"If YES → call submit_booking with phone='{self._state.incoming_sip_number}'\n"
+                            f"If YES → call submit_booking with phone='verified' (this will use {self._state.incoming_sip_number})\n"
                             f"If NO → ask 'What's the best number for you?' and use that number."
                         )
                 missing.append("phone number")
@@ -3142,7 +3059,6 @@ class SupervisorAgent(Agent):
                         last_three = digits_only[-3:]
                         return (
                             f"Ask: 'Is the number ending in {last_three} the best number for you?'\n"
-                            f"If YES → call submit_booking with phone='{self._state.incoming_sip_number}'\n"
                             f"If YES → call submit_booking with phone='verified'\n"
                             f"If NO → ask 'What's the best number for you?' and use that number."
                         )
@@ -3174,14 +3090,6 @@ class SupervisorAgent(Agent):
             logger.info(f"[SUBMIT_BOOKING] Notes to GarageHive: '{all_notes}'")
 
             contact_address = f"{house_name_or_number}, {street}".strip(", ").lower()
-            
-            # Log what we're about to send to GarageHive
-            logger.info(f"[SUBMIT_BOOKING] Sending to GarageHive API:")
-            logger.info(f"  - Name: {first} {last}")
-            logger.info(f"  - Phone: {phone}")
-            logger.info(f"  - Email: {email}")
-            logger.info(f"  - Address: {contact_address}, {city.lower()}, {postcode}")
-            
             try:
                 result = await self._gh.set_contact_info(
                     self._state.session_id,
@@ -3654,71 +3562,36 @@ async def entrypoint(ctx: JobContext):
 
     @session.on("conversation_item_added")
     def _on_conversation_item_added(ev):
-        """Capture full agent+customer transcript including function calls for portal."""
+        """Capture full agent+customer transcript for GPT summary."""
         try:
             item = getattr(ev, "item", None)
             if item is None:
-                logger.warning("[TRANSCRIPT] conversation_item_added: item is None")
                 return
-            
-            # Get item type and role
-            item_type = getattr(item, "type", "message")
             role = getattr(item, "role", "") or ""
-            item_id = getattr(item, "id", "")
-            
-            logger.info(f"[TRANSCRIPT] conversation_item_added: type={item_type}, role={role}, id={item_id}")
-            
-            # Build conversation item for portal
-            conv_item = {
-                "type": item_type,
-                "role": role,
-                "timestamp": round(max(0.0, time.time() - (state.call_start_time or time.time())), 1)
-            }
-            
-            # Handle function calls
-            if item_type == "function_call":
-                conv_item["function_name"] = getattr(item, "name", "")
-                conv_item["arguments"] = getattr(item, "arguments", "")
-                conv_item["call_id"] = getattr(item, "call_id", "")
-                logger.info(f"[TRANSCRIPT] ✅ Function call captured: {conv_item['function_name']} with args: {conv_item['arguments'][:100]}")
-            
-            # Handle function call output
-            elif item_type == "function_call_output":
-                conv_item["call_id"] = getattr(item, "call_id", "")
-                conv_item["output"] = getattr(item, "output", "")
-                logger.info(f"[TRANSCRIPT] ✅ Function output captured for call_id: {conv_item['call_id']}, output: {str(conv_item['output'])[:100]}")
-            
-            # Handle regular messages
-            else:
-                text = ""
-                if hasattr(item, "text_content"):
-                    text = item.text_content or ""
-                if not text and hasattr(item, "content"):
-                    content = item.content
-                    if isinstance(content, str):
-                        text = content
-                    elif isinstance(content, list):
-                        parts = []
-                        for part in content:
-                            if hasattr(part, "text"):
-                                parts.append(part.text or "")
-                            elif isinstance(part, dict):
-                                parts.append(part.get("text", ""))
-                        text = " ".join(p for p in parts if p)
-                text = text.strip()
-                if not text:
-                    return
-                
-                speaker = "agent" if role in ("assistant", "agent") else "customer"
-                conv_item["speaker"] = speaker
-                conv_item["text"] = text
-                logger.info(f"[TRANSCRIPT] {speaker.capitalize()} speech captured: {text[:80]}")
-            
-            state.conversation_items.append(conv_item)
-            logger.info(f"[TRANSCRIPT] Total items in state: {len(state.conversation_items)}")
-            
+            text = ""
+            if hasattr(item, "text_content"):
+                text = item.text_content or ""
+            if not text and hasattr(item, "content"):
+                content = item.content
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    parts = []
+                    for part in content:
+                        if hasattr(part, "text"):
+                            parts.append(part.text or "")
+                        elif isinstance(part, dict):
+                            parts.append(part.get("text", ""))
+                    text = " ".join(p for p in parts if p)
+            text = text.strip()
+            if not text:
+                return
+            speaker = "agent" if role in ("assistant", "agent") else "customer"
+            ts = max(0.0, time.time() - (state.call_start_time or time.time()))
+            state.conversation_items.append({"speaker": speaker, "text": text, "timestamp": round(ts, 1)})
+            logger.info(f"[TRANSCRIPT] {speaker.capitalize()} speech captured via conversation_item_added: {text[:80]}")
         except Exception as exc:
-            logger.warning(f"[TRANSCRIPT] conversation_item_added error: {exc}", exc_info=True)
+            logger.warning(f"[TRANSCRIPT] conversation_item_added error: {exc}")
 
     # Start session
     logger.info("[ENTRYPOINT] Starting session with SupervisorAgent")

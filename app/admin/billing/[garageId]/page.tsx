@@ -15,6 +15,13 @@ export default function GarageBillingConfigPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const garageId = params?.garageId as string;
+  const isStaff = isReceptionMateStaff();
+
+  useEffect(() => {
+    if (!isStaff) {
+      router.replace('/calls');
+    }
+  }, [isStaff, router]);
 
   const [config, setConfig] = useState({
     subscriptionCostGbp: 0,
@@ -32,8 +39,6 @@ export default function GarageBillingConfigPage() {
   });
 
   const [feedback, setFeedback] = useState<string | null>(null);
-
-  const isStaff = isReceptionMateStaff();
 
   const configQuery = useQuery({
     queryKey: ['billing-config', garageId],

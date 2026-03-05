@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { isReceptionMateStaff } from '../../lib/auth';
@@ -24,6 +24,12 @@ export default function BillingDashboardPage() {
 
   // Check if user is staff
   const isStaff = isReceptionMateStaff();
+
+  useEffect(() => {
+    if (!isStaff) {
+      router.replace('/calls');
+    }
+  }, [isStaff, router]);
 
   const garagesQuery = useQuery({
     queryKey: ['garages-billing'],

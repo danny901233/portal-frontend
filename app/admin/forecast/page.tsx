@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { isReceptionMateStaff } from '../../lib/auth';
@@ -25,6 +25,12 @@ export default function BillingForecastPage() {
   const isStaff = isReceptionMateStaff();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isStaff) {
+      router.replace('/calls');
+    }
+  }, [isStaff, router]);
 
   const { data: businessesData } = useQuery({
     queryKey: ['adminBusinesses'],

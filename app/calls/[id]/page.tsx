@@ -85,7 +85,45 @@ const TranscriptEntry = ({
   entry: TranscriptEntry_Union;
   offsetSeconds: number;
 }) => {
-  // Handle tool calls
+  // Handle function_call (new agent format)
+  if ('type' in entry && entry.type === 'function_call') {
+    const funcEntry = entry as any;
+    let parameters = {};
+    try {
+      parameters = typeof funcEntry.arguments === 'string' ? JSON.parse(funcEntry.arguments) : funcEntry.arguments || {};
+    } catch {
+      parameters = {};
+    }
+    return (
+      <ToolCallEntry
+        tool={funcEntry.name || 'unknown'}
+        parameters={parameters}
+        result={undefined}
+        success={true}
+        duration={0}
+        timestamp={funcEntry.created_at}
+      />
+    );
+  }
+
+  // Handle function_call_output (new agent format)
+  if ('type' in entry && entry.type === 'function_call_output') {
+    const funcEntry = entry as any;
+    return (
+      <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/30 p-4">
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
+            {funcEntry.name} Result
+          </div>
+        </div>
+        <div className="mt-2 whitespace-pre-line text-sm text-slate-300">
+          {typeof funcEntry.output === 'string' ? funcEntry.output : JSON.stringify(funcEntry.output, null, 2)}
+        </div>
+      </div>
+    );
+  }
+
+  // Handle tool calls (old format)
   if ('type' in entry && entry.type === 'tool_call') {
     return (
       <ToolCallEntry
@@ -329,9 +367,11 @@ export default function CallDetailPage() {
   const transcript = isStaff
     ? allTranscript // Staff sees everything
     : allTranscript.filter((entry) => {
-        // Non-staff users only see messages, not tool_calls or logs
+        // Non-staff users only see messages, not tool_calls/function_calls or logs
         const entryType = 'type' in entry ? entry.type : 'message';
-        return entryType === 'message' || !('type' in entry);
+        // Allow: message, agent_handoff, or entries without type field
+        // Block: function_call, function_call_output, tool_call, log
+        return entryType === 'message' || entryType === 'agent_handoff' || !('type' in entry);
       });
   
   const firstTimestamp = transcript[0]?.timestamp ?? 0;

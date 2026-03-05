@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { getGarageId, getSessionToken } from '../../lib/auth';
 
+// --- Types ---
+
 interface ToolCall {
   tool_name: string;
   duration_ms: number;
@@ -12,17 +14,30 @@ interface ToolCall {
   parameters?: any;
 }
 
+interface ConversationMetrics {
+  _turn_count?: number;
+  turn_count?: number;
+  _interruption_count?: number;
+  interruption_count?: number;
+  avg_agent_response_latency_ms?: number;
+  [key: string]: any;
+}
+
 interface CallData {
   id: string;
   createdAt: string;
   duration: number;
   intent?: string;
+  customerPhone?: string;
+  garageId?: string;
   metrics?: {
     tool_calls?: ToolCall[];
     tool_call_count?: number;
     failed_tool_calls?: number;
     total_tool_latency_ms?: number;
-    conversation_metrics?: any;
+    avg_llm_latency_ms?: number;
+    conversation_metrics?: ConversationMetrics;
+    vrn_attempts?: number;
   };
 }
 
@@ -31,6 +46,8 @@ interface AggregatedStats {
   avgCallDuration: number;
   totalToolCalls: number;
   failedToolCalls: number;
+  avgLlmLatency: number;
+  avgInterruptions: number;
   toolPerformance: {
     [toolName: string]: {
       count: number;
@@ -42,9 +59,75 @@ interface AggregatedStats {
   topErrors: { type: string; count: number; message: string }[];
 }
 
+interface EvaluatorConfig {
+  highLatency: { enabled: boolean; threshold: number };
+  highInterruptions: { enabled: boolean; threshold: number };
+  highFailureRate: { enabled: boolean; threshold: number };
+}
+
+interface FlaggedCall {
+  call: CallData;
+  reasons: string[];
+}
+
+// --- Constants ---
+
+const DEFAULT_EVALUATORS: EvaluatorConfig = {
+  highLatency: { enabled: true, threshold: 3000 },
+  highInterruptions: { enabled: true, threshold: 3 },
+  highFailureRate: { enabled: true, threshold: 20 },
+};
+
+const EVALUATORS_STORAGE_KEY = 'rm_evaluator_config';
+
+// --- Module-level helpers ---
+
+function getInterruptionCount(call: CallData): number {
+  const cm = call.metrics?.conversation_metrics;
+  return cm?._interruption_count ?? cm?.interruption_count ?? 0;
+}
+
+function computeFlaggedCalls(callsData: CallData[], config: EvaluatorConfig): FlaggedCall[] {
+  const flagged: FlaggedCall[] = [];
+
+  callsData.forEach((call) => {
+    const reasons: string[] = [];
+    const toolCalls = call.metrics?.tool_calls || [];
+    const failedTools = toolCalls.filter((tc) => !tc.success).length;
+
+    if (config.highLatency.enabled) {
+      const latency = call.metrics?.avg_llm_latency_ms ?? 0;
+      if (latency > config.highLatency.threshold) {
+        reasons.push(`LLM latency ${Math.round(latency)}ms > ${config.highLatency.threshold}ms`);
+      }
+    }
+
+    if (config.highInterruptions.enabled) {
+      const interruptions = getInterruptionCount(call);
+      if (interruptions > config.highInterruptions.threshold) {
+        reasons.push(`${interruptions} interruptions > ${config.highInterruptions.threshold}`);
+      }
+    }
+
+    if (config.highFailureRate.enabled && toolCalls.length > 0) {
+      const rate = (failedTools / toolCalls.length) * 100;
+      if (rate > config.highFailureRate.threshold) {
+        reasons.push(`Tool failure ${rate.toFixed(0)}% > ${config.highFailureRate.threshold}%`);
+      }
+    }
+
+    if (reasons.length > 0) flagged.push({ call, reasons });
+  });
+
+  return flagged.sort(
+    (a, b) => new Date(b.call.createdAt).getTime() - new Date(a.call.createdAt).getTime()
+  );
+}
+
+// --- Component ---
+
 export function ObservabilityDashboard() {
   const [timeRange, setTimeRange] = useState('24h');
-  const [selectedGarage, setSelectedGarage] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [calls, setCalls] = useState<CallData[]>([]);
   const [stats, setStats] = useState<AggregatedStats>({
@@ -52,58 +135,67 @@ export function ObservabilityDashboard() {
     avgCallDuration: 0,
     totalToolCalls: 0,
     failedToolCalls: 0,
+    avgLlmLatency: 0,
+    avgInterruptions: 0,
     toolPerformance: {},
     topErrors: [],
   });
-  const [activeTab, setActiveTab] = useState<'tools' | 'errors' | 'calls'>('tools');
+  const [activeTab, setActiveTab] = useState<'flagged' | 'tools' | 'errors' | 'calls'>('flagged');
+  const [evaluators, setEvaluators] = useState<EvaluatorConfig>(DEFAULT_EVALUATORS);
+  const [flaggedCalls, setFlaggedCalls] = useState<FlaggedCall[]>([]);
+  const [showEvaluatorConfig, setShowEvaluatorConfig] = useState(true);
+
+  // Load evaluators from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(EVALUATORS_STORAGE_KEY);
+      if (stored) setEvaluators(JSON.parse(stored));
+    } catch {}
+  }, []);
+
+  // Save evaluators and recompute flagged calls whenever either changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(EVALUATORS_STORAGE_KEY, JSON.stringify(evaluators));
+    } catch {}
+    setFlaggedCalls(computeFlaggedCalls(calls, evaluators));
+  }, [evaluators, calls]);
 
   useEffect(() => {
     fetchData();
-  }, [timeRange, selectedGarage]);
+  }, [timeRange]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const garageId = getGarageId() || 'any';
       const token = getSessionToken();
-      
+
       if (!token) {
         console.error('No session token found');
         return;
       }
-      
-      // Calculate date range
+
       const now = new Date();
-      let startDate = new Date();
-      if (timeRange === '24h') {
-        startDate.setHours(now.getHours() - 24);
-      } else if (timeRange === '7d') {
-        startDate.setDate(now.getDate() - 7);
-      } else if (timeRange === '30d') {
-        startDate.setDate(now.getDate() - 30);
-      }
+      const startDate = new Date();
+      if (timeRange === '24h') startDate.setHours(now.getHours() - 24);
+      else if (timeRange === '7d') startDate.setDate(now.getDate() - 7);
+      else if (timeRange === '30d') startDate.setDate(now.getDate() - 30);
 
       const response = await fetch(
         `/api/garages/${garageId}/calls?startDate=${startDate.toISOString()}&endDate=${now.toISOString()}`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
         }
       );
-      
-      if (!response.ok) {
-        console.error('Failed to fetch calls:', response.status, response.statusText);
-        throw new Error('Failed to fetch calls');
-      }
-      
+
+      if (!response.ok) throw new Error('Failed to fetch calls');
+
       const data = await response.json();
-      const callsData = data.calls || [];
-      
-      console.log('Fetched calls:', callsData.length, 'calls');
-      console.log('Sample call metrics:', callsData[0]?.metrics);
-      
+      const callsData: CallData[] = data.calls || [];
       setCalls(callsData);
       aggregateStats(callsData);
     } catch (error) {
@@ -119,57 +211,48 @@ export function ObservabilityDashboard() {
     let totalToolCalls = 0;
     let failedToolCalls = 0;
     let totalCallDuration = 0;
+    let totalLlmLatency = 0;
+    let llmLatencyCount = 0;
+    let totalInterruptions = 0;
 
     callsData.forEach((call) => {
       totalCallDuration += call.duration || 0;
+
+      if (call.metrics?.avg_llm_latency_ms !== undefined) {
+        totalLlmLatency += call.metrics.avg_llm_latency_ms;
+        llmLatencyCount++;
+      }
+
+      totalInterruptions += getInterruptionCount(call);
+
       const toolCalls = call.metrics?.tool_calls || [];
-      
       toolCalls.forEach((tc) => {
         totalToolCalls++;
         if (!tc.success) failedToolCalls++;
 
         if (!toolPerformance[tc.tool_name]) {
-          toolPerformance[tc.tool_name] = {
-            count: 0,
-            successRate: 0,
-            avgLatency: 0,
-            errors: [],
-          };
+          toolPerformance[tc.tool_name] = { count: 0, successRate: 0, avgLatency: 0, errors: [] };
         }
 
         const tool = toolPerformance[tc.tool_name];
         tool.count++;
-        
         if (tc.success) {
           tool.successRate = ((tool.successRate * (tool.count - 1)) + 1) / tool.count;
         } else {
           tool.successRate = (tool.successRate * (tool.count - 1)) / tool.count;
-          
           if (tc.error_type) {
-            const errorKey = `${tc.tool_name}:${tc.error_type}`;
-            const existing = errorMap.get(errorKey);
-            if (existing) {
-              existing.count++;
-            } else {
-              errorMap.set(errorKey, {
-                count: 1,
-                message: tc.error || tc.error_type,
-              });
-            }
+            const key = `${tc.tool_name}:${tc.error_type}`;
+            const existing = errorMap.get(key);
+            if (existing) existing.count++;
+            else errorMap.set(key, { count: 1, message: tc.error || tc.error_type });
           }
         }
-        
         tool.avgLatency = ((tool.avgLatency * (tool.count - 1)) + tc.duration_ms) / tool.count;
       });
     });
 
-    // Convert error map to sorted array
     const topErrors = Array.from(errorMap.entries())
-      .map(([key, value]) => ({
-        type: key,
-        count: value.count,
-        message: value.message,
-      }))
+      .map(([key, value]) => ({ type: key, count: value.count, message: value.message }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
@@ -178,6 +261,8 @@ export function ObservabilityDashboard() {
       avgCallDuration: callsData.length > 0 ? totalCallDuration / callsData.length : 0,
       totalToolCalls,
       failedToolCalls,
+      avgLlmLatency: llmLatencyCount > 0 ? totalLlmLatency / llmLatencyCount : 0,
+      avgInterruptions: callsData.length > 0 ? totalInterruptions / callsData.length : 0,
       toolPerformance,
       topErrors,
     });
@@ -194,6 +279,13 @@ export function ObservabilityDashboard() {
     return 'text-rose-400';
   };
 
+  const updateEvaluator = (
+    key: keyof EvaluatorConfig,
+    update: { enabled?: boolean; threshold?: number }
+  ) => {
+    setEvaluators((prev) => ({ ...prev, [key]: { ...prev[key], ...update } }));
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -201,6 +293,13 @@ export function ObservabilityDashboard() {
       </div>
     );
   }
+
+  const tabs = [
+    { key: 'flagged' as const, label: 'Flagged Calls', badge: flaggedCalls.length, badgeColor: 'bg-rose-500/20 text-rose-300' },
+    { key: 'tools' as const, label: 'Tool Performance', badge: 0, badgeColor: '' },
+    { key: 'errors' as const, label: 'Error Analysis', badge: stats.topErrors.length, badgeColor: 'bg-slate-700 text-slate-400' },
+    { key: 'calls' as const, label: 'Recent Calls', badge: 0, badgeColor: '' },
+  ];
 
   return (
     <div className="space-y-6">
@@ -220,25 +319,122 @@ export function ObservabilityDashboard() {
         </div>
       </div>
 
+      {/* Evaluator Configuration */}
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 shadow-lg shadow-slate-950/40">
+        <button
+          onClick={() => setShowEvaluatorConfig((v) => !v)}
+          className="flex w-full items-center justify-between px-5 py-4"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold text-amber-300">Call Evaluators</span>
+            {flaggedCalls.length > 0 && (
+              <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-xs font-semibold text-rose-300">
+                {flaggedCalls.length} flagged
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-slate-400">{showEvaluatorConfig ? '▲ collapse' : '▼ configure'}</span>
+        </button>
+
+        {showEvaluatorConfig && (
+          <div className="grid gap-4 border-t border-amber-500/20 px-5 py-4 sm:grid-cols-3">
+            {/* High LLM Latency */}
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="eval-latency"
+                checked={evaluators.highLatency.enabled}
+                onChange={(e) => updateEvaluator('highLatency', { enabled: e.target.checked })}
+                className="mt-0.5 h-4 w-4 rounded border-slate-600 accent-amber-400"
+              />
+              <label htmlFor="eval-latency" className="flex-1 text-sm text-slate-300">
+                <span className="block font-medium">High LLM Latency</span>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">flag if &gt;</span>
+                  <input
+                    type="number"
+                    value={evaluators.highLatency.threshold}
+                    onChange={(e) => updateEvaluator('highLatency', { threshold: Number(e.target.value) })}
+                    disabled={!evaluators.highLatency.enabled}
+                    className="w-20 rounded border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-xs text-slate-100 disabled:opacity-40"
+                  />
+                  <span className="text-xs text-slate-500">ms</span>
+                </div>
+              </label>
+            </div>
+
+            {/* High Interruptions */}
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="eval-interruptions"
+                checked={evaluators.highInterruptions.enabled}
+                onChange={(e) => updateEvaluator('highInterruptions', { enabled: e.target.checked })}
+                className="mt-0.5 h-4 w-4 rounded border-slate-600 accent-amber-400"
+              />
+              <label htmlFor="eval-interruptions" className="flex-1 text-sm text-slate-300">
+                <span className="block font-medium">High Interruptions</span>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">flag if &gt;</span>
+                  <input
+                    type="number"
+                    value={evaluators.highInterruptions.threshold}
+                    onChange={(e) => updateEvaluator('highInterruptions', { threshold: Number(e.target.value) })}
+                    disabled={!evaluators.highInterruptions.enabled}
+                    className="w-16 rounded border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-xs text-slate-100 disabled:opacity-40"
+                  />
+                  <span className="text-xs text-slate-500">per call</span>
+                </div>
+              </label>
+            </div>
+
+            {/* Tool Failure Rate */}
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="eval-failrate"
+                checked={evaluators.highFailureRate.enabled}
+                onChange={(e) => updateEvaluator('highFailureRate', { enabled: e.target.checked })}
+                className="mt-0.5 h-4 w-4 rounded border-slate-600 accent-amber-400"
+              />
+              <label htmlFor="eval-failrate" className="flex-1 text-sm text-slate-300">
+                <span className="block font-medium">Tool Failure Rate</span>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <span className="text-xs text-slate-500">flag if &gt;</span>
+                  <input
+                    type="number"
+                    value={evaluators.highFailureRate.threshold}
+                    onChange={(e) => updateEvaluator('highFailureRate', { threshold: Number(e.target.value) })}
+                    disabled={!evaluators.highFailureRate.enabled}
+                    className="w-16 rounded border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-xs text-slate-100 disabled:opacity-40"
+                  />
+                  <span className="text-xs text-slate-500">%</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Summary Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/40">
           <div className="text-xs uppercase tracking-wide text-slate-400">Total Calls</div>
           <div className="mt-2 text-3xl font-bold text-slate-100">{stats.totalCalls}</div>
         </div>
-        
+
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/40">
           <div className="text-xs uppercase tracking-wide text-slate-400">Avg Duration</div>
           <div className="mt-2 text-3xl font-bold text-slate-100">
             {formatDuration(stats.avgCallDuration * 1000)}
           </div>
         </div>
-        
+
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/40">
           <div className="text-xs uppercase tracking-wide text-slate-400">Tool Calls</div>
           <div className="mt-2 text-3xl font-bold text-slate-100">{stats.totalToolCalls}</div>
         </div>
-        
+
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/40">
           <div className="text-xs uppercase tracking-wide text-slate-400">Failed Tools</div>
           <div className="mt-2 flex items-baseline gap-2">
@@ -250,49 +446,107 @@ export function ObservabilityDashboard() {
             )}
           </div>
         </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/40">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Avg LLM Latency</div>
+          <div className="mt-2 text-3xl font-bold text-slate-100">
+            {stats.avgLlmLatency > 0 ? formatDuration(stats.avgLlmLatency) : '—'}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-slate-950/40">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Avg Interruptions</div>
+          <div className="mt-2 text-3xl font-bold text-slate-100">
+            {stats.avgInterruptions > 0 ? stats.avgInterruptions.toFixed(1) : '—'}
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 shadow-lg shadow-slate-950/40">
         <div className="flex border-b border-slate-800">
-          <button
-            onClick={() => setActiveTab('tools')}
-            className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'tools'
-                ? 'border-b-2 border-sky-500 text-sky-400'
-                : 'text-slate-400 hover:text-slate-300'
-            }`}
-          >
-            Tool Performance
-          </button>
-          <button
-            onClick={() => setActiveTab('errors')}
-            className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'errors'
-                ? 'border-b-2 border-sky-500 text-sky-400'
-                : 'text-slate-400 hover:text-slate-300'
-            }`}
-          >
-            Error Analysis
-          </button>
-          <button
-            onClick={() => setActiveTab('calls')}
-            className={`flex-1 px-6 py-3 text-sm font-medium transition-colors ${
-              activeTab === 'calls'
-                ? 'border-b-2 border-sky-500 text-sky-400'
-                : 'text-slate-400 hover:text-slate-300'
-            }`}
-          >
-            Recent Calls
-          </button>
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex flex-1 items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === tab.key
+                  ? 'border-b-2 border-sky-500 text-sky-400'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              {tab.label}
+              {tab.badge > 0 && (
+                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold ${tab.badgeColor}`}>
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
 
         <div className="p-6">
+          {/* Flagged Calls Tab */}
+          {activeTab === 'flagged' && (
+            <div className="space-y-3">
+              {flaggedCalls.length === 0 ? (
+                <div className="py-8 text-center text-emerald-400">
+                  No calls flagged by current evaluators
+                </div>
+              ) : (
+                flaggedCalls.map(({ call, reasons }) => {
+                  const toolCalls = call.metrics?.tool_calls || [];
+                  const interruptions = getInterruptionCount(call);
+                  return (
+                    <div
+                      key={call.id}
+                      className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-4"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+                            <span>{new Date(call.createdAt).toLocaleString()}</span>
+                            {call.customerPhone && (
+                              <span className="font-mono text-slate-300">{call.customerPhone}</span>
+                            )}
+                            {call.intent && (
+                              <span className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                                {call.intent}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {reasons.map((reason, i) => (
+                              <span
+                                key={i}
+                                className="rounded-full bg-rose-500/15 px-2 py-1 text-xs text-rose-300"
+                              >
+                                {reason}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+                            <span>Duration: {formatDuration(call.duration * 1000)}</span>
+                            {(call.metrics?.avg_llm_latency_ms ?? 0) > 0 && (
+                              <span>LLM: {formatDuration(call.metrics!.avg_llm_latency_ms!)}</span>
+                            )}
+                            {interruptions > 0 && <span>Interruptions: {interruptions}</span>}
+                            <span>Tools: {toolCalls.length}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
           {/* Tool Performance Tab */}
           {activeTab === 'tools' && (
             <div className="space-y-4">
               {Object.keys(stats.toolPerformance).length === 0 ? (
-                <div className="text-center text-slate-400 py-8">
+                <div className="py-8 text-center text-slate-400">
                   No tool usage data available for this time range
                 </div>
               ) : (
@@ -327,7 +581,7 @@ export function ObservabilityDashboard() {
                         </div>
                         {tool.successRate < 0.9 && (
                           <span className="rounded-full bg-amber-500/10 px-2 py-1 text-xs text-amber-400">
-                            ⚠️ Needs Attention
+                            Needs Attention
                           </span>
                         )}
                       </div>
@@ -341,8 +595,8 @@ export function ObservabilityDashboard() {
           {activeTab === 'errors' && (
             <div className="space-y-3">
               {stats.topErrors.length === 0 ? (
-                <div className="text-center text-emerald-400 py-8">
-                  ✓ No errors detected in this time range
+                <div className="py-8 text-center text-emerald-400">
+                  No errors detected in this time range
                 </div>
               ) : (
                 stats.topErrors.map((error, idx) => (
@@ -370,8 +624,9 @@ export function ObservabilityDashboard() {
             <div className="space-y-3">
               {calls.slice(0, 20).map((call) => {
                 const toolCalls = call.metrics?.tool_calls || [];
-                const hasErrors = toolCalls.some(tc => !tc.success);
-                
+                const hasErrors = toolCalls.some((tc) => !tc.success);
+                const interruptions = getInterruptionCount(call);
+
                 return (
                   <div
                     key={call.id}
@@ -397,6 +652,20 @@ export function ObservabilityDashboard() {
                               <span className="text-slate-200">{call.intent}</span>
                             </div>
                           )}
+                          {(call.metrics?.avg_llm_latency_ms ?? 0) > 0 && (
+                            <div>
+                              <span className="text-slate-400">LLM Latency: </span>
+                              <span className="text-slate-200">
+                                {formatDuration(call.metrics!.avg_llm_latency_ms!)}
+                              </span>
+                            </div>
+                          )}
+                          {interruptions > 0 && (
+                            <div>
+                              <span className="text-slate-400">Interruptions: </span>
+                              <span className="text-slate-200">{interruptions}</span>
+                            </div>
+                          )}
                           <div>
                             <span className="text-slate-400">Tools: </span>
                             <span className="text-slate-200">{toolCalls.length}</span>
@@ -414,7 +683,7 @@ export function ObservabilityDashboard() {
                                 }`}
                               >
                                 {tc.tool_name} ({formatDuration(tc.duration_ms)})
-                                {!tc.success && ' ✗'}
+                                {!tc.success && ' x'}
                               </span>
                             ))}
                           </div>

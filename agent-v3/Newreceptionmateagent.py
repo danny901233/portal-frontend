@@ -3788,10 +3788,50 @@ async def entrypoint(ctx: JobContext):
                     caller_phone_for_summary = state.contact_phone if state.contact_phone else caller_phone_for_portal
                     logger.warning(f"[PORTAL] Error extracting phones, using: from={caller_phone_for_portal}, callback={caller_phone_for_summary}")
 
-                # Build transcript: prefer conversation_items (full agent+customer turns captured in real-time)
-                # Fall back to synthetic transcript from recent_transcripts if no conversation_items
+                # Build transcript: Try to get full conversation from LiveKit session first
+                # This should include function calls, not just messages
                 base_ts = state.call_start_time or time.time()
-                if state.conversation_items:
+                transcript = []
+                
+                # Try to access session conversation items (includes function calls)
+                try:
+                    if hasattr(session, 'conversation') and hasattr(session.conversation, 'items'):
+                        logger.info(f"[PORTAL] Found session.conversation.items with {len(session.conversation.items)} entries")
+                        for item in session.conversation.items:
+                            item_dict = {
+                                "type": item.type if hasattr(item, 'type') else "message",
+                                "role": item.role if hasattr(item, 'role') else "",
+                                "timestamp": round(max(0.0, time.time() - base_ts), 1)
+                            }
+                            
+                            # Handle function calls
+                            if item.type == "function_call":
+                                item_dict["function_name"] = item.name if hasattr(item, 'name') else ""
+                                item_dict["arguments"] = item.arguments if hasattr(item, 'arguments') else ""
+                                item_dict["call_id"] = item.call_id if hasattr(item, 'call_id') else ""
+                            # Handle function outputs
+                            elif item.type == "function_call_output":
+                                item_dict["call_id"] = item.call_id if hasattr(item, 'call_id') else ""
+                                item_dict["output"] = item.output if hasattr(item, 'output') else ""
+                            # Handle messages
+                            else:
+                                if hasattr(item, 'content') and item.content:
+                                    if isinstance(item.content, list) and len(item.content) > 0:
+                                        text = item.content[0].text if hasattr(item.content[0], 'text') else str(item.content[0])
+                                    else:
+                                        text = str(item.content)
+                                    speaker = "agent" if item_dict["role"] in ("assistant", "agent") else "customer"
+                                    item_dict["speaker"] = speaker
+                                    item_dict["text"] = text
+                            
+                            transcript.append(item_dict)
+                        
+                        logger.info(f"[PORTAL] Extracted {len(transcript)} items from session.conversation (includes function calls)")
+                except Exception as e:
+                    logger.warning(f"[PORTAL] Could not access session.conversation: {e}")
+                
+                # Fallback to state.conversation_items if session access failed
+                if not transcript and state.conversation_items:
                     transcript = state.conversation_items
                     # Ensure at least one agent entry exists
                     if not any(e.get("speaker") == "agent" for e in transcript):

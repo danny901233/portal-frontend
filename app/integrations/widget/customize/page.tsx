@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { getGarageId } from '@/app/lib/auth';
+import { getGarageId, TOKEN_STORAGE_KEY } from '@/app/lib/auth';
 
 interface WidgetBranding {
   widgetLogoUrl: string | null;
@@ -42,13 +42,23 @@ export default function WidgetCustomizePage() {
   // Save branding mutation
   const saveMutation = useMutation({
     mutationFn: async (data: WidgetBranding) => {
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
       const response = await fetch(`/api/widget/${garageId}/branding`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify(data),
       });
-      if (!response.ok) throw new Error('Failed to save branding');
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to save branding');
+      }
       return response.json();
     },
     onSuccess: () => {

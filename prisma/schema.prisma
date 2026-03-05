@@ -33,8 +33,10 @@ model Garage {
 
   // Widget Customization
   widgetLogoUrl String?
-  widgetLogoSize Int @default(80)
+  widgetLogoWidth Int @default(120)
+  widgetLogoHeight Int @default(60)
   widgetPrimaryColor String?
+  widgetButtonColor String?
   widgetButtonShape String @default("circle")
   widgetButtonIcon String @default("chat")
 

@@ -17,8 +17,10 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
         name: true,
         twilioNumber: true,
         widgetLogoUrl: true,
-        widgetLogoSize: true,
+        widgetLogoWidth: true,
+        widgetLogoHeight: true,
         widgetPrimaryColor: true,
+        widgetButtonColor: true,
         widgetButtonShape: true,
         widgetButtonIcon: true,
         agentConfiguration: {
@@ -41,8 +43,10 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
       phone: garage.twilioNumber,
       whatsappNumber,
       primaryColor: garage.widgetPrimaryColor || '#2563eb',
+      buttonColor: garage.widgetButtonColor || null,
       logoUrl: garage.widgetLogoUrl || null,
-      logoSize: garage.widgetLogoSize || 80,
+      logoWidth: garage.widgetLogoWidth || 120,
+      logoHeight: garage.widgetLogoHeight || 60,
       buttonShape: garage.widgetButtonShape || 'circle',
       buttonIcon: garage.widgetButtonIcon || 'chat',
     });
@@ -56,7 +60,7 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
 router.put('/widget/:garageId/branding', authenticate, async (req: Request, res: Response) => {
   try {
     const { garageId } = req.params;
-    const { widgetLogoUrl, widgetLogoSize, widgetPrimaryColor, widgetButtonShape, widgetButtonIcon } = req.body;
+    const { widgetLogoUrl, widgetLogoWidth, widgetLogoHeight, widgetPrimaryColor, widgetButtonColor, widgetButtonShape, widgetButtonIcon } = req.body;
 
     // Verify user has access to this garage
     const user = req.user;
@@ -78,16 +82,20 @@ router.put('/widget/:garageId/branding', authenticate, async (req: Request, res:
       where: { id: garageId },
       data: {
         widgetLogoUrl: widgetLogoUrl || null,
-        widgetLogoSize: widgetLogoSize !== undefined ? widgetLogoSize : 80,
+        widgetLogoWidth: widgetLogoWidth !== undefined ? widgetLogoWidth : 120,
+        widgetLogoHeight: widgetLogoHeight !== undefined ? widgetLogoHeight : 60,
         widgetPrimaryColor: widgetPrimaryColor || null,
+        widgetButtonColor: widgetButtonColor || null,
         widgetButtonShape: widgetButtonShape || 'circle',
         widgetButtonIcon: widgetButtonIcon || 'chat',
       },
       select: {
         id: true,
         widgetLogoUrl: true,
-        widgetLogoSize: true,
+        widgetLogoWidth: true,
+        widgetLogoHeight: true,
         widgetPrimaryColor: true,
+        widgetButtonColor: true,
         widgetButtonShape: true,
         widgetButtonIcon: true,
       },

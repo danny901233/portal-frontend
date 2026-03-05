@@ -6,8 +6,10 @@ import { getGarageId, TOKEN_STORAGE_KEY } from '@/app/lib/auth';
 
 interface WidgetBranding {
   widgetLogoUrl: string | null;
-  widgetLogoSize: number;
+  widgetLogoWidth: number;
+  widgetLogoHeight: number;
   widgetPrimaryColor: string | null;
+  widgetButtonColor: string | null;
   widgetButtonShape: string;
   widgetButtonIcon: string;
 }
@@ -25,6 +27,7 @@ const PRESET_COLORS = [
 
 const BUTTON_SHAPES = [
   { name: 'Circle', value: 'circle' },
+  { name: 'Pill', value: 'pill' },
   { name: 'Rounded', value: 'rounded' },
   { name: 'Square', value: 'square' },
 ];
@@ -38,8 +41,10 @@ const BUTTON_ICONS = [
 export default function WidgetCustomizePage() {
   const garageId = getGarageId();
   const [logoUrl, setLogoUrl] = useState<string>('');
-  const [logoSize, setLogoSize] = useState<number>(80);
+  const [logoWidth, setLogoWidth] = useState<number>(120);
+  const [logoHeight, setLogoHeight] = useState<number>(60);
   const [primaryColor, setPrimaryColor] = useState<string>(DEFAULT_COLOR);
+  const [buttonColor, setButtonColor] = useState<string>('');
   const [buttonShape, setButtonShape] = useState<string>('circle');
   const [buttonIcon, setButtonIcon] = useState<string>('chat');
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -61,8 +66,10 @@ export default function WidgetCustomizePage() {
   useEffect(() => {
     if (brandingData) {
       setLogoUrl(brandingData.logoUrl || '');
-      setLogoSize(brandingData.logoSize || 80);
+      setLogoWidth(brandingData.logoWidth || 120);
+      setLogoHeight(brandingData.logoHeight || 60);
       setPrimaryColor(brandingData.primaryColor || DEFAULT_COLOR);
+      setButtonColor(brandingData.buttonColor || '');
       setButtonShape(brandingData.buttonShape || 'circle');
       setButtonIcon(brandingData.buttonIcon || 'chat');
       setImagePreview(brandingData.logoUrl || null);
@@ -150,8 +157,10 @@ export default function WidgetCustomizePage() {
   const handleSave = () => {
     saveMutation.mutate({
       widgetLogoUrl: logoUrl || null,
-      widgetLogoSize: logoSize,
+      widgetLogoWidth: logoWidth,
+      widgetLogoHeight: logoHeight,
       widgetPrimaryColor: primaryColor || null,
+      widgetButtonColor: buttonColor || null,
       widgetButtonShape: buttonShape,
       widgetButtonIcon: buttonIcon,
     });
@@ -159,8 +168,10 @@ export default function WidgetCustomizePage() {
 
   const handleReset = () => {
     setLogoUrl('');
-    setLogoSize(80);
+    setLogoWidth(120);
+    setLogoHeight(60);
     setPrimaryColor(DEFAULT_COLOR);
+    setButtonColor('');
     setButtonShape('circle');
     setButtonIcon('chat');
     setImagePreview(null);
@@ -269,24 +280,45 @@ export default function WidgetCustomizePage() {
               )}
             </div>
 
-            {/* Logo Size Slider */}
+            {/* Logo Width Slider */}
             {imagePreview && (
-              <div className="mt-4 pt-4 border-t border-slate-700">
-                <label className="block text-sm font-medium text-slate-300 mb-3">
-                  Logo Size: {logoSize}px
-                </label>
-                <input
-                  type="range"
-                  min="40"
-                  max="150"
-                  step="5"
-                  value={logoSize}
-                  onChange={(e) => setLogoSize(parseInt(e.target.value))}
-                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                />
-                <div className="flex justify-between text-xs text-slate-500 mt-1">
-                  <span>Small</span>
-                  <span>Large</span>
+              <div className="mt-4 pt-4 border-t border-slate-700 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-3">
+                    Logo Width: {logoWidth}px
+                  </label>
+                  <input
+                    type="range"
+                    min="40"
+                    max="200"
+                    step="5"
+                    value={logoWidth}
+                    onChange={(e) => setLogoWidth(parseInt(e.target.value))}
+                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                  />
+                  <div className="flex justify-between text-xs text-slate-500 mt-1">
+                    <span>40px</span>
+                    <span>200px</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-3">
+                    Logo Height: {logoHeight}px
+                  </label>
+                  <input
+                    type="range"
+                    min="20"
+                    max="150"
+                    step="5"
+                    value={logoHeight}
+                    onChange={(e) => setLogoHeight(parseInt(e.target.value))}
+                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                  />
+                  <div className="flex justify-between text-xs text-slate-500 mt-1">
+                    <span>20px</span>
+                    <span>150px</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -375,11 +407,11 @@ export default function WidgetCustomizePage() {
             </div>
           </section>
 
-          {/* Color Picker */}
+          {/* Widget Color Picker */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">Brand Color</h2>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">Widget Color</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Choose a color that matches your brand identity
+              Choose the main color for your widget interface
             </p>
 
             <div className="space-y-4">
@@ -412,6 +444,55 @@ export default function WidgetCustomizePage() {
                   />
                 ))}
               </div>
+            </div>
+          </section>
+
+          {/* Button Color Picker */}
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">Button Color</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              Choose a separate color for the chat button (optional, defaults to widget color)
+            </p>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <input
+                  type="color"
+                  value={buttonColor || primaryColor}
+                  onChange={(e) => setButtonColor(e.target.value)}
+                  className="h-12 w-20 cursor-pointer rounded-lg border border-slate-700"
+                />
+                <input
+                  type="text"
+                  value={buttonColor}
+                  onChange={(e) => setButtonColor(e.target.value)}
+                  placeholder="Leave empty to use widget color"
+                  className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-6 gap-2">
+                {['#2563eb', '#7c3aed', '#dc2626', '#ea580c', '#16a34a', '#0891b2'].map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => setButtonColor(color)}
+                    className="h-10 w-full rounded-lg border-2 transition hover:scale-105"
+                    style={{
+                      backgroundColor: color,
+                      borderColor: buttonColor === color ? '#fff' : color,
+                    }}
+                  />
+                ))}
+              </div>
+              
+              {buttonColor && (
+                <button
+                  onClick={() => setButtonColor('')}
+                  className="w-full text-sm text-slate-400 hover:text-slate-300 transition"
+                >
+                  Clear (use widget color)
+                </button>
+              )}
             </div>
           </section>
 
@@ -448,31 +529,68 @@ export default function WidgetCustomizePage() {
               <div className="flex items-center justify-center">
                 <div className="relative">
                   <p className="text-xs text-slate-400 text-center mb-3">Chat Button</p>
-                  <button
-                    className="shadow-2xl transition hover:scale-105 flex items-center justify-center text-white"
-                    style={{
-                      backgroundColor: primaryColor,
-                      width: '64px',
-                      height: '64px',
-                      borderRadius: buttonShape === 'circle' ? '50%' : buttonShape === 'rounded' ? '16px' : '8px',
-                    }}
-                  >
-                    {buttonIcon === 'chat' && (
-                      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                      </svg>
-                    )}
-                    {buttonIcon === 'whatsapp' && (
-                      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-                      </svg>
-                    )}
-                    {buttonIcon === 'phone' && (
-                      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                      </svg>
-                    )}
-                  </button>
+                  {buttonShape === 'pill' ? (
+                    <button
+                      className="shadow-2xl transition hover:scale-105 flex items-center justify-center text-white gap-2 px-6"
+                      style={{
+                        backgroundColor: buttonColor || primaryColor,
+                        height: '64px',
+                        borderRadius: '32px',
+                        minWidth: '180px',
+                      }}
+                    >
+                      {buttonIcon === 'chat' && (
+                        <>
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                          <span className="font-medium">Chat now!</span>
+                        </>
+                      )}
+                      {buttonIcon === 'whatsapp' && (
+                        <>
+                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                          </svg>
+                          <span className="font-medium">Chat now!</span>
+                        </>
+                      )}
+                      {buttonIcon === 'phone' && (
+                        <>
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                          </svg>
+                          <span className="font-medium">Chat now!</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      className="shadow-2xl transition hover:scale-105 flex items-center justify-center text-white"
+                      style={{
+                        backgroundColor: buttonColor || primaryColor,
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: buttonShape === 'circle' ? '50%' : buttonShape === 'rounded' ? '16px' : '8px',
+                      }}
+                    >
+                      {buttonIcon === 'chat' && (
+                        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                      )}
+                      {buttonIcon === 'whatsapp' && (
+                        <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                        </svg>
+                      )}
+                      {buttonIcon === 'phone' && (
+                        <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -494,15 +612,15 @@ export default function WidgetCustomizePage() {
                           src={imagePreview}
                           alt="Logo"
                           style={{
-                            maxHeight: `${logoSize}px`,
-                            maxWidth: `${logoSize * 1.5}px`,
+                            width: `${logoWidth}px`,
+                            height: `${logoHeight}px`,
                             objectFit: 'contain'
                           }}
                         />
                       </div>
                     ) : (
-                      <div className="flex items-center justify-center rounded-2xl bg-white/10 backdrop-blur-sm" style={{ height: `${logoSize}px`, width: `${logoSize * 1.5}px` }}>
-                        <svg className="text-white/50" style={{ height: `${logoSize * 0.5}px`, width: `${logoSize * 0.5}px` }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <div className="flex items-center justify-center rounded-2xl bg-white/10 backdrop-blur-sm" style={{ height: `${logoHeight}px`, width: `${logoWidth}px` }}>
+                        <svg className="text-white/50" style={{ height: `${logoHeight * 0.5}px`, width: `${logoWidth * 0.5}px` }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"

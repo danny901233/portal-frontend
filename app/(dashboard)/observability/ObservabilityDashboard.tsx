@@ -144,6 +144,7 @@ export function ObservabilityDashboard() {
   const [evaluators, setEvaluators] = useState<EvaluatorConfig>(DEFAULT_EVALUATORS);
   const [flaggedCalls, setFlaggedCalls] = useState<FlaggedCall[]>([]);
   const [showEvaluatorConfig, setShowEvaluatorConfig] = useState(true);
+  const [reportingCallId, setReportingCallId] = useState<string | null>(null);
 
   // Load evaluators from localStorage on mount
   useEffect(() => {
@@ -277,6 +278,23 @@ export function ObservabilityDashboard() {
     if (rate >= 0.9) return 'text-emerald-400';
     if (rate >= 0.7) return 'text-amber-400';
     return 'text-rose-400';
+  };
+
+  const reportToDiscord = async (call: CallData, reasons: string[]) => {
+    const token = getSessionToken();
+    if (!token || !call.garageId) return;
+    setReportingCallId(call.id);
+    try {
+      await fetch(`/api/garages/${call.garageId}/calls/${call.id}/report-discord`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reasons }),
+      });
+    } catch (e) {
+      console.error('Failed to report to Discord', e);
+    } finally {
+      setReportingCallId(null);
+    }
   };
 
   const updateEvaluator = (
@@ -534,6 +552,13 @@ export function ObservabilityDashboard() {
                             <span>Tools: {toolCalls.length}</span>
                           </div>
                         </div>
+                        <button
+                          onClick={() => reportToDiscord(call, reasons)}
+                          disabled={reportingCallId === call.id}
+                          className="shrink-0 rounded-md bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-300 hover:bg-indigo-500/20 disabled:opacity-50"
+                        >
+                          {reportingCallId === call.id ? 'Sending...' : 'Report to Discord'}
+                        </button>
                       </div>
                     </div>
                   );

@@ -619,6 +619,50 @@ router.post(
   },
 );
 
+// Report a flagged call to Discord (from Observability Dashboard)
+router.post(
+  '/garages/:garageId/calls/:callId/report-discord',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId, callId } = req.params;
+      const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+      if (!isStaff) return res.status(403).json({ error: 'Forbidden' });
+
+      const call = await prisma.call.findFirst({
+        where: { id: callId, garageId },
+        include: { garage: true },
+      });
+      if (!call) return res.status(404).json({ error: 'Call not found' });
+
+      const { reasons } = req.body as { reasons?: string[] };
+
+      const { sendDiscordNotification, DISCORD_COLORS } = await import('../utils/discord.js');
+
+      const fields = [
+        { name: 'Branch', value: call.garage.name, inline: true },
+        { name: 'Call ID', value: callId, inline: true },
+        { name: 'Duration', value: call.durationSeconds ? `${call.durationSeconds}s` : 'n/a', inline: true },
+      ];
+      if (call.callType) fields.push({ name: 'Type', value: call.callType, inline: true });
+      if (call.customerPhone) fields.push({ name: 'Caller', value: call.customerPhone, inline: true });
+      if (reasons?.length) fields.push({ name: 'Flagged for', value: reasons.join('\n'), inline: false });
+
+      await sendDiscordNotification({
+        title: 'Flagged Call Reported',
+        description: `A call at **${call.garage.name}** was manually flagged from the Observability Dashboard.`,
+        color: DISCORD_COLORS.warning,
+        fields,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Failed to report call to Discord:', error);
+      res.status(500).json({ error: 'Failed to send Discord notification' });
+    }
+  },
+);
+
 // Fetch Twilio recording URL for a specific call
 router.get('/calls/:id/recording', authenticate, async (req: Request, res: Response) => {
   try {

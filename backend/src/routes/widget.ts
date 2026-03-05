@@ -59,10 +59,11 @@ router.put('/widget/:garageId/branding', authenticate, async (req: Request, res:
     }
 
     // Check if user has access to this garage
-    const userGarageIds = user.garageIds || (user.garageId ? [user.garageId] : []);
     const isStaff = user.role === 'RECEPTIONMATE_STAFF';
+    const userGarageIds = user.garageIds || [];
+    const hasAccess = isStaff || userGarageIds.includes(garageId) || (user.branchRoles && user.branchRoles[garageId]);
     
-    if (!isStaff && !userGarageIds.includes(garageId)) {
+    if (!hasAccess) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

@@ -43,7 +43,34 @@ type LogEntry_Type = {
   attributes?: Record<string, any>;
 };
 
-type TranscriptEntry_Union = MessageEntry | ToolCallEntry_Type | LogEntry_Type;
+type FunctionCallEntry = {
+  type: 'function_call';
+  id?: string;
+  call_id?: string;
+  name: string;
+  arguments: string | Record<string, any>;
+  created_at: number;
+  extra?: Record<string, any>;
+};
+
+type FunctionCallOutputEntry = {
+  type: 'function_call_output';
+  id?: string;
+  call_id?: string;
+  name: string;
+  output: string | any;
+  is_error?: boolean;
+  created_at: number;
+};
+
+type AgentHandoffEntry = {
+  type: 'agent_handoff';
+  id?: string;
+  new_agent_id?: string;
+  created_at: number;
+};
+
+type TranscriptEntry_Union = MessageEntry | ToolCallEntry_Type | LogEntry_Type | FunctionCallEntry | FunctionCallOutputEntry | AgentHandoffEntry;
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,

@@ -2838,6 +2838,12 @@ class SupervisorAgent(Agent):
             # Prepare phone verification prompt based on whether we have incoming SIP number
             phone_prompt = ""
             if self._state.incoming_sip_number:
+                # Store the incoming SIP number as contact phone when timeslot is confirmed
+                # This ensures it's available for submit_booking if they verify with "yes"
+                if not self._state.contact_phone:
+                    self._state.contact_phone = self._state.incoming_sip_number
+                    logger.info(f"[SELECT_TIMESLOT] Pre-storing SIP number as contact phone: {self._state.contact_phone}")
+                
                 # Extract last 3 digits for verification
                 digits_only = re.sub(r'[^0-9]', '', self._state.incoming_sip_number)
                 if len(digits_only) >= 3:
@@ -2973,11 +2979,20 @@ class SupervisorAgent(Agent):
             
             # Handle phone verification - if 'verified', use SIP number
             phone_raw = (phone or "").strip()
-            if phone_raw.lower() == 'verified' and self._state.incoming_sip_number:
-                phone = _sanitise_phone(self._state.incoming_sip_number)
-                logger.info(f"[SUBMIT_BOOKING] Using verified SIP number: {phone}")
+            if phone_raw.lower() == 'verified':
+                if self._state.incoming_sip_number:
+                    phone = _sanitise_phone(self._state.incoming_sip_number)
+                    logger.info(f"[SUBMIT_BOOKING] Using verified SIP number: {phone}")
+                elif self._state.contact_phone:
+                    phone = _sanitise_phone(self._state.contact_phone)
+                    logger.info(f"[SUBMIT_BOOKING] Using previously stored contact phone: {phone}")
+                else:
+                    logger.error(f"[SUBMIT_BOOKING] 'verified' passed but no SIP or stored phone available!")
+                    phone = ""
             else:
                 phone = _sanitise_phone(phone_raw)
+                if phone:
+                    logger.info(f"[SUBMIT_BOOKING] Using provided phone number: {phone}")
             
             email = _sanitise_email((email or "").strip().replace(" ", "").lower())
             house_name_or_number = (house_name_or_number or "").strip()
@@ -3090,6 +3105,14 @@ class SupervisorAgent(Agent):
             logger.info(f"[SUBMIT_BOOKING] Notes to GarageHive: '{all_notes}'")
 
             contact_address = f"{house_name_or_number}, {street}".strip(", ").lower()
+            
+            # Log what we're about to send to GarageHive
+            logger.info(f"[SUBMIT_BOOKING] Sending to GarageHive API:")
+            logger.info(f"  - Name: {first} {last}")
+            logger.info(f"  - Phone: {phone}")
+            logger.info(f"  - Email: {email}")
+            logger.info(f"  - Address: {contact_address}, {city.lower()}, {postcode}")
+            
             try:
                 result = await self._gh.set_contact_info(
                     self._state.session_id,

@@ -409,7 +409,7 @@ export default function CallDetailPage() {
             <h2 className="text-lg font-semibold text-slate-100">Transcript</h2>
             <p className="text-xs uppercase tracking-wide text-slate-500">Scroll to explore the full conversation.</p>
             <div className="relative">
-              <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-2">
+              <div className="max-h-[48rem] space-y-3 overflow-y-auto pr-2 pb-2">
                 {transcript.map((entry: CallRecord['transcript'][number], index) => (
                   <TranscriptEntry
                     key={`${entry.speaker}-${entry.timestamp}-${index}`}
@@ -421,14 +421,14 @@ export default function CallDetailPage() {
               {showTranscriptHint ? (
                 <>
                   <div
-                    className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-slate-900 via-slate-900/80 to-transparent z-10"
+                    className="pointer-events-none absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-slate-900 via-slate-900/60 to-transparent z-10"
                     aria-hidden
                   />
                   <div
-                    className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-slate-900 via-slate-900/80 to-transparent z-10"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-slate-900 via-slate-900/60 to-transparent z-10"
                     aria-hidden
                   />
-                  <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center z-20">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center z-20">
                     <span className="rounded-full bg-slate-900/90 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-300 shadow-lg shadow-slate-900/60">
                       Scroll to read more
                     </span>

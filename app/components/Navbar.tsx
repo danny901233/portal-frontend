@@ -36,9 +36,10 @@ export default function Navbar({
     ? 'All assigned branches'
     : selectedGarage?.name || 'Select a branch';
 
-  // Filter garages based on search query
+  // Filter garages based on search query (searches both name and ID)
   const filteredGarages = garages.filter((garage) =>
-    garage.name.toLowerCase().includes(searchQuery.toLowerCase())
+    garage.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    garage.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Close dropdown when clicking outside
@@ -87,7 +88,7 @@ export default function Navbar({
                 <div className="p-2">
                   <input
                     type="text"
-                    placeholder="Search branches..."
+                    placeholder="Search branches by name or ID..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-sky-500 focus:outline-none"

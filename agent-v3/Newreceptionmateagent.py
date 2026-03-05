@@ -3654,34 +3654,64 @@ async def entrypoint(ctx: JobContext):
 
     @session.on("conversation_item_added")
     def _on_conversation_item_added(ev):
-        """Capture full agent+customer transcript for GPT summary."""
+        """Capture full agent+customer transcript including function calls for portal."""
         try:
             item = getattr(ev, "item", None)
             if item is None:
                 return
+            
+            # Get item type and role
+            item_type = getattr(item, "type", "message")
             role = getattr(item, "role", "") or ""
-            text = ""
-            if hasattr(item, "text_content"):
-                text = item.text_content or ""
-            if not text and hasattr(item, "content"):
-                content = item.content
-                if isinstance(content, str):
-                    text = content
-                elif isinstance(content, list):
-                    parts = []
-                    for part in content:
-                        if hasattr(part, "text"):
-                            parts.append(part.text or "")
-                        elif isinstance(part, dict):
-                            parts.append(part.get("text", ""))
-                    text = " ".join(p for p in parts if p)
-            text = text.strip()
-            if not text:
-                return
-            speaker = "agent" if role in ("assistant", "agent") else "customer"
-            ts = max(0.0, time.time() - (state.call_start_time or time.time()))
-            state.conversation_items.append({"speaker": speaker, "text": text, "timestamp": round(ts, 1)})
-            logger.info(f"[TRANSCRIPT] {speaker.capitalize()} speech captured via conversation_item_added: {text[:80]}")
+            
+            # Build conversation item for portal
+            conv_item = {
+                "type": item_type,
+                "role": role,
+                "timestamp": round(max(0.0, time.time() - (state.call_start_time or time.time())), 1)
+            }
+            
+            # Handle function calls
+            if item_type == "function_call":
+                conv_item["function_name"] = getattr(item, "name", "")
+                conv_item["arguments"] = getattr(item, "arguments", "")
+                conv_item["call_id"] = getattr(item, "call_id", "")
+                logger.info(f"[TRANSCRIPT] Function call captured: {conv_item['function_name']}")
+            
+            # Handle function call output
+            elif item_type == "function_call_output":
+                conv_item["call_id"] = getattr(item, "call_id", "")
+                conv_item["output"] = getattr(item, "output", "")
+                logger.info(f"[TRANSCRIPT] Function output captured for call_id: {conv_item['call_id']}")
+            
+            # Handle regular messages
+            else:
+                text = ""
+                if hasattr(item, "text_content"):
+                    text = item.text_content or ""
+                if not text and hasattr(item, "content"):
+                    content = item.content
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, list):
+                        parts = []
+                        for part in content:
+                            if hasattr(part, "text"):
+                                parts.append(part.text or "")
+                            elif isinstance(part, dict):
+                                parts.append(part.get("text", ""))
+                        text = " ".join(p for p in parts if p)
+                text = text.strip()
+                if not text:
+                    return
+                
+                speaker = "agent" if role in ("assistant", "agent") else "customer"
+                conv_item["speaker"] = speaker
+                conv_item["text"] = text
+                logger.info(f"[TRANSCRIPT] {speaker.capitalize()} speech captured: {text[:80]}")
+            
+            state.conversation_items.append(conv_item)
+            
         except Exception as exc:
             logger.warning(f"[TRANSCRIPT] conversation_item_added error: {exc}")
 

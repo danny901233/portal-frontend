@@ -437,7 +437,7 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '17px',
           fontFamily: "'Poppins', sans-serif",
-          paddingTop: '120px',
+          paddingTop: `${Math.max(120, (config?.logoHeight || 60) + 70)}px`,
           paddingBottom: '40px',
           paddingLeft: '32px',
           paddingRight: '32px'
@@ -597,7 +597,15 @@ export default function ChatWidget() {
           
           {/* Powered by - outside white rectangle */}
           <div className="mt-10 text-center">
-            <p className="text-base font-medium" style={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Powered by ReceptionMate</p>
+            <a 
+              href="https://receptionmate.co.uk" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-base font-medium hover:underline" 
+              style={{ color: 'white', fontFamily: "'Poppins', sans-serif", textDecoration: 'none' }}
+            >
+              Powered by ReceptionMate
+            </a>
           </div>
         </div>
       )}
@@ -750,7 +758,15 @@ export default function ChatWidget() {
           
           {/* Powered by - outside white rectangle */}
           <div className="mt-10 text-center">
-            <p className="text-base font-medium" style={{ color: 'white', fontFamily: "'Poppins', sans-serif" }}>Powered by ReceptionMate</p>
+            <a 
+              href="https://receptionmate.co.uk" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-base font-medium hover:underline" 
+              style={{ color: 'white', fontFamily: "'Poppins', sans-serif", textDecoration: 'none' }}
+            >
+              Powered by ReceptionMate
+            </a>
           </div>
         </div>
       )}

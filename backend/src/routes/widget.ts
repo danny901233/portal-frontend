@@ -53,8 +53,16 @@ router.put('/widget/:garageId/branding', authenticate, async (req: Request, res:
     const { widgetLogoUrl, widgetPrimaryColor } = req.body;
 
     // Verify user has access to this garage
-    const user = (req as any).user;
-    if (!user.garageAccessIds.includes(garageId)) {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Check if user has access to this garage
+    const userGarageIds = user.garageIds || (user.garageId ? [user.garageId] : []);
+    const isStaff = user.role === 'RECEPTIONMATE_STAFF';
+    
+    if (!isStaff && !userGarageIds.includes(garageId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

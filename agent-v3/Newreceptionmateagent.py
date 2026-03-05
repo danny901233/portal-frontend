@@ -3658,11 +3658,15 @@ async def entrypoint(ctx: JobContext):
         try:
             item = getattr(ev, "item", None)
             if item is None:
+                logger.warning("[TRANSCRIPT] conversation_item_added: item is None")
                 return
             
             # Get item type and role
             item_type = getattr(item, "type", "message")
             role = getattr(item, "role", "") or ""
+            item_id = getattr(item, "id", "")
+            
+            logger.info(f"[TRANSCRIPT] conversation_item_added: type={item_type}, role={role}, id={item_id}")
             
             # Build conversation item for portal
             conv_item = {
@@ -3676,13 +3680,13 @@ async def entrypoint(ctx: JobContext):
                 conv_item["function_name"] = getattr(item, "name", "")
                 conv_item["arguments"] = getattr(item, "arguments", "")
                 conv_item["call_id"] = getattr(item, "call_id", "")
-                logger.info(f"[TRANSCRIPT] Function call captured: {conv_item['function_name']}")
+                logger.info(f"[TRANSCRIPT] ✅ Function call captured: {conv_item['function_name']} with args: {conv_item['arguments'][:100]}")
             
             # Handle function call output
             elif item_type == "function_call_output":
                 conv_item["call_id"] = getattr(item, "call_id", "")
                 conv_item["output"] = getattr(item, "output", "")
-                logger.info(f"[TRANSCRIPT] Function output captured for call_id: {conv_item['call_id']}")
+                logger.info(f"[TRANSCRIPT] ✅ Function output captured for call_id: {conv_item['call_id']}, output: {str(conv_item['output'])[:100]}")
             
             # Handle regular messages
             else:
@@ -3711,9 +3715,10 @@ async def entrypoint(ctx: JobContext):
                 logger.info(f"[TRANSCRIPT] {speaker.capitalize()} speech captured: {text[:80]}")
             
             state.conversation_items.append(conv_item)
+            logger.info(f"[TRANSCRIPT] Total items in state: {len(state.conversation_items)}")
             
         except Exception as exc:
-            logger.warning(f"[TRANSCRIPT] conversation_item_added error: {exc}")
+            logger.warning(f"[TRANSCRIPT] conversation_item_added error: {exc}", exc_info=True)
 
     # Start session
     logger.info("[ENTRYPOINT] Starting session with SupervisorAgent")

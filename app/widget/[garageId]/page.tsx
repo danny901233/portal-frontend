@@ -445,24 +445,16 @@ export default function ChatWidget() {
           {/* Logo Area - Above the white card */}
           <div className="absolute top-8 left-0 right-0 flex justify-center">
             {config?.logoUrl ? (
-              <div style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(10px)',
-                borderRadius: '20px',
-                padding: '16px',
-                maxWidth: `${config?.logoWidth || 120}px`
-              }}>
-                <img 
-                  src={config.logoUrl} 
-                  alt="Logo" 
-                  style={{ 
-                    width: `${config?.logoWidth || 120}px`,
-                    height: `${config?.logoHeight || 60}px`,
-                    objectFit: 'contain',
-                    display: 'block'
-                  }} 
-                />
-              </div>
+              <img 
+                src={config.logoUrl} 
+                alt="Logo" 
+                style={{ 
+                  width: `${config?.logoWidth || 120}px`,
+                  height: `${config?.logoHeight || 60}px`,
+                  objectFit: 'contain',
+                  display: 'block'
+                }} 
+              />
             ) : (
               <div style={{
                 width: `${config?.logoWidth || 120}px`,

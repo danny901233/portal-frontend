@@ -607,17 +607,15 @@ export default function WidgetCustomizePage() {
                   {/* Logo Preview */}
                   <div className="mb-6 flex justify-center">
                     {imagePreview ? (
-                      <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
-                        <img
-                          src={imagePreview}
-                          alt="Logo"
-                          style={{
-                            width: `${logoWidth}px`,
-                            height: `${logoHeight}px`,
-                            objectFit: 'contain'
-                          }}
-                        />
-                      </div>
+                      <img
+                        src={imagePreview}
+                        alt="Logo"
+                        style={{
+                          width: `${logoWidth}px`,
+                          height: `${logoHeight}px`,
+                          objectFit: 'contain'
+                        }}
+                      />
                     ) : (
                       <div className="flex items-center justify-center rounded-2xl bg-white/10 backdrop-blur-sm" style={{ height: `${logoHeight}px`, width: `${logoWidth}px` }}>
                         <svg className="text-white/50" style={{ height: `${logoHeight * 0.5}px`, width: `${logoWidth * 0.5}px` }} fill="none" viewBox="0 0 24 24" stroke="currentColor">

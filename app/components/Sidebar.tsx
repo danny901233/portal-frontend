@@ -14,6 +14,7 @@ const poppins = Poppins({
 const baseNavigation = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Calls', href: '/calls' },
+  { name: 'Conversations', href: '/conversations', requiresManager: true },
   { name: 'Messages', href: '/messages' },
   { name: 'Agent Configurations', href: '/agent-configurations', requiresManager: true },
   { name: 'Integrations', href: '/integrations/widget', requiresStaff: true },
@@ -32,6 +33,7 @@ export default function Sidebar({
   hasManagerAccess = false,
   isManagerUser = false,
   messagesNeedingAttention = 0,
+  conversationsNeedingAttention = 0,
 }: {
   activePath: string;
   showAdminLink?: boolean;
@@ -39,6 +41,7 @@ export default function Sidebar({
   hasManagerAccess?: boolean;
   isManagerUser?: boolean;
   messagesNeedingAttention?: number;
+  conversationsNeedingAttention?: number;
 }) {
   const items = useMemo(() => {
     // Filter navigation based on permissions
@@ -111,6 +114,11 @@ export default function Sidebar({
             {item.href === '/messages' && messagesNeedingAttention > 0 && (
               <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-semibold text-white">
                 {messagesNeedingAttention > 99 ? '99+' : messagesNeedingAttention}
+              </span>
+            )}
+            {item.href === '/conversations' && conversationsNeedingAttention > 0 && (
+              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-semibold text-white">
+                {conversationsNeedingAttention > 99 ? '99+' : conversationsNeedingAttention}
               </span>
             )}
           </Link>

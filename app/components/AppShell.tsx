@@ -45,6 +45,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [branchScope, setBranchScope] = useState<BranchScope>('single');
   const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
   const [messagesNeedingAttention, setMessagesNeedingAttention] = useState(0);
+  const [conversationsNeedingAttention, setConversationsNeedingAttention] = useState(0);
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
   const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
@@ -288,6 +289,25 @@ export default function AppShell({ children }: { children: ReactNode }) {
           setHasMessagingAccess(false);
           setMessagesNeedingAttention(0);
         }
+
+        // Fetch conversations needing attention (for managers and staff)
+        try {
+          const convParams = new URLSearchParams();
+          if (!isReceptionMateStaff()) {
+            if (garageId) convParams.set('garageId', garageId);
+          }
+          const convResponse = await fetch(
+            `/internal-api/conversations?${convParams.toString()}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (convResponse.ok) {
+            const convData = await convResponse.json() as { conversations: { needsAttention: boolean }[] };
+            const count = (convData.conversations ?? []).filter(c => c.needsAttention).length;
+            setConversationsNeedingAttention(count);
+          }
+        } catch (convErr) {
+          console.error('[CONVERSATIONS] Error fetching count:', convErr);
+        }
       } catch (error) {
         console.error('[MESSAGING] Error fetching messaging data:', error);
         setHasMessagingAccess(false);
@@ -320,6 +340,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         hasManagerAccess={managedGarageIds.length > 0}
         isManagerUser={isStaffUser || isAdminUser}
         messagesNeedingAttention={messagesNeedingAttention}
+        conversationsNeedingAttention={conversationsNeedingAttention}
       />
       <div className="flex flex-1 flex-col">
         <Navbar

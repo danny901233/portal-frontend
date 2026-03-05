@@ -179,7 +179,20 @@ const TranscriptEntry = ({
     );
   }
 
-  // Regular conversation message
+  // Handle agent_handoff entries (usually hidden, just show a simple message)
+  if ('type' in entry && entry.type === 'agent_handoff') {
+    return (
+      <div className="rounded-lg border border-purple-800/40 bg-purple-950/30 p-3">
+        <div className="text-xs text-purple-400">Agent handoff: {entry.new_agent_id || 'unknown'}</div>
+      </div>
+    );
+  }
+
+  // Regular conversation message - must have speaker and text properties
+  if (!('speaker' in entry) || !('text' in entry)) {
+    return null; // Skip entries without speaker/text
+  }
+
   const isStaff = isReceptionMateStaff();
   const confidence = 'confidence' in entry ? entry.confidence : undefined;
   const latency = 'latency_ms' in entry ? entry.latency_ms : undefined;

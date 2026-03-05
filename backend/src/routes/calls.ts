@@ -14,6 +14,7 @@ import type {
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { sendNegativeFeedbackEmail, sendCallSummaryEmail } from '../utils/email.js';
+import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { trackConfirmedBooking } from '../services/billing.js';
 
 const router = Router();
@@ -594,19 +595,40 @@ router.post(
         },
       });
 
-      // Send email notification for negative feedback
-      if (rating === 'down' && req.user?.email) {
-        void sendNegativeFeedbackEmail({
-          branchName: call.garage.name,
-          callId,
-          rating: 'down',
-          reasons: normalizedReasons,
-          notes: sanitizedNotes,
-          userEmail: req.user.email,
-          submittedAt: new Date().toISOString(),
+      // Send notifications for negative feedback
+      if (rating === 'down') {
+        const fields = [
+          { name: 'Branch', value: call.garage.name, inline: true },
+          { name: 'Call ID', value: callId, inline: true },
+          { name: 'Duration', value: call.durationSeconds ? `${call.durationSeconds}s` : 'n/a', inline: true },
+        ];
+        if (call.callType) fields.push({ name: 'Type', value: call.callType, inline: true });
+        if (call.customerPhone) fields.push({ name: 'Caller', value: call.customerPhone, inline: true });
+        if (normalizedReasons.length) fields.push({ name: 'Reasons', value: normalizedReasons.join(', '), inline: false });
+        if (sanitizedNotes) fields.push({ name: 'Notes', value: sanitizedNotes, inline: false });
+
+        void sendDiscordNotification({
+          title: 'Negative Call Rating',
+          description: `A call at **${call.garage.name}** was rated thumbs down.`,
+          color: DISCORD_COLORS.error,
+          fields,
         }).catch((error) => {
-          console.error('Failed to send negative feedback email:', error);
+          console.error('Failed to send Discord notification:', error);
         });
+
+        if (req.user?.email) {
+          void sendNegativeFeedbackEmail({
+            branchName: call.garage.name,
+            callId,
+            rating: 'down',
+            reasons: normalizedReasons,
+            notes: sanitizedNotes,
+            userEmail: req.user.email,
+            submittedAt: new Date().toISOString(),
+          }).catch((error) => {
+            console.error('Failed to send negative feedback email:', error);
+          });
+        }
       }
 
       res.json({ feedback: serializeCallFeedback(feedback) });

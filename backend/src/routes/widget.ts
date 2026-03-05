@@ -17,7 +17,10 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
         name: true,
         twilioNumber: true,
         widgetLogoUrl: true,
+        widgetLogoSize: true,
         widgetPrimaryColor: true,
+        widgetButtonShape: true,
+        widgetButtonIcon: true,
         agentConfiguration: {
           select: { phoneNumber: true },
         },
@@ -39,6 +42,9 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
       whatsappNumber,
       primaryColor: garage.widgetPrimaryColor || '#2563eb',
       logoUrl: garage.widgetLogoUrl || null,
+      logoSize: garage.widgetLogoSize || 80,
+      buttonShape: garage.widgetButtonShape || 'circle',
+      buttonIcon: garage.widgetButtonIcon || 'chat',
     });
   } catch (error) {
     console.error('Failed to get widget config:', error);
@@ -50,7 +56,7 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
 router.put('/widget/:garageId/branding', authenticate, async (req: Request, res: Response) => {
   try {
     const { garageId } = req.params;
-    const { widgetLogoUrl, widgetPrimaryColor } = req.body;
+    const { widgetLogoUrl, widgetLogoSize, widgetPrimaryColor, widgetButtonShape, widgetButtonIcon } = req.body;
 
     // Verify user has access to this garage
     const user = req.user;
@@ -72,12 +78,18 @@ router.put('/widget/:garageId/branding', authenticate, async (req: Request, res:
       where: { id: garageId },
       data: {
         widgetLogoUrl: widgetLogoUrl || null,
+        widgetLogoSize: widgetLogoSize !== undefined ? widgetLogoSize : 80,
         widgetPrimaryColor: widgetPrimaryColor || null,
+        widgetButtonShape: widgetButtonShape || 'circle',
+        widgetButtonIcon: widgetButtonIcon || 'chat',
       },
       select: {
         id: true,
         widgetLogoUrl: true,
+        widgetLogoSize: true,
         widgetPrimaryColor: true,
+        widgetButtonShape: true,
+        widgetButtonIcon: true,
       },
     });
 

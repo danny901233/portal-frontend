@@ -33,7 +33,10 @@ model Garage {
 
   // Widget Customization
   widgetLogoUrl String?
+  widgetLogoSize Int @default(80)
   widgetPrimaryColor String?
+  widgetButtonShape String @default("circle")
+  widgetButtonIcon String @default("chat")
 
   calls Call[]
   agentConfiguration AgentConfiguration?

@@ -548,10 +548,9 @@ export default function WidgetCustomizePage() {
                   <span className="font-medium text-gray-900">Phone</span>
                 </div>
 
-                  <p className="mt-4 text-center text-xs text-gray-400">
-                    Powered by <span className="font-medium text-gray-600">ReceptionMate</span>
-                  </p>
-                </div>
+                <p className="mt-4 text-center text-xs text-gray-400">
+                  Powered by <span className="font-medium text-gray-600">ReceptionMate</span>
+                </p>
               </div>
             </div>
           </section>

@@ -1,6 +1,9 @@
 import { prisma } from '../db.js';
 import OpenAI from 'openai';
 import axios from 'axios';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -25,22 +28,169 @@ interface TyresoftConfig {
   depotId: number;
 }
 
+interface TyreProduct {
+  stockNumber: string;
+  ean: string;
+  title: string;
+  price: number;
+  width: string;
+  aspectRatio: string;
+  rim: string;
+  speedRating: string;
+  loadIndex: string;
+  brand: string;
+  runflat: boolean;
+  availability: string;
+  leadTime: string;
+}
+
+interface TyreBasketItem {
+  stockNumber: string;
+  quantity: number;
+  unitPrice: number;
+  description: string;
+}
+
 interface TyresoftSession {
   vrm?: string;
   vehicle?: any;
   serviceIds?: number[];
   serviceName?: string;
+  tyreBasket?: TyreBasketItem[];
 }
 
+// ---------------------------------------------------------------------------
+// Tyre inventory — loaded from CSV at startup
+// ---------------------------------------------------------------------------
+
+const TYRE_INVENTORY = new Map<number, TyreProduct[]>();
+
+function parseCSV(filePath: string): TyreProduct[] {
+  let content: string;
+  try {
+    content = readFileSync(filePath, 'utf-8');
+  } catch {
+    console.warn(`[TS_AGENT] Tyre CSV not found: ${filePath}`);
+    return [];
+  }
+
+  const lines = content.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(',');
+  const idx = (name: string) => headers.findIndex(h => h.trim() === name);
+
+  const iStockNum   = idx('Product Stock Number');
+  const iEAN        = idx('Product EAN');
+  const iTitle      = idx('Product Title');
+  const iRetail     = idx('Retail');
+  const iWidth      = idx('Width');
+  const iAspect     = idx('Aspect Ratio');
+  const iRim        = idx('Rim');
+  const iSpeed      = idx('Speed Rating');
+  const iLoad       = idx('Load Index');
+  const iBrand      = idx('Brand Name');
+  const iRunflat    = idx('Runflat');
+  const iAvail      = idx('Product Channel Available');
+  const iLeadTime   = idx('Product Channel Lead Time');
+
+  const products: TyreProduct[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    if (cols.length < 5) continue;
+    const price = parseFloat(cols[iRetail] ?? '0') || 0;
+    products.push({
+      stockNumber:  cols[iStockNum]?.trim()  ?? '',
+      ean:          cols[iEAN]?.trim()       ?? '',
+      title:        cols[iTitle]?.trim()     ?? '',
+      price,
+      width:        cols[iWidth]?.trim()     ?? '',
+      aspectRatio:  cols[iAspect]?.trim()    ?? '',
+      rim:          cols[iRim]?.trim()       ?? '',
+      speedRating:  cols[iSpeed]?.trim()     ?? '',
+      loadIndex:    cols[iLoad]?.trim()      ?? '',
+      brand:        cols[iBrand]?.trim()     ?? '',
+      runflat:      (cols[iRunflat]?.trim().toUpperCase() ?? '') === 'TRUE',
+      availability: cols[iAvail]?.trim()     ?? '',
+      leadTime:     cols[iLeadTime]?.trim()  ?? '',
+    });
+  }
+  return products;
+}
+
+function loadTyreInventory(): void {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname  = dirname(__filename);
+  const dataDir    = join(__dirname, '../../data');
+
+  const branch1 = parseCSV(join(dataDir, 'tyresoft-products-depot-1.csv'));
+  const branch2 = parseCSV(join(dataDir, 'tyresoft-products-depot-2.csv'));
+
+  TYRE_INVENTORY.set(1, branch1);  // depot 1 → Branch 1
+  TYRE_INVENTORY.set(3, branch2);  // depot 3 → Branch 2
+
+  console.log(`[TS_AGENT] Tyre inventory loaded: depot1=${branch1.length}, depot3=${branch2.length}`);
+}
+
+loadTyreInventory();
+
+// ---------------------------------------------------------------------------
+// Tyre search helper
+// ---------------------------------------------------------------------------
+
+function parseTyreSize(size: string): { width: string; aspect: string; rim: string } {
+  const clean = size.toUpperCase().replace(/\s+/g, '');
+  let width = '', aspect = '', rim = '';
+
+  if (clean.includes('/')) {
+    const slashIdx = clean.indexOf('/');
+    width = clean.slice(0, slashIdx);
+    const rest = clean.slice(slashIdx + 1);
+    const rIdx = rest.indexOf('R');
+    if (rIdx !== -1) {
+      aspect = rest.slice(0, rIdx);
+      rim    = rest.slice(rIdx + 1).replace(/[^0-9]/g, '');
+    }
+  } else if (clean.length >= 7) {
+    width  = clean.slice(0, 3);
+    aspect = clean.slice(3, 5);
+    rim    = clean.slice(5, 7);
+  }
+
+  return { width, aspect, rim };
+}
+
+function searchTyres(depotId: number, size: string, brand?: string, maxResults = 5): TyreProduct[] {
+  const inventory = TYRE_INVENTORY.get(depotId) ?? TYRE_INVENTORY.get(1) ?? [];
+  const { width, aspect, rim } = parseTyreSize(size);
+
+  const matches = inventory.filter(t => {
+    if (width  && t.width       !== width)  return false;
+    if (aspect && t.aspectRatio !== aspect) return false;
+    if (rim    && t.rim         !== rim)    return false;
+    if (brand  && !t.brand.toUpperCase().includes(brand.toUpperCase())) return false;
+    return true;
+  });
+
+  matches.sort((a, b) => a.price - b.price);
+  return matches.slice(0, maxResults);
+}
+
+// ---------------------------------------------------------------------------
 // In-memory session state (per conversation)
+// ---------------------------------------------------------------------------
+
 const tsSessions = new Map<string, TyresoftSession>();
 
+// ---------------------------------------------------------------------------
 // Static service catalogue (matches Tyresoft voice agent configuration)
+// ---------------------------------------------------------------------------
+
 const TYRESOFT_SERVICES = [
   { id: 3,  code: 'WA',   name: 'Wheel Alignment',               price: 47.99  },
   { id: 11, code: 'AIR1', name: 'Air Con Recharge',              price: 84.00  },
   { id: 2,  code: 'FS1',  name: 'Full Service (up to 1600cc)',   price: 132.00 },
-  { id: 57, code: 'FS2',  name: 'Full Service (1601–2000cc)',    price: 154.00 },
+  { id: 57, code: 'FS2',  name: 'Full Service (1601-2000cc)',    price: 154.00 },
   { id: 8,  code: 'FS3',  name: 'Full Service (over 2000cc)',    price: 175.00 },
   { id: 20, code: 'FSE1', name: 'Hybrid Service',                price: 155.94 },
   { id: 58, code: 'MOT4', name: 'MOT (Class 4)',                 price: 50.00  },
@@ -104,9 +254,9 @@ export async function getTyresoftChatResponse(
 
     console.log('[TS_AGENT] Config loaded:', { garageId, hasApiCreds: !!tsConfig });
 
-    const isOpen   = checkOpeningHours(config.weeklyOpeningHours);
-    const session  = tsSessions.get(conversationId) || {};
-    const tools    = buildTools(!!tsConfig);
+    const isOpen    = checkOpeningHours(config.weeklyOpeningHours);
+    const session   = tsSessions.get(conversationId) || {};
+    const tools     = buildTools(!!tsConfig);
     const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig);
 
     // Build message history
@@ -137,7 +287,8 @@ export async function getTyresoftChatResponse(
     }
     messages.push({ role: 'user', content: userContent });
 
-    const temperature = session.serviceIds?.length ? 0.5 : 0.9;
+    const hasTyreBasket = (session.tyreBasket?.length ?? 0) > 0;
+    const temperature   = (session.serviceIds?.length || hasTyreBasket) ? 0.5 : 0.9;
 
     let response = await getOpenAI().chat.completions.create({
       model: 'gpt-4o',
@@ -198,7 +349,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'ts_get_services',
-        description: 'Return the list of bookable services with prices. Call when the customer asks what services are available or wants to book.',
+        description: 'Return the list of bookable services with prices. Call when the customer asks what services are available or wants to book a service (not tyres).',
         parameters: { type: 'object', properties: {} },
       },
     },
@@ -224,15 +375,69 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
+        name: 'ts_search_tyres',
+        description: 'Search the tyre inventory by size and optionally brand. Returns up to 5 cheapest options with stock numbers and prices. Call after you have a tyre size (from VRM lookup or customer).',
+        parameters: {
+          type: 'object',
+          properties: {
+            size: {
+              type: 'string',
+              description: 'Tyre size, e.g. "205/55R16". Use the default front tyre size from the VRM lookup if available.',
+            },
+            brand: {
+              type: 'string',
+              description: 'Optional brand filter, e.g. "Michelin". Omit to show all brands.',
+            },
+          },
+          required: ['size'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ts_add_tyre_to_basket',
+        description: 'Add a selected tyre to the customer basket. Call after the customer has chosen a specific tyre from the search results.',
+        parameters: {
+          type: 'object',
+          properties: {
+            stock_number:  { type: 'string', description: 'Stock number of the chosen tyre' },
+            quantity:      { type: 'number', description: 'Number of tyres (default 4 for full set, 2 for axle, 1 for single)' },
+            unit_price:    { type: 'number', description: 'Price per tyre from the search results' },
+            description:   { type: 'string', description: 'Short description, e.g. "Michelin Primacy 4 205/55R16"' },
+          },
+          required: ['stock_number', 'quantity', 'unit_price', 'description'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ts_view_tyre_basket',
+        description: 'Show the current tyre basket with items and total cost.',
+        parameters: { type: 'object', properties: {} },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ts_clear_tyre_basket',
+        description: 'Clear all items from the tyre basket so the customer can start over.',
+        parameters: { type: 'object', properties: {} },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'ts_get_timeslots',
-        description: 'Fetch available booking timeslots. Call after the customer has confirmed their vehicle and chosen a service.',
+        description: 'Fetch available booking timeslots. For tyres use service_ids=[0]. For services use the service ID. Call after the customer has confirmed their choice.',
         parameters: {
           type: 'object',
           properties: {
             service_ids: {
               type: 'array',
               items: { type: 'number' },
-              description: 'Tyresoft service IDs to book (e.g. [3] for wheel alignment, [58] for MOT, [0] for tyres).',
+              description: 'Service IDs: [0] for tyre fitting, [3] for wheel alignment, [58] for MOT, etc.',
             },
             start_date: {
               type: 'string',
@@ -247,7 +452,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'ts_create_booking',
-        description: 'Create the booking after the customer has explicitly confirmed all details. Saves customer, vehicle, and creates the sale.',
+        description: 'Create the booking after the customer has explicitly confirmed all details.',
         parameters: {
           type: 'object',
           properties: {
@@ -263,7 +468,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
             service_ids: {
               type: 'array',
               items: { type: 'number' },
-              description: 'Service IDs being booked (same as used in ts_get_timeslots)',
+              description: 'Service IDs: [0] for tyre fitting, or the appropriate service IDs for other services.',
             },
           },
           required: [
@@ -305,8 +510,75 @@ async function executeTool(
         );
         const vehicle = resp.data;
         tsSessions.set(conversationId, { ...session, vrm, vehicle });
-        console.log(`[TS_AGENT] VRM lookup OK: ${vrm} → ${vehicle.make} ${vehicle.model} (${vehicle.yearOfManufacture || vehicle.year})`);
+        console.log(`[TS_AGENT] VRM lookup OK: ${vrm} -> ${vehicle.make} ${vehicle.model} (${vehicle.yearOfManufacture || vehicle.year})`);
         return vehicle;
+      }
+
+      case 'ts_search_tyres': {
+        if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
+        const size  = String(args.size || '');
+        const brand = args.brand ? String(args.brand) : undefined;
+        const results = searchTyres(tsConfig.depotId, size, brand);
+        if (results.length === 0) {
+          return {
+            found: 0,
+            message: `No tyres found for size ${size}${brand ? ` (brand: ${brand})` : ''}. Try a different size or omit the brand filter.`,
+          };
+        }
+        console.log(`[TS_AGENT] Tyre search: size=${size}, brand=${brand}, found=${results.length}`);
+        return {
+          found: results.length,
+          size,
+          tyres: results.map(t => ({
+            stock_number: t.stockNumber,
+            description:  t.title,
+            brand:        t.brand,
+            price:        t.price,
+            availability: t.availability || 'In Stock',
+            lead_time:    t.leadTime,
+            runflat:      t.runflat,
+          })),
+        };
+      }
+
+      case 'ts_add_tyre_to_basket': {
+        const item: TyreBasketItem = {
+          stockNumber: String(args.stock_number),
+          quantity:    Number(args.quantity) || 4,
+          unitPrice:   Number(args.unit_price) || 0,
+          description: String(args.description || ''),
+        };
+        const basket = [...(session.tyreBasket || []), item];
+        tsSessions.set(conversationId, { ...session, tyreBasket: basket });
+        const total = item.quantity * item.unitPrice;
+        console.log(`[TS_AGENT] Tyre added to basket: ${item.description} x${item.quantity} @ £${item.unitPrice} = £${total}`);
+        return {
+          success: true,
+          item,
+          basket_total: basket.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0),
+          basket_count: basket.length,
+        };
+      }
+
+      case 'ts_view_tyre_basket': {
+        const basket = session.tyreBasket || [];
+        if (basket.length === 0) return { empty: true, message: 'No tyres in basket yet.' };
+        const total = basket.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+        return {
+          items: basket.map(i => ({
+            description: i.description,
+            stock_number: i.stockNumber,
+            quantity: i.quantity,
+            unit_price: i.unitPrice,
+            line_total: i.quantity * i.unitPrice,
+          })),
+          total,
+        };
+      }
+
+      case 'ts_clear_tyre_basket': {
+        tsSessions.set(conversationId, { ...session, tyreBasket: [] });
+        return { success: true, message: 'Basket cleared.' };
       }
 
       case 'ts_get_timeslots': {
@@ -338,7 +610,7 @@ async function executeTool(
 }
 
 // ---------------------------------------------------------------------------
-// Booking creation — chains saveCustomer → saveVehicle → createSale
+// Booking creation — chains saveCustomer -> saveVehicle -> createSale
 // ---------------------------------------------------------------------------
 
 async function tsCreateBooking(
@@ -348,7 +620,7 @@ async function tsCreateBooking(
   conversationId: string
 ): Promise<any> {
   const headers = tsHeaders(cfg);
-  const base = tsBaseUrl(cfg);
+  const base    = tsBaseUrl(cfg);
 
   // 1. Save customer
   const nameParts = String(args.customer_name).trim().split(/\s+/);
@@ -386,30 +658,30 @@ async function tsCreateBooking(
         vehicleID:  0,
         customerID,
         specifications: {
-          vrm:                session.vrm,
-          make:               v.make               || '',
-          model:              v.model              || '',
-          yearOfManufacture:  v.yearOfManufacture  || v.year || '',
-          colour:             v.colour             || '',
-          vinSerialNo:        v.vinSerialNo        || '',
-          dateFirstRegistered:v.dateFirstRegistered|| '',
-          engineCapacity:     v.engineCapacity     || '',
-          transmission:       v.transmission       || '',
-          fuel:               v.fuel               || '',
-          doorplan:           v.doorplan           || '',
-          motDue:             v.motDue             || '',
-          taxDue:             v.taxDue             || '',
-          tyreSizeOptions:    v.tyreSizeOptions    || [],
+          vrm:                 session.vrm,
+          make:                v.make                || '',
+          model:               v.model               || '',
+          yearOfManufacture:   v.yearOfManufacture   || v.year || '',
+          colour:              v.colour              || '',
+          vinSerialNo:         v.vinSerialNo         || '',
+          dateFirstRegistered: v.dateFirstRegistered || '',
+          engineCapacity:      v.engineCapacity      || '',
+          transmission:        v.transmission        || '',
+          fuel:                v.fuel                || '',
+          doorplan:            v.doorplan            || '',
+          motDue:              v.motDue              || '',
+          taxDue:              v.taxDue              || '',
+          tyreSizeOptions:     v.tyreSizeOptions     || [],
         },
         tyreSize: {
-          tyreSizeFront:   tyreSizes.tyreSizeFront   || '',
-          speedRatingFront:tyreSizes.speedRatingFront|| '',
-          loadIndexFront:  tyreSizes.loadIndexFront  || '',
+          tyreSizeFront:    tyreSizes.tyreSizeFront    || '',
+          speedRatingFront: tyreSizes.speedRatingFront || '',
+          loadIndexFront:   tyreSizes.loadIndexFront   || '',
           tyrePressureFront:tyreSizes.tyrePressureFront|| '',
-          tyreSizeRear:    tyreSizes.tyreSizeRear    || '',
-          speedRatingRear: tyreSizes.speedRatingRear || '',
-          loadIndexRear:   tyreSizes.loadIndexRear   || '',
-          tyrePressureRear:tyreSizes.tyrePressureRear|| '',
+          tyreSizeRear:     tyreSizes.tyreSizeRear     || '',
+          speedRatingRear:  tyreSizes.speedRatingRear  || '',
+          loadIndexRear:    tyreSizes.loadIndexRear    || '',
+          tyrePressureRear: tyreSizes.tyrePressureRear || '',
         },
         flagData: { flagName: '', flagNotes: '' },
       }, { headers, timeout: 15000 });
@@ -422,9 +694,51 @@ async function tsCreateBooking(
     }
   }
 
-  // 3. Create sale
-  try {
-    const items = (args.service_ids as number[]).map((sid) => ({
+  // 3. Build sale items — tyre basket takes priority over service_ids
+  let items: any[];
+  const tyreBasket = session.tyreBasket || [];
+
+  if (tyreBasket.length > 0) {
+    // Tyre booking — use stock number items (serviceID: 0)
+    items = tyreBasket.map(t => ({
+      saleLineID:                    0,
+      productID:                     0,
+      tyrecatID:                     0,
+      productEANCode:                '',
+      productManufacturerCode:       '',
+      serviceID:                     0,
+      shippingService:               false,
+      incomeAccountID:               0,
+      sequence:                      0,
+      itemCode:                      t.stockNumber,
+      itemDescription:               t.description,
+      recordedDescription:           '',
+      technicianID:                  0,
+      quantity:                      t.quantity,
+      unitCost:                      t.unitPrice,
+      unitCostIncludesVAT:           false,
+      discount:                      0,
+      vatCodeID:                     0,
+      backOrderQuantity:             0,
+      taggedItemIdentifier:          '',
+      linkLineID:                    0,
+      hideChildLinks:                false,
+      groupLinkSellPrices:           false,
+      voucherCode:                   '',
+      voucherCodeLine:               false,
+      estimatedCost:                 0,
+      protectEstimatedCost:          false,
+      leadTime:                      0,
+      sourceSupplierID:              0,
+      sourcePurchaseOrderID:         0,
+      externalOrderLineReference:    '',
+      changeInQtyAffectingPickList:  false,
+      creditedAmount:                0,
+    }));
+    console.log(`[TS_AGENT] Building tyre sale: ${tyreBasket.length} tyre line(s)`);
+  } else {
+    // Service booking
+    items = (args.service_ids as number[]).map((sid) => ({
       saleLineID: 0,
       productID:  0,
       serviceID:  sid,
@@ -434,7 +748,10 @@ async function tsCreateBooking(
       unitPrice:  0,
       discount:   0,
     }));
+  }
 
+  // 4. Create sale
+  try {
     const saleResp = await axios.post(`${base}/createSale`, {
       depotID:     cfg.depotId,
       customerID,
@@ -494,10 +811,10 @@ function buildSystemPrompt(
   let prompt = `You are a friendly receptionist at ${branchName}, a tyre and vehicle service centre. ${config.greetingLine || ''}\n\n`;
 
   prompt += `About us:\n`;
-  if (config.branchAddress) prompt += `📍 ${config.branchAddress}\n`;
-  if (config.phoneNumber)   prompt += `📞 ${config.phoneNumber}\n`;
-  if (config.emailAddress)  prompt += `📧 ${config.emailAddress}\n`;
-  if (config.websiteUrl)    prompt += `🌐 ${config.websiteUrl}\n`;
+  if (config.branchAddress) prompt += `Address: ${config.branchAddress}\n`;
+  if (config.phoneNumber)   prompt += `Phone: ${config.phoneNumber}\n`;
+  if (config.emailAddress)  prompt += `Email: ${config.emailAddress}\n`;
+  if (config.websiteUrl)    prompt += `Website: ${config.websiteUrl}\n`;
   prompt += `\n`;
 
   if (config.weeklyOpeningHours) {
@@ -506,10 +823,10 @@ function buildSystemPrompt(
     for (const [day, times] of Object.entries(hours)) {
       if (times && typeof times === 'object' && 'open' in times && 'close' in times) {
         const d = day.charAt(0).toUpperCase() + day.slice(1);
-        prompt += `${d}: ${times.open} – ${times.close}\n`;
+        prompt += `${d}: ${times.open} - ${times.close}\n`;
       }
     }
-    prompt += `\nWe're currently ${isOpen ? '✅ OPEN' : '🔒 CLOSED'}.\n\n`;
+    prompt += `\nWe're currently ${isOpen ? 'OPEN' : 'CLOSED'}.\n\n`;
   }
 
   if (knowledgeDocs.length) {
@@ -521,39 +838,44 @@ function buildSystemPrompt(
   }
 
   if (hasCreds) {
-    prompt += `\n🎯 BOOKING FLOW:\n\n`;
+    prompt += `\nBOOKING FLOW:\n\n`;
 
-    prompt += `**Step 1 – Understand the request**\n`;
-    prompt += `- Ask what they need and get their vehicle reg.\n`;
-    prompt += `- Call ts_get_services to know what's available.\n`;
-    prompt += `- Match their request intelligently (e.g. "oil change" → Full Service).\n`;
-    prompt += `- If they want tyres, tell them you'll arrange a callback to provide a quote.\n\n`;
+    prompt += `TYRE BOOKING (customer wants new tyres):\n`;
+    prompt += `1. Ask for their vehicle registration and call ts_lookup_vehicle.\n`;
+    prompt += `2. The vehicle lookup returns default tyre sizes — use tyreSizeOptions[0].tyreSizeFront as the size.\n`;
+    prompt += `3. Call ts_search_tyres with that size to find available tyres.\n`;
+    prompt += `4. Present options: brand, price per tyre, availability. Ask how many they need (1, 2, or 4).\n`;
+    prompt += `5. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
+    prompt += `6. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
+    prompt += `7. Offer 3-4 slots in plain language. Collect name + phone number.\n`;
+    prompt += `8. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
+    prompt += `9. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
 
-    prompt += `**Step 2 – Confirm the vehicle**\n`;
-    prompt += `- Call ts_lookup_vehicle with their reg number.\n`;
-    prompt += `- Confirm: "I've got you down as a [Year] [Make] [Model] — is that right?"\n\n`;
+    prompt += `SERVICE BOOKING (MOT, service, alignment, etc.):\n`;
+    prompt += `1. Ask for their vehicle reg and call ts_lookup_vehicle.\n`;
+    prompt += `2. Call ts_get_services to see what's available and match the customer's request.\n`;
+    prompt += `3. Call ts_get_timeslots with the correct service_id(s).\n`;
+    prompt += `4. Offer slots, collect name + phone.\n`;
+    prompt += `5. Read back and confirm — call ts_create_booking only after YES.\n\n`;
 
-    prompt += `**Step 3 – Get timeslots**\n`;
-    prompt += `- Call ts_get_timeslots with the service_ids for their chosen service.\n`;
-    prompt += `- Offer 3–4 upcoming options in natural language.\n\n`;
-
-    prompt += `**Step 4 – Confirm & collect contact details**\n`;
-    prompt += `- Collect: full name, phone number (and optionally email, postcode).\n`;
-    prompt += `- Read back all details: "So that's a [service] on [date] at [time] for [name] — shall I confirm that?"\n`;
-    prompt += `- Only call ts_create_booking after the customer says YES.\n\n`;
-
-    prompt += `⚠️ RULES:\n`;
+    prompt += `RULES:\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
-    prompt += `- Keep replies concise — 1 to 3 sentences.\n\n`;
+    prompt += `- If tyre size not found in vehicle data, ask the customer directly (e.g. "What size tyres does your car take?").\n`;
+    prompt += `- Keep replies concise — 1 to 3 sentences max.\n\n`;
 
+    // Active session context
     if (session.vrm) {
-      prompt += `🔥 ACTIVE SESSION:\n`;
-      prompt += `- Vehicle: ${session.vrm}`;
+      prompt += `ACTIVE SESSION:\n`;
+      prompt += `- Vehicle reg: ${session.vrm}`;
       if (session.vehicle?.make) prompt += ` (${session.vehicle.make} ${session.vehicle.model})`;
       prompt += `\n`;
       if (session.serviceIds?.length) {
         prompt += `- Service IDs selected: ${session.serviceIds.join(', ')}\n`;
+      }
+      if (session.tyreBasket?.length) {
+        const total = session.tyreBasket.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+        prompt += `- Tyre basket: ${session.tyreBasket.map(i => `${i.quantity}x ${i.description} @ £${i.unitPrice}`).join(', ')} (total £${total.toFixed(2)})\n`;
       }
       prompt += `- Do NOT call ts_lookup_vehicle again — already complete.\n\n`;
     }

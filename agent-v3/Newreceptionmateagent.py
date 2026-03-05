@@ -3798,31 +3798,37 @@ async def entrypoint(ctx: JobContext):
                     if hasattr(session, 'conversation') and hasattr(session.conversation, 'items'):
                         logger.info(f"[PORTAL] Found session.conversation.items with {len(session.conversation.items)} entries")
                         for item in session.conversation.items:
+                            # LiveKit provides items as dictionaries, not objects
+                            item_type = item.get("type", "message")
                             item_dict = {
-                                "type": item.type if hasattr(item, 'type') else "message",
-                                "role": item.role if hasattr(item, 'role') else "",
+                                "type": item_type,
                                 "timestamp": round(max(0.0, time.time() - base_ts), 1)
                             }
                             
                             # Handle function calls
-                            if item.type == "function_call":
-                                item_dict["function_name"] = item.name if hasattr(item, 'name') else ""
-                                item_dict["arguments"] = item.arguments if hasattr(item, 'arguments') else ""
-                                item_dict["call_id"] = item.call_id if hasattr(item, 'call_id') else ""
+                            if item_type == "function_call":
+                                item_dict["function_name"] = item.get("name", "")
+                                item_dict["arguments"] = item.get("arguments", "")
+                                item_dict["call_id"] = item.get("call_id", "")
+                                logger.info(f"[PORTAL] Captured function_call: {item_dict['function_name']}")
                             # Handle function outputs
-                            elif item.type == "function_call_output":
-                                item_dict["call_id"] = item.call_id if hasattr(item, 'call_id') else ""
-                                item_dict["output"] = item.output if hasattr(item, 'output') else ""
+                            elif item_type == "function_call_output":
+                                item_dict["call_id"] = item.get("call_id", "")
+                                item_dict["output"] = item.get("output", "")
+                                logger.info(f"[PORTAL] Captured function_call_output for call_id: {item_dict['call_id']}")
                             # Handle messages
-                            else:
-                                if hasattr(item, 'content') and item.content:
-                                    if isinstance(item.content, list) and len(item.content) > 0:
-                                        text = item.content[0].text if hasattr(item.content[0], 'text') else str(item.content[0])
-                                    else:
-                                        text = str(item.content)
-                                    speaker = "agent" if item_dict["role"] in ("assistant", "agent") else "customer"
-                                    item_dict["speaker"] = speaker
-                                    item_dict["text"] = text
+                            elif item_type == "message":
+                                role = item.get("role", "")
+                                item_dict["role"] = role
+                                content = item.get("content", [])
+                                if isinstance(content, list) and len(content) > 0:
+                                    # Extract text from content array
+                                    text = content[0].get("text", str(content[0])) if isinstance(content[0], dict) else str(content[0])
+                                else:
+                                    text = str(content)
+                                speaker = "agent" if role in ("assistant", "agent") else "customer"
+                                item_dict["speaker"] = speaker
+                                item_dict["text"] = text
                             
                             transcript.append(item_dict)
                         

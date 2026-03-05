@@ -23,6 +23,7 @@ interface GarageConfig {
   phone?: string;
   whatsappNumber?: string;
   primaryColor?: string;
+  logoUrl?: string | null;
 }
 
 type ViewState = 'closed' | 'menu' | 'pre-chat' | 'chat';
@@ -436,6 +437,46 @@ export default function ChatWidget() {
           paddingLeft: '32px',
           paddingRight: '32px'
         }}>
+          {/* Logo Area - Above the white card */}
+          <div className="absolute top-8 left-0 right-0 flex justify-center">
+            {config?.logoUrl ? (
+              <div style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '20px',
+                padding: '16px',
+                maxWidth: '160px'
+              }}>
+                <img 
+                  src={config.logoUrl} 
+                  alt="Logo" 
+                  style={{ 
+                    maxHeight: '60px',
+                    maxWidth: '140px',
+                    objectFit: 'contain',
+                    display: 'block'
+                  }} 
+                />
+              </div>
+            ) : (
+              <div style={{
+                width: '80px',
+                height: '80px',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transform: 'rotate(12deg)'
+              }}>
+                <svg style={{ width: '48px', height: '48px', color: 'rgba(255, 255, 255, 0.6)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+            )}
+          </div>
+
           {/* White overlay rectangle */}
           <div style={{ 
             backgroundColor: 'white', 

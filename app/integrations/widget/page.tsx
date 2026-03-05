@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { getGarageId, getGarages } from '../../lib/auth';
 
 export default function WidgetEmbedPage() {
+  const router = useRouter();
   const [copiedChat, setCopiedChat] = useState(false);
   const [copiedVoice, setCopiedVoice] = useState(false);
   const [garageId, setGarageId] = useState<string>('');
@@ -107,6 +109,15 @@ export default function WidgetEmbedPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
             </svg>
             Preview
+          </button>
+          <button
+            onClick={() => router.push('/integrations/widget/customize')}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+            </svg>
+            Customize
           </button>
         </div>
         <div className="p-6">

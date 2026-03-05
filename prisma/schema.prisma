@@ -31,6 +31,10 @@ model Garage {
   setupWizardCompleted Boolean @default(false)
   setupWizardCompletedAt DateTime?
 
+  // Widget Customization
+  widgetLogoUrl String?
+  widgetPrimaryColor String?
+
   calls Call[]
   agentConfiguration AgentConfiguration?
   knowledgeDocuments AgentKnowledgeDocument[]

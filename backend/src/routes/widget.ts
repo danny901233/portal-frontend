@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -15,6 +16,8 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
         id: true,
         name: true,
         twilioNumber: true,
+        widgetLogoUrl: true,
+        widgetPrimaryColor: true,
         agentConfiguration: {
           select: { phoneNumber: true },
         },
@@ -34,11 +37,48 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
       name: garage.name,
       phone: garage.twilioNumber,
       whatsappNumber,
-      primaryColor: '#2563eb',
+      primaryColor: garage.widgetPrimaryColor || '#2563eb',
+      logoUrl: garage.widgetLogoUrl || null,
     });
   } catch (error) {
     console.error('Failed to get widget config:', error);
     res.status(500).json({ error: 'Failed to load widget configuration' });
+  }
+});
+
+// PUT /api/widget/:garageId/branding - Update widget branding
+router.put('/widget/:garageId/branding', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { garageId } = req.params;
+    const { widgetLogoUrl, widgetPrimaryColor } = req.body;
+
+    // Verify user has access to this garage
+    const user = (req as any).user;
+    if (!user.garageAccessIds.includes(garageId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Update garage with new branding
+    const garage = await prisma.garage.update({
+      where: { id: garageId },
+      data: {
+        widgetLogoUrl: widgetLogoUrl || null,
+        widgetPrimaryColor: widgetPrimaryColor || null,
+      },
+      select: {
+        id: true,
+        widgetLogoUrl: true,
+        widgetPrimaryColor: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      garage,
+    });
+  } catch (error) {
+    console.error('Failed to update widget branding:', error);
+    res.status(500).json({ error: 'Failed to update widget branding' });
   }
 });
 

@@ -105,6 +105,9 @@ export type AgentConfigurationPayload = {
   responseSpeed: ResponseSpeed;
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
+  enableDropOffBookings?: boolean;
+  dropOffMessage?: string;
+  dropOffExcludeServices?: string[];
   notificationEmails?: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;

@@ -197,6 +197,9 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
         ? Math.min(1, Math.max(0, configuration.interruptionSensitivity))
         : 0.5,
     allowFastFitOnly: configuration.allowFastFitOnly,
+    enableDropOffBookings: configuration.enableDropOffBookings || false,
+    dropOffMessage: configuration.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
+    dropOffExcludeServices: configuration.dropOffExcludeServices || ['MOT'],
     notificationEmails: configuration.notificationEmails || [],
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,

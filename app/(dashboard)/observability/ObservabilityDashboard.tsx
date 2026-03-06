@@ -181,6 +181,16 @@ export function ObservabilityDashboard() {
       notFoundCount: 0,
       threeOrMoreAttemptsCount: 0,
     },
+    bookingMetrics: {
+      bookingIntentCalls: 0,
+      completedBookings: 0,
+      abandonedBookings: 0,
+      conversionRate: 0,
+      noTimeslotsCount: 0,
+      costConcernCount: 0,
+      noMatchingServiceCount: 0,
+      otherReasonsCount: 0,
+    },
   });
   const [activeTab, setActiveTab] = useState<'flagged' | 'tools' | 'errors' | 'registrations' | 'calls'>('flagged');
   const [evaluators, setEvaluators] = useState<EvaluatorConfig>(DEFAULT_EVALUATORS);

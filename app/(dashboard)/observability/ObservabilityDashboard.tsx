@@ -290,6 +290,18 @@ export function ObservabilityDashboard() {
     const abandonmentCallsList: BookingAbandonmentCall[] = [];
 
     console.log(`[Booking Analysis] Processing ${callsData.length} calls for time range: ${timeRange}`);
+    
+    // Debug: Log first call structure to understand data format
+    if (callsData.length > 0) {
+      console.log('[Booking Analysis] Sample call structure:', {
+        id: callsData[0].id,
+        intent: callsData[0].intent,
+        hasMetrics: !!callsData[0].metrics,
+        metricsKeys: callsData[0].metrics ? Object.keys(callsData[0].metrics) : [],
+        toolCalls: callsData[0].metrics?.tool_calls,
+        sampleCall: callsData[0]
+      });
+    }
 
     const natoPhonetics = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 
                            'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November', 

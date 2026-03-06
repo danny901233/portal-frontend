@@ -80,6 +80,13 @@ interface FlaggedCall {
   reasons: string[];
 }
 
+interface RegistrationIssueCall {
+  call: CallData;
+  issueType: 'partial' | 'notFound' | 'persistent';
+  attempts: number;
+  details: string;
+}
+
 // --- Constants ---
 
 const DEFAULT_EVALUATORS: EvaluatorConfig = {
@@ -159,10 +166,12 @@ export function ObservabilityDashboard() {
       threeOrMoreAttemptsCount: 0,
     },
   });
-  const [activeTab, setActiveTab] = useState<'flagged' | 'tools' | 'errors' | 'calls' | 'registrations'>('flagged');
+  const [activeTab, setActiveTab] = useState<'flagged' | 'tools' | 'errors' | 'registrations' | 'calls'>('flagged');
   const [evaluators, setEvaluators] = useState<EvaluatorConfig>(DEFAULT_EVALUATORS);
   const [flaggedCalls, setFlaggedCalls] = useState<FlaggedCall[]>([]);
   const [showEvaluatorConfig, setShowEvaluatorConfig] = useState(true);
+  const [registrationIssueCalls, setRegistrationIssueCalls] = useState<RegistrationIssueCall[]>([]);
+  const [expandedIssueType, setExpandedIssueType] = useState<'partial' | 'notFound' | 'persistent' | null>(null);
 
   // Load evaluators from localStorage on mount
   useEffect(() => {
@@ -240,6 +249,7 @@ export function ObservabilityDashboard() {
     let partialCaptureCount = 0;
     let notFoundCount = 0;
     let threeOrMoreAttemptsCount = 0;
+    const issueCallsList: RegistrationIssueCall[] = [];
 
     const natoPhonetics = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 
                            'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November', 
@@ -297,14 +307,38 @@ export function ObservabilityDashboard() {
           if (attempts > 1 || hasNotFound) {
             callsWithMultipleAttempts++;
             
-            if (hasNotFound) notFoundCount++;
-            if (attempts >= 3) threeOrMoreAttemptsCount++;
+            if (hasNotFound) {
+              notFoundCount++;
+              issueCallsList.push({
+                call,
+                issueType: 'notFound',
+                attempts,
+                details: `Registration not found after ${attempts} attempt${attempts > 1 ? 's' : ''}`
+              });
+            }
+            if (attempts >= 3) {
+              threeOrMoreAttemptsCount++;
+              issueCallsList.push({
+                call,
+                issueType: 'persistent',
+                attempts,
+                details: `Required ${attempts} readback attempts`
+              });
+            }
             
             // Check for partial capture (< 5 NATO phonetics in first readback)
             if (readbackMessages.length > 0) {
               const firstReadback = readbackMessages[0].text || '';
               const natoCount = natoPhonetics.filter(p => firstReadback.includes(p)).length;
-              if (natoCount < 5) partialCaptureCount++;
+              if (natoCount < 5) {
+                partialCaptureCount++;
+                issueCallsList.push({
+                  call,
+                  issueType: 'partial',
+                  attempts,
+                  details: `Only ${natoCount} characters captured initially`
+                });
+              }
             }
           }
         }
@@ -367,6 +401,7 @@ export function ObservabilityDashboard() {
         threeOrMoreAttemptsCount,
       },
     });
+    setRegistrationIssueCalls(issueCallsList);
   };
 
   const formatDuration = (ms: number) => {
@@ -772,61 +807,208 @@ export function ObservabilityDashboard() {
                 <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-6">
                   <h3 className="mb-4 text-lg font-semibold text-slate-100">Common Issues</h3>
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
-                      <div className="flex-1">
-                        <div className="font-medium text-amber-300">Partial Capture</div>
-                        <div className="mt-1 text-sm text-slate-400">
-                          Less than 5 characters captured on first attempt
+                    {/* Partial Capture Card */}
+                    <div>
+                      <button
+                        onClick={() => setExpandedIssueType(expandedIssueType === 'partial' ? null : 'partial')}
+                        className="w-full flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 transition-all hover:bg-amber-500/10 hover:border-amber-500/30 cursor-pointer"
+                      >
+                        <div className="flex-1 text-left">
+                          <div className="font-medium text-amber-300">Partial Capture</div>
+                          <div className="mt-1 text-sm text-slate-400">
+                            Less than 5 characters captured on first attempt
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-amber-400">
-                          {stats.registrationMetrics.partialCaptureCount}
+                        <div className="text-right flex items-center gap-3">
+                          <div>
+                            <div className="text-2xl font-bold text-amber-400">
+                              {stats.registrationMetrics.partialCaptureCount}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {stats.registrationMetrics.callsWithMultipleAttempts > 0 
+                                ? ((stats.registrationMetrics.partialCaptureCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
+                                : '0.0'}%
+                            </div>
+                          </div>
+                          <svg 
+                            className={`w-5 h-5 text-amber-400 transition-transform ${expandedIssueType === 'partial' ? 'rotate-180' : ''}`} 
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
                         </div>
-                        <div className="text-xs text-slate-500">
-                          {stats.registrationMetrics.callsWithMultipleAttempts > 0 
-                            ? ((stats.registrationMetrics.partialCaptureCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
-                            : '0.0'}%
+                      </button>
+                      {expandedIssueType === 'partial' && (
+                        <div className="mt-2 space-y-2 pl-4">
+                          {registrationIssueCalls
+                            .filter(issue => issue.issueType === 'partial')
+                            .map((issue, idx) => (
+                              <div key={idx} className="rounded border border-amber-500/20 bg-slate-900/50 p-3">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="text-sm text-slate-300">
+                                      {new Date(issue.call.createdAt).toLocaleString()}
+                                    </div>
+                                    {issue.call.customerPhone && (
+                                      <div className="mt-1 font-mono text-xs text-slate-400">
+                                        {issue.call.customerPhone}
+                                      </div>
+                                    )}
+                                    <div className="mt-1 text-xs text-amber-400">
+                                      {issue.details}
+                                    </div>
+                                  </div>
+                                  <a
+                                    href={`/calls/${issue.call.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="ml-3 rounded bg-amber-500/20 px-2 py-1 text-xs text-amber-300 hover:bg-amber-500/30"
+                                  >
+                                    View Call →
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
                         </div>
-                      </div>
+                      )}
                     </div>
 
-                    <div className="flex items-center justify-between rounded-lg border border-rose-500/20 bg-rose-500/5 p-4">
-                      <div className="flex-1">
-                        <div className="font-medium text-rose-300">"Not Finding" Errors</div>
-                        <div className="mt-1 text-sm text-slate-400">
-                          Registration not found in Garage Hive system
+                    {/* Not Finding Card */}
+                    <div>
+                      <button
+                        onClick={() => setExpandedIssueType(expandedIssueType === 'notFound' ? null : 'notFound')}
+                        className="w-full flex items-center justify-between rounded-lg border border-rose-500/20 bg-rose-500/5 p-4 transition-all hover:bg-rose-500/10 hover:border-rose-500/30 cursor-pointer"
+                      >
+                        <div className="flex-1 text-left">
+                          <div className="font-medium text-rose-300">"Not Finding" Errors</div>
+                          <div className="mt-1 text-sm text-slate-400">
+                            Registration not found in Garage Hive system
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-rose-400">
-                          {stats.registrationMetrics.notFoundCount}
+                        <div className="text-right flex items-center gap-3">
+                          <div>
+                            <div className="text-2xl font-bold text-rose-400">
+                              {stats.registrationMetrics.notFoundCount}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {stats.registrationMetrics.callsWithMultipleAttempts > 0 
+                                ? ((stats.registrationMetrics.notFoundCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
+                                : '0.0'}%
+                            </div>
+                          </div>
+                          <svg 
+                            className={`w-5 h-5 text-rose-400 transition-transform ${expandedIssueType === 'notFound' ? 'rotate-180' : ''}`} 
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
                         </div>
-                        <div className="text-xs text-slate-500">
-                          {stats.registrationMetrics.callsWithMultipleAttempts > 0 
-                            ? ((stats.registrationMetrics.notFoundCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
-                            : '0.0'}%
+                      </button>
+                      {expandedIssueType === 'notFound' && (
+                        <div className="mt-2 space-y-2 pl-4">
+                          {registrationIssueCalls
+                            .filter(issue => issue.issueType === 'notFound')
+                            .map((issue, idx) => (
+                              <div key={idx} className="rounded border border-rose-500/20 bg-slate-900/50 p-3">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="text-sm text-slate-300">
+                                      {new Date(issue.call.createdAt).toLocaleString()}
+                                    </div>
+                                    {issue.call.customerPhone && (
+                                      <div className="mt-1 font-mono text-xs text-slate-400">
+                                        {issue.call.customerPhone}
+                                      </div>
+                                    )}
+                                    <div className="mt-1 text-xs text-rose-400">
+                                      {issue.details}
+                                    </div>
+                                  </div>
+                                  <a
+                                    href={`/calls/${issue.call.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="ml-3 rounded bg-rose-500/20 px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/30"
+                                  >
+                                    View Call →
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
                         </div>
-                      </div>
+                      )}
                     </div>
 
-                    <div className="flex items-center justify-between rounded-lg border border-purple-500/20 bg-purple-500/5 p-4">
-                      <div className="flex-1">
-                        <div className="font-medium text-purple-300">Persistent Issues</div>
-                        <div className="mt-1 text-sm text-slate-400">
-                          Required 3 or more readback attempts
+                    {/* Persistent Issues Card */}
+                    <div>
+                      <button
+                        onClick={() => setExpandedIssueType(expandedIssueType === 'persistent' ? null : 'persistent')}
+                        className="w-full flex items-center justify-between rounded-lg border border-purple-500/20 bg-purple-500/5 p-4 transition-all hover:bg-purple-500/10 hover:border-purple-500/30 cursor-pointer"
+                      >
+                        <div className="flex-1 text-left">
+                          <div className="font-medium text-purple-300">Persistent Issues</div>
+                          <div className="mt-1 text-sm text-slate-400">
+                            Required 3 or more readback attempts
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-purple-400">
-                          {stats.registrationMetrics.threeOrMoreAttemptsCount}
+                        <div className="text-right flex items-center gap-3">
+                          <div>
+                            <div className="text-2xl font-bold text-purple-400">
+                              {stats.registrationMetrics.threeOrMoreAttemptsCount}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {stats.registrationMetrics.callsWithMultipleAttempts > 0 
+                                ? ((stats.registrationMetrics.threeOrMoreAttemptsCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
+                                : '0.0'}%
+                            </div>
+                          </div>
+                          <svg 
+                            className={`w-5 h-5 text-purple-400 transition-transform ${expandedIssueType === 'persistent' ? 'rotate-180' : ''}`} 
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
                         </div>
-                        <div className="text-xs text-slate-500">
-                          {stats.registrationMetrics.callsWithMultipleAttempts > 0 
-                            ? ((stats.registrationMetrics.threeOrMoreAttemptsCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
-                            : '0.0'}%
+                      </button>
+                      {expandedIssueType === 'persistent' && (
+                        <div className="mt-2 space-y-2 pl-4">
+                          {registrationIssueCalls
+                            .filter(issue => issue.issueType === 'persistent')
+                            .map((issue, idx) => (
+                              <div key={idx} className="rounded border border-purple-500/20 bg-slate-900/50 p-3">
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="text-sm text-slate-300">
+                                      {new Date(issue.call.createdAt).toLocaleString()}
+                                    </div>
+                                    {issue.call.customerPhone && (
+                                      <div className="mt-1 font-mono text-xs text-slate-400">
+                                        {issue.call.customerPhone}
+                                      </div>
+                                    )}
+                                    <div className="mt-1 text-xs text-purple-400">
+                                      {issue.details}
+                                    </div>
+                                  </div>
+                                  <a
+                                    href={`/calls/${issue.call.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="ml-3 rounded bg-purple-500/20 px-2 py-1 text-xs text-purple-300 hover:bg-purple-500/30"
+                                  >
+                                    View Call →
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>

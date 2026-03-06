@@ -400,7 +400,7 @@ export function ObservabilityDashboard() {
       const callToolCalls = call.metrics?.tool_calls || [];
       const hasCreateJobAttempt = callToolCalls.some(tc => tc.tool_name === 'create_job');
       
-      // Check customer messages for booking intent
+      // Check customer messages for NEW booking intent (not cancellations/reschedules/updates)
       let hasBookingIntent = false;
       if (items.length > 0) {
         const customerMessages = items
@@ -409,24 +409,49 @@ export function ObservabilityDashboard() {
         
         const fullCustomerTranscript = customerMessages.join(' ');
         
-        // Look for booking-related phrases from customer
-        hasBookingIntent = 
-          fullCustomerTranscript.includes('book') ||
-          fullCustomerTranscript.includes('appointment') ||
-          fullCustomerTranscript.includes('schedule') ||
-          fullCustomerTranscript.includes('bring my car') ||
-          fullCustomerTranscript.includes('bring the car') ||
-          fullCustomerTranscript.includes('get a service') ||
-          fullCustomerTranscript.includes('need a service') ||
-          fullCustomerTranscript.includes('mot') ||
-          fullCustomerTranscript.includes('service due') ||
-          fullCustomerTranscript.includes('book in') ||
-          fullCustomerTranscript.includes('come in') ||
-          fullCustomerTranscript.includes('drop off') ||
-          fullCustomerTranscript.includes('get it fixed') ||
-          fullCustomerTranscript.includes('get it checked') ||
-          fullCustomerTranscript.includes('need it looked at') ||
-          hasCreateJobAttempt; // Also count if agent attempted to create booking
+        // Exclude cancellations, reschedules, and updates
+        const isExcluded = 
+          fullCustomerTranscript.includes('cancel') ||
+          fullCustomerTranscript.includes('cancell') ||
+          fullCustomerTranscript.includes('reschedule') ||
+          fullCustomerTranscript.includes('re-schedule') ||
+          fullCustomerTranscript.includes('rebook') ||
+          fullCustomerTranscript.includes('re-book') ||
+          fullCustomerTranscript.includes('change my booking') ||
+          fullCustomerTranscript.includes('move my booking') ||
+          fullCustomerTranscript.includes('update my booking') ||
+          fullCustomerTranscript.includes('change my appointment') ||
+          fullCustomerTranscript.includes('move my appointment');
+        
+        // Look for NEW booking phrases
+        if (!isExcluded) {
+          hasBookingIntent = 
+            fullCustomerTranscript.includes('book an appointment') ||
+            fullCustomerTranscript.includes('make an appointment') ||
+            fullCustomerTranscript.includes('schedule an appointment') ||
+            fullCustomerTranscript.includes('book a service') ||
+            fullCustomerTranscript.includes('book my car') ||
+            fullCustomerTranscript.includes('book in') ||
+            fullCustomerTranscript.includes('bring my car in') ||
+            fullCustomerTranscript.includes('bring the car in') ||
+            fullCustomerTranscript.includes('get a service') ||
+            fullCustomerTranscript.includes('need a service') ||
+            fullCustomerTranscript.includes('book mot') ||
+            fullCustomerTranscript.includes('book an mot') ||
+            fullCustomerTranscript.includes('mot booking') ||
+            fullCustomerTranscript.includes('need an mot') ||
+            fullCustomerTranscript.includes('need mot') ||
+            fullCustomerTranscript.includes('come in for') ||
+            fullCustomerTranscript.includes('drop off') ||
+            fullCustomerTranscript.includes('get it fixed') ||
+            fullCustomerTranscript.includes('get it checked') ||
+            fullCustomerTranscript.includes('need it looked at') ||
+            fullCustomerTranscript.includes('looking to book') ||
+            fullCustomerTranscript.includes('want to book') ||
+            fullCustomerTranscript.includes('would like to book') ||
+            fullCustomerTranscript.includes('can i book') ||
+            hasCreateJobAttempt; // Also count if agent attempted to create booking
+        }
       }
       
       if (hasBookingIntent) {

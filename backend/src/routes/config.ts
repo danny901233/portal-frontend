@@ -162,6 +162,10 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       typeof config.interruptionSensitivity === 'number'
         ? Math.min(1, Math.max(0, config.interruptionSensitivity))
         : 0.5,
+    allowFastFitOnly: config.allowFastFitOnly ?? false,
+    enableDropOffBookings: config.enableDropOffBookings ?? false,
+    dropOffMessage: config.dropOffMessage ?? 'drop your vehicle off between 8am and half ten in the morning',
+    dropOffExcludeServices: config.dropOffExcludeServices ?? ['MOT'],
     notificationEmails: Array.isArray(config.notificationEmails) ? config.notificationEmails : [],
     integrationProvider: sanitizedProvider,
     garageHiveSettings,

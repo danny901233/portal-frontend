@@ -615,6 +615,9 @@ router.put(
           ? Math.min(1, Math.max(0, data.interruptionSensitivity))
           : 0.5,
       allowFastFitOnly: data.allowFastFitOnly,
+      enableDropOffBookings: data.enableDropOffBookings || false,
+      dropOffMessage: data.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
+      dropOffExcludeServices: data.dropOffExcludeServices || ['MOT'],
       notificationEmails: data.notificationEmails || [],
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,

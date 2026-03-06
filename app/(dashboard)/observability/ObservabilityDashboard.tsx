@@ -30,6 +30,7 @@ interface CallData {
   intent?: string;
   customerPhone?: string;
   garageId?: string;
+  transcript?: any;
   metrics?: {
     tool_calls?: ToolCall[];
     tool_call_count?: number;

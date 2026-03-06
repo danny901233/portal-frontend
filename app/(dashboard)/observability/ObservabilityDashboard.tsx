@@ -289,6 +289,8 @@ export function ObservabilityDashboard() {
     let otherReasonsCount = 0;
     const abandonmentCallsList: BookingAbandonmentCall[] = [];
 
+    console.log(`[Booking Analysis] Processing ${callsData.length} calls for time range: ${timeRange}`);
+
     const natoPhonetics = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 
                            'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November', 
                            'Oscar', 'Papa', 'Quebec', 'Romeo', 'Sierra', 'Tango', 'Uniform', 
@@ -386,13 +388,19 @@ export function ObservabilityDashboard() {
       // Check intent field OR if create_job was attempted (indicates booking intent)
       const callToolCalls = call.metrics?.tool_calls || [];
       const hasCreateJobAttempt = callToolCalls.some(tc => tc.tool_name === 'create_job');
+      const intentLower = call.intent?.toLowerCase() || '';
       const hasBookingIntent = hasCreateJobAttempt ||
-                               call.intent?.toLowerCase().includes('book') || 
-                               call.intent?.toLowerCase().includes('appointment') ||
-                               call.intent?.toLowerCase().includes('schedule');
+                               intentLower.includes('book') || 
+                               intentLower.includes('appointment') ||
+                               intentLower.includes('schedule');
       
       if (hasBookingIntent) {
         bookingIntentCalls++;
+        console.log(`[Booking Intent] Call ${call.id}:`, {
+          hasCreateJobAttempt,
+          intent: call.intent,
+          toolCalls: callToolCalls.map(tc => ({ name: tc.tool_name, success: tc.success }))
+        });
         
         // Check if booking was completed (look for successful create_job tool call)
         const hasCreateJob = callToolCalls.some(tc => 
@@ -494,6 +502,14 @@ export function ObservabilityDashboard() {
     const conversionRate = bookingIntentCalls > 0
       ? (completedBookings / bookingIntentCalls) * 100
       : 0;
+
+    console.log('[Booking Analysis] Final stats:', {
+      bookingIntentCalls,
+      completedBookings,
+      abandonedBookings,
+      conversionRate,
+      abandonmentCallsListLength: abandonmentCallsList.length
+    });
 
     setStats({
       totalCalls: callsData.length,

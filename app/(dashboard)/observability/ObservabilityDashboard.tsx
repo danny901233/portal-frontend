@@ -396,22 +396,44 @@ export function ObservabilityDashboard() {
         }
       }
 
-      // Analyze booking intent and completion
-      // Check intent field OR if create_job was attempted (indicates booking intent)
+      // Analyze booking intent from customer messages in transcript
       const callToolCalls = call.metrics?.tool_calls || [];
       const hasCreateJobAttempt = callToolCalls.some(tc => tc.tool_name === 'create_job');
-      const intentLower = call.intent?.toLowerCase() || '';
-      const hasBookingIntent = hasCreateJobAttempt ||
-                               intentLower.includes('book') || 
-                               intentLower.includes('appointment') ||
-                               intentLower.includes('schedule');
+      
+      // Check customer messages for booking intent
+      let hasBookingIntent = false;
+      if (items.length > 0) {
+        const customerMessages = items
+          .filter((item: any) => item.type === 'message' && item.speaker === 'customer' && item.text)
+          .map((item: any) => item.text.toLowerCase());
+        
+        const fullCustomerTranscript = customerMessages.join(' ');
+        
+        // Look for booking-related phrases from customer
+        hasBookingIntent = 
+          fullCustomerTranscript.includes('book') ||
+          fullCustomerTranscript.includes('appointment') ||
+          fullCustomerTranscript.includes('schedule') ||
+          fullCustomerTranscript.includes('bring my car') ||
+          fullCustomerTranscript.includes('bring the car') ||
+          fullCustomerTranscript.includes('get a service') ||
+          fullCustomerTranscript.includes('need a service') ||
+          fullCustomerTranscript.includes('mot') ||
+          fullCustomerTranscript.includes('service due') ||
+          fullCustomerTranscript.includes('book in') ||
+          fullCustomerTranscript.includes('come in') ||
+          fullCustomerTranscript.includes('drop off') ||
+          fullCustomerTranscript.includes('get it fixed') ||
+          fullCustomerTranscript.includes('get it checked') ||
+          fullCustomerTranscript.includes('need it looked at') ||
+          hasCreateJobAttempt; // Also count if agent attempted to create booking
+      }
       
       if (hasBookingIntent) {
         bookingIntentCalls++;
         console.log(`[Booking Intent] Call ${call.id}:`, {
           hasCreateJobAttempt,
-          intent: call.intent,
-          toolCalls: callToolCalls.map(tc => ({ name: tc.tool_name, success: tc.success }))
+          customerSaidBooking: items.length > 0
         });
         
         // Check if booking was completed (look for successful create_job tool call)

@@ -259,11 +259,35 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
-          paddingTop: '120px',
+          paddingTop: `${Math.max(120, (config?.logoHeight || 60) + 70)}px`,
           paddingBottom: '48px',
           paddingLeft: '32px',
           paddingRight: '32px'
         }}>
+          {/* Logo Area - Above the white card */}
+          <div className="absolute top-8 left-0 right-0 flex justify-center">
+            {config?.logoUrl ? (
+              <img 
+                src={config.logoUrl} 
+                alt="Logo" 
+                style={{ 
+                  height: `${config.logoHeight || 60}px`,
+                  width: 'auto',
+                  maxWidth: '200px',
+                  objectFit: 'contain'
+                }}
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
+                background: 'white'
+              }}>
+                <svg className="w-8 h-8" style={{ color: config?.primaryColor || '#1e3a8a' }} fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                </svg>
+              </div>
+            )}
+          </div>
+          
           {/* White overlay rectangle for chat */}
           <div className="flex flex-col flex-1 overflow-hidden" style={{ 
             backgroundColor: 'white', 
@@ -276,16 +300,16 @@ export default function ChatWidget() {
             <div className="flex items-center justify-between px-6 py-5 flex-shrink-0" style={{
               borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{
                   background: config?.primaryColor || '#1e3a8a'
                 }}>
                   <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
                   </svg>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-lg" style={{ fontFamily: "'Poppins', sans-serif", color: '#1f2937' }}>{config?.name || 'ReceptionMate'}</h3>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-lg truncate" style={{ fontFamily: "'Poppins', sans-serif", color: '#1f2937' }}>{config?.name || 'ReceptionMate'}</h3>
                 </div>
               </div>
               
@@ -619,11 +643,35 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '16px',
           fontFamily: "'Poppins', sans-serif",
-          paddingTop: '120px',
+          paddingTop: `${Math.max(120, (config?.logoHeight || 60) + 70)}px`,
           paddingBottom: '40px',
           paddingLeft: '32px',
           paddingRight: '32px'
         }}>
+          {/* Logo Area - Above the white card */}
+          <div className="absolute top-8 left-0 right-0 flex justify-center">
+            {config?.logoUrl ? (
+              <img 
+                src={config.logoUrl} 
+                alt="Logo" 
+                style={{ 
+                  height: `${config.logoHeight || 60}px`,
+                  width: 'auto',
+                  maxWidth: '200px',
+                  objectFit: 'contain'
+                }}
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
+                background: 'white'
+              }}>
+                <svg className="w-8 h-8" style={{ color: config?.primaryColor || '#1e3a8a' }} fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                </svg>
+              </div>
+            )}
+          </div>
+          
           {/* White overlay rectangle */}
           <div style={{ 
             backgroundColor: 'white', 
@@ -635,7 +683,7 @@ export default function ChatWidget() {
             <div className="flex items-center mb-6">
               <button
                 onClick={() => setViewState('menu')}
-                className="p-2 rounded-full transition-all mr-3"
+                className="p-2 rounded-full transition-all mr-3 flex-shrink-0"
                 style={{ color: '#666' }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
@@ -650,9 +698,9 @@ export default function ChatWidget() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <div>
-                <h3 className="text-gray-900 font-semibold text-lg" style={{ fontFamily: "'Poppins', sans-serif" }}>{config?.name ?? 'ReceptionMate'}</h3>
-                <p className="text-gray-500 text-sm" style={{ fontFamily: "'Poppins', sans-serif" }}>We typically reply instantly</p>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-gray-900 font-semibold text-lg truncate" style={{ fontFamily: "'Poppins', sans-serif" }}>{config?.name ?? 'ReceptionMate'}</h3>
+                <p className="text-gray-500 text-sm truncate" style={{ fontFamily: "'Poppins', sans-serif" }}>We typically reply instantly</p>
               </div>
             </div>
 

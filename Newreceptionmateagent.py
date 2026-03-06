@@ -1734,16 +1734,19 @@ class SupervisorAgent(Agent):
                         room_name=self._room_name, error_type="api_error",
                         extra={"reg": normalized},
                     ))
-                    if self._state.vrn_attempts >= 3:
+                    
+                    # Check total attempt count (readback rejections + confirmed attempts)
+                    total_attempts = self._state.vrn_readback_rejections + self._state.vrn_attempts
+                    if total_attempts >= 2:
                         self._state.step = Step.MESSAGE_ONLY
                         return (
-                            "Vehicle not found after 3 attempts. Say: 'I'm having trouble finding that one. "
+                            "Vehicle not found after 2 attempts. Say: 'I'm having trouble finding that one. "
                             "Let me take your details and get the team to ring you back.'\n"
                             "Then collect message, phone, callback time and call take_message."
                         )
                     
                     # First attempt failed - ask for phonetic spelling
-                    if self._state.vrn_attempts == 1:
+                    if total_attempts == 1:
                         return (
                             f"Vehicle not found for registration '{normalized}'. "
                             "Say naturally: 'I'm not finding that one. Could you spell the full registration back to me using phonetics? "
@@ -1751,7 +1754,7 @@ class SupervisorAgent(Agent):
                             "Wait for them to spell it phonetically, then call lookup_vehicle again."
                         )
                     
-                    # Subsequent attempts
+                    # This shouldn't happen but just in case
                     return (
                         f"Vehicle still not found for registration '{normalized}'. "
                         "Ask the caller to read it out one letter at a time. "
@@ -1769,9 +1772,10 @@ class SupervisorAgent(Agent):
                 session_id = result.get("session_id", "")
 
                 if not make and not model:
-                    if self._state.vrn_attempts >= 3:
+                    total_attempts = self._state.vrn_readback_rejections + self._state.vrn_attempts
+                    if total_attempts >= 2:
                         self._state.step = Step.MESSAGE_ONLY
-                        return "Vehicle data empty after 3 attempts. Take their details for a callback."
+                        return "Vehicle data empty after 2 attempts. Take their details for a callback."
                     return f"Registration '{normalized}' returned but no vehicle details. Ask them to spell it again."
 
                 self._state.session_id = session_id
@@ -1801,6 +1805,20 @@ class SupervisorAgent(Agent):
                 self._state.vrn_readback_rejections += 1
                 logger.info(f"[LOOKUP] Caller rejected previous readback '{self._state.vrn_pending}', "
                            f"provided new input '{reg}' → '{normalized}' (rejection #{self._state.vrn_readback_rejections})")
+                
+                # Check total attempt count (readback rejections + confirmed attempts)
+                total_attempts = self._state.vrn_readback_rejections + self._state.vrn_attempts
+                if total_attempts >= 2:
+                    self._state.step = Step.MESSAGE_ONLY
+                    logger.warning(f"[LOOKUP] Registration attempt limit reached ({total_attempts} attempts: "
+                                 f"{self._state.vrn_readback_rejections} rejections + {self._state.vrn_attempts} confirmed) "
+                                 "→ falling back to message-only mode")
+                    return (
+                        "Registration attempt limit reached after 2 attempts. "
+                        "Say naturally: 'I'm having trouble getting that registration. "
+                        "Let me take your details and get the team to ring you back.'\n"
+                        "Then collect message, phone, callback time and call take_message."
+                    )
 
             # Accumulate partial VRN segments
             if self._state.vrn_partial:
@@ -1913,9 +1931,11 @@ class SupervisorAgent(Agent):
                 self._state.vehicle_make = ""
                 self._state.vehicle_model = ""
                 logger.info("[CONFIRM] Vehicle rejected → NEED_VRN")
-                if self._state.vrn_attempts >= 3:
+                
+                total_attempts = self._state.vrn_readback_rejections + self._state.vrn_attempts
+                if total_attempts >= 2:
                     self._state.step = Step.MESSAGE_ONLY
-                    return "Vehicle rejected after 3 attempts. Take their details for a callback."
+                    return "Vehicle rejected after 2 attempts. Take their details for a callback."
                 return "Vehicle rejected. Ask: 'No worries, could you read it out again for me?'"
 
             # Apply name corrections

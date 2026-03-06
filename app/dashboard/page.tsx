@@ -332,10 +332,6 @@ export default function DashboardPage() {
       label: TAG_LABELS[tag],
       count: callTypeCounts[tag] ?? 0,
     }));
-    const otherCount = callTypeCounts.other ?? 0;
-    if (otherCount > 0) {
-      data.push({ tag: 'other', label: TAG_LABELS.other, count: otherCount });
-    }
     return data;
   }, [callTypeCounts]);
 

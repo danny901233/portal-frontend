@@ -383,15 +383,18 @@ export function ObservabilityDashboard() {
       }
 
       // Analyze booking intent and completion
-      const hasBookingIntent = call.intent?.toLowerCase().includes('book') || 
+      // Check intent field OR if create_job was attempted (indicates booking intent)
+      const toolCalls = call.metrics?.tool_calls || [];
+      const hasCreateJobAttempt = toolCalls.some(tc => tc.tool_name === 'create_job');
+      const hasBookingIntent = hasCreateJobAttempt ||
+                               call.intent?.toLowerCase().includes('book') || 
                                call.intent?.toLowerCase().includes('appointment') ||
                                call.intent?.toLowerCase().includes('schedule');
       
       if (hasBookingIntent) {
         bookingIntentCalls++;
         
-        // Check if booking was completed (look for create_job tool call)
-        const toolCalls = call.metrics?.tool_calls || [];
+        // Check if booking was completed (look for successful create_job tool call)
         const hasCreateJob = toolCalls.some(tc => 
           tc.tool_name === 'create_job' && tc.success
         );

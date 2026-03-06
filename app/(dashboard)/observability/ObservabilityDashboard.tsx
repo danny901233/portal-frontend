@@ -75,6 +75,7 @@ interface AggregatedStats {
     noTimeslotsCount: number;
     costConcernCount: number;
     noMatchingServiceCount: number;
+    humanRequestCount: number;
     otherReasonsCount: number;
   };
 }
@@ -99,7 +100,7 @@ interface RegistrationIssueCall {
 
 interface BookingAbandonmentCall {
   call: CallData;
-  reason: 'noTimeslots' | 'cost' | 'noMatchingService' | 'other';
+  reason: 'noTimeslots' | 'cost' | 'noMatchingService' | 'humanRequest' | 'other';
   details: string;
 }
 
@@ -189,6 +190,7 @@ export function ObservabilityDashboard() {
       noTimeslotsCount: 0,
       costConcernCount: 0,
       noMatchingServiceCount: 0,
+      humanRequestCount: 0,
       otherReasonsCount: 0,
     },
   });
@@ -199,7 +201,7 @@ export function ObservabilityDashboard() {
   const [registrationIssueCalls, setRegistrationIssueCalls] = useState<RegistrationIssueCall[]>([]);
   const [expandedIssueType, setExpandedIssueType] = useState<'partial' | 'notFound' | 'persistent' | null>(null);
   const [bookingAbandonmentCalls, setBookingAbandonmentCalls] = useState<BookingAbandonmentCall[]>([]);
-  const [expandedAbandonmentReason, setExpandedAbandonmentReason] = useState<'noTimeslots' | 'cost' | 'noMatchingService' | 'other' | null>(null);
+  const [expandedAbandonmentReason, setExpandedAbandonmentReason] = useState<'noTimeslots' | 'cost' | 'noMatchingService' | 'humanRequest' | 'other' | null>(null);
 
   // Load evaluators from localStorage on mount
   useEffect(() => {
@@ -286,6 +288,7 @@ export function ObservabilityDashboard() {
     let noTimeslotsCount = 0;
     let costConcernCount = 0;
     let noMatchingServiceCount = 0;
+    let humanRequestCount = 0;
     let otherReasonsCount = 0;
     const abandonmentCallsList: BookingAbandonmentCall[] = [];
 
@@ -506,7 +509,7 @@ export function ObservabilityDashboard() {
           
           // Analyze transcript for abandonment reason
           if (items.length > 0) {
-            let reason: 'noTimeslots' | 'cost' | 'noMatchingService' | 'other' = 'other';
+            let reason: 'noTimeslots' | 'cost' | 'noMatchingService' | 'humanRequest' | 'other' = 'other';
             let details = 'Booking not completed';
             
             // Check for specific phrases in agent messages
@@ -524,6 +527,20 @@ export function ObservabilityDashboard() {
               reason = 'noTimeslots';
               details = 'No available time slots';
               noTimeslotsCount++;
+            } else if (fullTranscript.includes('speak to someone') ||
+                       fullTranscript.includes('talk to someone') ||
+                       fullTranscript.includes('speak with someone') ||
+                       fullTranscript.includes('talk with someone') ||
+                       fullTranscript.includes('speak to a person') ||
+                       fullTranscript.includes('talk to a person') ||
+                       fullTranscript.includes('human') ||
+                       fullTranscript.includes('real person') ||
+                       fullTranscript.includes('actual person') ||
+                       fullTranscript.includes('call me back') ||
+                       fullTranscript.includes('ring me back')) {
+              reason = 'humanRequest';
+              details = 'Customer requested to speak to a human';
+              humanRequestCount++;
             } else if (fullTranscript.includes('cost') || 
                        fullTranscript.includes('price') ||
                        fullTranscript.includes('expensive') ||
@@ -629,6 +646,7 @@ export function ObservabilityDashboard() {
         noTimeslotsCount,
         costConcernCount,
         noMatchingServiceCount,
+        humanRequestCount,
         otherReasonsCount,
       },
     });
@@ -1418,6 +1436,74 @@ export function ObservabilityDashboard() {
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="ml-3 rounded bg-orange-500/20 px-2 py-1 text-xs text-orange-300 hover:bg-orange-500/30"
+                                      >
+                                        View Call →
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Human Request */}
+                        <div>
+                          <button
+                            onClick={() => setExpandedAbandonmentReason(expandedAbandonmentReason === 'humanRequest' ? null : 'humanRequest')}
+                            className="w-full flex items-center justify-between rounded-lg border border-purple-500/20 bg-purple-500/5 p-4 transition-all hover:bg-purple-500/10 hover:border-purple-500/30 cursor-pointer"
+                          >
+                            <div className="flex-1 text-left">
+                              <div className="font-medium text-purple-300">Human Request</div>
+                              <div className="mt-1 text-sm text-slate-400">
+                                Customer requested to speak to a human
+                              </div>
+                            </div>
+                            <div className="text-right flex items-center gap-3">
+                              <div>
+                                <div className="text-2xl font-bold text-purple-400">
+                                  {stats.bookingMetrics.humanRequestCount}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {stats.bookingMetrics.abandonedBookings > 0 
+                                    ? ((stats.bookingMetrics.humanRequestCount / stats.bookingMetrics.abandonedBookings) * 100).toFixed(1) 
+                                    : '0.0'}%
+                                </div>
+                              </div>
+                              <svg 
+                                className={`w-5 h-5 text-purple-400 transition-transform ${expandedAbandonmentReason === 'humanRequest' ? 'rotate-180' : ''}`} 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </button>
+                          {expandedAbandonmentReason === 'humanRequest' && (
+                            <div className="mt-2 space-y-2 pl-4">
+                              {bookingAbandonmentCalls
+                                .filter(abandonment => abandonment.reason === 'humanRequest')
+                                .map((abandonment, idx) => (
+                                  <div key={idx} className="rounded border border-purple-500/20 bg-slate-900/50 p-3">
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1">
+                                        <div className="text-sm text-slate-300">
+                                          {new Date(abandonment.call.createdAt).toLocaleString()}
+                                        </div>
+                                        {abandonment.call.customerPhone && (
+                                          <div className="mt-1 font-mono text-xs text-slate-400">
+                                            {abandonment.call.customerPhone}
+                                          </div>
+                                        )}
+                                        <div className="mt-1 text-xs text-purple-400">
+                                          {abandonment.details}
+                                        </div>
+                                      </div>
+                                      <a
+                                        href={`/calls/${abandonment.call.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="ml-3 rounded bg-purple-500/20 px-2 py-1 text-xs text-purple-300 hover:bg-purple-500/30"
                                       >
                                         View Call →
                                       </a>

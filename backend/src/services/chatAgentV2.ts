@@ -1497,9 +1497,12 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
   session.preferredCallbackTime = callback_time;
   session.step = Step.MESSAGE_ONLY;
   await saveSession(conversationId, session);
-  
-  // Store message in database (TODO: create Messages table or use notes)
-  // For now, just log it
+
+  // Flag conversation as needing attention so it shows up in the Messages inbox
+  await prisma.chatConversation.updateMany({
+    where: { id: conversationId },
+    data: { needsAttention: true },
+  });
   
   const serviceContext = session.serviceSelectedName ? ` about ${session.serviceSelectedName}` : '';
   return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've passed that on${serviceContext}. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'} — have a great day!"\n\nConversation complete.`;

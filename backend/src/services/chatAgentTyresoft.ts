@@ -57,6 +57,9 @@ interface TyresoftSession {
   serviceIds?: number[];
   serviceName?: string;
   tyreBasket?: TyreBasketItem[];
+  customerName?: string;
+  customerPhone?: string;
+  selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +266,7 @@ export async function getTyresoftChatResponse(
     const previousMessages = await prisma.chatMessage.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
-      take: 8,
+      take: 20,
     });
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -429,6 +432,21 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
+        name: 'ts_save_customer_details',
+        description: 'Save the customer name and phone number to the session. Call as soon as you have both the name AND phone number from the customer — do not wait until booking.',
+        parameters: {
+          type: 'object',
+          properties: {
+            customer_name:  { type: 'string', description: 'Full name of the customer' },
+            customer_phone: { type: 'string', description: 'UK phone number of the customer' },
+          },
+          required: ['customer_name', 'customer_phone'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'ts_get_timeslots',
         description: 'Fetch available booking timeslots. For tyres use service_ids=[0]. For services use the service ID. Call after the customer has confirmed their choice.',
         parameters: {
@@ -579,6 +597,14 @@ async function executeTool(
       case 'ts_clear_tyre_basket': {
         tsSessions.set(conversationId, { ...session, tyreBasket: [] });
         return { success: true, message: 'Basket cleared.' };
+      }
+
+      case 'ts_save_customer_details': {
+        const customerName  = String(args.customer_name || '').trim();
+        const customerPhone = String(args.customer_phone || '').trim();
+        tsSessions.set(conversationId, { ...session, customerName, customerPhone });
+        console.log(`[TS_AGENT] Customer details saved: name=${customerName}, phone=${customerPhone}`);
+        return { success: true, customer_name: customerName, customer_phone: customerPhone };
       }
 
       case 'ts_get_timeslots': {
@@ -847,9 +873,10 @@ function buildSystemPrompt(
     prompt += `4. Present options: brand, price per tyre, availability. Ask how many they need (1, 2, or 4).\n`;
     prompt += `5. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
     prompt += `6. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
-    prompt += `7. Offer 3-4 slots in plain language. Collect name + phone number.\n`;
-    prompt += `8. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
-    prompt += `9. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
+    prompt += `7. Offer 3-4 slots in plain language. Ask for name + phone number if not already saved.\n`;
+    prompt += `8. Once you have both name AND phone, call ts_save_customer_details immediately.\n`;
+    prompt += `9. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
+    prompt += `10. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
 
     prompt += `SERVICE BOOKING (MOT, service, alignment, etc.):\n`;
     prompt += `1. Ask for their vehicle reg and call ts_lookup_vehicle.\n`;
@@ -861,6 +888,7 @@ function buildSystemPrompt(
     prompt += `RULES:\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
+    prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
     prompt += `- If tyre size not found in vehicle data, ask the customer directly (e.g. "What size tyres does your car take?").\n`;
     prompt += `- Keep replies concise — 1 to 3 sentences max.\n\n`;
 
@@ -877,6 +905,8 @@ function buildSystemPrompt(
         const total = session.tyreBasket.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
         prompt += `- Tyre basket: ${session.tyreBasket.map(i => `${i.quantity}x ${i.description} @ £${i.unitPrice}`).join(', ')} (total £${total.toFixed(2)})\n`;
       }
+      if (session.customerName)  prompt += `- Customer name: ${session.customerName} (already collected — do NOT ask again)\n`;
+      if (session.customerPhone) prompt += `- Customer phone: ${session.customerPhone} (already collected — do NOT ask again)\n`;
       prompt += `- Do NOT call ts_lookup_vehicle again — already complete.\n\n`;
     }
   } else {

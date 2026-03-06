@@ -437,10 +437,30 @@ export function ObservabilityDashboard() {
         const submitBookingCalls = callToolCalls.filter(tc => tc.tool_name === 'submit_booking');
         const createJobCalls = callToolCalls.filter(tc => tc.tool_name === 'create_job');
         
-        // A booking is successful if submit_booking was called successfully OR create_job succeeded
-        const hasSuccessfulBooking = 
+        // A booking is successful if:
+        // 1. submit_booking or create_job was called successfully, OR
+        // 2. Transcript contains "BOOKING CONFIRMED" or "booked in"
+        let hasSuccessfulBooking = 
           (submitBookingCalls.length > 0 && submitBookingCalls.some(tc => tc.success)) ||
           (createJobCalls.length > 0 && createJobCalls.some(tc => tc.success));
+        
+        // Also check transcript for booking confirmation phrases
+        if (!hasSuccessfulBooking && items.length > 0) {
+          const fullTranscript = items
+            .filter((item: any) => item.type === 'message' || item.type === 'function_call_output')
+            .map((item: any) => {
+              if (item.output) return item.output.toLowerCase();
+              if (item.text) return item.text.toLowerCase();
+              if (item.content && Array.isArray(item.content)) return item.content.join(' ').toLowerCase();
+              return '';
+            })
+            .join(' ');
+          
+          hasSuccessfulBooking = 
+            fullTranscript.includes('booking confirmed') ||
+            fullTranscript.includes('booked in') ||
+            fullTranscript.includes('that\'s all booked');
+        }
         
         console.log(`[Booking Intent] Call ${call.id}:`, {
           hasCreateJobAttempt,

@@ -327,7 +327,10 @@ export default function ChatWidget() {
               </button>
             </div>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3" style={{ scrollbarWidth: 'thin' }}>
+            <div className="flex-1 overflow-y-auto space-y-3" style={{ 
+              scrollbarWidth: 'thin',
+              padding: '20px 24px'
+            }}>
               {messages.map((msg) => (
                 msg.role === 'system' ? (
                   <div key={msg.id} className="flex items-center gap-2 justify-center py-1">

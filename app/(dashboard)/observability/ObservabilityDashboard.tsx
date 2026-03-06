@@ -431,17 +431,21 @@ export function ObservabilityDashboard() {
       
       if (hasBookingIntent) {
         bookingIntentCalls++;
-        console.log(`[Booking Intent] Call ${call.id}:`, {
-          hasCreateJobAttempt,
-          customerSaidBooking: items.length > 0
-        });
         
         // Check if booking was completed (look for successful create_job tool call)
-        const hasCreateJob = callToolCalls.some(tc => 
-          tc.tool_name === 'create_job' && tc.success
-        );
+        // A booking is completed if create_job was called AND succeeded
+        const createJobCalls = callToolCalls.filter(tc => tc.tool_name === 'create_job');
+        const hasSuccessfulBooking = createJobCalls.length > 0 && 
+                                     createJobCalls.some(tc => tc.success);
         
-        if (hasCreateJob) {
+        console.log(`[Booking Intent] Call ${call.id}:`, {
+          hasCreateJobAttempt,
+          createJobCallsCount: createJobCalls.length,
+          hasSuccessfulBooking,
+          createJobResults: createJobCalls.map(tc => ({ success: tc.success, error: tc.error }))
+        });
+        
+        if (hasSuccessfulBooking) {
           completedBookings++;
         } else {
           abandonedBookings++;

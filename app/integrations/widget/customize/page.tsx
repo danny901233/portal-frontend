@@ -42,6 +42,7 @@ const BUTTON_ICONS = [
 export default function WidgetCustomizePage() {
   const router = useRouter();
   const garageId = getGarageId();
+  const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean | null>(null);
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [logoWidth, setLogoWidth] = useState<number>(120);
   const [logoHeight, setLogoHeight] = useState<number>(60);
@@ -78,11 +79,48 @@ export default function WidgetCustomizePage() {
     }
   }, [brandingData]);
 
-  // Redirect to login if no garage ID
+  // Check messaging access on mount
   useEffect(() => {
-    if (!garageId) {
-      router.push('/login');
-    }
+    const checkAccess = async () => {
+      if (!garageId) {
+        router.push('/login');
+        return;
+      }
+
+      try {
+        const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+        if (!token) {
+          router.push('/login');
+          return;
+        }
+
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${garageId}/messaging-access`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const hasAccess = data.hasMessagingAccess || false;
+          setHasMessagingAccess(hasAccess);
+
+          if (!hasAccess) {
+            router.push('/dashboard');
+          }
+        } else {
+          router.push('/dashboard');
+        }
+      } catch (error) {
+        console.error('Error checking messaging access:', error);
+        router.push('/dashboard');
+      }
+    };
+
+    void checkAccess();
   }, [garageId, router]);
 
   // Save branding mutation
@@ -197,7 +235,7 @@ export default function WidgetCustomizePage() {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || hasMessagingAccess === null) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-300">
         Loading widget branding...

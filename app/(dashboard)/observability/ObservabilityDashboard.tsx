@@ -57,6 +57,15 @@ interface AggregatedStats {
     };
   };
   topErrors: { type: string; count: number; message: string }[];
+  registrationMetrics: {
+    callsWithRegLookup: number;
+    callsWithMultipleAttempts: number;
+    firstAttemptSuccessRate: number;
+    retryRate: number;
+    partialCaptureCount: number;
+    notFoundCount: number;
+    threeOrMoreAttemptsCount: number;
+  };
 }
 
 interface EvaluatorConfig {
@@ -139,8 +148,17 @@ export function ObservabilityDashboard() {
     avgInterruptions: 0,
     toolPerformance: {},
     topErrors: [],
+    registrationMetrics: {
+      callsWithRegLookup: 0,
+      callsWithMultipleAttempts: 0,
+      firstAttemptSuccessRate: 0,
+      retryRate: 0,
+      partialCaptureCount: 0,
+      notFoundCount: 0,
+      threeOrMoreAttemptsCount: 0,
+    },
   });
-  const [activeTab, setActiveTab] = useState<'flagged' | 'tools' | 'errors' | 'calls'>('flagged');
+  const [activeTab, setActiveTab] = useState<'flagged' | 'tools' | 'errors' | 'calls' | 'registrations'>('flagged');
   const [evaluators, setEvaluators] = useState<EvaluatorConfig>(DEFAULT_EVALUATORS);
   const [flaggedCalls, setFlaggedCalls] = useState<FlaggedCall[]>([]);
   const [showEvaluatorConfig, setShowEvaluatorConfig] = useState(true);
@@ -215,6 +233,18 @@ export function ObservabilityDashboard() {
     let llmLatencyCount = 0;
     let totalInterruptions = 0;
 
+    // Registration metrics
+    let callsWithRegLookup = 0;
+    let callsWithMultipleAttempts = 0;
+    let partialCaptureCount = 0;
+    let notFoundCount = 0;
+    let threeOrMoreAttemptsCount = 0;
+
+    const natoPhonetics = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 
+                           'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November', 
+                           'Oscar', 'Papa', 'Quebec', 'Romeo', 'Sierra', 'Tango', 'Uniform', 
+                           'Victor', 'Whiskey', 'Xray', 'Yankee', 'Zulu'];
+
     callsData.forEach((call) => {
       totalCallDuration += call.duration || 0;
 
@@ -224,6 +254,60 @@ export function ObservabilityDashboard() {
       }
 
       totalInterruptions += getInterruptionCount(call);
+
+      // Analyze registration attempts from transcript
+      const transcript = call.transcript as any;
+      let items: any[] = [];
+      if (Array.isArray(transcript)) {
+        items = transcript;
+      } else if (transcript && typeof transcript === 'object') {
+        items = Object.values(transcript);
+      }
+
+      if (items.length > 0) {
+        // Count NATO phonetic readback attempts
+        const readbackMessages = items.filter(
+          (item: any) =>
+            item.type === 'message' &&
+            item.speaker === 'agent' &&
+            item.text &&
+            natoPhonetics.some(phonetic => item.text.includes(phonetic)) &&
+            item.text.toLowerCase().includes('is that right')
+        );
+
+        // Count "not finding" messages
+        const notFoundMessages = items.filter(
+          (item: any) =>
+            item.type === 'message' &&
+            item.speaker === 'agent' &&
+            item.text &&
+            (item.text.toLowerCase().includes('not finding that') ||
+             item.text.toLowerCase().includes("i'm having trouble finding") ||
+             item.text.toLowerCase().includes('having trouble finding'))
+        );
+
+        const hasRegLookup = readbackMessages.length > 0;
+        if (hasRegLookup) {
+          callsWithRegLookup++;
+          
+          const attempts = readbackMessages.length;
+          const hasNotFound = notFoundMessages.length > 0;
+          
+          if (attempts > 1 || hasNotFound) {
+            callsWithMultipleAttempts++;
+            
+            if (hasNotFound) notFoundCount++;
+            if (attempts >= 3) threeOrMoreAttemptsCount++;
+            
+            // Check for partial capture (< 5 NATO phonetics in first readback)
+            if (readbackMessages.length > 0) {
+              const firstReadback = readbackMessages[0].text || '';
+              const natoCount = natoPhonetics.filter(p => firstReadback.includes(p)).length;
+              if (natoCount < 5) partialCaptureCount++;
+            }
+          }
+        }
+      }
 
       const toolCalls = call.metrics?.tool_calls || [];
       toolCalls.forEach((tc) => {
@@ -256,6 +340,13 @@ export function ObservabilityDashboard() {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
+    const firstAttemptSuccessRate = callsWithRegLookup > 0 
+      ? ((callsWithRegLookup - callsWithMultipleAttempts) / callsWithRegLookup) * 100 
+      : 0;
+    const retryRate = callsWithRegLookup > 0 
+      ? (callsWithMultipleAttempts / callsWithRegLookup) * 100 
+      : 0;
+
     setStats({
       totalCalls: callsData.length,
       avgCallDuration: callsData.length > 0 ? totalCallDuration / callsData.length : 0,
@@ -265,6 +356,15 @@ export function ObservabilityDashboard() {
       avgInterruptions: callsData.length > 0 ? totalInterruptions / callsData.length : 0,
       toolPerformance,
       topErrors,
+      registrationMetrics: {
+        callsWithRegLookup,
+        callsWithMultipleAttempts,
+        firstAttemptSuccessRate,
+        retryRate,
+        partialCaptureCount,
+        notFoundCount,
+        threeOrMoreAttemptsCount,
+      },
     });
   };
 
@@ -298,6 +398,7 @@ export function ObservabilityDashboard() {
     { key: 'flagged' as const, label: 'Flagged Calls', badge: flaggedCalls.length, badgeColor: 'bg-rose-500/20 text-rose-300' },
     { key: 'tools' as const, label: 'Tool Performance', badge: 0, badgeColor: '' },
     { key: 'errors' as const, label: 'Error Analysis', badge: stats.topErrors.length, badgeColor: 'bg-slate-700 text-slate-400' },
+    { key: 'registrations' as const, label: 'Registration Analysis', badge: stats.registrationMetrics.callsWithMultipleAttempts, badgeColor: 'bg-amber-500/20 text-amber-300' },
     { key: 'calls' as const, label: 'Recent Calls', badge: 0, badgeColor: '' },
   ];
 
@@ -615,6 +716,166 @@ export function ObservabilityDashboard() {
                     </div>
                   </div>
                 ))
+              )}
+            </div>
+          )}
+
+          {/* Registration Analysis Tab */}
+          {activeTab === 'registrations' && (
+            <div className="space-y-4">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4">
+                  <div className="text-sm text-slate-400">Calls with Registration</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-100">
+                    {stats.registrationMetrics.callsWithRegLookup}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {stats.totalCalls > 0 ? ((stats.registrationMetrics.callsWithRegLookup / stats.totalCalls) * 100).toFixed(1) : '0.0'}% of total calls
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+                  <div className="text-sm text-slate-400">First-Attempt Success</div>
+                  <div className="mt-1 text-2xl font-bold text-emerald-400">
+                    {stats.registrationMetrics.firstAttemptSuccessRate.toFixed(1)}%
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {stats.registrationMetrics.callsWithRegLookup - stats.registrationMetrics.callsWithMultipleAttempts} successful on first try
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+                  <div className="text-sm text-slate-400">Retry Rate</div>
+                  <div className="mt-1 text-2xl font-bold text-amber-400">
+                    {stats.registrationMetrics.retryRate.toFixed(1)}%
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {stats.registrationMetrics.callsWithMultipleAttempts} calls needed multiple attempts
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-4">
+                  <div className="text-sm text-slate-400">3+ Attempts</div>
+                  <div className="mt-1 text-2xl font-bold text-rose-400">
+                    {stats.registrationMetrics.threeOrMoreAttemptsCount}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Calls requiring 3 or more tries
+                  </div>
+                </div>
+              </div>
+
+              {/* Common Issues Breakdown */}
+              {stats.registrationMetrics.callsWithMultipleAttempts > 0 && (
+                <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                  <h3 className="mb-4 text-lg font-semibold text-slate-100">Common Issues</h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+                      <div className="flex-1">
+                        <div className="font-medium text-amber-300">Partial Capture</div>
+                        <div className="mt-1 text-sm text-slate-400">
+                          Less than 5 characters captured on first attempt
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-amber-400">
+                          {stats.registrationMetrics.partialCaptureCount}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {stats.registrationMetrics.callsWithMultipleAttempts > 0 
+                            ? ((stats.registrationMetrics.partialCaptureCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
+                            : '0.0'}%
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-lg border border-rose-500/20 bg-rose-500/5 p-4">
+                      <div className="flex-1">
+                        <div className="font-medium text-rose-300">"Not Finding" Errors</div>
+                        <div className="mt-1 text-sm text-slate-400">
+                          Registration not found in Garage Hive system
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-rose-400">
+                          {stats.registrationMetrics.notFoundCount}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {stats.registrationMetrics.callsWithMultipleAttempts > 0 
+                            ? ((stats.registrationMetrics.notFoundCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
+                            : '0.0'}%
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-lg border border-purple-500/20 bg-purple-500/5 p-4">
+                      <div className="flex-1">
+                        <div className="font-medium text-purple-300">Persistent Issues</div>
+                        <div className="mt-1 text-sm text-slate-400">
+                          Required 3 or more readback attempts
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-purple-400">
+                          {stats.registrationMetrics.threeOrMoreAttemptsCount}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {stats.registrationMetrics.callsWithMultipleAttempts > 0 
+                            ? ((stats.registrationMetrics.threeOrMoreAttemptsCount / stats.registrationMetrics.callsWithMultipleAttempts) * 100).toFixed(1) 
+                            : '0.0'}%
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Insights */}
+              {stats.registrationMetrics.callsWithRegLookup > 0 && (
+                <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                  <h3 className="mb-3 text-lg font-semibold text-slate-100">Analysis Insights</h3>
+                  <div className="space-y-2 text-sm text-slate-300">
+                    {stats.registrationMetrics.retryRate > 50 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-amber-400">⚠️</span>
+                        <span>
+                          High retry rate ({stats.registrationMetrics.retryRate.toFixed(1)}%) indicates potential issues with registration capture. Common causes include background noise, unclear speech, or S/C confusion.
+                        </span>
+                      </div>
+                    )}
+                    {stats.registrationMetrics.firstAttemptSuccessRate > 70 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-emerald-400">✓</span>
+                        <span>
+                          Strong first-attempt success rate ({stats.registrationMetrics.firstAttemptSuccessRate.toFixed(1)}%) shows effective initial capture in most cases.
+                        </span>
+                      </div>
+                    )}
+                    {stats.registrationMetrics.partialCaptureCount > stats.registrationMetrics.callsWithMultipleAttempts * 0.3 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-amber-400">💡</span>
+                        <span>
+                          Partial captures are a significant issue. Consider improving prompts to encourage customers to spell out complete registrations.
+                        </span>
+                      </div>
+                    )}
+                    {stats.registrationMetrics.notFoundCount > 0 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-slate-400">ℹ️</span>
+                        <span>
+                          {stats.registrationMetrics.notFoundCount} registration(s) not found in system may indicate new customers or incorrect spelling.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {stats.registrationMetrics.callsWithRegLookup === 0 && (
+                <div className="py-8 text-center text-slate-400">
+                  No registration lookups in this time range
+                </div>
               )}
             </div>
           )}

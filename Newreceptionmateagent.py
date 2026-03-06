@@ -3104,17 +3104,19 @@ async def entrypoint(ctx: JobContext):
                 summary = await generate_call_summary(state, state.recent_transcripts)
                 
                 # Determine call type based on dashboard categories
-                # Categories: "general enquiry", "confirmed booking", "update", "internal", "complaint", "human request", "other"
+                # Categories: "general enquiry", "confirmed booking", "quote", "update", "internal", "complaint", "human request", "other"
                 call_type = "other"
                 if state.intent == "booking" and state.booking_date:
                     call_type = "confirmed booking"
-                elif state.intent == "booking" or state.intent == "quote":
+                elif state.intent == "quote":
+                    call_type = "quote"
+                elif state.intent == "booking":
                     call_type = "general enquiry"
                 elif state.intent == "vehicle_update":
                     call_type = "update"
                 elif state.intent == "message":
                     call_type = "general enquiry"
-                elif state.intent == "transfer":
+                elif state.intent == "transfer" or state.requested_person:
                     call_type = "human request"
                 
                 # Build booking details if applicable

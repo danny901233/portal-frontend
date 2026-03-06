@@ -2020,8 +2020,12 @@ class SupervisorAgent(Agent):
         async def lookup_vehicle(context: RunContext, reg: str, confirmed: bool = False) -> str:
             """Look up a vehicle by UK registration number.
             
+            ⚠️ CRITICAL: Only call this function when you have a COMPLETE registration (at least 4-7 characters).
+            DO NOT call on partial input like "E", "Y six", or "EY68" mid-spelling.
+            WAIT for caller to finish spelling before calling (e.g., "E Y six eight A A O" is complete).
+            
             TWO-STEP process:
-            1. Pass caller's words (confirmed=False) → tool normalizes and gives you phonetic readback
+            1. Pass caller's COMPLETE words (confirmed=False) → tool normalizes and gives you phonetic readback
             2. After caller confirms → call with confirmed=True to do API lookup
             
             The tool handles NATO phonetic conversion automatically."""
@@ -2154,8 +2158,10 @@ class SupervisorAgent(Agent):
             # Validation: minimum length
             if len(normalized) < 4:
                 return (
-                    f"Registration too short: '{normalized}' (need at least 4 characters).\n"
-                    "Ask: 'Could you give me the full registration?'"
+                    f"❌ STOP: Registration too short ('{normalized}' is only {len(normalized)} chars).\n"
+                    "DON'T call this function until caller finishes spelling.\n"
+                    "UK registrations are 4-7 characters. WAIT for them to give you more.\n"
+                    "If they stopped speaking and this IS their full reg, ask: 'Could you give me the full registration?'"
                 )
             
             # Validation: must contain at least one digit
@@ -2184,20 +2190,16 @@ class SupervisorAgent(Agent):
             # Store for confirmation step
             self._state.vrn_pending = normalized
             
+            # Auto-correct 0→O in final letter positions (UK format standard)
+            # Don't ask for clarification upfront - only if lookup fails
+            _, format_suggestion = validate_uk_vrm_format(normalized)
+            if format_suggestion:
+                logger.info(f"[LOOKUP] Auto-correcting format: '{normalized}' → '{format_suggestion}'")
+                normalized = format_suggestion
+                self._state.vrn_pending = normalized
+            
             # Generate phonetic readback
             phonetics = vrm_to_phonetics(normalized)
-            
-            # Check if we should clarify 0 vs O
-            has_zero_or_o = '0' in normalized or 'O' in normalized
-            clarification_needed = ""
-            if has_zero_or_o:
-                # Check UK format to see if 0 in letter position suggests confusion
-                _, format_suggestion = validate_uk_vrm_format(normalized)
-                if format_suggestion:
-                    clarification_needed = (
-                        f"\n⚠️ CLARIFY: Registration has '0' where letter 'O' is expected. "
-                        f"After readback, ask: 'Just to confirm, is that the number Zero or the letter O as in Oscar?'"
-                    )
             
             logger.info(f"[LOOKUP] Parsed '{reg}' → '{normalized}' → phonetics: {phonetics}")
             
@@ -2205,7 +2207,7 @@ class SupervisorAgent(Agent):
                 f"Parsed registration: {normalized}\n"
                 f"Phonetic readback: {phonetics}\n\n"
                 f"⏸️ IMPORTANT: PAUSE and wait for the caller to finish speaking before you respond.\n"
-                f"Say to caller SLOWLY: '{phonetics}. Is that right?'{clarification_needed}\n\n"
+                f"Say to caller SLOWLY: '{phonetics}. Is that right?'\n\n"
                 f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true)\n"
                 f"If NO → Say: 'Let me get that again. Could you spell it out letter by letter?' "
                 f"Then call lookup_vehicle with their new input."
@@ -3861,16 +3863,18 @@ async def entrypoint(ctx: JobContext):
                 # Generate GPT summary (falls back to state-based if LLM unavailable)
                 summary = await generate_call_summary(transcript, state)
 
-                # Determine call type
-                call_type = "unknown"
+                # Determine call type - map to portal categories
+                call_type = "other"
                 if state.intent == "booking" and state.booking_date:
-                    call_type = "booking"
+                    call_type = "confirmed booking"
                 elif state.intent == "quote":
                     call_type = "quote"
                 elif state.intent == "message":
-                    call_type = "message"
+                    call_type = "general enquiry"
                 elif state.intent == "vehicle_update":
-                    call_type = "vehicle_update"
+                    call_type = "update"
+                elif state.requested_person:
+                    call_type = "human request"
 
                 # Build booking details if applicable
                 booking_details = ""

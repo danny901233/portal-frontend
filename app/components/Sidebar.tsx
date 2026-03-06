@@ -32,6 +32,7 @@ export default function Sidebar({
   hasManagerAccess = false,
   isManagerUser = false,
   messagesNeedingAttention = 0,
+  conversationsNeedingAttention = 0,
 }: {
   activePath: string;
   showAdminLink?: boolean;
@@ -39,6 +40,7 @@ export default function Sidebar({
   hasManagerAccess?: boolean;
   isManagerUser?: boolean;
   messagesNeedingAttention?: number;
+  conversationsNeedingAttention?: number;
 }) {
   const items = useMemo(() => {
     // Filter navigation based on permissions

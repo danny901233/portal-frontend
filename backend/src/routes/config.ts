@@ -552,6 +552,13 @@ router.put(
       req.body.agentScript = 'receptionmate-agent';
     }
 
+    // Log drop-off booking fields from request
+    console.log('[AGENT_CONFIG_UPDATE] Drop-off fields received:', {
+      enableDropOffBookings: req.body.enableDropOffBookings,
+      dropOffMessage: req.body.dropOffMessage,
+      dropOffExcludeServices: req.body.dropOffExcludeServices
+    });
+
     const parseResult = upsertAgentConfigurationSchema.safeParse(req.body);
 
     if (!parseResult.success) {

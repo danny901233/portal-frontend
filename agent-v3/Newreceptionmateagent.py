@@ -2076,16 +2076,18 @@ class SupervisorAgent(Agent):
             return (
                 f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n\n"
                 "🎯 NEXT: Say ONLY: 'Could I grab your full registration please?' then IMMEDIATELY STOP.\n\n"
-                "🔇 AFTER ASKING FOR REGISTRATION:\n"
-                "   - Caller will spell SLOWLY with 2-4 second pauses between letters\n"
-                "   - Example: 'E Y' [3s pause] 'six' [2s pause] 'one' [3s pause] 'O Y B'\n"
-                "   - These pauses are NORMAL - they are thinking/spelling\n\n"
-                "🚫 CRITICAL RULE - When caller says < 5 characters:\n"
-                "   - Generate NO speech output\n"
-                "   - Do NOT respond with anything (not even silence markers)\n"
-                "   - Wait for more input\n"
-                "   - Only respond when you have 5-7 characters AND 4+ second pause\n\n"
-                "✅ ONLY call lookup_vehicle after: 5-7 characters + long pause (4+ seconds)"
+                "🔇 REGISTRATION COLLECTION - YOUR ONLY TWO ACTIONS:\n\n"
+                "UK callers spell SLOWLY with pauses: 'E' [pause 2s] 'Y' [pause] 'six' [pause]...\n"
+                "These pauses are NORMAL. Do NOT respond to them.\n\n"
+                "1️⃣ IF you have 5+ characters AND caller stopped speaking:\n"
+                "   → Call lookup_vehicle(reg='...', confirmed=false) with ZERO speech output\n"
+                "   → Example: 'E Y six eight A A O' → lookup_vehicle(reg='ey68aao', confirmed=false)\n"
+                "   → The function provides the phonetic readback for you to say\n\n"
+                "2️⃣ IF you have < 5 characters OR caller still speaking:\n"
+                "   → Do NOTHING. Generate NO text. Stay silent.\n"
+                "   → Never say 'waiting' or 'listening' or describe your actions\n\n"
+                "⚠️ CRITICAL: During mid-spelling pauses, you MUST generate NO RESPONSE.\n"
+                "If you generate ANY text during collection, you will interrupt the caller."
             )
 
         @function_tool

@@ -1,14 +1,5 @@
-import { Router, Request, Response } from 'express';
-import { sendEmail } from '../utils/email.js';
-import { PrismaClient } from '@prisma/client';
-
-const router = Router();
-const prisma = new PrismaClient();
-
-interface FeatureAnnouncementRequest {
-  testEmail?: string;
-  sendToAll?: boolean;
-}
+import 'dotenv/config';
+import { sendEmail } from './utils/email.js';
 
 const createFeatureAnnouncementHTML = () => {
   return `
@@ -199,94 +190,33 @@ Support: support@receptionmate.co.uk
 `;
 };
 
-router.post('/send-feature-announcement', async (req: Request, res: Response) => {
+async function sendTestEmail() {
+  console.log('Sending feature announcement test email to dan@receptionmate.co.uk...');
+  
+  const html = createFeatureAnnouncementHTML();
+  const text = createFeatureAnnouncementText();
+
   try {
-    const { testEmail, sendToAll }: FeatureAnnouncementRequest = req.body;
-
-    if (!testEmail && !sendToAll) {
-      return res.status(400).json({ 
-        error: 'Either testEmail or sendToAll must be provided' 
-      });
-    }
-
-    let recipients: string[] = [];
-    
-    if (testEmail) {
-      recipients = [testEmail];
-    } else if (sendToAll) {
-      // Fetch all customer users from database (excluding RECEPTIONMATE_STAFF)
-      const users = await prisma.user.findMany({
-        where: { 
-          role: {
-            in: ['USER', 'MANAGER']
-          }
-        },
-        select: { email: true }
-      });
-      recipients = users.map(u => u.email);
-      console.log(`Sending feature announcement to ${recipients.length} users`);
-    }
-
-    const html = createFeatureAnnouncementHTML();
-    const text = createFeatureAnnouncementText();
-
     const success = await sendEmail({
-      to: recipients,
+      to: ['dan@receptionmate.co.uk'],
       subject: 'New Features Now Live',
       html,
       text,
     });
 
     if (success) {
-      return res.json({ 
-        success: true, 
-        message: `Feature announcement sent to ${recipients.length} recipient(s)`,
-        recipients 
-      });
+      console.log('✅ Email sent successfully!');
+      console.log('Check dan@receptionmate.co.uk for the feature announcement.');
     } else {
-      return res.status(500).json({ 
-        error: 'Failed to send email. Check email configuration.' 
-      });
+      console.error('❌ Failed to send email. Check email configuration in .env file.');
+      console.error('Required: MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM');
+      console.error('Or: O365_SMTP_USER, O365_SMTP_PASS, O365_FROM');
     }
   } catch (error) {
-    console.error('Error sending feature announcement:', error);
-    return res.status(500).json({ 
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error('❌ Error sending email:', error);
   }
-});
 
-// Export function for scheduled sending
-export const sendFeatureAnnouncementToAll = async (): Promise<{ success: boolean; count: number }> => {
-  try {
-    // Fetch all customer users from database (excluding RECEPTIONMATE_STAFF)
-    const users = await prisma.user.findMany({
-      where: { 
-        role: {
-          in: ['USER', 'MANAGER']
-        }
-      },
-      select: { email: true }
-    });
-    const recipients = users.map(u => u.email);
-    console.log(`Sending scheduled feature announcement to ${recipients.length} users`);
+  process.exit(0);
+}
 
-    const html = createFeatureAnnouncementHTML();
-    const text = createFeatureAnnouncementText();
-
-    const success = await sendEmail({
-      to: recipients,
-      subject: 'New Features Now Live',
-      html,
-      text,
-    });
-
-    return { success, count: recipients.length };
-  } catch (error) {
-    console.error('Error sending scheduled feature announcement:', error);
-    return { success: false, count: 0 };
-  }
-};
-
-export default router;
+sendTestEmail();

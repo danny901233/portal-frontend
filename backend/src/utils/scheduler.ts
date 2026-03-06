@@ -2,6 +2,10 @@ import cron from 'node-cron';
 import { generateWeeklyReports, generateMonthlyReports } from './reportGenerator.js';
 import { processMonthlyBilling } from '../services/billing.js';
 import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
+import { PrismaClient } from '@prisma/client';
+import { sendEmail } from './email.js';
+
+const prisma = new PrismaClient();
 
 export const initializeScheduledReports = (): void => {
   console.log('Initializing scheduled jobs...');
@@ -80,4 +84,32 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ Invoice preview emails scheduled: Daily at 10:00 AM (UK time)');
+  
+  // Feature announcement email: March 7, 2026 at 8:00 AM (one-time job)
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowDateStr = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD format
+  
+  // Schedule for March 7, 2026 at 8:00 AM
+  if (tomorrowDateStr === '2026-03-07') {
+    cron.schedule('0 8 7 3 *', async () => {
+      console.log('Running feature announcement email job...');
+      try {
+        // Import dynamically to avoid circular dependencies
+        const { sendFeatureAnnouncementToAll } = await import('../routes/featureAnnouncement.js');
+        const result = await sendFeatureAnnouncementToAll();
+        if (result.success) {
+          console.log(`✓ Feature announcement sent to ${result.count} users`);
+        } else {
+          console.error('❌ Feature announcement failed to send');
+        }
+      } catch (error) {
+        console.error('❌ Feature announcement job failed:', error);
+      }
+    }, {
+      timezone: 'Europe/London', // UK timezone
+    });
+    
+    console.log('✓ Feature announcement scheduled: March 7, 2026 at 8:00 AM (UK time)');
+  }
 };

@@ -67,6 +67,16 @@ interface AggregatedStats {
     notFoundCount: number;
     threeOrMoreAttemptsCount: number;
   };
+  bookingMetrics: {
+    bookingIntentCalls: number;
+    completedBookings: number;
+    abandonedBookings: number;
+    conversionRate: number;
+    noTimeslotsCount: number;
+    costConcernCount: number;
+    noMatchingServiceCount: number;
+    otherReasonsCount: number;
+  };
 }
 
 interface EvaluatorConfig {
@@ -84,6 +94,12 @@ interface RegistrationIssueCall {
   call: CallData;
   issueType: 'partial' | 'notFound' | 'persistent';
   attempts: number;
+  details: string;
+}
+
+interface BookingAbandonmentCall {
+  call: CallData;
+  reason: 'noTimeslots' | 'cost' | 'noMatchingService' | 'other';
   details: string;
 }
 
@@ -172,6 +188,8 @@ export function ObservabilityDashboard() {
   const [showEvaluatorConfig, setShowEvaluatorConfig] = useState(true);
   const [registrationIssueCalls, setRegistrationIssueCalls] = useState<RegistrationIssueCall[]>([]);
   const [expandedIssueType, setExpandedIssueType] = useState<'partial' | 'notFound' | 'persistent' | null>(null);
+  const [bookingAbandonmentCalls, setBookingAbandonmentCalls] = useState<BookingAbandonmentCall[]>([]);
+  const [expandedAbandonmentReason, setExpandedAbandonmentReason] = useState<'noTimeslots' | 'cost' | 'noMatchingService' | 'other' | null>(null);
 
   // Load evaluators from localStorage on mount
   useEffect(() => {
@@ -250,6 +268,16 @@ export function ObservabilityDashboard() {
     let notFoundCount = 0;
     let threeOrMoreAttemptsCount = 0;
     const issueCallsList: RegistrationIssueCall[] = [];
+
+    // Booking abandonment metrics
+    let bookingIntentCalls = 0;
+    let completedBookings = 0;
+    let abandonedBookings = 0;
+    let noTimeslotsCount = 0;
+    let costConcernCount = 0;
+    let noMatchingServiceCount = 0;
+    let otherReasonsCount = 0;
+    const abandonmentCallsList: BookingAbandonmentCall[] = [];
 
     const natoPhonetics = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 
                            'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November', 
@@ -344,6 +372,75 @@ export function ObservabilityDashboard() {
         }
       }
 
+      // Analyze booking intent and completion
+      const hasBookingIntent = call.intent?.toLowerCase().includes('book') || 
+                               call.intent?.toLowerCase().includes('appointment') ||
+                               call.intent?.toLowerCase().includes('schedule');
+      
+      if (hasBookingIntent) {
+        bookingIntentCalls++;
+        
+        // Check if booking was completed (look for create_job tool call)
+        const toolCalls = call.metrics?.tool_calls || [];
+        const hasCreateJob = toolCalls.some(tc => 
+          tc.tool_name === 'create_job' && tc.success
+        );
+        
+        if (hasCreateJob) {
+          completedBookings++;
+        } else {
+          abandonedBookings++;
+          
+          // Analyze transcript for abandonment reason
+          if (items.length > 0) {
+            let reason: 'noTimeslots' | 'cost' | 'noMatchingService' | 'other' = 'other';
+            let details = 'Booking not completed';
+            
+            // Check for specific phrases in agent messages
+            const agentMessages = items
+              .filter((item: any) => item.type === 'message' && item.speaker === 'agent' && item.text)
+              .map((item: any) => item.text.toLowerCase());
+            
+            const fullTranscript = agentMessages.join(' ');
+            
+            if (fullTranscript.includes('no available') || 
+                fullTranscript.includes('no slots') ||
+                fullTranscript.includes('fully booked') ||
+                fullTranscript.includes('no appointments') ||
+                fullTranscript.includes('no times available')) {
+              reason = 'noTimeslots';
+              details = 'No available time slots';
+              noTimeslotsCount++;
+            } else if (fullTranscript.includes('cost') || 
+                       fullTranscript.includes('price') ||
+                       fullTranscript.includes('expensive') ||
+                       fullTranscript.includes('£') ||
+                       fullTranscript.includes('pound')) {
+              reason = 'cost';
+              details = 'Customer concerned about cost';
+              costConcernCount++;
+            } else if (fullTranscript.includes('don\'t have that service') ||
+                       fullTranscript.includes('not offer') ||
+                       fullTranscript.includes('can\'t do that') ||
+                       fullTranscript.includes('unable to help') ||
+                       fullTranscript.includes('we don\'t')) {
+              reason = 'noMatchingService';
+              details = 'Service not offered';
+              noMatchingServiceCount++;
+            } else {
+              otherReasonsCount++;
+              details = 'Other reason or customer changed mind';
+            }
+            
+            abandonmentCallsList.push({
+              call,
+              reason,
+              details
+            });
+          }
+        }
+      }
+
       const toolCalls = call.metrics?.tool_calls || [];
       toolCalls.forEach((tc) => {
         totalToolCalls++;
@@ -381,6 +478,9 @@ export function ObservabilityDashboard() {
     const retryRate = callsWithRegLookup > 0 
       ? (callsWithMultipleAttempts / callsWithRegLookup) * 100 
       : 0;
+    const conversionRate = bookingIntentCalls > 0
+      ? (completedBookings / bookingIntentCalls) * 100
+      : 0;
 
     setStats({
       totalCalls: callsData.length,
@@ -400,8 +500,19 @@ export function ObservabilityDashboard() {
         notFoundCount,
         threeOrMoreAttemptsCount,
       },
+      bookingMetrics: {
+        bookingIntentCalls,
+        completedBookings,
+        abandonedBookings,
+        conversionRate,
+        noTimeslotsCount,
+        costConcernCount,
+        noMatchingServiceCount,
+        otherReasonsCount,
+      },
     });
     setRegistrationIssueCalls(issueCallsList);
+    setBookingAbandonmentCalls(abandonmentCallsList);
   };
 
   const formatDuration = (ms: number) => {
@@ -1059,6 +1170,397 @@ export function ObservabilityDashboard() {
                 <div className="py-8 text-center text-slate-400">
                   No registration lookups in this time range
                 </div>
+              )}
+
+              {/* Booking Abandonment Analysis */}
+              {stats.bookingMetrics.bookingIntentCalls > 0 && (
+                <>
+                  <div className="mt-6 border-t border-slate-700 pt-6">
+                    <h2 className="mb-4 text-xl font-bold text-slate-100">Booking Analysis</h2>
+                  </div>
+
+                  {/* Booking Summary Cards */}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4">
+                      <div className="text-sm text-slate-400">Booking Intent Calls</div>
+                      <div className="mt-1 text-2xl font-bold text-slate-100">
+                        {stats.bookingMetrics.bookingIntentCalls}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Customers wanted to book
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+                      <div className="text-sm text-slate-400">Completed Bookings</div>
+                      <div className="mt-1 text-2xl font-bold text-emerald-400">
+                        {stats.bookingMetrics.completedBookings}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Successfully created jobs
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-4">
+                      <div className="text-sm text-slate-400">Abandoned Bookings</div>
+                      <div className="mt-1 text-2xl font-bold text-rose-400">
+                        {stats.bookingMetrics.abandonedBookings}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Intent but no booking created
+                      </div>
+                    </div>
+
+                    <div className={`rounded-lg border p-4 ${
+                      stats.bookingMetrics.conversionRate >= 70 
+                        ? 'border-emerald-500/30 bg-emerald-500/5' 
+                        : stats.bookingMetrics.conversionRate >= 50
+                        ? 'border-amber-500/30 bg-amber-500/5'
+                        : 'border-rose-500/30 bg-rose-500/5'
+                    }`}>
+                      <div className="text-sm text-slate-400">Conversion Rate</div>
+                      <div className={`mt-1 text-2xl font-bold ${
+                        stats.bookingMetrics.conversionRate >= 70 
+                          ? 'text-emerald-400' 
+                          : stats.bookingMetrics.conversionRate >= 50
+                          ? 'text-amber-400'
+                          : 'text-rose-400'
+                      }`}>
+                        {stats.bookingMetrics.conversionRate.toFixed(1)}%
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Intent to completed booking
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Abandonment Reasons */}
+                  {stats.bookingMetrics.abandonedBookings > 0 && (
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                      <h3 className="mb-4 text-lg font-semibold text-slate-100">Abandonment Reasons</h3>
+                      <div className="space-y-3">
+                        {/* No Timeslots */}
+                        <div>
+                          <button
+                            onClick={() => setExpandedAbandonmentReason(expandedAbandonmentReason === 'noTimeslots' ? null : 'noTimeslots')}
+                            className="w-full flex items-center justify-between rounded-lg border border-orange-500/20 bg-orange-500/5 p-4 transition-all hover:bg-orange-500/10 hover:border-orange-500/30 cursor-pointer"
+                          >
+                            <div className="flex-1 text-left">
+                              <div className="font-medium text-orange-300">No Available Timeslots</div>
+                              <div className="mt-1 text-sm text-slate-400">
+                                Customer couldn't find suitable appointment time
+                              </div>
+                            </div>
+                            <div className="text-right flex items-center gap-3">
+                              <div>
+                                <div className="text-2xl font-bold text-orange-400">
+                                  {stats.bookingMetrics.noTimeslotsCount}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {stats.bookingMetrics.abandonedBookings > 0 
+                                    ? ((stats.bookingMetrics.noTimeslotsCount / stats.bookingMetrics.abandonedBookings) * 100).toFixed(1) 
+                                    : '0.0'}%
+                                </div>
+                              </div>
+                              <svg 
+                                className={`w-5 h-5 text-orange-400 transition-transform ${expandedAbandonmentReason === 'noTimeslots' ? 'rotate-180' : ''}`} 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </button>
+                          {expandedAbandonmentReason === 'noTimeslots' && (
+                            <div className="mt-2 space-y-2 pl-4">
+                              {bookingAbandonmentCalls
+                                .filter(abandonment => abandonment.reason === 'noTimeslots')
+                                .map((abandonment, idx) => (
+                                  <div key={idx} className="rounded border border-orange-500/20 bg-slate-900/50 p-3">
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1">
+                                        <div className="text-sm text-slate-300">
+                                          {new Date(abandonment.call.createdAt).toLocaleString()}
+                                        </div>
+                                        {abandonment.call.customerPhone && (
+                                          <div className="mt-1 font-mono text-xs text-slate-400">
+                                            {abandonment.call.customerPhone}
+                                          </div>
+                                        )}
+                                        <div className="mt-1 text-xs text-orange-400">
+                                          {abandonment.details}
+                                        </div>
+                                      </div>
+                                      <a
+                                        href={`/calls/${abandonment.call.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="ml-3 rounded bg-orange-500/20 px-2 py-1 text-xs text-orange-300 hover:bg-orange-500/30"
+                                      >
+                                        View Call →
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Cost Concern */}
+                        <div>
+                          <button
+                            onClick={() => setExpandedAbandonmentReason(expandedAbandonmentReason === 'cost' ? null : 'cost')}
+                            className="w-full flex items-center justify-between rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-4 transition-all hover:bg-yellow-500/10 hover:border-yellow-500/30 cursor-pointer"
+                          >
+                            <div className="flex-1 text-left">
+                              <div className="font-medium text-yellow-300">Cost Concerns</div>
+                              <div className="mt-1 text-sm text-slate-400">
+                                Customer concerned about pricing
+                              </div>
+                            </div>
+                            <div className="text-right flex items-center gap-3">
+                              <div>
+                                <div className="text-2xl font-bold text-yellow-400">
+                                  {stats.bookingMetrics.costConcernCount}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {stats.bookingMetrics.abandonedBookings > 0 
+                                    ? ((stats.bookingMetrics.costConcernCount / stats.bookingMetrics.abandonedBookings) * 100).toFixed(1) 
+                                    : '0.0'}%
+                                </div>
+                              </div>
+                              <svg 
+                                className={`w-5 h-5 text-yellow-400 transition-transform ${expandedAbandonmentReason === 'cost' ? 'rotate-180' : ''}`} 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </button>
+                          {expandedAbandonmentReason === 'cost' && (
+                            <div className="mt-2 space-y-2 pl-4">
+                              {bookingAbandonmentCalls
+                                .filter(abandonment => abandonment.reason === 'cost')
+                                .map((abandonment, idx) => (
+                                  <div key={idx} className="rounded border border-yellow-500/20 bg-slate-900/50 p-3">
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1">
+                                        <div className="text-sm text-slate-300">
+                                          {new Date(abandonment.call.createdAt).toLocaleString()}
+                                        </div>
+                                        {abandonment.call.customerPhone && (
+                                          <div className="mt-1 font-mono text-xs text-slate-400">
+                                            {abandonment.call.customerPhone}
+                                          </div>
+                                        )}
+                                        <div className="mt-1 text-xs text-yellow-400">
+                                          {abandonment.details}
+                                        </div>
+                                      </div>
+                                      <a
+                                        href={`/calls/${abandonment.call.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="ml-3 rounded bg-yellow-500/20 px-2 py-1 text-xs text-yellow-300 hover:bg-yellow-500/30"
+                                      >
+                                        View Call →
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* No Matching Service */}
+                        <div>
+                          <button
+                            onClick={() => setExpandedAbandonmentReason(expandedAbandonmentReason === 'noMatchingService' ? null : 'noMatchingService')}
+                            className="w-full flex items-center justify-between rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 transition-all hover:bg-blue-500/10 hover:border-blue-500/30 cursor-pointer"
+                          >
+                            <div className="flex-1 text-left">
+                              <div className="font-medium text-blue-300">No Matching Service</div>
+                              <div className="mt-1 text-sm text-slate-400">
+                                Service not offered or available
+                              </div>
+                            </div>
+                            <div className="text-right flex items-center gap-3">
+                              <div>
+                                <div className="text-2xl font-bold text-blue-400">
+                                  {stats.bookingMetrics.noMatchingServiceCount}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {stats.bookingMetrics.abandonedBookings > 0 
+                                    ? ((stats.bookingMetrics.noMatchingServiceCount / stats.bookingMetrics.abandonedBookings) * 100).toFixed(1) 
+                                    : '0.0'}%
+                                </div>
+                              </div>
+                              <svg 
+                                className={`w-5 h-5 text-blue-400 transition-transform ${expandedAbandonmentReason === 'noMatchingService' ? 'rotate-180' : ''}`} 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </button>
+                          {expandedAbandonmentReason === 'noMatchingService' && (
+                            <div className="mt-2 space-y-2 pl-4">
+                              {bookingAbandonmentCalls
+                                .filter(abandonment => abandonment.reason === 'noMatchingService')
+                                .map((abandonment, idx) => (
+                                  <div key={idx} className="rounded border border-blue-500/20 bg-slate-900/50 p-3">
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1">
+                                        <div className="text-sm text-slate-300">
+                                          {new Date(abandonment.call.createdAt).toLocaleString()}
+                                        </div>
+                                        {abandonment.call.customerPhone && (
+                                          <div className="mt-1 font-mono text-xs text-slate-400">
+                                            {abandonment.call.customerPhone}
+                                          </div>
+                                        )}
+                                        <div className="mt-1 text-xs text-blue-400">
+                                          {abandonment.details}
+                                        </div>
+                                      </div>
+                                      <a
+                                        href={`/calls/${abandonment.call.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="ml-3 rounded bg-blue-500/20 px-2 py-1 text-xs text-blue-300 hover:bg-blue-500/30"
+                                      >
+                                        View Call →
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Other Reasons */}
+                        <div>
+                          <button
+                            onClick={() => setExpandedAbandonmentReason(expandedAbandonmentReason === 'other' ? null : 'other')}
+                            className="w-full flex items-center justify-between rounded-lg border border-slate-500/20 bg-slate-500/5 p-4 transition-all hover:bg-slate-500/10 hover:border-slate-500/30 cursor-pointer"
+                          >
+                            <div className="flex-1 text-left">
+                              <div className="font-medium text-slate-300">Other Reasons</div>
+                              <div className="mt-1 text-sm text-slate-400">
+                                Customer changed mind or other factors
+                              </div>
+                            </div>
+                            <div className="text-right flex items-center gap-3">
+                              <div>
+                                <div className="text-2xl font-bold text-slate-400">
+                                  {stats.bookingMetrics.otherReasonsCount}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {stats.bookingMetrics.abandonedBookings > 0 
+                                    ? ((stats.bookingMetrics.otherReasonsCount / stats.bookingMetrics.abandonedBookings) * 100).toFixed(1) 
+                                    : '0.0'}%
+                                </div>
+                              </div>
+                              <svg 
+                                className={`w-5 h-5 text-slate-400 transition-transform ${expandedAbandonmentReason === 'other' ? 'rotate-180' : ''}`} 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </button>
+                          {expandedAbandonmentReason === 'other' && (
+                            <div className="mt-2 space-y-2 pl-4">
+                              {bookingAbandonmentCalls
+                                .filter(abandonment => abandonment.reason === 'other')
+                                .map((abandonment, idx) => (
+                                  <div key={idx} className="rounded border border-slate-500/20 bg-slate-900/50 p-3">
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1">
+                                        <div className="text-sm text-slate-300">
+                                          {new Date(abandonment.call.createdAt).toLocaleString()}
+                                        </div>
+                                        {abandonment.call.customerPhone && (
+                                          <div className="mt-1 font-mono text-xs text-slate-400">
+                                            {abandonment.call.customerPhone}
+                                          </div>
+                                        )}
+                                        <div className="mt-1 text-xs text-slate-400">
+                                          {abandonment.details}
+                                        </div>
+                                      </div>
+                                      <a
+                                        href={`/calls/${abandonment.call.id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="ml-3 rounded bg-slate-500/20 px-2 py-1 text-xs text-slate-300 hover:bg-slate-500/30"
+                                      >
+                                        View Call →
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Booking Insights */}
+                  <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                    <h3 className="mb-3 text-lg font-semibold text-slate-100">Booking Insights</h3>
+                    <div className="space-y-2 text-sm text-slate-300">
+                      {stats.bookingMetrics.conversionRate < 50 && (
+                        <div className="flex items-start gap-2">
+                          <span className="text-rose-400">⚠️</span>
+                          <span>
+                            Low conversion rate ({stats.bookingMetrics.conversionRate.toFixed(1)}%) - Only {stats.bookingMetrics.completedBookings} of {stats.bookingMetrics.bookingIntentCalls} booking intents converted to actual bookings.
+                          </span>
+                        </div>
+                      )}
+                      {stats.bookingMetrics.conversionRate >= 70 && (
+                        <div className="flex items-start gap-2">
+                          <span className="text-emerald-400">✓</span>
+                          <span>
+                            Excellent conversion rate ({stats.bookingMetrics.conversionRate.toFixed(1)}%) - {stats.bookingMetrics.completedBookings} bookings from {stats.bookingMetrics.bookingIntentCalls} calls with booking intent.
+                          </span>
+                        </div>
+                      )}
+                      {stats.bookingMetrics.noTimeslotsCount > stats.bookingMetrics.abandonedBookings * 0.3 && (
+                        <div className="flex items-start gap-2">
+                          <span className="text-amber-400">💡</span>
+                          <span>
+                            Timeslot availability is a significant issue ({stats.bookingMetrics.noTimeslotsCount} calls). Consider expanding available appointment times or improving scheduling flexibility.
+                          </span>
+                        </div>
+                      )}
+                      {stats.bookingMetrics.costConcernCount > 0 && (
+                        <div className="flex items-start gap-2">
+                          <span className="text-slate-400">ℹ️</span>
+                          <span>
+                            {stats.bookingMetrics.costConcernCount} customer(s) mentioned cost concerns. Review pricing communication strategy.
+                          </span>
+                        </div>
+                      )}
+                      {stats.bookingMetrics.noMatchingServiceCount > 0 && (
+                        <div className="flex items-start gap-2">
+                          <span className="text-slate-400">ℹ️</span>
+                          <span>
+                            {stats.bookingMetrics.noMatchingServiceCount} call(s) couldn't find matching service. Consider expanding service offerings or improving service discovery.
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}

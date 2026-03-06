@@ -3865,16 +3865,33 @@ async def entrypoint(ctx: JobContext):
 
                 # Determine call type - map to portal categories
                 call_type = "other"
+                
+                # Check transcript for human request phrases
+                full_transcript_text = " ".join([
+                    entry.get("text", "") for entry in transcript
+                    if entry.get("speaker") == "customer"
+                ]).lower()
+                
+                human_request_phrases = [
+                    "speak to someone", "talk to someone", "speak with someone",
+                    "put me through", "transfer me", "connect me",
+                    "human", "real person", "actual person",
+                    "call me back", "ring me back", "phone me back",
+                    "speak to", "talk to", "is there someone",
+                    "can i speak", "could i speak", "may i speak"
+                ]
+                has_human_request = any(phrase in full_transcript_text for phrase in human_request_phrases)
+                
                 if state.intent == "booking" and state.booking_date:
                     call_type = "confirmed booking"
                 elif state.intent == "quote":
                     call_type = "quote"
-                elif state.intent == "message":
-                    call_type = "general enquiry"
                 elif state.intent == "vehicle_update":
                     call_type = "update"
-                elif state.requested_person:
+                elif state.requested_person or has_human_request:
                     call_type = "human request"
+                elif state.intent == "message":
+                    call_type = "general enquiry"
 
                 # Build booking details if applicable
                 booking_details = ""

@@ -3106,18 +3106,31 @@ async def entrypoint(ctx: JobContext):
                 # Determine call type based on dashboard categories
                 # Categories: "general enquiry", "confirmed booking", "quote", "update", "internal", "complaint", "human request", "other"
                 call_type = "other"
+                
+                # Check transcript for human request phrases
+                full_transcript_text = " ".join(state.recent_transcripts).lower()
+                human_request_phrases = [
+                    "speak to someone", "talk to someone", "speak with someone",
+                    "put me through", "transfer me", "connect me",
+                    "human", "real person", "actual person",
+                    "call me back", "ring me back", "phone me back",
+                    "speak to", "talk to", "is there someone",
+                    "can i speak", "could i speak", "may i speak"
+                ]
+                has_human_request = any(phrase in full_transcript_text for phrase in human_request_phrases)
+                
                 if state.intent == "booking" and state.booking_date:
                     call_type = "confirmed booking"
                 elif state.intent == "quote":
                     call_type = "quote"
-                elif state.intent == "booking":
-                    call_type = "general enquiry"
                 elif state.intent == "vehicle_update":
                     call_type = "update"
+                elif state.intent == "transfer" or state.requested_person or has_human_request:
+                    call_type = "human request"
+                elif state.intent == "booking":
+                    call_type = "general enquiry"
                 elif state.intent == "message":
                     call_type = "general enquiry"
-                elif state.intent == "transfer" or state.requested_person:
-                    call_type = "human request"
                 
                 # Build booking details if applicable
                 booking_details = ""

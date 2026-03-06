@@ -99,6 +99,9 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   responseSpeed: 'normal',
   interruptionSensitivity: 0.5,
   allowFastFitOnly: false,
+  enableDropOffBookings: false,
+  dropOffMessage: 'drop your vehicle off between 8am and half ten in the morning',
+  dropOffExcludeServices: ['MOT'],
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
@@ -112,6 +115,7 @@ const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => (
   ...config,
   weeklyOpeningHours: cloneWeeklyOpeningHours(config.weeklyOpeningHours),
   garageHiveSettings: cloneGarageHiveSettings(config.garageHiveSettings),
+  dropOffExcludeServices: [...(config.dropOffExcludeServices || ['MOT'])],
 });
 
 const describeHoursRange = (entry: { open: string | null; close: string | null; closed: boolean }) => {
@@ -129,6 +133,8 @@ type TextFieldKey = Exclude<
   | 'tonePreference'
   | 'responseSpeed'
   | 'allowFastFitOnly'
+  | 'enableDropOffBookings'
+  | 'dropOffExcludeServices'
   | 'weeklyOpeningHours'
   | 'interruptionSensitivity'
   | 'integrationProvider'
@@ -703,6 +709,11 @@ export default function AgentConfigurationsPage() {
 
   const handleToggle = () => {
     setFormState((prev) => ({ ...prev, allowFastFitOnly: !prev.allowFastFitOnly }));
+    setFeedback(null);
+  };
+
+  const handleDropOffToggle = () => {
+    setFormState((prev) => ({ ...prev, enableDropOffBookings: !prev.enableDropOffBookings }));
     setFeedback(null);
   };
 
@@ -1445,6 +1456,135 @@ export default function AgentConfigurationsPage() {
               {formState.allowFastFitOnly ? 'Yes' : 'No'}
             </button>
           </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+          <h2 className="text-lg font-semibold text-slate-100">Drop-Off Bookings</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Allow date-only bookings with flexible drop-off times instead of specific timeslots.
+          </p>
+
+          <div className="mt-6 flex flex-col gap-3 text-sm text-slate-300">
+            <span className="text-xs uppercase tracking-wide text-slate-500">
+              <span className="inline-flex items-center gap-2">
+                Enable drop-off booking mode
+                <span
+                  className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                  tabIndex={0}
+                  role="button"
+                  aria-label="When enabled, agent offers dates only (not specific times) for most services"
+                >
+                  i
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-48 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                    When enabled, agent offers dates only (not specific times) for most services. Specific timeslots are still used for excluded services like MOTs.
+                  </span>
+                </span>
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={handleDropOffToggle}
+              disabled={!isEditing || mutation.isPending}
+              className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                formState.enableDropOffBookings
+                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
+                  : 'border-slate-700 bg-slate-900/60 text-slate-200'
+              } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
+            >
+              <span
+                className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
+                  formState.enableDropOffBookings ? 'bg-emerald-500/70' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                    formState.enableDropOffBookings ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </span>
+              {formState.enableDropOffBookings ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+
+          {formState.enableDropOffBookings && (
+            <>
+              <div className="mt-6">
+                <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">
+                    <span className="inline-flex items-center gap-2">
+                      Drop-off message
+                      <span
+                        className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                        tabIndex={0}
+                        role="button"
+                        aria-label="Message the agent includes when confirming drop-off bookings"
+                      >
+                        i
+                        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                          The agent will say this message when confirming a drop-off booking. Example: &quot;drop your vehicle off between 8am and half ten in the morning&quot;
+                        </span>
+                      </span>
+                    </span>
+                  </span>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={formState.dropOffMessage || ''}
+                      onChange={(e) => setFormState((prev) => ({ ...prev, dropOffMessage: e.target.value }))}
+                      placeholder="drop your vehicle off between 8-10:30am"
+                      disabled={mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  ) : (
+                    <span className="text-sm text-slate-200">{formState.dropOffMessage || 'Not set'}</span>
+                  )}
+                </label>
+              </div>
+
+              <div className="mt-6">
+                <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">
+                    <span className="inline-flex items-center gap-2">
+                      Excluded services (comma-separated)
+                      <span
+                        className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                        tabIndex={0}
+                        role="button"
+                        aria-label="Services that should still use specific timeslots instead of drop-off mode"
+                      >
+                        i
+                        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                          Services listed here will still use specific timeslots instead of drop-off mode. Useful for services like MOTs that require the vehicle at a specific time.
+                        </span>
+                      </span>
+                    </span>
+                  </span>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={(formState.dropOffExcludeServices || []).join(', ')}
+                      onChange={(e) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          dropOffExcludeServices: e.target.value
+                            .split(',')
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                      placeholder="MOT, Diagnostic"
+                      disabled={mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  ) : (
+                    <span className="text-sm text-slate-200">
+                      {(formState.dropOffExcludeServices || []).join(', ') || 'None'}
+                    </span>
+                  )}
+                </label>
+              </div>
+            </>
+          )}
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">

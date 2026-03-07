@@ -50,6 +50,7 @@ model Garage {
   customers Customer[]
   smsBookingLinks SmsBookingLink[]
   invoices Invoice[]
+  messageTemplates MessageTemplate[]
 }
 
 model Call {
@@ -290,6 +291,37 @@ model SocialMediaConnection {
 
   @@unique([garageId, platform])
   @@index([garageId])
+}
+
+model MessageTemplate {
+  id                String   @id @default(cuid())
+  garageId          String
+  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+
+  name              String   // Template name (lowercase, underscores only)
+  category          String   // UTILITY, MARKETING, AUTHENTICATION
+  language          String   @default("en_GB")
+
+  // Template content
+  headerType        String?  // none, text, image, document
+  headerContent     String?  // Header text or media URL
+  bodyText          String   // Main message body with {{1}}, {{2}} variables
+  footerText        String?  // Optional footer
+  buttonType        String?  // none, url, call, quick_reply
+  buttonText        String?  // Button label
+  buttonValue       String?  // URL or phone number
+
+  // Meta status
+  metaTemplateId    String?  // Template ID returned by Meta after submission
+  status            String   @default("draft") // draft, pending, approved, rejected
+  rejectionReason   String?  // Reason if rejected by Meta
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([garageId, name])
+  @@index([garageId])
+  @@index([garageId, status])
 }
 
 enum UserRole {

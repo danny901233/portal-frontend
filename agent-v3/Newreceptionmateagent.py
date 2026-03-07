@@ -3941,7 +3941,11 @@ async def entrypoint(ctx: JobContext):
     # Krisp noise cancellation is enabled by default in LiveKit for telephony
     session = AgentSession(
         vad=silero.VAD.load(),
-        turn_detection=MultilingualModel(),
+        turn_detection=MultilingualModel(
+            # Reduce interruptions - require longer silence before triggering turn
+            min_endpointing_delay=1.0,  # Wait 1.0s of silence before ending turn (default: 0.5s)
+            min_volume=0.6,  # Require higher volume to register as speech (filter background noise)
+        ),
         stt=deepgram.STT(
             model="nova-3",
             language="en-GB",

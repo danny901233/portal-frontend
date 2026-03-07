@@ -206,7 +206,7 @@ export async function generateInvoice(
         not: null,
       },
       role: {
-        notIn: ['ADMIN', 'STAFF'],
+        notIn: ['RECEPTIONMATE_STAFF'],
       },
       email: {
         not: {
@@ -843,7 +843,7 @@ export async function createPaymentForInvoice(invoiceId: string) {
           not: null,
         },
         role: {
-          notIn: ['ADMIN', 'STAFF'],
+          notIn: ['RECEPTIONMATE_STAFF'],
         },
         email: {
           not: {

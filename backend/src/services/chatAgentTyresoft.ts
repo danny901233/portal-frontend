@@ -356,6 +356,21 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
         parameters: { type: 'object', properties: {} },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'ts_take_message',
+        description: 'Take a message from the customer when they want to speak to a human, leave a message, or make a request the AI cannot handle. Call this tool after collecting their message and phone number.',
+        parameters: {
+          type: 'object',
+          properties: {
+            message:  { type: 'string', description: 'The customer message to pass on to the team' },
+            phone:    { type: 'string', description: 'Customer phone number' },
+          },
+          required: ['message', 'phone'],
+        },
+      },
+    },
   ];
 
   if (!hasCreds) return tools;
@@ -625,6 +640,23 @@ async function executeTool(
         return await tsCreateBooking(args, session, tsConfig, conversationId);
       }
 
+      case 'ts_take_message': {
+        const msg   = String(args.message || '').trim();
+        const phone = String(args.phone || '').trim();
+        console.log(`[TS_AGENT] Take message: phone=${phone}, message=${msg}`);
+
+        // Flag conversation as needing human attention
+        if (conversationId) {
+          await prisma.chatConversation.updateMany({
+            where: { id: conversationId },
+            data: { needsAttention: true, agentPaused: true },
+          });
+          console.log(`[TS_AGENT] Conversation ${conversationId} flagged as needsAttention`);
+        }
+
+        return { success: true, message: 'Message taken. The team has been notified and will get back to you shortly.' };
+      }
+
       default:
         return { error: 'Unknown tool' };
     }
@@ -890,7 +922,12 @@ function buildSystemPrompt(
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
     prompt += `- If tyre size not found in vehicle data, ask the customer directly (e.g. "What size tyres does your car take?").\n`;
-    prompt += `- Keep replies concise — 1 to 3 sentences max.\n\n`;
+    prompt += `- Keep replies concise — 1 to 3 sentences max.\n`;
+    prompt += `- If the customer asks to speak to a human, real person, or staff member, or says they want to leave a message:\n`;
+    prompt += `  First ask what their message is and confirm you have their phone number (use saved phone if available).\n`;
+    prompt += `  Then call ts_take_message with their message and phone number.\n`;
+    prompt += `  After calling ts_take_message, tell them: "I've passed your message on to the team. Someone will get back to you shortly."\n`;
+    prompt += `  Do NOT continue trying to help after ts_take_message is called — the conversation is handed off.\n\n`;
 
     // Active session context
     if (session.vrm) {

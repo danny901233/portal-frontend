@@ -305,7 +305,9 @@ model MessageTemplate {
   // Template content
   headerType        String?  // none, text, image, document
   headerContent     String?  // Header text or media URL
+  headerSample      String?  // Sample value for {{1}} in header
   bodyText          String   // Main message body with {{1}}, {{2}} variables
+  variableSamples   Json?    // Sample values for variables e.g. {"{{1}}":"John","{{2}}":"15th March"}
   footerText        String?  // Optional footer
   buttonType        String?  // none, url, call, quick_reply
   buttonText        String?  // Button label

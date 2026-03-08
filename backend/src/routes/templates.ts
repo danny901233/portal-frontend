@@ -43,7 +43,9 @@ router.post(
         language,
         headerType,
         headerContent,
+        headerSample,
         bodyText,
+        variableSamples,
         footerText,
         buttonType,
         buttonText,
@@ -68,7 +70,9 @@ router.post(
           language: language || 'en_GB',
           headerType: headerType || null,
           headerContent: headerContent || null,
+          headerSample: headerSample || null,
           bodyText,
+          variableSamples: variableSamples || null,
           footerText: footerText || null,
           buttonType: buttonType || null,
           buttonText: buttonText || null,
@@ -126,17 +130,26 @@ router.post(
       const components: any[] = [];
 
       if (template.headerType === 'text' && template.headerContent) {
-        components.push({
-          type: 'HEADER',
-          format: 'TEXT',
-          text: template.headerContent,
-        });
+        const headerComponent: any = { type: 'HEADER', format: 'TEXT', text: template.headerContent };
+        if (/\{\{1\}\}/.test(template.headerContent) && (template as any).headerSample) {
+          headerComponent.example = { header_text: [(template as any).headerSample] };
+        }
+        components.push(headerComponent);
       }
 
-      components.push({
-        type: 'BODY',
-        text: template.bodyText,
-      });
+      // Build body component with sample values if provided
+      const bodyComponent: any = { type: 'BODY', text: template.bodyText };
+      if (template.variableSamples) {
+        const samples = template.variableSamples as Record<string, string>;
+        const varMatches = [...new Set(template.bodyText.match(/\{\{(\d+)\}\}/g) || [])].sort((a, b) =>
+          parseInt(a.replace(/\D/g, '')) - parseInt(b.replace(/\D/g, ''))
+        );
+        if (varMatches.length > 0) {
+          const sampleValues = varMatches.map(v => samples[v] || `sample_${v.replace(/\D/g, '')}`);
+          bodyComponent.example = { body_text: [sampleValues] };
+        }
+      }
+      components.push(bodyComponent);
 
       if (template.footerText) {
         components.push({

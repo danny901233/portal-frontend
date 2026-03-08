@@ -610,6 +610,89 @@ This is an automated alert from ReceptionMate
   });
 };
 
+interface NeedsAttentionEmailData {
+  branchName: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  conversationId: string;
+  recentMessages: Array<{ role: string; content: string }>;
+}
+
+export const sendNeedsAttentionEmail = async (
+  notificationEmails: string[],
+  data: NeedsAttentionEmailData,
+): Promise<boolean> => {
+  if (notificationEmails.length === 0) return false;
+
+  const { branchName, customerName, customerPhone, conversationId, recentMessages } = data;
+  const displayName = customerName || customerPhone || 'Unknown customer';
+  const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+
+  const messagesHtml = recentMessages
+    .map(m => {
+      const label = m.role === 'user' ? '👤 Customer' : m.role === 'staff' ? '🧑 Staff' : '🤖 Agent';
+      return `<tr><td style="padding: 8px 0; font-size: 14px; color: #94a3b8;"><strong style="color: #e2e8f0;">${label}:</strong> ${m.content}</td></tr>`;
+    })
+    .join('');
+
+  const messagesText = recentMessages
+    .map(m => {
+      const label = m.role === 'user' ? 'Customer' : m.role === 'staff' ? 'Staff' : 'Agent';
+      return `${label}: ${m.content}`;
+    })
+    .join('\n\n');
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#09203c;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#09203c;">
+    <tr><td style="padding:40px 20px;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin:0 auto;background-color:#1a3a52;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.5);">
+        <tr><td style="background:linear-gradient(135deg,#dc2626 0%,#b91c1c 100%);text-align:center;padding:32px;">
+          <h2 style="margin:0;font-size:22px;font-weight:600;color:#ffffff;">⚠️ Customer Needs Attention</h2>
+          <p style="margin:8px 0 0;font-size:15px;color:rgba(255,255,255,0.95);">${branchName}</p>
+        </td></tr>
+        <tr><td style="padding:32px;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr><td style="padding:20px;background-color:#0d2739;border:1px solid #1e4a66;border-radius:8px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr><td style="padding-bottom:12px;font-size:14px;color:#94a3b8;"><strong style="color:#e2e8f0;">👤 Customer:</strong> ${displayName}</td></tr>
+                ${customerPhone ? `<tr><td style="padding-bottom:12px;font-size:14px;color:#94a3b8;"><strong style="color:#e2e8f0;">📞 Phone:</strong> ${customerPhone}</td></tr>` : ''}
+              </table>
+            </td></tr>
+          </table>
+          <h3 style="margin:24px 0 12px;font-size:16px;font-weight:600;color:#e2e8f0;">Recent Conversation</h3>
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#0d2739;border-left:4px solid #dc2626;border-radius:6px;">
+            <tr><td style="padding:16px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                ${messagesHtml}
+              </table>
+            </td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:0 32px 32px;text-align:center;">
+          <a href="${portalUrl}/conversations/${conversationId}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#3126cf 0%,#2419a8 100%);color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">View Conversation in Portal</a>
+        </td></tr>
+        <tr><td style="padding:24px;background-color:#0d2739;border-top:1px solid #1e4a66;text-align:center;">
+          <p style="margin:0;font-size:12px;color:#64748b;">Automated notification from <strong style="color:#3126cf;">ReceptionMate</strong></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  const text = `CUSTOMER NEEDS ATTENTION\n\nBranch: ${branchName}\nCustomer: ${displayName}${customerPhone ? `\nPhone: ${customerPhone}` : ''}\n\nRecent Conversation:\n${'─'.repeat(40)}\n${messagesText}\n\nView in portal: ${portalUrl}/conversations/${conversationId}\n\n---\nReceptionMate automated notification`;
+
+  return sendEmail({
+    to: notificationEmails,
+    subject: `Customer needs attention — ${displayName}`,
+    html,
+    text,
+  });
+};
+
 interface WelcomeEmailData {
   to: string;
   businessName: string;

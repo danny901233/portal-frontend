@@ -162,9 +162,9 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
             },
           });
 
-          // Send response via Instagram Messaging API
+          // Send response via Instagram Messaging API (use explicit page ID, not /me/)
           await axios.post(
-            'https://graph.facebook.com/v18.0/me/messages',
+            `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
             {
               recipient: { id: senderId },
               message: { text: agentResponse.content },

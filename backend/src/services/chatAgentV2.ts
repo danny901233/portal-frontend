@@ -21,6 +21,11 @@ let GH_CUSTOMER_ID: string | undefined;
 let GH_API_KEY: string | undefined;
 let GH_LOCATION_ID: string = '23';
 
+// Drop-off booking configuration
+let DROP_OFF_ENABLED: boolean = false;
+let DROP_OFF_MESSAGE: string = 'drop your vehicle off between 8am and half ten in the morning';
+let DROP_OFF_EXCLUDE_SERVICES: string[] = ['MOT'];
+
 interface ChatAgentResponse {
   content: string;
   needsHumanAssistance?: boolean;
@@ -89,6 +94,9 @@ interface ChatSession {
   diagnosticNotes: string;      // accumulated symptom notes to put in booking notes
   diagnosticComplete: boolean;  // true once diagnostic Q&A is done
   diagnosticQuestions: string[]; // questions asked — used to detect if answers are still coming in
+
+  // Drop-off booking
+  useDropOffBooking: boolean;   // true if this service uses drop-off (date only, no specific time)
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -144,6 +152,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         diagnosticNotes: sessionData.diagnosticNotes || '',
         diagnosticComplete: sessionData.diagnosticComplete || false,
         diagnosticQuestions: sessionData.diagnosticQuestions || [],
+        useDropOffBooking: sessionData.useDropOffBooking || false,
       };
       inMemorySessionCache.set(conversationId, loadedSession);
       // Auto-advance: if timeslot was already chosen but server restarted before step updated
@@ -192,6 +201,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     diagnosticNotes: '',
     diagnosticComplete: false,
     diagnosticQuestions: [],
+    useDropOffBooking: false,
   };
 
   inMemorySessionCache.set(conversationId, newSession);
@@ -254,6 +264,9 @@ export async function getChatAgentResponse(
       GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
       GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
       GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
+      DROP_OFF_ENABLED = ghConfig.enableDropOffBookings || false;
+      DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
+      DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
     }
 
     // Get or create session state
@@ -1129,6 +1142,31 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     return `No services loaded yet. Call confirm_vehicle first.`;
   }
 
+  // ── Service advisor: if customer says generic "service", recommend level based on last service date ──
+  const genericServiceTerms = ['service', 'a service', 'servicing', 'car service', 'vehicle service'];
+  if (genericServiceTerms.includes(service_name.toLowerCase().trim()) && !session.diagnosticComplete) {
+    const availableLevels: Record<string, any> = {};
+    for (const svc of session.servicesAvailable) {
+      const n = svc.name.toLowerCase();
+      if (/basic|bronze/.test(n)) availableLevels.basic = svc;
+      else if (/interim|silver|mid/.test(n)) availableLevels.interim = svc;
+      else if (/full|gold|major/.test(n)) availableLevels.full = svc;
+    }
+    if (Object.keys(availableLevels).length > 0) {
+      const fmt = (svc: any) => {
+        const p = parseFloat(svc.price || svc.totalPrice || '0');
+        return p > 0 ? `£${p.toFixed(0)}` : 'POA';
+      };
+      const lines = [];
+      if (availableLevels.basic) lines.push(`- Less than 6 months ago → ${availableLevels.basic.name} (${fmt(availableLevels.basic)})`);
+      if (availableLevels.interim) lines.push(`- 6–12 months ago → ${availableLevels.interim.name} (${fmt(availableLevels.interim)})`);
+      if (availableLevels.full) lines.push(`- Over 12 months / not sure → ${availableLevels.full.name} (${fmt(availableLevels.full)})`);
+      session.diagnosticComplete = true; // prevents re-running
+      await saveSession(conversationId, session);
+      return `SERVICE ADVISOR: Customer said "service" without specifying type.\n\nAsk: "When was your car last serviced?"\n\nBased on their answer, recommend:\n${lines.join('\n')}\n\nSay naturally: "Based on that, I'd recommend a [Service Name] — shall I book that in?"\nOnce they agree, call select_service again with the specific service name.`;
+    }
+  }
+
   // ── Run diagnostic questions if this looks like a symptom description ──
   if (!session.diagnosticComplete) {
     const diagQuestions = await specialistDiagnosticQuestions(service_name);
@@ -1261,6 +1299,22 @@ Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. W
 Call confirm_booking(confirmed=true) if yes, confirm_booking(confirmed=false) if no.`;
     }
 
+    // Check if drop-off booking applies for this service
+    const isDropOff = DROP_OFF_ENABLED && !DROP_OFF_EXCLUDE_SERVICES.some(
+      (excl: string) => serviceName.toLowerCase().includes(excl.toLowerCase())
+    );
+    session.useDropOffBooking = isDropOff;
+    await saveSession(conversationId, session);
+
+    if (isDropOff) {
+      // Drop-off: customer picks a date only, no specific time needed
+      const firstDates = [...new Set(timeslots.map((t: any) => t.date))].slice(0, 3)
+        .map((d: string) => formatDateNaturally(d)).join(', or ');
+      return `SERVICE_SET (DROP-OFF): ${serviceName} (${priceDisplay}).
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. For this one you can ${DROP_OFF_MESSAGE}. The first available date is ${firstDates} — or do you have a particular date in mind?"
+When the customer responds, call select_timeslot with whatever they say.`;
+    }
+
     return `SERVICE_SET: ${serviceName} (${priceDisplay}).
 Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — or do you have a particular date in mind?"
 When the customer responds, call select_timeslot with whatever they say.`;
@@ -1309,10 +1363,31 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     return `Proposed slot: ${dateNatural} at ${timeNatural}.\n\nSay ONLY: "I've got ${dateNatural} at ${timeNatural} — does that work for you?" and STOP.`;
   }
 
-  console.log(`[SELECT_TIMESLOT] Preference: "${preference}"`);
+  console.log(`[SELECT_TIMESLOT] Preference: "${preference}", dropOff: ${session.useDropOffBooking}`);
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
     return `No timeslots loaded. Call select_service first.`;
+  }
+
+  // Drop-off booking: pick the first slot on the requested date, skip time selection
+  if (session.useDropOffBooking) {
+    // Try to find a date match from the preference
+    const dateMatch = matchTimeslot(preference, session.timeslotsAvailable);
+    // Find the first slot on that date (or first overall if no match)
+    const targetDate = dateMatch?.date || session.timeslotsAvailable[0].date;
+    const slotsOnDate = session.timeslotsAvailable.filter((t: any) => t.date === targetDate);
+    const dropOffSlot = slotsOnDate[0] || session.timeslotsAvailable[0];
+
+    session.pendingSlotDate = dropOffSlot.date;
+    session.pendingSlotTime = dropOffSlot.time;
+    session.step = Step.NEED_SLOT_CONFIRM;
+    console.log(`[SELECT_TIMESLOT] Drop-off slot set: ${dropOffSlot.date} (time hidden from customer)`);
+    await saveSession(conversationId, session);
+
+    const dateNatural = formatDateNaturally(dropOffSlot.date);
+    return `Proposed drop-off slot: ${dateNatural}.
+
+Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Does that work for you?" and STOP. Do not mention a specific time. Wait for confirmation.`;
   }
 
   const matched = matchTimeslot(preference, session.timeslotsAvailable);

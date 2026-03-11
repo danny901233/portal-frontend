@@ -282,10 +282,29 @@ async function sendReplyToChannel(
     return;
   }
 
-  if (platform === 'facebook' || platform === 'instagram') {
+  if (platform === 'facebook') {
     if (!platformUserId) return;
     await axios.post(
       'https://graph.facebook.com/v18.0/me/messages',
+      {
+        recipient: { id: platformUserId },
+        message: { text: message },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000,
+      }
+    );
+    return;
+  }
+
+  if (platform === 'instagram') {
+    if (!platformUserId || !connection.pageId) return;
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
       {
         recipient: { id: platformUserId },
         message: { text: message },

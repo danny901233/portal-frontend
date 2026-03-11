@@ -1981,8 +1981,10 @@ class SupervisorAgent(Agent):
                     f"If they want a message → ask 'What would you like the team to know?' then collect phone number and take_message."
                 )
 
-            # Message path
-            if resolved in ("message", "enquiry", "reschedule", "cancel", "complaint", "question"):
+            # Message path - for reschedules, cancellations, questions, complaints, etc.
+            # NOT for new bookings
+            if resolved in ("message", "enquiry", "reschedule", "cancel", "complaint", "question", 
+                           "rescheduling", "cancellation", "change", "query", "issue", "problem"):
                 self._state.intent = "message"
                 self._state.step = Step.MESSAGE_ONLY
                 
@@ -2055,10 +2057,16 @@ class SupervisorAgent(Agent):
             if not resolved and not service_hint:
                 self._state.step = Step.GREETING  # Stay in greeting until we know why they're calling
                 return (
-                    f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n"
-                    "ESTABLISH REASON: The caller hasn't said why they're calling.\n"
-                    "Ask naturally: 'How can I help you today?' or 'What can I do for you?'\n"
-                    "Wait for them to explain (booking, quote, question, etc.), then call save_caller_name again with the intent/service_hint."
+                    f"Name saved: {first} {last}. Address caller as '{first}' (FIRST name only).\n\n"
+                    "⚠️ INTENT UNCLEAR - MUST CLARIFY BEFORE PROCEEDING:\n\n"
+                    "Ask naturally: 'How can I help you today?' or 'What can I do for you?'\n\n"
+                    "Listen carefully to their response:\n"
+                    "- NEW BOOKING ('book my car in', 'need an MOT/service') → intent='booking'\n"
+                    "- RESCHEDULE/CANCEL ('need to change/cancel my appointment') → intent='reschedule' or 'cancel'\n"
+                    "- QUESTION/ISSUE ('have a question', 'problem with...') → intent='message'\n"
+                    "- VEHICLE UPDATE ('checking on my car', 'is my car ready') → intent='vehicle_update'\n\n"
+                    "Then call save_caller_name AGAIN with the correct intent.\n\n"
+                    "🚨 DO NOT ask for registration until you know the intent!"
                 )
 
             # If they indicated booking/quote but no VRN yet
@@ -2594,6 +2602,74 @@ class SupervisorAgent(Agent):
                 self._state.step = Step.MESSAGE_ONLY
                 return "No services available for this vehicle. Take their details for a callback."
 
+            
+            # SERVICE ADVISOR: If caller just says "service" without specifying type
+            # Ask qualifying questions to recommend the right service level
+            service_lower = service_name.lower().strip()
+            generic_service_terms = ['service', 'a service', 'servicing', 'car service', 'vehicle service']
+            
+            if service_lower in generic_service_terms or service_lower == 'service':
+                logger.info(f"[SELECT_SERVICE] Generic 'service' request - starting service advisor flow")
+                
+                # Check what service levels are available
+                available_services = {}
+                for svc in services:
+                    svc_name_lower = svc.get('name', '').lower()
+                    if 'basic' in svc_name_lower or 'bronze' in svc_name_lower:
+                        available_services['basic'] = svc
+                    elif 'interim' in svc_name_lower or 'silver' in svc_name_lower or 'mid' in svc_name_lower:
+                        available_services['interim'] = svc
+                    elif 'full' in svc_name_lower or 'gold' in svc_name_lower or 'major' in svc_name_lower:
+                        available_services['full'] = svc
+                
+                if available_services:
+                    # Build options list with prices
+                    options = []
+                    if 'basic' in available_services:
+                        basic_price = _format_price(available_services['basic'])
+                        basic_name = available_services['basic'].get('name', 'Basic Service')
+                        options.append(f"{basic_name} ({basic_price if basic_price else 'price on request'})")
+                    if 'interim' in available_services:
+                        interim_price = _format_price(available_services['interim'])
+                        interim_name = available_services['interim'].get('name', 'Interim Service')
+                        options.append(f"{interim_name} ({interim_price if interim_price else 'price on request'})")
+                    if 'full' in available_services:
+                        full_price = _format_price(available_services['full'])
+                        full_name = available_services['full'].get('name', 'Full Service')
+                        options.append(f"{full_name} ({full_price if full_price else 'price on request'})")
+                    
+                    options_text = ", ".join(options[:-1]) + f", or {options[-1]}" if len(options) > 1 else options[0]
+                    
+                    # Build recommendation guidance with actual service names
+                    basic_recommendation = ""
+                    interim_recommendation = ""
+                    full_recommendation = ""
+                    
+                    if 'basic' in available_services:
+                        basic_name = available_services['basic'].get('name', 'Basic Service')
+                        basic_recommendation = f"- Less than 6 months / recently → Recommend {basic_name} (oil, filter, visual checks)"
+                    
+                    if 'interim' in available_services:
+                        interim_name = available_services['interim'].get('name', 'Interim Service')
+                        interim_recommendation = f"- 6-12 months ago → Recommend {interim_name} (includes fluid top-ups, more checks)"
+                    
+                    if 'full' in available_services:
+                        full_name = available_services['full'].get('name', 'Full Service')
+                        full_recommendation = f"- Over 12 months / 2 years / can't remember → Recommend {full_name} (comprehensive service, typically every 2 years)"
+                    
+                    recommendations = "\n".join(filter(None, [basic_recommendation, interim_recommendation, full_recommendation]))
+                    
+                    return (
+                        f"SERVICE LEVEL CONSULTATION:\n\n"
+                        f"Available options: {options_text}\n\n"
+                        f"Ask naturally: 'When was your car last serviced?'\n\n"
+                        f"Based on their answer:\n"
+                        f"{recommendations}\n\n"
+                        f"⚠️ CRITICAL: Use the EXACT service name from above when recommending.\n"
+                        f"Example: 'Based on that, I'd recommend a {available_services.get('full', {}).get('name', 'Gold Service')} — shall I book that in?'\n\n"
+                        f"When they agree, call select_service with the EXACT service name shown above."
+                    )
+            
             matched = match_service(service_name, services)
             if not matched:
                 # Check if this is a diagnostic/symptom description
@@ -3114,26 +3190,94 @@ class SupervisorAgent(Agent):
                     logger.info(f"[SELECT_TIMESLOT] Regex fallback: {match}")
 
             if match is None:
-                # No match — list available slots
-                slots = self._state.timeslots_available
-                if slots:
-                    # Group slots by date to show range more clearly
-                    dates_seen = {}
-                    for s in slots:
-                        d = s['date']
-                        if d not in dates_seen:
-                            dates_seen[d] = s['time']
-                    # Show first 9 slots (covers ~3 days)
-                    slot_lines = [f"- {s['date']} at {s['time']}" for s in slots[:9]]
-                    first_date = slots[0]['date'] if slots else '?'
-                    last_date = slots[-1]['date'] if slots else '?'
-                    return (
-                        f"Couldn't match '{caller_preference}' to an available slot.\n"
-                        f"Slots available from {first_date} to {last_date}:\n"
-                        "Available timeslots:\n" + "\n".join(slot_lines) + "\n"
-                        "Read 2-3 options from different days and ask: 'Which works best for you?'"
-                    )
-                return "No timeslots available. Take their details for a callback."
+                # Check if caller mentioned a specific future date that's beyond our cached slots
+                # Try to extract month/date references
+                future_date_match = None
+                preference_lower = caller_preference.lower()
+                
+                # Common date patterns: "June 3", "3rd of June", "June the 3rd", etc.
+                import datetime
+                months = ["january", "february", "march", "april", "may", "june", 
+                         "july", "august", "september", "october", "november", "december"]
+                
+                for i, month in enumerate(months, 1):
+                    if month in preference_lower:
+                        # Found a month - try to extract day number (default to 1st if not specified)
+                        day_match = re.search(r'\b(\d{1,2})(?:st|nd|rd|th)?\b', preference_lower)
+                        if day_match:
+                            day = int(day_match.group(1))
+                        else:
+                            # No specific day mentioned (e.g., "June" or "anything in June")
+                            day = 1
+                            logger.info(f"[SELECT_TIMESLOT] Month '{month}' mentioned without specific day, using 1st")
+                        
+                        year = _current_uk_datetime().year
+                        # If month is before current month, assume next year
+                        current_month = _current_uk_datetime().month
+                        if i < current_month:
+                            year += 1
+                        try:
+                            future_date_match = f"{year}-{i:02d}-{day:02d}"
+                            logger.info(f"[SELECT_TIMESLOT] Detected future date request: {future_date_match}")
+                        except ValueError:
+                            pass
+                        break
+                
+                # If we detected a future date beyond our cached slots, refresh timeslots
+                if future_date_match:
+                    slots = self._state.timeslots_available
+                    last_cached_date = slots[-1]['date'] if slots else None
+                    
+                    if last_cached_date and future_date_match > last_cached_date:
+                        logger.info(f"[SELECT_TIMESLOT] Requested date {future_date_match} beyond cached range (ends {last_cached_date}), refreshing timeslots")
+                        try:
+                            fresh_slots = await self._gh.list_timeslots(self._state.session_id)
+                            if fresh_slots:
+                                self._state.timeslots_available = fresh_slots
+                                logger.info(f"[SELECT_TIMESLOT] Refreshed {len(fresh_slots)} timeslots")
+                                
+                                # Try matching again with fresh data
+                                match = await specialist_timeslot_match(
+                                    caller_preference, fresh_slots, today_str
+                                )
+                                if match:
+                                    logger.info(f"[SELECT_TIMESLOT] Successfully matched after refresh: {match}")
+                                    # match is now set, will continue with booking flow below
+                        except Exception as e:
+                            logger.error(f"[SELECT_TIMESLOT] Failed to refresh timeslots: {e}")
+                
+                # Still no match after refresh attempt - show available slots
+                if match is None:
+                    slots = self._state.timeslots_available
+                    if slots:
+                        # Group slots by date to show range more clearly
+                        dates_seen = {}
+                        for s in slots:
+                            d = s['date']
+                            if d not in dates_seen:
+                                dates_seen[d] = s['time']
+                        # Show first 9 slots (covers ~3 days)
+                        slot_lines = [f"- {s['date']} at {s['time']}" for s in slots[:9]]
+                        first_date = slots[0]['date'] if slots else '?'
+                        last_date = slots[-1]['date'] if slots else '?'
+                        
+                        if future_date_match:
+                            # Requested specific future date but not available
+                            return (
+                                f"I've checked availability but don't have slots on {future_date_match}.\n"
+                                f"Available slots are from {first_date} to {last_date}:\n"
+                                + "\n".join(slot_lines) + "\n"
+                                "Read 2-3 options and ask: 'Would any of these work for you?'"
+                            )
+                        else:
+                            # Generic no match
+                            return (
+                                f"Couldn't match '{caller_preference}' to an available slot.\n"
+                                f"Slots available from {first_date} to {last_date}:\n"
+                                "Available timeslots:\n" + "\n".join(slot_lines) + "\n"
+                                "Read 2-3 options from different days and ask: 'Which works best for you?'"
+                            )
+                    return "No timeslots available. Take their details for a callback."
 
             booking_date = match["date"]
             booking_time = match["time"]
@@ -3783,12 +3927,33 @@ RULES:
 
 FIRST STEP: save_caller_name. ALL tools LOCKED until it succeeds. Do NOT hallucinate names.
 
-INTENT DETECTION:
-- "Can I speak to [name]" / "Is [name] available" / "Can I talk to a human" → intent='transfer', requested_person='[name]'
-- "I dropped my car off" / "Checking on my vehicle" → intent='vehicle_update'
-- "Just have a question" / "Need to reschedule" / "Want to cancel" → intent='message'
-- "How much is a..." / "What's the price for..." → intent='quote'
-- Default → intent='booking'
+INTENT DETECTION - ASK "HOW CAN I HELP?" FIRST:
+After getting the caller's name, ALWAYS ask: "How can I help you today?" or "What can I do for you?"
+Then classify their response:
+
+🔴 REQUIRES MESSAGE (route to take_message):
+- "Need to reschedule" / "Want to cancel" / "Cancel my appointment" → intent='message'
+- "Change my booking" / "Move my appointment" → intent='message'
+- "I have a question" / "Query about..." / "Complaint about..." → intent='message'
+- "Following up on..." / "Chasing..." → intent='message'
+- Anything that's NOT a new booking or checking on a vehicle already dropped off
+
+🟢 NEW BOOKING ONLY (needs VRN - proceed with booking flow):
+- "Book my car in" / "Make an appointment" / "Need a booking" → intent='booking'
+- "MOT" / "Service" / "Tyres" / "Brakes" (mentions specific work) → intent='booking'
+- "How much is a [service]?" → intent='quote' (then offer booking if interested)
+
+🟡 VEHICLE UPDATE (needs VRN - special flow):
+- "Checking on my vehicle" / "Is my car ready?" / "Update on my car" → intent='vehicle_update'
+- "I dropped my car off" / "Car is with you" → intent='vehicle_update'
+
+🔵 TRANSFER REQUEST:
+- "Can I speak to [name]" / "Is [name] available" / "Talk to a human" → intent='transfer', requested_person='[name]'
+
+⚠️ CRITICAL: 
+- VRN (registration) is ONLY needed for NEW BOOKINGS and VEHICLE UPDATES
+- For rescheduling/canceling/questions → NO VRN needed, go straight to take_message
+- If unclear, ask: "Is this for a new booking, or is it about an existing appointment?"
 
 TRANSFER REQUESTS (caller wants to speak to a human/specific person):
 - The tools will check business hours automatically and provide the correct response
@@ -3797,24 +3962,56 @@ TRANSFER REQUESTS (caller wants to speak to a human/specific person):
 - NEVER say "outside opening hours" when the garage is currently open
 
 FLOW:
-1. GREETING: "{greeting}" spoken. Get name + intent (booking/quote/vehicle update/message/transfer). Default booking. If no name: "Can I take your name?" then STOP.
-   - If TRANSFER REQUEST: Follow the tool's instructions exactly - it will tell you whether the garage is open/closed
-   - If VEHICLE UPDATE: Follow the tool's instructions exactly - it will tell you whether the garage is open/closed
-2. VEHICLE (REGISTRATION): 
+1. GREETING: "{greeting}" spoken.
+   - Get the caller's NAME first: "Can I take your name?" then STOP.
+   - Then ask: "How can I help you today?" and WAIT for their response.
+   - Call save_caller_name with the appropriate intent based on their answer.
+   
+2. INTENT ROUTING (based on their response):
+   - NEW BOOKING ("book my car in", "need an MOT", "service") → Proceed to step 3 (VEHICLE REGISTRATION)
+   - RESCHEDULE/CANCEL/QUESTION → Skip to take_message (NO VRN needed)
+   - VEHICLE UPDATE ("checking on my car") → Proceed to step 3 for VRN lookup
+   - TRANSFER REQUEST → Follow tool instructions (offer booking help or take message)
+   - If UNCLEAR → Ask: "Is this for a new booking, or about an existing appointment?"
+
+3. VEHICLE (REGISTRATION) - ONLY FOR NEW BOOKINGS & VEHICLE UPDATES: 
    🚨 CRITICAL REGISTRATION CAPTURE PROTOCOL 🚨
    - Ask: "Could I grab your registration, please?" then STOP TALKING
-   - 🔇 ABSOLUTE SILENCE REQUIRED - Customers spell slowly with 2-4 second pauses
-     Example: "E Y" [pause 3s] "six" [pause 2s] "one" [pause 3s] "O Y B"
-   - 🚫 During pauses with < 5 characters: Generate NO speech whatsoever
-   - 🚫 FORBIDDEN responses: "(Waiting...)", "...", "*silence*", descriptive text
-   - ✅ ONLY respond after: 5-7 characters collected + pause of 4+ seconds
-   - Count: E=1, Y=2, 6=3, 1=4, O=5, Y=6, B=7 ✅ (now can call lookup_vehicle)
-   - ❌ NEVER call on partial: "E Y six" (3) or "Y six eight" (4)
    
-   After COMPLETE registration:
-   - Call lookup_vehicle with caller's EXACT words
-   - Tool gives NATO phonetic readback to confirm
-3. SERVICE: Call select_service(service_name). Tool handles matching — just pass what the caller said.
+   🔇 ABSOLUTE SILENCE MODE DURING COLLECTION:
+   - Customer will spell VERY SLOWLY: "E" [long pause] "Y" [long pause] "six" [long pause]
+   - These pauses are NORMAL - they are thinking/spelling
+   - DO NOT interpret pauses as your turn to speak
+   - DO NOT say ANYTHING while they spell - no encouragement, no status updates, NOTHING
+   - DO NOT generate ANY response until you have collected 5-7 characters total
+   
+   ❌ FORBIDDEN DURING COLLECTION (< 5 characters):
+   - "Please continue"
+   - "Thanks for that"
+   - "Please go on"
+   - "Let me"
+   - ANY speech output whatsoever
+   
+   ✅ ONLY after collecting 5-7 characters AND a long pause (4+ seconds):
+   - Count total: E=1, Y=2, 6=3, 1=4, O=5, Y=6, B=7 ✅ (7 chars = CALL lookup_vehicle)
+   - Call lookup_vehicle(reg='their exact words', confirmed=false)
+   - Tool will provide NATO readback for you to confirm
+   
+   ❌ NEVER call lookup_vehicle on partial input:
+   - "E Y six" (3 chars) = TOO EARLY
+   - "Y six eight" (4 chars) = TOO EARLY
+   - "E Y six one O" (5 chars) = STILL TOO EARLY, wait for 6-7
+3. SERVICE: Call select_service(service_name) with what the caller said.
+   
+   - SERVICE LEVEL CONSULTATION: If caller says just "service" (generic), the tool will guide you to:
+     * Ask: "When was your car last serviced?"
+     * Based on their answer, recommend:
+       • Less than 6 months → BASIC/BRONZE (oil & filter change, visual checks)
+       • 6-12 months → INTERIM/SILVER (includes fluid top-ups, more comprehensive)
+       • Over 12 months / unsure → FULL/GOLD (comprehensive full service)
+     * Present naturally: "Based on that, I'd recommend a Full Service — shall I book that in?"
+     * When they agree, call select_service again with the specific service name
+   
    - DIAGNOSTIC FLOW: If the caller describes a fault/symptom (noise, warning light, problem), the tool will provide a structured diagnostic questionnaire:
      * STEP 1: Broad open question ("Can you tell me what it's doing?")
      * STEP 2: Clarify symptom type (when, how, circumstances)
@@ -3941,11 +4138,9 @@ async def entrypoint(ctx: JobContext):
     # Krisp noise cancellation is enabled by default in LiveKit for telephony
     session = AgentSession(
         vad=silero.VAD.load(),
-        turn_detection=MultilingualModel(
-            # Reduce interruptions - require longer silence before triggering turn
-            min_endpointing_delay=1.0,  # Wait 1.0s of silence before ending turn (default: 0.5s)
-            min_volume=0.6,  # Require higher volume to register as speech (filter background noise)
-        ),
+        turn_detection=MultilingualModel(),
+        min_endpointing_delay=1.5,  # Wait 1.5s before ending turn (vs 0.5s default) - helps with VRN spelling pauses
+        max_endpointing_delay=5.0,  # Wait up to 5s when user likely to continue (vs 3.0s default)
         stt=deepgram.STT(
             model="nova-3",
             language="en-GB",

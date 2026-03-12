@@ -30,12 +30,15 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
     // Always respond 200 to acknowledge receipt
     res.sendStatus(200);
 
-    const { entry } = req.body;
+    const { object, entry } = req.body;
 
     if (!entry || !Array.isArray(entry)) {
       console.log('Invalid Facebook webhook payload');
       return;
     }
+
+    // Instagram DMs come to this same endpoint via Messenger Platform
+    const platform = object === 'instagram' ? 'instagram' : 'facebook';
 
     for (const entryItem of entry) {
       const messaging = entryItem.messaging;
@@ -59,10 +62,10 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
           continue;
         }
 
-        // Find garage by pageId
+        // Find garage by pageId (works for both Facebook and Instagram connections)
         const connection = await prisma.socialMediaConnection.findFirst({
           where: {
-            platform: 'facebook',
+            platform,
             pageId,
             isActive: true,
           },
@@ -76,21 +79,21 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
         });
 
         if (!connection) {
-          console.log(`No garage found for Facebook pageId: ${pageId}`);
+          console.log(`No garage found for ${platform} pageId: ${pageId}`);
           continue;
         }
 
         // Find or create customer
         const customerId = await findOrCreateCustomer({
           garageId: connection.garageId,
-          facebookUserId: senderId,
+          ...(platform === 'instagram' ? { instagramUserId: senderId } : { facebookUserId: senderId }),
         });
 
         // Find or create conversation
         let conversation = await prisma.chatConversation.findFirst({
           where: {
             garageId: connection.garageId,
-            platform: 'facebook',
+            platform,
             platformUserId: senderId,
           },
         });
@@ -100,7 +103,7 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
           conversation = await prisma.chatConversation.create({
             data: {
               garageId: connection.garageId,
-              platform: 'facebook',
+              platform,
               platformUserId: senderId,
               customerId,
               status: 'active',
@@ -162,9 +165,13 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
             },
           });
 
-          // Send response via Facebook Messenger
+          // Send response via Messenger (Facebook page endpoint works for both FB and IG)
+          const replyEndpoint = platform === 'instagram'
+            ? `https://graph.facebook.com/v18.0/${connection.pageId}/messages`
+            : 'https://graph.facebook.com/v18.0/me/messages';
+
           await axios.post(
-            'https://graph.facebook.com/v18.0/me/messages',
+            replyEndpoint,
             {
               recipient: { id: senderId },
               message: { text: agentResponse.content },
@@ -177,7 +184,7 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
             }
           );
 
-          console.log(`Facebook message sent to ${senderId}`);
+          console.log(`${platform} message sent to ${senderId}`);
         } else {
           console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
         }

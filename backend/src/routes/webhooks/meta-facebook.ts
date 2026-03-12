@@ -3,11 +3,11 @@ import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
 import { routeChatMessage } from '../../services/chatAgentRouter.js';
-import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
+import { findOrCreateCustomer } from '../../services/customerService.js';
 
 const router = Router();
 
-// GET /api/webhooks/meta-facebook - Webhook verification
+// GET /api/webhooks/meta-facebook - Webhook verification (handles both Facebook and Instagram)
 router.get('/meta-facebook', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -16,92 +16,65 @@ router.get('/meta-facebook', (req: Request, res: Response) => {
   const verifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
 
   if (mode === 'subscribe' && token === verifyToken) {
-    console.log('Facebook webhook verified');
     res.status(200).send(challenge);
   } else {
-    console.log('Facebook webhook verification failed');
     res.sendStatus(403);
   }
 });
 
-// POST /api/webhooks/meta-facebook - Receive Facebook messages
+// POST /api/webhooks/meta-facebook - Receive Facebook AND Instagram messages
+// Meta sends both to this same endpoint. object='page' = Facebook, object='instagram' = Instagram.
 router.post('/meta-facebook', async (req: Request, res: Response) => {
   try {
-    // Always respond 200 to acknowledge receipt
     res.sendStatus(200);
 
     const { object, entry } = req.body;
 
-    console.log(`[WEBHOOK] Received object=${object}, entries=${entry?.length}`);
+    if (!entry || !Array.isArray(entry)) return;
 
-    if (!entry || !Array.isArray(entry)) {
-      console.log('Invalid Facebook webhook payload');
-      return;
-    }
-
-    // Instagram DMs come to this same endpoint via Messenger Platform
-    const platform = object === 'instagram' ? 'instagram' : 'facebook';
+    const isInstagram = object === 'instagram';
 
     for (const entryItem of entry) {
       const messaging = entryItem.messaging;
-
-      if (!messaging || !Array.isArray(messaging)) {
-        continue;
-      }
+      if (!messaging || !Array.isArray(messaging)) continue;
 
       for (const event of messaging) {
-        // Only process messages (not delivery confirmations, reads, etc.)
-        if (!event.message || event.message.is_echo) {
-          continue;
-        }
+        if (!event.message || event.message.is_echo) continue;
 
-        const pageId = entryItem.id;
         const senderId = event.sender.id;
         const messageText = event.message.text;
+        if (!messageText) continue;
 
-        if (!messageText) {
-          console.log('Facebook message has no text');
-          continue;
-        }
-
-        // Find garage by pageId (works for both Facebook and Instagram connections)
-        const connection = await prisma.socialMediaConnection.findFirst({
-          where: {
-            platform,
-            pageId,
-            isActive: true,
-          },
-          include: {
-            garage: {
-              include: {
-                agentConfiguration: true,
-              },
-            },
-          },
-        });
+        // entry[].id is Instagram Business Account ID for IG, Facebook Page ID for FB
+        const connection = isInstagram
+          ? await prisma.socialMediaConnection.findFirst({
+              where: { platform: 'instagram', instagramAccountId: entryItem.id, isActive: true },
+              include: { garage: { include: { agentConfiguration: true } } },
+            })
+          : await prisma.socialMediaConnection.findFirst({
+              where: { platform: 'facebook', pageId: entryItem.id, isActive: true },
+              include: { garage: { include: { agentConfiguration: true } } },
+            });
 
         if (!connection) {
-          console.log(`No garage found for ${platform} pageId: ${pageId}`);
+          console.log(`[WEBHOOK] No connection found for ${isInstagram ? 'instagram' : 'facebook'} id: ${entryItem.id}`);
           continue;
         }
+
+        const platform = isInstagram ? 'instagram' : 'facebook';
 
         // Find or create customer
         const customerId = await findOrCreateCustomer({
           garageId: connection.garageId,
-          ...(platform === 'instagram' ? { instagramUserId: senderId } : { facebookUserId: senderId }),
+          ...(isInstagram ? { instagramUserId: senderId } : { facebookUserId: senderId }),
         });
 
         // Find or create conversation
         let conversation = await prisma.chatConversation.findFirst({
-          where: {
-            garageId: connection.garageId,
-            platform,
-            platformUserId: senderId,
-          },
+          where: { garageId: connection.garageId, platform, platformUserId: senderId },
         });
 
         if (!conversation) {
-          // Create new conversation
           conversation = await prisma.chatConversation.create({
             data: {
               garageId: connection.garageId,
@@ -114,87 +87,56 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
             },
           });
         } else {
-          // Update existing conversation
           await prisma.chatConversation.update({
             where: { id: conversation.id },
-            data: {
-              customerId,
-              unreadCount: { increment: 1 },
-              lastMessageAt: new Date(),
-              status: 'active',
-            },
+            data: { customerId, unreadCount: { increment: 1 }, lastMessageAt: new Date(), status: 'active' },
           });
         }
 
         // Save customer message
         await prisma.chatMessage.create({
-          data: {
-            conversationId: conversation.id,
-            role: 'user',
-            content: messageText,
-          },
+          data: { conversationId: conversation.id, role: 'user', content: messageText },
         });
 
-        // Check if agent pause has expired and auto-resume
+        // Auto-resume agent if pause has expired
         let isAgentPaused = conversation.agentPaused;
-        if (conversation.agentPaused && conversation.agentPausedUntil) {
-          if (new Date() > conversation.agentPausedUntil) {
-            // Pause has expired, resume agent
-            await prisma.chatConversation.update({
-              where: { id: conversation.id },
-              data: { agentPaused: false, agentPausedUntil: null },
-            });
-            isAgentPaused = false;
-            console.log(`Agent auto-resumed for conversation ${conversation.id}`);
-          }
-        }
-
-        // Only send agent response if agent is not paused
-        if (!isAgentPaused) {
-            // Get AI response — router selects the correct agent based on agentScript
-          const agentResponse = await routeChatMessage(
-            connection.garageId,
-            messageText,
-            conversation.id
-          );
-
-          // Save AI response
-          await prisma.chatMessage.create({
-            data: {
-              conversationId: conversation.id,
-              role: 'assistant',
-              content: agentResponse.content,
-            },
+        if (conversation.agentPaused && conversation.agentPausedUntil && new Date() > conversation.agentPausedUntil) {
+          await prisma.chatConversation.update({
+            where: { id: conversation.id },
+            data: { agentPaused: false, agentPausedUntil: null },
           });
-
-          // Send response via Messenger (Facebook page endpoint works for both FB and IG)
-          const replyEndpoint = platform === 'instagram'
-            ? `https://graph.facebook.com/v18.0/${connection.pageId}/messages`
-            : 'https://graph.facebook.com/v18.0/me/messages';
-
-          await axios.post(
-            replyEndpoint,
-            {
-              recipient: { id: senderId },
-              message: { text: agentResponse.content },
-            },
-            {
-              headers: {
-                Authorization: `Bearer ${connection.accessToken}`,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-
-          console.log(`${platform} message sent to ${senderId}`);
-        } else {
-          console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
+          isAgentPaused = false;
         }
+
+        if (isAgentPaused) {
+          console.log(`[WEBHOOK] Agent paused for conversation ${conversation.id}`);
+          continue;
+        }
+
+        // Get AI response
+        const agentResponse = await routeChatMessage(connection.garageId, messageText, conversation.id);
+
+        // Save AI response
+        await prisma.chatMessage.create({
+          data: { conversationId: conversation.id, role: 'assistant', content: agentResponse.content },
+        });
+
+        // Send reply — Instagram requires /{pageId}/messages, Facebook uses /me/messages
+        const replyUrl = isInstagram
+          ? `https://graph.facebook.com/v18.0/${connection.pageId}/messages`
+          : 'https://graph.facebook.com/v18.0/me/messages';
+
+        await axios.post(
+          replyUrl,
+          { recipient: { id: senderId }, message: { text: agentResponse.content } },
+          { headers: { Authorization: `Bearer ${connection.accessToken}`, 'Content-Type': 'application/json' } }
+        );
+
+        console.log(`[WEBHOOK] ${platform} reply sent to ${senderId}`);
       }
     }
   } catch (error) {
-    console.error('Facebook webhook error:', error);
-    // Don't throw - we already sent 200 response
+    console.error('[WEBHOOK] meta-facebook error:', error);
   }
 });
 

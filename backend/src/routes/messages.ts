@@ -813,8 +813,9 @@ async function sendMessage(
       }
     );
   } else if (conversation.platform === 'instagram') {
+    if (!connection.pageId) throw new Error('Instagram pageId missing on connection');
     await axios.post(
-      'https://graph.facebook.com/v18.0/me/messages',
+      `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
       {
         recipient: { id: conversation.platformUserId },
         message: { text: content },

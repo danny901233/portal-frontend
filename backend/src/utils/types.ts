@@ -92,6 +92,30 @@ export const cloneGarageHiveSettings = (settings?: GarageHiveSettings | null): G
   locationId: typeof settings?.locationId === 'string' ? settings.locationId : '',
 });
 
+export type TyresoftSettings = {
+  tsWorkspace: string;
+  tsUsername: string;
+  tsPassword: string;
+  tsApiKey: string;
+  tsDepotId: string;
+};
+
+export const createDefaultTyresoftSettings = (): TyresoftSettings => ({
+  tsWorkspace: '',
+  tsUsername: '',
+  tsPassword: '',
+  tsApiKey: '',
+  tsDepotId: '1',
+});
+
+export const cloneTyresoftSettings = (settings?: TyresoftSettings | null): TyresoftSettings => ({
+  tsWorkspace: typeof settings?.tsWorkspace === 'string' ? settings.tsWorkspace : '',
+  tsUsername: typeof settings?.tsUsername === 'string' ? settings.tsUsername : '',
+  tsPassword: typeof settings?.tsPassword === 'string' ? settings.tsPassword : '',
+  tsApiKey: typeof settings?.tsApiKey === 'string' ? settings.tsApiKey : '',
+  tsDepotId: typeof settings?.tsDepotId === 'string' ? settings.tsDepotId : '1',
+});
+
 export type AgentConfigurationPayload = {
   branchName: string;
   phoneNumber?: string | null;
@@ -111,6 +135,7 @@ export type AgentConfigurationPayload = {
   notificationEmails?: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
+  tyresoftSettings?: TyresoftSettings;
   agentType: AgentType;
   agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks?: boolean;

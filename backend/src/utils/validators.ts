@@ -233,6 +233,13 @@ export const upsertAgentConfigurationSchema = z.object({
   notificationEmails: z.array(z.string().email().max(254)).max(10).optional(),
   integrationProvider: z.enum(['none', 'garage_hive']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
+  tyresoftSettings: z.object({
+    tsWorkspace: z.string().max(100).optional(),
+    tsUsername: z.string().max(100).optional(),
+    tsPassword: z.string().max(200).optional(),
+    tsApiKey: z.string().max(200).optional(),
+    tsDepotId: z.string().max(20).optional(),
+  }).optional(),
   agentType: z.enum(['assist', 'automate']).optional(),
   agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),

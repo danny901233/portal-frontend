@@ -9,8 +9,10 @@ import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import {
   cloneGarageHiveSettings,
+  cloneTyresoftSettings,
   cloneWeeklyOpeningHours,
   createDefaultGarageHiveSettings,
+  createDefaultTyresoftSettings,
   createDefaultWeeklyOpeningHours,
 } from '../utils/types.js';
 import type {
@@ -18,6 +20,7 @@ import type {
   GarageHiveSettings,
   IntegrationProvider,
   ResponseSpeed,
+  TyresoftSettings,
   WeeklyOpeningHours,
 } from '../utils/types.js';
 import {
@@ -90,32 +93,43 @@ const parseWeeklyOpeningHours = (value: unknown): WeeklyOpeningHours => {
 const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings } => {
+  agentScript?: string | null,
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
   const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
-  if (provider !== 'garage_hive') {
-    return {
-      integrationProvider: 'none',
-      garageHiveSettings: createDefaultGarageHiveSettings(),
-    };
-  }
 
   if (!rawSettings || typeof rawSettings !== 'object' || Array.isArray(rawSettings)) {
     return {
-      integrationProvider: 'garage_hive',
+      integrationProvider: provider,
       garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
     };
   }
 
-  const settingsRecord = rawSettings as Record<string, unknown>;
+  const s = rawSettings as Record<string, unknown>;
+
+  if (agentScript === 'tyresoft-agent') {
+    return {
+      integrationProvider: 'none',
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: cloneTyresoftSettings({
+        tsWorkspace: typeof s.tsWorkspace === 'string' ? s.tsWorkspace : '',
+        tsUsername: typeof s.tsUsername === 'string' ? s.tsUsername : '',
+        tsPassword: typeof s.tsPassword === 'string' ? s.tsPassword : '',
+        tsApiKey: typeof s.tsApiKey === 'string' ? s.tsApiKey : '',
+        tsDepotId: typeof s.tsDepotId === 'string' ? s.tsDepotId : String(s.depotId ?? '1'),
+      }),
+    };
+  }
 
   return {
-    integrationProvider: 'garage_hive',
-    garageHiveSettings: cloneGarageHiveSettings({
-      instanceUrl: typeof settingsRecord.instanceUrl === 'string' ? settingsRecord.instanceUrl : '',
-      apiKey: typeof settingsRecord.apiKey === 'string' ? settingsRecord.apiKey : '',
-      customerId: typeof settingsRecord.customerId === 'string' ? settingsRecord.customerId : '',
-      locationId: typeof settingsRecord.locationId === 'string' ? settingsRecord.locationId : '',
-    }),
+    integrationProvider: provider,
+    garageHiveSettings: provider === 'garage_hive' ? cloneGarageHiveSettings({
+      instanceUrl: typeof s.instanceUrl === 'string' ? s.instanceUrl : '',
+      apiKey: typeof s.apiKey === 'string' ? s.apiKey : '',
+      customerId: typeof s.customerId === 'string' ? s.customerId : '',
+      locationId: typeof s.locationId === 'string' ? s.locationId : '',
+    }) : createDefaultGarageHiveSettings(),
+    tyresoftSettings: createDefaultTyresoftSettings(),
   };
 };
 
@@ -135,6 +149,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createDefaultGarageHiveSettings(),
+  tyresoftSettings: createDefaultTyresoftSettings(),
   agentType: 'assist',
   enableSmsBookingLinks: true,
   voice: 'leah',
@@ -147,6 +162,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const garageHiveSettings = sanitizedProvider === 'garage_hive'
     ? cloneGarageHiveSettings(config.garageHiveSettings)
     : createDefaultGarageHiveSettings();
+  const tyresoftSettings = cloneTyresoftSettings(config.tyresoftSettings);
 
   return {
     ...config,
@@ -169,6 +185,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     notificationEmails: Array.isArray(config.notificationEmails) ? config.notificationEmails : [],
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
+    tyresoftSettings,
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
     agentScript: 
       config.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
@@ -218,6 +235,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     ...parseIntegrationSettings(
       configuration.integrationProvider,
       configuration.integrationProviderConfig,
+      configuration.agentScript,
     ),
   });
 };
@@ -600,15 +618,34 @@ router.put(
         })
       : createDefaultGarageHiveSettings();
 
+    const rawTyresoft = data.tyresoftSettings ?? {};
+    const tyresoftSettings = resolvedAgentScript === 'tyresoft-agent'
+      ? cloneTyresoftSettings({
+          tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
+          tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
+          tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
+          tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
+          tsDepotId: typeof rawTyresoft.tsDepotId === 'string' ? rawTyresoft.tsDepotId.trim() : '1',
+        })
+      : createDefaultTyresoftSettings();
+
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      requestedProvider === 'garage_hive'
+      resolvedAgentScript === 'tyresoft-agent'
         ? {
-            instanceUrl: garageHiveSettings.instanceUrl,
-            apiKey: garageHiveSettings.apiKey,
-            customerId: garageHiveSettings.customerId,
-            locationId: garageHiveSettings.locationId,
+            tsWorkspace: tyresoftSettings.tsWorkspace,
+            tsUsername: tyresoftSettings.tsUsername,
+            tsPassword: tyresoftSettings.tsPassword,
+            tsApiKey: tyresoftSettings.tsApiKey,
+            tsDepotId: tyresoftSettings.tsDepotId,
           }
-        : null;
+        : requestedProvider === 'garage_hive'
+          ? {
+              instanceUrl: garageHiveSettings.instanceUrl,
+              apiKey: garageHiveSettings.apiKey,
+              customerId: garageHiveSettings.customerId,
+              locationId: garageHiveSettings.locationId,
+            }
+          : null;
 
     const normalizedData = {
       branchName: data.branchName,

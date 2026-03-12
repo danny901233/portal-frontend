@@ -32,6 +32,8 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
 
     const { object, entry } = req.body;
 
+    console.log(`[WEBHOOK] Received object=${object}, entries=${entry?.length}`);
+
     if (!entry || !Array.isArray(entry)) {
       console.log('Invalid Facebook webhook payload');
       return;

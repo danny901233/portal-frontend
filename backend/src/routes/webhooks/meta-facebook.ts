@@ -8,7 +8,8 @@ import { findOrCreateCustomer } from '../../services/customerService.js';
 const router = Router();
 
 // GET /api/webhooks/meta-facebook - Webhook verification (handles both Facebook and Instagram)
-router.get('/meta-facebook', (req: Request, res: Response) => {
+// Also handles /meta-instagram alias — Meta still sends some events to the old endpoint
+router.get(['/meta-facebook', '/meta-instagram'], (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
@@ -23,8 +24,8 @@ router.get('/meta-facebook', (req: Request, res: Response) => {
 });
 
 // POST /api/webhooks/meta-facebook - Receive Facebook AND Instagram messages
-// Meta sends both to this same endpoint. object='page' = Facebook, object='instagram' = Instagram.
-router.post('/meta-facebook', async (req: Request, res: Response) => {
+// Also handles /meta-instagram alias — Meta still sends some events to the old endpoint
+router.post(['/meta-facebook', '/meta-instagram'], async (req: Request, res: Response) => {
   try {
     res.sendStatus(200);
 

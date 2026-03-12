@@ -45,16 +45,6 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
         const messageText = event.message.text;
         if (!messageText) continue;
 
-        // Deduplicate — Meta can deliver the same event more than once
-        const mid = event.message.mid as string | undefined;
-        if (mid) {
-          const existing = await prisma.chatMessage.findFirst({ where: { metaMid: mid } });
-          if (existing) {
-            console.log(`[WEBHOOK] Duplicate mid ${mid}, skipping`);
-            continue;
-          }
-        }
-
         // entry[].id is Instagram Business Account ID for IG, Facebook Page ID for FB
         const connection = isInstagram
           ? await prisma.socialMediaConnection.findFirst({
@@ -105,7 +95,7 @@ router.post('/meta-facebook', async (req: Request, res: Response) => {
 
         // Save customer message
         await prisma.chatMessage.create({
-          data: { conversationId: conversation.id, role: 'user', content: messageText, metaMid: mid ?? null },
+          data: { conversationId: conversation.id, role: 'user', content: messageText },
         });
 
         // Auto-resume agent if pause has expired

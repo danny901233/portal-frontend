@@ -50,7 +50,7 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
           continue;
         }
 
-        const instagramAccountId = entryItem.id;
+        const pageId = entryItem.id;
         const senderId = event.sender.id;
         const messageText = event.message.text;
 
@@ -59,11 +59,11 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
           continue;
         }
 
-        // Find garage by instagramAccountId
+        // Find garage by pageId (Meta sends the Facebook Page ID in entry[].id)
         const connection = await prisma.socialMediaConnection.findFirst({
           where: {
             platform: 'instagram',
-            instagramAccountId,
+            pageId,
             isActive: true,
           },
           include: {
@@ -76,7 +76,7 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
         });
 
         if (!connection) {
-          console.log(`No garage found for Instagram accountId: ${instagramAccountId}`);
+          console.log(`No garage found for Instagram pageId: ${pageId}`);
           continue;
         }
 

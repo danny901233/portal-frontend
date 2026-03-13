@@ -1,0 +1,71 @@
+name: Deploy to Staging (develop branch)
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  deploy-frontend-staging:
+    name: Deploy Frontend → EC2 Staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy frontend to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            echo "🚀 Deploying frontend (develop → staging)..."
+            cd ~/portal-frontend
+
+            git fetch origin
+            git checkout develop
+            git pull origin develop
+
+            echo "📦 Installing dependencies..."
+            npm install
+
+            echo "🏗️  Building Next.js..."
+            npm run build
+
+            echo "🔄 Restarting frontend (PM2)..."
+            pm2 restart 3
+
+            echo "✅ Staging frontend deploy complete!"
+            pm2 logs 3 --lines 20 --nostream
+
+  deploy-backend-staging:
+    name: Deploy Backend → EC2 Staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy backend to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            echo "🚀 Deploying backend (develop → staging)..."
+            cd ~/portal-frontend
+
+            git fetch origin
+            git checkout develop
+            git pull origin develop
+
+            cd backend
+            npm install
+            npm run build
+
+            echo "🔄 Restarting backend (PM2)..."
+            pm2 restart backend
+
+            echo "✅ Staging backend deploy complete!"
+            pm2 logs backend --lines 20 --nostream

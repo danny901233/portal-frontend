@@ -2,7 +2,7 @@ name: PR Checks — Code Review Validation
 
 on:
   pull_request:
-    branches: [develop, main]
+    branches: [receptionmate-demo-branch-2]
     types: [opened, synchronize, reopened]
 
 jobs:

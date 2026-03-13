@@ -271,6 +271,7 @@ model ChatMessage {
   content        String
   mediaUrl       String?
   mediaType      String?
+  metaMid        String?  @unique
   createdAt      DateTime @default(now())
 
   @@index([conversationId, createdAt])

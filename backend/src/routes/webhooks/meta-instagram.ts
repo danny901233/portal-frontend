@@ -121,12 +121,23 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
           });
         }
 
+        // Deduplicate — skip if this Meta message ID was already processed
+        const metaMid = event.message.mid as string | undefined;
+        if (metaMid) {
+          const existing = await prisma.chatMessage.findUnique({ where: { metaMid } });
+          if (existing) {
+            console.log(`[Instagram] Duplicate message ignored: ${metaMid}`);
+            continue;
+          }
+        }
+
         // Save customer message
         await prisma.chatMessage.create({
           data: {
             conversationId: conversation.id,
             role: 'user',
             content: messageText,
+            metaMid: metaMid ?? null,
           },
         });
 

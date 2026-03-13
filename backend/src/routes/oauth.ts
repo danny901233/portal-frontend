@@ -97,16 +97,20 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
           params: { access_token: accessToken },
         });
 
-        const businessId = wabResponse.data.data[0]?.id;
-        if (businessId) {
+        const business = wabResponse.data.data[0];
+        if (business) {
+          connectionData.accountName = business.name;
           try {
-            const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${businessId}/phone_numbers`, {
+            const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${business.id}/phone_numbers`, {
               params: { access_token: accessToken },
             });
-            connectionData.whatsappPhoneNumberId = phoneResponse.data.data[0]?.id;
+            const phone = phoneResponse.data.data[0];
+            connectionData.whatsappPhoneNumberId = phone?.id;
+            if (phone?.display_phone_number) {
+              connectionData.accountName = phone.display_phone_number;
+            }
           } catch (phoneError) {
             console.log('[OAuth] No WhatsApp phone numbers found - this is OK for initial setup');
-            // Store a placeholder - user needs to configure WhatsApp Business in Meta Business Manager
             connectionData.whatsappPhoneNumberId = 'pending_setup';
           }
         } else {
@@ -145,6 +149,7 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
       if (page) {
         connectionData.pageId = page.id;
         connectionData.accessToken = page.access_token; // Use page access token
+        connectionData.accountName = page.name;
         console.log('[OAuth] Page found:', page.id, 'Name:', page.name);
 
         if (platform === 'instagram') {
@@ -155,7 +160,24 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
               access_token: page.access_token,
             },
           });
-          connectionData.instagramAccountId = igResponse.data.instagram_business_account?.id;
+          const igAccountId = igResponse.data.instagram_business_account?.id;
+          connectionData.instagramAccountId = igAccountId;
+
+          // Fetch Instagram username to display in portal
+          if (igAccountId) {
+            try {
+              const igProfileResponse = await axios.get(`https://graph.facebook.com/v18.0/${igAccountId}`, {
+                params: {
+                  fields: 'username,name',
+                  access_token: page.access_token,
+                },
+              });
+              const igUsername = igProfileResponse.data.username || igProfileResponse.data.name;
+              if (igUsername) connectionData.accountName = `@${igUsername}`;
+            } catch (igProfileError) {
+              console.log('[OAuth] Could not fetch Instagram username, using page name');
+            }
+          }
         }
       } else {
         console.error('[OAuth] No Facebook page found in response!');

@@ -285,6 +285,7 @@ model SocialMediaConnection {
   whatsappPhoneNumberId String?
   pageId                String?
   instagramAccountId    String?
+  accountName           String?
   accessToken           String
   isActive              Boolean  @default(true)
   createdAt             DateTime @default(now())

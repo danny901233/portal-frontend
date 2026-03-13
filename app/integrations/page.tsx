@@ -12,6 +12,7 @@ interface SocialConnection {
   whatsappPhoneNumberId?: string;
   pageId?: string;
   instagramAccountId?: string;
+  accountName?: string;
   createdAt: string;
 }
 
@@ -260,11 +261,17 @@ export default function IntegrationsPage() {
                     <p className="text-sm text-slate-400 mb-3">{platform.description}</p>
 
                     {connection && (
-                      <div className="flex items-center gap-2 text-sm">
+                      <div className="flex items-center gap-2 text-sm flex-wrap">
                         <div className="flex items-center gap-1.5">
                           <div className="w-2 h-2 rounded-full bg-green-500"></div>
                           <span className="text-green-400">Connected</span>
                         </div>
+                        {connection.accountName && (
+                          <>
+                            <span className="text-slate-600">•</span>
+                            <span className="text-slate-300 font-medium">{connection.accountName}</span>
+                          </>
+                        )}
                         <span className="text-slate-600">•</span>
                         <span className="text-slate-500">
                           Since {new Date(connection.createdAt).toLocaleDateString()}

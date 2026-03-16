@@ -494,7 +494,7 @@ export default function CallDetailPage() {
                   <TranscriptEntry
                     key={`${entry.speaker}-${entry.timestamp}-${index}`}
                     entry={entry}
-                    offsetSeconds={Math.max(0, Math.round((entry.timestamp - firstTimestamp) / 1000))}
+                    offsetSeconds={Math.max(0, Math.round(entry.timestamp - firstTimestamp))}
                   />
                 ))}
               </div>

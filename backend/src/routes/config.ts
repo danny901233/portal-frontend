@@ -95,11 +95,9 @@ const parseIntegrationSettings = (
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
 ): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
-  const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
-
-  if (provider !== 'garage_hive') {
-    // Parse Tyresoft settings from integrationProviderConfig when agentScript is tyresoft-agent
-    if (agentScript === 'tyresoft-agent' && rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+  // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
+  if (agentScript === 'tyresoft-agent') {
+    if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
       const raw = rawSettings as Record<string, unknown>;
       return {
         integrationProvider: 'none',
@@ -113,6 +111,16 @@ const parseIntegrationSettings = (
         }),
       };
     }
+    return {
+      integrationProvider: 'none',
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
+    };
+  }
+
+  const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
+
+  if (provider !== 'garage_hive') {
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
@@ -625,21 +633,22 @@ router.put(
       : createDefaultGarageHiveSettings();
 
     const rawTyresoft = data.tyresoftSettings ?? {};
+    // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      requestedProvider === 'garage_hive'
-        ? {
-            instanceUrl: garageHiveSettings.instanceUrl,
-            apiKey: garageHiveSettings.apiKey,
-            customerId: garageHiveSettings.customerId,
-            locationId: garageHiveSettings.locationId,
-          }
-        : resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
+      resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
             tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
             tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
             tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
             tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
+          }
+        : requestedProvider === 'garage_hive'
+        ? {
+            instanceUrl: garageHiveSettings.instanceUrl,
+            apiKey: garageHiveSettings.apiKey,
+            customerId: garageHiveSettings.customerId,
+            locationId: garageHiveSettings.locationId,
           }
         : null;
 

@@ -9,8 +9,10 @@ import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import {
   cloneGarageHiveSettings,
+  cloneTyresoftSettings,
   cloneWeeklyOpeningHours,
   createDefaultGarageHiveSettings,
+  createDefaultTyresoftSettings,
   createDefaultWeeklyOpeningHours,
 } from '../utils/types.js';
 import type {
@@ -18,6 +20,7 @@ import type {
   GarageHiveSettings,
   IntegrationProvider,
   ResponseSpeed,
+  TyresoftSettings,
   WeeklyOpeningHours,
 } from '../utils/types.js';
 import {
@@ -90,12 +93,30 @@ const parseWeeklyOpeningHours = (value: unknown): WeeklyOpeningHours => {
 const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings } => {
+  agentScript?: string | null,
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
   const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
+
   if (provider !== 'garage_hive') {
+    // Parse Tyresoft settings from integrationProviderConfig when agentScript is tyresoft-agent
+    if (agentScript === 'tyresoft-agent' && rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+      const raw = rawSettings as Record<string, unknown>;
+      return {
+        integrationProvider: 'none',
+        garageHiveSettings: createDefaultGarageHiveSettings(),
+        tyresoftSettings: cloneTyresoftSettings({
+          tsWorkspace: typeof raw.tsWorkspace === 'string' ? raw.tsWorkspace : (typeof raw.workspace === 'string' ? raw.workspace : ''),
+          tsUsername: typeof raw.tsUsername === 'string' ? raw.tsUsername : (typeof raw.username === 'string' ? raw.username : ''),
+          tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
+          tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
+          tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
+        }),
+      };
+    }
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
     };
   }
 
@@ -103,6 +124,7 @@ const parseIntegrationSettings = (
     return {
       integrationProvider: 'garage_hive',
       garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
     };
   }
 
@@ -116,6 +138,7 @@ const parseIntegrationSettings = (
       customerId: typeof settingsRecord.customerId === 'string' ? settingsRecord.customerId : '',
       locationId: typeof settingsRecord.locationId === 'string' ? settingsRecord.locationId : '',
     }),
+    tyresoftSettings: createDefaultTyresoftSettings(),
   };
 };
 
@@ -218,6 +241,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     ...parseIntegrationSettings(
       configuration.integrationProvider,
       configuration.integrationProviderConfig,
+      configuration.agentScript,
     ),
   });
 };
@@ -600,6 +624,7 @@ router.put(
         })
       : createDefaultGarageHiveSettings();
 
+    const rawTyresoft = data.tyresoftSettings ?? {};
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       requestedProvider === 'garage_hive'
         ? {
@@ -607,6 +632,14 @@ router.put(
             apiKey: garageHiveSettings.apiKey,
             customerId: garageHiveSettings.customerId,
             locationId: garageHiveSettings.locationId,
+          }
+        : resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
+        ? {
+            tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
+            tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
+            tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
+            tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
+            tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
           }
         : null;
 

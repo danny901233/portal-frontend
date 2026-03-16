@@ -23,6 +23,7 @@ import type {
   IntegrationProvider,
   ResponseSpeed,
   TonePreference,
+  TyresoftSettings,
   VoiceOption,
   WeeklyOpeningHours,
   WebsiteScanSummaryPage,
@@ -86,6 +87,22 @@ const cloneGarageHiveSettings = (
   locationId: settings?.locationId ?? '',
 });
 
+const createEmptyTyresoftSettings = (): TyresoftSettings => ({
+  tsWorkspace: '',
+  tsUsername: '',
+  tsPassword: '',
+  tsApiKey: '',
+  tsDepotId: '',
+});
+
+const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): TyresoftSettings => ({
+  tsWorkspace: settings?.tsWorkspace ?? '',
+  tsUsername: settings?.tsUsername ?? '',
+  tsPassword: settings?.tsPassword ?? '',
+  tsApiKey: settings?.tsApiKey ?? '',
+  tsDepotId: settings?.tsDepotId ?? '',
+});
+
 const createEmptyConfiguration = (): AgentConfiguration => ({
   branchName: '',
   phoneNumber: '',
@@ -105,6 +122,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
+  tyresoftSettings: createEmptyTyresoftSettings(),
   agentType: 'assist',
   agentScript: 'receptionmate-agent-v3',
   enableSmsBookingLinks: true,
@@ -115,6 +133,7 @@ const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => (
   ...config,
   weeklyOpeningHours: cloneWeeklyOpeningHours(config.weeklyOpeningHours),
   garageHiveSettings: cloneGarageHiveSettings(config.garageHiveSettings),
+  tyresoftSettings: cloneTyresoftSettings(config.tyresoftSettings),
   dropOffExcludeServices: [...(config.dropOffExcludeServices || ['MOT'])],
 });
 
@@ -650,6 +669,23 @@ export default function AgentConfigurationsPage() {
       ...prev,
       garageHiveSettings: {
         ...prev.garageHiveSettings,
+        [field]: value,
+      },
+    }));
+    setFeedback(null);
+  };
+
+  const handleTyresoftSettingsChange = (
+    field: keyof TyresoftSettings,
+  ) => (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isEditing || mutation.isPending) {
+      return;
+    }
+    const { value } = event.target;
+    setFormState((prev) => ({
+      ...prev,
+      tyresoftSettings: {
+        ...prev.tyresoftSettings,
         [field]: value,
       },
     }));
@@ -1658,6 +1694,96 @@ export default function AgentConfigurationsPage() {
             </label>
           </div>
         </section>
+
+        {formState.agentScript === 'tyresoft-agent' && (
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+            <h2 className="text-lg font-semibold text-slate-100">Tyresoft Configuration</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              API credentials for the Tyresoft tyre centre integration.
+            </p>
+            <div className="mt-6">
+              {isEditing ? (
+                <div className="grid gap-5 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Workspace</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. test"
+                      value={formState.tyresoftSettings.tsWorkspace}
+                      onChange={handleTyresoftSettingsChange('tsWorkspace')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Username</span>
+                    <input
+                      type="text"
+                      value={formState.tyresoftSettings.tsUsername}
+                      onChange={handleTyresoftSettingsChange('tsUsername')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Password</span>
+                    <input
+                      type="password"
+                      value={formState.tyresoftSettings.tsPassword}
+                      onChange={handleTyresoftSettingsChange('tsPassword')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">API Key</span>
+                    <input
+                      type="password"
+                      value={formState.tyresoftSettings.tsApiKey}
+                      onChange={handleTyresoftSettingsChange('tsApiKey')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Depot ID</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1"
+                      value={formState.tyresoftSettings.tsDepotId}
+                      onChange={handleTyresoftSettingsChange('tsDepotId')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Workspace</span>
+                    <div className="text-slate-100">{formState.tyresoftSettings.tsWorkspace || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Username</span>
+                    <div className="text-slate-100">{formState.tyresoftSettings.tsUsername || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Password</span>
+                    <div className="text-slate-100">{maskSecretValue(formState.tyresoftSettings.tsPassword)}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">API Key</span>
+                    <div className="text-slate-100">{maskSecretValue(formState.tyresoftSettings.tsApiKey)}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Depot ID</span>
+                    <div className="text-slate-100">{formState.tyresoftSettings.tsDepotId || 'Not set'}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <h2 className="text-lg font-semibold text-slate-100">Diary Integration</h2>

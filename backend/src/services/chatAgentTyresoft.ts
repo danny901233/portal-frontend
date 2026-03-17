@@ -60,6 +60,7 @@ interface TyresoftSession {
   customerName?: string;
   customerPhone?: string;
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
+  availableSlots?: { date: string; time: string; diaryCategoryID: number; estimatedTime: number; slotTypeID: number }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -494,11 +495,8 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
             customer_phone:    { type: 'string', description: 'UK mobile or phone number' },
             customer_email:    { type: 'string', description: 'Email address (optional)' },
             customer_postcode: { type: 'string', description: 'UK postcode (optional)' },
-            slot_date:         { type: 'string', description: 'Booking date YYYY-MM-DD' },
-            slot_time:         { type: 'string', description: 'Booking time HH:MM' },
-            diary_category_id: { type: 'number', description: 'diaryCategoryID from the chosen slot' },
-            estimated_time:    { type: 'number', description: 'estimatedTime from the chosen slot' },
-            slot_type_id:      { type: 'number', description: 'slotTypeID from the chosen slot' },
+            slot_date:         { type: 'string', description: 'Booking date YYYY-MM-DD from the chosen slot' },
+            slot_time:         { type: 'string', description: 'Booking time HH:MM from the chosen slot' },
             service_ids: {
               type: 'array',
               items: { type: 'number' },
@@ -507,7 +505,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
           },
           required: [
             'customer_name', 'customer_phone',
-            'slot_date', 'slot_time', 'diary_category_id', 'estimated_time', 'slot_type_id',
+            'slot_date', 'slot_time',
             'service_ids',
           ],
         },
@@ -631,8 +629,6 @@ async function executeTool(
           { list: args.service_ids },
           { headers: tsHeaders(tsConfig), timeout: 15000 }
         );
-        tsSessions.set(conversationId, { ...session, serviceIds: args.service_ids });
-
         // Simplify slot data so the LLM doesn't need to parse nested requiredSlots
         const rawSlots = Array.isArray(resp.data) ? resp.data : [];
         const simplified = rawSlots.map((s: any) => {
@@ -645,8 +641,12 @@ async function executeTool(
             slotTypeID: req.slotTypeID ?? 1,
           };
         });
+        // Store slots in session so we can look up metadata server-side at booking time
+        tsSessions.set(conversationId, { ...session, serviceIds: args.service_ids, availableSlots: simplified });
         console.log(`[TS_AGENT] Timeslots fetched for service_ids=${JSON.stringify(args.service_ids)}, date=${startDate}, count=${simplified.length}`);
-        return { available_slots: simplified };
+        // Return only date/time to the LLM — metadata is resolved server-side
+        const slotsForLLM = simplified.map((s: any) => ({ date: s.date, time: s.time }));
+        return { available_slots: slotsForLLM };
       }
 
       case 'ts_create_booking': {
@@ -694,8 +694,33 @@ async function tsCreateBooking(
   const headers = tsHeaders(cfg);
   const base    = tsBaseUrl(cfg);
 
+  // Resolve slot metadata from session (don't trust LLM for diaryCategoryID etc.)
+  const slotDate = args.slot_date;
+  const slotTime = args.slot_time;
+  let diaryCategoryID = 1;
+  let estimatedTime = 30;
+  let slotTypeID = 1;
+
+  if (session.availableSlots?.length) {
+    const match = session.availableSlots.find(
+      (s) => s.date === slotDate && s.time === slotTime
+    );
+    if (match) {
+      diaryCategoryID = match.diaryCategoryID;
+      estimatedTime = match.estimatedTime;
+      slotTypeID = match.slotTypeID;
+      console.log(`[TS_AGENT] Slot matched: ${slotDate} ${slotTime} → diary=${diaryCategoryID}, est=${estimatedTime}, type=${slotTypeID}`);
+    } else {
+      console.warn(`[TS_AGENT] No exact slot match for ${slotDate} ${slotTime}, using defaults`);
+    }
+  }
+
+  // Use session customer details if LLM didn't provide them
+  const customerName = args.customer_name || session.customerName || '';
+  const customerPhone = args.customer_phone || session.customerPhone || '';
+
   // 1. Save customer
-  const nameParts = String(args.customer_name).trim().split(/\s+/);
+  const nameParts = String(customerName).trim().split(/\s+/);
   const firstName = nameParts[0] || '';
   const lastName  = nameParts.slice(1).join(' ') || '';
 
@@ -706,7 +731,7 @@ async function tsCreateBooking(
       contactData: {
         name:    { firstName, lastName, salutation: '', company: '' },
         address: { addressLine1: '', addressLine2: '', addressLine3: '', addressLine4: '', city: '', county: '', postcode: args.customer_postcode || '', country: '', longitude: '', latitude: '' },
-        contact: { mobile: args.customer_phone, email: args.customer_email || '', telephone: '' },
+        contact: { mobile: customerPhone, email: args.customer_email || '', telephone: '' },
       },
       priceLevelID:  0,
       creditAccount: false,
@@ -864,7 +889,7 @@ async function tsCreateBooking(
   try {
     const saleResp = await axios.post(`${base}/createSale`, {
       depotID:     cfg.depotId,
-      saleDate:    args.slot_date,
+      saleDate:    slotDate,
       saleStatus:  'Order',
       notes:       'Booked via ReceptionMate chat agent',
       worksheetNumber: '',
@@ -890,11 +915,11 @@ async function tsCreateBooking(
       workSummary: '',
       advisoryNotes: '',
       bookingSlot: {
-        date:            args.slot_date,
-        time:            args.slot_time,
-        diaryCategoryID: args.diary_category_id || 1,
-        estimatedTime:   args.estimated_time || 30,
-        slotTypeID:      args.slot_type_id || 1,
+        date:            slotDate,
+        time:            slotTime,
+        diaryCategoryID,
+        estimatedTime,
+        slotTypeID,
       },
       items,
       holdUntilDate: '',

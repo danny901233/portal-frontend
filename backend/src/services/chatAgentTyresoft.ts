@@ -632,8 +632,21 @@ async function executeTool(
           { headers: tsHeaders(tsConfig), timeout: 15000 }
         );
         tsSessions.set(conversationId, { ...session, serviceIds: args.service_ids });
-        console.log(`[TS_AGENT] Timeslots fetched for service_ids=${JSON.stringify(args.service_ids)}, date=${startDate}`);
-        return resp.data;
+
+        // Simplify slot data so the LLM doesn't need to parse nested requiredSlots
+        const rawSlots = Array.isArray(resp.data) ? resp.data : [];
+        const simplified = rawSlots.map((s: any) => {
+          const req = s.requiredSlots?.[0] || {};
+          return {
+            date: s.date || req.date,
+            time: s.time || req.time,
+            diaryCategoryID: req.diaryCategoryID ?? 1,
+            estimatedTime: req.estimatedTime ?? s.estimatedTime ?? 30,
+            slotTypeID: req.slotTypeID ?? 1,
+          };
+        });
+        console.log(`[TS_AGENT] Timeslots fetched for service_ids=${JSON.stringify(args.service_ids)}, date=${startDate}, count=${simplified.length}`);
+        return { available_slots: simplified };
       }
 
       case 'ts_create_booking': {
@@ -970,17 +983,17 @@ function buildSystemPrompt(
     prompt += `4. Present options: brand, price per tyre, availability. Ask how many they need (1, 2, or 4).\n`;
     prompt += `5. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
     prompt += `6. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
-    prompt += `7. Pick 2-3 of the best slots and suggest them naturally, e.g. "I've got a 9am or 10:30am tomorrow morning — which works best for you?" Don't list every slot. Ask for name + phone number if not already saved.\n`;
+    prompt += `7. ts_get_timeslots returns {available_slots: [{date, time, diaryCategoryID, estimatedTime, slotTypeID}, ...]}. Pick 2-3 and suggest naturally, e.g. "I've got a 9am or 10:30am tomorrow — which works best?" Ask for name + phone if not saved.\n`;
     prompt += `8. Once you have both name AND phone, call ts_save_customer_details immediately.\n`;
     prompt += `9. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
-    prompt += `10. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
+    prompt += `10. Call ts_create_booking with the EXACT date, time, diaryCategoryID, estimatedTime, and slotTypeID from the chosen slot. Use service_ids=[0] for tyres. Only after explicit YES.\n\n`;
 
     prompt += `SERVICE BOOKING (MOT, service, alignment, etc.):\n`;
     prompt += `1. Ask for their vehicle reg and call ts_lookup_vehicle.\n`;
     prompt += `2. Call ts_get_services to see what's available and match the customer's request.\n`;
     prompt += `3. Call ts_get_timeslots with the correct service_id(s).\n`;
-    prompt += `4. Suggest 2-3 slots naturally (don't list them all). Collect name + phone.\n`;
-    prompt += `5. Read back and confirm — call ts_create_booking only after YES.\n\n`;
+    prompt += `4. ts_get_timeslots returns {available_slots: [{date, time, diaryCategoryID, estimatedTime, slotTypeID}, ...]}. Suggest 2-3 naturally. Collect name + phone.\n`;
+    prompt += `5. Read back and confirm — call ts_create_booking with the EXACT slot values (date, time, diaryCategoryID, estimatedTime, slotTypeID) and the service_ids. Only after YES.\n\n`;
 
     prompt += `RULES:\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;

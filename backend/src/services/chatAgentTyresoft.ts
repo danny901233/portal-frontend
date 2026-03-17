@@ -249,7 +249,8 @@ export async function getTyresoftChatResponse(
       const username  = raw.tsUsername  || raw.username  || '';
       const password  = raw.tsPassword  || raw.password  || '';
       const apiKey    = raw.tsApiKey    || raw.apiKey    || '';
-      const depotId   = Number(raw.tsDepotId || raw.depotId || 1);
+      const depotIdRaw = raw.tsDepotId || raw.depotId || '1';
+      const depotId = parseInt(String(depotIdRaw), 10) || 1;
       if (workspace && username && password && apiKey) {
         tsConfig = { workspace, username, password, apiKey, depotId };
       }
@@ -685,7 +686,7 @@ async function tsCreateBooking(
   const firstName = nameParts[0] || '';
   const lastName  = nameParts.slice(1).join(' ') || '';
 
-  let customerID = 0;
+  let customerID: number | undefined;
   try {
     const custResp = await axios.post(`${base}/saveCustomer`, {
       customerID: 0,
@@ -699,7 +700,11 @@ async function tsCreateBooking(
       notes: 'Booked via ReceptionMate chat',
     }, { headers, timeout: 15000 });
 
-    customerID = custResp.data?.customerID || 0;
+    customerID = custResp.data?.customerID;
+    if (!customerID) {
+      console.error('[TS_AGENT] saveCustomer response missing customerID:', custResp.data);
+      return { error: 'Failed to retrieve customer ID from booking system. Please try again.' };
+    }
     console.log(`[TS_AGENT] Customer saved: ${customerID}`);
   } catch (e: any) {
     console.error('[TS_AGENT] saveCustomer failed:', e.response?.data || e.message);
@@ -905,7 +910,7 @@ function buildSystemPrompt(
     prompt += `4. Present options: brand, price per tyre, availability. Ask how many they need (1, 2, or 4).\n`;
     prompt += `5. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
     prompt += `6. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
-    prompt += `7. Offer 3-4 slots in plain language. Ask for name + phone number if not already saved.\n`;
+    prompt += `7. Pick 2-3 of the best slots and suggest them naturally, e.g. "I've got a 9am or 10:30am tomorrow morning — which works best for you?" Don't list every slot. Ask for name + phone number if not already saved.\n`;
     prompt += `8. Once you have both name AND phone, call ts_save_customer_details immediately.\n`;
     prompt += `9. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
     prompt += `10. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
@@ -914,7 +919,7 @@ function buildSystemPrompt(
     prompt += `1. Ask for their vehicle reg and call ts_lookup_vehicle.\n`;
     prompt += `2. Call ts_get_services to see what's available and match the customer's request.\n`;
     prompt += `3. Call ts_get_timeslots with the correct service_id(s).\n`;
-    prompt += `4. Offer slots, collect name + phone.\n`;
+    prompt += `4. Suggest 2-3 slots naturally (don't list them all). Collect name + phone.\n`;
     prompt += `5. Read back and confirm — call ts_create_booking only after YES.\n\n`;
 
     prompt += `RULES:\n`;
@@ -952,7 +957,12 @@ function buildSystemPrompt(
     prompt += `\nFor bookings, please direct customers to call us${phone} or visit our website${web}.\n\n`;
   }
 
-  prompt += `STYLE: Warm, natural, and human. Keep it short — 1 to 2 sentences unless more detail is needed. Avoid corporate language.\n`;
+  prompt += `STYLE:\n`;
+  prompt += `- Write like a real person texting — warm, casual, concise.\n`;
+  prompt += `- Use lowercase for vehicle details (e.g. "a white Vauxhall Astra" not "WHITE VAUXHALL ASTRA").\n`;
+  prompt += `- Never dump lists or bullet points. Weave info into natural sentences.\n`;
+  prompt += `- 1-2 sentences per reply. Only go longer if genuinely needed.\n`;
+  prompt += `- Avoid corporate/robotic phrasing like "Here are some available time slots for your...".\n`;
 
   return prompt;
 }

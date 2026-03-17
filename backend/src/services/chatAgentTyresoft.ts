@@ -695,23 +695,40 @@ async function tsCreateBooking(
   const base    = tsBaseUrl(cfg);
 
   // Resolve slot metadata from session (don't trust LLM for diaryCategoryID etc.)
-  const slotDate = args.slot_date;
-  const slotTime = args.slot_time;
+  let slotDate = args.slot_date;
+  let slotTime = args.slot_time;
   let diaryCategoryID = 1;
   let estimatedTime = 30;
   let slotTypeID = 1;
 
   if (session.availableSlots?.length) {
-    const match = session.availableSlots.find(
+    // Try exact match first
+    let match = session.availableSlots.find(
       (s) => s.date === slotDate && s.time === slotTime
     );
+
+    // LLM often hallucinates the year — try matching by time only
+    if (!match) {
+      match = session.availableSlots.find((s) => s.time === slotTime);
+      if (match) {
+        console.warn(`[TS_AGENT] Date mismatch: LLM sent ${slotDate} but slot is ${match.date}. Correcting.`);
+        slotDate = match.date;
+      }
+    }
+
+    // Still no match — just use the first available slot
+    if (!match && session.availableSlots.length > 0) {
+      match = session.availableSlots[0];
+      console.warn(`[TS_AGENT] No slot match at all. Falling back to first slot: ${match.date} ${match.time}`);
+      slotDate = match.date;
+      slotTime = match.time;
+    }
+
     if (match) {
       diaryCategoryID = match.diaryCategoryID;
       estimatedTime = match.estimatedTime;
       slotTypeID = match.slotTypeID;
-      console.log(`[TS_AGENT] Slot matched: ${slotDate} ${slotTime} → diary=${diaryCategoryID}, est=${estimatedTime}, type=${slotTypeID}`);
-    } else {
-      console.warn(`[TS_AGENT] No exact slot match for ${slotDate} ${slotTime}, using defaults`);
+      console.log(`[TS_AGENT] Slot resolved: ${slotDate} ${slotTime} → diary=${diaryCategoryID}, est=${estimatedTime}, type=${slotTypeID}`);
     }
   }
 

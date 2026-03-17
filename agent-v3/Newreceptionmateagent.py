@@ -485,6 +485,10 @@ ERROR_LOG_EXCEL_PATH = Path(
 PORTAL_API_URL = os.getenv("PORTAL_API_URL", "https://portal.receptionmate.co.uk/api/calls")
 PORTAL_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "optional-shared-secret")
 RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()  # e.g. https://storage.../recordings
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "").strip()
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "").strip()
+S3_REGION = os.getenv("S3_REGION", "eu-west-2").strip()
+S3_BUCKET = os.getenv("S3_BUCKET", "receptionmate-recordings").strip()
 
 # ============================================================
 # PORTAL CALL LOGGING
@@ -1168,6 +1172,7 @@ class CallState:
     llm_response_times: list[dict] = field(default_factory=list)  # LLM latency tracking
     conversation_flow_metrics: dict = field(default_factory=dict)  # Turn-taking, interruptions
     call_start_time: float = 0.0  # Unix timestamp when call started
+    egress_id: str = ""  # LiveKit egress ID for call recording
 
 
 # ============================================================
@@ -4110,6 +4115,39 @@ async def entrypoint(ctx: JobContext):
     state = CallState()
     state.call_start_time = time.time()
     gh = GHClient()
+
+    # Start LiveKit egress recording to S3
+    if RECORDING_BASE_URL and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY and S3_BUCKET:
+        try:
+            from livekit.protocol.egress import (
+                RoomCompositeEgressRequest,
+                EncodedFileOutput,
+                EncodedFileType,
+                S3Upload as EgressS3Upload,
+            )
+            lkapi = lk_api.LiveKitAPI()
+            async with lkapi:
+                egress_info = await lkapi.egress.start_room_composite_egress(
+                    RoomCompositeEgressRequest(
+                        room_name=room_name,
+                        file_outputs=[
+                            EncodedFileOutput(
+                                file_type=EncodedFileType.MP4,
+                                filepath=f"{room_name}.mp4",
+                                s3=EgressS3Upload(
+                                    access_key=S3_ACCESS_KEY_ID,
+                                    secret=S3_SECRET_ACCESS_KEY,
+                                    region=S3_REGION,
+                                    bucket=S3_BUCKET,
+                                ),
+                            )
+                        ],
+                    )
+                )
+            state.egress_id = egress_info.egress_id
+            logger.info(f"[RECORDING] Started egress recording: {state.egress_id}")
+        except Exception as e:
+            logger.error(f"[RECORDING] Failed to start egress recording: {e}")
     
     # Extract incoming SIP number from first participant (if available)
     # This will be used as the authoritative "from" number for portal
@@ -4473,6 +4511,16 @@ async def entrypoint(ctx: JobContext):
                 logger.info(f"[PORTAL] Caller phone for portal 'from': {caller_phone_for_portal}")
                 logger.info(f"[PORTAL] Caller phone for message summary: {caller_phone_for_summary}")
                 logger.info(f"[PORTAL] Transcript entries: {len(transcript)}, summary: {summary[:80]}")
+
+                # Stop egress recording
+                if state.egress_id:
+                    try:
+                        lkapi = lk_api.LiveKitAPI()
+                        async with lkapi:
+                            await lkapi.egress.stop_egress(state.egress_id)
+                        logger.info(f"[RECORDING] Stopped egress recording: {state.egress_id}")
+                    except Exception as e:
+                        logger.error(f"[RECORDING] Failed to stop egress recording: {e}")
 
                 # Log to portal - use SIP number as "from" (authoritative caller ID)
                 await log_call_to_portal(

@@ -692,7 +692,7 @@ async function tsCreateBooking(
       customerID: 0,
       contactData: {
         name:    { firstName, lastName, salutation: '', company: '' },
-        address: { postcode: args.customer_postcode || '', city: '', street1: '', street2: '' },
+        address: { addressLine1: '', addressLine2: '', addressLine3: '', addressLine4: '', city: '', county: '', postcode: args.customer_postcode || '', country: '', longitude: '', latitude: '' },
         contact: { mobile: args.customer_phone, email: args.customer_email || '', telephone: '' },
       },
       priceLevelID:  0,

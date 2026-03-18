@@ -560,6 +560,7 @@ class CallState:
     # Session
     call_ended: bool = False
     call_start_time: float = 0.0  # Unix timestamp when call started
+    egress_id: str = ""  # LiveKit egress ID for call recording
     room_name: str = ""
 
 

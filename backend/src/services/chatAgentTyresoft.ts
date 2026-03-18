@@ -59,6 +59,7 @@ interface TyresoftSession {
   tyreBasket?: TyreBasketItem[];
   customerName?: string;
   customerPhone?: string;
+  availableSlots?: { date: string; time: string; diaryCategoryID: number; estimatedTime: number; slotTypeID: number }[];
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
 }
 
@@ -649,9 +650,22 @@ async function executeTool(
           { list: args.service_ids },
           { headers: tsHeaders(tsConfig), timeout: 15000 }
         );
-        tsSessions.set(conversationId, { ...session, serviceIds: args.service_ids });
-        console.log(`[TS_AGENT] Timeslots fetched for service_ids=${JSON.stringify(args.service_ids)}, date=${startDate}`);
-        return resp.data;
+        // Store full slot metadata in session — LLM only gets date+time
+        const rawSlots: any[] = Array.isArray(resp.data) ? resp.data : [];
+        const availableSlots = rawSlots.map((s: any) => {
+          const req = s.requiredSlots?.[0] || {};
+          return {
+            date:            s.date,
+            time:            s.time,
+            diaryCategoryID: req.diaryCategoryID ?? s.diaryCategoryID ?? 1,
+            estimatedTime:   req.estimatedTime   ?? s.estimatedTime   ?? 30,
+            slotTypeID:      req.slotTypeID       ?? s.slotTypeID      ?? 1,
+          };
+        });
+        tsSessions.set(conversationId, { ...session, serviceIds: args.service_ids, availableSlots });
+        console.log(`[TS_AGENT] Timeslots fetched for service_ids=${JSON.stringify(args.service_ids)}, date=${startDate}, count=${availableSlots.length}`);
+        // Return only date+time — no metadata the LLM can misuse
+        return { available_slots: availableSlots.slice(0, 10).map(s => ({ date: s.date, time: s.time })) };
       }
 
       case 'ts_create_booking': {
@@ -835,13 +849,35 @@ async function tsCreateBooking(
     }));
   }
 
-  // 4. Create sale
+  // 4. Resolve slot metadata from session (never trust LLM for diaryCategoryID)
+  let slotDate = args.slot_date;
+  let slotTime = args.slot_time;
+  let diaryCategoryID = 1;
+  let estimatedTime = 30;
+  let slotTypeID = 1;
+  if (session.availableSlots?.length) {
+    let match = session.availableSlots.find(s => s.date === slotDate && s.time === slotTime);
+    if (!match) match = session.availableSlots.find(s => s.time === slotTime);
+    if (!match) match = session.availableSlots[0];
+    if (match) {
+      if (match.date !== slotDate) {
+        console.warn(`[TS_AGENT] Date mismatch: LLM sent ${slotDate} but slot is ${match.date}. Correcting.`);
+        slotDate = match.date;
+      }
+      diaryCategoryID = match.diaryCategoryID;
+      estimatedTime   = match.estimatedTime;
+      slotTypeID      = match.slotTypeID;
+    }
+  }
+  console.log(`[TS_AGENT] Slot resolved: ${slotDate} ${slotTime} → diary=${diaryCategoryID}, est=${estimatedTime}, type=${slotTypeID}`);
+
+  // 5. Create sale
   try {
     const saleResp = await axios.post(`${base}/createSale`, {
       depotID:     cfg.depotId,
       customerID,
       vehicleID,
-      saleDate:    args.slot_date,
+      saleDate:    slotDate,
       saleStatus:  'Order',
       notes:       'Booked via ReceptionMate chat agent',
       poNumber:    '',
@@ -850,11 +886,11 @@ async function tsCreateBooking(
       channelID:   24, // ReceptionMate API channel
       orderStatus: 'Awaiting Acknowledgement',
       bookingSlot: {
-        date:            args.slot_date,
-        time:            args.slot_time,
-        diaryCategoryID: args.diary_category_id,
-        estimatedTime:   args.estimated_time,
-        slotTypeID:      args.slot_type_id,
+        date:            slotDate,
+        time:            slotTime,
+        diaryCategoryID,
+        estimatedTime,
+        slotTypeID,
       },
       items,
       payments:      [{ paymentMethodID: 0, leaveUnallocated: true }],
@@ -958,6 +994,9 @@ function buildSystemPrompt(
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
     prompt += `- If tyre size not found in vehicle data, ask the customer directly (e.g. "What size tyres does your car take?").\n`;
     prompt += `- Keep replies concise — 1 to 3 sentences max.\n`;
+    prompt += `- Never use markdown: no **bold**, no bullet points, no dashes. Plain sentences only.\n`;
+    prompt += `- When listing tyre options, write them as a short numbered plain-text list with name and price only.\n`;
+    prompt += `  Example: "1. Radar RPX-800+ — £49.26 per tyre\\n2. Zeta Impero XL — £56.67 per tyre"\n`;
     prompt += `- When presenting available time slots, write them as a natural sentence, not a bullet list.\n`;
     prompt += `  Example: "I have 12:30 PM, 1:00 PM, 1:30 PM or 3:30 PM available on March 19th — which works best for you?"\n`;
     prompt += `- If the customer asks to speak to a human, real person, or staff member, or says they want to leave a message:\n`;

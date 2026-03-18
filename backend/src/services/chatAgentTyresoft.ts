@@ -933,6 +933,8 @@ function buildSystemPrompt(
     prompt += `5. Read back and confirm — call ts_create_booking only after YES.\n\n`;
 
     prompt += `RULES:\n`;
+    prompt += `- After ts_create_booking succeeds, always end with a confirmation message like:\n`;
+    prompt += `  "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [date] at [time] for your [service]. Is there anything else I can help with?"\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;

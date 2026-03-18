@@ -927,10 +927,13 @@ function buildSystemPrompt(
     prompt += `   Do NOT ask about engine size, service tier, or anything else before doing the VRM lookup.\n`;
     prompt += `   The VRM lookup returns engineCapacity — use it to auto-select the correct service tier.\n`;
     prompt += `   Never ask the customer for engine size manually.\n`;
-    prompt += `2. Call ts_get_services to match the customer's request using engineCapacity from the VRM lookup.\n`;
-    prompt += `3. Call ts_get_timeslots with the correct service_id(s).\n`;
-    prompt += `4. Offer slots, collect name + phone.\n`;
-    prompt += `5. Read back and confirm — call ts_create_booking only after YES.\n\n`;
+    prompt += `2. After ts_lookup_vehicle, confirm the vehicle with the customer before proceeding.\n`;
+    prompt += `   Say: "I can see that's a [year] [make] [model] — is that correct?"\n`;
+    prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
+    prompt += `3. Call ts_get_services to match the customer's request using engineCapacity from the VRM lookup.\n`;
+    prompt += `4. Call ts_get_timeslots with the correct service_id(s).\n`;
+    prompt += `5. Offer slots, collect name + phone.\n`;
+    prompt += `6. Read back and confirm — call ts_create_booking only after YES.\n\n`;
 
     prompt += `RULES:\n`;
     prompt += `- After ts_create_booking succeeds, always end with a confirmation message like:\n`;

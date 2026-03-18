@@ -703,7 +703,7 @@ async function tsCreateBooking(
       customerID: 0,
       contactData: {
         name:    { firstName, lastName, salutation: '', company: '' },
-        address: { postcode: args.customer_postcode || '', city: '', street1: '', street2: '' },
+        address: { addressLine1: '', addressLine2: '', addressLine3: '', addressLine4: '', city: '', county: '', postcode: args.customer_postcode || '', country: '', longitude: '', latitude: '' },
         contact: { mobile: args.customer_phone, email: args.customer_email || '', telephone: '' },
       },
       priceLevelID:  0,
@@ -741,7 +741,16 @@ async function tsCreateBooking(
           doorplan:            v.doorplan            || '',
           motDue:              v.motDue              || '',
           taxDue:              v.taxDue              || '',
-          tyreSizeOptions:     v.tyreSizeOptions     || [],
+          tyreSizeOptions:     (v.tyreSizeOptions || []).map((t: any) => ({
+            tyreSizeFront:    t.tyreSizeFront    || '',
+            speedRatingFront: t.speedRatingFront || '',
+            loadIndexFront:   t.loadIndexFront   || '',
+            tyrePressureFront:t.tyrePressureFront|| '',
+            tyreSizeRear:     t.tyreSizeRear     || '',
+            speedRatingRear:  t.speedRatingRear  || '',
+            loadIndexRear:    t.loadIndexRear    || '',
+            tyrePressureRear: t.tyrePressureRear || '',
+          })),
         },
         tyreSize: {
           tyreSizeFront:    tyreSizes.tyreSizeFront    || '',
@@ -943,6 +952,8 @@ function buildSystemPrompt(
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
     prompt += `- If tyre size not found in vehicle data, ask the customer directly (e.g. "What size tyres does your car take?").\n`;
     prompt += `- Keep replies concise — 1 to 3 sentences max.\n`;
+    prompt += `- When presenting available time slots, write them as a natural sentence, not a bullet list.\n`;
+    prompt += `  Example: "I have 12:30 PM, 1:00 PM, 1:30 PM or 3:30 PM available on March 19th — which works best for you?"\n`;
     prompt += `- If the customer asks to speak to a human, real person, or staff member, or says they want to leave a message:\n`;
     prompt += `  First ask what their message is and confirm you have their phone number (use saved phone if available).\n`;
     prompt += `  Then call ts_take_message with their message and phone number.\n`;

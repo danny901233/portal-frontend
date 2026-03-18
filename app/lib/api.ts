@@ -392,3 +392,31 @@ export const creditInvoice = async (invoiceId: string, reason: string): Promise<
   const { data } = await api.post(`/api/admin/invoices/${invoiceId}/credit`, { reason });
   return data;
 };
+
+// ── Custom Rules ──────────────────────────────────────────────────────────────
+
+export interface CustomRule {
+  ruleId: string;
+  text: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export const fetchCustomRules = async (garageId: string): Promise<CustomRule[]> => {
+  const { data } = await api.get<{ rules: CustomRule[] }>(`/api/config/${garageId}/rules`);
+  return data.rules;
+};
+
+export const createCustomRule = async (garageId: string, payload: { text: string; active: boolean }): Promise<CustomRule> => {
+  const { data } = await api.post<{ rule: CustomRule }>(`/api/config/${garageId}/rules`, payload);
+  return data.rule;
+};
+
+export const updateCustomRule = async (garageId: string, ruleId: string, payload: { text?: string; active?: boolean }): Promise<CustomRule> => {
+  const { data } = await api.put<{ rule: CustomRule }>(`/api/config/${garageId}/rules/${ruleId}`, payload);
+  return data.rule;
+};
+
+export const deleteCustomRule = async (garageId: string, ruleId: string): Promise<void> => {
+  await api.delete(`/api/config/${garageId}/rules/${ruleId}`);
+};

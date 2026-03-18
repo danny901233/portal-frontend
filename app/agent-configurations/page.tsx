@@ -4,12 +4,17 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import type { ChangeEvent, FormEvent } from 'react';
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import {
+  createCustomRule,
+  deleteCustomRule,
   discoverWebsitePages,
   fetchAgentConfiguration,
+  fetchCustomRules,
   generateVoicePreview,
   ingestWebsiteKnowledge,
   updateAgentConfiguration,
+  updateCustomRule,
 } from '../lib/api';
+import type { CustomRule } from '../lib/api';
 import { getGarageId, isReceptionMateStaff } from '../lib/auth';
 import {
   createEmptyWeeklyOpeningHours,
@@ -226,6 +231,15 @@ export default function AgentConfigurationsPage() {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [, startTransition] = useTransition();
   const canEditAgentType = isReceptionMateStaff();
+
+  // Custom Rules
+  const [customRules, setCustomRules] = useState<CustomRule[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
+  const [showRuleModal, setShowRuleModal] = useState(false);
+  const [editingRule, setEditingRule] = useState<CustomRule | null>(null);
+  const [ruleForm, setRuleForm] = useState({ text: '', active: true });
+  const [ruleFormError, setRuleFormError] = useState('');
+  const [ruleSaving, setRuleSaving] = useState(false);
 
   const query = useQuery({
     queryKey: ['agent-config', garageId],
@@ -553,6 +567,7 @@ export default function AgentConfigurationsPage() {
       setSelectedPageUrls([]);
       setLastScanUrl(null);
     });
+    loadCustomRules();
   }, [query.data, startTransition]);
 
   const hasGarage = useMemo(() => Boolean(garageId), [garageId]);
@@ -690,6 +705,76 @@ export default function AgentConfigurationsPage() {
       },
     }));
     setFeedback(null);
+  };
+
+  const loadCustomRules = async () => {
+    if (!garageId) return;
+    setRulesLoading(true);
+    try {
+      const rules = await fetchCustomRules(garageId);
+      setCustomRules(rules);
+    } finally {
+      setRulesLoading(false);
+    }
+  };
+
+  const handleOpenRuleModal = (rule?: CustomRule) => {
+    setEditingRule(rule ?? null);
+    setRuleForm(rule ? { text: rule.text, active: rule.active } : { text: '', active: true });
+    setRuleFormError('');
+    setShowRuleModal(true);
+  };
+
+  const handleSaveRule = async () => {
+    if (!garageId) return;
+    if (ruleForm.text.trim().length < 10) {
+      setRuleFormError('Rule must be at least 10 characters.');
+      return;
+    }
+    if (ruleForm.text.trim().length > 500) {
+      setRuleFormError('Rule must be 500 characters or fewer.');
+      return;
+    }
+    const activeCount = customRules.filter((r) => r.active).length;
+    if (ruleForm.active && !editingRule?.active && activeCount >= 10) {
+      setRuleFormError('Maximum of 10 active rules reached. Deactivate a rule first.');
+      return;
+    }
+    setRuleSaving(true);
+    setRuleFormError('');
+    try {
+      if (editingRule) {
+        const updated = await updateCustomRule(garageId, editingRule.ruleId, { text: ruleForm.text, active: ruleForm.active });
+        setCustomRules((prev) => prev.map((r) => (r.ruleId === updated.ruleId ? updated : r)));
+      } else {
+        const created = await createCustomRule(garageId, { text: ruleForm.text, active: ruleForm.active });
+        setCustomRules((prev) => [...prev, created]);
+      }
+      setShowRuleModal(false);
+    } catch (err: any) {
+      setRuleFormError(err?.response?.data?.error ?? 'Failed to save rule.');
+    } finally {
+      setRuleSaving(false);
+    }
+  };
+
+  const handleToggleRule = async (rule: CustomRule) => {
+    if (!garageId) return;
+    const activeCount = customRules.filter((r) => r.active).length;
+    if (!rule.active && activeCount >= 10) return;
+    try {
+      const updated = await updateCustomRule(garageId, rule.ruleId, { active: !rule.active });
+      setCustomRules((prev) => prev.map((r) => (r.ruleId === updated.ruleId ? updated : r)));
+    } catch { /* ignore */ }
+  };
+
+  const handleDeleteRule = async (rule: CustomRule) => {
+    if (!garageId) return;
+    if (!window.confirm('Delete this rule?')) return;
+    try {
+      await deleteCustomRule(garageId, rule.ruleId);
+      setCustomRules((prev) => prev.filter((r) => r.ruleId !== rule.ruleId));
+    } catch { /* ignore */ }
   };
 
   const handleInterruptionSensitivityChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1622,6 +1707,115 @@ export default function AgentConfigurationsPage() {
             </>
           )}
         </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-100">Custom Rules</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Plain English instructions Leah follows on every call. Active rules are injected into her system prompt.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleOpenRuleModal()}
+              className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-400"
+            >
+              + Add Rule
+            </button>
+          </div>
+          {customRules.filter((r) => r.active).length === 9 && (
+            <p className="mt-3 text-xs font-medium text-amber-400">9/10 active rules — adding more may affect performance.</p>
+          )}
+          {rulesLoading ? (
+            <p className="mt-4 text-sm text-slate-500">Loading rules…</p>
+          ) : customRules.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-500">No custom rules yet. Add one to customise Leah's behaviour.</p>
+          ) : (
+            <div className="mt-4 space-y-2">
+              {customRules.map((rule) => (
+                <div
+                  key={rule.ruleId}
+                  className={`flex items-start gap-3 rounded-lg border p-3 ${rule.active ? 'border-slate-700 bg-slate-950/40' : 'border-slate-800 bg-slate-950/20 opacity-50'}`}
+                >
+                  <button
+                    type="button"
+                    title={rule.active ? 'Deactivate' : 'Activate'}
+                    onClick={() => handleToggleRule(rule)}
+                    disabled={!rule.active && customRules.filter((r) => r.active).length >= 10}
+                    className={`mt-0.5 h-4 w-4 shrink-0 rounded border-2 transition-colors disabled:cursor-not-allowed ${rule.active ? 'border-sky-500 bg-sky-500' : 'border-slate-600 bg-transparent'}`}
+                  />
+                  <p className="flex-1 text-sm text-slate-200">{rule.text}</p>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenRuleModal(rule)}
+                      className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:text-slate-100"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteRule(rule)}
+                      className="rounded px-1.5 py-0.5 text-xs text-red-400 hover:text-red-300"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {showRuleModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+              <h3 className="text-base font-semibold text-slate-100">
+                {editingRule ? 'Edit Rule' : 'Add Rule'}
+              </h3>
+              <p className="mt-1 text-xs text-slate-400">
+                Write instructions as if telling a member of staff what to do.
+              </p>
+              <textarea
+                className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                rows={4}
+                maxLength={500}
+                placeholder="e.g. We only work on Volkswagen, Audi, Seat and Skoda vehicles."
+                value={ruleForm.text}
+                onChange={(e) => setRuleForm((prev) => ({ ...prev, text: e.target.value }))}
+              />
+              <p className="mt-1 text-right text-xs text-slate-500">{ruleForm.text.length}/500</p>
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={ruleForm.active}
+                  onChange={(e) => setRuleForm((prev) => ({ ...prev, active: e.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                />
+                Active
+              </label>
+              {ruleFormError && <p className="mt-2 text-xs text-red-400">{ruleFormError}</p>}
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRuleModal(false)}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveRule}
+                  disabled={ruleSaving}
+                  className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-50"
+                >
+                  {ruleSaving ? 'Saving…' : 'Save Rule'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <h2 className="text-lg font-semibold text-slate-100">Agent Type</h2>

@@ -213,6 +213,10 @@ function tsBaseUrl(cfg: TyresoftConfig): string {
   return `https://3p-api.tyresoft.biz/v1/${cfg.workspace}`;
 }
 
+function toTitleCase(str: string): string {
+  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function getTomorrow(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -542,6 +546,9 @@ async function executeTool(
           { headers: tsHeaders(tsConfig), timeout: 15000 }
         );
         const vehicle = resp.data;
+        // Title-case make/model so the LLM never sees ALL CAPS from the API
+        if (vehicle.make)  vehicle.make  = toTitleCase(vehicle.make);
+        if (vehicle.model) vehicle.model = toTitleCase(vehicle.model);
         tsSessions.set(conversationId, { ...session, vrm, vehicle });
         console.log(`[TS_AGENT] VRM lookup OK: ${vrm} -> ${vehicle.make} ${vehicle.model} (${vehicle.yearOfManufacture || vehicle.year})`);
         return vehicle;

@@ -8,6 +8,7 @@ import {
   fetchAgentConfiguration,
   generateVoicePreview,
   ingestWebsiteKnowledge,
+  testTyresoftConnection,
   updateAgentConfiguration,
 } from '../lib/api';
 import { getGarageId, isReceptionMateStaff } from '../lib/auth';
@@ -225,6 +226,8 @@ export default function AgentConfigurationsPage() {
   const [playingVoice, setPlayingVoice] = useState<VoiceOption | null>(null);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [, startTransition] = useTransition();
+  const [tsTestStatus, setTsTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
+  const [tsTestError, setTsTestError] = useState('');
   const canEditAgentType = isReceptionMateStaff();
 
   const query = useQuery({
@@ -690,6 +693,26 @@ export default function AgentConfigurationsPage() {
       },
     }));
     setFeedback(null);
+    setTsTestStatus('idle');
+  };
+
+  const handleTsTestConnection = async () => {
+    if (!garageId) return;
+    setTsTestStatus('testing');
+    setTsTestError('');
+    try {
+      const result = await testTyresoftConnection(garageId, {
+        tsWorkspace: formState.tyresoftSettings.tsWorkspace,
+        tsUsername: formState.tyresoftSettings.tsUsername,
+        tsPassword: formState.tyresoftSettings.tsPassword,
+        tsApiKey: formState.tyresoftSettings.tsApiKey,
+      });
+      setTsTestStatus(result.ok ? 'ok' : 'fail');
+      if (!result.ok) setTsTestError(result.error ?? 'Connection failed');
+    } catch {
+      setTsTestStatus('fail');
+      setTsTestError('Connection failed');
+    }
   };
 
   const handleInterruptionSensitivityChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1781,6 +1804,28 @@ export default function AgentConfigurationsPage() {
                   </div>
                 </div>
               )}
+              <div className="mt-5 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleTsTestConnection}
+                  disabled={
+                    tsTestStatus === 'testing' ||
+                    !formState.tyresoftSettings.tsWorkspace ||
+                    !formState.tyresoftSettings.tsUsername ||
+                    !formState.tyresoftSettings.tsPassword ||
+                    !formState.tyresoftSettings.tsApiKey
+                  }
+                  className="rounded-md bg-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {tsTestStatus === 'testing' ? 'Testing…' : 'Test Connection'}
+                </button>
+                {tsTestStatus === 'ok' && (
+                  <span className="text-sm font-medium text-emerald-400">✓ Connected</span>
+                )}
+                {tsTestStatus === 'fail' && (
+                  <span className="text-sm font-medium text-red-400">✗ {tsTestError || 'Connection failed'}</span>
+                )}
+              </div>
             </div>
           </section>
         )}

@@ -831,7 +831,6 @@ async function tsCreateBooking(
       itemCode:   '',
       quantity:   1,
       unitCost:   0,
-      unitPrice:  0,
       discount:   0,
     }));
   }

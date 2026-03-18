@@ -144,7 +144,9 @@ loadTyreInventory();
 // ---------------------------------------------------------------------------
 
 function parseTyreSize(size: string): { width: string; aspect: string; rim: string } {
-  const clean = size.toUpperCase().replace(/\s+/g, '');
+  // Strip trailing load index + speed rating (e.g. "235/60R18 107V" → "235/60R18")
+  const stripped = size.trim().replace(/\s+\d{2,3}[A-Z]{1,2}(\s+.*)?$/, '').trim();
+  const clean = stripped.toUpperCase().replace(/\s+/g, '');
   let width = '', aspect = '', rim = '';
 
   if (clean.includes('/')) {
@@ -982,15 +984,18 @@ function buildSystemPrompt(
 
     prompt += `TYRE BOOKING (customer wants new tyres):\n`;
     prompt += `1. Ask for their vehicle registration and call ts_lookup_vehicle.\n`;
-    prompt += `2. The vehicle lookup returns default tyre sizes — use tyreSizeOptions[0].tyreSizeFront as the size.\n`;
-    prompt += `3. Call ts_search_tyres with that size to find available tyres.\n`;
-    prompt += `4. Present options: brand, price per tyre, availability. Ask how many they need (1, 2, or 4).\n`;
-    prompt += `5. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
-    prompt += `6. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
-    prompt += `7. Offer 3-4 slots in plain language. Ask for name + phone number if not already saved.\n`;
-    prompt += `8. Once you have both name AND phone, call ts_save_customer_details immediately.\n`;
-    prompt += `9. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
-    prompt += `10. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
+    prompt += `2. After ts_lookup_vehicle, confirm the vehicle with the customer before proceeding.\n`;
+    prompt += `   Say: "I can see that's a [year] [make] [model] — is that correct?"\n`;
+    prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
+    prompt += `3. Use tyreSizeOptions[0].tyreSizeFront from the lookup as the tyre size — strip any load index or speed rating (e.g. use "235/60R18" not "235/60R18 107V").\n`;
+    prompt += `4. Call ts_search_tyres with that size to find available tyres.\n`;
+    prompt += `5. Present options: brand, price per tyre, availability. Ask how many they need (1, 2, or 4).\n`;
+    prompt += `6. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
+    prompt += `7. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
+    prompt += `8. Offer 3-4 slots in plain language. Ask for name + phone number if not already saved.\n`;
+    prompt += `9. Once you have both name AND phone, call ts_save_customer_details immediately.\n`;
+    prompt += `10. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
+    prompt += `11. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
 
     prompt += `SERVICE BOOKING (MOT, full service, alignment, air con, etc.):\n`;
     prompt += `1. ALWAYS ask for their vehicle registration plate FIRST and call ts_lookup_vehicle before anything else.\n`;

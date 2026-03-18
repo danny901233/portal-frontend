@@ -61,6 +61,7 @@ interface TyresoftSession {
   customerPhone?: string;
   availableSlots?: { date: string; time: string; diaryCategoryID: number; estimatedTime: number; slotTypeID: number }[];
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
+  lastTyreSearch?: { stock_number: string; description: string; price: number }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -566,28 +567,46 @@ async function executeTool(
             message: `No tyres found for size ${size}${brand ? ` (brand: ${brand})` : ''}. Try a different size or omit the brand filter.`,
           };
         }
+        const tyreList = results.map((t, i) => ({
+          stock_number: t.stockNumber,
+          description:  t.title,
+          brand:        t.brand,
+          price:        t.price,
+          availability: t.availability || 'In Stock',
+          lead_time:    t.leadTime,
+          runflat:      t.runflat,
+          _index:       i + 1,
+        }));
+        // Store real stock codes in session so they can't be hallucinated
+        tsSessions.set(conversationId, {
+          ...session,
+          lastTyreSearch: tyreList.map(t => ({ stock_number: t.stock_number, description: t.description, price: t.price })),
+        });
         console.log(`[TS_AGENT] Tyre search: size=${size}, brand=${brand}, found=${results.length}`);
-        return {
-          found: results.length,
-          size,
-          tyres: results.map(t => ({
-            stock_number: t.stockNumber,
-            description:  t.title,
-            brand:        t.brand,
-            price:        t.price,
-            availability: t.availability || 'In Stock',
-            lead_time:    t.leadTime,
-            runflat:      t.runflat,
-          })),
-        };
+        return { found: results.length, size, tyres: tyreList };
       }
 
       case 'ts_add_tyre_to_basket': {
+        // Resolve real stock number from session — LLM often hallucinates short codes
+        const llmStockNumber = String(args.stock_number || '');
+        const llmDescription = String(args.description || '').toLowerCase();
+        const search = session.lastTyreSearch || [];
+        const matched = search.find(t =>
+          t.stock_number === llmStockNumber ||
+          t.description.toLowerCase().includes(llmDescription) ||
+          llmDescription.includes(t.description.toLowerCase().split(' ').slice(0, 3).join(' '))
+        ) || search.find(t => t.stock_number.includes(llmStockNumber)) || null;
+        const resolvedStockNumber = matched ? matched.stock_number : llmStockNumber;
+        const resolvedPrice       = matched ? matched.price        : (Number(args.unit_price) || 0);
+        const resolvedDescription = matched ? matched.description  : String(args.description || '');
+        if (matched && matched.stock_number !== llmStockNumber) {
+          console.log(`[TS_AGENT] Stock number resolved: LLM sent "${llmStockNumber}" → real code "${resolvedStockNumber}"`);
+        }
         const item: TyreBasketItem = {
-          stockNumber: String(args.stock_number),
+          stockNumber: resolvedStockNumber,
           quantity:    Number(args.quantity) || 4,
-          unitPrice:   Number(args.unit_price) || 0,
-          description: String(args.description || ''),
+          unitPrice:   resolvedPrice,
+          description: resolvedDescription,
         };
         const basket = [...(session.tyreBasket || []), item];
         tsSessions.set(conversationId, { ...session, tyreBasket: basket });

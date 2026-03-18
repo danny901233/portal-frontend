@@ -29,6 +29,7 @@ import metaWhatsappWebhook from './routes/webhooks/meta-whatsapp.js';
 import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
 import metaInstagramWebhook from './routes/webhooks/meta-instagram.js';
 import gocardlessWebhook from './routes/webhooks/gocardless.js';
+import gohighlevelWebhook from './routes/webhooks/gohighlevel.js';
 import featureAnnouncementRouter from './routes/featureAnnouncement.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
@@ -90,6 +91,7 @@ app.use('/api/webhooks', metaWhatsappWebhook);
 app.use('/api/webhooks', metaFacebookWebhook);
 app.use('/api/webhooks', metaInstagramWebhook);
 app.use('/api/webhooks', gocardlessWebhook);
+app.use('/api', gohighlevelWebhook);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
 

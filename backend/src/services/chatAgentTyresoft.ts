@@ -60,6 +60,7 @@ interface TyresoftSession {
   customerName?: string;
   customerPhone?: string;
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
+  availableSlots?: { date: string; time: string; diaryCategoryID: number; estimatedTime: number; slotTypeID: number }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +250,8 @@ export async function getTyresoftChatResponse(
       const username  = raw.tsUsername  || raw.username  || '';
       const password  = raw.tsPassword  || raw.password  || '';
       const apiKey    = raw.tsApiKey    || raw.apiKey    || '';
-      const depotId   = Number(raw.tsDepotId || raw.depotId || 1);
+      const depotIdRaw = raw.tsDepotId || raw.depotId || '1';
+      const depotId = parseInt(String(depotIdRaw), 10) || 1;
       if (workspace && username && password && apiKey) {
         tsConfig = { workspace, username, password, apiKey, depotId };
       }
@@ -493,11 +495,8 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
             customer_phone:    { type: 'string', description: 'UK mobile or phone number' },
             customer_email:    { type: 'string', description: 'Email address (optional)' },
             customer_postcode: { type: 'string', description: 'UK postcode (optional)' },
-            slot_date:         { type: 'string', description: 'Booking date YYYY-MM-DD' },
-            slot_time:         { type: 'string', description: 'Booking time HH:MM' },
-            diary_category_id: { type: 'number', description: 'diaryCategoryID from the chosen slot' },
-            estimated_time:    { type: 'number', description: 'estimatedTime from the chosen slot' },
-            slot_type_id:      { type: 'number', description: 'slotTypeID from the chosen slot' },
+            slot_date:         { type: 'string', description: 'Booking date YYYY-MM-DD from the chosen slot' },
+            slot_time:         { type: 'string', description: 'Booking time HH:MM from the chosen slot' },
             service_ids: {
               type: 'array',
               items: { type: 'number' },
@@ -506,7 +505,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
           },
           required: [
             'customer_name', 'customer_phone',
-            'slot_date', 'slot_time', 'diary_category_id', 'estimated_time', 'slot_type_id',
+            'slot_date', 'slot_time',
             'service_ids',
           ],
         },
@@ -630,9 +629,24 @@ async function executeTool(
           { list: args.service_ids },
           { headers: tsHeaders(tsConfig), timeout: 15000 }
         );
-        tsSessions.set(conversationId, { ...session, serviceIds: args.service_ids });
-        console.log(`[TS_AGENT] Timeslots fetched for service_ids=${JSON.stringify(args.service_ids)}, date=${startDate}`);
-        return resp.data;
+        // Simplify slot data so the LLM doesn't need to parse nested requiredSlots
+        const rawSlots = Array.isArray(resp.data) ? resp.data : [];
+        const simplified = rawSlots.map((s: any) => {
+          const req = s.requiredSlots?.[0] || {};
+          return {
+            date: s.date || req.date,
+            time: s.time || req.time,
+            diaryCategoryID: req.diaryCategoryID ?? 1,
+            estimatedTime: req.estimatedTime ?? s.estimatedTime ?? 30,
+            slotTypeID: req.slotTypeID ?? 1,
+          };
+        });
+        // Store slots in session so we can look up metadata server-side at booking time
+        tsSessions.set(conversationId, { ...session, serviceIds: args.service_ids, availableSlots: simplified });
+        console.log(`[TS_AGENT] Timeslots fetched for service_ids=${JSON.stringify(args.service_ids)}, date=${startDate}, count=${simplified.length}`);
+        // Return only date/time to the LLM — metadata is resolved server-side
+        const slotsForLLM = simplified.map((s: any) => ({ date: s.date, time: s.time }));
+        return { available_slots: slotsForLLM };
       }
 
       case 'ts_create_booking': {
@@ -680,26 +694,72 @@ async function tsCreateBooking(
   const headers = tsHeaders(cfg);
   const base    = tsBaseUrl(cfg);
 
+  // Resolve slot metadata from session (don't trust LLM for diaryCategoryID etc.)
+  let slotDate = args.slot_date;
+  let slotTime = args.slot_time;
+  let diaryCategoryID = 1;
+  let estimatedTime = 30;
+  let slotTypeID = 1;
+
+  if (session.availableSlots?.length) {
+    // Try exact match first
+    let match = session.availableSlots.find(
+      (s) => s.date === slotDate && s.time === slotTime
+    );
+
+    // LLM often hallucinates the year — try matching by time only
+    if (!match) {
+      match = session.availableSlots.find((s) => s.time === slotTime);
+      if (match) {
+        console.warn(`[TS_AGENT] Date mismatch: LLM sent ${slotDate} but slot is ${match.date}. Correcting.`);
+        slotDate = match.date;
+      }
+    }
+
+    // Still no match — just use the first available slot
+    if (!match && session.availableSlots.length > 0) {
+      match = session.availableSlots[0];
+      console.warn(`[TS_AGENT] No slot match at all. Falling back to first slot: ${match.date} ${match.time}`);
+      slotDate = match.date;
+      slotTime = match.time;
+    }
+
+    if (match) {
+      diaryCategoryID = match.diaryCategoryID;
+      estimatedTime = match.estimatedTime;
+      slotTypeID = match.slotTypeID;
+      console.log(`[TS_AGENT] Slot resolved: ${slotDate} ${slotTime} → diary=${diaryCategoryID}, est=${estimatedTime}, type=${slotTypeID}`);
+    }
+  }
+
+  // Use session customer details if LLM didn't provide them
+  const customerName = args.customer_name || session.customerName || '';
+  const customerPhone = args.customer_phone || session.customerPhone || '';
+
   // 1. Save customer
-  const nameParts = String(args.customer_name).trim().split(/\s+/);
+  const nameParts = String(customerName).trim().split(/\s+/);
   const firstName = nameParts[0] || '';
   const lastName  = nameParts.slice(1).join(' ') || '';
 
-  let customerID = 0;
+  let customerID: number | undefined;
   try {
     const custResp = await axios.post(`${base}/saveCustomer`, {
       customerID: 0,
       contactData: {
         name:    { firstName, lastName, salutation: '', company: '' },
-        address: { postcode: args.customer_postcode || '', city: '', street1: '', street2: '' },
-        contact: { mobile: args.customer_phone, email: args.customer_email || '', telephone: '' },
+        address: { addressLine1: '', addressLine2: '', addressLine3: '', addressLine4: '', city: '', county: '', postcode: args.customer_postcode || '', country: '', longitude: '', latitude: '' },
+        contact: { mobile: customerPhone, email: args.customer_email || '', telephone: '' },
       },
       priceLevelID:  0,
       creditAccount: false,
       notes: 'Booked via ReceptionMate chat',
     }, { headers, timeout: 15000 });
 
-    customerID = custResp.data?.customerID || 0;
+    customerID = custResp.data?.customerID;
+    if (!customerID) {
+      console.error('[TS_AGENT] saveCustomer response missing customerID:', custResp.data);
+      return { error: 'Failed to retrieve customer ID from booking system. Please try again.' };
+    }
     console.log(`[TS_AGENT] Customer saved: ${customerID}`);
   } catch (e: any) {
     console.error('[TS_AGENT] saveCustomer failed:', e.response?.data || e.message);
@@ -721,15 +781,21 @@ async function tsCreateBooking(
           model:               v.model               || '',
           yearOfManufacture:   v.yearOfManufacture   || v.year || '',
           colour:              v.colour              || '',
+          mvrisMakeCode:       '',
+          mvrisModelCode:      '',
           vinSerialNo:         v.vinSerialNo         || '',
           dateFirstRegistered: v.dateFirstRegistered || '',
           engineCapacity:      v.engineCapacity      || '',
           transmission:        v.transmission        || '',
           fuel:                v.fuel                || '',
           doorplan:            v.doorplan            || '',
+          engineNumber:        '',
+          co2Emissions:        '',
+          gears:               '',
           motDue:              v.motDue              || '',
-          taxDue:              v.taxDue              || '',
-          tyreSizeOptions:     v.tyreSizeOptions     || [],
+          taxDue:              '',
+          lastVRMLookupDate:   '',
+          tyreSizeOptions:     [],
         },
         tyreSize: {
           tyreSizeFront:    tyreSizes.tyreSizeFront    || '',
@@ -741,6 +807,9 @@ async function tsCreateBooking(
           loadIndexRear:    tyreSizes.loadIndexRear    || '',
           tyrePressureRear: tyreSizes.tyrePressureRear || '',
         },
+        motDueDate: '', taxDueDate: '', serviceDueDate: '',
+        tyreCheckDate: '', nextInspectionDate: '', authorisedVehicle: false,
+        fleetNumber: '', vrmChecked: false,
         flagData: { flagName: '', flagNotes: '' },
       }, { headers, timeout: 15000 });
 
@@ -797,14 +866,39 @@ async function tsCreateBooking(
   } else {
     // Service booking
     items = (args.service_ids as number[]).map((sid) => ({
-      saleLineID: 0,
-      productID:  0,
-      serviceID:  sid,
-      itemCode:   '',
-      quantity:   1,
-      unitCost:   0,
-      unitPrice:  0,
-      discount:   0,
+      saleLineID:                    0,
+      productID:                     0,
+      tyrecatID:                     0,
+      productEANCode:                '',
+      productManufacturerCode:       '',
+      serviceID:                     sid,
+      shippingService:               false,
+      incomeAccountID:               0,
+      sequence:                      0,
+      itemCode:                      '',
+      itemDescription:               '',
+      recordedDescription:           '',
+      technicianID:                  0,
+      quantity:                      1,
+      unitCost:                      0,
+      unitCostIncludesVAT:           false,
+      discount:                      0,
+      vatCodeID:                     0,
+      backOrderQuantity:             0,
+      taggedItemIdentifier:          '',
+      linkLineID:                    0,
+      hideChildLinks:                false,
+      groupLinkSellPrices:           false,
+      voucherCode:                   '',
+      voucherCodeLine:               false,
+      estimatedCost:                 0,
+      protectEstimatedCost:          false,
+      leadTime:                      0,
+      sourceSupplierID:              0,
+      sourcePurchaseOrderID:         0,
+      externalOrderLineReference:    '',
+      changeInQtyAffectingPickList:  false,
+      creditedAmount:                0,
     }));
   }
 
@@ -812,27 +906,53 @@ async function tsCreateBooking(
   try {
     const saleResp = await axios.post(`${base}/createSale`, {
       depotID:     cfg.depotId,
-      customerID,
-      vehicleID,
-      saleDate:    args.slot_date,
+      saleDate:    slotDate,
       saleStatus:  'Order',
       notes:       'Booked via ReceptionMate chat agent',
-      poNumber:    '',
-      flag:        '',
-      flagNotes:   '',
+      worksheetNumber: '',
+      salesAdvisorID:  0,
+      poNumber:    `RM-${Date.now()}`,
+      flag:        1,
+      flagNotes:   'Reception Mate Booking',
+      advertisingSurvey: '',
+      customerID,
+      currencyUnit: { currencyCode: '', conversionRate: 0 },
+      vehicleID,
+      vehicleMileage: 0,
       channelID:   24, // ReceptionMate API channel
       orderStatus: 'Awaiting Acknowledgement',
+      externalOrderReference: '',
+      channelBuyer: '',
+      overrideInvoiceNumber: '',
+      deliveryAddressID: 0,
+      deliveryType: 'NONE',
+      sourceShippingOverride: '',
+      fittingCentreID: 0,
+      deliverToFittingCentre: false,
+      workSummary: '',
+      advisoryNotes: '',
       bookingSlot: {
-        date:            args.slot_date,
-        time:            args.slot_time,
-        diaryCategoryID: args.diary_category_id,
-        estimatedTime:   args.estimated_time,
-        slotTypeID:      args.slot_type_id,
+        date:            slotDate,
+        time:            slotTime,
+        diaryCategoryID,
+        estimatedTime,
+        slotTypeID,
       },
       items,
-      payments:      [{ paymentMethodID: 0, leaveUnallocated: true }],
-      customValues:  [],
+      holdUntilDate: '',
+      authorisePayment: '',
+      payments: [{
+        paymentMethodID: 0, paymentAmount: 0, paymentDate: '',
+        paymentReference: '', externalReference: '',
+        leaveUnallocated: true, depotID: 0,
+        overrideDepositAccountID: 0, customerID: 0,
+      }],
       customGroupID: 0,
+      customValues:  [],
+      vatOverrideAmount: 0,
+      grossTotalForVATOverride: 0,
+      gsQuoteJobNumber: 0,
+      collectionSourceSaleLineID: 0,
     }, { headers, timeout: 20000 });
 
     console.log(`[TS_AGENT] Sale created: saleID=${saleResp.data?.saleID}, saleNumber=${saleResp.data?.saleNumber}`);
@@ -905,17 +1025,17 @@ function buildSystemPrompt(
     prompt += `4. Present options: brand, price per tyre, availability. Ask how many they need (1, 2, or 4).\n`;
     prompt += `5. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
     prompt += `6. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
-    prompt += `7. Offer 3-4 slots in plain language. Ask for name + phone number if not already saved.\n`;
+    prompt += `7. ts_get_timeslots returns {available_slots: [{date, time, diaryCategoryID, estimatedTime, slotTypeID}, ...]}. Pick 2-3 and suggest naturally, e.g. "I've got a 9am or 10:30am tomorrow — which works best?" Ask for name + phone if not saved.\n`;
     prompt += `8. Once you have both name AND phone, call ts_save_customer_details immediately.\n`;
     prompt += `9. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
-    prompt += `10. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
+    prompt += `10. Call ts_create_booking with the EXACT date, time, diaryCategoryID, estimatedTime, and slotTypeID from the chosen slot. Use service_ids=[0] for tyres. Only after explicit YES.\n\n`;
 
     prompt += `SERVICE BOOKING (MOT, service, alignment, etc.):\n`;
     prompt += `1. Ask for their vehicle reg and call ts_lookup_vehicle.\n`;
     prompt += `2. Call ts_get_services to see what's available and match the customer's request.\n`;
     prompt += `3. Call ts_get_timeslots with the correct service_id(s).\n`;
-    prompt += `4. Offer slots, collect name + phone.\n`;
-    prompt += `5. Read back and confirm — call ts_create_booking only after YES.\n\n`;
+    prompt += `4. ts_get_timeslots returns {available_slots: [{date, time, diaryCategoryID, estimatedTime, slotTypeID}, ...]}. Suggest 2-3 naturally. Collect name + phone.\n`;
+    prompt += `5. Read back and confirm — call ts_create_booking with the EXACT slot values (date, time, diaryCategoryID, estimatedTime, slotTypeID) and the service_ids. Only after YES.\n\n`;
 
     prompt += `RULES:\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
@@ -952,7 +1072,12 @@ function buildSystemPrompt(
     prompt += `\nFor bookings, please direct customers to call us${phone} or visit our website${web}.\n\n`;
   }
 
-  prompt += `STYLE: Warm, natural, and human. Keep it short — 1 to 2 sentences unless more detail is needed. Avoid corporate language.\n`;
+  prompt += `STYLE:\n`;
+  prompt += `- Write like a real person texting — warm, casual, concise.\n`;
+  prompt += `- Use lowercase for vehicle details (e.g. "a white Vauxhall Astra" not "WHITE VAUXHALL ASTRA").\n`;
+  prompt += `- Never dump lists or bullet points. Weave info into natural sentences.\n`;
+  prompt += `- 1-2 sentences per reply. Only go longer if genuinely needed.\n`;
+  prompt += `- Avoid corporate/robotic phrasing like "Here are some available time slots for your...".\n`;
 
   return prompt;
 }

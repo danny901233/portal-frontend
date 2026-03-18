@@ -624,6 +624,18 @@ async function executeTool(
 
       case 'ts_get_timeslots': {
         if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
+
+        // Server-side guardrail: full service tiers require a prior VRM lookup
+        const FULL_SERVICE_IDS = [2, 57, 8]; // FS1, FS2, FS3
+        const requestedIds: number[] = args.service_ids || [];
+        if (requestedIds.some(id => FULL_SERVICE_IDS.includes(id)) && !session.vrm) {
+          return {
+            error: 'vehicle_registration_required',
+            directive:
+              'A full service tier depends on engine size. Ask the customer for their registration plate and call ts_lookup_vehicle first, then select the correct tier automatically from engineCapacity.',
+          };
+        }
+
         const startDate = args.start_date || getTomorrow();
         const resp = await axios.post(
           `${tsBaseUrl(tsConfig)}/availableSlotsForBasket/${tsConfig.depotId}/${startDate}`,
@@ -910,9 +922,12 @@ function buildSystemPrompt(
     prompt += `9. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
     prompt += `10. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
 
-    prompt += `SERVICE BOOKING (MOT, service, alignment, etc.):\n`;
-    prompt += `1. Ask for their vehicle reg and call ts_lookup_vehicle.\n`;
-    prompt += `2. Call ts_get_services to see what's available and match the customer's request.\n`;
+    prompt += `SERVICE BOOKING (MOT, full service, alignment, air con, etc.):\n`;
+    prompt += `1. ALWAYS ask for their vehicle registration plate FIRST and call ts_lookup_vehicle before anything else.\n`;
+    prompt += `   Do NOT ask about engine size, service tier, or anything else before doing the VRM lookup.\n`;
+    prompt += `   The VRM lookup returns engineCapacity — use it to auto-select the correct service tier.\n`;
+    prompt += `   Never ask the customer for engine size manually.\n`;
+    prompt += `2. Call ts_get_services to match the customer's request using engineCapacity from the VRM lookup.\n`;
     prompt += `3. Call ts_get_timeslots with the correct service_id(s).\n`;
     prompt += `4. Offer slots, collect name + phone.\n`;
     prompt += `5. Read back and confirm — call ts_create_booking only after YES.\n\n`;

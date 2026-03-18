@@ -846,7 +846,7 @@ async function tsCreateBooking(
       saleStatus:  'Order',
       notes:       'Booked via ReceptionMate chat agent',
       poNumber:    '',
-      flag:        '',
+      flag:        0,
       flagNotes:   '',
       channelID:   24, // ReceptionMate API channel
       orderStatus: 'Awaiting Acknowledgement',

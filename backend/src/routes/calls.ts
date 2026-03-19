@@ -872,8 +872,12 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.status(500).json({ error: 'Recording service not configured' });
     }
 
-    // Search for recent calls TO this specific garage (no From filter — agent may send wrong caller number)
-    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?To=${encodeURIComponent(garagePhoneNumber)}&PageSize=20`;
+    // Search for recent calls TO this specific garage, filtered by caller phone when available
+    let callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?To=${encodeURIComponent(garagePhoneNumber)}&PageSize=20`;
+    if (phoneForTwilioLookup) {
+      callsUrl += `&From=${encodeURIComponent(phoneForTwilioLookup)}`;
+      console.log(`[RECORDING] Including From filter: ${phoneForTwilioLookup}`);
+    }
     const callsResponse = await fetch(callsUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),

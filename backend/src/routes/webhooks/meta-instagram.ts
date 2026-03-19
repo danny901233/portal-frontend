@@ -174,21 +174,25 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
           });
 
           // Send response via Instagram Messaging API (use explicit page ID, not /me/)
-          await axios.post(
-            `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
-            {
-              recipient: { id: senderId },
-              message: { text: agentResponse.content },
-            },
-            {
-              headers: {
-                Authorization: `Bearer ${connection.accessToken}`,
-                'Content-Type': 'application/json',
+          try {
+            await axios.post(
+              `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
+              {
+                recipient: { id: senderId },
+                message: { text: agentResponse.content },
               },
-            }
-          );
-
-          console.log(`Instagram message sent to ${senderId}`);
+              {
+                headers: {
+                  Authorization: `Bearer ${connection.accessToken}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+            console.log(`[Instagram] Message sent to ${senderId}`);
+          } catch (sendError: any) {
+            const metaError = sendError?.response?.data;
+            console.error(`[Instagram] SEND FAILED to ${senderId}:`, JSON.stringify(metaError ?? sendError?.message));
+          }
         } else {
           console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
         }

@@ -2,6 +2,8 @@ import type { Call, CallFeedback, Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { randomInt } from 'node:crypto';
 import { Router } from 'express';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
@@ -1026,6 +1028,38 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       return res.status(404).send('No recording available');
     }
 
+    const recordingValue = call.recordingUrl;
+
+    // S3 recordings — fetch securely using AWS SDK
+    if (recordingValue.startsWith('http') && recordingValue.includes('amazonaws.com')) {
+      const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+      const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+      const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+      const s3Bucket = process.env.S3_BUCKET || 'receptionmate-recordings';
+
+      if (!awsAccessKey || !awsSecretKey) {
+        return res.status(500).send('S3 recording service not configured');
+      }
+
+      // Extract S3 object key from URL
+      const url = new URL(recordingValue);
+      const s3Key = url.pathname.replace(/^\//, '');
+
+      const s3Client = new S3Client({
+        region: awsRegion,
+        credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+      });
+
+      const signedUrl = await getSignedUrl(
+        s3Client,
+        new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }),
+        { expiresIn: 3600 }
+      );
+
+      return res.redirect(302, signedUrl);
+    }
+
+    // Twilio recording (SID or twilio.com URL)
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -1033,12 +1067,10 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       return res.status(500).send('Recording service not configured');
     }
 
-    // Fetch the recording from Twilio and stream it
-    const recordingValue = call.recordingUrl;
     const twilioUrl = recordingValue.startsWith('http')
       ? `${recordingValue.replace(/\.mp3$/i, '')}.mp3`
       : `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordingValue}.mp3`;
-    
+
     const twilioResponse = await fetch(twilioUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
@@ -1052,7 +1084,7 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
     // Stream the audio back to the client
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
-    
+
     const buffer = await twilioResponse.arrayBuffer();
     res.send(Buffer.from(buffer));
   } catch (error) {

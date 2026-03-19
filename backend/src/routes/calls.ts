@@ -796,27 +796,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.status(404).json({ error: 'Recording not available yet for this call' });
     }
 
-    // Strategy 1: Try matching by roomName (most reliable - each call has unique room)
-    if (call.roomName) {
-      console.log(`[RECORDING] Strategy 1: Looking for roomName match: ${call.roomName}`);
-      const existingRecording = await prisma.twilioRecording.findFirst({
-        where: { roomName: call.roomName },
-      });
-
-      if (existingRecording?.recordingSid) {
-        console.log(`[RECORDING] Strategy 1 SUCCESS: Found roomName match`);
-        // Update call with recordingUrl
-        await prisma.call.update({
-          where: { id },
-          data: {
-            recordingUrl: existingRecording.recordingSid,
-          },
-        });
-        return res.json({ recordingUrl: `/api/calls/${id}/recording/audio` });
-      }
-    }
-
-    // Strategy 2: Fetch from Twilio API with smart matching
+    // Fetch from Twilio API with phone-based matching
     // Prefer fromNumber (full E.164) over customerPhone (may be partial/truncated)
     let phoneForTwilioLookup = call.fromNumber || call.customerPhone;
     if (!phoneForTwilioLookup) {

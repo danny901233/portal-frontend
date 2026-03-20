@@ -51,6 +51,7 @@ model Garage {
   smsBookingLinks SmsBookingLink[]
   invoices Invoice[]
   messageTemplates MessageTemplate[]
+  outboundCampaigns OutboundCampaign[]
 }
 
 model Call {
@@ -339,6 +340,44 @@ enum ConfirmedBookingCategory {
   diagnostic
   mot
   other
+}
+
+model OutboundCampaign {
+  id            String   @id @default(cuid())
+  garageId      String
+  garage        Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  name          String
+  channel       String   @default("sms") // "sms" | "whatsapp"
+  status        String   @default("draft") // "draft" | "sending" | "sent"
+  sentAt        DateTime?
+  totalContacts Int      @default(0)
+  sentCount     Int      @default(0)
+  contacts      OutboundContact[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([garageId])
+}
+
+model OutboundContact {
+  id             String   @id @default(cuid())
+  campaignId     String
+  campaign       OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  garageId       String
+  customerName   String
+  phone          String
+  registration   String?
+  motDueDate     String?
+  serviceDueDate String?
+  messageType    String   @default("mot") // "mot" | "service"
+  status         String   @default("pending") // "pending" | "sent" | "replied" | "opted_out" | "failed"
+  messageSid     String?
+  conversationId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([campaignId])
+  @@index([garageId, phone])
 }
 
 model Invoice {

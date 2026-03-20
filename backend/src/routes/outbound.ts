@@ -55,8 +55,8 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Derive messageType per contact
-    const contactData = contacts.map((c) => ({
+    // Derive messageType per contact and normalise phones
+    const normalised = contacts.map((c) => ({
       garageId,
       customerName: c.customerName?.trim() || 'Customer',
       phone: normalisePhone(c.phone || ''),
@@ -64,7 +64,19 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
       motDueDate: c.motDueDate?.trim() || null,
       serviceDueDate: c.serviceDueDate?.trim() || null,
       messageType: c.motDueDate?.trim() ? 'mot' : 'service',
-      status: 'pending',
+    }));
+
+    // Cross-campaign DNC: mark opted-out phones at import time
+    const phones = normalised.map((c) => c.phone).filter(Boolean);
+    const optedOut = await prisma.outboundContact.findMany({
+      where: { garageId, phone: { in: phones }, status: 'opted_out' },
+      select: { phone: true },
+    });
+    const dncPhones = new Set(optedOut.map((c) => c.phone));
+
+    const contactData = normalised.map((c) => ({
+      ...c,
+      status: dncPhones.has(c.phone) ? 'opted_out' : 'pending',
     }));
 
     const campaign = await prisma.outboundCampaign.create({
@@ -178,9 +190,26 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
     // Respond immediately — send in background
     res.json({ success: true, message: `Sending to ${campaign.contacts.length} contacts` });
 
+    // Build DNC set — phones that have ever opted out for this garage
+    const optedOutContacts = await prisma.outboundContact.findMany({
+      where: { garageId: campaign.garageId, status: 'opted_out' },
+      select: { phone: true },
+    });
+    const dncSet = new Set(optedOutContacts.map((c) => c.phone));
+
     let sentCount = 0;
 
     for (const contact of campaign.contacts) {
+      // Cross-campaign DNC check
+      if (dncSet.has(contact.phone)) {
+        console.log(`[OUTBOUND] Skipping DNC number ${contact.phone}`);
+        await prisma.outboundContact.update({
+          where: { id: contact.id },
+          data: { status: 'opted_out' },
+        });
+        continue;
+      }
+
       try {
         const dueDate = contact.motDueDate || contact.serviceDueDate || 'soon';
         const body = buildMessage(

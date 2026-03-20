@@ -96,12 +96,15 @@ export default function OutboundPage() {
     mutationFn: createOutboundCampaign,
     onSuccess: async ({ campaign }) => {
       queryClient.invalidateQueries({ queryKey: ['outbound-campaigns', garageId] });
-      showToast('success', `Campaign "${campaign.name}" created with ${campaign.totalContacts} contacts.`);
-      // Immediately trigger send
+      const dncCount = campaign.contacts?.filter((c) => c.status === 'opted_out').length ?? 0;
+      const sendable = campaign.totalContacts - dncCount;
+      if (dncCount > 0) {
+        showToast('error', `${dncCount} contact${dncCount > 1 ? 's' : ''} skipped — previously opted out. ${sendable} will be messaged.`);
+      }
       setSendingId(campaign.id);
       try {
         await sendOutboundCampaign(campaign.id);
-        showToast('success', `Messages are being sent!`);
+        showToast('success', `Messages are being sent to ${sendable} contact${sendable !== 1 ? 's' : ''}!`);
       } catch {
         showToast('error', 'Campaign created but failed to trigger send. Try the Send button on the campaign.');
       } finally {

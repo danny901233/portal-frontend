@@ -821,7 +821,16 @@ async function tsCreateBooking(
 
   if (tyreBasket.length > 0) {
     // Tyre booking — use stock number items (serviceID: 0)
-    items = tyreBasket.map(t => ({
+    // Consolidate duplicate stock numbers (sum quantities) before building items
+    const consolidatedTyres = tyreBasket.reduce((acc: Record<string, typeof tyreBasket[0]>, t) => {
+      if (acc[t.stockNumber]) {
+        acc[t.stockNumber] = { ...acc[t.stockNumber], quantity: acc[t.stockNumber].quantity + t.quantity };
+      } else {
+        acc[t.stockNumber] = { ...t };
+      }
+      return acc;
+    }, {});
+    items = Object.values(consolidatedTyres).map(t => ({
       saleLineID:                    0,
       productID:                     0,
       tyrecatID:                     0,
@@ -831,6 +840,7 @@ async function tsCreateBooking(
       shippingService:               false,
       incomeAccountID:               0,
       sequence:                      0,
+      productItem:                   true,
       itemCode:                      t.stockNumber,
       itemDescription:               t.description,
       recordedDescription:           '',
@@ -856,7 +866,7 @@ async function tsCreateBooking(
       changeInQtyAffectingPickList:  false,
       creditedAmount:                0,
     }));
-    console.log(`[TS_AGENT] Building tyre sale: ${tyreBasket.length} tyre line(s)`);
+    console.log(`[TS_AGENT] Building tyre sale: ${Object.keys(consolidatedTyres).length} consolidated line(s) from ${tyreBasket.length} basket item(s)`);
   } else {
     // Service booking — look up price from TYRESOFT_SERVICES by service ID
     items = (args.service_ids as number[]).map((sid) => {

@@ -871,51 +871,30 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     const callsData = await callsResponse.json();
 
-    // Find calls within 90 seconds, score by duration similarity
-    const callTime = call.createdAt.getTime();
-    const tightTolerance = 90 * 1000; // 90 seconds (safer window)
-    const broadTolerance = 5 * 60 * 1000; // 5 minutes (fallback)
-
+    // Score all calls by duration similarity — no time window exclusion.
+    // From+To filter already scopes to exact caller+garage, so duration picks
+    // the right call if the same person called twice in one day.
     interface ScoredCall {
       twilioCall: any;
-      timeDiff: number;
       durationDiff: number;
-      score: number;
     }
 
     const scoredCalls: ScoredCall[] = [];
 
     for (const twilioCall of callsData.calls || []) {
-      const twilioCallTime = new Date(twilioCall.start_time).getTime();
-      const timeDiff = Math.abs(twilioCallTime - callTime);
-
-      // Only consider calls within broad tolerance
-      if (timeDiff < broadTolerance) {
-        const twilioCallDuration = parseInt(twilioCall.duration || '0');
-        const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
-
-        // Score: lower is better (prefer close time + close duration)
-        // Time is weighted more heavily (×1000) than duration
-        const score = timeDiff + (durationDiff * 1000);
-
-        scoredCalls.push({
-          twilioCall,
-          timeDiff,
-          durationDiff,
-          score,
-        });
-      }
+      const twilioCallDuration = parseInt(twilioCall.duration || '0');
+      const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
+      scoredCalls.push({ twilioCall, durationDiff });
     }
 
-    // Sort by score (best match first)
-    scoredCalls.sort((a, b) => a.score - b.score);
+    // Sort by duration similarity (closest duration wins)
+    scoredCalls.sort((a, b) => a.durationDiff - b.durationDiff);
 
-    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls within broad window`);
+    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls, matching by duration`);
 
-    // Try candidates in order of best score
-    for (const { twilioCall, timeDiff, durationDiff, score } of scoredCalls) {
-      const withinTightWindow = timeDiff < tightTolerance;
-      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: timeDiff=${timeDiff}ms, durationDiff=${durationDiff}s, score=${score}, inTightWindow=${withinTightWindow}`);
+    // Try candidates in order of best duration match
+    for (const { twilioCall, durationDiff } of scoredCalls) {
+      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: durationDiff=${durationDiff}s (twilio=${twilioCall.duration}s, portal=${call.durationSeconds}s)`);
 
       // CRITICAL SECURITY: Verify this call was TO our garage's number
       // Prevents cross-garage contamination when same customer calls multiple garages
@@ -943,7 +922,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
           const recording = recordingsData.recordings[0];
           const recordingSid = recording.sid;
 
-          console.log(`[RECORDING] Strategy 2 SUCCESS: Found recording with score=${score}`);
+          console.log(`[RECORDING] SUCCESS: Found recording, durationDiff=${durationDiff}s`);
 
           // Store in TwilioRecording for future lookups
           await prisma.twilioRecording.upsert({

@@ -858,16 +858,20 @@ async function tsCreateBooking(
     }));
     console.log(`[TS_AGENT] Building tyre sale: ${tyreBasket.length} tyre line(s)`);
   } else {
-    // Service booking
-    items = (args.service_ids as number[]).map((sid) => ({
-      saleLineID: 0,
-      productID:  0,
-      serviceID:  sid,
-      itemCode:   '',
-      quantity:   1,
-      unitCost:   0,
-      discount:   0,
-    }));
+    // Service booking — look up price from TYRESOFT_SERVICES by service ID
+    items = (args.service_ids as number[]).map((sid) => {
+      const svc = TYRESOFT_SERVICES.find((s) => s.id === sid);
+      return {
+        saleLineID:           0,
+        productID:            0,
+        serviceID:            sid,
+        itemCode:             '',
+        quantity:             1,
+        unitCost:             svc?.price ?? 0,
+        unitCostIncludesVAT:  true,
+        discount:             0,
+      };
+    });
   }
 
   // 4. Resolve slot metadata from session (never trust LLM for diaryCategoryID)

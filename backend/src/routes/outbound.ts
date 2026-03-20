@@ -177,9 +177,7 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
 
     const twilioClient = getTwilioClient();
     const fromNumber = process.env.TWILIO_PHONE_NUMBER || '';
-    const fromWhatsApp = process.env.TWILIO_WHATSAPP_NUMBER
-      ? `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`
-      : `whatsapp:${fromNumber}`;
+    const fromWhatsApp = `whatsapp:${fromNumber}`;
 
     // Mark campaign as sending
     await prisma.outboundCampaign.update({

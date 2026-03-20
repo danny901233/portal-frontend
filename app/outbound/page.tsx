@@ -75,7 +75,7 @@ export default function OutboundPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [campaignName, setCampaignName] = useState('');
-  const [channel, setChannel] = useState<'sms' | 'whatsapp'>('sms');
+  const [channel, setChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
   const [preview, setPreview] = useState<OutboundContactInput[] | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);

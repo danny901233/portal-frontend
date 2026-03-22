@@ -392,3 +392,67 @@ export const creditInvoice = async (invoiceId: string, reason: string): Promise<
   const { data } = await api.post(`/api/admin/invoices/${invoiceId}/credit`, { reason });
   return data;
 };
+
+// ---------------------------------------------------------------------------
+// Outbound Messaging
+// ---------------------------------------------------------------------------
+
+export interface OutboundContactInput {
+  customerName: string;
+  phone: string;
+  registration?: string;
+  motDueDate?: string;
+  serviceDueDate?: string;
+}
+
+export interface OutboundContact extends OutboundContactInput {
+  id: string;
+  campaignId: string;
+  garageId: string;
+  messageType: string;
+  status: string;
+  messageSid?: string | null;
+  conversationId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OutboundCampaign {
+  id: string;
+  garageId: string;
+  name: string;
+  channel: 'sms' | 'whatsapp';
+  status: string;
+  totalContacts: number;
+  sentCount: number;
+  sentAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  contacts?: OutboundContact[];
+  _count?: { contacts: number };
+}
+
+export const createOutboundCampaign = async (payload: {
+  garageId: string;
+  name: string;
+  channel: 'sms' | 'whatsapp';
+  contacts: OutboundContactInput[];
+}): Promise<{ campaign: OutboundCampaign }> => {
+  const { data } = await api.post('/api/outbound/campaigns', payload);
+  return data;
+};
+
+export const fetchOutboundCampaigns = async (garageId: string): Promise<{ campaigns: OutboundCampaign[] }> => {
+  const { data } = await api.get('/api/outbound/campaigns', { params: { garageId } });
+  return data;
+};
+
+export const fetchOutboundCampaign = async (id: string): Promise<{ campaign: OutboundCampaign }> => {
+  const { data } = await api.get(`/api/outbound/campaigns/${id}`);
+  return data;
+};
+
+export const sendOutboundCampaign = async (id: string): Promise<{ success: boolean; message: string }> => {
+  const { data } = await api.post(`/api/outbound/campaigns/${id}/send`);
+  return data;
+};

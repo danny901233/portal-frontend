@@ -168,16 +168,32 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
       return res.status(400).json({ error: 'No pending contacts to send to' });
     }
 
-    // Get garage name for message
-    const agentConfig = await prisma.agentConfiguration.findUnique({
-      where: { garageId: campaign.garageId },
-      select: { branchName: true },
-    });
+    // Get garage name + Twilio number from DB
+    const [agentConfig, garage] = await Promise.all([
+      prisma.agentConfiguration.findUnique({
+        where: { garageId: campaign.garageId },
+        select: { branchName: true },
+      }),
+      prisma.garage.findUnique({
+        where: { id: campaign.garageId },
+        select: { twilioNumber: true },
+      }),
+    ]);
     const garageName = agentConfig?.branchName || 'our garage';
 
-    const twilioClient = getTwilioClient();
-    const fromNumber = process.env.TWILIO_PHONE_NUMBER || '';
+    // Use the garage's own Twilio number (stored in portal) with fallback to env var
+    const rawNumber = garage?.twilioNumber || process.env.TWILIO_PHONE_NUMBER || '';
+    // Normalise to E.164 (strip spaces, ensure + prefix)
+    const fromNumber = rawNumber.replace(/\s+/g, '');
     const fromWhatsApp = `whatsapp:${fromNumber}`;
+
+    if (!fromNumber) {
+      console.error(`[OUTBOUND] No Twilio number configured for garage ${campaign.garageId}`);
+      await prisma.outboundCampaign.update({ where: { id: campaign.id }, data: { status: 'draft' } });
+      return;
+    }
+
+    const twilioClient = getTwilioClient();
 
     // Mark campaign as sending
     await prisma.outboundCampaign.update({

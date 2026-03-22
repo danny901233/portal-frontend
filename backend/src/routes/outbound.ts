@@ -28,9 +28,9 @@ function buildMessage(
   const reg = registration ? ` for your ${registration.toUpperCase()}` : '';
 
   if (messageType === 'service') {
-    return `Hi ${firstName}, your service is due on ${dueDate}${reg}. Would you like to book it in at ${garageName}? Reply YES to get booked in, or STOP to opt out.`;
+    return `Hi ${firstName}, this is Leah from ${garageName}. Your${reg} is due a service on ${dueDate}. Would you like to book that in with me? Reply STOP to opt out.`;
   }
-  return `Hi ${firstName}, your MOT is due on ${dueDate}${reg}. Would you like to book it in at ${garageName}? Reply YES to get booked in, or STOP to opt out.`;
+  return `Hi ${firstName}, this is Leah from ${garageName}. Your${reg} MOT is due on ${dueDate}. Would you like to book that in with me? Reply STOP to opt out.`;
 }
 
 // ---------------------------------------------------------------------------

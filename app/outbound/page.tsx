@@ -18,7 +18,6 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const REQUIRED_COLS = ['customer_name', 'phone'];
-const EXPECTED_COLS = ['customer_name', 'phone', 'registration', 'mot_due_date', 'service_due_date'];
 
 function parseCSV(text: string): { rows: OutboundContactInput[]; error?: string } {
   const lines = text.trim().split(/\r?\n/);
@@ -137,7 +136,7 @@ export default function OutboundPage() {
 
   const resetForm = () => {
     setCampaignName('');
-    setChannel('sms');
+    setChannel('whatsapp');
     setPreview(null);
     setParseError(null);
     if (fileRef.current) fileRef.current.value = '';

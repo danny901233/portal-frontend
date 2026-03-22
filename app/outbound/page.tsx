@@ -52,8 +52,15 @@ function parseCSV(text: string): { rows: OutboundContactInput[]; error?: string 
     const get = (col: string) => (idx(col) >= 0 ? cells[idx(col)]?.trim() || undefined : undefined);
 
     const customerName = get('customer_name');
-    const phone = get('phone');
-    if (!customerName || !phone) continue;
+    const rawPhone = get('phone');
+    if (!customerName || !rawPhone) continue;
+
+    // Fix scientific notation phone numbers exported by Excel (e.g. 4.47911E+11 → +447911...)
+    let phone = rawPhone;
+    if (/^\d+\.?\d*[eE][+\-]?\d+$/.test(rawPhone)) {
+      const expanded = Number(rawPhone).toFixed(0);
+      phone = expanded.startsWith('44') ? `+${expanded}` : expanded;
+    }
 
     rows.push({
       customerName,

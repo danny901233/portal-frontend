@@ -632,6 +632,11 @@ router.put(
         })
       : createDefaultGarageHiveSettings();
 
+    const existingConfig = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { agentScript: true, integrationProviderConfig: true },
+    });
+
     const rawTyresoft = data.tyresoftSettings ?? {};
     // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
     // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
@@ -682,11 +687,6 @@ router.put(
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
       voice: data.voice || 'leah',
     };
-
-    const existingConfig = await prisma.agentConfiguration.findUnique({
-      where: { garageId },
-      select: { agentScript: true, integrationProviderConfig: true },
-    });
 
     const [configuration, garageRecord] = await Promise.all([
       prisma.agentConfiguration.upsert({

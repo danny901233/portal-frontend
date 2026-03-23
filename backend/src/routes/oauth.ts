@@ -87,8 +87,8 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
       // Instagram Business Login token exchange
       // Instagram requires params in POST body as form data, not query string
       const tokenBody = new URLSearchParams({
-        client_id: INSTAGRAM_APP_ID,
-        client_secret: INSTAGRAM_APP_SECRET,
+        client_id: INSTAGRAM_APP_ID!,
+        client_secret: INSTAGRAM_APP_SECRET!,
         grant_type: 'authorization_code',
         redirect_uri: META_REDIRECT_URI,
         code: code as string,

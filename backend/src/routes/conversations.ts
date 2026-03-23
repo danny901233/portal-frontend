@@ -304,14 +304,15 @@ async function sendReplyToChannel(
   }
 
   if (platform === 'instagram') {
-    if (!platformUserId || !connection.pageId) return;
+    if (!platformUserId) return;
+    // Instagram Business Login uses graph.instagram.com with instagramAccountId
+    const igSenderId = connection.instagramAccountId || connection.pageId;
+    if (!igSenderId) return;
     await axios.post(
-      `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
+      `https://graph.instagram.com/v21.0/${igSenderId}/messages`,
       {
         recipient: { id: platformUserId },
         message: { text: message },
-        messaging_type: 'MESSAGE_TAG',
-        tag: 'HUMAN_AGENT',
       },
       {
         headers: {

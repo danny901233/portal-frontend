@@ -341,7 +341,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
         isManagerUser={isStaffUser || isAdminUser}
         hasOutboundAccess={isStaffUser && garageId === process.env.NEXT_PUBLIC_RM_BRANCH_GARAGE_ID}
         messagesNeedingAttention={messagesNeedingAttention}
-        conversationsNeedingAttention={conversationsNeedingAttention}
       />
       <div className="flex flex-1 flex-col">
         <Navbar

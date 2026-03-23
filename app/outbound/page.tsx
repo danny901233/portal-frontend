@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { getGarageId } from '../lib/auth';
+import { useRef, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { getGarageId, isReceptionMateStaff } from '../lib/auth';
 import { cn } from '../lib/utils';
 import {
   createOutboundCampaign,
@@ -76,8 +77,15 @@ function parseCSV(text: string): { rows: OutboundContactInput[]; error?: string 
 }
 
 export default function OutboundPage() {
+  const router = useRouter();
   const garageId = getGarageId() || '';
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!isReceptionMateStaff()) {
+      router.replace('/dashboard');
+    }
+  }, [router]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [campaignName, setCampaignName] = useState('');

@@ -82,11 +82,10 @@ export default function OutboundPage() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const rmGarageId = process.env.NEXT_PUBLIC_RM_BRANCH_GARAGE_ID;
-    if (!isReceptionMateStaff() || (rmGarageId && garageId !== rmGarageId)) {
+    if (!isReceptionMateStaff()) {
       router.replace('/dashboard');
     }
-  }, [router, garageId]);
+  }, [router]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [campaignName, setCampaignName] = useState('');

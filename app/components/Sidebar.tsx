@@ -15,7 +15,7 @@ const baseNavigation = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Calls', href: '/calls' },
   { name: 'Messages', href: '/messages' },
-  { name: 'Outbound', href: '/outbound', requiresOutbound: true },
+  { name: 'Outbound', href: '/outbound', requiresStaff: true },
   { name: 'Templates', href: '/templates', requiresManager: true },
   { name: 'Agent Configurations', href: '/agent-configurations', requiresManager: true },
   { name: 'Integrations', href: '/integrations', requiresStaff: true },
@@ -33,7 +33,6 @@ export default function Sidebar({
   hasMessagingAccess = false,
   hasManagerAccess = false,
   isManagerUser = false,
-  hasOutboundAccess = false,
   messagesNeedingAttention = 0,
 }: {
   activePath: string;
@@ -41,7 +40,6 @@ export default function Sidebar({
   hasMessagingAccess?: boolean;
   hasManagerAccess?: boolean;
   isManagerUser?: boolean;
-  hasOutboundAccess?: boolean;
   messagesNeedingAttention?: number;
 }) {
   const items = useMemo(() => {
@@ -54,10 +52,6 @@ export default function Sidebar({
       // Only show Billing link if user is a manager
       if (item.href === '/billing') {
         return hasManagerAccess;
-      }
-      // Outbound only for RM staff viewing the RM Branch garage
-      if (item.requiresOutbound) {
-        return hasOutboundAccess;
       }
       // Agent Configurations only for managers and staff
       if (item.requiresManager) {
@@ -74,7 +68,7 @@ export default function Sidebar({
       ...item,
       isActive: activePath.startsWith(item.href),
     }));
-  }, [activePath, showAdminLink, hasMessagingAccess, hasManagerAccess, hasOutboundAccess]);
+  }, [activePath, showAdminLink, hasMessagingAccess, hasManagerAccess]);
 
   const supportItems = useMemo(
     () =>

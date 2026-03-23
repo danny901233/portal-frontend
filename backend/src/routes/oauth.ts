@@ -181,6 +181,18 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
       connectionData.accountName = igUsername ? `@${igUsername}` : igUserId;
       console.log('[OAuth] Instagram account ID:', igUserId, 'Username:', igUsername);
 
+      // Subscribe this Instagram account to webhook events (messages field)
+      try {
+        await axios.post(
+          `https://graph.instagram.com/v21.0/${igUserId}/subscribed_apps`,
+          null,
+          { params: { subscribed_fields: 'messages', access_token: accessToken } }
+        );
+        console.log('[OAuth] Instagram webhook subscription created for', igUserId);
+      } catch (subErr: any) {
+        console.error('[OAuth] Failed to subscribe Instagram account to webhooks:', subErr?.response?.data ?? subErr?.message);
+      }
+
     } else if (platform === 'facebook') {
       // Get Facebook Pages
       console.log('[OAuth] Access token (first 20 chars):', accessToken?.substring(0, 20));

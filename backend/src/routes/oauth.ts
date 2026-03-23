@@ -91,7 +91,7 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
         client_secret: INSTAGRAM_APP_SECRET,
         grant_type: 'authorization_code',
         redirect_uri: META_REDIRECT_URI,
-        code,
+        code: code as string,
       });
       const tokenResponse = await axios.post('https://api.instagram.com/oauth/access_token', tokenBody, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

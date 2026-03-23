@@ -339,6 +339,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         hasMessagingAccess={hasMessagingAccess}
         hasManagerAccess={managedGarageIds.length > 0}
         isManagerUser={isStaffUser || isAdminUser}
+        hasOutboundAccess={isStaffUser && garageId === process.env.NEXT_PUBLIC_RM_BRANCH_GARAGE_ID}
         messagesNeedingAttention={messagesNeedingAttention}
         conversationsNeedingAttention={conversationsNeedingAttention}
       />

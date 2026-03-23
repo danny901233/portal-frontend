@@ -289,6 +289,8 @@ async function sendReplyToChannel(
       {
         recipient: { id: platformUserId },
         message: { text: message },
+        messaging_type: 'MESSAGE_TAG',
+        tag: 'HUMAN_AGENT',
       },
       {
         headers: {
@@ -308,6 +310,8 @@ async function sendReplyToChannel(
       {
         recipient: { id: platformUserId },
         message: { text: message },
+        messaging_type: 'MESSAGE_TAG',
+        tag: 'HUMAN_AGENT',
       },
       {
         headers: {

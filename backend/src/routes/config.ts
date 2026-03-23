@@ -633,7 +633,8 @@ router.put(
       : createDefaultGarageHiveSettings();
 
     const rawTyresoft = data.tyresoftSettings ?? {};
-    // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them
+    // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
+    // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
@@ -643,6 +644,8 @@ router.put(
             tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
             tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
           }
+        : resolvedAgentScript === 'tyresoft-agent' && existingConfig?.integrationProviderConfig
+        ? existingConfig.integrationProviderConfig as Prisma.InputJsonValue
         : requestedProvider === 'garage_hive'
         ? {
             instanceUrl: garageHiveSettings.instanceUrl,
@@ -682,7 +685,7 @@ router.put(
 
     const existingConfig = await prisma.agentConfiguration.findUnique({
       where: { garageId },
-      select: { agentScript: true },
+      select: { agentScript: true, integrationProviderConfig: true },
     });
 
     const [configuration, garageRecord] = await Promise.all([

@@ -85,14 +85,16 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
 
     if (platform === 'instagram') {
       // Instagram Business Login token exchange
-      const tokenResponse = await axios.post('https://api.instagram.com/oauth/access_token', null, {
-        params: {
-          client_id: INSTAGRAM_APP_ID,
-          client_secret: INSTAGRAM_APP_SECRET,
-          grant_type: 'authorization_code',
-          redirect_uri: META_REDIRECT_URI,
-          code,
-        },
+      // Instagram requires params in POST body as form data, not query string
+      const tokenBody = new URLSearchParams({
+        client_id: INSTAGRAM_APP_ID,
+        client_secret: INSTAGRAM_APP_SECRET,
+        grant_type: 'authorization_code',
+        redirect_uri: META_REDIRECT_URI,
+        code,
+      });
+      const tokenResponse = await axios.post('https://api.instagram.com/oauth/access_token', tokenBody, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
       const shortLivedToken = tokenResponse.data.access_token;
 

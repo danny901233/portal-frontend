@@ -304,12 +304,9 @@ async function sendReplyToChannel(
   }
 
   if (platform === 'instagram') {
-    if (!platformUserId) return;
-    // Instagram Business Login uses graph.instagram.com with instagramAccountId
-    const igSenderId = connection.instagramAccountId || connection.pageId;
-    if (!igSenderId) return;
+    if (!platformUserId || !connection.pageId) return;
     await axios.post(
-      `https://graph.instagram.com/v21.0/${igSenderId}/messages`,
+      `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
       {
         recipient: { id: platformUserId },
         message: { text: message },

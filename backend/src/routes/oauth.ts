@@ -30,7 +30,7 @@ router.post('/oauth/meta/initiate', authenticate, async (req: Request, res: Resp
     const scopes: Record<string, string> = {
       whatsapp: 'whatsapp_business_management,whatsapp_business_messaging',
       facebook: 'pages_messaging,pages_manage_metadata,pages_show_list,business_management',
-      instagram: 'instagram_business_basic,instagram_business_manage_messages',
+      instagram: 'instagram_basic,pages_messaging,pages_show_list,business_management',
     };
 
     const scope = scopes[platform];
@@ -41,15 +41,9 @@ router.post('/oauth/meta/initiate', authenticate, async (req: Request, res: Resp
     // Store state to verify callback
     const state = Buffer.from(JSON.stringify({ garageId, platform })).toString('base64');
 
-    // Instagram Business Login uses instagram.com, others use facebook.com
-    let authUrl: URL;
-    if (platform === 'instagram') {
-      authUrl = new URL('https://www.instagram.com/oauth/authorize');
-      authUrl.searchParams.set('client_id', INSTAGRAM_APP_ID!);
-    } else {
-      authUrl = new URL('https://www.facebook.com/v18.0/dialog/oauth');
-      authUrl.searchParams.set('client_id', META_APP_ID!);
-    }
+    // All platforms use facebook.com OAuth dialog (Instagram connects via Facebook Page)
+    const authUrl = new URL('https://www.facebook.com/v18.0/dialog/oauth');
+    authUrl.searchParams.set('client_id', META_APP_ID!);
     authUrl.searchParams.set('redirect_uri', META_REDIRECT_URI!);
     authUrl.searchParams.set('scope', scope);
     authUrl.searchParams.set('state', state);
@@ -83,42 +77,16 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
     // Exchange code for access token — Instagram Business Login uses a different endpoint
     let accessToken: string;
 
-    if (platform === 'instagram') {
-      // Instagram Business Login token exchange
-      // Instagram requires params in POST body as form data, not query string
-      const tokenBody = new URLSearchParams({
-        client_id: INSTAGRAM_APP_ID!,
-        client_secret: INSTAGRAM_APP_SECRET!,
-        grant_type: 'authorization_code',
+    // All platforms (including instagram) use Facebook OAuth token exchange
+    const tokenResponse = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
+      params: {
+        client_id: META_APP_ID,
+        client_secret: META_APP_SECRET,
         redirect_uri: META_REDIRECT_URI,
-        code: code as string,
-      });
-      const tokenResponse = await axios.post('https://api.instagram.com/oauth/access_token', tokenBody, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-      const shortLivedToken = tokenResponse.data.access_token;
-
-      // Exchange short-lived token for long-lived token (60 days)
-      const longLivedResponse = await axios.get('https://graph.instagram.com/access_token', {
-        params: {
-          grant_type: 'ig_exchange_token',
-          client_id: INSTAGRAM_APP_ID,
-          client_secret: INSTAGRAM_APP_SECRET,
-          access_token: shortLivedToken,
-        },
-      });
-      accessToken = longLivedResponse.data.access_token;
-    } else {
-      const tokenResponse = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
-        params: {
-          client_id: META_APP_ID,
-          client_secret: META_APP_SECRET,
-          redirect_uri: META_REDIRECT_URI,
-          code,
-        },
-      });
-      accessToken = tokenResponse.data.access_token;
-    }
+        code,
+      },
+    });
+    accessToken = tokenResponse.data.access_token;
 
     // Get platform-specific IDs
     let connectionData: any = {
@@ -160,37 +128,41 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
         connectionData.whatsappPhoneNumberId = 'pending_setup';
       }
     } else if (platform === 'instagram') {
-      // Instagram Business Login — get IG user ID and username directly
-      const igMeResponse = await axios.get('https://graph.instagram.com/v21.0/me', {
-        params: {
-          fields: 'user_id,username,name',
-          access_token: accessToken,
-        },
+      // Instagram connects via Facebook Page — get the linked Page and its Instagram Business Account
+      const pagesResponse = await axios.get('https://graph.facebook.com/v18.0/me/accounts', {
+        params: { access_token: accessToken },
       });
-      console.log('[OAuth] Instagram user info:', JSON.stringify(igMeResponse.data, null, 2));
+      console.log('[OAuth] Pages response:', JSON.stringify(pagesResponse.data, null, 2));
 
-      const igUserId = igMeResponse.data.user_id;
-      const igUsername = igMeResponse.data.username || igMeResponse.data.name;
-
-      if (!igUserId) {
-        console.error('[OAuth] No Instagram user_id returned!');
-        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=no_ig_user_found`);
+      const page = pagesResponse.data.data[0];
+      if (!page) {
+        console.error('[OAuth] No Facebook page found for Instagram connection!');
+        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=no_page_found`);
       }
 
-      connectionData.instagramAccountId = igUserId;
-      connectionData.accountName = igUsername ? `@${igUsername}` : igUserId;
-      console.log('[OAuth] Instagram account ID:', igUserId, 'Username:', igUsername);
+      connectionData.pageId = page.id;
+      connectionData.accessToken = page.access_token;
+      connectionData.accountName = page.name;
 
-      // Subscribe this Instagram account to webhook events (messages field)
+      // Get the Instagram Business Account linked to this Facebook Page
       try {
-        await axios.post(
-          `https://graph.instagram.com/v21.0/${igUserId}/subscribed_apps`,
-          null,
-          { params: { subscribed_fields: 'messages', access_token: accessToken } }
-        );
-        console.log('[OAuth] Instagram webhook subscription created for', igUserId);
-      } catch (subErr: any) {
-        console.error('[OAuth] Failed to subscribe Instagram account to webhooks:', subErr?.response?.data ?? subErr?.message);
+        const igResponse = await axios.get(`https://graph.facebook.com/v18.0/${page.id}`, {
+          params: { fields: 'instagram_business_account', access_token: page.access_token },
+        });
+        const igAccountId = igResponse.data.instagram_business_account?.id;
+        if (igAccountId) {
+          connectionData.instagramAccountId = igAccountId;
+          // Get Instagram username
+          const igDetailResponse = await axios.get(`https://graph.facebook.com/v18.0/${igAccountId}`, {
+            params: { fields: 'username', access_token: page.access_token },
+          });
+          if (igDetailResponse.data.username) {
+            connectionData.accountName = `@${igDetailResponse.data.username}`;
+          }
+          console.log('[OAuth] Instagram Business Account ID:', igAccountId);
+        }
+      } catch (igErr) {
+        console.log('[OAuth] No Instagram Business Account linked to page — continuing with page only');
       }
 
     } else if (platform === 'facebook') {

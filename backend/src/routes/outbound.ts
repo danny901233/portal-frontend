@@ -11,9 +11,16 @@ function getTwilioClient() {
   return twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 }
 
-/** Normalise phone to E.164-ish for matching (strip whatsapp: prefix, collapse spaces) */
+/** Normalise phone to E.164 format for Twilio and matching */
 function normalisePhone(raw: string): string {
-  return raw.replace(/^whatsapp:/i, '').replace(/\s+/g, '');
+  // Strip whatsapp: prefix and all whitespace/dashes/parens
+  let n = raw.replace(/^whatsapp:/i, '').replace(/[\s\-().]/g, '');
+  // 07xxxxxxxxx → +447xxxxxxxxx
+  if (/^07\d{9}$/.test(n)) n = `+44${n.slice(1)}`;
+  // 447xxxxxxxxx (no +) → +447xxxxxxxxx
+  else if (/^44\d{10}$/.test(n)) n = `+${n}`;
+  // Already E.164
+  return n;
 }
 
 /** Build the outbound message text for a contact */
@@ -234,10 +241,11 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
           garageName,
         );
 
+        const e164 = normalisePhone(contact.phone);
         const toNumber =
           campaign.channel === 'whatsapp'
-            ? `whatsapp:${contact.phone}`
-            : contact.phone;
+            ? `whatsapp:${e164}`
+            : e164;
 
         const msg = await twilioClient.messages.create({
           body,

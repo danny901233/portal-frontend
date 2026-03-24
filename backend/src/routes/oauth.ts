@@ -29,8 +29,8 @@ router.post('/oauth/meta/initiate', authenticate, async (req: Request, res: Resp
     // Define scopes for each platform
     const scopes: Record<string, string> = {
       whatsapp: 'whatsapp_business_management,whatsapp_business_messaging',
-      facebook: 'pages_messaging,pages_manage_metadata,pages_show_list',
-      instagram: 'instagram_basic,pages_messaging,pages_show_list',
+      facebook: 'pages_messaging,pages_manage_metadata,pages_show_list,business_management',
+      instagram: 'instagram_basic,pages_messaging,pages_show_list,business_management',
     };
 
     const scope = scopes[platform];

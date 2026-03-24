@@ -190,6 +190,23 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
         connectionData.accessToken = page.access_token;
         connectionData.accountName = page.name;
         console.log('[OAuth] Page found:', page.id, 'Name:', page.name);
+
+        // Subscribe page to webhook events
+        try {
+          await axios.post(
+            `https://graph.facebook.com/v18.0/${page.id}/subscribed_apps`,
+            null,
+            {
+              params: {
+                access_token: page.access_token,
+                subscribed_fields: 'messages,messaging_postbacks,messaging_optins,message_deliveries,message_reads',
+              },
+            }
+          );
+          console.log('[OAuth] Facebook page subscribed to webhook events:', page.id);
+        } catch (subErr: any) {
+          console.error('[OAuth] Failed to subscribe Facebook page to webhooks:', subErr?.response?.data ?? subErr?.message);
+        }
       } else {
         console.error('[OAuth] No Facebook page found in response!');
         return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=no_page_found`);

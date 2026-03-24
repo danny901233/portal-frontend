@@ -58,9 +58,15 @@ function parseCSV(text: string): { rows: OutboundContactInput[]; error?: string 
 
     // Fix scientific notation phone numbers exported by Excel (e.g. 4.47911E+11 → +447911...)
     let phone = rawPhone;
+    let truncated = false;
     if (/^\d+\.?\d*[eE][+\-]?\d+$/.test(rawPhone)) {
       const expanded = Number(rawPhone).toFixed(0);
       phone = expanded.startsWith('44') ? `+${expanded}` : expanded;
+      // Warn if precision was lost — trailing zeros suggest Excel rounded the number
+      if (/0{4,}$/.test(expanded)) truncated = true;
+    }
+    if (truncated) {
+      return { rows: [], error: `Phone number precision lost in row ${i} ("${rawPhone}" → "${phone}"). Excel has rounded this number. Please format the Phone column as Text in Excel before saving as CSV, or use a text editor to create the CSV.` };
     }
 
     rows.push({

@@ -1,15 +1,11 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
-import twilio from 'twilio';
+import axios from 'axios';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 
 const router = Router();
-
-function getTwilioClient() {
-  return twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-}
 
 /** Normalise phone to E.164 format for Twilio and matching */
 function normalisePhone(raw: string): string {
@@ -175,32 +171,26 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
       return res.status(400).json({ error: 'No pending contacts to send to' });
     }
 
-    // Get garage name + Twilio number from DB
-    const [agentConfig, garage] = await Promise.all([
+    // Get garage name + Meta WhatsApp connection from DB
+    const [agentConfig, waConnection] = await Promise.all([
       prisma.agentConfiguration.findUnique({
         where: { garageId: campaign.garageId },
         select: { branchName: true },
       }),
-      prisma.garage.findUnique({
-        where: { id: campaign.garageId },
-        select: { twilioNumber: true },
+      prisma.socialMediaConnection.findFirst({
+        where: { garageId: campaign.garageId, platform: 'whatsapp', isActive: true },
+        select: { whatsappPhoneNumberId: true, accessToken: true },
       }),
     ]);
     const garageName = agentConfig?.branchName || 'our garage';
 
-    // Use the garage's own Twilio number (stored in portal) with fallback to env var
-    const rawNumber = garage?.twilioNumber || process.env.TWILIO_PHONE_NUMBER || '';
-    // Normalise to E.164 (strip spaces, ensure + prefix)
-    const fromNumber = rawNumber.replace(/\s+/g, '');
-    const fromWhatsApp = `whatsapp:${fromNumber}`;
-
-    if (!fromNumber) {
-      console.error(`[OUTBOUND] No Twilio number configured for garage ${campaign.garageId}`);
+    if (!waConnection?.whatsappPhoneNumberId || waConnection.whatsappPhoneNumberId === 'pending_setup') {
+      console.error(`[OUTBOUND] No WhatsApp sender configured for garage ${campaign.garageId}`);
       await prisma.outboundCampaign.update({ where: { id: campaign.id }, data: { status: 'draft' } });
-      return;
+      return res.status(400).json({ error: 'No WhatsApp sender configured for this garage' });
     }
 
-    const twilioClient = getTwilioClient();
+    const { whatsappPhoneNumberId, accessToken } = waConnection;
 
     // Mark campaign as sending
     await prisma.outboundCampaign.update({
@@ -242,20 +232,23 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
         );
 
         const e164 = normalisePhone(contact.phone);
-        const toNumber =
-          campaign.channel === 'whatsapp'
-            ? `whatsapp:${e164}`
-            : e164;
 
-        const msg = await twilioClient.messages.create({
-          body,
-          from: campaign.channel === 'whatsapp' ? fromWhatsApp : fromNumber,
-          to: toNumber,
-        });
+        // Send via Meta WhatsApp Cloud API
+        const metaRes = await axios.post(
+          `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}/messages`,
+          {
+            messaging_product: 'whatsapp',
+            to: e164,
+            type: 'text',
+            text: { body },
+          },
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const messageSid = metaRes.data?.messages?.[0]?.id || null;
 
         await prisma.outboundContact.update({
           where: { id: contact.id },
-          data: { status: 'sent', messageSid: msg.sid },
+          data: { status: 'sent', messageSid },
         });
 
         sentCount++;

@@ -107,13 +107,28 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
         if (business) {
           connectionData.accountName = business.name;
           try {
-            const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${business.id}/phone_numbers`, {
+            // First get the WABA(s) under this business
+            const wabaResponse = await axios.get(`https://graph.facebook.com/v18.0/${business.id}/owned_whatsapp_business_accounts`, {
               params: { access_token: accessToken },
             });
-            const phone = phoneResponse.data.data[0];
-            connectionData.whatsappPhoneNumberId = phone?.id;
-            if (phone?.display_phone_number) {
-              connectionData.accountName = phone.display_phone_number;
+            const waba = wabaResponse.data.data[0];
+            const wabaId = waba?.id;
+            if (wabaId) {
+              // Then get phone numbers under that WABA
+              const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${wabaId}/phone_numbers`, {
+                params: { access_token: accessToken },
+              });
+              const phone = phoneResponse.data.data[0];
+              if (phone?.id) {
+                connectionData.whatsappPhoneNumberId = phone.id;
+                if (phone.display_phone_number) {
+                  connectionData.accountName = phone.display_phone_number;
+                }
+              } else {
+                connectionData.whatsappPhoneNumberId = 'pending_setup';
+              }
+            } else {
+              connectionData.whatsappPhoneNumberId = 'pending_setup';
             }
           } catch (phoneError) {
             console.log('[OAuth] No WhatsApp phone numbers found - this is OK for initial setup');

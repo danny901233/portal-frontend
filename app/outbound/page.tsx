@@ -16,6 +16,16 @@ const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-slate-500/20 text-slate-300',
   sending: 'bg-yellow-500/20 text-yellow-300',
   sent: 'bg-green-500/20 text-green-300',
+  processed: 'bg-green-500/20 text-green-300',
+  failed: 'bg-red-500/20 text-red-300',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft',
+  sending: 'Sending',
+  sent: 'Processed',
+  processed: 'Processed',
+  failed: 'Failed',
 };
 
 const REQUIRED_COLS = ['customer_name', 'phone'];
@@ -351,7 +361,7 @@ export default function OutboundPage() {
                           STATUS_COLORS[c.status] || 'bg-slate-500/20 text-slate-300',
                         )}
                       >
-                        {c.status}
+                        {STATUS_LABELS[c.status] ?? c.status}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-400">

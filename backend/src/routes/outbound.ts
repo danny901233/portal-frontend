@@ -252,8 +252,9 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
         });
 
         sentCount++;
-      } catch (err) {
-        console.error(`[OUTBOUND] Failed to send to ${contact.phone}:`, err);
+      } catch (err: unknown) {
+        const metaError = (err as { response?: { data?: unknown } })?.response?.data;
+        console.error(`[OUTBOUND] Failed to send to ${contact.phone}:`, metaError ?? err);
         await prisma.outboundContact.update({
           where: { id: contact.id },
           data: { status: 'failed' },
@@ -261,12 +262,13 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
       }
     }
 
+    const finalStatus = sentCount === 0 ? 'failed' : 'processed';
     await prisma.outboundCampaign.update({
       where: { id: campaign.id },
-      data: { status: 'sent', sentAt: new Date(), sentCount },
+      data: { status: finalStatus, sentAt: new Date(), sentCount },
     });
 
-    console.log(`[OUTBOUND] Campaign ${campaign.id} sent: ${sentCount}/${campaign.contacts.length}`);
+    console.log(`[OUTBOUND] Campaign ${campaign.id} ${finalStatus}: ${sentCount}/${campaign.contacts.length}`);
   } catch (error) {
     console.error('[OUTBOUND] Send campaign error:', error);
     // Response may already be sent — just log

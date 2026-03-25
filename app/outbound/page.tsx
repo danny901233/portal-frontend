@@ -7,9 +7,10 @@ import { cn } from '../lib/utils';
 import {
   createOutboundCampaign,
   fetchOutboundCampaigns,
+  fetchGarageTemplates,
   sendOutboundCampaign,
 } from '../lib/api';
-import type { OutboundCampaign, OutboundContactInput } from '../lib/api';
+import type { OutboundCampaign, OutboundContactInput, MessageTemplate } from '../lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -110,6 +111,8 @@ export default function OutboundPage() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [variableMapping, setVariableMapping] = useState<Record<string, string>>({});
 
   const showToast = (type: 'success' | 'error', msg: string) => {
     setToast({ type, msg });
@@ -121,6 +124,24 @@ export default function OutboundPage() {
     queryFn: () => fetchOutboundCampaigns(garageId),
     enabled: !!garageId,
   });
+
+  const { data: templatesData } = useQuery({
+    queryKey: ['templates', garageId],
+    queryFn: () => fetchGarageTemplates(garageId),
+    enabled: !!garageId && channel === 'whatsapp',
+  });
+
+  const approvedTemplates: MessageTemplate[] = (templatesData?.templates || []).filter(
+    (t) => t.status === 'approved',
+  );
+
+  const selectedTemplate = approvedTemplates.find((t) => t.id === selectedTemplateId) || null;
+
+  // Extract variable numbers from template body e.g. {{1}}, {{2}}
+  const templateVariables = selectedTemplate
+    ? [...new Set([...selectedTemplate.bodyText.matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1]))]
+        .sort((a, b) => Number(a) - Number(b))
+    : [];
 
   const createMutation = useMutation({
     mutationFn: createOutboundCampaign,
@@ -170,6 +191,8 @@ export default function OutboundPage() {
     setChannel('whatsapp');
     setPreview(null);
     setParseError(null);
+    setSelectedTemplateId('');
+    setVariableMapping({});
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -179,7 +202,13 @@ export default function OutboundPage() {
       showToast('error', 'Please enter a campaign name.');
       return;
     }
-    createMutation.mutate({ garageId, name: campaignName.trim(), channel, contacts: preview });
+    createMutation.mutate({
+      garageId,
+      name: campaignName.trim(),
+      channel,
+      contacts: preview,
+      ...(selectedTemplateId && { messageTemplateId: selectedTemplateId, variableMapping }),
+    });
   };
 
   const handleResend = async (campaign: OutboundCampaign) => {
@@ -249,6 +278,69 @@ export default function OutboundPage() {
             </select>
           </div>
         </div>
+
+        {/* Template selector (WhatsApp only) */}
+        {channel === 'whatsapp' && (
+          <div className="mt-4">
+            <label className="mb-1 block text-xs font-medium text-slate-400">
+              Message template{' '}
+              <span className="text-slate-500">(optional — uses default reminder if not selected)</span>
+            </label>
+            <select
+              value={selectedTemplateId}
+              onChange={(e) => {
+                setSelectedTemplateId(e.target.value);
+                setVariableMapping({});
+              }}
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">— Use default reminder message —</option>
+              {approvedTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            {approvedTemplates.length === 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                No approved templates yet.{' '}
+                <a href="/templates" className="text-blue-400 hover:underline">Create and approve one</a>{' '}
+                to use custom messages.
+              </p>
+            )}
+
+            {/* Variable mapping */}
+            {selectedTemplate && templateVariables.length > 0 && (
+              <div className="mt-3 rounded-lg border border-slate-700 bg-slate-800/50 p-3">
+                <p className="mb-2 text-xs font-medium text-slate-300">Map template variables to CSV columns:</p>
+                <p className="mb-3 text-xs text-slate-500 font-mono bg-slate-800 rounded px-2 py-1">
+                  {selectedTemplate.bodyText}
+                </p>
+                <div className="space-y-2">
+                  {templateVariables.map((varNum) => (
+                    <div key={varNum} className="flex items-center gap-3">
+                      <span className="w-10 shrink-0 text-xs font-mono text-blue-400">{`{{${varNum}}}`}</span>
+                      <select
+                        value={variableMapping[varNum] || ''}
+                        onChange={(e) => setVariableMapping((prev) => ({ ...prev, [varNum]: e.target.value }))}
+                        className="flex-1 rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+                      >
+                        <option value="">— select column —</option>
+                        <option value="customer_name">customer_name (first name)</option>
+                        <option value="full_name">full_name</option>
+                        <option value="phone">phone</option>
+                        <option value="registration">registration</option>
+                        <option value="mot_due_date">mot_due_date</option>
+                        <option value="service_due_date">service_due_date</option>
+                        <option value="garage_name">garage_name</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* CSV Upload */}
         <div className="mt-4">

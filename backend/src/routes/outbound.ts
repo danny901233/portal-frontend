@@ -41,7 +41,7 @@ function buildMessage(
 // ---------------------------------------------------------------------------
 router.post('/outbound/campaigns', authenticate, async (req: Request, res: Response) => {
   try {
-    const { garageId, name, channel, contacts } = req.body as {
+    const { garageId, name, channel, contacts, messageTemplateId, variableMapping } = req.body as {
       garageId: string;
       name: string;
       channel: 'sms' | 'whatsapp';
@@ -52,6 +52,8 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
         motDueDate?: string;
         serviceDueDate?: string;
       }>;
+      messageTemplateId?: string;
+      variableMapping?: Record<string, string>;
     };
 
     if (!garageId || !name || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
@@ -88,6 +90,8 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
         name,
         channel: channel || 'sms',
         totalContacts: contactData.length,
+        messageTemplateId: messageTemplateId || null,
+        variableMapping: variableMapping || null,
         contacts: {
           create: contactData,
         },
@@ -171,8 +175,8 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
       return res.status(400).json({ error: 'No pending contacts to send to' });
     }
 
-    // Get garage name + Meta WhatsApp connection from DB
-    const [agentConfig, waConnection] = await Promise.all([
+    // Get garage name, Meta WhatsApp connection, and optional template from DB
+    const [agentConfig, waConnection, template] = await Promise.all([
       prisma.agentConfiguration.findUnique({
         where: { garageId: campaign.garageId },
         select: { branchName: true },
@@ -181,8 +185,15 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
         where: { garageId: campaign.garageId, platform: 'whatsapp', isActive: true },
         select: { whatsappPhoneNumberId: true, accessToken: true },
       }),
+      campaign.messageTemplateId
+        ? prisma.messageTemplate.findUnique({
+            where: { id: campaign.messageTemplateId },
+            select: { name: true, language: true, bodyText: true },
+          })
+        : Promise.resolve(null),
     ]);
     const garageName = agentConfig?.branchName || 'our garage';
+    const variableMapping = (campaign.variableMapping as Record<string, string> | null) || {};
 
     if (!waConnection?.whatsappPhoneNumberId || waConnection.whatsappPhoneNumberId === 'pending_setup') {
       console.error(`[OUTBOUND] No WhatsApp sender configured for garage ${campaign.garageId}`);
@@ -222,26 +233,64 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
       }
 
       try {
-        const dueDate = contact.motDueDate || contact.serviceDueDate || 'soon';
-        const body = buildMessage(
-          contact.customerName,
-          contact.messageType,
-          dueDate,
-          contact.registration,
-          garageName,
-        );
-
         const e164 = normalisePhone(contact.phone);
 
-        // Send via Meta WhatsApp Cloud API
-        const metaRes = await axios.post(
-          `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}/messages`,
-          {
+        // Build contact field lookup for variable substitution
+        const contactFields: Record<string, string> = {
+          customer_name: contact.customerName?.trim().split(/\s+/)[0] || contact.customerName,
+          full_name: contact.customerName,
+          phone: contact.phone,
+          registration: contact.registration?.toUpperCase() || '',
+          mot_due_date: contact.motDueDate || '',
+          service_due_date: contact.serviceDueDate || '',
+          garage_name: garageName,
+        };
+
+        let payload: Record<string, unknown>;
+
+        if (template && campaign.messageTemplateId) {
+          // Use approved Meta template with variable substitution
+          const parameters = Object.keys(variableMapping)
+            .sort((a, b) => Number(a) - Number(b))
+            .map((varNum) => ({
+              type: 'text',
+              text: contactFields[variableMapping[varNum]] || '',
+            }));
+
+          payload = {
+            messaging_product: 'whatsapp',
+            to: e164,
+            type: 'template',
+            template: {
+              name: template.name,
+              language: { code: template.language || 'en_GB' },
+              ...(parameters.length > 0 && {
+                components: [{ type: 'body', parameters }],
+              }),
+            },
+          };
+        } else {
+          // Fall back to hardcoded plain text message
+          const dueDate = contact.motDueDate || contact.serviceDueDate || 'soon';
+          const body = buildMessage(
+            contact.customerName,
+            contact.messageType,
+            dueDate,
+            contact.registration,
+            garageName,
+          );
+          payload = {
             messaging_product: 'whatsapp',
             to: e164,
             type: 'text',
             text: { body },
-          },
+          };
+        }
+
+        // Send via Meta WhatsApp Cloud API
+        const metaRes = await axios.post(
+          `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}/messages`,
+          payload,
           { headers: { Authorization: `Bearer ${accessToken}` } }
         );
         const messageSid = metaRes.data?.messages?.[0]?.id || null;

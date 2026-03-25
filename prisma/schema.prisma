@@ -343,18 +343,20 @@ enum ConfirmedBookingCategory {
 }
 
 model OutboundCampaign {
-  id            String   @id @default(cuid())
-  garageId      String
-  garage        Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  name          String
-  channel       String   @default("sms") // "sms" | "whatsapp"
-  status        String   @default("draft") // "draft" | "sending" | "sent"
-  sentAt        DateTime?
-  totalContacts Int      @default(0)
-  sentCount     Int      @default(0)
-  contacts      OutboundContact[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                String   @id @default(cuid())
+  garageId          String
+  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  name              String
+  channel           String   @default("sms") // "sms" | "whatsapp"
+  status            String   @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed"
+  sentAt            DateTime?
+  totalContacts     Int      @default(0)
+  sentCount         Int      @default(0)
+  messageTemplateId String?  // Optional: ID of MessageTemplate to use
+  variableMapping   Json?    // e.g. {"1": "customer_name", "2": "mot_due_date"}
+  contacts          OutboundContact[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([garageId])
 }

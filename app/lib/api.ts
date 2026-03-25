@@ -426,10 +426,31 @@ export interface OutboundCampaign {
   totalContacts: number;
   sentCount: number;
   sentAt?: string | null;
+  messageTemplateId?: string | null;
+  variableMapping?: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;
   contacts?: OutboundContact[];
   _count?: { contacts: number };
+}
+
+export interface MessageTemplate {
+  id: string;
+  garageId: string;
+  name: string;
+  category: string;
+  language: string;
+  bodyText: string;
+  headerType?: string | null;
+  headerContent?: string | null;
+  footerText?: string | null;
+  buttonType?: string | null;
+  buttonText?: string | null;
+  metaTemplateId?: string | null;
+  status: string;
+  variableSamples?: Record<string, string> | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const createOutboundCampaign = async (payload: {
@@ -437,8 +458,15 @@ export const createOutboundCampaign = async (payload: {
   name: string;
   channel: 'sms' | 'whatsapp';
   contacts: OutboundContactInput[];
+  messageTemplateId?: string;
+  variableMapping?: Record<string, string>;
 }): Promise<{ campaign: OutboundCampaign }> => {
   const { data } = await api.post('/api/outbound/campaigns', payload);
+  return data;
+};
+
+export const fetchGarageTemplates = async (garageId: string): Promise<{ templates: MessageTemplate[] }> => {
+  const { data } = await api.get(`/api/garages/${garageId}/templates`);
   return data;
 };
 

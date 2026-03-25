@@ -349,7 +349,7 @@ export default function ConversationsPage() {
             )}
 
             {/* Messages */}
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-3 px-6 py-4">
+            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto space-y-3 px-6 py-4">
               {messagesLoading ? (
                 <div className="text-center text-sm text-slate-500">Loading messages…</div>
               ) : messages.length === 0 ? (

@@ -80,10 +80,22 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
           continue;
         }
 
+        // Fetch sender name from Graph API
+        let senderName: string | undefined;
+        try {
+          const profileRes = await axios.get(`https://graph.facebook.com/v18.0/${senderId}`, {
+            params: { fields: 'name', access_token: connection.accessToken },
+          });
+          senderName = profileRes.data?.name as string | undefined;
+        } catch {
+          console.log(`[Instagram] Could not fetch name for sender ${senderId}`);
+        }
+
         // Find or create customer
         const customerId = await findOrCreateCustomer({
           garageId: connection.garageId,
           instagramUserId: senderId,
+          name: senderName,
         });
 
         // Find or create conversation

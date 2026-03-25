@@ -115,6 +115,7 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
               platform: 'instagram',
               platformUserId: senderId,
               customerId,
+              customerName: senderName ?? null,
               status: 'active',
               unreadCount: 1,
               lastMessageAt: new Date(),
@@ -126,6 +127,7 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
             where: { id: conversation.id },
             data: {
               customerId,
+              ...(senderName && !conversation.customerName ? { customerName: senderName } : {}),
               unreadCount: { increment: 1 },
               lastMessageAt: new Date(),
               status: 'active',

@@ -75,7 +75,7 @@ export default function WidgetEmbedPage() {
   ];
 
   return (
-    <div className="space-y-8 max-w-4xl">
+    <div className="space-y-8 max-w-4xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold text-slate-100">Integrations</h1>
         <p className="text-sm text-slate-400 mt-1">

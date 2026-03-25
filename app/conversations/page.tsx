@@ -62,6 +62,7 @@ export default function ConversationsPage() {
   const [sending, setSending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const garageId = getGarageId();
   const canReply = isReceptionMateStaff() || isManager();
@@ -122,7 +123,10 @@ export default function ConversationsPage() {
 
   // Scroll to bottom whenever messages change (covers both conversation switch and new messages)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages]);
 
   const handleReply = async () => {
@@ -346,7 +350,7 @@ export default function ConversationsPage() {
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto space-y-3 px-6 py-4">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-3 px-6 py-4">
               {messagesLoading ? (
                 <div className="text-center text-sm text-slate-500">Loading messages…</div>
               ) : messages.length === 0 ? (

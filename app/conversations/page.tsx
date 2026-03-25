@@ -120,8 +120,16 @@ export default function ConversationsPage() {
     if (selectedId) void loadMessages(selectedId);
   }, [selectedId, loadMessages]);
 
+  // Instantly jump to bottom when switching conversations
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+  }, [selectedId]);
+
+  // Smooth scroll when new messages arrive in the current conversation
+  useEffect(() => {
+    if (!messagesLoading) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const handleReply = async () => {

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { getTemplateToken } from '../services/metaTemplateToken.js';
 
 const router = Router();
 
@@ -89,6 +90,71 @@ router.post(
       }
       console.error('[TEMPLATES] Create error:', error);
       res.status(500).json({ error: 'Failed to create template' });
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// PUT /api/garages/:garageId/templates/:templateId — Update a template
+// ---------------------------------------------------------------------------
+router.put(
+  '/garages/:garageId/templates/:templateId',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId, templateId } = req.params;
+      const {
+        category,
+        language,
+        headerType,
+        headerContent,
+        headerSample,
+        bodyText,
+        variableSamples,
+        footerText,
+        buttonType,
+        buttonText,
+        buttonValue,
+      } = req.body;
+
+      const template = await prisma.messageTemplate.findFirst({
+        where: { id: templateId, garageId },
+      });
+
+      if (!template) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+
+      if (!bodyText) {
+        return res.status(400).json({ error: 'bodyText is required' });
+      }
+
+      // Editing resets the template to draft so it must be resubmitted to Meta
+      const updated = await prisma.messageTemplate.update({
+        where: { id: templateId },
+        data: {
+          category: category || template.category,
+          language: language || template.language,
+          headerType: headerType ?? template.headerType,
+          headerContent: headerContent ?? template.headerContent,
+          headerSample: headerSample ?? template.headerSample,
+          bodyText,
+          variableSamples: variableSamples ?? template.variableSamples,
+          footerText: footerText ?? template.footerText,
+          buttonType: buttonType ?? template.buttonType,
+          buttonText: buttonText ?? template.buttonText,
+          buttonValue: buttonValue ?? template.buttonValue,
+          status: 'draft',
+          metaTemplateId: null,
+          rejectionReason: null,
+        },
+      });
+
+      console.log(`[TEMPLATES] Updated: ${template.name} → draft`);
+      res.json({ success: true, template: updated });
+    } catch (error) {
+      console.error('[TEMPLATES] Update error:', error);
+      res.status(500).json({ error: 'Failed to update template' });
     }
   }
 );
@@ -188,12 +254,17 @@ router.post(
 
       console.log(`[TEMPLATES] Submitting to Meta: ${template.name}`, JSON.stringify(metaPayload, null, 2));
 
+      // Template management requires whatsapp_business_management scope.
+      // The per-garage connection token only has whatsapp_business_messaging,
+      // so we use the dedicated template management token here.
+      const templateToken = getTemplateToken() || connection.accessToken;
+
       const metaRes = await fetch(
         `https://graph.facebook.com/v18.0/${wabaId}/message_templates`,
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${connection.accessToken}`,
+            Authorization: `Bearer ${templateToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(metaPayload),
@@ -260,7 +331,7 @@ router.post(
       const metaRes = await fetch(
         `https://graph.facebook.com/v18.0/${template.metaTemplateId}`,
         {
-          headers: { Authorization: `Bearer ${connection.accessToken}` },
+          headers: { Authorization: `Bearer ${getTemplateToken() || connection.accessToken}` },
         }
       );
 
@@ -331,7 +402,7 @@ router.delete(
                 `https://graph.facebook.com/v18.0/${wabaId}/message_templates?name=${template.name}`,
                 {
                   method: 'DELETE',
-                  headers: { Authorization: `Bearer ${connection.accessToken}` },
+                  headers: { Authorization: `Bearer ${getTemplateToken() || connection.accessToken}` },
                 }
               );
               console.log(`[TEMPLATES] Deleted from Meta: ${template.name}`);

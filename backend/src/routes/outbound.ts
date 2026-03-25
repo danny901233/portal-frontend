@@ -302,11 +302,12 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
 
         sentCount++;
       } catch (err: unknown) {
-        const metaError = (err as { response?: { data?: unknown } })?.response?.data;
+        const metaError = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data;
         console.error(`[OUTBOUND] Failed to send to ${contact.phone}:`, metaError ?? err);
+        const errorReason = metaError?.error?.message || 'Send failed';
         await prisma.outboundContact.update({
           where: { id: contact.id },
-          data: { status: 'failed' },
+          data: { status: 'failed', errorReason },
         });
       }
     }

@@ -374,6 +374,7 @@ model OutboundContact {
   messageType    String   @default("mot") // "mot" | "service"
   status         String   @default("pending") // "pending" | "sent" | "replied" | "opted_out" | "failed"
   messageSid     String?
+  errorReason    String?
   conversationId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

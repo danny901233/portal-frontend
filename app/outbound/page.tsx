@@ -7,10 +7,11 @@ import { cn } from '../lib/utils';
 import {
   createOutboundCampaign,
   fetchOutboundCampaigns,
+  fetchOutboundCampaign,
   fetchGarageTemplates,
   sendOutboundCampaign,
 } from '../lib/api';
-import type { OutboundCampaign, OutboundContactInput, MessageTemplate } from '../lib/api';
+import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTemplate } from '../lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -109,10 +110,12 @@ export default function OutboundPage() {
   const [channel, setChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
   const [preview, setPreview] = useState<OutboundContactInput[] | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
-  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null); // used for new campaign send only
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [variableMapping, setVariableMapping] = useState<Record<string, string>>({});
+  const [selectedCampaign, setSelectedCampaign] = useState<OutboundCampaign | null>(null);
+  const [loadingContacts, setLoadingContacts] = useState(false);
 
   const showToast = (type: 'success' | 'error', msg: string) => {
     setToast({ type, msg });
@@ -224,6 +227,18 @@ export default function OutboundPage() {
       contacts: preview,
       ...(selectedTemplateId && { messageTemplateId: selectedTemplateId, variableMapping }),
     });
+  };
+
+  const handleViewResults = async (campaign: OutboundCampaign) => {
+    setLoadingContacts(true);
+    try {
+      const { campaign: full } = await fetchOutboundCampaign(campaign.id);
+      setSelectedCampaign(full);
+    } catch {
+      showToast('error', 'Failed to load campaign results.');
+    } finally {
+      setLoadingContacts(false);
+    }
   };
 
   const handleResend = async (campaign: OutboundCampaign) => {
@@ -470,19 +485,37 @@ export default function OutboundPage() {
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Channel</th>
                   <th className="px-4 py-3">Contacts</th>
-                  <th className="px-4 py-3">Sent</th>
+                  <th className="px-4 py-3">Sent Rate</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
                 {campaigns.map((c) => (
-                  <tr key={c.id} className="text-slate-300 hover:bg-slate-800/40">
+                  <tr
+                    key={c.id}
+                    onClick={() => handleViewResults(c)}
+                    className="cursor-pointer text-slate-300 hover:bg-slate-800/40"
+                  >
                     <td className="px-4 py-3 font-medium text-slate-100">{c.name}</td>
                     <td className="px-4 py-3 capitalize">{c.channel}</td>
                     <td className="px-4 py-3">{c.totalContacts}</td>
-                    <td className="px-4 py-3">{c.sentCount}</td>
+                    <td className="px-4 py-3">
+                      {c.status === 'draft' || c.status === 'sending' ? (
+                        <span className="text-slate-500 text-xs">—</span>
+                      ) : (
+                        (() => {
+                          const rate = c.totalContacts > 0 ? Math.round((c.sentCount / c.totalContacts) * 100) : 0;
+                          const color = rate === 100 ? 'text-green-400' : rate >= 50 ? 'text-yellow-400' : 'text-red-400';
+                          return (
+                            <span className={`text-sm font-medium ${color}`}>
+                              {rate}%
+                              <span className="ml-1 text-xs text-slate-500">({c.sentCount}/{c.totalContacts})</span>
+                            </span>
+                          );
+                        })()
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span
                         className={cn(
@@ -496,17 +529,6 @@ export default function OutboundPage() {
                     <td className="px-4 py-3 text-slate-400">
                       {new Date(c.createdAt).toLocaleDateString('en-GB')}
                     </td>
-                    <td className="px-4 py-3">
-                      {c.status !== 'sent' && (
-                        <button
-                          onClick={() => handleResend(c)}
-                          disabled={sendingId === c.id}
-                          className="rounded bg-slate-700 px-3 py-1 text-xs text-slate-200 hover:bg-slate-600 disabled:opacity-50"
-                        >
-                          {sendingId === c.id ? 'Sending…' : 'Send'}
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -514,6 +536,90 @@ export default function OutboundPage() {
           </div>
         )}
       </div>
+
+      {/* Campaign Results Modal */}
+      {(selectedCampaign || loadingContacts) && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setSelectedCampaign(null)}
+        >
+          <div
+            className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-100">
+                  {selectedCampaign?.name ?? 'Loading…'}
+                </h2>
+                {selectedCampaign && (
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    {selectedCampaign.sentCount} sent · {selectedCampaign.totalContacts} total ·{' '}
+                    {new Date(selectedCampaign.createdAt).toLocaleDateString('en-GB')}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setSelectedCampaign(null)}
+                className="rounded p-1 text-slate-400 hover:text-slate-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div className="max-h-[60vh] overflow-y-auto">
+              {loadingContacts ? (
+                <p className="px-6 py-8 text-center text-sm text-slate-500">Loading contacts…</p>
+              ) : !selectedCampaign?.contacts?.length ? (
+                <p className="px-6 py-8 text-center text-sm text-slate-500">No contacts found.</p>
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-800 text-xs text-slate-400">
+                    <tr>
+                      <th className="px-4 py-2">Name</th>
+                      <th className="px-4 py-2">Phone</th>
+                      <th className="px-4 py-2">Status</th>
+                      <th className="px-4 py-2">Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {selectedCampaign.contacts!.map((contact) => {
+                      const statusColor: Record<string, string> = {
+                        sent: 'text-green-400',
+                        replied: 'text-blue-400',
+                        failed: 'text-red-400',
+                        opted_out: 'text-slate-500',
+                        pending: 'text-yellow-400',
+                      };
+                      const statusLabel: Record<string, string> = {
+                        sent: 'Sent',
+                        replied: 'Replied',
+                        failed: 'Failed',
+                        opted_out: 'Opted Out',
+                        pending: 'Pending',
+                      };
+                      return (
+                        <tr key={contact.id} className="text-slate-300">
+                          <td className="px-4 py-2">{contact.customerName}</td>
+                          <td className="px-4 py-2 font-mono text-xs">{contact.phone}</td>
+                          <td className={`px-4 py-2 text-xs font-medium ${statusColor[contact.status] ?? 'text-slate-400'}`}>
+                            {statusLabel[contact.status] ?? contact.status}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-slate-500">
+                            {contact.errorReason || '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

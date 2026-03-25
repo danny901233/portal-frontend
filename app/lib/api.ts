@@ -412,6 +412,7 @@ export interface OutboundContact extends OutboundContactInput {
   messageType: string;
   status: string;
   messageSid?: string | null;
+  errorReason?: string | null;
   conversationId?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -467,6 +468,15 @@ export const createOutboundCampaign = async (payload: {
 
 export const fetchGarageTemplates = async (garageId: string): Promise<{ templates: MessageTemplate[] }> => {
   const { data } = await api.get(`/api/garages/${garageId}/templates`);
+  return data;
+};
+
+export const updateTemplate = async (
+  garageId: string,
+  templateId: string,
+  payload: Partial<Pick<MessageTemplate, 'category' | 'language' | 'headerType' | 'headerContent' | 'bodyText' | 'footerText' | 'buttonType' | 'buttonText'> & { variableSamples?: Record<string, string> | null; headerSample?: string | null; buttonValue?: string | null }>
+): Promise<{ template: MessageTemplate }> => {
+  const { data } = await api.put(`/api/garages/${garageId}/templates/${templateId}`, payload);
   return data;
 };
 

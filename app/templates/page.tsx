@@ -12,7 +12,9 @@ interface MessageTemplate {
   language: string;
   headerType: string | null;
   headerContent: string | null;
+  headerSample: string | null;
   bodyText: string;
+  variableSamples: Record<string, string> | null;
   footerText: string | null;
   buttonType: string | null;
   buttonText: string | null;
@@ -55,6 +57,7 @@ export default function TemplatesPage() {
   const [syncing, setSyncing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -135,46 +138,86 @@ export default function TemplatesPage() {
     }
   }
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
 
+    const body = JSON.stringify({
+      name: formName,
+      category: formCategory,
+      bodyText: formBody,
+      variableSamples: Object.keys(formVariableSamples).length > 0 ? formVariableSamples : null,
+      headerType: formHeader ? 'text' : null,
+      headerContent: formHeader || null,
+      headerSample: formHeaderSample || null,
+      footerText: formFooter || null,
+      buttonType: formButtonType !== 'none' ? formButtonType : null,
+      buttonText: formButtonType !== 'none' ? formButtonText : null,
+      buttonValue: formButtonType !== 'none' ? formButtonValue : null,
+    });
+
+    const url = editingTemplateId
+      ? `${API}/api/garages/${garageId}/templates/${editingTemplateId}`
+      : `${API}/api/garages/${garageId}/templates`;
+    const method = editingTemplateId ? 'PUT' : 'POST';
+
     try {
-      const res = await fetch(`${API}/api/garages/${garageId}/templates`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: formName,
-          category: formCategory,
-          bodyText: formBody,
-          variableSamples: Object.keys(formVariableSamples).length > 0 ? formVariableSamples : null,
-          headerType: formHeader ? 'text' : null,
-          headerContent: formHeader || null,
-          headerSample: formHeaderSample || null,
-          footerText: formFooter || null,
-          buttonType: formButtonType !== 'none' ? formButtonType : null,
-          buttonText: formButtonType !== 'none' ? formButtonText : null,
-          buttonValue: formButtonType !== 'none' ? formButtonValue : null,
-        }),
+      const res = await fetch(url, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body,
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Failed to create template');
+        setError(data.error || (editingTemplateId ? 'Failed to update template' : 'Failed to create template'));
         return;
       }
-      setSuccess('Template created! You can now submit it to WhatsApp for approval.');
+      setSuccess(editingTemplateId
+        ? 'Template updated and reset to draft. Submit it to WhatsApp for approval.'
+        : 'Template created! You can now submit it to WhatsApp for approval.');
       setShowForm(false);
+      setEditingTemplateId(null);
       resetForm();
       fetchTemplates();
     } catch (e) {
-      setError('Failed to create template');
+      setError(editingTemplateId ? 'Failed to update template' : 'Failed to create template');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleEdit(t: MessageTemplate) {
+    resetForm();
+    setEditingTemplateId(t.id);
+    setFormName(t.name);
+    setFormCategory(t.category);
+    setFormBody(t.bodyText);
+    setFormHeader(t.headerContent || '');
+    setFormHeaderSample(t.headerSample || '');
+    setFormFooter(t.footerText || '');
+    setFormButtonType(t.buttonType || 'none');
+    setFormButtonText(t.buttonText || '');
+    setFormButtonValue(t.buttonValue || '');
+
+    if (t.variableSamples) {
+      setFormVariableSamples(t.variableSamples);
+      // Reconstruct labels from _field entries
+      const labels: Record<string, string> = {};
+      for (const [key, fieldKey] of Object.entries(t.variableSamples)) {
+        if (key.endsWith('_field')) {
+          const varKey = key.replace('_field', '');
+          const field = VARIABLE_FIELDS.find(f => f.field === fieldKey);
+          if (field) labels[varKey] = field.label;
+        }
+      }
+      setFormVariableLabels(labels);
+    }
+
+    setShowForm(true);
+    setError(null);
+    setSuccess(null);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
   }
 
   async function handleSubmitToMeta(templateId: string) {
@@ -252,6 +295,7 @@ export default function TemplatesPage() {
     setFormVariableLabels({});
     setFormHeaderSample('');
     setFormHeaderLabel('');
+    setEditingTemplateId(null);
   }
 
   function insertVariable(field: typeof VARIABLE_FIELDS[number]) {
@@ -324,7 +368,12 @@ export default function TemplatesPage() {
           </p>
         </div>
         <button
-          onClick={() => { setShowForm(!showForm); setError(null); setSuccess(null); }}
+          onClick={() => {
+            if (showForm) { setShowForm(false); resetForm(); }
+            else { setShowForm(true); setEditingTemplateId(null); }
+            setError(null);
+            setSuccess(null);
+          }}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 transition-colors"
         >
           {showForm ? 'Cancel' : '+ New Template'}
@@ -345,13 +394,20 @@ export default function TemplatesPage() {
 
       {/* Create form */}
       {showForm && (
-        <form onSubmit={handleCreate} className="mb-8">
+        <form onSubmit={handleSubmit} className="mb-8">
           <div className="flex gap-6 items-start">
 
             {/* Left — form fields */}
             <div className="flex-1 rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-              <h2 className="mb-1 text-lg font-semibold text-slate-100">Create Template</h2>
+              <h2 className="mb-1 text-lg font-semibold text-slate-100">
+                {editingTemplateId ? 'Edit Template' : 'Create Template'}
+              </h2>
               <p className="mb-5 text-sm text-slate-400">Fill in the header, body and footer sections of your template.</p>
+              {editingTemplateId && (
+                <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
+                  Editing will reset this template to draft. You'll need to resubmit to WhatsApp for approval.
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
@@ -361,10 +417,13 @@ export default function TemplatesPage() {
                     value={formName}
                     onChange={e => setFormName(e.target.value)}
                     placeholder="Enter template name here"
-                    className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                    disabled={!!editingTemplateId}
+                    className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                     required
                   />
-                  <p className="mt-1 text-xs text-slate-500">Lowercase, underscores only. No spaces.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {editingTemplateId ? 'Template name cannot be changed after creation.' : 'Lowercase, underscores only. No spaces.'}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
@@ -666,7 +725,9 @@ export default function TemplatesPage() {
                 disabled={submitting}
                 className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
               >
-                {submitting ? 'Creating...' : 'Create Template'}
+                {submitting
+                  ? (editingTemplateId ? 'Saving...' : 'Creating...')
+                  : (editingTemplateId ? 'Save Changes' : 'Create Template')}
               </button>
             </div>
 
@@ -785,6 +846,12 @@ export default function TemplatesPage() {
                       {syncing === t.id ? 'Resubmitting...' : 'Resubmit'}
                     </button>
                   )}
+                  <button
+                    onClick={() => handleEdit(t)}
+                    className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-600 transition-colors"
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => handleDelete(t.id)}
                     className="rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-600/40 transition-colors"

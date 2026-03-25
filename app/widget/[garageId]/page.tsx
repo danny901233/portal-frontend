@@ -33,6 +33,66 @@ interface GarageConfig {
 
 type ViewState = 'closed' | 'menu' | 'pre-chat' | 'chat';
 
+function renderMessageContent(content: string, primaryColor: string, isUser: boolean) {
+  // Detect numbered list: at least two items like "1. ... 2. ..."
+  const hasNumberedList = /\d+\.\s.+\s\d+\.\s/.test(content);
+
+  if (!hasNumberedList || isUser) {
+    return content.split('\n').map((line, i) => (
+      <span key={i}>{i > 0 && <br />}{line}</span>
+    ));
+  }
+
+  // Split intro text from list (find where "1. " starts)
+  const listStartIdx = content.search(/(?:^|\s)1\.\s/);
+  const intro = listStartIdx > 0 ? content.substring(0, listStartIdx).trim() : '';
+  const listPart = content.substring(listStartIdx >= 0 ? listStartIdx : 0).trim();
+
+  // Parse each "N. text — price" item
+  const rawItems = listPart.split(/(?=\d+\.\s)/).filter(Boolean);
+  const items = rawItems.map((part) => {
+    const m = part.match(/^(\d+)\.\s(.+)$/s);
+    if (!m) return null;
+    const full = m[2].trim();
+    const dashIdx = full.indexOf(' — ');
+    return {
+      num: m[1],
+      name: dashIdx >= 0 ? full.substring(0, dashIdx).trim() : full,
+      price: dashIdx >= 0 ? full.substring(dashIdx + 3).trim() : undefined,
+    };
+  }).filter(Boolean) as { num: string; name: string; price?: string }[];
+
+  return (
+    <>
+      {intro && <p style={{ marginBottom: '10px', color: '#374151' }}>{intro}</p>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {items.map((item) => (
+          <div key={item.num} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '9px 11px',
+            backgroundColor: 'rgba(0,0,0,0.03)',
+            borderRadius: '10px',
+            border: '1px solid rgba(0,0,0,0.07)',
+          }}>
+            <div style={{
+              width: '22px', height: '22px', borderRadius: '50%',
+              backgroundColor: primaryColor, color: 'white',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '11px', fontWeight: 700, flexShrink: 0,
+            }}>{item.num}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 500, fontSize: '13px', color: '#111827', lineHeight: '1.3' }}>{item.name}</div>
+              {item.price && <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '1px' }}>{item.price}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export default function ChatWidget() {
   const params = useParams();
   const garageId = params?.garageId as string;
@@ -365,9 +425,7 @@ export default function ChatWidget() {
                       boxShadow: '0 5px 9px 0 rgba(151,124,156,0.1), 0 5px 16px 0 rgba(203,195,212,0.1), 0 8px 20px 0 rgba(216,212,221,0.1)'
                     })
                   }}>
-                    {msg.content.replace(/(\s)(\d+\.\s)/g, '\n$2').split('\n').map((line, i) => (
-                      <span key={i}>{i > 0 && <br />}{line}</span>
-                    ))}
+                    {renderMessageContent(msg.content, config?.primaryColor || '#3f51b5', msg.role === 'user')}
                   </div>
                 </div>
                 )

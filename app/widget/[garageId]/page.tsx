@@ -51,7 +51,7 @@ function renderMessageContent(content: string, primaryColor: string, isUser: boo
   // Parse each "N. text — price" item
   const rawItems = listPart.split(/(?=\d+\.\s)/).filter(Boolean);
   const items = rawItems.map((part) => {
-    const m = part.match(/^(\d+)\.\s(.+)$/s);
+    const m = part.match(/^(\d+)\.\s([\s\S]+)$/);
     if (!m) return null;
     const full = m[2].trim();
     const dashIdx = full.indexOf(' — ');

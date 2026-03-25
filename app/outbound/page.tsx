@@ -587,18 +587,22 @@ export default function OutboundPage() {
                   <tbody className="divide-y divide-slate-800">
                     {selectedCampaign.contacts!.map((contact) => {
                       const statusColor: Record<string, string> = {
-                        sent: 'text-green-400',
-                        replied: 'text-blue-400',
+                        pending: 'text-yellow-400',
+                        sent: 'text-blue-400',
+                        delivered: 'text-green-400',
+                        read: 'text-green-300',
+                        replied: 'text-purple-400',
                         failed: 'text-red-400',
                         opted_out: 'text-slate-500',
-                        pending: 'text-yellow-400',
                       };
                       const statusLabel: Record<string, string> = {
-                        sent: 'Sent',
+                        pending: 'Pending',
+                        sent: 'Sent (unconfirmed)',
+                        delivered: 'Delivered',
+                        read: 'Read',
                         replied: 'Replied',
                         failed: 'Failed',
                         opted_out: 'Opted Out',
-                        pending: 'Pending',
                       };
                       return (
                         <tr key={contact.id} className="text-slate-300">

@@ -47,7 +47,42 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
       for (const change of changes) {
         const value = change.value;
 
-        if (!value || !value.messages || !Array.isArray(value.messages)) {
+        if (!value) continue;
+
+        // ---------------------------------------------------------------------------
+        // Handle delivery status updates for outbound campaign messages
+        // ---------------------------------------------------------------------------
+        if (value.statuses && Array.isArray(value.statuses)) {
+          for (const status of value.statuses) {
+            const messageSid = status.id as string | undefined;
+            const metaStatus = status.status as string | undefined; // sent, delivered, read, failed
+            if (!messageSid || !metaStatus) continue;
+
+            // Map Meta status → our contact status
+            let contactStatus: string | null = null;
+            let errorReason: string | null = null;
+
+            if (metaStatus === 'delivered') {
+              contactStatus = 'delivered';
+            } else if (metaStatus === 'read') {
+              contactStatus = 'read';
+            } else if (metaStatus === 'failed') {
+              contactStatus = 'failed';
+              const err = status.errors?.[0];
+              errorReason = err ? `${err.title} (${err.code})` : 'Delivery failed';
+            }
+
+            if (contactStatus) {
+              await prisma.outboundContact.updateMany({
+                where: { messageSid },
+                data: { status: contactStatus, ...(errorReason ? { errorReason } : {}) },
+              });
+              console.log(`[WhatsApp] Delivery status ${metaStatus} for ${messageSid} → ${contactStatus}`);
+            }
+          }
+        }
+
+        if (!value.messages || !Array.isArray(value.messages)) {
           continue;
         }
 

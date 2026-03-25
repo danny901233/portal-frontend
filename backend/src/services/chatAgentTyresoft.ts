@@ -271,11 +271,11 @@ export async function getTyresoftChatResponse(
     const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig);
 
     // Build message history
-    const previousMessages = await prisma.chatMessage.findMany({
+    const previousMessages = (await prisma.chatMessage.findMany({
       where: { conversationId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: 20,
-    });
+    })).reverse();
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: sysPrompt },

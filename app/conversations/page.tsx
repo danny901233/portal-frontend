@@ -124,9 +124,13 @@ export default function ConversationsPage() {
   // Scroll to bottom whenever messages change (covers both conversation switch and new messages)
   useEffect(() => {
     const container = messagesContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-    }
+    if (!container) return;
+    // Double rAF ensures browser has fully painted new messages before scrolling
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight;
+      });
+    });
   }, [messages]);
 
   const handleReply = async () => {

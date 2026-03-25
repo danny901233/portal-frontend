@@ -274,7 +274,7 @@ export async function getTyresoftChatResponse(
     const previousMessages = (await prisma.chatMessage.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 50,
     })).reverse();
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [

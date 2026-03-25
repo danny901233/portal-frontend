@@ -152,6 +152,19 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             },
           });
 
+          // Check if this is a reply to an outbound campaign — phone may be stored with or without +
+          const phoneVariants = [customerPhone, `+${customerPhone}`, customerPhone.replace(/^\+/, '')];
+          const outboundContact = await prisma.outboundContact.findFirst({
+            where: {
+              garageId: connection.garageId,
+              phone: { in: phoneVariants },
+              status: { in: ['sent', 'delivered', 'read'] },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+
+          const isNewConversation = !conversation;
+
           if (!conversation) {
             // Create new conversation
             conversation = await prisma.chatConversation.create({
@@ -178,6 +191,31 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 status: 'active',
               },
             });
+          }
+
+          // Inject outbound context on the first message so agent knows registration/due date
+          if (isNewConversation && outboundContact) {
+            const contextParts = [
+              `Customer replied to outbound ${outboundContact.messageType === 'mot' ? 'MOT' : 'service'} reminder.`,
+              outboundContact.registration ? `Vehicle registration: ${outboundContact.registration.toUpperCase()}.` : '',
+              outboundContact.motDueDate ? `MOT due date: ${outboundContact.motDueDate}.` : '',
+              outboundContact.serviceDueDate ? `Service due date: ${outboundContact.serviceDueDate}.` : '',
+            ].filter(Boolean).join(' ');
+
+            await prisma.chatMessage.create({
+              data: {
+                conversationId: conversation.id,
+                role: 'assistant',
+                content: `[Context: ${contextParts}]`,
+              },
+            });
+
+            await prisma.outboundContact.update({
+              where: { id: outboundContact.id },
+              data: { status: 'replied', conversationId: conversation.id },
+            });
+
+            console.log(`[WhatsApp] Outbound reply detected for ${customerPhone}, context injected`);
           }
 
           // Deduplicate — skip if this Meta message ID was already processed

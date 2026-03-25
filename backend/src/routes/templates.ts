@@ -121,7 +121,7 @@ router.post(
       }
 
       // Get the WhatsApp Business Account ID
-      const wabaId = await getWhatsAppBusinessAccountId(connection.accessToken, connection.whatsappPhoneNumberId || undefined);
+      const wabaId = await getWhatsAppBusinessAccountId(connection.accessToken, connection.whatsappPhoneNumberId || undefined, connection.pageId || undefined);
       if (!wabaId) {
         return res.status(400).json({ error: 'Could not find WhatsApp Business Account. Please reconnect WhatsApp.' });
       }
@@ -324,7 +324,7 @@ router.delete(
         });
 
         if (connection) {
-          const wabaId = await getWhatsAppBusinessAccountId(connection.accessToken, connection.whatsappPhoneNumberId || undefined);
+          const wabaId = await getWhatsAppBusinessAccountId(connection.accessToken, connection.whatsappPhoneNumberId || undefined, connection.pageId || undefined);
           if (wabaId) {
             try {
               await fetch(
@@ -353,10 +353,18 @@ router.delete(
 );
 
 // ---------------------------------------------------------------------------
-// Helper: Get WhatsApp Business Account ID from access token + phone number ID
+// Helper: Get WhatsApp Business Account ID
+// pageId on the WhatsApp SocialMediaConnection stores the WABA ID directly.
+// Falls back to Meta API lookup if not set.
 // ---------------------------------------------------------------------------
-async function getWhatsAppBusinessAccountId(accessToken: string, phoneNumberId?: string): Promise<string | null> {
-  // Primary: derive WABA from phone number ID (works with system user tokens)
+async function getWhatsAppBusinessAccountId(accessToken: string, phoneNumberId?: string, wabaId?: string): Promise<string | null> {
+  // Primary: use stored WABA ID (most reliable — no API call needed)
+  if (wabaId) {
+    console.log(`[TEMPLATES] Using stored WABA ID: ${wabaId}`);
+    return wabaId;
+  }
+
+  // Secondary: derive from phone number ID
   if (phoneNumberId && phoneNumberId !== 'pending_setup') {
     try {
       const res = await fetch(
@@ -368,8 +376,9 @@ async function getWhatsAppBusinessAccountId(accessToken: string, phoneNumberId?:
         console.log(`[TEMPLATES] Got WABA ID from phone number: ${data.whatsapp_business_account.id}`);
         return data.whatsapp_business_account.id;
       }
+      console.warn('[TEMPLATES] Phone number lookup returned no WABA:', JSON.stringify(data));
     } catch (e) {
-      console.warn('[TEMPLATES] Failed to get WABA from phone number ID, falling back:', e);
+      console.warn('[TEMPLATES] Failed to get WABA from phone number ID:', e);
     }
   }
 

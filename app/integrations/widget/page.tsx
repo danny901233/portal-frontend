@@ -96,11 +96,13 @@ export default function WidgetEmbedPage() {
             Website Widget
           </button>
         </div>
-        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-400">
-          <span className="text-slate-500">Garage ID:</span>
-          <code className="text-slate-300">{garageId}</code>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-300">{garageName}</span>
+        <div className="mt-3 flex justify-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-400">
+            <span className="text-slate-500">Garage ID:</span>
+            <code className="text-slate-300">{garageId}</code>
+            <span className="text-slate-600">·</span>
+            <span className="text-slate-300">{garageName}</span>
+          </div>
         </div>
       </div>
 

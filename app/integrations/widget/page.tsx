@@ -77,10 +77,25 @@ export default function WidgetEmbedPage() {
   return (
     <div className="space-y-8 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100">Website Widgets</h1>
+        <h1 className="text-2xl font-bold text-slate-100">Integrations</h1>
         <p className="text-sm text-slate-400 mt-1">
           Embed ReceptionMate widgets on your website to let customers reach you instantly.
         </p>
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 mt-4 p-1 bg-slate-800/60 rounded-lg w-fit border border-slate-700">
+          <button
+            onClick={() => router.push('/integrations')}
+            className="px-4 py-1.5 text-sm font-medium rounded-md text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            Social Media
+          </button>
+          <button
+            className="px-4 py-1.5 text-sm font-medium rounded-md bg-slate-700 text-slate-100 shadow-sm"
+          >
+            Website Widget
+          </button>
+        </div>
         <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-400">
           <span className="text-slate-500">Garage ID:</span>
           <code className="text-slate-300">{garageId}</code>

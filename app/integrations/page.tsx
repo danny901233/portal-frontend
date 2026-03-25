@@ -210,10 +210,25 @@ export default function IntegrationsPage() {
           </svg>
           <span className="text-sm">Back to Messages</span>
         </button>
-        <h1 className="text-2xl font-bold text-slate-100 mb-2">Social Media Integrations</h1>
+        <h1 className="text-2xl font-bold text-slate-100 mb-2">Integrations</h1>
         <p className="text-slate-400">
           Connect your social media accounts to manage all customer conversations in one place
         </p>
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 mt-5 p-1 bg-slate-800/60 rounded-lg w-fit border border-slate-700">
+          <button
+            className="px-4 py-1.5 text-sm font-medium rounded-md bg-slate-700 text-slate-100 shadow-sm"
+          >
+            Social Media
+          </button>
+          <button
+            onClick={() => router.push('/integrations/widget')}
+            className="px-4 py-1.5 text-sm font-medium rounded-md text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            Website Widget
+          </button>
+        </div>
 
         {/* Status Message */}
         {statusMessage && (

@@ -60,24 +60,32 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
         }
 
         // Find garage by phone_number_id
-        const connection = await prisma.socialMediaConnection.findFirst({
-          where: {
-            platform: 'whatsapp',
-            whatsappPhoneNumberId: phoneNumberId,
-            isActive: true,
-          },
-          include: {
-            garage: {
-              include: {
-                agentConfiguration: true,
-              },
-            },
-          },
+        const include = { garage: { include: { agentConfiguration: true } } };
+        let connection = await prisma.socialMediaConnection.findFirst({
+          where: { platform: 'whatsapp', whatsappPhoneNumberId: phoneNumberId, isActive: true },
+          include,
         });
 
         if (!connection) {
-          console.log(`No garage found for WhatsApp phone_number_id: ${phoneNumberId}`);
-          continue;
+          // Self-heal: OAuth flow sometimes stores the wrong phone number ID (e.g. WABA ID or
+          // first number on account instead of the correct one). If there's exactly one active
+          // WhatsApp connection whose stored ID doesn't match, update it automatically.
+          const fallback = await prisma.socialMediaConnection.findFirst({
+            where: { platform: 'whatsapp', isActive: true },
+            include,
+          });
+
+          if (!fallback) {
+            console.log(`No garage found for WhatsApp phone_number_id: ${phoneNumberId}`);
+            continue;
+          }
+
+          console.log(`[WhatsApp] Auto-correcting phone_number_id: ${fallback.whatsappPhoneNumberId} → ${phoneNumberId}`);
+          await prisma.socialMediaConnection.update({
+            where: { id: fallback.id },
+            data: { whatsappPhoneNumberId: phoneNumberId },
+          });
+          connection = { ...fallback, whatsappPhoneNumberId: phoneNumberId };
         }
 
         // Process each message

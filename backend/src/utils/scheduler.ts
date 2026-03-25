@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { generateWeeklyReports, generateMonthlyReports } from './reportGenerator.js';
 import { processMonthlyBilling } from '../services/billing.js';
 import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
+import { refreshTemplateToken } from '../services/metaTemplateToken.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 
@@ -84,7 +85,23 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ Invoice preview emails scheduled: Daily at 10:00 AM (UK time)');
-  
+
+  // Meta template token refresh: Every Monday at 3:00 AM
+  // Long-lived user tokens expire after 60 days. Weekly refresh keeps it perpetually valid.
+  cron.schedule('0 3 * * 1', async () => {
+    console.log('[META-TOKEN] Running weekly token refresh...');
+    try {
+      await refreshTemplateToken();
+      console.log('[META-TOKEN] ✓ Token refreshed successfully');
+    } catch (error) {
+      console.error('[META-TOKEN] ❌ Token refresh failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London',
+  });
+
+  console.log('✓ Meta template token refresh scheduled: Mondays at 3:00 AM (UK time)');
+
   // Feature announcement email: March 7, 2026 at 8:00 AM (one-time job)
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);

@@ -319,7 +319,13 @@ export async function getTyresoftChatResponse(
 
       for (const call of toolCalls) {
         if (call.type !== 'function') continue;
-        const args = JSON.parse(call.function.arguments);
+        let args: any;
+        try {
+          args = JSON.parse(call.function.arguments);
+        } catch {
+          console.error(`[TS_AGENT] Failed to parse tool args for ${call.function.name}:`, call.function.arguments);
+          args = {};
+        }
         console.log(`[TS_AGENT] Tool call: ${call.function.name}`, args);
 
         const result = await executeTool(call.function.name, args, conversationId, tsConfig);

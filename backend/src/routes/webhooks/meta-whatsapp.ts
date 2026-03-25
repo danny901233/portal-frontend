@@ -191,23 +191,27 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             });
 
             // Send response via WhatsApp
-            await axios.post(
-              `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-              {
-                messaging_product: 'whatsapp',
-                to: customerPhone,
-                type: 'text',
-                text: { body: agentResponse.content },
-              },
-              {
-                headers: {
-                  Authorization: `Bearer ${connection.accessToken}`,
-                  'Content-Type': 'application/json',
+            try {
+              await axios.post(
+                `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+                {
+                  messaging_product: 'whatsapp',
+                  to: customerPhone,
+                  type: 'text',
+                  text: { body: agentResponse.content },
                 },
-              }
-            );
-
-            console.log(`WhatsApp message sent to ${customerPhone}`);
+                {
+                  headers: {
+                    Authorization: `Bearer ${connection.accessToken}`,
+                    'Content-Type': 'application/json',
+                  },
+                }
+              );
+              console.log(`WhatsApp message sent to ${customerPhone}`);
+            } catch (sendError: any) {
+              const metaError = sendError?.response?.data;
+              console.error(`[WhatsApp] SEND FAILED to ${customerPhone}:`, JSON.stringify(metaError ?? sendError?.message));
+            }
           } else {
             console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
           }

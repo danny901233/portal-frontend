@@ -496,7 +496,13 @@ export async function getChatAgentResponse(
         if (toolCall.type !== 'function') continue;
 
         const functionName = toolCall.function.name;
-        const functionArgs = JSON.parse(toolCall.function.arguments);
+        let functionArgs: any;
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments);
+        } catch {
+          console.error(`[CHAT_AGENT_V2] Failed to parse tool args for ${functionName}:`, toolCall.function.arguments);
+          functionArgs = {};
+        }
 
         console.log(`[CHAT_AGENT_V2] Calling: ${functionName}`, functionArgs);
 

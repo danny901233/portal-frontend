@@ -746,7 +746,15 @@ export default function TemplatesPage() {
                     </span>
                   </div>
                   {t.rejectionReason && (
-                    <p className="mt-1 text-xs text-red-400">Rejection: {t.rejectionReason}</p>
+                    <div className="mt-2 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
+                      <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                      <div>
+                        <p className="text-xs font-medium text-red-300">Rejected by Meta</p>
+                        <p className="mt-0.5 text-xs text-red-400/80">{t.rejectionReason}</p>
+                      </div>
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-2">

@@ -365,7 +365,9 @@ export default function ChatWidget() {
                       boxShadow: '0 5px 9px 0 rgba(151,124,156,0.1), 0 5px 16px 0 rgba(203,195,212,0.1), 0 8px 20px 0 rgba(216,212,221,0.1)'
                     })
                   }}>
-                    {msg.content}
+                    {msg.content.replace(/(\s)(\d+\.\s)/g, '\n$2').split('\n').map((line, i) => (
+                      <span key={i}>{i > 0 && <br />}{line}</span>
+                    ))}
                   </div>
                 </div>
                 )

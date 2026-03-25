@@ -163,8 +163,6 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             orderBy: { createdAt: 'desc' },
           });
 
-          const isNewConversation = !conversation;
-
           if (!conversation) {
             // Create new conversation
             conversation = await prisma.chatConversation.create({
@@ -193,13 +191,18 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             });
           }
 
-          // Inject outbound context on the first message so agent knows registration/due date
-          if (isNewConversation && outboundContact) {
+          // Inject outbound context the first time a campaign recipient replies
+          // (status not yet 'replied' means context hasn't been injected yet)
+          if (outboundContact && outboundContact.status !== 'replied') {
+            const type = outboundContact.messageType === 'mot' ? 'MOT' : 'service';
+            const reg = outboundContact.registration?.toUpperCase() || null;
+            const dueDate = outboundContact.motDueDate || outboundContact.serviceDueDate || null;
+
             const contextParts = [
-              `Customer replied to outbound ${outboundContact.messageType === 'mot' ? 'MOT' : 'service'} reminder.`,
-              outboundContact.registration ? `Vehicle registration: ${outboundContact.registration.toUpperCase()}.` : '',
-              outboundContact.motDueDate ? `MOT due date: ${outboundContact.motDueDate}.` : '',
-              outboundContact.serviceDueDate ? `Service due date: ${outboundContact.serviceDueDate}.` : '',
+              `This customer was sent an outbound ${type} reminder campaign and has replied indicating they want to book.`,
+              reg ? `Their vehicle registration is ${reg}.` : '',
+              dueDate ? `Their ${type} is due on ${dueDate}.` : '',
+              `Do NOT ask what you can help with — they want to book their ${type}. Proceed directly to booking, confirming the registration${reg ? ` (${reg})` : ''} with the customer first.`,
             ].filter(Boolean).join(' ');
 
             await prisma.chatMessage.create({
@@ -215,7 +218,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               data: { status: 'replied', conversationId: conversation.id },
             });
 
-            console.log(`[WhatsApp] Outbound reply detected for ${customerPhone}, context injected`);
+            console.log(`[WhatsApp] Outbound reply from ${customerPhone} — context injected, status → replied`);
           }
 
           // Deduplicate — skip if this Meta message ID was already processed

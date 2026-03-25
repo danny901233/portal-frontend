@@ -90,8 +90,8 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
         name,
         channel: channel || 'sms',
         totalContacts: contactData.length,
-        messageTemplateId: messageTemplateId || null,
-        variableMapping: variableMapping || null,
+        messageTemplateId: messageTemplateId || undefined,
+        variableMapping: variableMapping || undefined,
         contacts: {
           create: contactData,
         },

@@ -220,6 +220,10 @@ export default function OutboundPage() {
       showToast('error', 'Please enter a campaign name.');
       return;
     }
+    if (channel === 'whatsapp' && !selectedTemplateId) {
+      showToast('error', 'Please select an approved WhatsApp template. Plain text messages cannot be delivered outside the 24-hour window.');
+      return;
+    }
     createMutation.mutate({
       garageId,
       name: campaignName.trim(),

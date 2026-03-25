@@ -201,6 +201,13 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
       return res.status(400).json({ error: 'No WhatsApp sender configured for this garage' });
     }
 
+    // WhatsApp requires an approved template for outbound campaigns (no 24-hour window)
+    if (campaign.channel === 'whatsapp' && !template) {
+      console.error(`[OUTBOUND] WhatsApp campaign ${campaign.id} has no template — refusing to send plain text`);
+      await prisma.outboundCampaign.update({ where: { id: campaign.id }, data: { status: 'draft' } });
+      return res.status(400).json({ error: 'WhatsApp campaigns require an approved template. Please select a template and try again.' });
+    }
+
     const { whatsappPhoneNumberId, accessToken } = waConnection;
 
     // Mark campaign as sending

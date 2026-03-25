@@ -344,12 +344,34 @@ export default function OutboundPage() {
 
         {/* CSV Upload */}
         <div className="mt-4">
-          <label className="mb-1 block text-xs font-medium text-slate-400">
-            Customer CSV{' '}
-            <span className="text-slate-500">
-              (columns: customer_name, phone, registration, mot_due_date, service_due_date)
-            </span>
-          </label>
+          <div className="mb-1 flex items-center justify-between">
+            <label className="text-xs font-medium text-slate-400">
+              Customer CSV{' '}
+              <span className="text-slate-500">
+                (columns: customer_name, phone, registration, mot_due_date, service_due_date)
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                const sample = [
+                  'customer_name,phone,registration,mot_due_date,service_due_date',
+                  'John Smith,+447911123456,AB12CDE,15-Apr-26,',
+                  'Sarah Jones,+447922654321,XY21FGH,,20-May-26',
+                ].join('\r\n');
+                const blob = new Blob([sample], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'outbound_template.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
+            >
+              Download sample CSV
+            </button>
+          </div>
           <input
             ref={fileRef}
             type="file"

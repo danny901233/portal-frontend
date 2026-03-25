@@ -15,7 +15,7 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { sendNegativeFeedbackEmail, sendCallSummaryEmail } from '../utils/email.js';
+import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { trackConfirmedBooking } from '../services/billing.js';
 
@@ -256,25 +256,57 @@ router.post('/calls', async (req: Request, res: Response) => {
     // Send notification email (agent already filtered to only send calls >= 30s)
     if (createdCall.garage?.agentConfiguration?.notificationEmails &&
         createdCall.garage.agentConfiguration.notificationEmails.length > 0) {
-      console.log(`[EMAIL] Sending notification for call ${callId} with duration ${actualDuration}s`);
+      console.log(`[EMAIL] Checking payment status for call ${callId} notification (duration ${actualDuration}s)`);
 
-      void sendCallSummaryEmail(createdCall.garage.agentConfiguration.notificationEmails, {
-        branchName: createdCall.garage.agentConfiguration.branchName,
-        summary: payload.summary,
-        transcript: payload.transcript as any,
-        durationSeconds: actualDuration,
-        callType: callType,
-        customerName: payload.customerName,
-        customerPhone: payload.customerPhone,
-        registrationNumber: payload.registrationNumber,
-        confirmedBooking: payload.confirmedBooking ?? false,
-        capturedRevenue: payload.capturedRevenue ?? null,
-        createdAt: createdCall.createdAt.toISOString(),
-        bookingDate: null,
-        priceQuoted: payload.capturedRevenue ?? null,
-      }).catch((error) => {
-        console.error('[EMAIL] Failed to send notification email:', error);
+      // Check if any users with access to this garage need to set up payment
+      const usersWithAccess = await prisma.user.findMany({
+        where: {
+          garageAccessIds: {
+            has: payload.garageId
+          }
+        },
+        select: {
+          email: true,
+          mustSetupPayment: true
+        }
       });
+
+      const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
+      const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+
+      if (userNeedsPaymentSetup) {
+        console.log(`[EMAIL] 💳 User(s) need payment setup - sending payment reminder email`);
+        
+        void sendPaymentSetupReminderEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+          branchName: createdCall.garage.agentConfiguration.branchName,
+          summary: payload.summary,
+          customerPhone: payload.customerPhone,
+          createdAt: createdCall.createdAt.toISOString(),
+          portalUrl,
+        }).catch((error) => {
+          console.error('[EMAIL] Failed to send payment reminder email:', error);
+        });
+      } else {
+        console.log(`[EMAIL] ✅ Sending standard call summary email`);
+        
+        void sendCallSummaryEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+          branchName: createdCall.garage.agentConfiguration.branchName,
+          summary: payload.summary,
+          transcript: payload.transcript as any,
+          durationSeconds: actualDuration,
+          callType: callType,
+          customerName: payload.customerName,
+          customerPhone: payload.customerPhone,
+          registrationNumber: payload.registrationNumber,
+          confirmedBooking: payload.confirmedBooking ?? false,
+          capturedRevenue: payload.capturedRevenue ?? null,
+          createdAt: createdCall.createdAt.toISOString(),
+          bookingDate: null,
+          priceQuoted: payload.capturedRevenue ?? null,
+        }).catch((error) => {
+          console.error('[EMAIL] Failed to send notification email:', error);
+        });
+      }
     }
 
     res.status(201).json({ success: true, callId });

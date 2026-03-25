@@ -455,6 +455,21 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
+        name: 'ts_confirm_slot',
+        description: 'Save the customer\'s chosen time slot to the session. Call this as soon as the customer selects a slot so it is remembered for the booking.',
+        parameters: {
+          type: 'object',
+          properties: {
+            slot_date: { type: 'string', description: 'Date of the slot e.g. 2026-03-26' },
+            slot_time: { type: 'string', description: 'Time of the slot e.g. 13:30' },
+          },
+          required: ['slot_date', 'slot_time'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'ts_save_customer_details',
         description: 'Save the customer name and phone number to the session. Call as soon as you have both the name AND phone number from the customer — do not wait until booking.',
         parameters: {
@@ -649,6 +664,19 @@ async function executeTool(
         tsSessions.set(conversationId, { ...session, customerName, customerPhone });
         console.log(`[TS_AGENT] Customer details saved: name=${customerName}, phone=${customerPhone}`);
         return { success: true, customer_name: customerName, customer_phone: customerPhone };
+      }
+
+      case 'ts_confirm_slot': {
+        const slotDate = String(args.slot_date || '').trim();
+        const slotTime = String(args.slot_time || '').trim();
+        const matched  = (session.availableSlots || []).find(s => s.date === slotDate && s.time === slotTime);
+        if (!matched) {
+          return { error: 'Slot not found in available slots. Call ts_get_timeslots again to refresh.' };
+        }
+        const selectedSlot = { date: matched.date, time: matched.time, diaryCategoryId: matched.diaryCategoryID, estimatedTime: matched.estimatedTime, slotTypeId: matched.slotTypeID };
+        tsSessions.set(conversationId, { ...session, selectedSlot });
+        console.log(`[TS_AGENT] Slot confirmed: ${slotDate} ${slotTime}`);
+        return { success: true, slot_date: slotDate, slot_time: slotTime };
       }
 
       case 'ts_get_timeslots': {
@@ -1007,8 +1035,9 @@ function buildSystemPrompt(
     prompt += `5. Present options: brand, price per tyre, availability. Ask how many they need (1, 2, or 4).\n`;
     prompt += `6. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
     prompt += `7. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
-    prompt += `8. Offer 3-4 slots in plain language. Ask for name + phone number if not already saved.\n`;
-    prompt += `9. Once you have both name AND phone, call ts_save_customer_details immediately.\n`;
+    prompt += `8. Offer 3-4 slots in plain language.\n`;
+    prompt += `9. When customer picks a slot, immediately call ts_confirm_slot to save it.\n`;
+    prompt += `10. Ask for name + phone number if not already saved. Once you have both, call ts_save_customer_details immediately.\n`;
     prompt += `10. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
     prompt += `11. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
 
@@ -1022,8 +1051,10 @@ function buildSystemPrompt(
     prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
     prompt += `3. Call ts_get_services to match the customer's request using engineCapacity from the VRM lookup.\n`;
     prompt += `4. Call ts_get_timeslots with the correct service_id(s).\n`;
-    prompt += `5. Offer slots, collect name + phone.\n`;
-    prompt += `6. Read back and confirm — call ts_create_booking only after YES.\n\n`;
+    prompt += `5. Offer 3-4 slots in plain language.\n`;
+    prompt += `6. When customer picks a slot, immediately call ts_confirm_slot to save it.\n`;
+    prompt += `7. Collect name + phone (call ts_save_customer_details once you have both).\n`;
+    prompt += `8. Read back summary and confirm — call ts_create_booking only after YES.\n\n`;
 
     prompt += `RULES:\n`;
     prompt += `- After ts_create_booking succeeds, always end with a confirmation message like:\n`;
@@ -1032,6 +1063,8 @@ function buildSystemPrompt(
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
     prompt += `- If tyre size not found in vehicle data, ask the customer directly (e.g. "What size tyres does your car take?").\n`;
+    prompt += `- CRITICAL: When a customer provides their name, phone number, time preference, or any other information you asked for, do NOT greet them or start over. Continue the booking flow immediately from where you left off.\n`;
+    prompt += `- CRITICAL: If the customer gives only their name and you still need their phone number, say "Thanks [name] — and what's the best number to reach you on?" Do NOT say "Hello [name]! How can I assist you today?"\n`;
     prompt += `- Keep replies concise — 1 to 3 sentences max.\n`;
     prompt += `- Never use markdown: no **bold**, no bullet points, no dashes. Plain sentences only.\n`;
     prompt += `- When listing tyre options, write them as a short numbered plain-text list with name and price only.\n`;
@@ -1044,22 +1077,33 @@ function buildSystemPrompt(
     prompt += `  After calling ts_take_message, tell them: "I've passed your message on to the team. Someone will get back to you shortly."\n`;
     prompt += `  Do NOT continue trying to help after ts_take_message is called — the conversation is handed off.\n\n`;
 
-    // Active session context
-    if (session.vrm) {
-      prompt += `ACTIVE SESSION:\n`;
-      prompt += `- Vehicle reg: ${session.vrm}`;
-      if (session.vehicle?.make) prompt += ` (${session.vehicle.make} ${session.vehicle.model})`;
-      prompt += `\n`;
+    // Active session context — show whenever there is ANY booking state
+    const hasSessionState = !!(session.vrm || session.serviceIds?.length || session.tyreBasket?.length || session.customerName || session.customerPhone || session.availableSlots?.length || session.selectedSlot);
+    if (hasSessionState) {
+      prompt += `ACTIVE SESSION (do NOT ask for information already listed here):\n`;
+      if (session.vrm) {
+        prompt += `- Vehicle reg: ${session.vrm}`;
+        if (session.vehicle?.make) prompt += ` (${session.vehicle.make} ${session.vehicle.model})`;
+        prompt += ` — do NOT call ts_lookup_vehicle again\n`;
+      }
       if (session.serviceIds?.length) {
-        prompt += `- Service IDs selected: ${session.serviceIds.join(', ')}\n`;
+        const serviceNames = session.serviceIds.map(id => TYRESOFT_SERVICES.find(s => s.id === id)?.name || `ID ${id}`).join(', ');
+        prompt += `- Service selected: ${serviceNames} (IDs: ${session.serviceIds.join(', ')})\n`;
       }
       if (session.tyreBasket?.length) {
         const total = session.tyreBasket.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
         prompt += `- Tyre basket: ${session.tyreBasket.map(i => `${i.quantity}x ${i.description} @ £${i.unitPrice}`).join(', ')} (total £${total.toFixed(2)})\n`;
       }
-      if (session.customerName)  prompt += `- Customer name: ${session.customerName} (already collected — do NOT ask again)\n`;
-      if (session.customerPhone) prompt += `- Customer phone: ${session.customerPhone} (already collected — do NOT ask again)\n`;
-      prompt += `- Do NOT call ts_lookup_vehicle again — already complete.\n\n`;
+      if (session.availableSlots?.length && !session.selectedSlot) {
+        const slotSummary = session.availableSlots.slice(0, 5).map(s => `${s.date} ${s.time}`).join(', ');
+        prompt += `- Available slots already fetched (${slotSummary}) — do NOT call ts_get_timeslots again\n`;
+      }
+      if (session.selectedSlot) {
+        prompt += `- Selected slot: ${session.selectedSlot.date} at ${session.selectedSlot.time} — do NOT ask for time again\n`;
+      }
+      if (session.customerName)  prompt += `- Customer name: ${session.customerName} — already collected, do NOT ask again\n`;
+      if (session.customerPhone) prompt += `- Customer phone: ${session.customerPhone} — already collected, do NOT ask again\n`;
+      prompt += `\n`;
     }
   } else {
     const phone = config.phoneNumber ? ` (${config.phoneNumber})` : '';

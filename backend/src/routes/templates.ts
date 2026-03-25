@@ -121,7 +121,7 @@ router.post(
       }
 
       // Get the WhatsApp Business Account ID
-      const wabaId = await getWhatsAppBusinessAccountId(connection.accessToken);
+      const wabaId = await getWhatsAppBusinessAccountId(connection.accessToken, connection.whatsappPhoneNumberId || undefined);
       if (!wabaId) {
         return res.status(400).json({ error: 'Could not find WhatsApp Business Account. Please reconnect WhatsApp.' });
       }
@@ -324,7 +324,7 @@ router.delete(
         });
 
         if (connection) {
-          const wabaId = await getWhatsAppBusinessAccountId(connection.accessToken);
+          const wabaId = await getWhatsAppBusinessAccountId(connection.accessToken, connection.whatsappPhoneNumberId || undefined);
           if (wabaId) {
             try {
               await fetch(
@@ -353,9 +353,27 @@ router.delete(
 );
 
 // ---------------------------------------------------------------------------
-// Helper: Get WhatsApp Business Account ID from access token
+// Helper: Get WhatsApp Business Account ID from access token + phone number ID
 // ---------------------------------------------------------------------------
-async function getWhatsAppBusinessAccountId(accessToken: string): Promise<string | null> {
+async function getWhatsAppBusinessAccountId(accessToken: string, phoneNumberId?: string): Promise<string | null> {
+  // Primary: derive WABA from phone number ID (works with system user tokens)
+  if (phoneNumberId && phoneNumberId !== 'pending_setup') {
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/v18.0/${phoneNumberId}?fields=whatsapp_business_account`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      const data = await res.json();
+      if (data.whatsapp_business_account?.id) {
+        console.log(`[TEMPLATES] Got WABA ID from phone number: ${data.whatsapp_business_account.id}`);
+        return data.whatsapp_business_account.id;
+      }
+    } catch (e) {
+      console.warn('[TEMPLATES] Failed to get WABA from phone number ID, falling back:', e);
+    }
+  }
+
+  // Fallback: /me/businesses (works with user tokens)
   try {
     const res = await fetch(
       'https://graph.facebook.com/v18.0/me/businesses',
@@ -365,7 +383,6 @@ async function getWhatsAppBusinessAccountId(accessToken: string): Promise<string
     const businesses = data.data || [];
     if (businesses.length === 0) return null;
 
-    // Get WABA from the first business
     const bizId = businesses[0].id;
     const wabaRes = await fetch(
       `https://graph.facebook.com/v18.0/${bizId}/owned_whatsapp_business_accounts`,

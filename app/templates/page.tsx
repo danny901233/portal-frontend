@@ -37,15 +37,13 @@ const CATEGORIES = [
 ];
 
 const VARIABLE_FIELDS = [
-  { label: 'Customer Name', sample: 'John Smith' },
-  { label: 'Appointment Date', sample: '15th March 2025' },
-  { label: 'Appointment Time', sample: '10:30 AM' },
-  { label: 'Vehicle Reg', sample: 'AB12 CDE' },
-  { label: 'Service Type', sample: 'MOT & Service' },
-  { label: 'Garage Name', sample: 'City Garage' },
-  { label: 'Phone Number', sample: '07700 900123' },
-  { label: 'Price / Quote', sample: '£120.00' },
-  { label: 'Custom Text', sample: '' },
+  { label: 'Customer Name', sample: 'John Smith', field: 'customer_name' },
+  { label: 'MOT Due Date', sample: '15-Apr-26', field: 'mot_due_date' },
+  { label: 'Service Due Date', sample: '20-May-26', field: 'service_due_date' },
+  { label: 'Vehicle Reg', sample: 'AB12 CDE', field: 'registration' },
+  { label: 'Garage Name', sample: 'City Garage', field: 'garage_name' },
+  { label: 'Phone Number', sample: '07700 900123', field: 'phone' },
+  { label: 'Custom Text', sample: '', field: '' },
 ];
 
 export default function TemplatesPage() {
@@ -584,9 +582,11 @@ export default function TemplatesPage() {
                                     type="button"
                                     onClick={() => {
                                       setFormVariableLabels(prev => ({ ...prev, [variable]: field.label }));
-                                      if (field.sample) {
-                                        setFormVariableSamples(prev => ({ ...prev, [variable]: field.sample }));
-                                      }
+                                      setFormVariableSamples(prev => ({
+                                        ...prev,
+                                        ...(field.sample ? { [variable]: field.sample } : {}),
+                                        [`${variable}_field`]: field.field,
+                                      }));
                                       setShowTagPicker(null);
                                     }}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"

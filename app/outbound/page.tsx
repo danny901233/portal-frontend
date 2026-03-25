@@ -143,6 +143,21 @@ export default function OutboundPage() {
         .sort((a, b) => Number(a) - Number(b))
     : [];
 
+  // Auto-fill variable mapping from template's saved field assignments
+  useEffect(() => {
+    if (!selectedTemplate?.variableSamples) {
+      setVariableMapping({});
+      return;
+    }
+    const samples = selectedTemplate.variableSamples as Record<string, string>;
+    const autoMap: Record<string, string> = {};
+    for (const varNum of templateVariables) {
+      const fieldKey = `{{${varNum}}}_field`;
+      if (samples[fieldKey]) autoMap[varNum] = samples[fieldKey];
+    }
+    if (Object.keys(autoMap).length > 0) setVariableMapping(autoMap);
+  }, [selectedTemplateId]);
+
   const createMutation = useMutation({
     mutationFn: createOutboundCampaign,
     onSuccess: async ({ campaign }) => {

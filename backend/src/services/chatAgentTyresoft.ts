@@ -669,6 +669,16 @@ async function executeTool(
         const customerPhone = String(args.customer_phone || '').trim();
         tsSessions.set(conversationId, { ...session, customerName, customerPhone });
         console.log(`[TS_AGENT] Customer details saved: name=${customerName}, phone=${customerPhone}`);
+        // Persist name + phone to the conversation so it shows in the portal
+        if (conversationId && (customerName || customerPhone)) {
+          await prisma.chatConversation.updateMany({
+            where: { id: conversationId },
+            data: {
+              ...(customerName ? { customerName } : {}),
+              ...(customerPhone ? { customerPhone } : {}),
+            },
+          });
+        }
         return { success: true, customer_name: customerName, customer_phone: customerPhone };
       }
 

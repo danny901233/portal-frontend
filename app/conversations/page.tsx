@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getGarageId, getSessionToken, isManager, isReceptionMateStaff } from '../lib/auth';
 import { cn } from '../lib/utils';
 
@@ -121,16 +121,11 @@ export default function ConversationsPage() {
     if (selectedId) void loadMessages(selectedId);
   }, [selectedId, loadMessages]);
 
-  // Scroll to bottom whenever messages change (covers both conversation switch and new messages)
-  useEffect(() => {
+  // Scroll to bottom before browser paints — prevents user ever seeing top of messages
+  useLayoutEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
-    // Double rAF ensures browser has fully painted new messages before scrolling
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        container.scrollTop = container.scrollHeight;
-      });
-    });
+    container.scrollTop = container.scrollHeight;
   }, [messages]);
 
   const handleReply = async () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
@@ -91,6 +91,13 @@ export default function MessagesPage() {
   const [showPauseDropdown, setShowPauseDropdown] = useState(false);
   const [showTaggingPanel, setShowTaggingPanel] = useState(false);
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [selectedConversation?.messages]);
 
   useEffect(() => {
     const garageId = getGarageId();
@@ -845,7 +852,7 @@ export default function MessagesPage() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950/20">
+            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-950/20">
               {selectedConversation.messages?.map((message) => (
                 <div
                   key={message.id}

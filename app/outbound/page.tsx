@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getGarageId, isReceptionMateStaff } from '../lib/auth';
+import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
 import {
   createOutboundCampaign,
@@ -100,10 +100,17 @@ export default function OutboundPage() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!isReceptionMateStaff()) {
-      router.replace('/dashboard');
-    }
-  }, [router]);
+    if (!garageId) return;
+    const token = getSessionToken();
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/garages/${garageId}/messaging-access`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then((data: { hasMessagingAccess?: boolean }) => {
+        if (!data.hasMessagingAccess) router.replace('/dashboard');
+      })
+      .catch(() => router.replace('/dashboard'));
+  }, [garageId, router]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [campaignName, setCampaignName] = useState('');

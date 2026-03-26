@@ -15,8 +15,8 @@ const baseNavigation = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Calls', href: '/calls' },
   { name: 'Messages', href: '/messages' },
-  { name: 'Outbound', href: '/outbound', requiresStaff: true },
-  { name: 'Templates', href: '/templates', requiresManager: true },
+  { name: 'Outbound', href: '/outbound', requiresMessaging: true },
+  { name: 'Templates', href: '/templates', requiresMessaging: true },
   { name: 'Agent Configurations', href: '/agent-configurations', requiresManager: true },
   { name: 'Integrations', href: '/integrations', requiresStaff: true },
   { name: 'Observability', href: '/observability', requiresStaff: true },
@@ -56,6 +56,10 @@ export default function Sidebar({
       // Agent Configurations only for managers and staff
       if (item.requiresManager) {
         return isManagerUser;
+      }
+      // Outbound and Templates visible to any garage with messaging access
+      if ((item as { requiresMessaging?: boolean }).requiresMessaging) {
+        return hasMessagingAccess;
       }
       // Integrations only for ReceptionMate staff
       if (item.requiresStaff) {

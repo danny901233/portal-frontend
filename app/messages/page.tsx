@@ -853,7 +853,7 @@ export default function MessagesPage() {
 
             {/* Messages */}
             <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-950/20">
-              {selectedConversation.messages?.map((message) => (
+              {selectedConversation.messages?.filter((message) => !message.content?.startsWith('[Context:')).map((message) => (
                 <div
                   key={message.id}
                   className={cn('flex flex-col', message.role === 'user' ? 'items-start' : 'items-end')}

@@ -194,31 +194,72 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
           // Inject outbound context the first time a campaign recipient replies
           // (status not yet 'replied' means context hasn't been injected yet)
           if (outboundContact && outboundContact.status !== 'replied') {
-            const type = outboundContact.messageType === 'mot' ? 'MOT' : 'service';
             const reg = outboundContact.registration?.toUpperCase() || null;
             const dueDate = outboundContact.motDueDate || outboundContact.serviceDueDate || null;
+            const nameParts = (outboundContact.customerName || '').trim().split(/\s+/);
 
-            const contextParts = [
-              `This customer was sent an outbound ${type} reminder campaign and has replied indicating they want to book.`,
-              reg ? `Their vehicle registration is ${reg}.` : '',
-              dueDate ? `Their ${type} is due on ${dueDate}.` : '',
-              `Do NOT ask what you can help with — they want to book their ${type}. Proceed directly to booking, confirming the registration${reg ? ` (${reg})` : ''} with the customer first.`,
-            ].filter(Boolean).join(' ');
+            // Reconstruct the original outbound message so it appears in the conversation view
+            let outboundMessageText: string | null = null;
+            try {
+              const campaign = await prisma.outboundCampaign.findUnique({ where: { id: outboundContact.campaignId } });
+              if (campaign?.messageTemplateId) {
+                const tmpl = await prisma.messageTemplate.findUnique({ where: { id: campaign.messageTemplateId } });
+                if (tmpl) {
+                  const varMap = (campaign.variableMapping as Record<string, string>) || {};
+                  const agentCfg = await prisma.agentConfiguration.findUnique({
+                    where: { garageId: connection.garageId },
+                    select: { branchName: true },
+                  });
+                  const contactFields: Record<string, string> = {
+                    customer_name: nameParts[0] || outboundContact.customerName,
+                    full_name: outboundContact.customerName,
+                    registration: reg || '',
+                    mot_due_date: outboundContact.motDueDate || '',
+                    service_due_date: outboundContact.serviceDueDate || '',
+                    garage_name: agentCfg?.branchName || 'our garage',
+                  };
+                  let body = tmpl.bodyText;
+                  for (const [varNum, field] of Object.entries(varMap)) {
+                    body = body.replace(new RegExp(`\\{\\{${varNum}\\}\\}`, 'g'), contactFields[field] || '');
+                  }
+                  outboundMessageText = body;
+                }
+              }
+            } catch (e) {
+              console.error('[WhatsApp] Failed to reconstruct outbound message:', e);
+            }
 
-            await prisma.chatMessage.create({
-              data: {
-                conversationId: conversation.id,
-                role: 'assistant',
-                content: `[Context: ${contextParts}]`,
-              },
-            });
+            // Save the outbound message as a regular assistant bubble (backdated to when it was sent)
+            if (outboundMessageText) {
+              await prisma.chatMessage.create({
+                data: {
+                  conversationId: conversation.id,
+                  role: 'assistant',
+                  content: outboundMessageText,
+                  createdAt: outboundContact.createdAt,
+                },
+              });
+            }
+
+            // Seed sessionState so the agent knows the registration without asking
+            await prisma.$executeRawUnsafe(
+              `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+              JSON.stringify({
+                customerNameFirst: nameParts[0] || '',
+                customerNameLast: nameParts.slice(1).join(' ') || '',
+                ...(reg && { outboundRegistration: reg }),
+                outboundServiceType: outboundContact.messageType || 'mot',
+                ...(dueDate && { outboundDueDate: dueDate }),
+              }),
+              conversation.id,
+            );
 
             await prisma.outboundContact.update({
               where: { id: outboundContact.id },
               data: { status: 'replied', conversationId: conversation.id },
             });
 
-            console.log(`[WhatsApp] Outbound reply from ${customerPhone} — context injected, status → replied`);
+            console.log(`[WhatsApp] Outbound reply from ${customerPhone} — message saved, session seeded with reg=${reg}`);
           }
 
           // Deduplicate — skip if this Meta message ID was already processed

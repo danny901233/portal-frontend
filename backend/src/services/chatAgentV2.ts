@@ -97,6 +97,11 @@ interface ChatSession {
 
   // Drop-off booking
   useDropOffBooking: boolean;   // true if this service uses drop-off (date only, no specific time)
+
+  // Outbound campaign context (pre-populated when customer replies to a campaign)
+  outboundRegistration?: string;
+  outboundServiceType?: string;
+  outboundDueDate?: string;
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -153,6 +158,9 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         diagnosticComplete: sessionData.diagnosticComplete || false,
         diagnosticQuestions: sessionData.diagnosticQuestions || [],
         useDropOffBooking: sessionData.useDropOffBooking || false,
+        outboundRegistration: sessionData.outboundRegistration || undefined,
+        outboundServiceType: sessionData.outboundServiceType || undefined,
+        outboundDueDate: sessionData.outboundDueDate || undefined,
       };
       inMemorySessionCache.set(conversationId, loadedSession);
       // Auto-advance: if timeslot was already chosen but server restarted before step updated
@@ -2196,6 +2204,15 @@ TONE EXAMPLES:
   }
 
   prompt += '\n';
+
+  // ── Outbound campaign shortcut ────────────────────────────────────────────
+  if (session.outboundRegistration && !session.vrn) {
+    const svcType = session.outboundServiceType === 'service' ? 'service' : 'MOT';
+    prompt += `OUTBOUND CAMPAIGN REPLY: This customer replied to an outbound ${svcType} reminder. You already know:\n`;
+    prompt += `- Their registration is ${session.outboundRegistration}\n`;
+    if (session.outboundDueDate) prompt += `- ${svcType} is due on ${session.outboundDueDate}\n`;
+    prompt += `Skip steps 1 and 2 below. Call lookup_vehicle('${session.outboundRegistration}') as your VERY FIRST action — do NOT ask the customer for their name or registration.\n\n`;
+  }
 
   // ── Booking flow instructions ─────────────────────────────────────────────
   prompt += `BOOKING FLOW (follow in order):

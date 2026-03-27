@@ -682,6 +682,74 @@ async def log_call_to_portal(
         logger.error(f"[PORTAL] Error logging call: {e}")
 
 # ============================================================
+# VEHICLESMART VRM LOOKUP
+# ============================================================
+
+VEHICLESMART_API_KEY = os.getenv("VEHICLESMART_API_KEY", "")
+VEHICLESMART_BASE_URL = "https://api.vehiclesmart.com/api"
+
+async def lookup_vrm(registration: str) -> dict[str, Any]:
+    """
+    Look up vehicle details from VehicleSmart API.
+    
+    Args:
+        registration: Vehicle registration number (VRM)
+        
+    Returns:
+        Dictionary with vehicle details or error information
+    """
+    if not VEHICLESMART_API_KEY:
+        logger.warning("[VEHICLESMART] API key not configured")
+        return {"success": False, "error": "VehicleSmart API key not configured"}
+    
+    # Clean and format the registration
+    vrm = registration.upper().replace(" ", "").strip()
+    if not vrm:
+        return {"success": False, "error": "Empty registration provided"}
+    
+    try:
+        url = f"{VEHICLESMART_BASE_URL}/vehicle/{vrm}"
+        headers = {
+            "Authorization": f"Bearer {VEHICLESMART_API_KEY}",
+            "Accept": "application/json"
+        }
+        
+        logger.info(f"[VEHICLESMART] Looking up VRM: {vrm}")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"[VEHICLESMART] VRM lookup successful: {vrm} -> {data.get('make')} {data.get('model')}")
+                    return {
+                        "success": True,
+                        "vrm": vrm,
+                        "make": data.get("make", ""),
+                        "model": data.get("model", ""),
+                        "colour": data.get("colour", ""),
+                        "year": data.get("year", ""),
+                        "fuel_type": data.get("fuelType", ""),
+                        "raw_data": data
+                    }
+                elif response.status == 404:
+                    logger.warning(f"[VEHICLESMART] VRM not found: {vrm}")
+                    return {"success": False, "error": "Vehicle registration not found"}
+                elif response.status == 401:
+                    logger.error("[VEHICLESMART] Authentication failed - invalid API key")
+                    return {"success": False, "error": "API authentication failed"}
+                else:
+                    text = await response.text()
+                    logger.error(f"[VEHICLESMART] API error: {response.status} - {text}")
+                    return {"success": False, "error": f"API error: {response.status}"}
+                    
+    except asyncio.TimeoutError:
+        logger.error(f"[VEHICLESMART] Timeout looking up VRM: {vrm}")
+        return {"success": False, "error": "Lookup timed out"}
+    except Exception as e:
+        logger.error(f"[VEHICLESMART] Error looking up VRM {vrm}: {e}")
+        return {"success": False, "error": str(e)}
+
+# ============================================================
 # NATO / VRN NORMALIZATION
 # ============================================================
 
@@ -3994,6 +4062,91 @@ class SupervisorAgent(Agent):
             )
 
         @function_tool
+        async def verify_vehicle_registration(
+            context: RunContext,
+            registration: str
+        ) -> str:
+            """
+            Verify a vehicle registration number (VRM) using the VehicleSmart API.
+            Use this when booking capability is enabled to confirm the correct vehicle.
+            
+            Args:
+                registration: The vehicle registration number to verify (e.g. 'AB12 CDE')
+            
+            Returns:
+                A confirmation message with vehicle details or error message.
+            """
+            tool_start = time.time()
+            tool_params = {"registration": registration}
+            
+            # Clean the VRM
+            vrm_clean = registration.upper().replace(" ", "").strip()
+            
+            if not vrm_clean:
+                error_msg = "Empty registration provided"
+                track_tool_call(
+                    self._state, "verify_vehicle_registration", tool_params, tool_start, time.time(),
+                    success=False, error=error_msg, error_type="validation_error", retry_count=0
+                )
+                return f"ERROR: {error_msg}. Ask: 'Could you give me your registration number again?'"
+            
+            # Call the VehicleSmart API
+            try:
+                result = await lookup_vrm(vrm_clean)
+                
+                if result.get("success"):
+                    # Vehicle found
+                    make = result.get("make", "")
+                    model = result.get("model", "")
+                    colour = result.get("colour", "")
+                    year = result.get("year", "")
+                    
+                    # Store VRM in state
+                    self._state.vrn = vrm_clean
+                    
+                    # Build confirmation message for agent
+                    vehicle_desc = f"{make} {model}".strip()
+                    if colour:
+                        vehicle_desc = f"{colour} {vehicle_desc}"
+                    if year:
+                        vehicle_desc = f"{year} {vehicle_desc}"
+                    
+                    success_msg = f"✓ Vehicle verified: {vrm_clean} is a {vehicle_desc}. Say: 'Lovely, I've got you down for your {make} {model}.' Then proceed to collect contact details."
+                    
+                    track_tool_call(
+                        self._state, "verify_vehicle_registration", tool_params, tool_start, time.time(),
+                        success=True, result={"vrm": vrm_clean, "vehicle": vehicle_desc}, retry_count=0
+                    )
+                    
+                    return success_msg
+                else:
+                    # Vehicle not found or API error
+                    error = result.get("error", "Unknown error")
+                    
+                    if "not found" in error.lower():
+                        # VRM not found - agent should ask caller to confirm
+                        track_tool_call(
+                            self._state, "verify_vehicle_registration", tool_params, tool_start, time.time(),
+                            success=False, error="VRM not found", error_type="not_found", retry_count=0
+                        )
+                        return f"Vehicle registration {vrm_clean} not found. Say: 'I'm not finding that registration on the system. Could you double-check it for me?' If they confirm it's correct, proceed anyway and note it in the message."
+                    else:
+                        # API error
+                        track_tool_call(
+                            self._state, "verify_vehicle_registration", tool_params, tool_start, time.time(),
+                            success=False, error=error, error_type="api_error", retry_count=0
+                        )
+                        return f"Unable to verify registration at the moment. Say: 'No worries, I'll note down {vrm_clean} for you.' Then proceed to collect contact details."
+                        
+            except Exception as e:
+                error_msg = f"Exception during VRM lookup: {str(e)}"
+                track_tool_call(
+                    self._state, "verify_vehicle_registration", tool_params, tool_start, time.time(),
+                    success=False, error=error_msg, error_type="exception", retry_count=0
+                )
+                return f"Unable to verify registration. Proceed with {vrm_clean} and collect contact details."
+
+        @function_tool
         async def take_message(
             context: RunContext,
             message: str,
@@ -4136,13 +4289,17 @@ BOOKING REQUESTS - YOU CAN CAPTURE DATES:
 - Minimum notice: {BOOKING_LEAD_TIME_DAYS} day(s) - earliest available is {min_date_str}{closed_days_text}
 - If they want earlier than {min_date_str}, say: "The earliest I can book you in for is {min_date_str}. Would that work for you?"
 - If they request a day we're closed, say naturally: "We're closed on [day]s, but I could get you down for [next open day]. Would that work?"
-- Collect: name, phone, registration, what they need, preferred date
-- Use take_message with their preferred date in the message field
+- IMPORTANT: Always verify the vehicle registration using verify_vehicle_registration BEFORE collecting contact details
+- FLOW: Ask for preferred date → Ask for registration → Call verify_vehicle_registration → Confirm vehicle → Collect phone/name → Use take_message
+- After verifying VRM, say naturally: "Lovely, I've got you down for your [make model]"
+- Include the verified VRM and preferred date in the message field
 - After saving: "Lovely, I've got you down for [date]. The team will give you a call to confirm the exact time. Cheers!"
 """
-                booking_flow = """3. For booking requests: Ask for their preferred date, then collect details using take_message
-4. Include the date in the message field: "Customer wants [service] on [date]"
-5. CLOSE: "Lovely, I've noted you down for [date]. The team will ring to confirm the time. Cheers, have a lovely day!\""""
+                booking_flow = """3. For booking requests: Ask for their preferred date, then their registration number
+4. Call verify_vehicle_registration with the registration
+5. Once verified, collect phone and name, then use take_message
+6. Include in message: "Customer wants [service] on [date] for [make model] [VRM]"
+7. CLOSE: "Lovely, I've noted you down for [date]. The team will ring to confirm the time. Cheers, have a lovely day!\""""
             else:
                 booking_instructions = """
 BOOKING REQUESTS - TAKE MESSAGE ONLY:

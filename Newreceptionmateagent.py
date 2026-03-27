@@ -4111,10 +4111,31 @@ class SupervisorAgent(Agent):
             if ALLOW_BOOKINGS:
                 min_date = now.date() + _dt.timedelta(days=BOOKING_LEAD_TIME_DAYS)
                 min_date_str = min_date.strftime("%A, %d %B")
+                
+                # Build list of days the garage is closed
+                closed_days = []
+                if GARAGE_HOURS:
+                    day_map = {
+                        "monday": "Monday", "tuesday": "Tuesday", "wednesday": "Wednesday",
+                        "thursday": "Thursday", "friday": "Friday", "saturday": "Saturday", "sunday": "Sunday"
+                    }
+                    for day_key, day_name in day_map.items():
+                        day_info = GARAGE_HOURS.get(day_key, {})
+                        if isinstance(day_info, dict) and day_info.get("closed", True):
+                            closed_days.append(day_name)
+                
+                closed_days_text = ""
+                if closed_days:
+                    if len(closed_days) == 1:
+                        closed_days_text = f"\n- We're closed on {closed_days[0]}s - if they request that day, suggest the next available day"
+                    else:
+                        closed_days_text = f"\n- We're closed on {', '.join(closed_days[:-1])} and {closed_days[-1]}s - if they request those days, suggest an alternative"
+                
                 booking_instructions = f"""
 BOOKING REQUESTS - YOU CAN CAPTURE DATES:
-- Minimum notice: {BOOKING_LEAD_TIME_DAYS} day(s) - earliest available is {min_date_str}
+- Minimum notice: {BOOKING_LEAD_TIME_DAYS} day(s) - earliest available is {min_date_str}{closed_days_text}
 - If they want earlier than {min_date_str}, say: "The earliest I can book you in for is {min_date_str}. Would that work for you?"
+- If they request a day we're closed, say naturally: "We're closed on [day]s, but I could get you down for [next open day]. Would that work?"
 - Collect: name, phone, registration, what they need, preferred date
 - Use take_message with their preferred date in the message field
 - After saving: "Lovely, I've got you down for [date]. The team will give you a call to confirm the exact time. Cheers!"

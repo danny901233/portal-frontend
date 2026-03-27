@@ -168,6 +168,8 @@ const defaultConfiguration: AgentConfigurationPayload = {
   garageHiveSettings: createDefaultGarageHiveSettings(),
   agentType: 'assist',
   enableSmsBookingLinks: true,
+  allowBookings: false,
+  bookingLeadTimeDays: 1,
   voice: 'leah',
 };
 const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
@@ -207,6 +209,9 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
+    enableSmsBookingLinks: config.enableSmsBookingLinks ?? true,
+    allowBookings: config.allowBookings ?? false,
+    bookingLeadTimeDays: config.bookingLeadTimeDays ?? 1,
     voice: config.voice ?? 'leah',
   };
 };

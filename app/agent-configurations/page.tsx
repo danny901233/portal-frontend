@@ -233,9 +233,10 @@ export default function AgentConfigurationsPage() {
     queryKey: ['agent-config', garageId],
     queryFn: () => fetchAgentConfiguration(garageId ?? undefined),
     enabled: Boolean(garageId),
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnMount: 'always',
+    staleTime: 30000, // 30 seconds
+    gcTime: 300000, // 5 minutes
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 
   const mutation = useMutation({

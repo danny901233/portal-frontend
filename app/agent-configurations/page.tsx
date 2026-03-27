@@ -1051,37 +1051,34 @@ export default function AgentConfigurationsPage() {
               {formState.allowBookings && (
                 <div className="mt-6 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
                   <label htmlFor="bookingLeadTime" className="block text-sm font-medium text-slate-300">
-                    Booking lead time
+                    Booking lead time (days)
                   </label>
                   <p className="mt-1 text-xs text-slate-400">
                     Minimum number of days notice required for bookings
                   </p>
                   <div className="mt-3 flex items-center gap-3">
-                    <select
+                    <input
+                      type="number"
                       id="bookingLeadTime"
+                      min="1"
+                      max="30"
                       value={formState.bookingLeadTimeDays}
                       onChange={(e) =>
                         setFormState((prev) => ({
                           ...prev,
-                          bookingLeadTimeDays: Number.parseInt(e.target.value, 10)
+                          bookingLeadTimeDays: Math.max(1, Math.min(30, Number.parseInt(e.target.value, 10) || 1))
                         }))
                       }
                       disabled={!isEditing || mutation.isPending}
-                      className="block w-full max-w-xs rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <option value={1}>1 day (same day or next day)</option>
-                      <option value={2}>2 days</option>
-                      <option value={3}>3 days</option>
-                      <option value={5}>5 days</option>
-                      <option value={7}>1 week</option>
-                      <option value={14}>2 weeks</option>
-                    </select>
+                      className="block w-32 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-sm text-slate-400">days</span>
                   </div>
                   <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
                     <p className="text-xs text-sky-200">
                       {formState.bookingLeadTimeDays === 1
                         ? 'Customers can book for today or any future date.'
-                        : `Customers must book at least ${formState.bookingLeadTimeDays} days in advance.`}
+                        : `Customers must book at least ${formState.bookingLeadTimeDays} day${formState.bookingLeadTimeDays === 1 ? '' : 's'} in advance.`}
                     </p>
                   </div>
                 </div>

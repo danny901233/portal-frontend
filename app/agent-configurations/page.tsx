@@ -547,6 +547,10 @@ export default function AgentConfigurationsPage() {
     if (!query.data?.configuration) {
       return;
     }
+    // Don't reset form state while user is editing
+    if (isEditing) {
+      return;
+    }
     console.log('FRONTEND: API response agentScript:', query.data.configuration.agentScript);
     startTransition(() => {
       setFormState(cloneConfiguration(query.data.configuration));
@@ -555,7 +559,7 @@ export default function AgentConfigurationsPage() {
       setSelectedPageUrls([]);
       setLastScanUrl(null);
     });
-  }, [query.data, startTransition]);
+  }, [query.data, startTransition, isEditing]);
 
   const hasGarage = useMemo(() => Boolean(garageId), [garageId]);
 

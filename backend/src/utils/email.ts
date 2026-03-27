@@ -538,10 +538,10 @@ export const sendPaymentSetupReminderEmail = async (
                 <tr>
                   <td style="padding: 0 0 24px; font-size: 16px; line-height: 1.6; color: #e2e8f0;">
                     <p style="margin: 0 0 16px;">
-                      <strong>Good news!</strong> ReceptionMate captured a call for you on ${formattedDate}.
+                      <strong>Good news!</strong> ReceptionMate handled a call for you on ${formattedDate}.
                     </p>
                     <p style="margin: 0 0 16px;">
-                      However, we noticed that your Direct Debit mandate is not yet set up. To ensure uninterrupted service and receive full call details, please complete your payment setup.
+                      However, we noticed that your Direct Debit mandate is not currently active. To ensure uninterrupted service and receive full call details, please complete your payment setup.
                     </p>
                   </td>
                 </tr>
@@ -550,18 +550,8 @@ export const sendPaymentSetupReminderEmail = async (
                   <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px; margin-bottom: 24px;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📞 Call Received:</strong> ${formattedDate}
-                        </td>
-                      </tr>
-                      ${data.customerPhone ? `<tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">From:</strong> ${data.customerPhone}
-                        </td>
-                      </tr>` : ''}
-                      <tr>
                         <td style="padding-bottom: 0; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">Summary:</strong> ${data.summary}
+                          <strong style="color: #e2e8f0;">📞 Call Received:</strong> ${formattedDate}
                         </td>
                       </tr>
                     </table>
@@ -617,13 +607,12 @@ export const sendPaymentSetupReminderEmail = async (
 
 ${data.branchName}
 
-Good news! ReceptionMate captured a call for you on ${formattedDate}.
+Good news! ReceptionMate handled a call for you on ${formattedDate}.
 
-However, we noticed that your Direct Debit mandate is not yet set up. To ensure uninterrupted service and receive full call details, please complete your payment setup.
+However, we noticed that your Direct Debit mandate is not currently active. To ensure uninterrupted service and receive full call details, please complete your payment setup.
 
 CALL DETAILS:
 📞 Call Received: ${formattedDate}
-${data.customerPhone ? `From: ${data.customerPhone}\n` : ''}Summary: ${data.summary}
 
 ⚠️ IMPORTANT:
 To continue receiving full call details and maintain uninterrupted service, please set up your Direct Debit mandate as soon as possible.
@@ -638,7 +627,7 @@ This is an automated email from ReceptionMate
 
   return sendEmail({
     to: notificationEmails,
-    subject: '⚠️ Action Required: Set Up Direct Debit - Call Captured',
+    subject: 'ReceptionMate handled a call for you',
     html,
     text,
   });

@@ -1390,8 +1390,15 @@ class TyresoftSupervisor(Agent):
                 has_tyres = True
         # Deduplicate service IDs (duplicate IDs may confuse the API)
         service_ids = list(dict.fromkeys(service_ids))
-        if has_tyres or not service_ids:
-            service_ids = [0] + service_ids if service_ids else [0]
+        # CRITICAL: Only use [0] for pure tyre bookings OR when combined with tyres
+        # If booking a service WITHOUT tyres, use ONLY the service ID
+        if has_tyres and not service_ids:
+            # Pure tyre booking
+            service_ids = [0]
+        elif has_tyres and service_ids:
+            # Tyres + service booking (e.g., tyres + wheel alignment)
+            service_ids = [0] + service_ids
+        # else: Pure service booking - use service_ids as-is
 
         # API supports max 2 booking types per request
         if len(service_ids) > 2:
@@ -1697,6 +1704,15 @@ class TyresoftSupervisor(Agent):
             "date": s.booking_date, "time": s.booking_time,
             "diaryCategoryID": 1, "estimatedTime": 30, "slotTypeID": 1,
         }
+        print(f"[SUBMIT_BOOKING] Booking slot: {booking_slot}")
+        print(f"[SUBMIT_BOOKING] Sale items: {len(sale_items)} items")
+        for idx, item in enumerate(sale_items, 1):
+            svc_id = item.get("serviceID", 0)
+            item_code = item.get("itemCode", "")
+            unit_cost = item.get("unitCost", 0)
+            qty = item.get("quantity", 1)
+            inc_vat = item.get("unitCostIncludesVAT", False)
+            print(f"[SUBMIT_BOOKING]   Item {idx}: serviceID={svc_id}, itemCode={item_code!r}, qty={qty}, unitCost=£{unit_cost:.2f}, includesVAT={inc_vat}")
 
         sale_result = await create_sale(
             depot_id=depot_id, customer_id=s.customer_id,

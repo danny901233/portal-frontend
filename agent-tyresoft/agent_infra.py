@@ -45,7 +45,9 @@ except ImportError:
     BotoCoreError = Exception
     ClientError = Exception
 
-load_dotenv(".env.local")
+# Load environment variables
+load_dotenv(".env.local")  # Override with local settings if present
+load_dotenv(".env")  # Load default settings
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TIMEZONE
@@ -826,6 +828,10 @@ async def send_discord_notification(
     title: str, description: str = "", color: str = "info",
     fields: list = None, is_test: bool = False,
 ):
+    # Temporarily disabled for debugging
+    print(f"[DISCORD] Skipped notification: {title}")
+    return
+    
     if not DISCORD_WEBHOOK_URL:
         return
     if is_test:
@@ -840,9 +846,18 @@ async def send_discord_notification(
     if fields:
         embed["fields"] = fields
     try:
+        payload = {"embeds": [embed]}
+        # Debug: Check for None keys
+        import json
+        try:
+            json.dumps(payload)
+        except TypeError as e:
+            print(f"[DISCORD] JSON serialization error: {e}")
+            print(f"[DISCORD] Payload: {payload}")
+            return
         async with aiohttp.ClientSession() as sess:
             async with sess.post(
-                DISCORD_WEBHOOK_URL, json={"embeds": [embed]},
+                DISCORD_WEBHOOK_URL, json=payload,
                 headers={"Content-Type": "application/json"},
             ) as resp:
                 if resp.status == 204:
@@ -943,6 +958,10 @@ async def _api_call(
     start = time.time()
     body_str = json.dumps(body, indent=2) if body else "N/A"
     try:
+        print(f"[API_DEBUG] Making {method} request to {url}")
+        print(f"[API_DEBUG] Headers: {_get_auth_headers()}")
+        if body:
+            print(f"[API_DEBUG] Body: {body}")
         async with aiohttp.ClientSession(timeout=API_TIMEOUT) as sess:
             if method == "GET":
                 resp = await sess.get(url, headers=_get_auth_headers())
@@ -957,7 +976,7 @@ async def _api_call(
             print(f"[API] {endpoint_name} error {resp.status}: {error_text[:200]}")
             await send_api_error_notification(
                 error_type="HTTP Error", endpoint=endpoint_name,
-                status_code=resp.status, response_time=f"{elapsed:.2f}s",
+                status_code=str(resp.status), response_time=f"{elapsed:.2f}s",
                 request_url=url, request_body=body_str if method != "GET" else "GET",
                 session_id=session_id, error_message=error_text,
             )
@@ -1143,7 +1162,7 @@ def build_service_item(service_id: int, unit_price: float) -> dict:
         "technicianID": 0,
         "quantity": 1,
         "unitCost": unit_price,
-        "unitCostIncludesVAT": False,
+        "unitCostIncludesVAT": True,  # Prices in SERVICES are gross (including VAT)
         "discount": 0, "vatCodeID": 0, "backOrderQuantity": 0,
         "taggedItemIdentifier": "", "linkLineID": 0,
         "hideChildLinks": False, "groupLinkSellPrices": False,

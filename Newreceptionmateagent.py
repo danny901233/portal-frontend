@@ -829,7 +829,8 @@ def normalize_vehicle_registration(reg: str) -> str:
     if not reg:
         return ""
     # Strip car make/model words that callers sometimes append (e.g. "P20ALA Land Rover")
-    tokens_raw = re.split(r"[\s,;:/\\-_]+", reg.strip())
+    # First pass: split only on whitespace and punctuation (preserve hyphens within words for now)
+    tokens_raw = re.split(r"[\s,;:/\\_]+", reg.strip())
     # Also split camelCase blobs like "P20ALALandRover" → check for make words fused at the end
     if len(tokens_raw) == 1 and len(tokens_raw[0]) > 7:
         blob = tokens_raw[0]
@@ -842,7 +843,21 @@ def normalize_vehicle_registration(reg: str) -> str:
                 logger.info(f"[VRN] Stripped make/model from blob: '{reg}' → '{blob}'")
                 break
         tokens_raw = [blob]
-    tokens = re.split(r"[\s,;:/\\-_]+", " ".join(tokens_raw))
+    
+    # Second pass: check each token for NATO phonetic words first (including hyphenated ones like "x-ray")
+    # before splitting on hyphens
+    tokens = []
+    for token in tokens_raw:
+        if not token:
+            continue
+        # Check if this is a hyphenated NATO word (e.g. "x-ray")
+        lower_token = token.lower()
+        if lower_token in _NATO_LETTER_MAP or lower_token in _DIGIT_WORD_MAP:
+            tokens.append(token)
+        else:
+            # Now safe to split on hyphens since we've preserved NATO phonetic words
+            tokens.extend(re.split(r"[-]+", token))
+    
     converted: list[str] = []
     for token in tokens:
         if not token:

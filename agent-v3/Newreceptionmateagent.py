@@ -2347,9 +2347,15 @@ class SupervisorAgent(Agent):
                 f"   - Speak each character individually\n"
                 f"   - Brief pause between each character (like: Echo... Yankee... Six... One)\n"
                 f"   - This helps caller verify accuracy\n\n"
-                f"If YES → call lookup_vehicle(reg='{normalized}', confirmed=true)\n"
-                f"If NO → Say: 'Let me get that again. Could you spell it out letter by letter?' "
-                f"Then call lookup_vehicle with their new input."
+                f"🚨 CRITICAL - WHEN CALLER SAYS 'YES' TO THE SPELLING:\n"
+                f"   → You MUST call: lookup_vehicle(reg='{normalized}', confirmed=true)\n"
+                f"   → DO NOT call confirm_vehicle - that's for LATER when confirming the vehicle make/model\n"
+                f"   → This lookup_vehicle call will fetch the actual vehicle details from the database\n\n"
+                f"🚨 IF CALLER SAYS 'NO' OR CORRECTS THE REGISTRATION:\n"
+                f"   → Listen carefully - they might provide the CORRECTED registration immediately\n"
+                f"   → If they give you a new registration (e.g., 'No, it's Alpha One Zero N X N'), call lookup_vehicle with the new registration RIGHT AWAY\n"
+                f"   → ONLY if they say 'no' WITHOUT providing correction, then ask: 'Let me get that again. Could you spell it out letter by letter?'\n"
+                f"   → Do NOT ask them to repeat if they already gave you the correction"
             )
 
         @function_tool
@@ -3263,6 +3269,26 @@ class SupervisorAgent(Agent):
                         
                         if future_date_match:
                             # Requested specific future date but not available
+                            # Check if requested date is more than 30 days beyond last available slot
+                            from datetime import datetime, timedelta
+                            try:
+                                requested_dt = datetime.strptime(future_date_match, "%Y-%m-%d")
+                                last_dt = datetime.strptime(last_date, "%Y-%m-%d")
+                                days_beyond = (requested_dt - last_dt).days
+                                
+                                if days_beyond > 30:
+                                    # Date is too far in future - slots not yet released
+                                    requested_month = requested_dt.strftime("%B")
+                                    return (
+                                        f"I've checked but {requested_month} slots aren't available in the system yet.\n"
+                                        f"We can only book up to {last_date} at the moment.\n\n"
+                                        "Say: 'I can take your details and get the team to call you back closer to the time to arrange that, or would you prefer to call us back when it's nearer?'\n"
+                                        "If they want a callback, use take_message. If they want to book an earlier slot, offer them the available options."
+                                    )
+                            except:
+                                pass
+                            
+                            # Requested date within range but no slots available on that specific date
                             return (
                                 f"I've checked availability but don't have slots on {future_date_match}.\n"
                                 f"Available slots are from {first_date} to {last_date}:\n"

@@ -126,6 +126,8 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   agentType: 'assist',
   agentScript: 'receptionmate-agent-v3',
   enableSmsBookingLinks: true,
+  allowBookings: false,
+  bookingLeadTimeDays: 1,
   voice: 'leah',
 });
 
@@ -1000,11 +1002,97 @@ export default function AgentConfigurationsPage() {
         </section>
 
         {formState.agentType === 'assist' && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-            <h2 className="text-lg font-semibold text-slate-100">SMS Booking Links</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              When enabled, the agent will offer to send customers a text message with a link to book an appointment online. The SMS contains the <strong>Website URL</strong> configured above, so it&rsquo;s best to enter a direct link to your booking page rather than just your homepage.
-            </p>
+          <>
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+              <h2 className="text-lg font-semibold text-slate-100">Booking Preferences</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Configure how the agent handles booking requests from customers.
+              </p>
+
+              <div className="mt-6 flex items-center justify-between">
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-slate-300">
+                    Allow bookings
+                  </span>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Enable the agent to capture booking requests with specific dates
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      allowBookings: !prev.allowBookings
+                    }))
+                  }
+                  disabled={!isEditing || mutation.isPending}
+                  className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                    formState.allowBookings
+                      ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
+                      : 'border-slate-700 bg-slate-900/60 text-slate-200'
+                  } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
+                >
+                  <span
+                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
+                      formState.allowBookings ? 'bg-emerald-500/70' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                        formState.allowBookings ? 'translate-x-5' : 'translate-x-1'
+                      }`}
+                    />
+                  </span>
+                  {formState.allowBookings ? 'Enabled' : 'Disabled'}
+                </button>
+              </div>
+
+              {formState.allowBookings && (
+                <div className="mt-6 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
+                  <label htmlFor="bookingLeadTime" className="block text-sm font-medium text-slate-300">
+                    Booking lead time
+                  </label>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Minimum number of days notice required for bookings
+                  </p>
+                  <div className="mt-3 flex items-center gap-3">
+                    <select
+                      id="bookingLeadTime"
+                      value={formState.bookingLeadTimeDays}
+                      onChange={(e) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          bookingLeadTimeDays: Number.parseInt(e.target.value, 10)
+                        }))
+                      }
+                      disabled={!isEditing || mutation.isPending}
+                      className="block w-full max-w-xs rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <option value={1}>1 day (same day or next day)</option>
+                      <option value={2}>2 days</option>
+                      <option value={3}>3 days</option>
+                      <option value={5}>5 days</option>
+                      <option value={7}>1 week</option>
+                      <option value={14}>2 weeks</option>
+                    </select>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
+                    <p className="text-xs text-sky-200">
+                      {formState.bookingLeadTimeDays === 1
+                        ? 'Customers can book for today or any future date.'
+                        : `Customers must book at least ${formState.bookingLeadTimeDays} days in advance.`}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+              <h2 className="text-lg font-semibold text-slate-100">SMS Booking Links</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                When enabled, the agent will offer to send customers a text message with a link to book an appointment online. The SMS contains the <strong>Website URL</strong> configured above, so it&rsquo;s best to enter a direct link to your booking page rather than just your homepage.
+              </p>
 
             <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
               <p className="text-xs text-sky-200">
@@ -1052,6 +1140,7 @@ export default function AgentConfigurationsPage() {
               </button>
             </div>
           </section>
+          </>
         )}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">

@@ -141,6 +141,8 @@ model AgentConfiguration {
   agentType         String   @default("assist")
   agentScript       String   @default("receptionmate-agent")
   enableSmsBookingLinks Boolean @default(true)
+  allowBookings     Boolean  @default(false)
+  bookingLeadTimeDays Int    @default(1)
   voice             String   @default("leah")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

@@ -3,6 +3,8 @@ livekit-plugins-openai
 livekit-plugins-elevenlabs
 livekit-plugins-deepgram
 livekit-plugins-turn-detector
+livekit-plugins-silero
+livekit-plugins-noise-cancellation
 livekit
 requests
 python-dotenv

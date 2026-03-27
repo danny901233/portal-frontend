@@ -390,6 +390,16 @@ def _apply_agent_configuration(configuration: dict, knowledge_base: list) -> str
     else:
         logger.info("[APPLY_CONFIG] Drop-off mode disabled")
     
+    # Apply assist mode booking configuration
+    global ALLOW_BOOKINGS, BOOKING_LEAD_TIME_DAYS
+    ALLOW_BOOKINGS = configuration.get("allowBookings", False)
+    BOOKING_LEAD_TIME_DAYS = configuration.get("bookingLeadTimeDays", 1)
+    
+    if ALLOW_BOOKINGS:
+        logger.info(f"[APPLY_CONFIG] Assist mode bookings enabled: {BOOKING_LEAD_TIME_DAYS} day(s) lead time")
+    else:
+        logger.info("[APPLY_CONFIG] Assist mode bookings disabled")
+    
     # Read agentType from configuration
     agent_type = configuration.get("agentType", "automate")
     if isinstance(agent_type, str):
@@ -430,6 +440,10 @@ SERVICE_TYPE: str = "full-service"  # Service type: "fast-fit" or "full-service"
 DROP_OFF_ENABLED: bool = False  # Toggle for drop-off mode (date-only, no specific times)
 DROP_OFF_MESSAGE: str = "drop your vehicle off between 8am and half ten in the morning"  # Custom drop-off instruction
 DROP_OFF_EXCLUDE_SERVICES: list = ["MOT"]  # Services that require specific timeslots (not drop-off)
+
+# Assist mode booking configuration
+ALLOW_BOOKINGS: bool = False  # Toggle for allowing booking requests in assist mode
+BOOKING_LEAD_TIME_DAYS: int = 1  # Minimum days advance notice for bookings
 
 # Load configuration if PORTAL_GARAGE_ID is set
 if PORTAL_GARAGE_ID:
@@ -4091,6 +4105,33 @@ class SupervisorAgent(Agent):
 
         # Different instructions based on mode
         if self._assist_mode:
+            # Check if bookings are allowed in assist mode
+            booking_instructions = ""
+            booking_flow = ""
+            if ALLOW_BOOKINGS:
+                min_date = now.date() + _dt.timedelta(days=BOOKING_LEAD_TIME_DAYS)
+                min_date_str = min_date.strftime("%A, %d %B")
+                booking_instructions = f"""
+BOOKING REQUESTS - YOU CAN CAPTURE DATES:
+- Minimum notice: {BOOKING_LEAD_TIME_DAYS} day(s) - earliest available is {min_date_str}
+- If they want earlier than {min_date_str}, say: "The earliest I can book you in for is {min_date_str}. Would that work for you?"
+- Collect: name, phone, registration, what they need, preferred date
+- Use take_message with their preferred date in the message field
+- After saving: "Lovely, I've got you down for [date]. The team will give you a call to confirm the exact time. Cheers!"
+"""
+                booking_flow = """3. For booking requests: Ask for their preferred date, then collect details using take_message
+4. Include the date in the message field: "Customer wants [service] on [date]"
+5. CLOSE: "Lovely, I've noted you down for [date]. The team will ring to confirm the time. Cheers, have a lovely day!\""""
+            else:
+                booking_instructions = """
+BOOKING REQUESTS - TAKE MESSAGE ONLY:
+- You CANNOT book specific dates or times
+- For booking requests: "I can take all your details down and the team will give you a ring back to get that sorted for you.\""""
+                booking_flow = """3. For ANY booking request OR price enquiry: Say naturally: "I can take all your details down and the team will give you a ring back to get that sorted for you. What work does your vehicle need?"
+4. Collect: name, what they need done, vehicle registration (optional), phone number
+5. Use take_message to save their details (pass null for callback_time)
+6. CLOSE: "Lovely, I'll make sure the team gets this. They'll give you a ring back shortly. Cheers, have a lovely day!\""""
+            
             instructions = f"""YOU ARE LEAH — a warm, friendly British receptionist at {AGENT_BRANCH_NAME}.
 One person, one voice, one natural conversation from start to finish.
 
@@ -4103,11 +4144,11 @@ CALLER'S PHONE NUMBER: You have access to the caller's incoming SIP phone number
 - If NO or unknown/empty: Ask "What's the best number for you?" and pass that number to the tool
 - The SIP number is ALWAYS used for the portal "from" field regardless of which number is used for callback
 
-MODE: ASSIST MODE - You CANNOT make bookings. Your role is to help callers by:
+MODE: ASSIST MODE - Your role is to help callers by:
 - Answering general questions about services and opening hours
 - Taking messages for the team to call back
-- Collecting caller details for bookings that the team will process
-
+- {"Capturing booking requests with preferred dates (team will confirm exact times)" if ALLOW_BOOKINGS else "Collecting caller details for bookings that the team will process"}
+{booking_instructions}
 🚨 CRITICAL - PRICING POLICY:
 - You CANNOT provide prices, quotes, or cost estimates of any kind
 - If asked about pricing, say: "I can't give you an exact price over the phone, but if I take your details down, the team will give you a ring back with a quote."
@@ -4135,15 +4176,12 @@ FIRST STEP: save_caller_name. ALL tools LOCKED until it succeeds. Do NOT halluci
 FLOW FOR ALL ENQUIRIES:
 1. GREETING: "{greeting}" spoken. Get the caller's name first.
 2. Understand what they need - booking, question, price check, callback request, etc.
-3. For ANY booking request OR price enquiry: Say naturally: "I can take all your details down and the team will give you a ring back to get that sorted for you. What work does your vehicle need?"
-4. Collect: name, what they need done, vehicle registration (optional), phone number
-5. Use take_message to save their details (pass null for callback_time)
-6. CLOSE: "Lovely, I'll make sure the team gets this. They'll give you a ring back shortly. Cheers, have a lovely day!"
+{booking_flow}
 
 IMPORTANT: 
-- You CANNOT access the booking system, check availability, or confirm appointments
+- {"You CAN capture preferred booking dates, but the team will confirm exact times" if ALLOW_BOOKINGS else "You CANNOT access the booking system, check availability, or confirm appointments"}
 - You CANNOT provide prices, quotes, or estimates - the team will provide these on callback
-- Do NOT ask when they'd like a callback - the team will call them back when available
+- {"When taking booking requests, include the customer's preferred date in the message" if ALLOW_BOOKINGS else "Do NOT ask when they'd like a callback - the team will call them back when available"}
 - Always route to take_message for bookings AND pricing enquiries"""
         else:
             instructions = f"""YOU ARE LEAH — a warm, friendly British receptionist at {AGENT_BRANCH_NAME}.

@@ -692,6 +692,8 @@ router.put(
       agentType: resolvedAgentType,
       agentScript: resolvedAgentScript,
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
+      allowBookings: data.allowBookings ?? false,
+      bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',
     };
 

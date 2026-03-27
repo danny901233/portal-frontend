@@ -243,6 +243,8 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     notificationEmails: configuration.notificationEmails || [],
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
+    allowBookings: configuration.allowBookings || false,
+    bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
     agentScript: (
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :

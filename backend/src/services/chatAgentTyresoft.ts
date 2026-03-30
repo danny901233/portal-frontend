@@ -980,6 +980,35 @@ async function tsCreateBooking(
 
     console.log(`[TS_AGENT] Sale created: saleID=${saleResp.data?.saleID}, saleNumber=${saleResp.data?.saleNumber}`);
 
+    // Structured booking log — mirrors voice agent [BOOKING CREATED] format
+    const itemSummary = tyreBasket.length > 0
+      ? Object.values(session.tyreBasket!.reduce((acc: Record<string, any>, t) => {
+          acc[t.stockNumber] = acc[t.stockNumber]
+            ? { ...acc[t.stockNumber], quantity: acc[t.stockNumber].quantity + t.quantity }
+            : { ...t };
+          return acc;
+        }, {})).map((t: any) => `${t.quantity}x ${t.description} @ £${t.unitPrice}`).join(', ')
+      : (args.service_ids as number[]).map((sid: number) => {
+          const svc = TYRESOFT_SERVICES.find(s => s.id === sid);
+          return svc ? `${svc.name} @ £${svc.price}` : `serviceID=${sid}`;
+        }).join(', ');
+
+    console.log(`[BOOKING CREATED] ${JSON.stringify({
+      timestamp:   new Date().toUTCString(),
+      channel:     'chat',
+      reference:   `TS-${saleResp.data?.saleNumber}`,
+      sale_id:     saleResp.data?.saleID,
+      sale_number: saleResp.data?.saleNumber,
+      customer:    session.customerName  || '',
+      phone:       session.customerPhone || '',
+      vrm:         session.vrm           || '',
+      vehicle:     session.vehicle ? `${session.vehicle.make} ${session.vehicle.model}` : '',
+      branch:      cfg.depotId,
+      date:        slotDate,
+      time:        slotTime,
+      items:       itemSummary,
+    })}`);
+
     // Clear session on success
     tsSessions.delete(conversationId);
 

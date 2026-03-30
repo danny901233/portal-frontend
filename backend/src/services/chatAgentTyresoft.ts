@@ -395,7 +395,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'ts_lookup_vehicle',
-        description: 'Look up a vehicle by registration plate to confirm make/model and get default tyre sizes. Call once you have the reg.',
+        description: 'Look up a vehicle by registration plate. MUST be called for ALL bookings — tyres AND services (MOT, Full Service, alignment, etc.) — to confirm make/model and link the vehicle to the booking. Call as soon as you have the reg.',
         parameters: {
           type: 'object',
           properties: {
@@ -764,14 +764,14 @@ async function executeTool(
       case 'ts_get_timeslots': {
         if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
 
-        // Server-side guardrail: full service tiers require a prior VRM lookup
-        const FULL_SERVICE_IDS = [2, 57, 8]; // FS1, FS2, FS3
+        // Server-side guardrail: ALL service bookings require a prior VRM lookup
         const requestedIds: number[] = args.service_ids || [];
-        if (requestedIds.some(id => FULL_SERVICE_IDS.includes(id)) && !session.vrm) {
+        const hasTyreOnly = requestedIds.length === 1 && requestedIds[0] === 0;
+        if (!hasTyreOnly && requestedIds.length > 0 && !session.vrm) {
           return {
             error: 'vehicle_registration_required',
             directive:
-              'A full service tier depends on engine size. Ask the customer for their registration plate and call ts_lookup_vehicle first, then select the correct tier automatically from engineCapacity.',
+              'A vehicle registration is required before booking any service. Ask the customer for their registration plate and call ts_lookup_vehicle first.',
           };
         }
 

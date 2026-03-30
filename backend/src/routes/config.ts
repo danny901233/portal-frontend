@@ -788,4 +788,165 @@ router.post(
   },
 );
 
+// ---------------------------------------------------------------------------
+// Custom Garage Rules
+// ---------------------------------------------------------------------------
+
+interface CustomRule {
+  ruleId: string;
+  text: string;
+  active: boolean;
+  createdAt: string;
+}
+
+const MAX_ACTIVE_RULES = 10;
+
+const getRulesFromConfig = (config: PrismaAgentConfiguration | null): CustomRule[] => {
+  const raw = config?.customRules;
+  if (!Array.isArray(raw)) return [];
+  return raw as CustomRule[];
+};
+
+router.get(
+  '/config/:garageId/rules',
+  authenticate,
+  requireManager,
+  async (req: Request, res: Response) => {
+    const { garageId } = req.params;
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (!allowedGarages.includes(garageId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const config = await prisma.agentConfiguration.findUnique({ where: { garageId } });
+    const rules = getRulesFromConfig(config);
+    return res.json({ rules });
+  },
+);
+
+router.post(
+  '/config/:garageId/rules',
+  authenticate,
+  requireManager,
+  async (req: Request, res: Response) => {
+    const { garageId } = req.params;
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (!allowedGarages.includes(garageId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { text, active } = req.body as { text?: unknown; active?: unknown };
+    if (typeof text !== 'string' || text.trim().length < 10 || text.trim().length > 500) {
+      return res.status(400).json({ error: 'Rule text must be between 10 and 500 characters.' });
+    }
+    const isActive = active !== false;
+
+    const config = await prisma.agentConfiguration.findUnique({ where: { garageId } });
+    const rules = getRulesFromConfig(config);
+
+    const activeCount = rules.filter((r) => r.active).length;
+    if (isActive && activeCount >= MAX_ACTIVE_RULES) {
+      return res.status(422).json({ error: `You can have at most ${MAX_ACTIVE_RULES} active rules.` });
+    }
+
+    const newRule: CustomRule = {
+      ruleId: crypto.randomUUID(),
+      text: text.trim(),
+      active: isActive,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedRules = [...rules, newRule];
+
+    await prisma.agentConfiguration.upsert({
+      where: { garageId },
+      update: { customRules: updatedRules },
+      create: {
+        garageId,
+        branchName: '',
+        customRules: updatedRules,
+      },
+    });
+
+    void sendAgentConfigWebhook(garageId);
+    return res.status(201).json({ rule: newRule });
+  },
+);
+
+router.put(
+  '/config/:garageId/rules/:ruleId',
+  authenticate,
+  requireManager,
+  async (req: Request, res: Response) => {
+    const { garageId, ruleId } = req.params;
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (!allowedGarages.includes(garageId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { text, active } = req.body as { text?: unknown; active?: unknown };
+    if (text !== undefined && (typeof text !== 'string' || text.trim().length < 10 || text.trim().length > 500)) {
+      return res.status(400).json({ error: 'Rule text must be between 10 and 500 characters.' });
+    }
+
+    const config = await prisma.agentConfiguration.findUnique({ where: { garageId } });
+    const rules = getRulesFromConfig(config);
+    const idx = rules.findIndex((r) => r.ruleId === ruleId);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Rule not found.' });
+    }
+
+    const activating = active === true && !rules[idx].active;
+    if (activating) {
+      const activeCount = rules.filter((r) => r.active).length;
+      if (activeCount >= MAX_ACTIVE_RULES) {
+        return res.status(422).json({ error: `You can have at most ${MAX_ACTIVE_RULES} active rules.` });
+      }
+    }
+
+    const updatedRule: CustomRule = {
+      ...rules[idx],
+      ...(text !== undefined ? { text: (text as string).trim() } : {}),
+      ...(active !== undefined ? { active: Boolean(active) } : {}),
+    };
+    const updatedRules = [...rules];
+    updatedRules[idx] = updatedRule;
+
+    await prisma.agentConfiguration.update({
+      where: { garageId },
+      data: { customRules: updatedRules },
+    });
+
+    void sendAgentConfigWebhook(garageId);
+    return res.json({ rule: updatedRule });
+  },
+);
+
+router.delete(
+  '/config/:garageId/rules/:ruleId',
+  authenticate,
+  requireManager,
+  async (req: Request, res: Response) => {
+    const { garageId, ruleId } = req.params;
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (!allowedGarages.includes(garageId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const config = await prisma.agentConfiguration.findUnique({ where: { garageId } });
+    const rules = getRulesFromConfig(config);
+    if (!rules.some((r) => r.ruleId === ruleId)) {
+      return res.status(404).json({ error: 'Rule not found.' });
+    }
+
+    await prisma.agentConfiguration.update({
+      where: { garageId },
+      data: { customRules: rules.filter((r) => r.ruleId !== ruleId) },
+    });
+
+    void sendAgentConfigWebhook(garageId);
+    return res.status(204).send();
+  },
+);
+
 export default router;

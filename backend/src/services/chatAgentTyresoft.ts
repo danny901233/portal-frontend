@@ -430,7 +430,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'ts_add_tyre_to_basket',
-        description: 'Add a selected tyre to the customer basket. Call after the customer has chosen a specific tyre from the search results.',
+        description: 'Add a selected tyre to the customer basket. ONLY call after presenting the tyre options list to the customer AND the customer has explicitly chosen a specific tyre. Never auto-select — always wait for customer choice.',
         parameters: {
           type: 'object',
           properties: {
@@ -1294,7 +1294,8 @@ function buildSystemPrompt(
     prompt += `MULTI-ITEM TRACKING:\n`;
     prompt += `- If the customer wants MULTIPLE items (e.g. "tyres AND an MOT", "alignment and air con"), track ALL of them throughout the conversation.\n`;
     prompt += `- Add each service to the relevant basket or service list before fetching slots.\n`;
-    prompt += `- Do NOT lose track of earlier items when the customer confirms later ones.\n\n`;
+    prompt += `- Do NOT lose track of earlier items when the customer confirms later ones.\n`;
+    prompt += `- CRITICAL: Even in a combined tyre + service request, you MUST still present tyre options and wait for the customer to choose before calling ts_add_tyre_to_basket. Never auto-select a tyre — always let the customer pick.\n\n`;
 
     prompt += `BRANCH / LOCATION:\n`;
     prompt += `- If the customer asks about a different branch or location, call ts_set_branch.\n`;

@@ -333,8 +333,11 @@ export async function getChatAgentResponse(
     if (session.step !== Step.CONFIRMED && session.step !== Step.DONE && session.step !== Step.GREETING) {
       const lower = message.toLowerCase().replace(/[^a-z\s]/g, '').trim();
       const isRestart = /\b(start (over|again)|restart|reset|begin again|wrong (garage|number|chat)|different (garage|car|vehicle)|cancel (booking|this|everything)|forget it|never ?mind|start from (the )?beginning)\b/.test(lower);
-      if (isRestart) {
-        console.log(`[RESTART] Customer requested restart at step: ${session.step}`);
+      // Also reset if customer left a message but now wants to book
+      const wantsBookingAfterMessage = session.step === Step.MESSAGE_ONLY &&
+        /\b(book|booking|service|mot|appointment|slot|come in|bring (it|the car)|actually|instead)\b/.test(lower);
+      if (isRestart || wantsBookingAfterMessage) {
+        console.log(`[RESTART] Customer requested restart at step: ${session.step} (wantsBooking: ${wantsBookingAfterMessage})`);
         // Wipe all booking state but keep name + contact if already collected
         const savedName = { first: session.customerNameFirst, last: session.customerNameLast };
         const savedContact = { phone: session.contactPhone, email: session.contactEmail };

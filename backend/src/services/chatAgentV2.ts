@@ -328,6 +328,43 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
+    // Fast-path: restart/cancel detection — customer wants to start over or give up
+    // Only trigger before booking is confirmed (no point resetting after CONFIRMED/DONE)
+    if (session.step !== Step.CONFIRMED && session.step !== Step.DONE && session.step !== Step.GREETING) {
+      const lower = message.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+      const isRestart = /\b(start (over|again)|restart|reset|begin again|wrong (garage|number|chat)|different (garage|car|vehicle)|cancel (booking|this|everything)|forget it|never ?mind|start from (the )?beginning)\b/.test(lower);
+      if (isRestart) {
+        console.log(`[RESTART] Customer requested restart at step: ${session.step}`);
+        // Wipe all booking state but keep name + contact if already collected
+        const savedName = { first: session.customerNameFirst, last: session.customerNameLast };
+        const savedContact = { phone: session.contactPhone, email: session.contactEmail };
+        Object.assign(session, {
+          step: Step.GREETING,
+          intent: '',
+          vrn: '', vrnConfirmed: false, sessionId: '',
+          vehicleMake: '', vehicleModel: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
+          bookingDate: '', bookingTime: '',
+          contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
+          postcodeConfirmed: false, notes: '',
+          message: '', preferredCallbackTime: '',
+          diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
+          useDropOffBooking: false,
+        });
+        session.customerNameFirst = savedName.first;
+        session.customerNameLast = savedName.last;
+        session.contactPhone = savedContact.phone;
+        session.contactEmail = savedContact.email;
+        await saveSession(conversationId, session);
+        const nameGreet = savedName.first ? `, ${savedName.first}` : '';
+        return {
+          content: `No problem${nameGreet}! Let's start fresh. What can I help you with?`,
+          needsHumanAssistance: false,
+        };
+      }
+    }
+
     // Fast-path: slot confirmation — customer is saying yes/no to a proposed slot
     if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
       // Strip emoji, punctuation, and normalise repeated words before testing intent
@@ -1005,14 +1042,23 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
   await saveSession(conversationId, session);
   
   try {
-    // Call GarageHive API with B/V/P retry logic
+    // Build VRN variant list — try all common misread substitutions at every position
     const regsToTry = [normalized];
-    const firstChar = normalized[0];
-    const bvpSwaps: Record<string, string[]> = { 'B': ['V', 'P'], 'V': ['B', 'P'], 'P': ['B', 'V'] };
-    
-    if (bvpSwaps[firstChar]) {
-      for (const alt of bvpSwaps[firstChar]) {
-        regsToTry.push(alt + normalized.slice(1));
+    const charSwaps: Record<string, string[]> = {
+      // B/V/P — similar shape, common voice/typing misread
+      'B': ['V', 'P'], 'V': ['B', 'P'], 'P': ['B', 'V'],
+      // 0/O — zero vs letter O
+      '0': ['O'], 'O': ['0'],
+      // 1/I/L — one vs letter I vs letter L
+      '1': ['I', 'L'], 'I': ['1', 'L'], 'L': ['1', 'I'],
+    };
+    for (let pos = 0; pos < normalized.length; pos++) {
+      const ch = normalized[pos];
+      if (charSwaps[ch]) {
+        for (const alt of charSwaps[ch]) {
+          const variant = normalized.slice(0, pos) + alt + normalized.slice(pos + 1);
+          if (!regsToTry.includes(variant)) regsToTry.push(variant);
+        }
       }
     }
     
@@ -1030,7 +1076,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
             result = attemptResult;
             winningReg = tryReg;
             if (tryReg !== normalized) {
-              console.log(`[LOOKUP_VEHICLE] B/V/P auto-fix: ${normalized} → ${tryReg}`);
+              console.log(`[LOOKUP_VEHICLE] Typo auto-fix: ${normalized} → ${tryReg}`);
             }
             break;
           }

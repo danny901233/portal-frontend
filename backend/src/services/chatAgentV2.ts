@@ -987,14 +987,16 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
   await saveSession(conversationId, session);
   
   try {
-    // Call GarageHive API with B/V/P retry logic
+    // Call GarageHive API with B/V/P retry logic at every position
     const regsToTry = [normalized];
-    const firstChar = normalized[0];
     const bvpSwaps: Record<string, string[]> = { 'B': ['V', 'P'], 'V': ['B', 'P'], 'P': ['B', 'V'] };
-    
-    if (bvpSwaps[firstChar]) {
-      for (const alt of bvpSwaps[firstChar]) {
-        regsToTry.push(alt + normalized.slice(1));
+    for (let pos = 0; pos < normalized.length; pos++) {
+      const ch = normalized[pos];
+      if (bvpSwaps[ch]) {
+        for (const alt of bvpSwaps[ch]) {
+          const variant = normalized.slice(0, pos) + alt + normalized.slice(pos + 1);
+          if (!regsToTry.includes(variant)) regsToTry.push(variant);
+        }
       }
     }
     
@@ -2211,6 +2213,14 @@ RULES:
 - If you cannot proceed, offer to take a message for a callback
 - If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT call take_message, do NOT end the conversation
 - Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected\n`;
+
+  // ── Custom garage rules ───────────────────────────────────────────────────
+  const rawRules = (config.customRules as any[] | null) ?? [];
+  const activeRules = rawRules.filter((r: any) => r?.active && typeof r?.text === 'string' && r.text.trim());
+  if (activeRules.length > 0) {
+    const ruleLines = activeRules.map((r: any) => `- ${r.text.trim()}`).join('\n');
+    prompt += `\nGARAGE RULES — FOLLOW THESE ON EVERY CONVERSATION:\n${ruleLines}\nThese rules override default behaviour where relevant.\n`;
+  }
 
   return prompt;
 }

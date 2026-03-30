@@ -16,15 +16,15 @@ function getOpenAI(): OpenAI {
   return openaiClient;
 }
 
-// GarageHive configuration - loaded from garage config
-let GH_CUSTOMER_ID: string | undefined;
-let GH_API_KEY: string | undefined;
-let GH_LOCATION_ID: string = '23';
-
-// Drop-off booking configuration
-let DROP_OFF_ENABLED: boolean = false;
-let DROP_OFF_MESSAGE: string = 'drop your vehicle off between 8am and half ten in the morning';
-let DROP_OFF_EXCLUDE_SERVICES: string[] = ['MOT'];
+// Per-request GarageHive + drop-off config (never module-level globals)
+interface GHConfig {
+  customerId: string;
+  apiKey: string;
+  locationId: string;
+  dropOffEnabled: boolean;
+  dropOffMessage: string;
+  dropOffExcludeServices: string[];
+}
 
 interface ChatAgentResponse {
   content: string;
@@ -258,15 +258,23 @@ export async function getChatAgentResponse(
     const config = garage.agentConfiguration;
     const isOpen = checkOpeningHours(config.weeklyOpeningHours);
 
-    // Load GarageHive credentials
+    // Build per-request GarageHive config — never stored in module-level globals
+    const ghConfig: GHConfig = {
+      customerId: '',
+      apiKey: '',
+      locationId: '23',
+      dropOffEnabled: false,
+      dropOffMessage: 'drop your vehicle off between 8am and half ten in the morning',
+      dropOffExcludeServices: ['MOT'],
+    };
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
-      const ghConfig = config.integrationProviderConfig as any;
-      GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
-      GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
-      GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
-      DROP_OFF_ENABLED = ghConfig.enableDropOffBookings || false;
-      DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
-      DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
+      const raw = config.integrationProviderConfig as any;
+      ghConfig.customerId = raw.ghCustomerId || raw.customerId || '';
+      ghConfig.apiKey = raw.ghApiKey || raw.apiKey || '';
+      ghConfig.locationId = raw.ghLocationId || raw.locationId || '23';
+      ghConfig.dropOffEnabled = raw.enableDropOffBookings || false;
+      ghConfig.dropOffMessage = raw.dropOffMessage || ghConfig.dropOffMessage;
+      ghConfig.dropOffExcludeServices = raw.dropOffExcludeServices || ghConfig.dropOffExcludeServices;
     }
 
     // Get or create session state
@@ -349,7 +357,7 @@ export async function getChatAgentResponse(
       if (isYes) {
         // Confirm the pending slot — now actually call the API to book it
         try {
-          await ghSetTimeslot(session.sessionId, session.pendingSlotDate, session.pendingSlotTime);
+          await ghSetTimeslot(ghConfig, session.sessionId, session.pendingSlotDate, session.pendingSlotTime);
           console.log(`[SLOT_CONFIRM] ghSetTimeslot succeeded for ${session.pendingSlotDate} at ${session.pendingSlotTime}`);
         } catch (err) {
           console.error('[SLOT_CONFIRM] ghSetTimeslot failed:', err);
@@ -406,7 +414,7 @@ export async function getChatAgentResponse(
         };
       }
 
-      const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
+      const instructions = await handleSetContactInfo(contactArgs, session, conversationId, ghConfig);
       return {
         content: instructionToCustomerReply(instructions),
         needsHumanAssistance: false,
@@ -530,7 +538,8 @@ export async function getChatAgentResponse(
           functionName,
           functionArgs,
           session,
-          conversationId
+          conversationId,
+          ghConfig
         );
 
         messages.push({
@@ -842,7 +851,8 @@ async function executeConversationalTool(
   toolName: string,
   args: any,
   session: ChatSession,
-  conversationId: string
+  conversationId: string,
+  ghConfig: GHConfig
 ): Promise<string> {
   try {
     if (
@@ -858,22 +868,22 @@ async function executeConversationalTool(
         return await handleSaveCallerName(args, session, conversationId);
       
       case 'lookup_vehicle':
-        return await handleLookupVehicle(args, session, conversationId);
-      
+        return await handleLookupVehicle(args, session, conversationId, ghConfig);
+
       case 'confirm_vehicle':
-        return await handleConfirmVehicle(args, session, conversationId);
-      
+        return await handleConfirmVehicle(args, session, conversationId, ghConfig);
+
       case 'select_service':
-        return await handleSelectService(args, session, conversationId);
+        return await handleSelectService(args, session, conversationId, ghConfig);
 
       case 'confirm_booking':
         return await handleConfirmBooking(args, session, conversationId);
-      
+
       case 'select_timeslot':
-        return await handleSelectTimeslot(args, session, conversationId);
-      
+        return await handleSelectTimeslot(args, session, conversationId, ghConfig);
+
       case 'set_contact_info':
-        return await handleSetContactInfo(args, session, conversationId);
+        return await handleSetContactInfo(args, session, conversationId, ghConfig);
       
       case 'take_message':
         return await handleTakeMessage(args, session, conversationId);
@@ -959,13 +969,13 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
   return `Name saved: ${firstName}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay two separate messages:\n1. "Good ${timeGreeting}, ${firstName}!" (warm, brief — just a greeting)\n2. "What's your vehicle registration?" (new bubble — just the question, nothing else)\nDo NOT combine them. Wait for registration, then call lookup_vehicle.`;
 }
 
-async function handleLookupVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleLookupVehicle(args: any, session: ChatSession, conversationId: string, ghConfig: GHConfig): Promise<string> {
   const { registration, confirmed = false } = args;
   let normalized = registration.replace(/\s+/g, '').toUpperCase();
-  
+
   console.log(`[LOOKUP_VEHICLE] ${normalized}, confirmed: ${confirmed}`);
-  
-  if (!GH_CUSTOMER_ID || !GH_API_KEY) {
+
+  if (!ghConfig.customerId || !ghConfig.apiKey) {
     return `GarageHive not configured.\nSay: "Let me take your details and the team will call you back."\nThen call take_message.`;
   }
   
@@ -1005,7 +1015,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     
     for (const tryReg of regsToTry) {
       try {
-        const attemptResult = await ghInitAndSetVehicle(tryReg);
+        const attemptResult = await ghInitAndSetVehicle(ghConfig, tryReg);
         
         if (!attemptResult.error) {
           const booking = attemptResult.booking || {};
@@ -1056,7 +1066,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
   }
 }
 
-async function handleConfirmVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleConfirmVehicle(args: any, session: ChatSession, conversationId: string, ghConfig: GHConfig): Promise<string> {
   const { confirmed, corrected_first_name = '', corrected_last_name = '' } = args;
   
   if (!confirmed) {
@@ -1089,7 +1099,7 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
   
   // Fetch available services
   try {
-    const services = await ghListServices(session.sessionId);
+    const services = await ghListServices(ghConfig, session.sessionId);
     session.servicesAvailable = services;
     
     console.log(`[CONFIRM_VEHICLE] Fetched ${services.length} services`);
@@ -1118,7 +1128,7 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
   }
 }
 
-async function handleSelectService(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleSelectService(args: any, session: ChatSession, conversationId: string, ghConfig: GHConfig): Promise<string> {
   const { service_name } = args;
 
   if (session.step === Step.NEED_CONTACT) {
@@ -1254,7 +1264,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   
   try {
     // Set service via API
-    await ghSetService(session.sessionId, String(serviceId));
+    await ghSetService(ghConfig, session.sessionId, String(serviceId));
     
     session.serviceSelectedId = String(serviceId);
     session.serviceSelectedName = serviceName;
@@ -1262,7 +1272,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     session.step = Step.NEED_TIMESLOT;
     
     // Fetch timeslots BEFORE saving so the cache has them
-    const timeslots = await ghListTimeslots(session.sessionId);
+    const timeslots = await ghListTimeslots(ghConfig, session.sessionId);
     session.timeslotsAvailable = timeslots;
     await saveSession(conversationId, session);
     
@@ -1302,7 +1312,7 @@ Call confirm_booking(confirmed=true) if yes, confirm_booking(confirmed=false) if
     }
 
     // Check if drop-off booking applies for this service
-    const isDropOff = DROP_OFF_ENABLED && !DROP_OFF_EXCLUDE_SERVICES.some(
+    const isDropOff = ghConfig.dropOffEnabled && !ghConfig.dropOffExcludeServices.some(
       (excl: string) => serviceName.toLowerCase().includes(excl.toLowerCase())
     );
     session.useDropOffBooking = isDropOff;
@@ -1313,7 +1323,7 @@ Call confirm_booking(confirmed=true) if yes, confirm_booking(confirmed=false) if
       const firstDates = [...new Set(timeslots.map((t: any) => t.date))].slice(0, 3)
         .map((d: string) => formatDateNaturally(d)).join(', or ');
       return `SERVICE_SET (DROP-OFF): ${serviceName} (${priceDisplay}).
-Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. For this one you can ${DROP_OFF_MESSAGE}. The first available date is ${firstDates} — or do you have a particular date in mind?"
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. For this one you can ${ghConfig.dropOffMessage}. The first available date is ${firstDates} — or do you have a particular date in mind?"
 When the customer responds, call select_timeslot with whatever they say.`;
     }
 
@@ -1350,7 +1360,7 @@ Say: "The earliest I have is ${firstSlots} — or do you have a particular date 
 When the customer responds, call select_timeslot with whatever they say.`;
 }
 
-async function handleSelectTimeslot(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleSelectTimeslot(args: any, session: ChatSession, conversationId: string, ghConfig: GHConfig): Promise<string> {
   const { preference } = args;
 
   if (session.step === Step.NEED_CONTACT && session.bookingDate && session.bookingTime) {
@@ -1389,7 +1399,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     const dateNatural = formatDateNaturally(dropOffSlot.date);
     return `Proposed drop-off slot: ${dateNatural}.
 
-Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Does that work for you?" and STOP. Do not mention a specific time. Wait for confirmation.`;
+Say ONLY: "I've got you down for ${dateNatural} — just ${ghConfig.dropOffMessage}. Does that work for you?" and STOP. Do not mention a specific time. Wait for confirmation.`;
   }
 
   const matched = matchTimeslot(preference, session.timeslotsAvailable);
@@ -1433,7 +1443,7 @@ When they choose, call select_timeslot again.`;
 Say ONLY: "I've got ${dateNatural} at ${timeNatural} — does that work for you?" and STOP. Do not ask for contact details yet. Wait for them to confirm.`;
 }
 
-async function handleSetContactInfo(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleSetContactInfo(args: any, session: ChatSession, conversationId: string, ghConfig: GHConfig): Promise<string> {
   const { phone = '', email = '', postcode = '', houseNumber = '' } = args;
   
   console.log(`[SET_CONTACT] Args - Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, House: ${houseNumber}`);
@@ -1524,7 +1534,7 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   try {
     // Submit booking with all required GH fields
     const contactAddress = `${session.contactHouseNumber}, ${session.contactStreet}`.replace(/^,\s*/, '').replace(/,\s*$/, '');
-    const result = await ghSetContactInfo(session.sessionId, {
+    const result = await ghSetContactInfo(ghConfig, session.sessionId, {
       contact_name: session.customerNameFirst,
       contact_last_name: session.customerNameLast,
       contact_email: session.contactEmail,
@@ -1587,34 +1597,34 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
 
 // GarageHive API helpers
 
-async function ghInitAndSetVehicle(registration: string): Promise<any> {
-  if (!GH_CUSTOMER_ID || !GH_API_KEY) {
+async function ghInitAndSetVehicle(ghConfig: GHConfig, registration: string): Promise<any> {
+  if (!ghConfig.customerId || !ghConfig.apiKey) {
     throw new Error('GarageHive not configured');
   }
-  
-  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
+
+  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${ghConfig.customerId}`;
   const headers = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${GH_API_KEY}`,
+    'Authorization': `Bearer ${ghConfig.apiKey}`,
   };
-  
+
   try {
     // Step 1: Init
     const initResponse = await axios.post(`${baseUrl}/init`, {}, { headers });
     const booking = initResponse.data.booking || {};
     const sessionId = booking.session_id || initResponse.data.sessionId;
-    
+
     if (!sessionId) {
       return { error: 'No session_id in init response' };
     }
-    
+
     // Step 2: Set vehicle
     const vehicleResponse = await axios.post(
       `${baseUrl}/${sessionId}/set-vehicle-info`,
       {
         registration_no: registration,
         reg_no_country: 'GB',
-        location_id: parseInt(GH_LOCATION_ID),
+        location_id: parseInt(ghConfig.locationId),
       },
       { headers }
     );
@@ -1630,21 +1640,21 @@ async function ghInitAndSetVehicle(registration: string): Promise<any> {
   }
 }
 
-async function ghListServices(sessionId: string): Promise<any[]> {
-  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
+async function ghListServices(ghConfig: GHConfig, sessionId: string): Promise<any[]> {
+  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${ghConfig.customerId}`;
   const headers = {
-    'Authorization': `Bearer ${GH_API_KEY}`,
+    'Authorization': `Bearer ${ghConfig.apiKey}`,
   };
   
   const response = await axios.get(`${baseUrl}/${sessionId}/list-services`, { headers });
   return response.data.services || [];
 }
 
-async function ghSetService(sessionId: string, servicePriceId: string): Promise<any> {
-  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
+async function ghSetService(ghConfig: GHConfig, sessionId: string, servicePriceId: string): Promise<any> {
+  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${ghConfig.customerId}`;
   const headers = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${GH_API_KEY}`,
+    'Authorization': `Bearer ${ghConfig.apiKey}`,
   };
   
   const response = await axios.post(
@@ -1656,10 +1666,10 @@ async function ghSetService(sessionId: string, servicePriceId: string): Promise<
   return response.data;
 }
 
-async function ghListTimeslots(sessionId: string): Promise<any[]> {
-  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
+async function ghListTimeslots(ghConfig: GHConfig, sessionId: string): Promise<any[]> {
+  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${ghConfig.customerId}`;
   const headers = {
-    'Authorization': `Bearer ${GH_API_KEY}`,
+    'Authorization': `Bearer ${ghConfig.apiKey}`,
   };
   
   const response = await axios.get(`${baseUrl}/${sessionId}/list-timeslots`, { headers });
@@ -1677,11 +1687,11 @@ async function ghListTimeslots(sessionId: string): Promise<any[]> {
   return result;
 }
 
-async function ghSetTimeslot(sessionId: string, date: string, time: string): Promise<any> {
-  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
+async function ghSetTimeslot(ghConfig: GHConfig, sessionId: string, date: string, time: string): Promise<any> {
+  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${ghConfig.customerId}`;
   const headers = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${GH_API_KEY}`,
+    'Authorization': `Bearer ${ghConfig.apiKey}`,
   };
   
   const response = await axios.post(
@@ -1693,11 +1703,11 @@ async function ghSetTimeslot(sessionId: string, date: string, time: string): Pro
   return response.data;
 }
 
-async function ghSetContactInfo(sessionId: string, contactInfo: any): Promise<any> {
-  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
+async function ghSetContactInfo(ghConfig: GHConfig, sessionId: string, contactInfo: any): Promise<any> {
+  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${ghConfig.customerId}`;
   const headers = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${GH_API_KEY}`,
+    'Authorization': `Bearer ${ghConfig.apiKey}`,
   };
   
   const response = await axios.post(

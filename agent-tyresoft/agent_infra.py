@@ -569,6 +569,7 @@ class CallState:
     # Session
     call_ended: bool = False
     call_start_time: float = 0.0  # Unix timestamp when call started
+    egress_id: str = ""  # LiveKit egress ID for call recording
     room_name: str = ""
 
 
@@ -1132,6 +1133,8 @@ async def create_sale(
         cost = itm.get("unitCost", 0)
         kind = "SERVICE" if svc_id else "TYRE"
         print(f"  [{i}] {kind}: code={code!r} svcID={svc_id} qty={qty} unit={cost}")
+    import json as _json
+    print("[CREATE_SALE_PAYLOAD] " + _json.dumps(body))
     return await _api_call("POST", url, body=body, endpoint_name="createSale")
 
 

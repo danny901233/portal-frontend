@@ -1112,9 +1112,9 @@ async function tsCreateBooking(
   // 4. Resolve slot metadata from session (never trust LLM for diaryCategoryID)
   let slotDate = args.slot_date;
   let slotTime = args.slot_time;
-  let diaryCategoryID = 1;
-  let estimatedTime = 30;
-  let slotTypeID = 1;
+  let diaryCategoryID: number;
+  let estimatedTime: number;
+  let slotTypeID: number;
   if (session.availableSlots?.length) {
     let match = session.availableSlots.find(s => s.date === slotDate && s.time === slotTime);
     if (!match) match = session.availableSlots.find(s => s.time === slotTime);
@@ -1127,7 +1127,13 @@ async function tsCreateBooking(
       diaryCategoryID = match.diaryCategoryID;
       estimatedTime   = match.estimatedTime;
       slotTypeID      = match.slotTypeID;
+    } else {
+      console.error(`[TS_AGENT] No slot match found in session — aborting to prevent wrong diary booking`);
+      return { error: 'slot_not_found', message: 'Could not resolve slot details. Please re-select a time slot.' };
     }
+  } else {
+    console.error(`[TS_AGENT] No available slots in session — aborting to prevent wrong diary booking`);
+    return { error: 'no_slots_in_session', message: 'No slot data available. Please call ts_get_timeslots first.' };
   }
   console.log(`[TS_AGENT] Slot resolved: ${slotDate} ${slotTime} → diary=${diaryCategoryID}, est=${estimatedTime}, type=${slotTypeID}`);
 

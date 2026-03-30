@@ -804,7 +804,7 @@ const MAX_ACTIVE_RULES = 10;
 const getRulesFromConfig = (config: PrismaAgentConfiguration | null): CustomRule[] => {
   const raw = config?.customRules;
   if (!Array.isArray(raw)) return [];
-  return raw as CustomRule[];
+  return raw as unknown as CustomRule[];
 };
 
 router.get(
@@ -864,7 +864,7 @@ router.post(
       create: {
         garageId,
         branchName: '',
-        customRules: updatedRules,
+        customRules: updatedRules as unknown as Prisma.InputJsonValue,
       },
     });
 
@@ -941,7 +941,7 @@ router.delete(
 
     await prisma.agentConfiguration.update({
       where: { garageId },
-      data: { customRules: rules.filter((r) => r.ruleId !== ruleId) },
+      data: { customRules: rules.filter((r) => r.ruleId !== ruleId) as unknown as Prisma.InputJsonValue },
     });
 
     void sendAgentConfigWebhook(garageId);

@@ -2265,19 +2265,24 @@ TONE EXAMPLES:
   }
 
   // ── Booking flow instructions ─────────────────────────────────────────────
-  prompt += `BOOKING FLOW (follow in order):
+  prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):
 1. Get customer name + intent → call save_caller_name
 2. Get vehicle registration → call lookup_vehicle
 3. IMMEDIATELY call confirm_vehicle(confirmed=true) — do NOT wait for customer input, do NOT ask them to confirm, just call it silently
-4. Customer says what work is needed → call select_service
+4. ONLY after confirm_vehicle succeeds → customer says what work is needed → call select_service
 5. Offer timeslots from tool response → handled automatically, no tool call needed from you
 6. Contact details collected automatically after timeslot
 7. Booking confirmed ✅
 
-RULES:
+CRITICAL TOOL ORDER RULES:
+- NEVER call select_service before confirm_vehicle has been called and returned successfully — the services list does not exist yet
+- NEVER call select_timeslot before select_service has been called and returned successfully
+- If you are tempted to call select_service but confirm_vehicle has not been called yet, call confirm_vehicle(confirmed=true) first, then select_service
+- Never call multiple booking tools in the same turn — one tool per response
+
+GENERAL RULES:
 - Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases
 - NEVER answer questions about services/prices from your own knowledge — only use what tools return after confirm_vehicle has been called
-- If the customer asks about services or prices before confirm_vehicle is called, call confirm_vehicle(confirmed=true) first silently, then answer using the tool result
 - Keep responses short (1–2 sentences)
 - Address customer by first name only
 - Never invent booking details — only use what tools return

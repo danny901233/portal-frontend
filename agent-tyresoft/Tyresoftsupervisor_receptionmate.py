@@ -54,7 +54,7 @@ from agent_infra import (
     match_full_service, normalize_vrn,
     format_vrm_for_speech, format_price_for_speech, format_date_for_speech,
     # Configuration loading
-    load_agent_config, apply_agent_configuration,
+    load_agent_config, apply_agent_configuration, AGENT_CUSTOM_RULES,
     format_time_for_speech, format_tyre_size_for_speech, format_brand_for_speech,
     format_vehicle_for_speech,
     sanitise_phone, sanitise_email,
@@ -308,7 +308,7 @@ def _build_system_prompt() -> str:
         f"  - {code}: {s['name']} ({s['price']} pounds)"
         for code, s in SERVICES.items()
     )
-    return f"""You are Leah, a friendly voice AI receptionist for Tyresoft Tyre Centre.
+    prompt = f"""You are Leah, a friendly voice AI receptionist for Tyresoft Tyre Centre.
 
 TODAY: {now.strftime('%A %d %B %Y')} | TIME: {now.strftime('%H:%M')} UK
 
@@ -378,6 +378,10 @@ Say "No worries, take your time" at most — then STOP and WAIT. Do NOT continue
 Do NOT try to answer rhetorical questions or self-talk. Do NOT give advice on finding their phone number.
 Do NOT assume they've answered YES or NO to your previous question — wait for a clear answer.
 """
+    # Append custom rules if configured for this garage
+    if AGENT_CUSTOM_RULES:
+        prompt += "\n\nCUSTOM RULES FROM GARAGE:\n" + AGENT_CUSTOM_RULES + "\n"
+    return prompt
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1234,6 +1238,15 @@ class TyresoftSupervisor(Agent):
 
         svc = SERVICES[code]
 
+        # VRN is required for ALL service bookings — vehicle must be linked
+        if not s.vrn_confirmed:
+            svc_name = svc['name']
+            return (
+                f"Vehicle registration required for {svc_name}. Need VRN before adding to basket.\n"
+                "Say: 'To get that booked in, I'll need your vehicle registration. Could you read that out for me?'\n"
+                "Then STOP. Wait for VRN."
+            )
+
         # Duplicate prevention: reject if same service already in basket
         for existing in s.basket_items:
             if existing.get("type") == "service" and existing.get("code") == code:
@@ -1682,16 +1695,28 @@ class TyresoftSupervisor(Agent):
                 vehicle_id = veh_result.get("vehicleID", 0)
                 s.vehicle_id = vehicle_id
 
-        # Step 3: Build sale items
+        # Step 3: Build sale items (consolidate duplicate tyre stock numbers)
         sale_items = []
+        tyre_consolidated: dict = {}
         for item in s.basket_items:
             if item["type"] == "tyre":
-                sale_items.append(build_tyre_item(
-                    stock_number=item.get("stock_number", ""),
-                    quantity=item.get("quantity", 1),
-                    unit_price=item.get("price", 0),
-                ))
-            elif item["type"] == "service":
+                key = item.get("stock_number", "")
+                if key in tyre_consolidated:
+                    tyre_consolidated[key]["quantity"] += item.get("quantity", 1)
+                else:
+                    tyre_consolidated[key] = {
+                        "stock_number": key,
+                        "quantity": item.get("quantity", 1),
+                        "price": item.get("price", 0),
+                    }
+        for tyre in tyre_consolidated.values():
+            sale_items.append(build_tyre_item(
+                stock_number=tyre["stock_number"],
+                quantity=tyre["quantity"],
+                unit_price=tyre["price"],
+            ))
+        for item in s.basket_items:
+            if item["type"] == "service":
                 svc = SERVICES.get(item.get("code"), {})
                 sale_items.append(build_service_item(
                     service_id=svc.get("service_id", 0),
@@ -2257,7 +2282,7 @@ async def entrypoint(ctx: JobContext):
                 agent=supervisor,
                 room_options=agents.room_io.RoomOptions(
                     audio_input=agents.room_io.AudioInputOptions(
-                        noise_cancellation=noise_cancellation.BVC(),
+                        noise_cancellation=noise_cancellation.BVCTelephony(),
                     ),
                 ),
             )

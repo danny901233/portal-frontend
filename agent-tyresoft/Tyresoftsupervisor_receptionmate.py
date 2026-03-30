@@ -80,6 +80,10 @@ from agent_infra import (
 PORTAL_API_URL = os.getenv("PORTAL_API_URL", "https://portal.receptionmate.co.uk/api/calls")
 PORTAL_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "optional-shared-secret")
 RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "").strip()
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "").strip()
+S3_REGION = os.getenv("S3_REGION", "eu-west-2").strip()
+S3_BUCKET = os.getenv("S3_BUCKET", "receptionmate-recordings").strip()
 
 _LIVEKIT_INFERENCE_URL = "https://agent-gateway.livekit.cloud/v1"
 _specialist_llm: Optional[AsyncOpenAI] = None
@@ -1725,10 +1729,10 @@ class TyresoftSupervisor(Agent):
 
         # Step 4: Create sale
         depot_id = BRANCHES.get(s.selected_branch, {}).get("depot_id", 1)
-        booking_slot = s.selected_slot or {
-            "date": s.booking_date, "time": s.booking_time,
-            "diaryCategoryID": 1, "estimatedTime": 30, "slotTypeID": 1,
-        }
+        if not s.selected_slot:
+            print("[SUBMIT_BOOKING] ERROR: selected_slot is None — aborting to prevent wrong diary booking")
+            return "I'm sorry, something went wrong with the slot selection. Could you please choose a time slot again?"
+        booking_slot = s.selected_slot
         print(f"[SUBMIT_BOOKING] Booking slot: {booking_slot}")
         print(f"[SUBMIT_BOOKING] Sale items: {len(sale_items)} items")
         for idx, item in enumerate(sale_items, 1):
@@ -1779,6 +1783,31 @@ class TyresoftSupervisor(Agent):
 
         # Log
         print(f"[BOOKING] Ref: {booking_ref} | Sale: {sale_number} | Customer: {s.customer_id} | Vehicle: {vehicle_id}")
+
+        # Structured booking log (matches portal chat agent format for Dan/Tyresoft verification)
+        import json as _json, datetime as _dt
+        _items_parts = []
+        for _it in s.basket_items:
+            if _it["type"] == "tyre":
+                _items_parts.append(f"{_it['quantity']}x {_it.get('description', _it.get('stock_number', ''))} @ £{_it.get('unit_price', 0):.2f}")
+            else:
+                _items_parts.append(_it.get("name", f"serviceID={_it.get('service_id', '?')}"))
+        _vehicle_str = " ".join(filter(None, [getattr(s, "vehicle_year", ""), s.vehicle_make, s.vehicle_model])).strip() or "Unknown"
+        print("[BOOKING CREATED] " + _json.dumps({
+            "timestamp": _dt.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            "channel": "voice",
+            "reference": booking_ref,
+            "sale_id": sale_id,
+            "sale_number": sale_number,
+            "customer": s.customer_name,
+            "phone": s.customer_phone,
+            "vrm": s.vrn,
+            "vehicle": _vehicle_str,
+            "branch": depot_id,
+            "date": s.booking_date,
+            "time": s.booking_time,
+            "items": " | ".join(_items_parts) if _items_parts else "N/A",
+        }))
 
         # Clear basket
         s.basket_items = []
@@ -2093,7 +2122,40 @@ async def entrypoint(ctx: JobContext):
     supervisor = TyresoftSupervisor()
     supervisor._state.room_name = ctx.room.name
     supervisor._state.call_start_time = time.time()  # Track call start for portal logging
-    
+
+    # Start LiveKit egress recording to S3
+    if RECORDING_BASE_URL and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY and S3_BUCKET:
+        try:
+            from livekit.protocol.egress import (
+                RoomCompositeEgressRequest,
+                EncodedFileOutput,
+                EncodedFileType,
+                S3Upload as EgressS3Upload,
+            )
+            lkapi = lk_api.LiveKitAPI()
+            async with lkapi:
+                egress_info = await lkapi.egress.start_room_composite_egress(
+                    RoomCompositeEgressRequest(
+                        room_name=room_name,
+                        file_outputs=[
+                            EncodedFileOutput(
+                                file_type=EncodedFileType.MP4,
+                                filepath=f"{room_name}.mp4",
+                                s3=EgressS3Upload(
+                                    access_key=S3_ACCESS_KEY_ID,
+                                    secret=S3_SECRET_ACCESS_KEY,
+                                    region=S3_REGION,
+                                    bucket=S3_BUCKET,
+                                ),
+                            )
+                        ],
+                    )
+                )
+            supervisor._state.egress_id = egress_info.egress_id
+            print(f"[RECORDING] Started egress recording: {supervisor._state.egress_id}")
+        except Exception as e:
+            print(f"[RECORDING] Failed to start egress recording: {e}")
+
     # Store references for portal logging
     s = supervisor._state
     room_name = ctx.room.name
@@ -2251,6 +2313,16 @@ async def entrypoint(ctx: JobContext):
                 }
 
                 print(f"[PORTAL] Call duration: {call_duration}s, Transcript entries: {len(transcript)}")
+
+                # Stop egress recording
+                if s.egress_id:
+                    try:
+                        lkapi = lk_api.LiveKitAPI()
+                        async with lkapi:
+                            await lkapi.egress.stop_egress(s.egress_id)
+                        print(f"[RECORDING] Stopped egress recording: {s.egress_id}")
+                    except Exception as e:
+                        print(f"[RECORDING] Failed to stop egress recording: {e}")
 
                 # Log to portal
                 await log_call_to_portal(

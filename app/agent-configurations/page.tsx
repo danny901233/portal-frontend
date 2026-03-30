@@ -564,6 +564,21 @@ export default function AgentConfigurationsPage() {
 
   const hasGarage = useMemo(() => Boolean(garageId), [garageId]);
 
+  const ghMisconfigWarning = useMemo(() => {
+    const isGhAgent =
+      formState.agentScript === 'receptionmate-agent-v3' ||
+      formState.agentScript === 'receptionmate-agent';
+    if (!isGhAgent) return null;
+    if (formState.integrationProvider !== 'garage_hive') {
+      return 'This garage is using a GarageHive agent but the Diary Integration is set to "Not connected". The agent will fall back to taking a message instead of booking. Set the integration to Garage Hive and add credentials.';
+    }
+    const { customerId, apiKey } = formState.garageHiveSettings ?? {};
+    if (!customerId?.trim() || !apiKey?.trim()) {
+      return 'GarageHive is selected as the integration but Customer ID or API key is missing. The agent will fall back to taking a message instead of booking. Complete the credentials below.';
+    }
+    return null;
+  }, [formState.agentScript, formState.integrationProvider, formState.garageHiveSettings]);
+
   const knowledgeUpdatedAt = useMemo(() => {
     if (!knowledgeBase.length) {
       return null;
@@ -848,6 +863,13 @@ export default function AgentConfigurationsPage() {
           </button>
         </div>
       </header>
+
+      {ghMisconfigWarning && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span className="font-semibold">Configuration warning: </span>
+          {ghMisconfigWarning}
+        </div>
+      )}
 
       {feedback ? (
         <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">

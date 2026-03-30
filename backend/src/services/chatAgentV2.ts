@@ -276,6 +276,9 @@ export async function getChatAgentResponse(
       DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
       DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
     }
+    if (!GH_CUSTOMER_ID || !GH_API_KEY) {
+      console.warn(`[GARAGEHIVE_MISCONFIGURED] garageId=${garageId} is using agentScript=${config.agentScript} but GarageHive credentials are not set in integrationProviderConfig. Vehicle lookups will fall back to take_message.`);
+    }
 
     // Get or create session state
     const session = await getOrCreateSession(conversationId);
@@ -980,6 +983,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
   console.log(`[LOOKUP_VEHICLE] ${normalized}, confirmed: ${confirmed}`);
   
   if (!GH_CUSTOMER_ID || !GH_API_KEY) {
+    console.error(`[GARAGEHIVE_MISCONFIGURED] conversationId=${conversationId} — GarageHive credentials missing (GH_CUSTOMER_ID=${!!GH_CUSTOMER_ID}, GH_API_KEY=${!!GH_API_KEY}). Check integrationProviderConfig in Agent Configurations for this garage.`);
     return `GarageHive not configured.\nSay: "Let me take your details and the team will call you back."\nThen call take_message.`;
   }
   

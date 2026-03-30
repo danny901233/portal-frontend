@@ -152,7 +152,7 @@ def load_agent_config(garage_id: str) -> dict:
 
 def apply_agent_configuration(configuration: dict):
     """Apply loaded configuration to global variables."""
-    global AGENT_BRANCH_NAME, AGENT_GREETING_LINE, ELEVEN_VOICE_ID, ELEVEN_STABILITY, ELEVEN_SIMILARITY, ELEVEN_STYLE
+    global AGENT_BRANCH_NAME, AGENT_GREETING_LINE, AGENT_CUSTOM_RULES, ELEVEN_VOICE_ID, ELEVEN_STABILITY, ELEVEN_SIMILARITY, ELEVEN_STYLE
     global GARAGE_HOURS
     
     if not isinstance(configuration, dict):
@@ -182,6 +182,12 @@ def apply_agent_configuration(configuration: dict):
         AGENT_GREETING_LINE = greeting_line
         print(f"[APPLY_CONFIG] Greeting line: {greeting_line[:50]}...")
     
+    # Apply custom rules
+    custom_rules = (configuration.get("customRules") or "").strip()
+    if custom_rules:
+        AGENT_CUSTOM_RULES = custom_rules
+        print(f"[APPLY_CONFIG] Custom rules loaded ({len(custom_rules)} chars)")
+
     # Apply voice selection by name
     voice_name = configuration.get("voice")
     if voice_name and isinstance(voice_name, str):
@@ -262,6 +268,7 @@ ERROR_LOG_PATH = os.getenv(
 )
 AGENT_BRANCH_NAME = os.getenv("AGENT_BRANCH_NAME", "Tyresoft")
 AGENT_GREETING_LINE = os.getenv("AGENT_GREETING_LINE", "")
+AGENT_CUSTOM_RULES = ""  # Loaded from portal config
 GARAGE_HOURS: dict = {}  # Loaded from portal configuration
 
 # LiveKit Inference Gateway
@@ -1134,6 +1141,7 @@ def build_tyre_item(stock_number: str, quantity: int, unit_price: float) -> dict
         "productEANCode": "", "productManufacturerCode": "",
         "serviceID": 0,  # 0 = tyre item
         "shippingService": False, "incomeAccountID": 0, "sequence": 0,
+        "productItem": True,
         "itemCode": stock_number,
         "itemDescription": "", "recordedDescription": "",
         "technicianID": 0,

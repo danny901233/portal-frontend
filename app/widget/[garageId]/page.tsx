@@ -331,16 +331,27 @@ export default function ChatWidget() {
           fontFamily: "'Poppins', sans-serif",
           overflow: 'hidden'
         }}>
-          {/* Compact coloured header */}
-          <div className="flex items-center gap-3 px-4 flex-shrink-0" style={{
+          {/* Compact coloured header — centered layout */}
+          <div className="flex flex-col items-center justify-center flex-shrink-0 relative" style={{
             background: config?.primaryColor || '#1e3a8a',
-            height: '60px'
+            height: '72px',
+            padding: '10px 16px'
           }}>
-            {/* Logo or avatar */}
+            {/* Close button — absolute top-right */}
+            <button
+              onClick={() => setViewState('closed')}
+              className="absolute flex items-center justify-center rounded-full transition-all active:scale-90"
+              style={{ top: '10px', right: '10px', width: '28px', height: '28px', background: 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer', color: 'white' }}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            {/* Logo / avatar — centered */}
             {config?.logoUrl ? (
-              <img src={config.logoUrl} alt="Logo" style={{ height: '32px', width: 'auto', maxWidth: '100px', objectFit: 'contain', flexShrink: 0 }} />
+              <img src={config.logoUrl} alt="Logo" style={{ height: '36px', width: 'auto', maxWidth: '120px', objectFit: 'contain', marginBottom: '4px' }} />
             ) : (
-              <div className="relative flex-shrink-0">
+              <div className="relative" style={{ marginBottom: '4px' }}>
                 <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.2)' }}>
                   <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -349,26 +360,15 @@ export default function ChatWidget() {
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2" style={{ backgroundColor: '#22c55e', borderColor: config?.primaryColor || '#1e3a8a' }} />
               </div>
             )}
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-white truncate leading-tight" style={{ fontSize: '14px' }}>{config?.name || 'ReceptionMate'}</p>
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.75)' }}>● Online · Typically replies instantly</p>
-            </div>
-            <button
-              onClick={() => setViewState('closed')}
-              className="flex items-center justify-center rounded-full transition-all active:scale-90 flex-shrink-0"
-              style={{ width: '30px', height: '30px', background: 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer', color: 'white' }}
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <p className="font-semibold text-white leading-tight" style={{ fontSize: '13px' }}>{config?.name || 'ReceptionMate'}</p>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.75)' }}>● Online · Typically replies instantly</p>
           </div>
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto" style={{
             padding: '16px 16px 8px',
             scrollbarWidth: 'thin',
-            background: '#f9fafb'
+            background: 'white'
           }}>
               {messages.map((msg, idx) => {
                 // Compute group position for visual grouping (skip system messages in prev/next checks)
@@ -386,7 +386,7 @@ export default function ChatWidget() {
                     <div className="h-px flex-1" style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }} />
                   </div>
                 ) : (
-                <div key={msg.id} className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`} style={{ marginBottom: isLastInGroup ? '4px' : '2px' }}>
+                <div key={msg.id} className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`} style={{ marginBottom: isLastInGroup ? '14px' : '3px' }}>
                   {/* Avatar: only show on last bubble of an assistant group; reserve space otherwise */}
                   {msg.role === 'assistant' && (
                     <div className="w-8 flex-shrink-0 flex items-end justify-center" style={{ paddingBottom: '2px' }}>
@@ -416,7 +416,7 @@ export default function ChatWidget() {
                         borderTopRightRadius: isFirstInGroup ? '14px' : '6px',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.12)'
                       } : {
-                        backgroundColor: '#f3f4f6',
+                        backgroundColor: '#eaebee',
                         color: '#111827',
                         borderBottomLeftRadius: isLastInGroup ? '4px' : '14px',
                         borderTopLeftRadius: isFirstInGroup ? '14px' : '6px',
@@ -452,7 +452,7 @@ export default function ChatWidget() {
                         padding: '10px 14px',
                         borderRadius: '14px',
                         borderBottomLeftRadius: '4px',
-                        backgroundColor: '#f3f4f6',
+                        backgroundColor: '#eaebee',
                         boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
                       }}>
                         <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}></div>

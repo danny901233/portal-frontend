@@ -320,88 +320,56 @@ export default function ChatWidget() {
 
   return (
     <>
-      {/* Chat Window - Overlay Style */}
+      {/* Chat Window */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] h-[650px] flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
-          background: config?.primaryColor || '#1e3a8a',
-          borderRadius: '32px',
-          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-300" style={{
+          width: '360px',
+          height: '600px',
+          backgroundColor: 'white',
+          borderRadius: '20px',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
           fontFamily: "'Poppins', sans-serif",
-          fontSize: '16px',
-          paddingTop: `${Math.max(100, (config?.logoHeight || 60) + 50)}px`,
-          paddingBottom: '32px',
-          paddingLeft: '24px',
-          paddingRight: '24px'
+          overflow: 'hidden'
         }}>
-          {/* Logo Area - Above the white card */}
-          <div className="absolute top-8 left-0 right-0 flex justify-center">
+          {/* Compact coloured header */}
+          <div className="flex items-center gap-3 px-4 flex-shrink-0" style={{
+            background: config?.primaryColor || '#1e3a8a',
+            height: '60px'
+          }}>
+            {/* Logo or avatar */}
             {config?.logoUrl ? (
-              <img 
-                src={config.logoUrl} 
-                alt="Logo" 
-                style={{ 
-                  height: `${config.logoHeight || 60}px`,
-                  width: 'auto',
-                  maxWidth: '200px',
-                  objectFit: 'contain'
-                }}
-              />
+              <img src={config.logoUrl} alt="Logo" style={{ height: '32px', width: 'auto', maxWidth: '100px', objectFit: 'contain', flexShrink: 0 }} />
             ) : (
-              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
-                background: 'white'
-              }}>
-                <svg className="w-8 h-8" style={{ color: config?.primaryColor || '#1e3a8a' }} fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-                </svg>
+              <div className="relative flex-shrink-0">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                </div>
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2" style={{ backgroundColor: '#22c55e', borderColor: config?.primaryColor || '#1e3a8a' }} />
               </div>
             )}
-          </div>
-          
-          {/* White overlay rectangle for chat */}
-          <div className="flex flex-col flex-1 overflow-hidden" style={{ 
-            backgroundColor: 'white', 
-            borderRadius: '24px',
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
-            display: 'flex',
-            flexDirection: 'column'
-          }}>
-            {/* Header inside white rectangle */}
-            <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{
-              borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
-            }}>
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="relative flex-shrink-0">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
-                    background: config?.primaryColor || '#1e3a8a'
-                  }}>
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                  </div>
-                  {/* Online green dot */}
-                  <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white" style={{ backgroundColor: '#22c55e' }} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold leading-tight truncate" style={{ fontFamily: "'Poppins', sans-serif", color: '#1f2937', fontSize: '15px' }}>{config?.name || 'ReceptionMate'}</h3>
-                  <p className="text-xs truncate" style={{ color: '#22c55e', fontFamily: "'Poppins', sans-serif", marginTop: '1px' }}>● Online · Typically replies instantly</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setViewState('closed')}
-                className="flex items-center justify-center rounded-full transition-all hover:bg-gray-100 active:scale-95 flex-shrink-0"
-                style={{ width: '32px', height: '32px', border: 'none', cursor: 'pointer', background: 'transparent', color: '#6b7280' }}
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-white truncate leading-tight" style={{ fontSize: '14px' }}>{config?.name || 'ReceptionMate'}</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.75)' }}>● Online · Typically replies instantly</p>
             </div>
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto space-y-3" style={{ 
-              scrollbarWidth: 'thin',
-              padding: '20px 24px'
-            }}>
+            <button
+              onClick={() => setViewState('closed')}
+              className="flex items-center justify-center rounded-full transition-all active:scale-90 flex-shrink-0"
+              style={{ width: '30px', height: '30px', background: 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer', color: 'white' }}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto" style={{
+            padding: '16px 16px 8px',
+            scrollbarWidth: 'thin',
+            background: '#f9fafb'
+          }}>
               {messages.map((msg, idx) => {
                 // Compute group position for visual grouping (skip system messages in prev/next checks)
                 const nonSystemMessages = messages.filter(m => m.role !== 'system');
@@ -554,7 +522,6 @@ export default function ChatWidget() {
               </div>
               <p className="text-xs mt-3 text-center" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-medium" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
             </div>
-          </div>
         </div>
       )}
 

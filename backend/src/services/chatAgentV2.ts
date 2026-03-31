@@ -1246,9 +1246,16 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
       return `${i + 1}. ${s.name}${priceStr}`;
     }).join('\n');
     
-    const servicePrompt = session.serviceHint
-      ? `The customer already mentioned they want "${session.serviceHint}". Say: "Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel} on the system." then immediately call select_service with "${session.serviceHint}" — do NOT ask what work they need.`
-      : `Say: "Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel}. What work does it need?"\nWait for their answer, then call select_service with the service name they mention.`;
+    // Service hint set — auto-select the service without asking, bypass OpenAI improvisation
+    if (session.serviceHint) {
+      const vehicleGreet = `Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel} on the system.`;
+      const slotInstruction = await handleSelectService({ service_name: session.serviceHint }, session, conversationId);
+      const slotMsg = instructionToCustomerReply(slotInstruction);
+      console.log(`[CONFIRM_VEHICLE] serviceHint="${session.serviceHint}" — auto-selected service, returning combined instruction`);
+      return `VEHICLE_AND_SERVICE_SET.\nSay: "${vehicleGreet}\n\n${slotMsg}"\nWhen the customer picks a slot, call select_timeslot.`;
+    }
+
+    const servicePrompt = `Say: "Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel}. What work does it need?"\nWait for their answer, then call select_service with the service name they mention.`;
     return `Vehicle confirmed: ${session.vehicleMake} ${session.vehicleModel}.\n${services.length} services available.\n\nTop services:\n${serviceList}\n\n${servicePrompt}`;
     
   } catch (error: any) {

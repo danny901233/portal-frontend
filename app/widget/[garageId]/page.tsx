@@ -29,6 +29,7 @@ interface GarageConfig {
   buttonColor?: string;
   buttonShape?: string;
   buttonIcon?: string;
+  agentName?: string;
 }
 
 type ViewState = 'closed' | 'menu' | 'pre-chat' | 'chat';
@@ -105,6 +106,7 @@ export default function ChatWidget() {
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Add multiple messages sequentially with typing indicator before each bubble
   const addMessagesSequentially = async (bubbles: string[]) => {
@@ -164,6 +166,13 @@ export default function ChatWidget() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Auto-focus input when entering chat view
+  useEffect(() => {
+    if (viewState === 'chat') {
+      setTimeout(() => inputRef.current?.focus(), 300);
+    }
+  }, [viewState]);
 
   const handleStartChat = () => {
     setViewState('pre-chat');
@@ -357,33 +366,35 @@ export default function ChatWidget() {
             flexDirection: 'column'
           }}>
             {/* Header inside white rectangle */}
-            <div className="flex items-center justify-between px-6 py-5 flex-shrink-0" style={{
+            <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{
               borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                  background: config?.primaryColor || '#1e3a8a'
-                }}>
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-                  </svg>
+                <div className="relative flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
+                    background: config?.primaryColor || '#1e3a8a'
+                  }}>
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </div>
+                  {/* Online green dot */}
+                  <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white" style={{ backgroundColor: '#22c55e' }} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-lg truncate" style={{ fontFamily: "'Poppins', sans-serif", color: '#1f2937' }}>{config?.name || 'ReceptionMate'}</h3>
+                  <h3 className="font-semibold leading-tight truncate" style={{ fontFamily: "'Poppins', sans-serif", color: '#1f2937', fontSize: '15px' }}>{config?.name || 'ReceptionMate'}</h3>
+                  <p className="text-xs truncate" style={{ color: '#22c55e', fontFamily: "'Poppins', sans-serif", marginTop: '1px' }}>● Online · Typically replies instantly</p>
                 </div>
               </div>
-              
-              <button onClick={() => setViewState('closed')} className="transition-all" style={{
-                fontSize: '28px',
-                lineHeight: '28px',
-                fontWeight: 300,
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                padding: 0,
-                color: '#6b7280'
-              }}>
-                ×
+
+              <button
+                onClick={() => setViewState('closed')}
+                className="flex items-center justify-center rounded-full transition-all hover:bg-gray-100 active:scale-95 flex-shrink-0"
+                style={{ width: '32px', height: '32px', border: 'none', cursor: 'pointer', background: 'transparent', color: '#6b7280' }}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
             {/* Messages */}
@@ -399,57 +410,75 @@ export default function ChatWidget() {
                     <div className="h-px flex-1" style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }} />
                   </div>
                 ) : (
-                <div key={msg.id} className={`flex items-start gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div key={msg.id} className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                   {msg.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                      background: config?.primaryColor || '#3f51b5'
-                    }}>
-                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                      </svg>
+                    <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{
+                        background: config?.primaryColor || '#3f51b5'
+                      }}>
+                        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                      </div>
                     </div>
                   )}
-                  {/* EXACT Cognigy Message Bubble: 16px border radius, one flat corner, exact shadows */}
-                  <div className={`flex-1 max-w-[75%] text-sm leading-relaxed ${msg.role === 'user' ? '' : ''}`} style={{
-                    padding: '16px 24px',
-                    borderRadius: '16px',
-                    ...(msg.role === 'user' ? {
-                      backgroundColor: config?.primaryColor || '#3f51b5',
-                      color: 'white',
-                      borderBottomRightRadius: '0',
-                      boxShadow: '0 5px 9px 0 rgba(151,124,156,0.1), 0 5px 16px 0 rgba(203,195,212,0.1), 0 8px 20px 0 rgba(216,212,221,0.1)'
-                    } : {
-                      backgroundColor: 'white',
-                      color: '#000',
-                      borderBottomLeftRadius: '0',
-                      boxShadow: '0 5px 9px 0 rgba(151,124,156,0.1), 0 5px 16px 0 rgba(203,195,212,0.1), 0 8px 20px 0 rgba(216,212,221,0.1)'
-                    })
-                  }}>
-                    {renderMessageContent(msg.content, config?.primaryColor || '#3f51b5', msg.role === 'user')}
+                  <div className="flex flex-col gap-1" style={{ maxWidth: '75%', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                    {msg.role === 'assistant' && (
+                      <span className="text-xs font-medium px-1" style={{ color: '#6b7280', fontFamily: "'Poppins', sans-serif" }}>
+                        {config?.agentName || 'Leah'}
+                      </span>
+                    )}
+                    <div className="text-sm leading-relaxed" style={{
+                      padding: '12px 16px',
+                      borderRadius: '16px',
+                      ...(msg.role === 'user' ? {
+                        backgroundColor: config?.primaryColor || '#3f51b5',
+                        color: 'white',
+                        borderBottomRightRadius: '4px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.12)'
+                      } : {
+                        backgroundColor: '#f3f4f6',
+                        color: '#111827',
+                        borderBottomLeftRadius: '4px',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
+                      })
+                    }}>
+                      {renderMessageContent(msg.content, config?.primaryColor || '#3f51b5', msg.role === 'user')}
+                    </div>
+                    <span className="text-xs px-1" style={{ color: 'rgba(0,0,0,0.35)', fontFamily: "'Poppins', sans-serif" }}>
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
                 </div>
                 )
               ))}
 
               {sending && (
-                <div className="flex items-start gap-2">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                    background: config?.primaryColor || '#3f51b5'
-                  }}>
-                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                    </svg>
+                <div className="flex items-end gap-2">
+                  <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{
+                      background: config?.primaryColor || '#3f51b5'
+                    }}>
+                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                    </div>
                   </div>
-                  <div className="flex gap-1.5" style={{
-                    padding: '16px 24px',
-                    borderRadius: '16px',
-                    borderBottomLeftRadius: '0',
-                    backgroundColor: 'white',
-                    boxShadow: '0 5px 9px 0 rgba(151,124,156,0.1), 0 5px 16px 0 rgba(203,195,212,0.1), 0 8px 20px 0 rgba(216,212,221,0.1)'
-                  }}>
-                    <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}></div>
-                    <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', animationDelay: '300ms' }}></div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-medium px-1" style={{ color: '#6b7280', fontFamily: "'Poppins', sans-serif" }}>
+                      {config?.agentName || 'Leah'} is typing…
+                    </span>
+                    <div className="flex gap-1.5" style={{
+                      padding: '12px 16px',
+                      borderRadius: '16px',
+                      borderBottomLeftRadius: '4px',
+                      backgroundColor: '#f3f4f6',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
+                    }}>
+                      <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}></div>
+                      <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', animationDelay: '150ms' }}></div>
+                      <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', animationDelay: '300ms' }}></div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -463,6 +492,7 @@ export default function ChatWidget() {
             }}>
               <div className="flex gap-2 items-center">
                 <input
+                  ref={inputRef}
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}

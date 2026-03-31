@@ -663,8 +663,8 @@ export async function getChatAgentResponse(
           needContactFastPath = true;
         }
 
-        // If select_service just succeeded and transitioned to NEED_TIMESLOT, short-circuit
-        if (functionName === 'select_service' && (session.step as Step) === Step.NEED_TIMESLOT) {
+        // If select_service (or confirm_vehicle with serviceHint) transitioned to NEED_TIMESLOT, short-circuit
+        if ((functionName === 'select_service' || functionName === 'confirm_vehicle') && (session.step as Step) === Step.NEED_TIMESLOT) {
           const sayMatch = instructions.match(/Say:\s*"([\s\S]*?)"/i);
           if (sayMatch) {
             needTimeslotFastPath = true;

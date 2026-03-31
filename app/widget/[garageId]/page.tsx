@@ -402,86 +402,99 @@ export default function ChatWidget() {
               scrollbarWidth: 'thin',
               padding: '20px 24px'
             }}>
-              {messages.map((msg) => (
-                msg.role === 'system' ? (
+              {messages.map((msg, idx) => {
+                // Compute group position for visual grouping (skip system messages in prev/next checks)
+                const nonSystemMessages = messages.filter(m => m.role !== 'system');
+                const nsIdx = nonSystemMessages.indexOf(msg);
+                const prevMsg = nsIdx > 0 ? nonSystemMessages[nsIdx - 1] : null;
+                const nextMsg = nsIdx < nonSystemMessages.length - 1 ? nonSystemMessages[nsIdx + 1] : null;
+                const isFirstInGroup = !prevMsg || prevMsg.role !== msg.role;
+                const isLastInGroup = !nextMsg || nextMsg.role !== msg.role;
+
+                return msg.role === 'system' ? (
                   <div key={msg.id} className="flex items-center gap-2 justify-center py-1">
                     <div className="h-px flex-1" style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }} />
                     <span className="text-xs font-medium px-2 whitespace-nowrap" style={{ color: 'rgba(0, 0, 0, 0.5)' }}>{msg.content}</span>
                     <div className="h-px flex-1" style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }} />
                   </div>
                 ) : (
-                <div key={msg.id} className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div key={msg.id} className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`} style={{ marginBottom: isLastInGroup ? '4px' : '2px' }}>
+                  {/* Avatar: only show on last bubble of an assistant group; reserve space otherwise */}
                   {msg.role === 'assistant' && (
-                    <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{
-                        background: config?.primaryColor || '#3f51b5'
-                      }}>
-                        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                        </svg>
-                      </div>
+                    <div className="w-8 flex-shrink-0 flex items-end justify-center" style={{ paddingBottom: '2px' }}>
+                      {isLastInGroup && (
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: config?.primaryColor || '#3f51b5' }}>
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                        </div>
+                      )}
                     </div>
                   )}
-                  <div className="flex flex-col gap-1" style={{ maxWidth: '75%', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                    {msg.role === 'assistant' && (
+                  <div className="flex flex-col" style={{ maxWidth: '75%', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: '2px' }}>
+                    {/* Name label: only on first assistant bubble in a group */}
+                    {msg.role === 'assistant' && isFirstInGroup && (
                       <span className="text-xs font-medium px-1" style={{ color: '#6b7280', fontFamily: "'Poppins', sans-serif" }}>
                         {config?.agentName || 'Leah'}
                       </span>
                     )}
                     <div className="text-sm leading-relaxed" style={{
-                      padding: '12px 16px',
-                      borderRadius: '16px',
+                      padding: '10px 14px',
+                      borderRadius: '14px',
                       ...(msg.role === 'user' ? {
                         backgroundColor: config?.primaryColor || '#3f51b5',
                         color: 'white',
-                        borderBottomRightRadius: '4px',
+                        borderBottomRightRadius: isLastInGroup ? '4px' : '14px',
+                        borderTopRightRadius: isFirstInGroup ? '14px' : '6px',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.12)'
                       } : {
                         backgroundColor: '#f3f4f6',
                         color: '#111827',
-                        borderBottomLeftRadius: '4px',
+                        borderBottomLeftRadius: isLastInGroup ? '4px' : '14px',
+                        borderTopLeftRadius: isFirstInGroup ? '14px' : '6px',
                         boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
                       })
                     }}>
                       {renderMessageContent(msg.content, config?.primaryColor || '#3f51b5', msg.role === 'user')}
                     </div>
-                    <span className="text-xs px-1" style={{ color: 'rgba(0,0,0,0.35)', fontFamily: "'Poppins', sans-serif" }}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    {/* Timestamp: only on last bubble in a group */}
+                    {isLastInGroup && (
+                      <span className="text-xs px-1" style={{ color: 'rgba(0,0,0,0.35)', fontFamily: "'Poppins', sans-serif" }}>
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
                   </div>
                 </div>
-                )
-              ))}
+                );
+              })}
 
-              {sending && (
-                <div className="flex items-end gap-2">
-                  <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{
-                      background: config?.primaryColor || '#3f51b5'
-                    }}>
-                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                      </svg>
+              {sending && (() => {
+                const lastNonSystem = [...messages].reverse().find(m => m.role !== 'system');
+                const prevIsAssistant = lastNonSystem?.role === 'assistant';
+                return (
+                  <div className="flex items-end gap-2">
+                    <div className="w-8 flex-shrink-0" />
+                    <div className="flex flex-col" style={{ gap: '2px' }}>
+                      {!prevIsAssistant && (
+                        <span className="text-xs font-medium px-1" style={{ color: '#6b7280', fontFamily: "'Poppins', sans-serif" }}>
+                          {config?.agentName || 'Leah'}
+                        </span>
+                      )}
+                      <div className="flex gap-1.5" style={{
+                        padding: '10px 14px',
+                        borderRadius: '14px',
+                        borderBottomLeftRadius: '4px',
+                        backgroundColor: '#f3f4f6',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
+                      }}>
+                        <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}></div>
+                        <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', animationDelay: '150ms' }}></div>
+                        <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', animationDelay: '300ms' }}></div>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-medium px-1" style={{ color: '#6b7280', fontFamily: "'Poppins', sans-serif" }}>
-                      {config?.agentName || 'Leah'} is typing…
-                    </span>
-                    <div className="flex gap-1.5" style={{
-                      padding: '12px 16px',
-                      borderRadius: '16px',
-                      borderBottomLeftRadius: '4px',
-                      backgroundColor: '#f3f4f6',
-                      boxShadow: '0 1px 4px rgba(0,0,0,0.06)'
-                    }}>
-                      <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}></div>
-                      <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', animationDelay: '150ms' }}></div>
-                      <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', animationDelay: '300ms' }}></div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
               <div ref={messagesEndRef} />
             </div>
 

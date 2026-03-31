@@ -69,7 +69,7 @@ function renderMessageContent(content: string, primaryColor: string, isUser: boo
         {items.map((item) => (
           <button
             key={item.num}
-            onClick={onOptionClick ? () => onOptionClick(item.num) : undefined}
+            onClick={onOptionClick ? () => onOptionClick(`${item.num}. ${item.name}`) : undefined}
             style={{
               display: 'flex',
               alignItems: 'center',

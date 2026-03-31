@@ -980,6 +980,7 @@ async function tsCreateBooking(
   cfg: TyresoftConfig,
   conversationId: string
 ): Promise<any> {
+  console.log(`[TS_AGENT] ts_create_booking called | slot=${args.slot_date} ${args.slot_time} | customer=${args.customer_name} | tyreBasket=${session.tyreBasket?.length || 0} | serviceIds=${JSON.stringify(args.service_ids)}`);
   const headers = tsHeaders(cfg);
   const base    = tsBaseUrl(cfg);
 
@@ -1333,6 +1334,9 @@ function buildSystemPrompt(
     prompt += `- After switching branch, tyre searches and available slots reset automatically — search again for the new branch.\n\n`;
 
     prompt += `RULES:\n`;
+    prompt += `- CRITICAL: NEVER say "you're all booked in", "your reference number is", or any booking confirmation phrase unless ts_create_booking has returned a real saleNumber. Fabricating a reference number is strictly forbidden.\n`;
+    prompt += `- CRITICAL: When the customer selects a time slot, you MUST call ts_confirm_slot IMMEDIATELY as a tool call — do NOT just acknowledge it in text and move on.\n`;
+    prompt += `- CRITICAL: After customer says YES to the summary, you MUST call ts_create_booking as a tool call. Do NOT skip it or assume success.\n`;
     prompt += `- After ts_create_booking succeeds:\n`;
     prompt += `  If back_order is true in the response, say: "You're all booked in! Reference #[saleNumber]. Just to let you know, we'll need to order your tyres in — they'll be ready for your appointment. We'll see you on [date] at [time]. Is there anything else I can help with?"\n`;
     prompt += `  Otherwise say: "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [date] at [time] for your [service]. Is there anything else I can help with?"\n`;

@@ -489,8 +489,12 @@ export async function getChatAgentResponse(
           return { content: instructionToCustomerReply(instructions), needsHumanAssistance: false };
         }
 
-        // Question mid-collection — answer it with OpenAI mini then re-ask for the field
-        if (msg.includes('?')) {
+        // Note request phrased as a question ("Can you also note...", "Could you check...", "Please tell them...")
+        // — treat as a note regardless of the question mark
+        const isNoteRequest = /\b(can you (also |please )?(note|mention|tell them|check|flag|add|ask them|let them know|make a note)|could you (also |please )?(note|mention|tell them|check|flag)|please (also )?(note|mention|tell them|check|flag|add)|also (note|check|mention|add|flag|tell them)|let them know|make a note)\b/i.test(msg);
+
+        // Genuine question mid-collection — answer it with OpenAI mini then re-ask for the field
+        if (msg.includes('?') && !isNoteRequest) {
           const fieldNeeded = !session.contactPhone ? 'phone number'
             : !session.contactEmail ? 'email address'
             : !session.contactPostcode ? 'postcode'
@@ -504,7 +508,7 @@ export async function getChatAgentResponse(
           const miniResp = await getOpenAI().chat.completions.create({ model: 'gpt-4o-mini', temperature: 0.5, max_tokens: 120, messages: miniMessages });
           return { content: miniResp.choices[0].message.content || `Could I also grab your ${fieldNeeded}?`, needsHumanAssistance: false };
         }
-        // Looks like a note — save it and re-ask for the missing field
+        // Note or note-request — save it and re-ask for the missing field
         else if (msg.length > 10 && !/^(yes|no|yeah|yep|correct|sure|ok|okay|thanks|cheers)$/i.test(msg)) {
           session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${msg}`;
           await saveSession(conversationId, session);

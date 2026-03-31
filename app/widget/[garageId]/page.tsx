@@ -62,29 +62,29 @@ function renderMessageContent(content: string, primaryColor: string, isUser: boo
     };
   }).filter(Boolean) as { num: string; name: string; price?: string }[];
 
-  const clickable = !!onOptionClick;
-
   return (
     <>
       {intro && <p style={{ marginBottom: '10px', color: '#374151' }}>{intro}</p>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {items.map((item) => (
-          <div
+          <button
             key={item.num}
-            onClick={clickable ? () => onOptionClick(item.num) : undefined}
+            onClick={onOptionClick ? () => onOptionClick(item.num) : undefined}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
               padding: '9px 11px',
-              backgroundColor: clickable ? 'rgba(0,0,0,0.04)' : 'rgba(0,0,0,0.03)',
+              backgroundColor: 'rgba(0,0,0,0.03)',
               borderRadius: '10px',
-              border: `1px solid ${clickable ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.07)'}`,
-              cursor: clickable ? 'pointer' : 'default',
+              border: '1px solid rgba(0,0,0,0.10)',
+              cursor: onOptionClick ? 'pointer' : 'default',
+              textAlign: 'left',
+              width: '100%',
               transition: 'background-color 0.15s',
             }}
-            onMouseEnter={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(0,0,0,0.09)'; } : undefined}
-            onMouseLeave={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(0,0,0,0.04)'; } : undefined}
+            onMouseEnter={onOptionClick ? (e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.09)'; } : undefined}
+            onMouseLeave={onOptionClick ? (e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.03)'; } : undefined}
           >
             <div style={{
               width: '22px', height: '22px', borderRadius: '50%',
@@ -96,7 +96,7 @@ function renderMessageContent(content: string, primaryColor: string, isUser: boo
               <div style={{ fontWeight: 500, fontSize: '13px', color: '#111827', lineHeight: '1.3' }}>{item.name}</div>
               {item.price && <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '1px' }}>{item.price}</div>}
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </>
@@ -441,7 +441,7 @@ export default function ChatWidget() {
                       msg.content,
                       config?.primaryColor || '#3f51b5',
                       msg.role === 'user',
-                      msg.role === 'assistant' && !sending ? (num) => sendMessage(num) : undefined
+                      msg.role === 'assistant' ? (num) => sendMessage(num) : undefined
                     )}
                   </div>
                 </div>

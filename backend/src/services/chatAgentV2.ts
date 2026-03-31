@@ -447,8 +447,13 @@ export async function getChatAgentResponse(
     // Fast-path: booking already confirmed — don't re-enter contact collection
     if (session.step === Step.CONFIRMED || session.step === Step.DONE) {
       const nameGreet = session.customerNameFirst ? ` ${session.customerNameFirst}` : '';
-      if (message.trim().length > 5) {
-        session.notes = (session.notes ? session.notes + ' | ' : '') + `Post-booking: ${message.trim()}`;
+      const msg = message.trim();
+      const isPleasantry = /^(thanks|thank you|cheers|great|perfect|brilliant|sounds good|nice|cool|awesome|lovely|wonderful|ok|okay|brill|fab|fantastic)[\s!.]*$/i.test(msg);
+      if (isPleasantry) {
+        return { content: `You're welcome${nameGreet}! See you then! 👋`, needsHumanAssistance: false };
+      }
+      if (msg.length > 5) {
+        session.notes = (session.notes ? session.notes + ' | ' : '') + `Post-booking: ${msg}`;
         await saveSession(conversationId, session);
         return { content: `Thanks${nameGreet}! We'll make sure the team knows. See you soon! 👋`, needsHumanAssistance: false };
       }
@@ -484,8 +489,21 @@ export async function getChatAgentResponse(
           return { content: instructionToCustomerReply(instructions), needsHumanAssistance: false };
         }
 
-        // Question mid-collection — fall through to OpenAI so it can answer naturally
-        if (msg.includes('?')) { /* intentional fall-through */ }
+        // Question mid-collection — answer it with OpenAI mini then re-ask for the field
+        if (msg.includes('?')) {
+          const fieldNeeded = !session.contactPhone ? 'phone number'
+            : !session.contactEmail ? 'email address'
+            : !session.contactPostcode ? 'postcode'
+            : 'house number or name';
+          const miniSystemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
+          const miniMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+            { role: 'system', content: `${miniSystemPrompt}\n\nIMPORTANT: The customer asked a question during contact collection. Answer it briefly (1 sentence max), then immediately re-ask for their ${fieldNeeded}. Be warm and natural. Do NOT call any tools.` },
+            ...previousMessages.map(m => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content })),
+            { role: 'user', content: msg },
+          ];
+          const miniResp = await getOpenAI().chat.completions.create({ model: 'gpt-4o-mini', temperature: 0.5, max_tokens: 120, messages: miniMessages });
+          return { content: miniResp.choices[0].message.content || `Could I also grab your ${fieldNeeded}?`, needsHumanAssistance: false };
+        }
         // Looks like a note — save it and re-ask for the missing field
         else if (msg.length > 10 && !/^(yes|no|yeah|yep|correct|sure|ok|okay|thanks|cheers)$/i.test(msg)) {
           session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${msg}`;
@@ -1372,7 +1390,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     await ghSetService(session.sessionId, String(serviceId));
     
     session.serviceSelectedId = String(serviceId);
-    session.serviceSelectedName = serviceName;
+    session.serviceSelectedName = cleanServiceName(serviceName);
     session.servicePrice = price;
     session.step = Step.NEED_TIMESLOT;
     
@@ -2036,6 +2054,15 @@ function formatTimeNaturally(timeStr: string): string {
   } else {
     return `${hour - 12}${min}pm`;
   }
+}
+
+// Strip GH API's " - component1 / component2 / ..." suffix from service names
+function cleanServiceName(name: string): string {
+  const dashIdx = name.indexOf(' - ');
+  if (dashIdx > 0 && name.substring(dashIdx + 3).includes(' / ')) {
+    return name.substring(0, dashIdx).trim();
+  }
+  return name;
 }
 
 function formatSlotsAsNumberedList(timeslots: any[], max = 3): string {

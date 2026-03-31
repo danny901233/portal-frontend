@@ -701,10 +701,21 @@ async function executeTool(
         const llmStockNumber = String(args.stock_number || '');
         const llmDescription = String(args.description || '').toLowerCase();
         const search = session.lastTyreSearch || [];
+        // Normalize a description string into a set of meaningful tokens
+        const tokenize = (s: string) => s.toLowerCase().replace(/[.\-\/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
+        const llmTokens = tokenize(llmDescription);
+        const llmTokenSet = new Set(llmTokens);
+        // Word-intersection fallback: LLM often reorders "Yokohama W.Drive RF 205/55R16" vs CSV "205/55R16 91H YOKOHAMA W.DRIVE RF"
+        const wordMatch = (csvDesc: string) => {
+          const csvTokens = tokenize(csvDesc);
+          const shared = csvTokens.filter(w => llmTokenSet.has(w)).length;
+          return llmTokens.length >= 2 && shared >= Math.min(2, llmTokens.length);
+        };
         const matched = search.find(t =>
           t.stock_number === llmStockNumber ||
           t.description.toLowerCase().includes(llmDescription) ||
-          llmDescription.includes(t.description.toLowerCase().split(' ').slice(0, 3).join(' '))
+          llmDescription.includes(t.description.toLowerCase().split(' ').slice(0, 3).join(' ')) ||
+          wordMatch(t.description)
         ) || search.find(t => t.stock_number.includes(llmStockNumber)) || null;
         const resolvedStockNumber = matched ? matched.stock_number : llmStockNumber;
         const resolvedPrice       = matched ? matched.price        : (Number(args.unit_price) || 0);
@@ -723,7 +734,7 @@ async function executeTool(
         const basket = [...(session.tyreBasket || []), item];
         tsSessions.set(conversationId, { ...session, tyreBasket: basket });
         const total = item.quantity * item.unitPrice;
-        console.log(`[TS_AGENT] Tyre added to basket: ${item.description} x${item.quantity} @ £${item.unitPrice} = £${total}`);
+        console.log(`[TS_AGENT] Tyre added to basket: ${item.description} x${item.quantity} @ £${item.unitPrice} = £${total} | leadTimeDays=${item.leadTimeDays} supplierID=${item.sourceSupplierID}`);
         return {
           success: true,
           item,

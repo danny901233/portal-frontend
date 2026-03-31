@@ -33,7 +33,7 @@ interface GarageConfig {
 
 type ViewState = 'closed' | 'menu' | 'pre-chat' | 'chat';
 
-function renderMessageContent(content: string, primaryColor: string, isUser: boolean) {
+function renderMessageContent(content: string, primaryColor: string, isUser: boolean, onOptionClick?: (text: string) => void) {
   // Detect numbered list: at least two items like "1. ... 2. ..."
   const hasNumberedList = /\d+\.\s.+\s\d+\.\s/.test(content);
 
@@ -62,20 +62,30 @@ function renderMessageContent(content: string, primaryColor: string, isUser: boo
     };
   }).filter(Boolean) as { num: string; name: string; price?: string }[];
 
+  const clickable = !!onOptionClick;
+
   return (
     <>
       {intro && <p style={{ marginBottom: '10px', color: '#374151' }}>{intro}</p>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {items.map((item) => (
-          <div key={item.num} style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '9px 11px',
-            backgroundColor: 'rgba(0,0,0,0.03)',
-            borderRadius: '10px',
-            border: '1px solid rgba(0,0,0,0.07)',
-          }}>
+          <div
+            key={item.num}
+            onClick={clickable ? () => onOptionClick(item.num) : undefined}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '9px 11px',
+              backgroundColor: clickable ? 'rgba(0,0,0,0.04)' : 'rgba(0,0,0,0.03)',
+              borderRadius: '10px',
+              border: `1px solid ${clickable ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.07)'}`,
+              cursor: clickable ? 'pointer' : 'default',
+              transition: 'background-color 0.15s',
+            }}
+            onMouseEnter={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(0,0,0,0.09)'; } : undefined}
+            onMouseLeave={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(0,0,0,0.04)'; } : undefined}
+          >
             <div style={{
               width: '22px', height: '22px', borderRadius: '50%',
               backgroundColor: primaryColor, color: 'white',
@@ -241,13 +251,13 @@ export default function ChatWidget() {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!input.trim() || sending) return;
+  const sendMessage = async (text: string) => {
+    if (!text.trim() || sending) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: input.trim(),
+      content: text.trim(),
       timestamp: new Date(),
     };
 
@@ -275,11 +285,11 @@ export default function ChatWidget() {
       }
 
       const data = await response.json();
-      
+
       if (data.conversationId && !conversationId) {
         setConversationId(data.conversationId);
       }
-      
+
       const bubbles: string[] = data.messages && data.messages.length > 0 ? data.messages : [data.response];
       await addMessagesSequentially(bubbles);
     } catch (error) {
@@ -293,6 +303,8 @@ export default function ChatWidget() {
       setSending(false);
     }
   };
+
+  const handleSendMessage = () => sendMessage(input);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -425,7 +437,12 @@ export default function ChatWidget() {
                       boxShadow: '0 5px 9px 0 rgba(151,124,156,0.1), 0 5px 16px 0 rgba(203,195,212,0.1), 0 8px 20px 0 rgba(216,212,221,0.1)'
                     })
                   }}>
-                    {renderMessageContent(msg.content, config?.primaryColor || '#3f51b5', msg.role === 'user')}
+                    {renderMessageContent(
+                      msg.content,
+                      config?.primaryColor || '#3f51b5',
+                      msg.role === 'user',
+                      msg.role === 'assistant' && !sending ? (num) => sendMessage(num) : undefined
+                    )}
                   </div>
                 </div>
                 )

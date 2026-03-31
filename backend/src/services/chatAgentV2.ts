@@ -405,11 +405,9 @@ export async function getChatAgentResponse(
         session.pendingSlotDate = '';
         session.pendingSlotTime = '';
         await saveSession(conversationId, session);
-        const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
-          `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
-        ).join(', or ');
+        const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
         return {
-          content: `No problem — the options I have are ${firstSlots}. Which would you prefer?`,
+          content: `No problem — here are the available slots:\n${firstSlots}`,
           needsHumanAssistance: false,
         };
       }
@@ -486,8 +484,10 @@ export async function getChatAgentResponse(
           return { content: instructionToCustomerReply(instructions), needsHumanAssistance: false };
         }
 
-        // Looks like a note or question — save it and re-ask for the missing field
-        if (msg.length > 10 && !/^(yes|no|yeah|yep|correct|sure|ok|okay|thanks|cheers)$/i.test(msg)) {
+        // Question mid-collection — fall through to OpenAI so it can answer naturally
+        if (msg.includes('?')) { /* intentional fall-through */ }
+        // Looks like a note — save it and re-ask for the missing field
+        else if (msg.length > 10 && !/^(yes|no|yeah|yep|correct|sure|ok|okay|thanks|cheers)$/i.test(msg)) {
           session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${msg}`;
           await saveSession(conversationId, session);
           const nextAsk = session.contactPhone
@@ -1245,14 +1245,12 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 
   if (session.step === Step.NEED_TIMESLOT && session.serviceSelectedName && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
     console.log('[STATE_GUARD] select_service called again after service already set — re-presenting timeslots');
-    const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) => {
-      return `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`;
-    }).join(', or ');
+    const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
     const makeTitle = (session.vehicleMake || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const priceNum = parseFloat(String(session.servicePrice));
     const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
-    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — or do you have a particular date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
+    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\n${firstSlots}"\nWhen the customer responds, call select_timeslot with whatever they say.`;
   }
 
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
@@ -1398,11 +1396,7 @@ Say: "I'm sorry, I don't have any online availability showing for that at the mo
 Wait for their response.`;
     }
     
-    const firstSlots = timeslots.slice(0, 3).map((t: any) => {
-      const dateNatural = formatDateNaturally(t.date);
-      const timeNatural = formatTimeNaturally(t.time);
-      return `${dateNatural} at ${timeNatural}`;
-    }).join(', or ');
+    const firstSlots = formatSlotsAsNumberedList(timeslots);
     
     const makeTitle = session.vehicleMake.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = session.vehicleModel.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
@@ -1435,7 +1429,7 @@ When the customer responds, call select_timeslot with whatever they say.`;
     }
 
     return `SERVICE_SET: ${serviceName} (${priceDisplay}).
-Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. The earliest I have is ${firstSlots} — or do you have a particular date in mind?"
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\n${firstSlots}"
 When the customer responds, call select_timeslot with whatever they say.`;
     
   } catch (error: any) {
@@ -1458,12 +1452,10 @@ async function handleConfirmBooking(args: any, session: ChatSession, conversatio
   session.step = Step.NEED_TIMESLOT;
   await saveSession(conversationId, session);
 
-  const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
-    `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
-  ).join(', or ');
+  const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
 
-  return `SLOTS: The earliest available are ${firstSlots}.
-Say: "The earliest I have is ${firstSlots} — or do you have a particular date in mind?"
+  return `SLOTS: Available timeslots below.
+Say: "${firstSlots}"
 When the customer responds, call select_timeslot with whatever they say.`;
 }
 
@@ -2044,6 +2036,12 @@ function formatTimeNaturally(timeStr: string): string {
   } else {
     return `${hour - 12}${min}pm`;
   }
+}
+
+function formatSlotsAsNumberedList(timeslots: any[], max = 3): string {
+  return timeslots.slice(0, max).map((t: any, i: number) =>
+    `${i + 1}. ${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
+  ).join('\n');
 }
 
 function matchTimeslot(preference: string, timeslots: any[]): any | null {

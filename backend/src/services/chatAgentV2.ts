@@ -328,6 +328,46 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
+    // Fast-path: restart/cancel detection — customer wants to start over or give up
+    // Only trigger before booking is confirmed (no point resetting after CONFIRMED/DONE)
+    if (session.step !== Step.CONFIRMED && session.step !== Step.DONE && session.step !== Step.GREETING) {
+      const lower = message.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+      const isRestart = /\b(start (over|again)|restart|reset|begin again|wrong (garage|number|chat)|different (garage|car|vehicle)|cancel (booking|this|everything)|forget it|never ?mind|start from (the )?beginning)\b/.test(lower);
+      // Also reset if customer left a message but now wants to book
+      const wantsBookingAfterMessage = session.step === Step.MESSAGE_ONLY &&
+        /\b(book|booking|service|mot|appointment|slot|come in|bring (it|the car)|actually|instead)\b/.test(lower);
+      if (isRestart || wantsBookingAfterMessage) {
+        console.log(`[RESTART] Customer requested restart at step: ${session.step} (wantsBooking: ${wantsBookingAfterMessage})`);
+        // Wipe all booking state but keep name + contact if already collected
+        const savedName = { first: session.customerNameFirst, last: session.customerNameLast };
+        const savedContact = { phone: session.contactPhone, email: session.contactEmail };
+        Object.assign(session, {
+          step: Step.GREETING,
+          intent: '',
+          vrn: '', vrnConfirmed: false, sessionId: '',
+          vehicleMake: '', vehicleModel: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
+          bookingDate: '', bookingTime: '',
+          contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
+          postcodeConfirmed: false, notes: '',
+          message: '', preferredCallbackTime: '',
+          diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
+          useDropOffBooking: false,
+        });
+        session.customerNameFirst = savedName.first;
+        session.customerNameLast = savedName.last;
+        session.contactPhone = savedContact.phone;
+        session.contactEmail = savedContact.email;
+        await saveSession(conversationId, session);
+        const nameGreet = savedName.first ? `, ${savedName.first}` : '';
+        return {
+          content: `No problem${nameGreet}! Let's start fresh. What can I help you with?`,
+          needsHumanAssistance: false,
+        };
+      }
+    }
+
     // Fast-path: slot confirmation — customer is saying yes/no to a proposed slot
     if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
       // Strip emoji, punctuation, and normalise repeated words before testing intent
@@ -1005,14 +1045,23 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
   await saveSession(conversationId, session);
   
   try {
-    // Call GarageHive API with B/V/P retry logic
+    // Build VRN variant list — try all common misread substitutions at every position
     const regsToTry = [normalized];
-    const firstChar = normalized[0];
-    const bvpSwaps: Record<string, string[]> = { 'B': ['V', 'P'], 'V': ['B', 'P'], 'P': ['B', 'V'] };
-    
-    if (bvpSwaps[firstChar]) {
-      for (const alt of bvpSwaps[firstChar]) {
-        regsToTry.push(alt + normalized.slice(1));
+    const charSwaps: Record<string, string[]> = {
+      // B/V/P — similar shape, common voice/typing misread
+      'B': ['V', 'P'], 'V': ['B', 'P'], 'P': ['B', 'V'],
+      // 0/O — zero vs letter O
+      '0': ['O'], 'O': ['0'],
+      // 1/I/L — one vs letter I vs letter L
+      '1': ['I', 'L'], 'I': ['1', 'L'], 'L': ['1', 'I'],
+    };
+    for (let pos = 0; pos < normalized.length; pos++) {
+      const ch = normalized[pos];
+      if (charSwaps[ch]) {
+        for (const alt of charSwaps[ch]) {
+          const variant = normalized.slice(0, pos) + alt + normalized.slice(pos + 1);
+          if (!regsToTry.includes(variant)) regsToTry.push(variant);
+        }
       }
     }
     
@@ -1030,7 +1079,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
             result = attemptResult;
             winningReg = tryReg;
             if (tryReg !== normalized) {
-              console.log(`[LOOKUP_VEHICLE] B/V/P auto-fix: ${normalized} → ${tryReg}`);
+              console.log(`[LOOKUP_VEHICLE] Typo auto-fix: ${normalized} → ${tryReg}`);
             }
             break;
           }
@@ -2219,19 +2268,24 @@ TONE EXAMPLES:
   }
 
   // ── Booking flow instructions ─────────────────────────────────────────────
-  prompt += `BOOKING FLOW (follow in order):
+  prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):
 1. Get customer name + intent → call save_caller_name
 2. Get vehicle registration → call lookup_vehicle
 3. IMMEDIATELY call confirm_vehicle(confirmed=true) — do NOT wait for customer input, do NOT ask them to confirm, just call it silently
-4. Customer says what work is needed → call select_service
+4. ONLY after confirm_vehicle succeeds → customer says what work is needed → call select_service
 5. Offer timeslots from tool response → handled automatically, no tool call needed from you
 6. Contact details collected automatically after timeslot
 7. Booking confirmed ✅
 
-RULES:
+CRITICAL TOOL ORDER RULES:
+- NEVER call select_service before confirm_vehicle has been called and returned successfully — the services list does not exist yet
+- NEVER call select_timeslot before select_service has been called and returned successfully
+- If you are tempted to call select_service but confirm_vehicle has not been called yet, call confirm_vehicle(confirmed=true) first, then select_service
+- Never call multiple booking tools in the same turn — one tool per response
+
+GENERAL RULES:
 - Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases
 - NEVER answer questions about services/prices from your own knowledge — only use what tools return after confirm_vehicle has been called
-- If the customer asks about services or prices before confirm_vehicle is called, call confirm_vehicle(confirmed=true) first silently, then answer using the tool result
 - Keep responses short (1–2 sentences)
 - Address customer by first name only
 - Never invent booking details — only use what tools return

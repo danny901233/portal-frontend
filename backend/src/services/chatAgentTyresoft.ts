@@ -697,49 +697,81 @@ async function executeTool(
       }
 
       case 'ts_add_tyre_to_basket': {
-        // Resolve real stock number from session — LLM often hallucinates short codes
+        // Resolve real stock number from session — LLM often hallucinates short codes or passes list index
         const llmStockNumber = String(args.stock_number || '');
         const llmDescription = String(args.description || '').toLowerCase();
         const search = session.lastTyreSearch || [];
+
+        // 1. If LLM passed a 1-2 digit number, treat it as a 1-based list index (e.g. "3" → 3rd result)
+        const isListIndex = /^\d{1,2}$/.test(llmStockNumber) && parseInt(llmStockNumber) >= 1 && parseInt(llmStockNumber) <= search.length;
+        const byIndex = isListIndex ? (search[parseInt(llmStockNumber) - 1] || null) : null;
+
         // Normalize a description string into a set of meaningful tokens
         const tokenize = (s: string) => s.toLowerCase().replace(/[.\-\/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
         const llmTokens = tokenize(llmDescription);
         const llmTokenSet = new Set(llmTokens);
-        // Word-intersection fallback: LLM often reorders "Yokohama W.Drive RF 205/55R16" vs CSV "205/55R16 91H YOKOHAMA W.DRIVE RF"
+        // Word-intersection fallback: handles LLM reordering "Yokohama W.Drive RF 205/55R16" vs CSV "205/55R16 91H YOKOHAMA W.DRIVE RF"
         const wordMatch = (csvDesc: string) => {
           const csvTokens = tokenize(csvDesc);
           const shared = csvTokens.filter(w => llmTokenSet.has(w)).length;
           return llmTokens.length >= 2 && shared >= Math.min(2, llmTokens.length);
         };
-        const matched = search.find(t =>
-          t.stock_number === llmStockNumber ||
-          t.description.toLowerCase().includes(llmDescription) ||
-          llmDescription.includes(t.description.toLowerCase().split(' ').slice(0, 3).join(' ')) ||
-          wordMatch(t.description)
-        ) || search.find(t => t.stock_number.includes(llmStockNumber)) || null;
+
+        // 2. Exact/description/word match; 3. Long stock-code substring (skip for short codes to avoid false positives)
+        const matched = byIndex ||
+          search.find(t =>
+            t.stock_number === llmStockNumber ||
+            t.description.toLowerCase().includes(llmDescription) ||
+            llmDescription.includes(t.description.toLowerCase().split(' ').slice(0, 3).join(' ')) ||
+            wordMatch(t.description)
+          ) ||
+          (llmStockNumber.length > 6 ? search.find(t => t.stock_number.includes(llmStockNumber)) : null) ||
+          null;
+
         const resolvedStockNumber = matched ? matched.stock_number : llmStockNumber;
         const resolvedPrice       = matched ? matched.price        : (Number(args.unit_price) || 0);
         const resolvedDescription = matched ? matched.description  : String(args.description || '');
         if (matched && matched.stock_number !== llmStockNumber) {
-          console.log(`[TS_AGENT] Stock number resolved: LLM sent "${llmStockNumber}" → real code "${resolvedStockNumber}"`);
+          console.log(`[TS_AGENT] Stock number resolved: LLM sent "${llmStockNumber}"${isListIndex ? ' (list index)' : ''} → real code "${resolvedStockNumber}"`);
         }
-        const item: TyreBasketItem = {
-          stockNumber:      resolvedStockNumber,
-          quantity:         Number(args.quantity) || 4,
-          unitPrice:        resolvedPrice,
-          description:      resolvedDescription,
-          leadTimeDays:     matched ? parseLeadTimeDays(matched.lead_time) : 0,
-          sourceSupplierID: matched ? (matched.source_supplier_id ?? 0) : 0,
-        };
-        const basket = [...(session.tyreBasket || []), item];
+
+        // Prevent double-add: if this stock code is already in basket, update quantity instead
+        const existingBasket = session.tyreBasket || [];
+        const existingIdx = existingBasket.findIndex(i => i.stockNumber === resolvedStockNumber);
+        let basket: TyreBasketItem[];
+        let item: TyreBasketItem;
+        const leadTimeDays = matched ? parseLeadTimeDays(matched.lead_time) : 0;
+        const sourceSupplierID = matched ? (matched.source_supplier_id ?? 0) : 0;
+
+        if (existingIdx >= 0) {
+          // Update existing entry rather than adding a duplicate
+          item = { ...existingBasket[existingIdx], quantity: Number(args.quantity) || existingBasket[existingIdx].quantity };
+          basket = [...existingBasket];
+          basket[existingIdx] = item;
+          console.log(`[TS_AGENT] Basket updated (deduplicated): ${item.description} x${item.quantity}`);
+        } else {
+          item = {
+            stockNumber:      resolvedStockNumber,
+            quantity:         Number(args.quantity) || 4,
+            unitPrice:        resolvedPrice,
+            description:      resolvedDescription,
+            leadTimeDays,
+            sourceSupplierID,
+          };
+          basket = [...existingBasket, item];
+        }
         tsSessions.set(conversationId, { ...session, tyreBasket: basket });
         const total = item.quantity * item.unitPrice;
         console.log(`[TS_AGENT] Tyre added to basket: ${item.description} x${item.quantity} @ £${item.unitPrice} = £${total} | leadTimeDays=${item.leadTimeDays} supplierID=${item.sourceSupplierID}`);
+
+        // Return lead_time_days so the LLM can warn the customer before showing timeslots
+        const earliestDate = leadTimeDays > 0 ? addDays(leadTimeDays) : null;
         return {
           success: true,
           item,
           basket_total: basket.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0),
           basket_count: basket.length,
+          ...(earliestDate ? { lead_time_days: leadTimeDays, earliest_fitting_date: earliestDate, note: `These tyres are ordered from our warehouse. Earliest fitting date is ${earliestDate}.` } : {}),
         };
       }
 
@@ -1348,6 +1380,7 @@ function buildSystemPrompt(
     prompt += `- CRITICAL: NEVER say "you're all booked in", "your reference number is", or any booking confirmation phrase unless ts_create_booking has returned a real saleNumber. Fabricating a reference number is strictly forbidden.\n`;
     prompt += `- CRITICAL: When the customer selects a time slot, you MUST call ts_confirm_slot IMMEDIATELY as a tool call — do NOT just acknowledge it in text and move on.\n`;
     prompt += `- CRITICAL: After customer says YES to the summary, you MUST call ts_create_booking as a tool call. Do NOT skip it or assume success.\n`;
+    prompt += `- LEAD TIME NOTICE: If ts_add_tyre_to_basket returns a "note" field (e.g. "These tyres are ordered from our warehouse..."), you MUST relay that notice to the customer BEFORE calling ts_get_timeslots. Say something like: "Just to let you know, these tyres will need to be ordered in from our warehouse — the earliest available fitting date will be [earliest_fitting_date]." Then proceed to call ts_get_timeslots.\n`;
     prompt += `- After ts_create_booking succeeds:\n`;
     prompt += `  If back_order is true in the response, say: "You're all booked in! Reference #[saleNumber]. Just to let you know, we'll need to order your tyres in — they'll be ready for your appointment. We'll see you on [date] at [time]. Is there anything else I can help with?"\n`;
     prompt += `  Otherwise say: "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [date] at [time] for your [service]. Is there anything else I can help with?"\n`;

@@ -1248,6 +1248,7 @@ async function tsCreateBooking(
           return svc ? `${svc.name} @ £${svc.price}` : `serviceID=${sid}`;
         }).join(', ');
 
+    const maxLeadTimeDays = (session.tyreBasket || []).reduce((max, t) => Math.max(max, t.leadTimeDays || 0), 0);
     console.log(`[BOOKING CREATED] ${JSON.stringify({
       timestamp:   new Date().toUTCString(),
       channel:     'chat',
@@ -1262,6 +1263,7 @@ async function tsCreateBooking(
       date:        slotDate,
       time:        slotTime,
       items:       itemSummary,
+      ...(maxLeadTimeDays > 0 ? { partner_stock: true, lead_time_days: maxLeadTimeDays } : {}),
     })}`);
 
     // Back order check — flag if any tyre needs ordering in

@@ -429,7 +429,7 @@ export async function getChatAgentResponse(
           ? (session.contactEmail ? `What's your postcode?` : `Can I grab your email address?`)
           : `Can I just grab a contact number?`;
         return {
-          content: `Perfect, you're booked in! ${nextAsk}`,
+          content: `Perfect — just need a couple of details to lock that in. ${nextAsk}`,
           needsHumanAssistance: false,
         };
       }
@@ -443,11 +443,22 @@ export async function getChatAgentResponse(
       };
     }
 
+    // Fast-path: booking already confirmed — don't re-enter contact collection
+    if (session.step === Step.CONFIRMED || session.step === Step.DONE) {
+      const nameGreet = session.customerNameFirst ? ` ${session.customerNameFirst}` : '';
+      if (message.trim().length > 5) {
+        session.notes = (session.notes ? session.notes + ' | ' : '') + `Post-booking: ${message.trim()}`;
+        await saveSession(conversationId, session);
+        return { content: `Thanks${nameGreet}! We'll make sure the team knows. See you soon! 👋`, needsHumanAssistance: false };
+      }
+      return { content: `Your booking is all confirmed${nameGreet}. See you then! 👋`, needsHumanAssistance: false };
+    }
+
     // Fast-path: once a timeslot is booked, handle all contact collection locally (no OpenAI)
     const bookingComplete = !!(session.bookingDate && session.bookingTime);
     if (session.step === Step.NEED_CONTACT || bookingComplete) {
       // Ensure step is correct
-      if (bookingComplete && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+      if (bookingComplete) {
         session.step = Step.NEED_CONTACT;
       }
 
@@ -705,12 +716,20 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
   if (!session.contactPostcode && looksLikePostcode && postcodeMatch) {
     args.postcode = postcodeMatch[1].replace(/\s+/g, '').toUpperCase();
   }
-
   // Treat as house number/name once we have postcode (no confirmation step needed)
   const isYes = /^(yes|yeah|yep|yup|correct|sure|ok|okay)$/i.test(text.trim());
   const isNo = /^(no|nope|wrong|incorrect)$/i.test(text.trim());
   // Exclude VRN-like strings (e.g. V20ALA, AB12CDE) — letters+digits+letters but NOT ending in digit+2letters
   const looksLikeVrn = /^[A-Z]{1,3}\d{1,4}[A-Z]{1,3}$/i.test(text.trim()) && !/\d[A-Z]{2}$/i.test(text.trim());
+
+  // Loose postcode attempt — catches malformed postcodes (e.g. "CV2 A35") that fail the strict regex.
+  // Used to give "couldn't find that postcode" feedback instead of silently re-asking.
+  if (!args.postcode && !session.contactPostcode) {
+    const looseMatch = text.match(/\b([A-Z]{1,2}\d[\dA-Z]?\s*[A-Z0-9]{2,3})\b/i);
+    if (looseMatch && looseMatch[1].length >= 4 && !looksLikeVrn) {
+      args.postcodeAttempt = looseMatch[1];
+    }
+  }
   const isLikelyHouseNumber = /^[A-Za-z0-9\-\s,\.]{1,40}$/.test(text) &&
     !emailMatch && !phoneMatch && !postcodeMatch &&
     !isYes && !isNo && !looksLikeVrn &&
@@ -1581,9 +1600,9 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   
   if (!session.contactPostcode) {
     console.log(`[SET_CONTACT] Need: postcode`);
-    const hadAttempt = postcode && postcode.length > 0;
+    const hadAttempt = (postcode && postcode.length > 0) || !!(args as any).postcodeAttempt;
     const msg = hadAttempt
-      ? `Hmm, I couldn't find that postcode — could you double-check it?`
+      ? `Hmm, that doesn't look like a valid UK postcode — could you double-check it?`
       : `What's your postcode?`;
     return `Need postcode.\n\nSay: "${msg}"\nWait for postcode.`;
   }

@@ -42,6 +42,7 @@ interface TyreProduct {
   runflat: boolean;
   availability: string;
   leadTime: string;
+  sourceSupplierID: number;
 }
 
 interface TyreBasketItem {
@@ -49,6 +50,8 @@ interface TyreBasketItem {
   quantity: number;
   unitPrice: number;
   description: string;
+  leadTimeDays: number;
+  sourceSupplierID: number;
 }
 
 interface TyresoftSession {
@@ -61,7 +64,7 @@ interface TyresoftSession {
   customerPhone?: string;
   availableSlots?: { date: string; time: string; diaryCategoryID: number; estimatedTime: number; slotTypeID: number }[];
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
-  lastTyreSearch?: { stock_number: string; description: string; price: number; availability: string; lead_time: string }[];
+  lastTyreSearch?: { stock_number: string; description: string; price: number; availability: string; lead_time: string; source_supplier_id: number }[];
   branchOverride?: number;  // depot ID set by ts_set_branch (1 = Branch 1, 3 = Branch 2)
 }
 
@@ -99,6 +102,7 @@ function parseCSV(filePath: string): TyreProduct[] {
   const iRunflat    = idx('Runflat');
   const iAvail      = idx('Product Channel Available');
   const iLeadTime   = idx('Product Channel Lead Time');
+  const iSourceSupp = idx('Product Channel Source Supplier ID');
 
   const products: TyreProduct[] = [];
   for (let i = 1; i < lines.length; i++) {
@@ -117,8 +121,9 @@ function parseCSV(filePath: string): TyreProduct[] {
       loadIndex:    cols[iLoad]?.trim()      ?? '',
       brand:        cols[iBrand]?.trim()     ?? '',
       runflat:      (cols[iRunflat]?.trim().toUpperCase() ?? '') === 'TRUE',
-      availability: cols[iAvail]?.trim()     ?? '',
-      leadTime:     cols[iLeadTime]?.trim()  ?? '',
+      availability:     cols[iAvail]?.trim()     ?? '',
+      leadTime:         cols[iLeadTime]?.trim()  ?? '',
+      sourceSupplierID: parseInt(cols[iSourceSupp]?.trim() || '0') || 0,
     });
   }
   return products;
@@ -139,6 +144,20 @@ function loadTyreInventory(): void {
 }
 
 loadTyreInventory();
+
+// Parse "2 Days" → 2, "In Stock" / "0" / "" → 0
+function parseLeadTimeDays(leadTime: string): number {
+  if (!leadTime) return 0;
+  const m = leadTime.match(/(\d+)/);
+  return m ? parseInt(m[1]) : 0;
+}
+
+// Return YYYY-MM-DD that is `days` calendar days from today
+function addDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 // ---------------------------------------------------------------------------
 // Tyre search helper
@@ -651,24 +670,26 @@ async function executeTool(
           };
         }
         const tyreList = results.map((t, i) => ({
-          stock_number: t.stockNumber,
-          description:  t.title,
-          brand:        t.brand,
-          price:        t.price,
-          availability: t.availability || 'In Stock',
-          lead_time:    t.leadTime,
-          runflat:      t.runflat,
-          _index:       i + 1,
+          stock_number:       t.stockNumber,
+          description:        t.title,
+          brand:              t.brand,
+          price:              t.price,
+          availability:       t.availability || 'In Stock',
+          lead_time:          t.leadTime,
+          source_supplier_id: t.sourceSupplierID,
+          runflat:            t.runflat,
+          _index:             i + 1,
         }));
         // Store real stock codes + availability in session so they can't be hallucinated
         tsSessions.set(conversationId, {
           ...session,
           lastTyreSearch: tyreList.map(t => ({
-            stock_number: t.stock_number,
-            description:  t.description,
-            price:        t.price,
-            availability: t.availability,
-            lead_time:    t.lead_time,
+            stock_number:       t.stock_number,
+            description:        t.description,
+            price:              t.price,
+            availability:       t.availability,
+            lead_time:          t.lead_time,
+            source_supplier_id: t.source_supplier_id,
           })),
         });
         console.log(`[TS_AGENT] Tyre search: size=${size}, brand=${brand}, depot=${depotId}, found=${results.length}`);
@@ -692,10 +713,12 @@ async function executeTool(
           console.log(`[TS_AGENT] Stock number resolved: LLM sent "${llmStockNumber}" → real code "${resolvedStockNumber}"`);
         }
         const item: TyreBasketItem = {
-          stockNumber: resolvedStockNumber,
-          quantity:    Number(args.quantity) || 4,
-          unitPrice:   resolvedPrice,
-          description: resolvedDescription,
+          stockNumber:      resolvedStockNumber,
+          quantity:         Number(args.quantity) || 4,
+          unitPrice:        resolvedPrice,
+          description:      resolvedDescription,
+          leadTimeDays:     matched ? parseLeadTimeDays(matched.lead_time) : 0,
+          sourceSupplierID: matched ? (matched.source_supplier_id ?? 0) : 0,
         };
         const basket = [...(session.tyreBasket || []), item];
         tsSessions.set(conversationId, { ...session, tyreBasket: basket });
@@ -775,7 +798,9 @@ async function executeTool(
           };
         }
 
-        const startDate    = args.start_date || getTomorrow();
+        // Apply lead time: if any basket item is partner stock, push start date out accordingly
+        const maxLeadDays = (session.tyreBasket || []).reduce((max, t) => Math.max(max, t.leadTimeDays || 0), 0);
+        const startDate   = args.start_date || (maxLeadDays > 0 ? addDays(maxLeadDays) : getTomorrow());
         const slotDepotId  = session.branchOverride ?? tsConfig.depotId;
         const resp = await axios.post(
           `${tsBaseUrl(tsConfig)}/availableSlotsForBasket/${slotDepotId}/${startDate}`,
@@ -1083,8 +1108,8 @@ async function tsCreateBooking(
       voucherCodeLine:               false,
       estimatedCost:                 0,
       protectEstimatedCost:          false,
-      leadTime:                      0,
-      sourceSupplierID:              0,
+      leadTime:                      t.leadTimeDays || 0,
+      sourceSupplierID:              t.sourceSupplierID || 0,
       sourcePurchaseOrderID:         0,
       externalOrderLineReference:    '',
       changeInQtyAffectingPickList:  false,

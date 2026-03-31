@@ -102,6 +102,9 @@ interface ChatSession {
   outboundRegistration?: string;
   outboundServiceType?: string;
   outboundDueDate?: string;
+
+  // Widget pre-fill: service hint from initial message (e.g. "MOT")
+  serviceHint?: string;
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -463,23 +466,35 @@ export async function getChatAgentResponse(
       }
 
       // Check if the message looks like a note/question rather than contact info
-      // If so, append to session notes and acknowledge, then re-ask for the missing contact field
       const contactArgs = extractContactArgsFromMessage(message, session);
       const hasContactInfo = contactArgs.phone || contactArgs.email || contactArgs.postcode || contactArgs.houseNumber;
-      const looksLikeNote = !hasContactInfo && message.trim().length > 10 &&
-        !/^(yes|no|yeah|yep|correct|sure|ok|okay|thanks|cheers)$/i.test(message.trim());
 
-      if (looksLikeNote) {
-        // Save as a note and continue contact collection
-        session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${message.trim()}`;
-        await saveSession(conversationId, session);
-        const nextAsk = session.contactPhone
-          ? (session.contactEmail ? (session.contactPostcode ? `What's your house number or name?` : `What's your postcode?`) : `Can I grab your email address?`)
-          : `Can I just grab a contact number?`;
-        return {
-          content: `Got it, I'll make sure the team knows. ${nextAsk}`,
-          needsHumanAssistance: false,
-        };
+      if (!hasContactInfo) {
+        const msg = message.trim();
+        const waitingForEmail = !!(session.contactPhone && !session.contactEmail);
+        const waitingForPostcode = !!(session.contactPhone && session.contactEmail && !session.contactPostcode);
+
+        // Failed email: has @ but didn't extract a valid address
+        if (waitingForEmail && msg.includes('@')) {
+          return { content: `Hmm, that doesn't look like a valid email address — could you double-check it?`, needsHumanAssistance: false };
+        }
+
+        // Failed postcode: short alphanumeric string when we're waiting for a postcode
+        if (waitingForPostcode && msg.length <= 15 && /[A-Z0-9]/i.test(msg) && !/^(yes|no|yeah|nope|ok|okay|thanks|cheers)$/i.test(msg)) {
+          (contactArgs as any).postcodeAttempt = msg;
+          const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
+          return { content: instructionToCustomerReply(instructions), needsHumanAssistance: false };
+        }
+
+        // Looks like a note or question — save it and re-ask for the missing field
+        if (msg.length > 10 && !/^(yes|no|yeah|yep|correct|sure|ok|okay|thanks|cheers)$/i.test(msg)) {
+          session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${msg}`;
+          await saveSession(conversationId, session);
+          const nextAsk = session.contactPhone
+            ? (session.contactEmail ? (session.contactPostcode ? `What's your house number or name?` : `What's your postcode?`) : `Can I grab your email address?`)
+            : `Can I just grab a contact number?`;
+          return { content: `Got it, I'll make sure the team knows. ${nextAsk}`, needsHumanAssistance: false };
+        }
       }
 
       const instructions = await handleSetContactInfo(contactArgs, session, conversationId);
@@ -1022,6 +1037,7 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
   session.customerNameFirst = first_name;
   session.customerNameLast = last_name;
   session.intent = intent;
+  if (service_hint) session.serviceHint = service_hint;
   
   console.log(`[SAVE_NAME] ${first_name} ${last_name}, intent: ${intent}`);
   console.log(`[SAVE_NAME] About to save session...`);
@@ -1208,7 +1224,10 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
       return `${i + 1}. ${s.name}${priceStr}`;
     }).join('\n');
     
-    return `Vehicle confirmed: ${session.vehicleMake} ${session.vehicleModel}.\n${services.length} services available.\n\nTop services:\n${serviceList}\n\nSay: "Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel}. What work does it need?"\nWait for their answer, then call select_service with the service name they mention.`;
+    const servicePrompt = session.serviceHint
+      ? `The customer already mentioned they want "${session.serviceHint}". Say: "Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel} on the system." then immediately call select_service with "${session.serviceHint}" — do NOT ask what work they need.`
+      : `Say: "Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel}. What work does it need?"\nWait for their answer, then call select_service with the service name they mention.`;
+    return `Vehicle confirmed: ${session.vehicleMake} ${session.vehicleModel}.\n${services.length} services available.\n\nTop services:\n${serviceList}\n\n${servicePrompt}`;
     
   } catch (error: any) {
     console.error('[CONFIRM_VEHICLE] Failed to fetch services:', error);

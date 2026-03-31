@@ -105,11 +105,24 @@ interface ChatSession {
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
+const sessionLastAccessed = new Map<string, number>();
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, lastAccessed] of sessionLastAccessed) {
+    if (now - lastAccessed > SESSION_TTL_MS) {
+      inMemorySessionCache.delete(id);
+      sessionLastAccessed.delete(id);
+    }
+  }
+}, 30 * 60 * 1000).unref(); // run every 30 min, don't block process exit
 
 // Session storage - persist to database
 async function getOrCreateSession(conversationId: string): Promise<ChatSession> {
   const cached = inMemorySessionCache.get(conversationId);
   if (cached) {
+    sessionLastAccessed.set(conversationId, Date.now());
     return { ...cached };
   }
 
@@ -218,6 +231,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
 
 async function saveSession(conversationId: string, session: ChatSession): Promise<void> {
   inMemorySessionCache.set(conversationId, { ...session });
+  sessionLastAccessed.set(conversationId, Date.now());
   console.log(`[SAVE_SESSION] Saving session for ${conversationId}, step: ${session.step}, phone: ${session.contactPhone}`);
   
   try {

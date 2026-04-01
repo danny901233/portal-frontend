@@ -530,7 +530,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'ts_get_timeslots',
-        description: 'Fetch available booking timeslots. For tyres use service_ids=[0]. For services use the service ID. Call after the customer has confirmed their choice.',
+        description: 'Fetch available booking timeslots. For tyres use service_ids=[0]. For services use the service ID. Call after the customer has confirmed their choice. If ts_add_tyre_to_basket returned a lead time note, you MUST pass lead_time_notice_shown=true to confirm you have already told the customer about the lead time.',
         parameters: {
           type: 'object',
           properties: {
@@ -542,6 +542,10 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
             start_date: {
               type: 'string',
               description: 'Earliest date to search from, YYYY-MM-DD. Defaults to tomorrow.',
+            },
+            lead_time_notice_shown: {
+              type: 'boolean',
+              description: 'Set to true ONLY after you have told the customer about the lead time (partner stock). Required when basket contains partner stock tyres.',
             },
           },
           required: ['service_ids'],
@@ -908,8 +912,15 @@ async function executeTool(
           };
         }
 
-        // Apply lead time: if any basket item is partner stock, push start date out accordingly
+        // Guard: if basket has partner stock tyres, the lead time notice MUST have been shown to the customer first
         const maxLeadDays = (session.tyreBasket || []).reduce((max, t) => Math.max(max, t.leadTimeDays || 0), 0);
+        if (maxLeadDays > 0 && !args.lead_time_notice_shown) {
+          const earliestDate = addDays(maxLeadDays);
+          return {
+            error: 'lead_time_notice_required',
+            directive: `You MUST tell the customer this BEFORE fetching timeslots: "Just to let you know, these tyres will need to be ordered in from our warehouse — the earliest fitting date available is ${earliestDate}." Once you have said this, call ts_get_timeslots again with lead_time_notice_shown=true.`,
+          };
+        }
         const minAllowed  = maxLeadDays > 0 ? addDays(maxLeadDays) : getTomorrow();
         const requested   = args.start_date || minAllowed;
         // Enforce minimum server-side — LLM cannot book earlier than lead time allows

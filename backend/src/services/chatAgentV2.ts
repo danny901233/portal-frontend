@@ -1697,7 +1697,17 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   }
   
   console.log(`[SET_CONTACT] All info collected, submitting to GH API`);
-  
+
+  // Callback flow — no timeslot was booked (no online availability).
+  // Just save the contact details and tell the customer the team will call them.
+  if (!session.bookingDate || !session.bookingTime) {
+    console.log(`[SET_CONTACT] No booking date/time — callback flow, skipping GH API`);
+    session.step = Step.CONFIRMED;
+    await saveSession(conversationId, session);
+    const nameGreet = session.customerNameFirst ? ` ${session.customerNameFirst}` : '';
+    return `Callback details saved.\n\nSay: "Perfect${nameGreet}! I've passed your details to the team and someone will give you a call to get you booked in. Is there anything else I can help with? 👍"`;
+  }
+
   try {
     // Submit booking with all required GH fields
     const contactAddress = `${session.contactHouseNumber}, ${session.contactStreet}`.replace(/^,\s*/, '').replace(/,\s*$/, '');

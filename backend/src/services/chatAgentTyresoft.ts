@@ -765,13 +765,15 @@ async function executeTool(
         console.log(`[TS_AGENT] Tyre added to basket: ${item.description} x${item.quantity} @ £${item.unitPrice} = £${total} | leadTimeDays=${item.leadTimeDays} supplierID=${item.sourceSupplierID}`);
 
         // Return lead_time_days so the LLM can warn the customer before showing timeslots
-        const earliestDate = leadTimeDays > 0 ? addDays(leadTimeDays) : null;
+        // Use item.leadTimeDays (not leadTimeDays from matched) — dedup path preserves the original value
+        const effectiveLeadDays = item.leadTimeDays || 0;
+        const earliestDate = effectiveLeadDays > 0 ? addDays(effectiveLeadDays) : null;
         return {
           success: true,
           item,
           basket_total: basket.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0),
           basket_count: basket.length,
-          ...(earliestDate ? { lead_time_days: leadTimeDays, earliest_fitting_date: earliestDate, note: `These tyres are ordered from our warehouse. Earliest fitting date is ${earliestDate}.` } : {}),
+          ...(earliestDate ? { lead_time_days: effectiveLeadDays, earliest_fitting_date: earliestDate, note: `These tyres are ordered from our warehouse. Earliest fitting date is ${earliestDate}.` } : {}),
         };
       }
 
@@ -843,7 +845,10 @@ async function executeTool(
 
         // Apply lead time: if any basket item is partner stock, push start date out accordingly
         const maxLeadDays = (session.tyreBasket || []).reduce((max, t) => Math.max(max, t.leadTimeDays || 0), 0);
-        const startDate   = args.start_date || (maxLeadDays > 0 ? addDays(maxLeadDays) : getTomorrow());
+        const minAllowed  = maxLeadDays > 0 ? addDays(maxLeadDays) : getTomorrow();
+        const requested   = args.start_date || minAllowed;
+        // Enforce minimum server-side — LLM cannot book earlier than lead time allows
+        const startDate   = (maxLeadDays > 0 && requested < minAllowed) ? minAllowed : requested;
         const slotDepotId  = session.branchOverride ?? tsConfig.depotId;
         const resp = await axios.post(
           `${tsBaseUrl(tsConfig)}/availableSlotsForBasket/${slotDepotId}/${startDate}`,

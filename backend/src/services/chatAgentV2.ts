@@ -317,14 +317,16 @@ export async function getChatAgentResponse(
     const isOpen = checkOpeningHours(config.weeklyOpeningHours);
 
     // Load GarageHive credentials
+    // Config may be nested { garagehive: {...}, tyresoft: {...} } or flat { customerId, apiKey, ... }
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
       const ghConfig = config.integrationProviderConfig as any;
-      GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
-      GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
-      GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
-      DROP_OFF_ENABLED = ghConfig.enableDropOffBookings || false;
-      DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
-      DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
+      const ghData = ghConfig.garagehive || ghConfig;  // support both nested and flat format
+      GH_CUSTOMER_ID = ghData.ghCustomerId || ghData.customerId;
+      GH_API_KEY = ghData.ghApiKey || ghData.apiKey;
+      GH_LOCATION_ID = ghData.ghLocationId || ghData.locationId || '23';
+      DROP_OFF_ENABLED = ghData.enableDropOffBookings || false;
+      DROP_OFF_MESSAGE = ghData.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
+      DROP_OFF_EXCLUDE_SERVICES = ghData.dropOffExcludeServices || ['MOT'];
     }
     if (!GH_CUSTOMER_ID || !GH_API_KEY) {
       console.warn(`[GARAGEHIVE_MISCONFIGURED] garageId=${garageId} is using agentScript=${config.agentScript} but GarageHive credentials are not set in integrationProviderConfig. Vehicle lookups will fall back to take_message.`);

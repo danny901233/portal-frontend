@@ -65,6 +65,7 @@ interface TyresoftSession {
   availableSlots?: { date: string; time: string; diaryCategoryID: number; estimatedTime: number; slotTypeID: number }[];
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
   lastTyreSearch?: { stock_number: string; description: string; price: number; availability: string; lead_time: string; source_supplier_id: number }[];
+  pendingTyre?: { stock_number: string; description: string; price: number; lead_time: string; source_supplier_id: number };
   branchOverride?: number;  // depot ID set by ts_set_branch (1 = Branch 1, 3 = Branch 2)
 }
 
@@ -453,17 +454,29 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
-        name: 'ts_add_tyre_to_basket',
-        description: 'Add a selected tyre to the customer basket. ONLY call after presenting the tyre options list to the customer AND the customer has explicitly chosen a specific tyre. Never auto-select — always wait for customer choice.',
+        name: 'ts_select_tyre',
+        description: 'Call this as soon as the customer names a tyre from the list. Saves the selected tyre and tells you to ask for quantity. Do NOT call ts_add_tyre_to_basket until after you have received the quantity from the customer.',
         parameters: {
           type: 'object',
           properties: {
-            stock_number:  { type: 'string', description: 'Stock number of the chosen tyre' },
-            quantity:      { type: 'number', description: 'Number of tyres (default 4 for full set, 2 for axle, 1 for single)' },
-            unit_price:    { type: 'number', description: 'Price per tyre from the search results' },
-            description:   { type: 'string', description: 'Short description, e.g. "Michelin Primacy 4 205/55R16"' },
+            stock_number: { type: 'string', description: 'The option number (e.g. "3") or stock number the customer chose' },
+            description:  { type: 'string', description: 'Tyre description as shown in the list' },
           },
-          required: ['stock_number', 'quantity', 'unit_price', 'description'],
+          required: ['stock_number'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ts_add_tyre_to_basket',
+        description: 'Add the previously selected tyre to the basket. ONLY call after ts_select_tyre AND after the customer has explicitly told you how many tyres they want. Never call without a confirmed quantity.',
+        parameters: {
+          type: 'object',
+          properties: {
+            quantity: { type: 'number', description: 'Number of tyres the customer confirmed — 1, 2, or 4' },
+          },
+          required: ['quantity'],
         },
       },
     },
@@ -701,28 +714,30 @@ async function executeTool(
         return { found: results.length, size, tyres: tyreList };
       }
 
-      case 'ts_add_tyre_to_basket': {
-        // Resolve real stock number from session — LLM often hallucinates short codes or passes list index
+      case 'ts_select_tyre': {
+        // Resolve tyre from search results — same logic as before
         const llmStockNumber = String(args.stock_number || '');
         const llmDescription = String(args.description || '').toLowerCase();
         const search = session.lastTyreSearch || [];
 
-        // 1. If LLM passed a 1-2 digit number, treat it as a 1-based list index (e.g. "3" → 3rd result)
+        if (search.length === 0) {
+          return { error: 'No tyre search results in session. Call ts_search_tyres first.' };
+        }
+
+        // 1. List index (e.g. "3" → 3rd result)
         const isListIndex = /^\d{1,2}$/.test(llmStockNumber) && parseInt(llmStockNumber) >= 1 && parseInt(llmStockNumber) <= search.length;
         const byIndex = isListIndex ? (search[parseInt(llmStockNumber) - 1] || null) : null;
 
-        // Normalize a description string into a set of meaningful tokens
+        // 2. Word-intersection match
         const tokenize = (s: string) => s.toLowerCase().replace(/[.\-\/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
         const llmTokens = tokenize(llmDescription);
         const llmTokenSet = new Set(llmTokens);
-        // Word-intersection fallback: handles LLM reordering "Yokohama W.Drive RF 205/55R16" vs CSV "205/55R16 91H YOKOHAMA W.DRIVE RF"
         const wordMatch = (csvDesc: string) => {
           const csvTokens = tokenize(csvDesc);
           const shared = csvTokens.filter(w => llmTokenSet.has(w)).length;
           return llmTokens.length >= 2 && shared >= Math.min(2, llmTokens.length);
         };
 
-        // 2. Exact/description/word match; 3. Long stock-code substring (skip for short codes to avoid false positives)
         const matched = byIndex ||
           search.find(t =>
             t.stock_number === llmStockNumber ||
@@ -733,52 +748,81 @@ async function executeTool(
           (llmStockNumber.length > 6 ? search.find(t => t.stock_number.includes(llmStockNumber)) : null) ||
           null;
 
-        const resolvedStockNumber = matched ? matched.stock_number : llmStockNumber;
-        const resolvedPrice       = matched ? matched.price        : (Number(args.unit_price) || 0);
-        const resolvedDescription = matched ? matched.description  : String(args.description || '');
-        if (matched && matched.stock_number !== llmStockNumber) {
-          console.log(`[TS_AGENT] Stock number resolved: LLM sent "${llmStockNumber}"${isListIndex ? ' (list index)' : ''} → real code "${resolvedStockNumber}"`);
+        if (!matched) {
+          return { error: `Could not find tyre matching "${llmStockNumber}" in search results. Ask the customer to clarify which number from the list they want.` };
         }
 
-        // Prevent double-add: if this stock code is already in basket, update quantity instead
+        if (matched.stock_number !== llmStockNumber) {
+          console.log(`[TS_AGENT] ts_select_tyre resolved: LLM sent "${llmStockNumber}"${isListIndex ? ' (list index)' : ''} → "${matched.stock_number}"`);
+        }
+
+        // Save as pending — ts_add_tyre_to_basket will use this
+        tsSessions.set(conversationId, { ...session, pendingTyre: matched });
+
+        return {
+          tyre_selected: true,
+          description: matched.description,
+          price_per_tyre: matched.price,
+          next_step: 'STOP. Ask the customer: "How many do you need — 1, 2, or a full set of 4?" Wait for their answer before calling ts_add_tyre_to_basket.',
+        };
+      }
+
+      case 'ts_add_tyre_to_basket': {
+        const pending = session.pendingTyre;
+        if (!pending) {
+          return { error: 'No tyre selected. Call ts_select_tyre first, then ask the customer for quantity before calling this.' };
+        }
+
+        const quantity = Number(args.quantity);
+        if (!quantity || quantity < 1) {
+          return { error: 'Quantity is required and must be at least 1. Ask the customer how many tyres they need.' };
+        }
+
+        const leadTimeDays    = parseLeadTimeDays(pending.lead_time);
+        const sourceSupplierID = pending.source_supplier_id ?? 0;
+
+        // Prevent double-add: if same stock code already in basket, update quantity
         const existingBasket = session.tyreBasket || [];
-        const existingIdx = existingBasket.findIndex(i => i.stockNumber === resolvedStockNumber);
+        const existingIdx = existingBasket.findIndex(i => i.stockNumber === pending.stock_number);
         let basket: TyreBasketItem[];
         let item: TyreBasketItem;
-        const leadTimeDays = matched ? parseLeadTimeDays(matched.lead_time) : 0;
-        const sourceSupplierID = matched ? (matched.source_supplier_id ?? 0) : 0;
 
         if (existingIdx >= 0) {
-          // Update existing entry rather than adding a duplicate
-          item = { ...existingBasket[existingIdx], quantity: Number(args.quantity) || existingBasket[existingIdx].quantity };
+          item = { ...existingBasket[existingIdx], quantity };
           basket = [...existingBasket];
           basket[existingIdx] = item;
           console.log(`[TS_AGENT] Basket updated (deduplicated): ${item.description} x${item.quantity}`);
         } else {
           item = {
-            stockNumber:      resolvedStockNumber,
-            quantity:         Number(args.quantity) || 4,
-            unitPrice:        resolvedPrice,
-            description:      resolvedDescription,
+            stockNumber:      pending.stock_number,
+            quantity,
+            unitPrice:        pending.price,
+            description:      pending.description,
             leadTimeDays,
             sourceSupplierID,
           };
           basket = [...existingBasket, item];
         }
-        tsSessions.set(conversationId, { ...session, tyreBasket: basket });
+
+        // Clear pending tyre
+        tsSessions.set(conversationId, { ...session, tyreBasket: basket, pendingTyre: undefined });
         const total = item.quantity * item.unitPrice;
         console.log(`[TS_AGENT] Tyre added to basket: ${item.description} x${item.quantity} @ £${item.unitPrice} = £${total} | leadTimeDays=${item.leadTimeDays} supplierID=${item.sourceSupplierID}`);
 
-        // Return lead_time_days so the LLM can warn the customer before showing timeslots
-        // Use item.leadTimeDays (not leadTimeDays from matched) — dedup path preserves the original value
         const effectiveLeadDays = item.leadTimeDays || 0;
         const earliestDate = effectiveLeadDays > 0 ? addDays(effectiveLeadDays) : null;
         return {
           success: true,
-          item,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
           basket_total: basket.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0),
           basket_count: basket.length,
-          ...(earliestDate ? { lead_time_days: effectiveLeadDays, earliest_fitting_date: earliestDate, note: `These tyres are ordered from our warehouse. Earliest fitting date is ${earliestDate}.` } : {}),
+          ...(earliestDate ? {
+            lead_time_days: effectiveLeadDays,
+            earliest_fitting_date: earliestDate,
+            note: `PARTNER STOCK — you MUST say this to the customer before proceeding: "Just to let you know, these tyres will need to be ordered in from our warehouse — the earliest fitting date available is ${earliestDate}." Only after saying this should you ask about timeslots.`,
+          } : {}),
         };
       }
 
@@ -845,6 +889,14 @@ async function executeTool(
             error: 'vehicle_registration_required',
             directive:
               'A vehicle registration is required before booking any service. Ask the customer for their registration plate and call ts_lookup_vehicle first.',
+          };
+        }
+
+        // Guard: for tyre bookings, basket must have items before fetching slots
+        if (hasTyreOnly && (!session.tyreBasket || session.tyreBasket.length === 0)) {
+          return {
+            error: 'tyre_basket_empty',
+            directive: 'The tyre basket is empty. You must call ts_select_tyre and ts_add_tyre_to_basket (with the customer\'s confirmed quantity) before fetching timeslots.',
           };
         }
 
@@ -1359,11 +1411,11 @@ function buildSystemPrompt(
     prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
     prompt += `3. Use tyreSizeOptions[0].tyreSizeFront from the lookup as the tyre size — strip any load index or speed rating (e.g. use "235/60R18" not "235/60R18 107V").\n`;
     prompt += `4. Call ts_search_tyres with that size to find available tyres.\n`;
-    prompt += `5. Present options as a numbered list (brand, price per tyre). Ask: "Which of these would you like?" — do NOT ask about quantity yet.\n`;
-    prompt += `6. Once the customer picks a tyre, ask: "How many do you need — 1, 2, or a full set of 4?"\n`;
-    prompt += `7. Once you have BOTH the tyre choice AND the quantity — call ts_add_tyre_to_basket.\n`;
-    prompt += `   - CRITICAL LEAD TIME: If ts_add_tyre_to_basket returns a "note" field, your VERY NEXT message to the customer MUST include that notice word-for-word. Example: "Just to let you know, these tyres will need to be ordered in from our warehouse — the earliest fitting date will be [earliest_fitting_date]." Do NOT proceed to timeslots without saying this first.\n`;
-    prompt += `8. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
+    prompt += `5. Present options as a numbered list (brand, price per tyre). Ask: "Which of these would you like?"\n`;
+    prompt += `6. Customer names a tyre → call ts_select_tyre immediately. The tool will tell you to ask for quantity. STOP and ask: "How many do you need — 1, 2, or a full set of 4?"\n`;
+    prompt += `7. Customer gives a number → call ts_add_tyre_to_basket with that quantity.\n`;
+    prompt += `   - If the response contains a "note" field: say it to the customer as your NEXT message before anything else.\n`;
+    prompt += `8. Call ts_get_timeslots with service_ids=[0].\n`;
     prompt += `9. Offer 3-4 slots. If the customer states a time preference (e.g. "around 10", "morning"), call ts_check_preferred_time before listing slots.\n`;
     prompt += `10. When customer picks a slot, immediately call ts_confirm_slot to save it.\n`;
     prompt += `11. Ask for name + phone number if not already saved. Once you have both, call ts_save_customer_details immediately.\n`;

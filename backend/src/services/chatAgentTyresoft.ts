@@ -275,7 +275,9 @@ export async function getTyresoftChatResponse(
     // Load Tyresoft credentials from integrationProviderConfig
     let tsConfig: TyresoftConfig | undefined;
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
-      const raw = config.integrationProviderConfig as any;
+      const outer = config.integrationProviderConfig as any;
+      // Support namespaced { tyresoft: {...} } and legacy flat format
+      const raw = (outer.tyresoft && typeof outer.tyresoft === 'object') ? outer.tyresoft : outer;
       const workspace = raw.tsWorkspace || raw.workspace || '';
       const username  = raw.tsUsername  || raw.username  || '';
       const password  = raw.tsPassword  || raw.password  || '';

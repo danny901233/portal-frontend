@@ -467,6 +467,20 @@ export async function getChatAgentResponse(
         };
       }
 
+      // If the customer mentions a specific date/day, treat it as wanting a different slot
+      const mentionsDate = /\b(\d{1,2}(st|nd|rd|th)?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|today|tomorrow|next week)\b/i.test(message);
+      if (mentionsDate) {
+        session.step = Step.NEED_TIMESLOT;
+        session.pendingSlotDate = '';
+        session.pendingSlotTime = '';
+        await saveSession(conversationId, session);
+        const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
+        return {
+          content: `No problem — here are the available slots:\n${firstSlots}`,
+          needsHumanAssistance: false,
+        };
+      }
+
       // Unclear response — ask again
       const dateNatural = formatDateNaturally(session.pendingSlotDate);
       const timeNatural = formatTimeNaturally(session.pendingSlotTime);
@@ -1078,7 +1092,7 @@ function getNextContactInstruction(session: ChatSession): string {
     return `Postcode accepted.\n\nSay: "And your house number or name?"\nWait for house number, then call set_contact_info.`;
   }
 
-  return `All contact info is already collected.\nSay: "Thanks, I’ve got everything I need to confirm this now."\nCall set_contact_info with ZERO SPEECH to finalize.`;
+  return `All contact info is already collected.\nSay: "Thanks, I've got everything I need to confirm this now."\nCall set_contact_info with ZERO SPEECH to finalize.`;
 }
 
 // Tool handlers (return instructions like voice agent)
@@ -1574,14 +1588,26 @@ Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Do
   const matched = matchTimeslot(preference, session.timeslotsAvailable);
 
   if (!matched) {
-    // No match — tell the agent to explain what’s available and ask again
-    const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
-      `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
-    ).join(', or ');
-    const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
-    return `NO_MATCH: "${preference}" didn't match any available slot. Online availability ends ${formatDateNaturally(lastSlot.date)}.
-Say: "I'm afraid our online diary only goes up to ${formatDateNaturally(lastSlot.date)}. The slots I have are ${firstSlots} — would any of those work?"
-When they choose, call select_timeslot again.`;
+    // No match — implement Dan's suggestion: tell customer the next available date
+    // Try to find the nearest slot at or after the requested date
+    const reqDayMatch = preference.match(/\b(\d{1,2})(st|nd|rd|th)?\b/);
+    const reqMonthMatch = preference.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i);
+    let nearestAfter = session.timeslotsAvailable[0];
+    if (reqDayMatch || reqMonthMatch) {
+      const now = new Date();
+      const reqDay = reqDayMatch ? parseInt(reqDayMatch[1]) : 1;
+      const monthNames2 = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+      const reqMonth = reqMonthMatch ? monthNames2.indexOf(reqMonthMatch[1].toLowerCase()) : now.getMonth();
+      const reqYear = reqMonth < now.getMonth() ? now.getFullYear() + 1 : now.getFullYear();
+      const reqDate = new Date(reqYear, reqMonth, reqDay).toISOString().split('T')[0];
+      const afterReq = session.timeslotsAvailable.filter((t: any) => t.date >= reqDate);
+      if (afterReq.length > 0) nearestAfter = afterReq[0];
+    }
+    const nextDateNatural = formatDateNaturally(nearestAfter.date);
+    const nextTimeNatural = formatTimeNaturally(nearestAfter.time);
+    return `NO_MATCH: "${preference}" not available.
+Say: "I don't have anything on that date — the next slot I have is ${nextDateNatural} at ${nextTimeNatural}. Does that work for you, or did you have another date in mind?"
+When they respond, call select_timeslot again.`;
   }
   
   const { date, time } = matched;
@@ -2250,8 +2276,8 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       if (dayNum >= 1 && dayNum <= 31) {
         const onDay = inMonth.filter(t => new Date(t.date + 'T12:00:00').getDate() === dayNum);
         if (onDay.length > 0) return closestByTime(onDay, extractPrefHour(prefLower));
-        // Day not available in that month — return nearest slot in that month
-        return closestByTime(inMonth, extractPrefHour(prefLower));
+        // Specific day in that month not available — return null so the agent explains
+        return null;
       }
     }
     return closestByTime(inMonth, extractPrefHour(prefLower));

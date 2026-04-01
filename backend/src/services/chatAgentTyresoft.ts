@@ -152,11 +152,16 @@ function parseLeadTimeDays(leadTime: string): number {
   return m ? parseInt(m[1]) : 0;
 }
 
-// Return YYYY-MM-DD that is `days` calendar days from today
+// Return current date string in UK timezone (YYYY-MM-DD)
+function getUKDateString(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+}
+
+// Return YYYY-MM-DD that is `days` calendar days from today (UK timezone)
 function addDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const ukBase = new Date(getUKDateString() + 'T00:00:00Z');
+  ukBase.setUTCDate(ukBase.getUTCDate() + days);
+  return ukBase.toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -242,9 +247,7 @@ function toTitleCase(str: string): string {
 }
 
 function getTomorrow(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return addDays(1);
 }
 
 export async function getTyresoftChatResponse(
@@ -1464,8 +1467,8 @@ function buildSystemPrompt(
 function checkOpeningHours(weeklyOpeningHours: any): boolean {
   if (!weeklyOpeningHours || typeof weeklyOpeningHours !== 'object') return true;
   const now  = new Date();
-  const day  = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-  const time = now.toTimeString().slice(0, 5);
+  const day  = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Europe/London' }).toLowerCase();
+  const time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
   const h    = (weeklyOpeningHours as Record<string, any>)[day];
   if (!h?.open || !h?.close) return false;
   return time >= h.open && time <= h.close;

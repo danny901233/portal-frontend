@@ -1585,6 +1585,27 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
 Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Does that work for you?" and STOP. Do not mention a specific time. Wait for confirmation.`;
   }
 
+  // "Anything later?", "any other dates?", "more options" — show next available slot with Dan's message
+  const isAskingForMore = /\b(later|more|other|else|different|another|options|alternatives|after that|beyond|further)\b/i.test(preference)
+    && !/\b\d{1,2}(st|nd|rd|th)?\b/.test(preference) // not a specific date
+    && !/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(preference); // not a specific day
+
+  if (isAskingForMore) {
+    // Show slots after the first 3 (which were already displayed)
+    const nextSlots = session.timeslotsAvailable.slice(3);
+    if (nextSlots.length > 0) {
+      const nextDateNatural = formatDateNaturally(nextSlots[0].date);
+      const nextTimeNatural = formatTimeNaturally(nextSlots[0].time);
+      return `MORE_SLOTS requested.\nSay: "The next date I have available is ${nextDateNatural} at ${nextTimeNatural} — does that work for you, or do you have a date in mind?"\nWhen they respond, call select_timeslot again.`;
+    } else {
+      // Already showing all slots — no more
+      const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
+      const lastDateNatural = formatDateNaturally(lastSlot.date);
+      const lastTimeNatural = formatTimeNaturally(lastSlot.time);
+      return `NO_MORE_SLOTS: Online booking only goes up to ${lastDateNatural}.\nSay: "I'm afraid online slots only go up to ${lastDateNatural} at the moment — the latest I can offer is ${lastDateNatural} at ${lastTimeNatural}. Would that work, or would you like the team to call you when later dates open up?"\nWhen they respond, call select_timeslot again.`;
+    }
+  }
+
   const matched = matchTimeslot(preference, session.timeslotsAvailable);
 
   if (!matched) {
@@ -2428,7 +2449,7 @@ TONE EXAMPLES:
     ).join('\n');
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
     prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
-    prompt += `When the customer says what time they'd like, call select_timeslot with their preference. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
+    prompt += `For ANY customer response about timing — including "anything later?", "any other dates?", "something else", a specific date/day, or a time preference — ALWAYS call select_timeslot with their exact words. Do NOT list dates yourself or explain availability directly. Let the tool handle it.\n`;
   }
 
   prompt += '\n';

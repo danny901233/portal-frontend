@@ -1592,7 +1592,8 @@ Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Do
     // Try to find the nearest slot at or after the requested date
     const reqDayMatch = preference.match(/\b(\d{1,2})(st|nd|rd|th)?\b/);
     const reqMonthMatch = preference.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i);
-    let nearestAfter = session.timeslotsAvailable[0];
+    let nearestAfter: any = null;
+    let beyondRange = false;
     if (reqDayMatch || reqMonthMatch) {
       const now = new Date();
       const reqDay = reqDayMatch ? parseInt(reqDayMatch[1]) : 1;
@@ -1601,13 +1602,22 @@ Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Do
       const reqYear = reqMonth < now.getMonth() ? now.getFullYear() + 1 : now.getFullYear();
       const reqDate = new Date(reqYear, reqMonth, reqDay).toISOString().split('T')[0];
       const afterReq = session.timeslotsAvailable.filter((t: any) => t.date >= reqDate);
-      if (afterReq.length > 0) nearestAfter = afterReq[0];
+      if (afterReq.length > 0) {
+        nearestAfter = afterReq[0];
+      } else {
+        // Requested date is beyond all available slots — show the latest slot
+        nearestAfter = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
+        beyondRange = true;
+      }
+    } else {
+      nearestAfter = session.timeslotsAvailable[0];
     }
     const nextDateNatural = formatDateNaturally(nearestAfter.date);
     const nextTimeNatural = formatTimeNaturally(nearestAfter.time);
-    return `NO_MATCH: "${preference}" not available.
-Say: "I don't have anything on that date — the next slot I have is ${nextDateNatural} at ${nextTimeNatural}. Does that work for you, or did you have another date in mind?"
-When they respond, call select_timeslot again.`;
+    const noMatchMsg = beyondRange
+      ? `NO_MATCH: "${preference}" not available — beyond booking range.\nSay: "I'm afraid online slots only go up to ${nextDateNatural} at the moment. The latest I can offer is ${nextDateNatural} at ${nextTimeNatural} — does that work, or would you like the team to call you when later dates open up?"\nWhen they respond, call select_timeslot again.`
+      : `NO_MATCH: "${preference}" not available.\nSay: "I don't have anything on that date — the next available is ${nextDateNatural} at ${nextTimeNatural}. Does that work for you, or do you have another date in mind?"\nWhen they respond, call select_timeslot again.`;
+    return noMatchMsg;
   }
   
   const { date, time } = matched;

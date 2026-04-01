@@ -105,6 +105,11 @@ interface ChatSession {
 
   // Widget pre-fill: service hint from initial message (e.g. "MOT")
   serviceHint?: string;
+
+  // Timestamp when this booking session started (or restarted) — used to
+  // prevent hydrateSessionFromMessageHistory from reading contact data that
+  // belongs to a *previous* booking by a different customer on the same device.
+  sessionStartedAt: string;
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -177,7 +182,34 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         outboundRegistration: sessionData.outboundRegistration || undefined,
         outboundServiceType: sessionData.outboundServiceType || undefined,
         outboundDueDate: sessionData.outboundDueDate || undefined,
+        sessionStartedAt: sessionData.sessionStartedAt || new Date().toISOString(),
       };
+      // If the previous booking was confirmed/done OR a timeslot was already chosen
+      // (covers failed bookings that never reached CONFIRMED), wipe all personal data
+      // so the next person on the same device/conversationId starts completely clean.
+      const staleBooking = loadedSession.step === Step.CONFIRMED || loadedSession.step === Step.DONE ||
+        !!(loadedSession.bookingDate && loadedSession.bookingTime);
+      if (staleBooking) {
+        console.log(`[GET_SESSION] Stale session (step=${loadedSession.step}, bookingDate=${loadedSession.bookingDate}) — resetting for new customer`);
+        Object.assign(loadedSession, {
+          step: Step.GREETING,
+          intent: '',
+          customerNameFirst: '', customerNameLast: '',
+          vrn: '', vrnConfirmed: false, sessionId: '',
+          vehicleMake: '', vehicleModel: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
+          bookingDate: '', bookingTime: '',
+          contactPhone: '', contactEmail: '',
+          contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
+          postcodeConfirmed: false, notes: '',
+          message: '', preferredCallbackTime: '',
+          diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
+          useDropOffBooking: false,
+          sessionStartedAt: new Date().toISOString(),
+        });
+      }
+
       inMemorySessionCache.set(conversationId, loadedSession);
       // Auto-advance: if timeslot was already chosen but server restarted before step updated
       if (loadedSession.step === Step.NEED_TIMESLOT && loadedSession.bookingDate && loadedSession.bookingTime) {
@@ -226,6 +258,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     diagnosticComplete: false,
     diagnosticQuestions: [],
     useDropOffBooking: false,
+    sessionStartedAt: new Date().toISOString(),
   };
 
   inMemorySessionCache.set(conversationId, newSession);
@@ -322,7 +355,7 @@ export async function getChatAgentResponse(
       take: 10,
     });
 
-    hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string }>);
+    hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string; createdAt: Date }>);
 
     // Re-apply seed after hydration to ensure it wins over any contradictory history
     if (seedContact?.phone && !session.contactPhone) {
@@ -355,9 +388,8 @@ export async function getChatAgentResponse(
         /\b(book|booking|service|mot|appointment|slot|come in|bring (it|the car)|actually|instead)\b/.test(lower);
       if (isRestart || wantsBookingAfterMessage) {
         console.log(`[RESTART] Customer requested restart at step: ${session.step} (wantsBooking: ${wantsBookingAfterMessage})`);
-        // Wipe all booking state but keep name + contact if already collected
-        const savedName = { first: session.customerNameFirst, last: session.customerNameLast };
-        const savedContact = { phone: session.contactPhone, email: session.contactEmail };
+        // Wipe ALL state — a restart may be a different customer on the same device,
+        // so we must never carry over contact info or name from a previous booking.
         Object.assign(session, {
           step: Step.GREETING,
           intent: '',
@@ -366,20 +398,18 @@ export async function getChatAgentResponse(
           servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
           timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
           bookingDate: '', bookingTime: '',
+          contactPhone: '', contactEmail: '',
           contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
           postcodeConfirmed: false, notes: '',
+          customerNameFirst: '', customerNameLast: '',
           message: '', preferredCallbackTime: '',
           diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
           useDropOffBooking: false,
+          sessionStartedAt: new Date().toISOString(),
         });
-        session.customerNameFirst = savedName.first;
-        session.customerNameLast = savedName.last;
-        session.contactPhone = savedContact.phone;
-        session.contactEmail = savedContact.email;
         await saveSession(conversationId, session);
-        const nameGreet = savedName.first ? `, ${savedName.first}` : '';
         return {
-          content: `No problem${nameGreet}! Let's start fresh. What can I help you with?`,
+          content: `No problem! Let's start fresh. What can I help you with?`,
           needsHumanAssistance: false,
         };
       }
@@ -780,13 +810,22 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
   return args;
 }
 
-function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<{ role: string; content: string }>): void {
+function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<{ role: string; content: string; createdAt?: Date }>): void {
   if (!messages || messages.length === 0) {
     return;
   }
 
+  // Only scan messages that belong to the CURRENT booking session.
+  // This prevents a new customer (same device/conversationId) from inheriting
+  // contact details that were typed by a previous customer.
+  const sessionStart = session.sessionStartedAt ? new Date(session.sessionStartedAt) : null;
+
   for (const msg of messages) {
     if (msg.role !== 'user' || !msg.content) {
+      continue;
+    }
+    // Skip messages that predate the current session start
+    if (sessionStart && msg.createdAt && msg.createdAt < sessionStart) {
       continue;
     }
 

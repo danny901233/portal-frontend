@@ -665,6 +665,8 @@ router.put(
             customerId: garageHiveSettings.customerId,
             locationId: garageHiveSettings.locationId,
           }
+        : existingConfig?.integrationProviderConfig
+        ? existingConfig.integrationProviderConfig as Prisma.InputJsonValue
         : null;
 
     const normalizedData = {

@@ -870,12 +870,20 @@ async function executeTool(
         const slotTime = String(args.slot_time || '').trim();
         const matched  = (session.availableSlots || []).find(s => s.date === slotDate && s.time === slotTime);
         if (!matched) {
-          return { error: 'Slot not found in available slots. Call ts_get_timeslots again to refresh.' };
+          return {
+            error: 'slot_not_in_session',
+            directive: `The slot ${slotDate} ${slotTime} was not in the fetched results. If the customer asked for a different date, call ts_get_timeslots with start_date="${slotDate}" first, then present the new slots before confirming.`,
+          };
         }
         const selectedSlot = { date: matched.date, time: matched.time, diaryCategoryId: matched.diaryCategoryID, estimatedTime: matched.estimatedTime, slotTypeId: matched.slotTypeID };
         tsSessions.set(conversationId, { ...session, selectedSlot });
-        console.log(`[TS_AGENT] Slot confirmed: ${slotDate} ${slotTime}`);
-        return { success: true, slot_date: slotDate, slot_time: slotTime };
+        console.log(`[TS_AGENT] Slot confirmed: ${matched.date} ${matched.time}`);
+        return {
+          confirmed: true,
+          confirmed_date: matched.date,
+          confirmed_time: matched.time,
+          directive: `IMPORTANT: The booking is confirmed for ${matched.date} at ${matched.time}. You MUST use exactly these values when telling the customer their appointment date and time. Do not use any other date or time.`,
+        };
       }
 
       case 'ts_get_timeslots': {
@@ -1446,13 +1454,15 @@ function buildSystemPrompt(
 
     prompt += `RULES:\n`;
     prompt += `- CRITICAL: NEVER say "you're all booked in", "you're all set", "your reference number is", or any booking confirmation phrase unless ts_create_booking has returned a real saleNumber. Do NOT say "you're all set" after confirming a slot — that is not a booking. A booking only exists after ts_create_booking returns a saleNumber.\n`;
+    prompt += `- CRITICAL DATES: When the customer asks for a date that was NOT in the slots you just showed, you MUST call ts_get_timeslots again with start_date set to that date before doing anything else. Never confirm a slot for a date you have not actually fetched.\n`;
+    prompt += `- CRITICAL DATES: After ts_confirm_slot succeeds, the response contains "confirmed_date" and "confirmed_time". You MUST use EXACTLY those values when telling the customer their appointment. Never use the date the customer verbally requested — only use the date the system confirmed.\n`;
     prompt += `- CRITICAL: When the customer selects a time slot, you MUST call ts_confirm_slot IMMEDIATELY as a tool call — do NOT just acknowledge it in text and move on.\n`;
     prompt += `- CRITICAL: After customer says YES to the summary, you MUST call ts_create_booking as a tool call. Do NOT skip it or assume success.\n`;
     prompt += `- CRITICAL LEAD TIME: If ts_add_tyre_to_basket returns a "note" field, you MUST say it to the customer in your very next message before doing anything else. This is not optional. The exact wording to use: "Just to let you know, these tyres will need to be ordered in from our warehouse — the earliest available fitting date will be [earliest_fitting_date]." Only after saying this should you call ts_get_timeslots.\n`;
     prompt += `- CRITICAL: After ts_create_booking completes successfully, the session is fully reset. If the customer wants to make another booking in the same chat, treat it as a completely fresh booking — ask for their registration again, do not assume anything from the previous booking.\n`;
-    prompt += `- After ts_create_booking succeeds:\n`;
-    prompt += `  If back_order is true in the response, say: "You're all booked in! Reference #[saleNumber]. Just to let you know, we'll need to order your tyres in — they'll be ready for your appointment. We'll see you on [date] at [time]. Is there anything else I can help with?"\n`;
-    prompt += `  Otherwise say: "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [date] at [time] for your [service]. Is there anything else I can help with?"\n`;
+    prompt += `- After ts_create_booking succeeds, read the date and time from the session slot (confirmed_date / confirmed_time from ts_confirm_slot), NOT from what the customer verbally said:\n`;
+    prompt += `  If back_order is true: "You're all booked in! Reference #[saleNumber]. Just to let you know, we'll need to order your tyres in — they'll be ready for your appointment. We'll see you on [confirmed_date] at [confirmed_time]. Is there anything else I can help with?"\n`;
+    prompt += `  Otherwise: "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [confirmed_date] at [confirmed_time] for your [service]. Is there anything else I can help with?"\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;

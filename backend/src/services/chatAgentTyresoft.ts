@@ -1272,12 +1272,14 @@ async function tsCreateBooking(
     })}`);
 
     // Back order check — flag if any tyre needs ordering in
+    // Primary: use leadTimeDays already stored on basket item (reliable even if lastTyreSearch was overwritten)
+    // Secondary: cross-check availability string from lastTyreSearch for explicit "back order" status
     const backOrderItems = tyreBasket.filter(item => {
+      if (item.leadTimeDays > 0) return true;
       const found = (session.lastTyreSearch || []).find(t => t.stock_number === item.stockNumber);
       if (!found) return false;
-      const avail    = (found.availability || '').toLowerCase();
-      const leadTime = (found.lead_time    || '').trim();
-      return avail.includes('back') || avail.includes('order') || (leadTime !== '' && leadTime !== '0');
+      const avail = (found.availability || '').toLowerCase();
+      return avail.includes('back') || avail.includes('order');
     });
     const hasBackOrder = backOrderItems.length > 0;
 

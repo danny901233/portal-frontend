@@ -937,6 +937,11 @@ export default function ChatWidget() {
       <button
         onClick={() => {
           if (viewState === 'closed') {
+            // If a conversation is already active, reopen it directly
+            if (conversationId) {
+              setViewState('chat');
+              return;
+            }
             setIsSpinning(true);
             setTimeout(() => {
               setViewState('menu');

@@ -114,6 +114,7 @@ export default function ChatWidget() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Add multiple messages sequentially with typing indicator before each bubble
@@ -143,6 +144,13 @@ export default function ChatWidget() {
   const [preChatPhone, setPreChatPhone] = useState('');
   const [preChatMessage, setPreChatMessage] = useState('');
   const [preChatSubmitting, setPreChatSubmitting] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 500);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   useEffect(() => {
     if (!garageId) return;
@@ -325,7 +333,22 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="chat-window fixed z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
+        <div className="fixed z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={isMobile ? {
+          // Mobile: fullscreen
+          bottom: 0, right: 0, left: 0, top: 0,
+          background: config?.primaryColor || '#1e3a8a',
+          borderRadius: 0,
+          boxShadow: 'none',
+          fontFamily: "'Poppins', sans-serif",
+          fontSize: '16px',
+          paddingTop: `${Math.max(80, (config?.logoHeight || 60) + 30)}px`,
+          paddingBottom: '0px',
+          paddingLeft: '12px',
+          paddingRight: '12px',
+        } : {
+          // Desktop: floating widget
+          bottom: '24px', right: '24px',
+          width: '380px', height: '650px',
           background: config?.primaryColor || '#1e3a8a',
           borderRadius: '32px',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
@@ -333,27 +356,9 @@ export default function ChatWidget() {
           fontSize: '16px',
           paddingTop: `${Math.max(100, (config?.logoHeight || 60) + 50)}px`,
           paddingBottom: '16px',
-          paddingLeft: '16px',
-          paddingRight: '16px'
+          paddingLeft: '24px',
+          paddingRight: '24px',
         }}>
-          <style>{`
-            .chat-window {
-              bottom: 0; right: 0; left: 0; top: 0;
-              border-radius: 0 !important;
-              padding-left: 12px !important;
-              padding-right: 12px !important;
-            }
-            @media (min-width: 500px) {
-              .chat-window {
-                bottom: 24px !important; right: 24px !important;
-                left: auto !important; top: auto !important;
-                width: 380px !important; height: 650px !important;
-                border-radius: 32px !important;
-                padding-left: 24px !important;
-                padding-right: 24px !important;
-              }
-            }
-          `}</style>
           {/* Logo Area - Above the white card */}
           <div className="absolute top-8 left-0 right-0 flex justify-center">
             {config?.logoUrl ? (
@@ -498,7 +503,9 @@ export default function ChatWidget() {
             <div className="px-4 py-3 flex-shrink-0" style={{
               backgroundColor: '#fafafa',
               borderTop: '1px solid rgba(0, 0, 0, 0.08)',
-              paddingBottom: 'max(12px, env(safe-area-inset-bottom))'
+              paddingBottom: isMobile ? 'max(16px, env(safe-area-inset-bottom))' : '12px',
+              borderBottomLeftRadius: isMobile ? '0' : '24px',
+              borderBottomRightRadius: isMobile ? '0' : '24px',
             }}>
               <div className="flex gap-2 items-center">
                 <input

@@ -456,6 +456,14 @@ export async function getChatAgentResponse(
     }
 
     // Fast-path: slot confirmation — customer is saying yes/no to a proposed slot
+    // If step is need_slot_confirm but pending slot is empty (AI asked clarifying question without calling the tool),
+    // reset to need_timeslot so the AI treats the reply as a time preference
+    if (session.step === Step.NEED_SLOT_CONFIRM && (!session.pendingSlotDate || !session.pendingSlotTime)) {
+      console.log('[STATE_GUARD] need_slot_confirm but no pending slot — resetting to need_timeslot');
+      session.step = Step.NEED_TIMESLOT;
+      await saveSession(conversationId, session);
+    }
+
     if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
       // Strip emoji, punctuation, and normalise repeated words before testing intent
       const stripped = message.toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\b(\w+)\s+\1\b/g, '$1');
@@ -2484,7 +2492,7 @@ TONE EXAMPLES:
     ).join('\n');
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
     prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
-    prompt += `When the customer says what time they'd like, call select_timeslot with their preference. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
+    prompt += `When the customer mentions ANY time or date preference, call select_timeslot IMMEDIATELY with exactly what they said — do NOT ask clarifying questions about the date or day first. The tool will find the best match. Only ask for clarification if select_timeslot returns NO_MATCH. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
   }
 
   prompt += '\n';

@@ -726,13 +726,13 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '16px',
           fontFamily: "'Poppins', sans-serif",
-          paddingTop: `${Math.max(120, (config?.logoHeight || 60) + 70)}px`,
+          paddingTop: `${Math.max(90, (config?.logoHeight || 60) + 40)}px`,
           paddingBottom: '40px',
           paddingLeft: '32px',
           paddingRight: '32px'
         }}>
           {/* Logo Area - Above the white card */}
-          <div className="absolute top-8 left-0 right-0 flex justify-center">
+          <div className="absolute top-4 left-0 right-0 flex justify-center">
             {config?.logoUrl ? (
               <img 
                 src={config.logoUrl} 

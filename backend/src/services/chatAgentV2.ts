@@ -2385,7 +2385,7 @@ TONE EXAMPLES:
       return `- ${s.name}${priceStr}`;
     }).join('\n');
     prompt += `\nAVAILABLE SERVICES:\n${svcLines}\n`;
-    prompt += `If the customer asks "what are the options", "what services do you offer", or "what are the prices", list these services with their prices naturally. Then ask what they need.\n`;
+    prompt += `ONLY if the customer explicitly asks "what are the options", "what services do you offer", or "what are the prices", list these services with their prices naturally. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`;
   }
 
   // ── Available timeslots — inject when in timeslot selection so OpenAI can handle any natural language ──

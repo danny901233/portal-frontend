@@ -344,7 +344,7 @@ export default function ChatWidget() {
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
           paddingTop: `${Math.max(100, (config?.logoHeight || 60) + 50)}px`,
-          paddingBottom: '16px',
+          paddingBottom: '80px',
           paddingLeft: '16px',
           paddingRight: '16px',
           boxSizing: 'border-box',
@@ -942,7 +942,7 @@ export default function ChatWidget() {
         }}
         className="fixed z-50 flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
         style={{ 
-          bottom: viewState === 'chat' ? '-28px' : '24px',
+          bottom: viewState === 'chat' ? '14px' : '24px',
           top: 'auto',
           right: viewState === 'chat' ? '16px' : '24px',
           width: viewState === 'chat' ? '56px' : (viewState === 'closed' && config?.buttonShape === 'pill' ? '180px' : '64px'),

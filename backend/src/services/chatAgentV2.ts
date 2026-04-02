@@ -2410,7 +2410,8 @@ TONE EXAMPLES:
   }
 
   // ── Branch selection (for multi-location garages) ────────────────────────
-  const hasMultipleBranches = branchName.toLowerCase().includes('eac telford');
+  const branchNameClean = branchName.toLowerCase().replace(/\./g, '');
+  const hasMultipleBranches = branchNameClean.includes('eac telford');
   if (hasMultipleBranches && session.step === Step.NEED_BRANCH && !session.selectedBranch) {
     prompt += `BRANCH SELECTION REQUIRED: We have two branches.\n`;
     prompt += `As your FIRST action, ask: "Which branch would you like to book with — Halesfield or Hortonwood?"\n`;

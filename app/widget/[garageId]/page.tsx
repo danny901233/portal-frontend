@@ -705,7 +705,7 @@ export default function ChatWidget() {
           {/* Powered by - outside white rectangle */}
           <div className="mt-10 text-center">
             <a 
-              href="https://receptionmate.co.uk" 
+              href="https://receptionmate.co.uk/home" 
               target="_blank" 
               rel="noopener noreferrer"
               className="text-base font-medium hover:underline" 
@@ -890,7 +890,7 @@ export default function ChatWidget() {
           {/* Powered by - outside white rectangle */}
           <div className="mt-10 text-center">
             <a 
-              href="https://receptionmate.co.uk" 
+              href="https://receptionmate.co.uk/home" 
               target="_blank" 
               rel="noopener noreferrer"
               className="text-base font-medium hover:underline" 

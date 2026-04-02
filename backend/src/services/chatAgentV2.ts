@@ -34,6 +34,7 @@ interface ChatAgentResponse {
 // Chat session state (mirrors voice agent's CallState)
 enum Step {
   GREETING = 'greeting',
+  NEED_BRANCH = 'need_branch',
   NEED_NAME = 'need_name',
   NEED_VRN = 'need_vrn',
   CONFIRMING_VEHICLE = 'confirming_vehicle',
@@ -105,6 +106,9 @@ interface ChatSession {
 
   // Widget pre-fill: service hint from initial message (e.g. "MOT")
   serviceHint?: string;
+
+  // Branch selection (for garages with multiple locations)
+  selectedBranch?: string;
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -226,6 +230,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     diagnosticComplete: false,
     diagnosticQuestions: [],
     useDropOffBooking: false,
+    selectedBranch: '',
   };
 
   inMemorySessionCache.set(conversationId, newSession);
@@ -299,6 +304,14 @@ export async function getChatAgentResponse(
 
     // Get or create session state
     const session = await getOrCreateSession(conversationId);
+
+    // Check if this garage has multiple branches and set initial step
+    const hasMultipleBranches = config.branchName?.toLowerCase().includes('eac telford');
+    if (hasMultipleBranches && session.step === Step.GREETING && !session.selectedBranch) {
+      session.step = Step.NEED_BRANCH;
+      await saveSession(conversationId, session);
+      console.log(`[BRANCH_SELECTION] Multi-branch garage detected, step set to NEED_BRANCH`);
+    }
 
     // Seed contact details passed explicitly from the widget pre-chat form
     let seedApplied = false;
@@ -842,6 +855,20 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
+        name: 'select_branch',
+        description: 'Select which branch/location the customer wants to book with (for garages with multiple branches).',
+        parameters: {
+          type: 'object',
+          properties: {
+            branch: { type: 'string', description: 'Branch name (e.g., "Halesfield", "Hortonwood")' },
+          },
+          required: ['branch'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'save_caller_name',
         description: 'Save customer name and intent. Call this FIRST when customer introduces themselves or states what they need.',
         parameters: {
@@ -981,6 +1008,9 @@ async function executeConversationalTool(
     }
 
     switch (toolName) {
+      case 'select_branch':
+        return await handleSelectBranch(args, session, conversationId);
+
       case 'save_caller_name':
         return await handleSaveCallerName(args, session, conversationId);
       
@@ -1041,6 +1071,18 @@ function getNextContactInstruction(session: ChatSession): string {
 }
 
 // Tool handlers (return instructions like voice agent)
+
+async function handleSelectBranch(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  const { branch } = args;
+  
+  session.selectedBranch = branch;
+  session.step = Step.NEED_NAME;
+  await saveSession(conversationId, session);
+  
+  console.log(`[SELECT_BRANCH] Branch selected: ${branch}`);
+  
+  return `Branch selected: ${branch}.\n\nSay: "Great! Can I take your name please?"\nWait for their name, then call save_caller_name.`;
+}
 
 async function handleSaveCallerName(args: any, session: ChatSession, conversationId: string): Promise<string> {
   let { first_name, last_name = '', intent, service_hint = '' } = args;
@@ -2355,9 +2397,23 @@ TONE EXAMPLES:
     prompt += `Skip steps 1 and 2 below. Call lookup_vehicle('${session.outboundRegistration}') as your VERY FIRST action — do NOT ask the customer for their name or registration.\n\n`;
   }
 
+  // ── Branch selection (for multi-location garages) ────────────────────────
+  const hasMultipleBranches = branchName.toLowerCase().includes('eac telford');
+  if (hasMultipleBranches && session.step === Step.NEED_BRANCH && !session.selectedBranch) {
+    prompt += `BRANCH SELECTION REQUIRED: We have two branches.\n`;
+    prompt += `As your FIRST action, ask: "Which branch would you like to book with — Halesfield or Hortonwood?"\n`;
+    prompt += `Wait for their response, then call select_branch with their choice.\n\n`;
+  }
+  if (session.selectedBranch) {
+    prompt += `Branch: ${session.selectedBranch}\n`;
+  }
+
   // ── Booking flow instructions ─────────────────────────────────────────────
-  prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):
-1. Get customer name + intent → call save_caller_name
+  const bookingFlowStart = hasMultipleBranches && !session.selectedBranch 
+    ? `0. Ask which branch (Halesfield or Hortonwood) → call select_branch\n1. ` 
+    : `1. `;
+  
+  prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):\n${bookingFlowStart}Get customer name + intent → call save_caller_name
 2. Get vehicle registration → call lookup_vehicle
 3. IMMEDIATELY call confirm_vehicle(confirmed=true) — do NOT wait for customer input, do NOT ask them to confirm, just call it silently
 4. ONLY after confirm_vehicle succeeds → customer says what work is needed → call select_service

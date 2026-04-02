@@ -1521,17 +1521,15 @@ async function handleSelectService(args: any, session: ChatSession, conversation
       .filter((s: any) => !/other|general/i.test(s.name))
       .map((s: any) => s.name);
     const suggestion = svcNames.length > 0 ? svcNames[0] : null;
-    const otherFallback = session.servicesAvailable.find((s: any) => /other|general/i.test(s.name)) || null;
 
     if (suggestion) {
       const cleanedSuggestion = cleanServiceName(suggestion);
       console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' — asking customer to clarify, suggesting: ${cleanedSuggestion}`);
       return `NO_SERVICE_MATCH: "${effectiveServiceName}" didn't match any available service.\nAvailable services: ${svcNames.map(cleanServiceName).join(', ')}.\nSay: "I didn't quite catch that — did you mean a ${cleanedSuggestion}? Or one of these: ${svcNames.slice(0,3).map(cleanServiceName).join(', ')}?"\nWait for their answer, then call select_service again with what they confirm.`;
-    } else if (otherFallback) {
-      matched = otherFallback;
-      console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' — booking under '${matched.name}'`);
     } else {
-      return `No suitable service found for "${effectiveServiceName}" and no Other/General fallback.\nSay: "I don't have that as a set price right now. Let me take your details and one of the team will give you a call back with a quote."\nThen call take_message.`;
+      // No named services at all — ask rather than silently booking "Other"
+      console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' and no named services — asking customer`);
+      return `NO_SERVICE_MATCH: "${effectiveServiceName}" didn't match any available service and there are no named alternatives.\nSay: "I don't have that as a set price right now. Let me take your details and one of the team will give you a call back with a quote."\nThen call take_message.`;
     }
   }
 

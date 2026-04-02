@@ -928,7 +928,6 @@ export default function ChatWidget() {
           100% { transform: rotate(360deg); }
         }
       `}</style>
-      {viewState !== 'chat' && (
       <button
         onClick={() => {
           if (viewState === 'closed') {
@@ -941,10 +940,13 @@ export default function ChatWidget() {
             setViewState('closed');
           }
         }}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
+        className="fixed z-50 flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
         style={{ 
-          width: viewState === 'closed' && config?.buttonShape === 'pill' ? '180px' : '64px',
-          height: '64px',
+          bottom: viewState === 'chat' ? 'auto' : '24px',
+          top: viewState === 'chat' ? '12px' : 'auto',
+          right: viewState === 'chat' ? '12px' : '24px',
+          width: viewState === 'chat' ? '40px' : (viewState === 'closed' && config?.buttonShape === 'pill' ? '180px' : '64px'),
+          height: viewState === 'chat' ? '40px' : '64px',
           background: config?.buttonColor || config?.primaryColor || '#3f51b5',
           boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.2), 0 5px 32px 0 rgba(203, 195, 212, 0.2), 0 8px 58px 0 rgba(216, 212, 221, 0.1)',
           justifyContent: 'center',
@@ -954,12 +956,16 @@ export default function ChatWidget() {
           fontSize: '17px',
           fontWeight: 700,
           fontFamily: "'Poppins', sans-serif",
-          borderRadius: config?.buttonShape === 'pill' ? '32px' : config?.buttonShape === 'circle' ? '50%' : config?.buttonShape === 'square' ? '8px' : '16px',
+          borderRadius: viewState === 'chat' ? '50%' : (config?.buttonShape === 'pill' ? '32px' : config?.buttonShape === 'circle' ? '50%' : config?.buttonShape === 'square' ? '8px' : '16px'),
           animation: isSpinning ? 'spin 0.6s linear' : 'none'
         }}
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >
-        {viewState === 'closed' ? (
+        {viewState === 'chat' ? (
+          <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        ) : viewState === 'closed' ? (
           <>
             {isSpinning ? (
               // Car wheel/tire icon when spinning
@@ -1012,7 +1018,6 @@ export default function ChatWidget() {
           </svg>
         )}
       </button>
-      )}
     </>
   );
 }

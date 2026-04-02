@@ -26,6 +26,11 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
         agentConfiguration: {
           select: { phoneNumber: true },
         },
+        socialMediaConnections: {
+          where: { platform: 'whatsapp', isActive: true },
+          select: { accountName: true, whatsappPhoneNumberId: true },
+          take: 1,
+        },
       },
     });
 
@@ -33,10 +38,21 @@ router.get('/widget/:garageId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Garage not found' });
     }
 
-    // Build a wa.me-compatible number from the agent's phoneNumber (strip spaces/dashes,
-    // convert leading 0 → 44 for UK numbers).
-    const rawPhone = garage.agentConfiguration?.phoneNumber || garage.twilioNumber || '';
-    const whatsappNumber = rawPhone.replace(/[^0-9+]/g, '').replace(/^\+/, '').replace(/^0+/, '44') || null;
+    // Use the connected WhatsApp Business display number if available,
+    // otherwise fall back to the garage phone number converted to wa.me format.
+    const waConnection = garage.socialMediaConnections?.[0];
+    let whatsappNumber: string | null = null;
+
+    if (waConnection?.accountName && waConnection.whatsappPhoneNumberId !== 'pending_setup') {
+      // accountName stores the display_phone_number e.g. "+44 7700 900123" — strip to digits only
+      whatsappNumber = waConnection.accountName.replace(/[^0-9]/g, '') || null;
+    }
+
+    if (!whatsappNumber) {
+      // Fallback: derive from garage phone number
+      const rawPhone = garage.agentConfiguration?.phoneNumber || garage.twilioNumber || '';
+      whatsappNumber = rawPhone.replace(/[^0-9+]/g, '').replace(/^\+/, '').replace(/^0+/, '44') || null;
+    }
 
     res.json({
       name: garage.name,

@@ -395,8 +395,9 @@ export default function ChatWidget() {
             flexDirection: 'column'
           }}>
             {/* Header inside white rectangle */}
-            <div className="flex items-center justify-between px-8 py-8 flex-shrink-0" style={{
-              borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
+            <div className="flex items-center justify-between flex-shrink-0" style={{
+              borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
+              padding: isMobile ? '14px 16px' : '24px 32px'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{
@@ -411,7 +412,7 @@ export default function ChatWidget() {
                 </div>
               </div>
               
-              <button onClick={() => setViewState('closed')} className="transition-all" style={{
+              <button onClick={() => setViewState('closed')} className="transition-all flex-shrink-0" style={{
                 fontSize: '28px',
                 lineHeight: '28px',
                 fontWeight: 300,
@@ -427,7 +428,7 @@ export default function ChatWidget() {
             {/* Messages */}
             <div className="flex-1 overflow-y-auto space-y-3" style={{ 
               scrollbarWidth: 'thin',
-              padding: '20px 24px'
+              padding: isMobile ? '16px 12px' : '20px 24px'
             }}>
               {messages.map((msg) => (
                 msg.role === 'system' ? (
@@ -500,9 +501,10 @@ export default function ChatWidget() {
             </div>
 
             {/* Input Area - EXACT Cognigy Style */}
-            <div className="px-4 py-3 flex-shrink-0" style={{
+            <div className="flex-shrink-0" style={{
               backgroundColor: '#fafafa',
               borderTop: '1px solid rgba(0, 0, 0, 0.08)',
+              padding: isMobile ? '10px 12px' : '12px 16px',
               paddingBottom: isMobile ? 'max(16px, env(safe-area-inset-bottom))' : '12px',
               borderBottomLeftRadius: isMobile ? '0' : '24px',
               borderBottomRightRadius: isMobile ? '0' : '24px',

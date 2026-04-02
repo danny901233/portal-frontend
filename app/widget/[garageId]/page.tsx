@@ -508,12 +508,14 @@ export default function ChatWidget() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area - EXACT Cognigy Style */}
-            <div className="rm-input-area flex-shrink-0" style={{
+            {/* Input Area */}
+            <div className="flex-shrink-0" style={{
               backgroundColor: '#fafafa',
-              borderTop: '1px solid rgba(0, 0, 0, 0.08)'
+              borderTop: '1px solid rgba(0, 0, 0, 0.08)',
+              padding: '8px 10px',
+              paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
             }}>
-              <div className="flex gap-2 items-center" style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                 <input
                   type="text"
                   value={input}
@@ -524,15 +526,13 @@ export default function ChatWidget() {
                   style={{
                     flex: '1 1 0',
                     minWidth: 0,
-                    padding: isMobile ? '10px 12px' : '12px 16px',
+                    padding: '9px 13px',
                     backgroundColor: 'white',
                     border: '1px solid rgba(0, 0, 0, 0.12)',
-                    borderRadius: '24px',
-                    fontSize: '15px',
+                    borderRadius: '20px',
+                    fontSize: '14px',
                     color: '#000',
                     outline: 'none',
-                    transition: 'border-color 0.2s',
-                    width: '100%',
                   }}
                   onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#3f51b5'}
                   onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.12)'}
@@ -540,30 +540,34 @@ export default function ChatWidget() {
                 <button
                   onClick={handleSendMessage}
                   disabled={!input.trim() || sending}
-                  className="flex-shrink-0 rounded-full flex items-center justify-center transition-all"
                   style={{
-                    width: '40px',
-                    height: '40px',
+                    flexShrink: 0,
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '50%',
                     backgroundColor: config?.primaryColor || '#3f51b5',
                     color: 'white',
                     border: 'none',
                     cursor: !input.trim() || sending ? 'not-allowed' : 'pointer',
-                    opacity: !input.trim() || sending ? 0.4 : 1
+                    opacity: !input.trim() || sending ? 0.4 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   {sending ? (
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <svg style={{ width: '14px', height: '14px' }} className="animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
                   ) : (
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg style={{ width: '16px', height: '16px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                     </svg>
                   )}
                 </button>
               </div>
-              <p className="text-xs mt-3 text-center" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-medium" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
+              <p className="text-xs mt-2 text-center" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-medium" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
             </div>
           </div>
         </div>

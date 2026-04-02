@@ -459,7 +459,7 @@ export async function getChatAgentResponse(
     if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
       // Strip emoji, punctuation, and normalise repeated words before testing intent
       const stripped = message.toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\b(\w+)\s+\1\b/g, '$1');
-      const isYes = /\b(yes|yeah|yep|yup|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please|fine|brilliant|lovely|brill|ace|spot on|do it|book it|book me in)\b/.test(stripped);
+      const isYes = /\b(yes|yeah|yep|yup|yh|ye|ya|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please|fine|brilliant|lovely|brill|ace|spot on|do it|book it|book me in)\b/.test(stripped);
       const isNo = /\b(no|nope|different|another|change|instead|rather|earlier|later|different)\b/.test(stripped);
 
       // Extract any note from the message even during slot confirmation

@@ -333,41 +333,21 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <>
-        <style>{`
-          .rm-chat-window {
-            position: fixed !important;
-            bottom: 0 !important; right: 0 !important; left: 0 !important; top: 0 !important;
-            width: 100% !important; height: 100% !important;
-            border-radius: 0 !important;
-            padding-left: 12px !important; padding-right: 12px !important;
-            padding-bottom: 0 !important;
-          }
-          @media (min-width: 500px) {
-            .rm-chat-window {
-              bottom: 24px !important; right: 24px !important;
-              left: auto !important; top: auto !important;
-              width: 380px !important; height: 650px !important;
-              border-radius: 32px !important;
-              padding-left: 24px !important; padding-right: 24px !important;
-              padding-bottom: 16px !important;
-            }
-          }
-          .rm-chat-header { padding: 14px 16px !important; }
-          .rm-messages-area { padding: 16px 12px !important; }
-          .rm-input-area { padding: 10px 12px !important; padding-bottom: max(16px, env(safe-area-inset-bottom)) !important; border-radius: 0 !important; }
-          @media (min-width: 500px) {
-            .rm-chat-header { padding: 24px 32px !important; }
-            .rm-messages-area { padding: 20px 24px !important; }
-            .rm-input-area { padding: 12px 16px !important; border-radius: 0 0 24px 24px !important; }
-          }
-        `}</style>
-        <div className="rm-chat-window z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
+        <div className="fixed z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
+          bottom: '0',
+          right: '0',
+          width: 'min(380px, 100vw)',
+          height: 'min(650px, 100dvh)',
           background: config?.primaryColor || '#1e3a8a',
+          borderRadius: 'clamp(0px, calc((100vw - 380px) * 99), 32px)',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
           paddingTop: `${Math.max(100, (config?.logoHeight || 60) + 50)}px`,
+          paddingBottom: '16px',
+          paddingLeft: '16px',
+          paddingRight: '16px',
+          boxSizing: 'border-box',
         }}>
           {/* Logo Area - Above the white card */}
           <div className="absolute top-8 left-0 right-0 flex justify-center">
@@ -571,7 +551,6 @@ export default function ChatWidget() {
             </div>
           </div>
         </div>
-        </>
       )}
 
       {/* Menu Options - Overlay Style: Large background with smaller white rectangle */}

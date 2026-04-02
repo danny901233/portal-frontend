@@ -2218,14 +2218,22 @@ function matchService(query: string, services: any[]): any | null {
 }
 
 function formatDateNaturally(dateStr: string): string {
-  const date = new Date(dateStr);
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  
+  const date = new Date(dateStr + 'T12:00:00'); // noon to avoid DST edge cases
+
+  // Get UK local today/tomorrow using Intl (avoids UTC midnight / DD/MM parse bugs)
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now);
+  const pm: Record<string, string> = {};
+  for (const p of parts) pm[p.type] = p.value;
+  const ukToday = new Date(parseInt(pm.year), parseInt(pm.month) - 1, parseInt(pm.day));
+  const ukTomorrow = new Date(ukToday);
+  ukTomorrow.setDate(ukToday.getDate() + 1);
+
   const dateOnly = dateStr.split('T')[0];
-  const todayStr = today.toISOString().split('T')[0];
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const todayStr = `${ukToday.getFullYear()}-${String(ukToday.getMonth()+1).padStart(2,'0')}-${String(ukToday.getDate()).padStart(2,'0')}`;
+  const tomorrowStr = `${ukTomorrow.getFullYear()}-${String(ukTomorrow.getMonth()+1).padStart(2,'0')}-${String(ukTomorrow.getDate()).padStart(2,'0')}`;
   
   if (dateOnly === todayStr) return 'today';
   if (dateOnly === tomorrowStr) return 'tomorrow';
@@ -2354,12 +2362,24 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
 
   if (/\btoday\b/.test(prefLower)) {
     const matches = timeslots.filter(t => t.date === ukDateStr(0));
-    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    if (matches.length > 0) {
+      const ph = extractPrefHour(prefLower);
+      const best = closestByTime(matches, ph);
+      // If a specific time was requested but the best slot is >3h away, return null so AI explains
+      if (ph !== null && Math.abs(parseInt(best.time.split(':')[0]) - ph) > 3) return null;
+      return best;
+    }
     return null; // today specified but no today slots — let OpenAI explain
   }
   if (/\btomorrow\b/.test(prefLower)) {
     const matches = timeslots.filter(t => t.date === ukDateStr(1));
-    if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    if (matches.length > 0) {
+      const ph = extractPrefHour(prefLower);
+      const best = closestByTime(matches, ph);
+      // If a specific time was requested but the best slot is >3h away, return null so AI explains
+      if (ph !== null && Math.abs(parseInt(best.time.split(':')[0]) - ph) > 3) return null;
+      return best;
+    }
     return null; // tomorrow specified but no tomorrow slots — let OpenAI explain
   }
 
@@ -2408,7 +2428,14 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
         // No exact match — find closest slot on or after the target date
         matches = timeslots.filter(t => t.date >= targetDateStr);
       }
-      if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+      if (matches.length > 0) {
+        const ph = extractPrefHour(prefLower);
+        const best = closestByTime(matches, ph);
+        // Only apply ">3h" guard when matching exact day (not falling through to a different date)
+        const isExactDay = matches[0]?.date === targetDateStr;
+        if (ph !== null && isExactDay && Math.abs(parseInt(best.time.split(':')[0]) - ph) > 3) return null;
+        return best;
+      }
     }
   }
 

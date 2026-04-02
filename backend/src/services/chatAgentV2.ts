@@ -1310,6 +1310,14 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
 
 async function handleConfirmVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { confirmed, corrected_first_name = '', corrected_last_name = '' } = args;
+
+  // Guard: if services are already loaded, don't re-run confirm_vehicle — just tell AI to call select_service
+  if (confirmed && session.servicesAvailable && session.servicesAvailable.length > 0 &&
+      (session.step === Step.NEED_SERVICE || session.step === Step.NEED_TIMESLOT)) {
+    console.log(`[CONFIRM_VEHICLE] Services already loaded (${session.servicesAvailable.length}), skipping re-fetch`);
+    const svcList = session.servicesAvailable.map((s: any) => s.name).join(', ');
+    return `SERVICES_ALREADY_LOADED: ${svcList}.\nDo NOT call confirm_vehicle again. Ask the customer what service they need, then call select_service with their answer.`;
+  }
   
   // Safety guard: if we somehow reached confirm_vehicle without a valid GarageHive sessionId,
   // reset and re-run the vehicle lookup so we get a proper session.
@@ -1506,13 +1514,23 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     }
   }
 
-  // ── If still no match, silently book under "Other" (Python behaviour) ──
+  // ── If still no match, ask the customer to clarify rather than silently booking "Other" ──
   if (!matched) {
-    matched = session.servicesAvailable.find((s: any) => /other|general/i.test(s.name)) || null;
-    if (matched) {
+    // Find the closest service name to suggest
+    const svcNames = session.servicesAvailable
+      .filter((s: any) => !/other|general/i.test(s.name))
+      .map((s: any) => s.name);
+    const suggestion = svcNames.length > 0 ? svcNames[0] : null;
+    const otherFallback = session.servicesAvailable.find((s: any) => /other|general/i.test(s.name)) || null;
+
+    if (suggestion) {
+      const cleanedSuggestion = cleanServiceName(suggestion);
+      console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' — asking customer to clarify, suggesting: ${cleanedSuggestion}`);
+      return `NO_SERVICE_MATCH: "${effectiveServiceName}" didn't match any available service.\nAvailable services: ${svcNames.map(cleanServiceName).join(', ')}.\nSay: "I didn't quite catch that — did you mean a ${cleanedSuggestion}? Or one of these: ${svcNames.slice(0,3).map(cleanServiceName).join(', ')}?"\nWait for their answer, then call select_service again with what they confirm.`;
+    } else if (otherFallback) {
+      matched = otherFallback;
       console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' — booking under '${matched.name}'`);
     } else {
-      // Truly nothing — take a message
       return `No suitable service found for "${effectiveServiceName}" and no Other/General fallback.\nSay: "I don't have that as a set price right now. Let me take your details and one of the team will give you a call back with a quote."\nThen call take_message.`;
     }
   }
@@ -2162,6 +2180,41 @@ function matchService(query: string, services: any[]): any | null {
     // Only return if at least 50% of words matched — prevents 'tyres' matching 'Full Service'
     if (bestScore >= 0.5) return bestService;
   }
+
+  // Fuzzy match — find the service whose name is closest by edit distance
+  // Returns the best match only if it's close enough (distance <= 40% of the longer string)
+  function levenshtein(a: string, b: string): number {
+    const m = a.length, n = b.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+      }
+    }
+    return dp[m][n];
+  }
+
+  // Compare query against each word in service names, and also full service names
+  let bestFuzzy: any = null;
+  let bestFuzzyDist = Infinity;
+  const queryWords = queryLower.split(/\s+/);
+  for (const service of services) {
+    const sn = service.name.toLowerCase();
+    // Full name distance
+    const fullDist = levenshtein(queryLower, sn);
+    // Word-level: best distance between any query word and any service name word
+    const snWords = sn.split(/\s+/);
+    const wordDist = Math.min(...queryWords.flatMap(qw => snWords.map((sw: string) => levenshtein(qw, sw))));
+    const dist = Math.min(fullDist, wordDist);
+    if (dist < bestFuzzyDist) {
+      bestFuzzyDist = dist;
+      bestFuzzy = service;
+    }
+  }
+  // Accept fuzzy match if distance is small relative to query length (max 2 edits per word, or 40% of full query)
+  const threshold = Math.max(2, Math.floor(queryLower.length * 0.4));
+  if (bestFuzzy && bestFuzzyDist <= threshold) return bestFuzzy;
 
   return null;
 }

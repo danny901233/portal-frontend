@@ -172,7 +172,7 @@ export default function IntegrationsPage() {
       name: 'WhatsApp Business',
       icon: WhatsAppIcon,
       color: 'bg-green-600',
-      description: 'Connect your WhatsApp Business account to send and receive messages',
+      description: 'Connect your WhatsApp Business account to receive and respond to customer messages',
     },
     {
       id: 'facebook',
@@ -258,6 +258,7 @@ export default function IntegrationsPage() {
         {platforms.map((platform) => {
           const connection = connections.find((c) => c.platform === platform.id);
           const Icon = platform.icon;
+          const isWhatsApp = platform.id === 'whatsapp';
 
           return (
             <div
@@ -293,10 +294,37 @@ export default function IntegrationsPage() {
                         </span>
                       </div>
                     )}
+
+                    {/* WhatsApp-specific: show setup options when not connected */}
+                    {isWhatsApp && !connection && (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-start gap-2 p-3 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                          <svg className="w-4 h-4 text-green-400 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                          <div>
+                            <p className="text-sm font-medium text-slate-200">Already have a WhatsApp Business account?</p>
+                            <p className="text-xs text-slate-400 mt-0.5">Connect it using the button on the right and we'll link it to your ReceptionMate account.</p>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-2 p-3 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                          <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <div>
+                            <p className="text-sm font-medium text-slate-200">Don't have one yet?</p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              You'll need a WhatsApp Business Account through Meta before connecting. Our team can help you set this up —{' '}
+                              <a href="mailto:support@receptionmate.com" className="text-purple-400 hover:text-purple-300 underline">contact support</a>.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div>
+                <div className="ml-4 shrink-0">
                   {connection ? (
                     <button
                       onClick={() => disconnectPlatform(connection.id)}
@@ -324,28 +352,29 @@ export default function IntegrationsPage() {
       </div>
 
       <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-slate-100 mb-2">Need Help?</h3>
+        <h3 className="text-lg font-semibold text-slate-100 mb-2">Setting up WhatsApp Business</h3>
         <p className="text-sm text-slate-400 mb-4">
-          Setting up social media integrations requires verification with Meta. Our team will help you:
+          To connect WhatsApp, you need a verified WhatsApp Business Account through Meta. Here's what's involved:
         </p>
         <ul className="space-y-2 text-sm text-slate-400 mb-4">
           <li className="flex items-start gap-2">
-            <span className="text-purple-400 mt-0.5">•</span>
-            <span>Create or connect your Meta Business Account</span>
+            <span className="text-green-400 mt-0.5 font-bold">1.</span>
+            <span><span className="text-slate-200">Create a Meta Business Account</span> at business.facebook.com (free)</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-purple-400 mt-0.5">•</span>
-            <span>Verify your WhatsApp Business number</span>
+            <span className="text-green-400 mt-0.5 font-bold">2.</span>
+            <span><span className="text-slate-200">Add a WhatsApp Business number</span> — this can be a new number or your existing business phone</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-purple-400 mt-0.5">•</span>
-            <span>Set up webhook configurations</span>
+            <span className="text-green-400 mt-0.5 font-bold">3.</span>
+            <span><span className="text-slate-200">Verify the number</span> via SMS or phone call from Meta</span>
           </li>
           <li className="flex items-start gap-2">
-            <span className="text-purple-400 mt-0.5">•</span>
-            <span>Configure message templates and permissions</span>
+            <span className="text-green-400 mt-0.5 font-bold">4.</span>
+            <span><span className="text-slate-200">Connect to ReceptionMate</span> using the Connect button above</span>
           </li>
         </ul>
+        <p className="text-sm text-slate-500 mb-4">Our team can walk you through each step — it typically takes less than 30 minutes.</p>
         <a
           href="mailto:support@receptionmate.com"
           className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-md transition-colors"
@@ -353,7 +382,7 @@ export default function IntegrationsPage() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
-          Contact Support
+          Get Setup Help
         </a>
       </div>
     </div>

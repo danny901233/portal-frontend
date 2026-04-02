@@ -137,12 +137,44 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
   
   // Try to load from database using raw SQL (sessionState column may not be in Prisma types)
   try {
-    const rows = await prisma.$queryRawUnsafe<Array<{ sessionState: any }>>(
-      `SELECT "sessionState" FROM "ChatConversation" WHERE id = $1`,
+    const rows = await prisma.$queryRawUnsafe<Array<{ sessionState: any; lastMessageAt: Date | null }>>(
+      `SELECT "sessionState", "lastMessageAt" FROM "ChatConversation" WHERE id = $1`,
       conversationId
     );
     
     if (rows.length > 0 && rows[0].sessionState) {
+      // If the last message was more than 4 hours ago, treat as a fresh conversation
+      // (keeps their name/phone but resets all booking state)
+      const lastMsg = rows[0].lastMessageAt ? new Date(rows[0].lastMessageAt) : null;
+      const ageMs = lastMsg ? Date.now() - lastMsg.getTime() : Infinity;
+      const SESSION_EXPIRY_MS = 4 * 60 * 60 * 1000; // 4 hours
+      if (ageMs > SESSION_EXPIRY_MS) {
+        console.log(`[GET_SESSION] Session expired (last message ${Math.round(ageMs / 60000)}min ago) — starting fresh`);
+        // Fall through to create a fresh session below, but preserve name + contact
+        const oldData = rows[0].sessionState as any;
+        const freshSession: ChatSession = {
+          step: Step.GREETING,
+          intent: '',
+          customerNameFirst: oldData.customerNameFirst || '',
+          customerNameLast: oldData.customerNameLast || '',
+          vrn: '', vrnConfirmed: false, sessionId: '',
+          vehicleMake: '', vehicleModel: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
+          bookingDate: '', bookingTime: '',
+          contactPhone: oldData.contactPhone || '',
+          contactEmail: oldData.contactEmail || '',
+          contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
+          postcodeConfirmed: false, notes: '',
+          message: '', preferredCallbackTime: '',
+          diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
+          useDropOffBooking: false,
+          selectedBranch: '',
+        };
+        inMemorySessionCache.set(conversationId, freshSession);
+        return freshSession;
+      }
+
       const sessionData = rows[0].sessionState as any;
       console.log(`[GET_SESSION] Found existing session, step: ${sessionData.step}`);
       const loadedSession: ChatSession = {
@@ -182,6 +214,26 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         outboundServiceType: sessionData.outboundServiceType || undefined,
         outboundDueDate: sessionData.outboundDueDate || undefined,
       };
+      // Guard: if session is mid-booking but has no GarageHive sessionId, the previous
+      // vehicle lookup failed or was never saved. Reset back to need_vrn so the bot
+      // re-runs lookup_vehicle. Keep the VRN so the user doesn't have to re-type it.
+      const BOOKING_STEPS_NEEDING_SESSION = [
+        Step.NEED_SERVICE, Step.NEED_BOOKING_CONFIRM, Step.NEED_TIMESLOT,
+        Step.NEED_SLOT_CONFIRM, Step.NEED_CONTACT, Step.CONFIRMING_POSTCODE, Step.CONFIRMED
+      ];
+      if (BOOKING_STEPS_NEEDING_SESSION.includes(loadedSession.step as Step) && !loadedSession.sessionId) {
+        console.log(`[GET_SESSION] Step is ${loadedSession.step} but sessionId is empty — resetting to need_vrn (vrn: ${loadedSession.vrn})`);
+        loadedSession.step = Step.NEED_VRN;
+        loadedSession.vrnConfirmed = false;
+        loadedSession.servicesAvailable = [];
+        loadedSession.serviceSelectedId = '';
+        loadedSession.serviceSelectedName = '';
+        loadedSession.servicePrice = '';
+        loadedSession.timeslotsAvailable = [];
+        loadedSession.pendingSlotDate = '';
+        loadedSession.pendingSlotTime = '';
+      }
+
       inMemorySessionCache.set(conversationId, loadedSession);
       // Auto-advance: if timeslot was already chosen but server restarted before step updated
       if (loadedSession.step === Step.NEED_TIMESLOT && loadedSession.bookingDate && loadedSession.bookingTime) {
@@ -290,7 +342,9 @@ export async function getChatAgentResponse(
 
     // Load GarageHive credentials
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
-      const ghConfig = config.integrationProviderConfig as any;
+      const rawConfig = config.integrationProviderConfig as any;
+      // Support both nested { garagehive: { ... } } and flat { customerId: ... } formats
+      const ghConfig = rawConfig.garagehive || rawConfig;
       GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
       GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
       GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
@@ -1249,6 +1303,19 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
 async function handleConfirmVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { confirmed, corrected_first_name = '', corrected_last_name = '' } = args;
   
+  // Safety guard: if we somehow reached confirm_vehicle without a valid GarageHive sessionId,
+  // reset and re-run the vehicle lookup so we get a proper session.
+  if (confirmed && !session.sessionId) {
+    console.warn(`[CONFIRM_VEHICLE] sessionId is empty — re-running lookup_vehicle for vrn: ${session.vrn}`);
+    session.step = Step.NEED_VRN;
+    session.vrnConfirmed = false;
+    await saveSession(conversationId, session);
+    if (session.vrn) {
+      return `INTERNAL: sessionId was missing. Call lookup_vehicle(vrn="${session.vrn}") now to re-establish the GarageHive session before proceeding.`;
+    }
+    return `INTERNAL: sessionId and vrn are both missing. Ask the customer for their vehicle registration again.`;
+  }
+
   if (!confirmed) {
     session.step = Step.NEED_VRN;
     session.vrn = '';
@@ -1823,6 +1890,10 @@ async function ghInitAndSetVehicle(registration: string): Promise<any> {
 }
 
 async function ghListServices(sessionId: string): Promise<any[]> {
+  if (!sessionId) {
+    console.error('[GH_LIST_SERVICES] Called with empty sessionId — aborting');
+    throw new Error('GarageHive sessionId is empty — cannot list services');
+  }
   const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
   const headers = {
     'Authorization': `Bearer ${GH_API_KEY}`,

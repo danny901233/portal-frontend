@@ -325,17 +325,35 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] h-[650px] flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
+        <div className="chat-window fixed z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
           background: config?.primaryColor || '#1e3a8a',
           borderRadius: '32px',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
           paddingTop: `${Math.max(100, (config?.logoHeight || 60) + 50)}px`,
-          paddingBottom: '32px',
-          paddingLeft: '24px',
-          paddingRight: '24px'
+          paddingBottom: '16px',
+          paddingLeft: '16px',
+          paddingRight: '16px'
         }}>
+          <style>{`
+            .chat-window {
+              bottom: 0; right: 0; left: 0; top: 0;
+              border-radius: 0 !important;
+              padding-left: 12px !important;
+              padding-right: 12px !important;
+            }
+            @media (min-width: 500px) {
+              .chat-window {
+                bottom: 24px !important; right: 24px !important;
+                left: auto !important; top: auto !important;
+                width: 380px !important; height: 650px !important;
+                border-radius: 32px !important;
+                padding-left: 24px !important;
+                padding-right: 24px !important;
+              }
+            }
+          `}</style>
           {/* Logo Area - Above the white card */}
           <div className="absolute top-8 left-0 right-0 flex justify-center">
             {config?.logoUrl ? (
@@ -477,9 +495,10 @@ export default function ChatWidget() {
             </div>
 
             {/* Input Area - EXACT Cognigy Style */}
-            <div className="px-4 py-4 flex-shrink-0" style={{
+            <div className="px-4 py-3 flex-shrink-0" style={{
               backgroundColor: '#fafafa',
-              borderTop: '1px solid rgba(0, 0, 0, 0.08)'
+              borderTop: '1px solid rgba(0, 0, 0, 0.08)',
+              paddingBottom: 'max(12px, env(safe-area-inset-bottom))'
             }}>
               <div className="flex gap-2 items-center">
                 <input

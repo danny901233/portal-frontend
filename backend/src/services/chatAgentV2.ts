@@ -2218,10 +2218,13 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   // Extract a time-of-day hour from text — only matches valid hours (0-23) with am/pm,
   // or HH:MM format. Ignores bare numbers that could be day-of-month (e.g. "25th").
   function extractPrefHour(text: string): number | null {
-    // HH:MM or HH:MMam/pm — trailing \b removed so "9:30am" matches correctly
-    const hhmm = text.match(/\b(\d{1,2}):(\d{2})/);
+    // HH:MM optionally followed by am/pm — e.g. "1:30pm" → 13, "9:30am" → 9, "13:30" → 13
+    const hhmm = text.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
     if (hhmm) {
       let h = parseInt(hhmm[1]);
+      const mer = (hhmm[3] || '').toLowerCase();
+      if (mer === 'pm' && h < 12) h += 12;
+      if (mer === 'am' && h === 12) h = 0;
       if (h >= 0 && h <= 23) return h;
     }
     // Number followed by am/pm — negative lookbehind prevents matching "30am" from "9:30am"

@@ -403,17 +403,21 @@ export default function ChatWidget() {
                 </div>
               </div>
               
-              <button onClick={() => setViewState('closed')} className="transition-all flex-shrink-0" style={{
-                fontSize: '28px',
-                lineHeight: '28px',
-                fontWeight: 300,
+              <button onClick={() => setViewState('closed')} className="transition-all flex-shrink-0 hover:opacity-70 active:scale-90" style={{
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 padding: 0,
                 color: '#6b7280'
               }}>
-                ×
+                <svg style={{ width: '20px', height: '20px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
             {/* Messages */}
@@ -552,29 +556,6 @@ export default function ChatWidget() {
               <p className="text-xs mt-2 text-center" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-medium" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
             </div>
           </div>
-          {/* Close button — bottom-right corner of the widget */}
-          <button
-            onClick={() => setViewState('closed')}
-            className="flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95"
-            style={{
-              position: 'absolute',
-              bottom: '8px',
-              right: '8px',
-              width: '56px',
-              height: '56px',
-              borderRadius: '50%',
-              background: config?.buttonColor || config?.primaryColor || '#3f51b5',
-              boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.3), 0 5px 32px 0 rgba(203, 195, 212, 0.2)',
-              border: 'none',
-              cursor: 'pointer',
-              zIndex: 60,
-            }}
-            aria-label="Close chat"
-          >
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
         </div>
       )}
 

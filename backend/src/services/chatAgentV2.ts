@@ -1076,10 +1076,19 @@ async function handleSelectBranch(args: any, session: ChatSession, conversationI
   const { branch } = args;
   
   session.selectedBranch = branch;
+  
+  // Set location ID based on branch
+  const branchLower = branch.toLowerCase();
+  if (branchLower.includes('hortonwood')) {
+    GH_LOCATION_ID = '390';
+  } else if (branchLower.includes('halesfield')) {
+    GH_LOCATION_ID = '210';
+  }
+  
   session.step = Step.NEED_NAME;
   await saveSession(conversationId, session);
   
-  console.log(`[SELECT_BRANCH] Branch selected: ${branch}`);
+  console.log(`[SELECT_BRANCH] Branch selected: ${branch}, Location ID: ${GH_LOCATION_ID}`);
   
   return `Branch selected: ${branch}.\n\nSay: "Great! Can I take your name please?"\nWait for their name, then call save_caller_name.`;
 }

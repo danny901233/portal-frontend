@@ -333,31 +333,41 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="fixed z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={isMobile ? {
-          // Mobile: fullscreen
-          bottom: 0, right: 0, left: 0, top: 0,
+        <>
+        <style>{`
+          .rm-chat-window {
+            position: fixed !important;
+            bottom: 0 !important; right: 0 !important; left: 0 !important; top: 0 !important;
+            width: 100% !important; height: 100% !important;
+            border-radius: 0 !important;
+            padding-left: 12px !important; padding-right: 12px !important;
+            padding-bottom: 0 !important;
+          }
+          @media (min-width: 500px) {
+            .rm-chat-window {
+              bottom: 24px !important; right: 24px !important;
+              left: auto !important; top: auto !important;
+              width: 380px !important; height: 650px !important;
+              border-radius: 32px !important;
+              padding-left: 24px !important; padding-right: 24px !important;
+              padding-bottom: 16px !important;
+            }
+          }
+          .rm-chat-header { padding: 14px 16px !important; }
+          .rm-messages-area { padding: 16px 12px !important; }
+          .rm-input-area { padding: 10px 12px !important; padding-bottom: max(16px, env(safe-area-inset-bottom)) !important; border-radius: 0 !important; }
+          @media (min-width: 500px) {
+            .rm-chat-header { padding: 24px 32px !important; }
+            .rm-messages-area { padding: 20px 24px !important; }
+            .rm-input-area { padding: 12px 16px !important; border-radius: 0 0 24px 24px !important; }
+          }
+        `}</style>
+        <div className="rm-chat-window z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
           background: config?.primaryColor || '#1e3a8a',
-          borderRadius: 0,
-          boxShadow: 'none',
-          fontFamily: "'Poppins', sans-serif",
-          fontSize: '16px',
-          paddingTop: `${Math.max(80, (config?.logoHeight || 60) + 30)}px`,
-          paddingBottom: '0px',
-          paddingLeft: '12px',
-          paddingRight: '12px',
-        } : {
-          // Desktop: floating widget
-          bottom: '24px', right: '24px',
-          width: '380px', height: '650px',
-          background: config?.primaryColor || '#1e3a8a',
-          borderRadius: '32px',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
           paddingTop: `${Math.max(100, (config?.logoHeight || 60) + 50)}px`,
-          paddingBottom: '16px',
-          paddingLeft: '24px',
-          paddingRight: '24px',
         }}>
           {/* Logo Area - Above the white card */}
           <div className="absolute top-8 left-0 right-0 flex justify-center">
@@ -395,9 +405,8 @@ export default function ChatWidget() {
             flexDirection: 'column'
           }}>
             {/* Header inside white rectangle */}
-            <div className="flex items-center justify-between flex-shrink-0" style={{
-              borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
-              padding: isMobile ? '14px 16px' : '24px 32px'
+            <div className="rm-chat-header flex items-center justify-between flex-shrink-0" style={{
+              borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{
@@ -426,9 +435,8 @@ export default function ChatWidget() {
               </button>
             </div>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto space-y-3" style={{ 
-              scrollbarWidth: 'thin',
-              padding: isMobile ? '16px 12px' : '20px 24px'
+            <div className="rm-messages-area flex-1 overflow-y-auto space-y-3" style={{ 
+              scrollbarWidth: 'thin'
             }}>
               {messages.map((msg) => (
                 msg.role === 'system' ? (
@@ -501,13 +509,9 @@ export default function ChatWidget() {
             </div>
 
             {/* Input Area - EXACT Cognigy Style */}
-            <div className="flex-shrink-0" style={{
+            <div className="rm-input-area flex-shrink-0" style={{
               backgroundColor: '#fafafa',
-              borderTop: '1px solid rgba(0, 0, 0, 0.08)',
-              padding: isMobile ? '10px 12px' : '12px 16px',
-              paddingBottom: isMobile ? 'max(16px, env(safe-area-inset-bottom))' : '12px',
-              borderBottomLeftRadius: isMobile ? '0' : '24px',
-              borderBottomRightRadius: isMobile ? '0' : '24px',
+              borderTop: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
               <div className="flex gap-2 items-center" style={{ minWidth: 0 }}>
                 <input
@@ -563,6 +567,7 @@ export default function ChatWidget() {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {/* Menu Options - Overlay Style: Large background with smaller white rectangle */}

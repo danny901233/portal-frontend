@@ -350,26 +350,15 @@ export default function ChatWidget() {
                 }}
               />
             ) : (
-              <div className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden" style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              <div className="w-16 h-16 rounded-full overflow-hidden" style={{
                 border: '3px solid white',
                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
               }}>
-                <svg className="w-full h-full" viewBox="0 0 100 100" fill="none">
-                  {/* Face - realistic skin tone */}
-                  <circle cx="50" cy="45" r="18" fill="#f4c2a4"/>
-                  {/* Hair */}
-                  <path d="M32 35c0-12 8-20 18-20s18 8 18 20c0 3-1 6-2 8H34c-1-2-2-5-2-8z" fill="#4a3728"/>
-                  {/* Neck/shoulders */}
-                  <ellipse cx="50" cy="75" rx="20" ry="12" fill="#f4c2a4"/>
-                  {/* Shirt */}
-                  <path d="M30 70c0-8 9-15 20-15s20 7 20 15v30H30V70z" fill="white" opacity="0.95"/>
-                  {/* Facial features - eyes */}
-                  <circle cx="43" cy="43" r="2" fill="#2d2d2d"/>
-                  <circle cx="57" cy="43" r="2" fill="#2d2d2d"/>
-                  {/* Smile */}
-                  <path d="M44 52c2 2 4 3 6 3s4-1 6-3" stroke="#2d2d2d" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-                </svg>
+                <img 
+                  src="/avatar-headshot.png" 
+                  alt="Receptionist" 
+                  className="w-full h-full object-cover"
+                />
               </div>
             )}
           </div>
@@ -387,26 +376,15 @@ export default function ChatWidget() {
               borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                <div className="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden" style={{
                   border: '2px solid rgba(255,255,255,0.3)',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                 }}>
-                  <svg className="w-full h-full" viewBox="0 0 100 100" fill="none">
-                    {/* Face */}
-                    <circle cx="50" cy="42" r="16" fill="#f4c2a4"/>
-                    {/* Hair */}
-                    <path d="M34 33c0-10 7-18 16-18s16 8 16 18c0 3-1 5-2 7H36c-1-2-2-4-2-7z" fill="#4a3728"/>
-                    {/* Neck/shoulders */}
-                    <ellipse cx="50" cy="72" rx="18" ry="10" fill="#f4c2a4"/>
-                    {/* Shirt */}
-                    <path d="M32 68c0-7 8-13 18-13s18 6 18 13v32H32V68z" fill="white" opacity="0.95"/>
-                    {/* Eyes */}
-                    <circle cx="43" cy="40" r="1.5" fill="#2d2d2d"/>
-                    <circle cx="57" cy="40" r="1.5" fill="#2d2d2d"/>
-                    {/* Smile */}
-                    <path d="M44 48c2 2 4 2.5 6 2.5s4-0.5 6-2.5" stroke="#2d2d2d" strokeWidth="1.2" strokeLinecap="round" fill="none"/>
-                  </svg>
+                  <img 
+                    src="/avatar-headshot.png" 
+                    alt="Receptionist" 
+                    className="w-full h-full object-cover"
+                  />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 className="font-semibold text-lg truncate" style={{ fontFamily: "'Poppins', sans-serif", color: '#1f2937' }}>{config?.name || 'ReceptionMate'}</h3>

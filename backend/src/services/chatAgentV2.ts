@@ -1636,6 +1636,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
   }
 
   console.log(`[SELECT_TIMESLOT] Preference: "${preference}", dropOff: ${session.useDropOffBooking}`);
+  console.log(`[SELECT_TIMESLOT] Available slots: ${(session.timeslotsAvailable || []).map((t: any) => `${t.date} ${t.time}`).join(', ')}`);
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
     return `No timeslots loaded. Call select_service first.`;
@@ -2280,22 +2281,33 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     return closestByTime(timeslots, ph) ?? timeslots[timeslots.length - 1];
   }
 
-  // "Today" / "Tomorrow"
+  // "Today" / "Tomorrow" — use UK local date to avoid UTC midnight boundary issues
+  // e.g. at 11:30pm UTC the UTC date is still "yesterday" but UK date is already "today"
+  function ukDateStr(offsetDays = 0): string {
+    const now = new Date();
+    const ukMs = now.getTime() + (now.getTimezoneOffset() * 60000) + (3600000); // UTC+1 BST approx
+    // More robust: use toLocaleDateString with Europe/London
+    const ukDate = new Date(now.toLocaleString('en-GB', { timeZone: 'Europe/London' }));
+    ukDate.setDate(ukDate.getDate() + offsetDays);
+    const y = ukDate.getFullYear();
+    const m = String(ukDate.getMonth() + 1).padStart(2, '0');
+    const d = String(ukDate.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
   if (/\btoday\b/.test(prefLower)) {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const matches = timeslots.filter(t => t.date === todayStr);
+    const matches = timeslots.filter(t => t.date === ukDateStr(0));
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
   }
   if (/\btomorrow\b/.test(prefLower)) {
-    const d = new Date(); d.setDate(d.getDate() + 1);
-    const matches = timeslots.filter(t => t.date === d.toISOString().split('T')[0]);
+    const matches = timeslots.filter(t => t.date === ukDateStr(1));
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
   }
 
   // "Next week"
   if (/\bnext week\b/.test(prefLower)) {
-    const d = new Date(); d.setDate(d.getDate() + 7);
-    const matches = timeslots.filter(t => t.date >= d.toISOString().split('T')[0]);
+    const nextWeekStr = ukDateStr(7);
+    const matches = timeslots.filter(t => t.date >= nextWeekStr);
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
   }
 
@@ -2305,8 +2317,8 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   const isNext = /\bnext\b/.test(prefLower);
   for (const dayName of dayNames) {
     if (new RegExp(`\\b${dayName}\\b`).test(prefLower)) {
-      const today = new Date();
-      const todayDow = today.getDay(); // 0=Sun
+      const ukNow = new Date(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }));
+      const todayDow = ukNow.getDay(); // 0=Sun
       const targetDow = dayNames.indexOf(dayName);
 
       // How many days until the next occurrence of targetDow
@@ -2316,9 +2328,12 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       // "next thursday" skips past the coming one to the one after
       if (isNext && daysUntil <= 7) daysUntil += 7;
 
-      const target = new Date(today);
-      target.setDate(today.getDate() + daysUntil);
-      const targetDateStr = target.toISOString().split('T')[0];
+      const target = new Date(ukNow);
+      target.setDate(ukNow.getDate() + daysUntil);
+      const y = target.getFullYear();
+      const mo = String(target.getMonth() + 1).padStart(2, '0');
+      const dy = String(target.getDate()).padStart(2, '0');
+      const targetDateStr = `${y}-${mo}-${dy}`;
 
       // Find slots on that exact date, or the nearest date after it
       let matches = timeslots.filter(t => t.date === targetDateStr);

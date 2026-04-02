@@ -372,7 +372,7 @@ export default function ChatWidget() {
             flexDirection: 'column'
           }}>
             {/* Header inside white rectangle */}
-            <div className="flex items-center justify-between px-6 py-6 flex-shrink-0" style={{
+            <div className="flex items-center justify-between px-8 py-6 flex-shrink-0" style={{
               borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">

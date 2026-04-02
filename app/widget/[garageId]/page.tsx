@@ -350,11 +350,25 @@ export default function ChatWidget() {
                 }}
               />
             ) : (
-              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
-                background: 'white'
+              <div className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden" style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                border: '3px solid white',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
               }}>
-                <svg className="w-8 h-8" style={{ color: config?.primaryColor || '#1e3a8a' }} fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                <svg className="w-full h-full" viewBox="0 0 100 100" fill="none">
+                  {/* Face - realistic skin tone */}
+                  <circle cx="50" cy="45" r="18" fill="#f4c2a4"/>
+                  {/* Hair */}
+                  <path d="M32 35c0-12 8-20 18-20s18 8 18 20c0 3-1 6-2 8H34c-1-2-2-5-2-8z" fill="#4a3728"/>
+                  {/* Neck/shoulders */}
+                  <ellipse cx="50" cy="75" rx="20" ry="12" fill="#f4c2a4"/>
+                  {/* Shirt */}
+                  <path d="M30 70c0-8 9-15 20-15s20 7 20 15v30H30V70z" fill="white" opacity="0.95"/>
+                  {/* Facial features - eyes */}
+                  <circle cx="43" cy="43" r="2" fill="#2d2d2d"/>
+                  <circle cx="57" cy="43" r="2" fill="#2d2d2d"/>
+                  {/* Smile */}
+                  <path d="M44 52c2 2 4 3 6 3s4-1 6-3" stroke="#2d2d2d" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
                 </svg>
               </div>
             )}
@@ -373,11 +387,25 @@ export default function ChatWidget() {
               borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                  background: config?.primaryColor || '#1e3a8a'
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: '2px solid rgba(255,255,255,0.3)',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                 }}>
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                  <svg className="w-full h-full" viewBox="0 0 100 100" fill="none">
+                    {/* Face */}
+                    <circle cx="50" cy="42" r="16" fill="#f4c2a4"/>
+                    {/* Hair */}
+                    <path d="M34 33c0-10 7-18 16-18s16 8 16 18c0 3-1 5-2 7H36c-1-2-2-4-2-7z" fill="#4a3728"/>
+                    {/* Neck/shoulders */}
+                    <ellipse cx="50" cy="72" rx="18" ry="10" fill="#f4c2a4"/>
+                    {/* Shirt */}
+                    <path d="M32 68c0-7 8-13 18-13s18 6 18 13v32H32V68z" fill="white" opacity="0.95"/>
+                    {/* Eyes */}
+                    <circle cx="43" cy="40" r="1.5" fill="#2d2d2d"/>
+                    <circle cx="57" cy="40" r="1.5" fill="#2d2d2d"/>
+                    {/* Smile */}
+                    <path d="M44 48c2 2 4 2.5 6 2.5s4-0.5 6-2.5" stroke="#2d2d2d" strokeWidth="1.2" strokeLinecap="round" fill="none"/>
                   </svg>
                 </div>
                 <div className="min-w-0 flex-1">

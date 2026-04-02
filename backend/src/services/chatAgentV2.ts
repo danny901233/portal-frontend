@@ -2336,9 +2336,15 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   // e.g. at 11:30pm UTC the UTC date is still "yesterday" but UK date is already "today"
   function ukDateStr(offsetDays = 0): string {
     const now = new Date();
-    const ukMs = now.getTime() + (now.getTimezoneOffset() * 60000) + (3600000); // UTC+1 BST approx
-    // More robust: use toLocaleDateString with Europe/London
-    const ukDate = new Date(now.toLocaleString('en-GB', { timeZone: 'Europe/London' }));
+    // Use Intl.DateTimeFormat to get UK date parts directly — avoids DD/MM/YYYY parse ambiguity
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now);
+    const partMap: Record<string, string> = {};
+    for (const p of parts) partMap[p.type] = p.value;
+    // Construct a date at midnight UK time using explicit year/month/day
+    const ukDate = new Date(parseInt(partMap.year), parseInt(partMap.month) - 1, parseInt(partMap.day));
     ukDate.setDate(ukDate.getDate() + offsetDays);
     const y = ukDate.getFullYear();
     const m = String(ukDate.getMonth() + 1).padStart(2, '0');
@@ -2349,10 +2355,12 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   if (/\btoday\b/.test(prefLower)) {
     const matches = timeslots.filter(t => t.date === ukDateStr(0));
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    return null; // today specified but no today slots — let OpenAI explain
   }
   if (/\btomorrow\b/.test(prefLower)) {
     const matches = timeslots.filter(t => t.date === ukDateStr(1));
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    return null; // tomorrow specified but no tomorrow slots — let OpenAI explain
   }
 
   // "Next week"
@@ -2368,7 +2376,15 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   const isNext = /\bnext\b/.test(prefLower);
   for (const dayName of dayNames) {
     if (new RegExp(`\\b${dayName}\\b`).test(prefLower)) {
-      const ukNow = new Date(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }));
+      const ukNow = (() => {
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(now);
+        const pm: Record<string, string> = {};
+        for (const p of parts) pm[p.type] = p.value;
+        return new Date(parseInt(pm.year), parseInt(pm.month) - 1, parseInt(pm.day));
+      })();
       const todayDow = ukNow.getDay(); // 0=Sun
       const targetDow = dayNames.indexOf(dayName);
 

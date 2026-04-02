@@ -344,10 +344,11 @@ export default function ChatWidget() {
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
           paddingTop: `${Math.max(100, (config?.logoHeight || 60) + 50)}px`,
-          paddingBottom: '80px',
+          paddingBottom: '16px',
           paddingLeft: '16px',
           paddingRight: '16px',
           boxSizing: 'border-box',
+          overflow: 'visible',
         }}>
           {/* Logo Area - Above the white card */}
           <div className="absolute top-8 left-0 right-0 flex justify-center">
@@ -551,6 +552,29 @@ export default function ChatWidget() {
               <p className="text-xs mt-2 text-center" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-medium" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
             </div>
           </div>
+          {/* Close button — bottom-right corner of the widget */}
+          <button
+            onClick={() => setViewState('closed')}
+            className="flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95"
+            style={{
+              position: 'absolute',
+              bottom: '8px',
+              right: '8px',
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: config?.buttonColor || config?.primaryColor || '#3f51b5',
+              boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.3), 0 5px 32px 0 rgba(203, 195, 212, 0.2)',
+              border: 'none',
+              cursor: 'pointer',
+              zIndex: 60,
+            }}
+            aria-label="Close chat"
+          >
+            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
 
@@ -928,6 +952,7 @@ export default function ChatWidget() {
           100% { transform: rotate(360deg); }
         }
       `}</style>
+      {viewState !== 'chat' && (
       <button
         onClick={() => {
           if (viewState === 'closed') {
@@ -940,13 +965,10 @@ export default function ChatWidget() {
             setViewState('closed');
           }
         }}
-        className="fixed z-50 flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
         style={{ 
-          bottom: viewState === 'chat' ? '14px' : '24px',
-          top: 'auto',
-          right: viewState === 'chat' ? '16px' : '24px',
-          width: viewState === 'chat' ? '56px' : (viewState === 'closed' && config?.buttonShape === 'pill' ? '180px' : '64px'),
-          height: viewState === 'chat' ? '56px' : '64px',
+          width: viewState === 'closed' && config?.buttonShape === 'pill' ? '180px' : '64px',
+          height: '64px',
           background: config?.buttonColor || config?.primaryColor || '#3f51b5',
           boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.2), 0 5px 32px 0 rgba(203, 195, 212, 0.2), 0 8px 58px 0 rgba(216, 212, 221, 0.1)',
           justifyContent: 'center',
@@ -956,16 +978,12 @@ export default function ChatWidget() {
           fontSize: '17px',
           fontWeight: 700,
           fontFamily: "'Poppins', sans-serif",
-          borderRadius: viewState === 'chat' ? '50%' : (config?.buttonShape === 'pill' ? '32px' : config?.buttonShape === 'circle' ? '50%' : config?.buttonShape === 'square' ? '8px' : '16px'),
+          borderRadius: config?.buttonShape === 'pill' ? '32px' : config?.buttonShape === 'circle' ? '50%' : config?.buttonShape === 'square' ? '8px' : '16px',
           animation: isSpinning ? 'spin 0.6s linear' : 'none'
         }}
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >
-        {viewState === 'chat' ? (
-          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        ) : viewState === 'closed' ? (
+        {viewState === 'closed' ? (
           <>
             {isSpinning ? (
               // Car wheel/tire icon when spinning
@@ -1016,8 +1034,9 @@ export default function ChatWidget() {
           <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
-        )}
+        )}  
       </button>
+      )}
     </>
   );
 }

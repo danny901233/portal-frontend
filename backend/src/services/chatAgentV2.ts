@@ -307,7 +307,8 @@ export async function getChatAgentResponse(
 
     // Check if this garage has multiple branches and set initial step
     console.log(`[BRANCH_CHECK] branchName: "${config.branchName}", garageId: ${garageId}`);
-    const hasMultipleBranches = config.branchName?.toLowerCase().includes('eac telford');
+    const branchNameLower = (config.branchName || '').toLowerCase().replace(/\./g, '');
+    const hasMultipleBranches = branchNameLower.includes('eac telford');
     console.log(`[BRANCH_CHECK] hasMultipleBranches: ${hasMultipleBranches}, step: ${session.step}, selectedBranch: ${session.selectedBranch}`);
     if (hasMultipleBranches && session.step === Step.GREETING && !session.selectedBranch) {
       session.step = Step.NEED_BRANCH;

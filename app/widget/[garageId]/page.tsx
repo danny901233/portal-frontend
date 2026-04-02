@@ -372,14 +372,14 @@ export default function ChatWidget() {
             flexDirection: 'column'
           }}>
             {/* Header inside white rectangle */}
-            <div className="flex items-center justify-between px-6 py-5 flex-shrink-0" style={{
+            <div className="flex items-center justify-between px-6 py-6 flex-shrink-0" style={{
               borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{
                   background: config?.primaryColor || '#3f51b5'
                 }}>
-                  <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                 </div>

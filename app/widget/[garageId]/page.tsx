@@ -920,13 +920,14 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Floating Action Button - Larger Design */}
+      {/* Floating Action Button - hidden when chat is open (header has its own close button) */}
       <style jsx>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
       `}</style>
+      {viewState !== 'chat' && (
       <button
         onClick={() => {
           if (viewState === 'closed') {
@@ -1010,6 +1011,7 @@ export default function ChatWidget() {
           </svg>
         )}
       </button>
+      )}
     </>
   );
 }

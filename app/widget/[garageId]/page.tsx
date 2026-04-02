@@ -942,11 +942,11 @@ export default function ChatWidget() {
         }}
         className="fixed z-50 flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
         style={{ 
-          bottom: viewState === 'chat' ? 'auto' : '24px',
-          top: viewState === 'chat' ? '12px' : 'auto',
-          right: viewState === 'chat' ? '12px' : '24px',
-          width: viewState === 'chat' ? '40px' : (viewState === 'closed' && config?.buttonShape === 'pill' ? '180px' : '64px'),
-          height: viewState === 'chat' ? '40px' : '64px',
+          bottom: viewState === 'chat' ? '-28px' : '24px',
+          top: 'auto',
+          right: viewState === 'chat' ? '16px' : '24px',
+          width: viewState === 'chat' ? '56px' : (viewState === 'closed' && config?.buttonShape === 'pill' ? '180px' : '64px'),
+          height: viewState === 'chat' ? '56px' : '64px',
           background: config?.buttonColor || config?.primaryColor || '#3f51b5',
           boxShadow: '0 5px 18px 0 rgba(151, 124, 156, 0.2), 0 5px 32px 0 rgba(203, 195, 212, 0.2), 0 8px 58px 0 rgba(216, 212, 221, 0.1)',
           justifyContent: 'center',
@@ -962,7 +962,7 @@ export default function ChatWidget() {
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >
         {viewState === 'chat' ? (
-          <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : viewState === 'closed' ? (

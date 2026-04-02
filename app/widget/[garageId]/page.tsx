@@ -509,7 +509,7 @@ export default function ChatWidget() {
               borderBottomLeftRadius: isMobile ? '0' : '24px',
               borderBottomRightRadius: isMobile ? '0' : '24px',
             }}>
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center" style={{ minWidth: 0 }}>
                 <input
                   type="text"
                   value={input}
@@ -517,16 +517,18 @@ export default function ChatWidget() {
                   onKeyDown={handleKeyPress}
                   placeholder="Type your message..."
                   disabled={sending}
-                  className="flex-1"
                   style={{
-                    padding: '12px 16px',
+                    flex: '1 1 0',
+                    minWidth: 0,
+                    padding: isMobile ? '10px 12px' : '12px 16px',
                     backgroundColor: 'white',
                     border: '1px solid rgba(0, 0, 0, 0.12)',
                     borderRadius: '24px',
-                    fontSize: '16px',
+                    fontSize: '15px',
                     color: '#000',
                     outline: 'none',
-                    transition: 'border-color 0.2s'
+                    transition: 'border-color 0.2s',
+                    width: '100%',
                   }}
                   onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#3f51b5'}
                   onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.12)'}

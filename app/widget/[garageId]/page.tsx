@@ -376,16 +376,6 @@ export default function ChatWidget() {
               borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden" style={{
-                  border: '2px solid rgba(255,255,255,0.3)',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                }}>
-                  <img 
-                    src="/avatar-headshot.png" 
-                    alt="Receptionist" 
-                    className="w-full h-full object-cover"
-                  />
-                </div>
                 <div className="min-w-0 flex-1">
                   <h3 className="font-semibold text-lg truncate" style={{ fontFamily: "'Poppins', sans-serif", color: '#1f2937' }}>{config?.name || 'ReceptionMate'}</h3>
                 </div>
@@ -419,10 +409,7 @@ export default function ChatWidget() {
                 ) : (
                 <div key={msg.id} className={`flex items-start gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                   {msg.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0" style={{
-                      border: `2px solid ${config?.primaryColor || '#3f51b5'}`,
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}>
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                       <img 
                         src="/avatar-headshot.png" 
                         alt="Assistant" 
@@ -459,10 +446,7 @@ export default function ChatWidget() {
 
               {sending && (
                 <div className="flex items-start gap-2">
-                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0" style={{
-                    border: `2px solid ${config?.primaryColor || '#3f51b5'}`,
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                  }}>
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                     <img 
                       src="/avatar-headshot.png" 
                       alt="Assistant" 

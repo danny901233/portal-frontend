@@ -2236,6 +2236,16 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       if (mer === 'am' && h === 12) h = 0;
       if (h >= 0 && h <= 23) return h;
     }
+    // Bare number with no am/pm and no colon — e.g. "tomorrow at 1", "around 3"
+    // Hours 1-6 are assumed PM (nobody books a car at 1am), 7-11 assumed AM, 12 = noon
+    const bare = text.match(/\bat\s+(\d{1,2})\b(?!\s*[:apm])/i) || text.match(/\baround\s+(\d{1,2})\b(?!\s*[:apm])/i);
+    if (bare) {
+      let h = parseInt(bare[1]);
+      if (h >= 1 && h <= 6) h += 12; // 1→13, 2→14, ... 6→18
+      if (h >= 7 && h <= 11) { /* stays as-is: 7am–11am */ }
+      if (h === 12) { /* stays 12: noon */ }
+      if (h >= 0 && h <= 23) return h;
+    }
     return null; // Don't extract bare numbers — they're probably dates
   }
 

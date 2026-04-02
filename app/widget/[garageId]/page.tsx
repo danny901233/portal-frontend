@@ -385,8 +385,9 @@ export default function ChatWidget() {
             flexDirection: 'column'
           }}>
             {/* Header inside white rectangle */}
-            <div className="rm-chat-header flex items-center justify-between flex-shrink-0" style={{
-              borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
+            <div className="flex items-center justify-between flex-shrink-0" style={{
+              borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
+              padding: '12px 14px'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{
@@ -415,8 +416,9 @@ export default function ChatWidget() {
               </button>
             </div>
             {/* Messages */}
-            <div className="rm-messages-area flex-1 overflow-y-auto space-y-3" style={{ 
-              scrollbarWidth: 'thin'
+            <div className="flex-1 overflow-y-auto space-y-3" style={{ 
+              scrollbarWidth: 'thin',
+              padding: '16px 14px'
             }}>
               {messages.map((msg) => (
                 msg.role === 'system' ? (
@@ -436,9 +438,8 @@ export default function ChatWidget() {
                       />
                     </div>
                   )}
-                  {/* EXACT Cognigy Message Bubble: 16px border radius, one flat corner, exact shadows */}
-                  <div className={`flex-1 max-w-[75%] text-sm leading-relaxed ${msg.role === 'user' ? '' : ''}`} style={{
-                    padding: '16px 24px',
+                  <div className={`flex-1 max-w-[75%] text-sm leading-relaxed`} style={{
+                    padding: '10px 14px',
                     borderRadius: '16px',
                     ...(msg.role === 'user' ? {
                       backgroundColor: config?.primaryColor || '#3f51b5',
@@ -473,7 +474,7 @@ export default function ChatWidget() {
                     />
                   </div>
                   <div className="flex gap-1.5" style={{
-                    padding: '16px 24px',
+                    padding: '10px 14px',
                     borderRadius: '16px',
                     borderBottomLeftRadius: '0',
                     backgroundColor: 'white',

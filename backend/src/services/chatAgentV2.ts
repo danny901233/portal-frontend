@@ -1279,7 +1279,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const priceNum = parseFloat(String(session.servicePrice));
     const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
-    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nWhich of these slots works for you?\n${firstSlots}"\nWhen the customer responds, call select_timeslot with whatever they say.`;
+    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
   }
 
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
@@ -1458,7 +1458,7 @@ When the customer responds, call select_timeslot with whatever they say.`;
     }
 
     return `SERVICE_SET: ${serviceName} (${priceDisplay}).
-Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nWhich of these slots works for you?\n${firstSlots}"
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"
 When the customer responds, call select_timeslot with whatever they say.`;
     
   } catch (error: any) {
@@ -1484,7 +1484,7 @@ async function handleConfirmBooking(args: any, session: ChatSession, conversatio
   const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
 
   return `SLOTS: Available timeslots below.
-Say: "Which of these slots works for you?\n${firstSlots}"
+Say: "These are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"
 When the customer responds, call select_timeslot with whatever they say.`;
 }
 

@@ -116,6 +116,7 @@ export default function ChatWidget() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Add multiple messages sequentially with typing indicator before each bubble
   const addMessagesSequentially = async (bubbles: string[]) => {
@@ -271,6 +272,9 @@ export default function ChatWidget() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setSending(true);
 
     try {
@@ -501,24 +505,34 @@ export default function ChatWidget() {
               padding: '8px 10px',
               paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                <input
-                  type="text"
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', minWidth: 0 }}>
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    // Auto-grow: reset then set to scrollHeight
+                    e.target.style.height = 'auto';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                  }}
                   onKeyDown={handleKeyPress}
                   placeholder="Type your message..."
-                  disabled={sending}
                   style={{
                     flex: '1 1 0',
                     minWidth: 0,
                     padding: '9px 13px',
                     backgroundColor: 'white',
                     border: '1px solid rgba(0, 0, 0, 0.12)',
-                    borderRadius: '20px',
+                    borderRadius: '16px',
                     fontSize: '14px',
                     color: '#000',
                     outline: 'none',
+                    resize: 'none',
+                    overflowY: 'auto',
+                    lineHeight: '1.4',
+                    maxHeight: '120px',
+                    fontFamily: 'inherit',
                   }}
                   onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#3f51b5'}
                   onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.12)'}

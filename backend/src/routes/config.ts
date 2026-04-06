@@ -682,11 +682,28 @@ router.put(
         }
       : (existingGh.instanceUrl ? existingGh : null);  // keep existing garagehive creds if already saved
 
+    // HubSpot block — save if token provided, preserve existing if not
+    const rawHubspot = data.hubspotSettings ?? {};
+    const existingHubspot = (existingRaw.hubspot && typeof existingRaw.hubspot === 'object')
+      ? existingRaw.hubspot as Record<string, unknown>
+      : null;
+    const newHubspotToken = typeof rawHubspot.apiToken === 'string' ? rawHubspot.apiToken.trim() : '';
+    const hubspotBlock = rawHubspot.enabled === true && newHubspotToken
+      ? {
+          enabled: true,
+          apiToken: newHubspotToken,
+          ownerId: typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId.trim() : '',
+        }
+      : rawHubspot.enabled === false
+        ? { enabled: false, apiToken: existingHubspot?.apiToken ?? '', ownerId: existingHubspot?.ownerId ?? '' }
+        : existingHubspot;  // no change submitted — keep existing
+
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      (tyresoftBlock || garageHiveBlock)
+      (tyresoftBlock || garageHiveBlock || hubspotBlock)
         ? {
             ...(tyresoftBlock   ? { tyresoft:   tyresoftBlock   as Prisma.InputJsonObject } : {}),
             ...(garageHiveBlock ? { garagehive: garageHiveBlock as Prisma.InputJsonObject } : {}),
+            ...(hubspotBlock    ? { hubspot:    hubspotBlock    as Prisma.InputJsonObject } : {}),
           } as Prisma.InputJsonObject
         : existingConfig?.integrationProviderConfig ?? null;
 

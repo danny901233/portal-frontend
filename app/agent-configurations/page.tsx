@@ -231,7 +231,6 @@ const voiceOptions: { value: VoiceOption; label: string; description: string; el
 
 export default function AgentConfigurationsPage() {
   const garageId = getGarageId();
-  const isStaff = isReceptionMateStaff();
   const [formState, setFormState] = useState<AgentConfiguration>(() => createEmptyConfiguration());
   const [isEditing, setIsEditing] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -2064,8 +2063,7 @@ export default function AgentConfigurationsPage() {
           </div>
         </section>
 
-        {isStaff && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
             <h2 className="text-lg font-semibold text-slate-100">CRM Integration</h2>
             <p className="mt-1 text-sm text-slate-400">
               Connect a CRM so every inbound call automatically creates a contact record and an inbox ticket.
@@ -2157,7 +2155,6 @@ export default function AgentConfigurationsPage() {
               )}
             </div>
           </section>
-        )}
 
         <div className="flex justify-end">
           <button

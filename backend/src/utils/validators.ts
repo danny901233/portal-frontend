@@ -156,6 +156,7 @@ const tyresoftSettingsSchema = z
 
 const hubspotSettingsSchema = z
   .object({
+    enabled: z.boolean().optional(),
     apiToken: optionalBoundedString(4096),
     ownerId: optionalBoundedString(100),
   })
@@ -248,7 +249,7 @@ export const upsertAgentConfigurationSchema = z.object({
   dropOffMessage: z.string().max(500).optional(),
   dropOffExcludeServices: z.array(z.string().max(100)).max(20).optional(),
   notificationEmails: z.array(z.string().email().max(254)).max(10).optional(),
-  integrationProvider: z.enum(['none', 'garage_hive', 'hubspot']).optional(),
+  integrationProvider: z.enum(['none', 'garage_hive']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
   hubspotSettings: hubspotSettingsSchema,

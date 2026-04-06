@@ -97,7 +97,7 @@ const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; hubspotSettings: HubspotSettings } => {
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
   const outer = (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings))
     ? rawSettings as Record<string, unknown>
     : {};
@@ -110,7 +110,6 @@ const parseIntegrationSettings = (
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
-      hubspotSettings: createDefaultHubspotSettings(),
       tyresoftSettings: cloneTyresoftSettings({
         tsWorkspace: typeof raw.tsWorkspace === 'string' ? raw.tsWorkspace : (typeof raw.workspace === 'string' ? raw.workspace : ''),
         tsUsername: typeof raw.tsUsername === 'string' ? raw.tsUsername : (typeof raw.username === 'string' ? raw.username : ''),
@@ -121,32 +120,13 @@ const parseIntegrationSettings = (
     };
   }
 
-  const provider: IntegrationProvider =
-    providerValue === 'garage_hive' ? 'garage_hive' :
-    providerValue === 'hubspot' ? 'hubspot' :
-    'none';
-
-  if (provider === 'hubspot') {
-    const raw = (outer.hubspot && typeof outer.hubspot === 'object')
-      ? outer.hubspot as Record<string, unknown>
-      : outer;
-    return {
-      integrationProvider: 'hubspot',
-      garageHiveSettings: createDefaultGarageHiveSettings(),
-      tyresoftSettings: createDefaultTyresoftSettings(),
-      hubspotSettings: cloneHubspotSettings({
-        apiToken: typeof raw.apiToken === 'string' ? raw.apiToken : '',
-        ownerId: typeof raw.ownerId === 'string' ? raw.ownerId : '',
-      }),
-    };
-  }
+  const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
 
   if (provider !== 'garage_hive') {
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
-      hubspotSettings: createDefaultHubspotSettings(),
     };
   }
 
@@ -164,8 +144,23 @@ const parseIntegrationSettings = (
       locationId: typeof settingsRecord.locationId === 'string' ? settingsRecord.locationId : '',
     }),
     tyresoftSettings: createDefaultTyresoftSettings(),
-    hubspotSettings: createDefaultHubspotSettings(),
   };
+};
+
+/** Parses HubSpot settings from integrationProviderConfig.hubspot — independent of diary provider */
+const parseHubspotSettings = (rawSettings: Prisma.JsonValue | null | undefined): HubspotSettings => {
+  if (!rawSettings || typeof rawSettings !== 'object' || Array.isArray(rawSettings)) {
+    return createDefaultHubspotSettings();
+  }
+  const outer = rawSettings as Record<string, unknown>;
+  const raw = (outer.hubspot && typeof outer.hubspot === 'object')
+    ? outer.hubspot as Record<string, unknown>
+    : {};
+  return cloneHubspotSettings({
+    enabled: raw.enabled === true,
+    apiToken: typeof raw.apiToken === 'string' ? raw.apiToken : '',
+    ownerId: typeof raw.ownerId === 'string' ? raw.ownerId : '',
+  });
 };
 
 const defaultConfiguration: AgentConfigurationPayload = {
@@ -194,16 +189,11 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
     ? cloneWeeklyOpeningHours(config.weeklyOpeningHours)
     : createDefaultWeeklyOpeningHours();
-  const sanitizedProvider: IntegrationProvider =
-    config.integrationProvider === 'garage_hive' ? 'garage_hive' :
-    config.integrationProvider === 'hubspot' ? 'hubspot' :
-    'none';
+  const sanitizedProvider: IntegrationProvider = config.integrationProvider === 'garage_hive' ? 'garage_hive' : 'none';
   const garageHiveSettings = sanitizedProvider === 'garage_hive'
     ? cloneGarageHiveSettings(config.garageHiveSettings)
     : createDefaultGarageHiveSettings();
-  const hubspotSettings = sanitizedProvider === 'hubspot'
-    ? cloneHubspotSettings(config.hubspotSettings)
-    : createDefaultHubspotSettings();
+  const hubspotSettings = cloneHubspotSettings(config.hubspotSettings);
 
   return {
     ...config,
@@ -283,6 +273,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       configuration.integrationProviderConfig,
       configuration.agentScript,
     ),
+    hubspotSettings: parseHubspotSettings(configuration.integrationProviderConfig),
   });
 };
 
@@ -651,7 +642,6 @@ router.put(
 
     const requestedProvider: IntegrationProvider =
       data.integrationProvider === 'garage_hive' ? 'garage_hive' :
-      data.integrationProvider === 'hubspot' ? 'hubspot' :
       'none';
     const rawGarageHive = data.garageHiveSettings ?? {};
     const garageHiveSettings = requestedProvider === 'garage_hive'
@@ -702,18 +692,20 @@ router.put(
         }
       : (existingGh.instanceUrl ? existingGh : null);  // keep existing garagehive creds if already saved
 
-    // HubSpot block — only update if new API token submitted, otherwise keep existing
+    // HubSpot block — independent of diary integrationProvider; always saved when token present
     const existingHs = (existingRaw.hubspot && typeof existingRaw.hubspot === 'object')
       ? existingRaw.hubspot as Record<string, unknown>
       : {} as Record<string, unknown>;
     const rawHubspot = data.hubspotSettings ?? {};
+    const hubspotEnabled = rawHubspot.enabled === true;
     const newHsApiToken = typeof rawHubspot.apiToken === 'string' ? rawHubspot.apiToken.trim() : '';
-    const hubspotBlock = (requestedProvider === 'hubspot' && newHsApiToken)
+    const hubspotBlock = newHsApiToken
       ? {
+          enabled:  hubspotEnabled,
           apiToken: newHsApiToken,
           ownerId:  typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId.trim() : '',
         }
-      : (requestedProvider === 'hubspot' && existingHs.apiToken ? existingHs : null);
+      : (existingHs.apiToken ? { ...existingHs, enabled: hubspotEnabled } : null);
 
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       (tyresoftBlock || garageHiveBlock || hubspotBlock)

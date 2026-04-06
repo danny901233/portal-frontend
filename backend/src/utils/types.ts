@@ -46,7 +46,7 @@ export type WeeklyOpeningHours = Record<DayOfWeek, DailyOpeningHours>;
 
 export type ResponseSpeed = 'slow' | 'normal' | 'fast';
 
-export type IntegrationProvider = 'none' | 'garage_hive' | 'hubspot';
+export type IntegrationProvider = 'none' | 'garage_hive';
 
 export type AgentType = 'assist' | 'automate';
 
@@ -77,16 +77,19 @@ export const cloneTyresoftSettings = (settings?: TyresoftSettings | null): Tyres
 });
 
 export type HubspotSettings = {
+  enabled: boolean;
   apiToken: string;
   ownerId: string;
 };
 
 export const createDefaultHubspotSettings = (): HubspotSettings => ({
+  enabled: false,
   apiToken: '',
   ownerId: '',
 });
 
 export const cloneHubspotSettings = (settings?: HubspotSettings | null): HubspotSettings => ({
+  enabled: settings?.enabled === true,
   apiToken: typeof settings?.apiToken === 'string' ? settings.apiToken : '',
   ownerId: typeof settings?.ownerId === 'string' ? settings.ownerId : '',
 });

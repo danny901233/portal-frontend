@@ -166,7 +166,7 @@ export const createEmptyWeeklyOpeningHours = (): WeeklyOpeningHours => {
   }, {} as WeeklyOpeningHours);
 };
 
-export type IntegrationProvider = 'none' | 'garage_hive' | 'hubspot';
+export type IntegrationProvider = 'none' | 'garage_hive';
 
 export type AgentType = 'assist' | 'automate';
 
@@ -180,6 +180,7 @@ export interface GarageHiveSettings {
 }
 
 export interface HubspotSettings {
+  enabled: boolean;
   apiToken: string;
   ownerId: string;
 }

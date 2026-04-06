@@ -257,13 +257,14 @@ router.post('/calls', async (req: Request, res: Response) => {
       }
     }
 
-    // Log to HubSpot if configured
-    if (createdCall.garage?.agentConfiguration?.integrationProvider === 'hubspot') {
-      const rawConfig = (createdCall.garage.agentConfiguration.integrationProviderConfig ?? {}) as Record<string, unknown>;
-      const rawHubspot = (rawConfig.hubspot && typeof rawConfig.hubspot === 'object')
-        ? rawConfig.hubspot as Record<string, unknown>
-        : rawConfig;
+    // Log to HubSpot if configured (independent of diary integrationProvider)
+    const rawConfig = (createdCall.garage?.agentConfiguration?.integrationProviderConfig ?? {}) as Record<string, unknown>;
+    const rawHubspot = (rawConfig.hubspot && typeof rawConfig.hubspot === 'object')
+      ? rawConfig.hubspot as Record<string, unknown>
+      : {};
+    if (rawHubspot.enabled === true && typeof rawHubspot.apiToken === 'string' && rawHubspot.apiToken) {
       const hubspotSettings = cloneHubspotSettings({
+        enabled: true,
         apiToken: typeof rawHubspot.apiToken === 'string' ? rawHubspot.apiToken : '',
         ownerId: typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId : '',
       });
@@ -279,7 +280,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         callType,
         confirmedBooking: payload.confirmedBooking ?? false,
         createdAt: createdCall.createdAt,
-        branchName: createdCall.garage.agentConfiguration.branchName,
+        branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
         recordingUrl: null, // recording URL not yet resolved at this point
       }, hubspotSettings).catch((error) => {
         console.error('[HUBSPOT] Failed to log call:', error);

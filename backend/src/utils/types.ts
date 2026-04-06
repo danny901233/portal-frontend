@@ -76,6 +76,24 @@ export const cloneTyresoftSettings = (settings?: TyresoftSettings | null): Tyres
   tsDepotId: typeof settings?.tsDepotId === 'string' ? settings.tsDepotId : (settings?.tsDepotId != null ? String(settings.tsDepotId) : ''),
 });
 
+export type HubspotSettings = {
+  enabled: boolean;
+  apiToken: string;
+  ownerId: string;
+};
+
+export const createDefaultHubspotSettings = (): HubspotSettings => ({
+  enabled: false,
+  apiToken: '',
+  ownerId: '',
+});
+
+export const cloneHubspotSettings = (settings?: HubspotSettings | null): HubspotSettings => ({
+  enabled: settings?.enabled === true,
+  apiToken: typeof settings?.apiToken === 'string' ? settings.apiToken : '',
+  ownerId: typeof settings?.ownerId === 'string' ? settings.ownerId : '',
+});
+
 export type GarageHiveSettings = {
   instanceUrl: string;
   apiKey: string;
@@ -136,6 +154,7 @@ export type AgentConfigurationPayload = {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings?: TyresoftSettings;
+  hubspotSettings?: HubspotSettings;
   agentType: AgentType;
   agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks?: boolean;

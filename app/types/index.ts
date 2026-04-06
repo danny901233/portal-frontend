@@ -179,6 +179,12 @@ export interface GarageHiveSettings {
   locationId: string;
 }
 
+export interface HubspotSettings {
+  enabled: boolean;
+  apiToken: string;
+  ownerId: string;
+}
+
 export interface TyresoftSettings {
   tsWorkspace: string;
   tsUsername: string;
@@ -207,6 +213,7 @@ export interface AgentConfiguration {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings: TyresoftSettings;
+  hubspotSettings: HubspotSettings;
   agentType: AgentType;
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks: boolean;

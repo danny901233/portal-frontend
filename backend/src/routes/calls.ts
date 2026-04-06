@@ -18,6 +18,8 @@ import { resolveAllowedGarages } from '../utils/auth.js';
 import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { trackConfirmedBooking } from '../services/billing.js';
+import { logCallToHubSpot } from '../services/hubspot.js';
+import { cloneHubspotSettings } from '../utils/types.js';
 
 const router = Router();
 
@@ -237,6 +239,7 @@ router.post('/calls', async (req: Request, res: Response) => {
               select: {
                 branchName: true,
                 notificationEmails: true,
+                integrationProviderConfig: true,
               },
             },
           },
@@ -251,6 +254,35 @@ router.post('/calls', async (req: Request, res: Response) => {
       } catch (error) {
         console.error('[BILLING] Failed to track confirmed booking:', error);
       }
+    }
+
+    // Log to HubSpot if configured (independent of diary integrationProvider)
+    const rawConfig = (createdCall.garage?.agentConfiguration?.integrationProviderConfig ?? {}) as Record<string, unknown>;
+    const rawHubspot = (rawConfig.hubspot && typeof rawConfig.hubspot === 'object')
+      ? rawConfig.hubspot as Record<string, unknown>
+      : {};
+    if (rawHubspot.enabled === true && typeof rawHubspot.apiToken === 'string' && rawHubspot.apiToken) {
+      const hubspotSettings = cloneHubspotSettings({
+        enabled: true,
+        apiToken: rawHubspot.apiToken,
+        ownerId: typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId : '',
+      });
+      void logCallToHubSpot({
+        customerPhone: payload.customerPhone ?? null,
+        fromNumber: payload.fromNumber ?? null,
+        customerName: payload.customerName ?? null,
+        registrationNumber: payload.registrationNumber ?? null,
+        summary: payload.summary ?? null,
+        bookingDetails: payload.bookingDetails ?? null,
+        durationSeconds: actualDuration,
+        callType,
+        confirmedBooking: payload.confirmedBooking ?? false,
+        createdAt: createdCall.createdAt,
+        branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
+        recordingUrl: null,
+      }, hubspotSettings).catch((error) => {
+        console.error('[HUBSPOT] Failed to log call:', error);
+      });
     }
 
     // Send notification email (agent already filtered to only send calls >= 30s)

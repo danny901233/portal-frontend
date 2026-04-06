@@ -234,6 +234,10 @@ const voiceOptions: { value: VoiceOption; label: string; description: string; el
 
 export default function AgentConfigurationsPage() {
   const garageId = getGarageId();
+  const isStaff = isReceptionMateStaff();
+  const visibleIntegrationProviderOptions = integrationProviderOptions.filter(
+    (o) => o.value !== 'hubspot' || isStaff,
+  );
   const [formState, setFormState] = useState<AgentConfiguration>(() => createEmptyConfiguration());
   const [isEditing, setIsEditing] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -1950,14 +1954,14 @@ export default function AgentConfigurationsPage() {
                 disabled={!isEditing || mutation.isPending}
                 className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {integrationProviderOptions.map((option) => (
+                {visibleIntegrationProviderOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
               <span className="text-xs text-slate-500">
-                {integrationProviderOptions.find((option) => option.value === formState.integrationProvider)?.description ?? ''}
+                {visibleIntegrationProviderOptions.find((option) => option.value === formState.integrationProvider)?.description ?? ''}
               </span>
             </label>
 

@@ -20,6 +20,7 @@ import type {
   AgentKnowledgeDocument,
   AgentType,
   DayOfWeek,
+  HubspotSettings,
   IntegrationProvider,
   ResponseSpeed,
   TonePreference,
@@ -103,6 +104,16 @@ const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): Tyresoft
   tsDepotId: settings?.tsDepotId ?? '',
 });
 
+const createEmptyHubspotSettings = (): HubspotSettings => ({
+  apiToken: '',
+  ownerId: '',
+});
+
+const cloneHubspotSettings = (settings: HubspotSettings | undefined): HubspotSettings => ({
+  apiToken: settings?.apiToken ?? '',
+  ownerId: settings?.ownerId ?? '',
+});
+
 const createEmptyConfiguration = (): AgentConfiguration => ({
   branchName: '',
   phoneNumber: '',
@@ -123,6 +134,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
   tyresoftSettings: createEmptyTyresoftSettings(),
+  hubspotSettings: createEmptyHubspotSettings(),
   agentType: 'assist',
   agentScript: 'receptionmate-agent-v3',
   enableSmsBookingLinks: true,
@@ -136,6 +148,7 @@ const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => (
   weeklyOpeningHours: cloneWeeklyOpeningHours(config.weeklyOpeningHours),
   garageHiveSettings: cloneGarageHiveSettings(config.garageHiveSettings),
   tyresoftSettings: cloneTyresoftSettings(config.tyresoftSettings),
+  hubspotSettings: cloneHubspotSettings(config.hubspotSettings),
   dropOffExcludeServices: [...(config.dropOffExcludeServices || ['MOT'])],
 });
 
@@ -169,6 +182,11 @@ const integrationProviderOptions: { value: IntegrationProvider; label: string; d
     value: 'garage_hive',
     label: 'Garage Hive',
     description: 'Let the agent book straight into your Garage Hive diary.',
+  },
+  {
+    value: 'hubspot',
+    label: 'HubSpot',
+    description: 'Log every call as an engagement in your HubSpot CRM.',
   },
 ];
 
@@ -708,6 +726,23 @@ export default function AgentConfigurationsPage() {
       ...prev,
       tyresoftSettings: {
         ...prev.tyresoftSettings,
+        [field]: value,
+      },
+    }));
+    setFeedback(null);
+  };
+
+  const handleHubspotSettingsChange = (
+    field: keyof HubspotSettings,
+  ) => (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isEditing || mutation.isPending) {
+      return;
+    }
+    const { value } = event.target;
+    setFormState((prev) => ({
+      ...prev,
+      hubspotSettings: {
+        ...prev.hubspotSettings,
         [field]: value,
       },
     }));
@@ -2016,6 +2051,82 @@ export default function AgentConfigurationsPage() {
                       <span className="text-xs uppercase tracking-wide text-slate-500">Location ID</span>
                       <div className="text-slate-100">
                         {formState.garageHiveSettings.locationId || 'Not set'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            ) : formState.integrationProvider === 'hubspot' ? (
+              isEditing ? (
+                <div className="flex flex-col gap-5">
+                  <div className="rounded-xl border border-sky-800/40 bg-sky-950/30 p-4 text-sm text-slate-300">
+                    <p className="mb-3 font-medium text-sky-300">How to set up your HubSpot Private App</p>
+                    <ol className="flex flex-col gap-2 text-slate-400 list-decimal list-inside">
+                      <li>Log in to HubSpot and go to <span className="text-slate-200">Settings</span> (top-right gear icon).</li>
+                      <li>In the left sidebar go to <span className="text-slate-200">Integrations → Private Apps</span>.</li>
+                      <li>Click <span className="text-slate-200">Create a private app</span>, give it a name (e.g. "ReceptionMate").</li>
+                      <li>Under the <span className="text-slate-200">Scopes</span> tab, enable these four scopes:
+                        <ul className="ml-5 mt-1 flex flex-col gap-1 list-disc">
+                          <li><code className="text-sky-300">crm.objects.contacts.read</code></li>
+                          <li><code className="text-sky-300">crm.objects.contacts.write</code></li>
+                          <li><code className="text-sky-300">crm.objects.tickets.write</code></li>
+                          <li><code className="text-sky-300">crm.objects.calls.write</code></li>
+                        </ul>
+                      </li>
+                      <li>Click <span className="text-slate-200">Create app</span>, then copy the token shown (starts with <code className="text-sky-300">pat-</code>).</li>
+                      <li>Paste it in the field below and save.</li>
+                    </ol>
+                    <p className="mt-3 text-xs text-slate-500">After saving, every inbound call will automatically create a contact and an inbox ticket in your HubSpot account.</p>
+                  </div>
+                  <div className="grid gap-5 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">HubSpot Private App Token</span>
+                    <input
+                      type="password"
+                      placeholder="pat-na1-..."
+                      value={formState.hubspotSettings?.apiToken ?? ''}
+                      onChange={handleHubspotSettingsChange('apiToken')}
+                      disabled={!isEditing || mutation.isPending}
+                      required={formState.integrationProvider === 'hubspot'}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-xs text-slate-500">
+                      Create a Private App in HubSpot (Settings → Integrations → Private Apps) with scopes: <code>crm.objects.contacts.read</code>, <code>crm.objects.contacts.write</code>, <code>crm.objects.tickets.write</code>, <code>crm.objects.calls.write</code>.
+                    </span>
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">HubSpot Owner ID (optional)</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 11349275740"
+                      value={formState.hubspotSettings?.ownerId ?? ''}
+                      onChange={handleHubspotSettingsChange('ownerId')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-xs text-slate-500">
+                      Assign logged calls to a specific HubSpot user. Leave blank to log without an owner.
+                    </span>
+                  </label>
+                </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">System</span>
+                      <div className="text-slate-100">HubSpot CRM</div>
+                    </div>
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Private App Token</span>
+                      <div className="text-slate-100">
+                        {formState.hubspotSettings?.apiToken ? '••••••••' : 'Not set'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Owner ID</span>
+                      <div className="text-slate-100">
+                        {formState.hubspotSettings?.ownerId || 'Not set'}
                       </div>
                     </div>
                   </div>

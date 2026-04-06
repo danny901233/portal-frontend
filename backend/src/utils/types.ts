@@ -46,7 +46,7 @@ export type WeeklyOpeningHours = Record<DayOfWeek, DailyOpeningHours>;
 
 export type ResponseSpeed = 'slow' | 'normal' | 'fast';
 
-export type IntegrationProvider = 'none' | 'garage_hive';
+export type IntegrationProvider = 'none' | 'garage_hive' | 'hubspot';
 
 export type AgentType = 'assist' | 'automate';
 
@@ -74,6 +74,21 @@ export const cloneTyresoftSettings = (settings?: TyresoftSettings | null): Tyres
   tsPassword: typeof settings?.tsPassword === 'string' ? settings.tsPassword : '',
   tsApiKey: typeof settings?.tsApiKey === 'string' ? settings.tsApiKey : '',
   tsDepotId: typeof settings?.tsDepotId === 'string' ? settings.tsDepotId : (settings?.tsDepotId != null ? String(settings.tsDepotId) : ''),
+});
+
+export type HubspotSettings = {
+  apiToken: string;
+  ownerId: string;
+};
+
+export const createDefaultHubspotSettings = (): HubspotSettings => ({
+  apiToken: '',
+  ownerId: '',
+});
+
+export const cloneHubspotSettings = (settings?: HubspotSettings | null): HubspotSettings => ({
+  apiToken: typeof settings?.apiToken === 'string' ? settings.apiToken : '',
+  ownerId: typeof settings?.ownerId === 'string' ? settings.ownerId : '',
 });
 
 export type GarageHiveSettings = {
@@ -136,6 +151,7 @@ export type AgentConfigurationPayload = {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings?: TyresoftSettings;
+  hubspotSettings?: HubspotSettings;
   agentType: AgentType;
   agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks?: boolean;

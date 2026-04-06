@@ -166,7 +166,7 @@ export const createEmptyWeeklyOpeningHours = (): WeeklyOpeningHours => {
   }, {} as WeeklyOpeningHours);
 };
 
-export type IntegrationProvider = 'none' | 'garage_hive';
+export type IntegrationProvider = 'none' | 'garage_hive' | 'hubspot';
 
 export type AgentType = 'assist' | 'automate';
 
@@ -177,6 +177,11 @@ export interface GarageHiveSettings {
   apiKey: string;
   customerId: string;
   locationId: string;
+}
+
+export interface HubspotSettings {
+  apiToken: string;
+  ownerId: string;
 }
 
 export interface TyresoftSettings {
@@ -207,6 +212,7 @@ export interface AgentConfiguration {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings: TyresoftSettings;
+  hubspotSettings: HubspotSettings;
   agentType: AgentType;
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks: boolean;

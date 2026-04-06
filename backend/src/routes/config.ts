@@ -9,15 +9,18 @@ import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import {
   cloneGarageHiveSettings,
+  cloneHubspotSettings,
   cloneTyresoftSettings,
   cloneWeeklyOpeningHours,
   createDefaultGarageHiveSettings,
+  createDefaultHubspotSettings,
   createDefaultTyresoftSettings,
   createDefaultWeeklyOpeningHours,
 } from '../utils/types.js';
 import type {
   AgentConfigurationPayload,
   GarageHiveSettings,
+  HubspotSettings,
   IntegrationProvider,
   ResponseSpeed,
   TyresoftSettings,
@@ -94,49 +97,63 @@ const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; hubspotSettings: HubspotSettings } => {
+  const outer = (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings))
+    ? rawSettings as Record<string, unknown>
+    : {};
+
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
-    if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
-      const raw = rawSettings as Record<string, unknown>;
-      return {
-        integrationProvider: 'none',
-        garageHiveSettings: createDefaultGarageHiveSettings(),
-        tyresoftSettings: cloneTyresoftSettings({
-          tsWorkspace: typeof raw.tsWorkspace === 'string' ? raw.tsWorkspace : (typeof raw.workspace === 'string' ? raw.workspace : ''),
-          tsUsername: typeof raw.tsUsername === 'string' ? raw.tsUsername : (typeof raw.username === 'string' ? raw.username : ''),
-          tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
-          tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
-          tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
-        }),
-      };
-    }
+    const raw = (outer.tyresoft && typeof outer.tyresoft === 'object')
+      ? outer.tyresoft as Record<string, unknown>
+      : outer;
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
-      tyresoftSettings: createDefaultTyresoftSettings(),
+      hubspotSettings: createDefaultHubspotSettings(),
+      tyresoftSettings: cloneTyresoftSettings({
+        tsWorkspace: typeof raw.tsWorkspace === 'string' ? raw.tsWorkspace : (typeof raw.workspace === 'string' ? raw.workspace : ''),
+        tsUsername: typeof raw.tsUsername === 'string' ? raw.tsUsername : (typeof raw.username === 'string' ? raw.username : ''),
+        tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
+        tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
+        tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
+      }),
     };
   }
 
-  const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
+  const provider: IntegrationProvider =
+    providerValue === 'garage_hive' ? 'garage_hive' :
+    providerValue === 'hubspot' ? 'hubspot' :
+    'none';
+
+  if (provider === 'hubspot') {
+    const raw = (outer.hubspot && typeof outer.hubspot === 'object')
+      ? outer.hubspot as Record<string, unknown>
+      : outer;
+    return {
+      integrationProvider: 'hubspot',
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
+      hubspotSettings: cloneHubspotSettings({
+        apiToken: typeof raw.apiToken === 'string' ? raw.apiToken : '',
+        ownerId: typeof raw.ownerId === 'string' ? raw.ownerId : '',
+      }),
+    };
+  }
 
   if (provider !== 'garage_hive') {
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
+      hubspotSettings: createDefaultHubspotSettings(),
     };
   }
 
-  if (!rawSettings || typeof rawSettings !== 'object' || Array.isArray(rawSettings)) {
-    return {
-      integrationProvider: 'garage_hive',
-      garageHiveSettings: createDefaultGarageHiveSettings(),
-      tyresoftSettings: createDefaultTyresoftSettings(),
-    };
-  }
-
-  const settingsRecord = rawSettings as Record<string, unknown>;
+  // garage_hive
+  const settingsRecord = (outer.garagehive && typeof outer.garagehive === 'object')
+    ? outer.garagehive as Record<string, unknown>
+    : outer;
 
   return {
     integrationProvider: 'garage_hive',
@@ -147,6 +164,7 @@ const parseIntegrationSettings = (
       locationId: typeof settingsRecord.locationId === 'string' ? settingsRecord.locationId : '',
     }),
     tyresoftSettings: createDefaultTyresoftSettings(),
+    hubspotSettings: createDefaultHubspotSettings(),
   };
 };
 
@@ -176,10 +194,16 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
     ? cloneWeeklyOpeningHours(config.weeklyOpeningHours)
     : createDefaultWeeklyOpeningHours();
-  const sanitizedProvider: IntegrationProvider = config.integrationProvider === 'garage_hive' ? 'garage_hive' : 'none';
+  const sanitizedProvider: IntegrationProvider =
+    config.integrationProvider === 'garage_hive' ? 'garage_hive' :
+    config.integrationProvider === 'hubspot' ? 'hubspot' :
+    'none';
   const garageHiveSettings = sanitizedProvider === 'garage_hive'
     ? cloneGarageHiveSettings(config.garageHiveSettings)
     : createDefaultGarageHiveSettings();
+  const hubspotSettings = sanitizedProvider === 'hubspot'
+    ? cloneHubspotSettings(config.hubspotSettings)
+    : createDefaultHubspotSettings();
 
   return {
     ...config,
@@ -202,6 +226,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     notificationEmails: Array.isArray(config.notificationEmails) ? config.notificationEmails : [],
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
+    hubspotSettings,
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
     agentScript: 
       config.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
@@ -624,7 +649,10 @@ router.put(
       ? cloneWeeklyOpeningHours(data.weeklyOpeningHours)
       : createDefaultWeeklyOpeningHours();
 
-    const requestedProvider: IntegrationProvider = data.integrationProvider === 'garage_hive' ? 'garage_hive' : 'none';
+    const requestedProvider: IntegrationProvider =
+      data.integrationProvider === 'garage_hive' ? 'garage_hive' :
+      data.integrationProvider === 'hubspot' ? 'hubspot' :
+      'none';
     const rawGarageHive = data.garageHiveSettings ?? {};
     const garageHiveSettings = requestedProvider === 'garage_hive'
       ? cloneGarageHiveSettings({
@@ -645,27 +673,56 @@ router.put(
     });
 
     const rawTyresoft = data.tyresoftSettings ?? {};
-    // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
-    // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
+    // Merge credentials into namespaced keys so switching agents never wipes the other agent's config.
+    // Both tyresoft and garagehive creds live inside the same JSON under separate keys.
+    const existingRaw = (existingConfig?.integrationProviderConfig ?? {}) as Record<string, unknown>;
+
+    // Tyresoft block — only update if new credentials are submitted, otherwise keep existing
+    const existingTs = (existingRaw.tyresoft ?? existingRaw) as Record<string, unknown>;
+    const newTsWorkspace = typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '';
+    const tyresoftBlock = newTsWorkspace
+      ? {
+          tsWorkspace: newTsWorkspace,
+          tsUsername:  typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
+          tsPassword:  typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
+          tsApiKey:    typeof rawTyresoft.tsApiKey   === 'string' ? rawTyresoft.tsApiKey.trim()   : '',
+          tsDepotId:   rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
+        }
+      : (existingTs.tsWorkspace ? existingTs : null);  // keep existing tyresoft creds if already saved
+
+    // GarageHive block — only update if new credentials are submitted, otherwise keep existing
+    const existingGh = (existingRaw.garagehive ?? existingRaw) as Record<string, unknown>;
+    const newGhInstanceUrl = garageHiveSettings.instanceUrl;
+    const garageHiveBlock = (requestedProvider === 'garage_hive' && newGhInstanceUrl)
+      ? {
+          instanceUrl: garageHiveSettings.instanceUrl,
+          apiKey:      garageHiveSettings.apiKey,
+          customerId:  garageHiveSettings.customerId,
+          locationId:  garageHiveSettings.locationId,
+        }
+      : (existingGh.instanceUrl ? existingGh : null);  // keep existing garagehive creds if already saved
+
+    // HubSpot block — only update if new API token submitted, otherwise keep existing
+    const existingHs = (existingRaw.hubspot && typeof existingRaw.hubspot === 'object')
+      ? existingRaw.hubspot as Record<string, unknown>
+      : {} as Record<string, unknown>;
+    const rawHubspot = data.hubspotSettings ?? {};
+    const newHsApiToken = typeof rawHubspot.apiToken === 'string' ? rawHubspot.apiToken.trim() : '';
+    const hubspotBlock = (requestedProvider === 'hubspot' && newHsApiToken)
+      ? {
+          apiToken: newHsApiToken,
+          ownerId:  typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId.trim() : '',
+        }
+      : (requestedProvider === 'hubspot' && existingHs.apiToken ? existingHs : null);
+
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
+      (tyresoftBlock || garageHiveBlock || hubspotBlock)
         ? {
-            tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
-            tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
-            tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
-            tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
-            tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
-          }
-        : resolvedAgentScript === 'tyresoft-agent' && existingConfig?.integrationProviderConfig
-        ? existingConfig.integrationProviderConfig as Prisma.InputJsonValue
-        : requestedProvider === 'garage_hive'
-        ? {
-            instanceUrl: garageHiveSettings.instanceUrl,
-            apiKey: garageHiveSettings.apiKey,
-            customerId: garageHiveSettings.customerId,
-            locationId: garageHiveSettings.locationId,
-          }
-        : null;
+            ...(tyresoftBlock   ? { tyresoft:   tyresoftBlock   as Prisma.InputJsonObject } : {}),
+            ...(garageHiveBlock ? { garagehive: garageHiveBlock as Prisma.InputJsonObject } : {}),
+            ...(hubspotBlock    ? { hubspot:    hubspotBlock    as Prisma.InputJsonObject } : {}),
+          } as Prisma.InputJsonObject
+        : existingConfig?.integrationProviderConfig ?? null;
 
     const normalizedData = {
       branchName: data.branchName,

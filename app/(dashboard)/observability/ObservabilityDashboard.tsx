@@ -113,6 +113,7 @@ const DEFAULT_EVALUATORS: EvaluatorConfig = {
 };
 
 const EVALUATORS_STORAGE_KEY = 'rm_evaluator_config';
+const FLAGGED_NOTIFIED_KEY  = 'rm_flagged_notified';
 
 // --- Module-level helpers ---
 
@@ -216,7 +217,26 @@ export function ObservabilityDashboard() {
     try {
       localStorage.setItem(EVALUATORS_STORAGE_KEY, JSON.stringify(evaluators));
     } catch {}
-    setFlaggedCalls(computeFlaggedCalls(calls, evaluators));
+    const flagged = computeFlaggedCalls(calls, evaluators);
+    setFlaggedCalls(flagged);
+
+    // Notify Discord for newly flagged calls (deduplicated via localStorage)
+    const token = getSessionToken();
+    if (!token || flagged.length === 0) return;
+    let notified: string[] = [];
+    try { notified = JSON.parse(localStorage.getItem(FLAGGED_NOTIFIED_KEY) || '[]'); } catch {}
+    const newlyFlagged = flagged.filter((f) => !notified.includes(f.call.id));
+    if (newlyFlagged.length === 0) return;
+    const garageId = getGarageId() || 'unknown';
+    newlyFlagged.forEach(({ call, reasons }) => {
+      fetch('/api/calls/report-flagged', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ callId: call.id, garageName: garageId, reasons }),
+      }).catch(() => {});
+    });
+    const updatedNotified = [...notified, ...newlyFlagged.map((f) => f.call.id)].slice(-200);
+    try { localStorage.setItem(FLAGGED_NOTIFIED_KEY, JSON.stringify(updatedNotified)); } catch {}
   }, [evaluators, calls]);
 
   useEffect(() => {

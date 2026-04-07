@@ -1150,4 +1150,38 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/calls/report-flagged — called by Observability Dashboard when evaluators flag calls
+// Sends a Discord notification for newly flagged calls (deduplication handled client-side)
+router.post('/calls/report-flagged', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { callId, garageName, reasons } = req.body as {
+      callId?: string;
+      garageName?: string;
+      reasons?: string[];
+    };
+
+    if (!callId || !garageName || !Array.isArray(reasons) || reasons.length === 0) {
+      return res.status(400).json({ error: 'callId, garageName and reasons are required' });
+    }
+
+    await sendDiscordNotification({
+      title: '⚠️ Call Flagged by Evaluator',
+      description: `A call at **${garageName}** was flagged by the observability evaluators.`,
+      color: DISCORD_COLORS.warning,
+      fields: [
+        { name: 'Call ID', value: callId, inline: true },
+        { name: 'Branch', value: garageName, inline: true },
+        { name: 'Reasons', value: reasons.join('\n'), inline: false },
+      ],
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to report flagged call to Discord', error);
+    }
+    res.status(500).json({ error: 'Failed to send notification' });
+  }
+});
+
 export default router;

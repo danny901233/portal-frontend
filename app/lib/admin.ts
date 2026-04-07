@@ -96,6 +96,23 @@ export const updateGarageTwilioNumber = async (payload: { garageId: string; twil
   return data;
 };
 
+export const resendWelcomeEmail = async (userId: string): Promise<{ success: boolean }> => {
+  const { data } = await api.post<{ success: boolean }>(`/api/admin/users/${userId}/resend-welcome-email`);
+  return data;
+};
+
+export const changeUserEmail = async (payload: {
+  userId: string;
+  newEmail: string;
+  confirmEmail: string;
+}): Promise<{ user: AdminUser }> => {
+  const { data } = await api.patch<{ user: AdminUser }>(`/api/admin/users/${payload.userId}/email`, {
+    newEmail: payload.newEmail,
+    confirmEmail: payload.confirmEmail,
+  });
+  return data;
+};
+
 export const updateGarageMessagingAccess = async (payload: { garageId: string; hasMessagingAccess: boolean }) => {
   const { data } = await api.patch<{ hasMessagingAccess: boolean }>(
     `/garages/${payload.garageId}/messaging-access`,

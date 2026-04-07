@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { isReceptionMateStaff } from '../lib/auth';
 import {
   activateGarage,
+  changeUserEmail,
   createAdminBranch,
   createAdminUser,
   deleteAdminBranch,
@@ -13,6 +14,7 @@ import {
   deleteAdminUser,
   fetchAdminBusinesses,
   fetchAdminUsers,
+  resendWelcomeEmail,
   updateBusinessContact,
   updateGarageTwilioNumber,
   updateAdminUser,
@@ -62,6 +64,11 @@ export default function AdminPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [forecastDays, setForecastDays] = useState(30);
+  const [resendingEmail, setResendingEmail] = useState<Record<string, boolean>>({});
+  const [resendFeedback, setResendFeedback] = useState<Record<string, string>>({});
+  const [changeEmailTarget, setChangeEmailTarget] = useState<string | null>(null);
+  const [changeEmailForm, setChangeEmailForm] = useState({ newEmail: '', confirmEmail: '' });
+  const [changeEmailMessage, setChangeEmailMessage] = useState('');
 
   const adminStatus = useMemo(() => isReceptionMateStaff(), []);
 
@@ -466,6 +473,20 @@ export default function AdminPage() {
     },
   });
 
+  const changeEmailMutation = useMutation({
+    mutationFn: changeUserEmail,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
+      setChangeEmailMessage('Email updated successfully.');
+      setChangeEmailTarget(null);
+      setChangeEmailForm({ newEmail: '', confirmEmail: '' });
+    },
+    onError: (error: any) => {
+      const msg = error?.response?.data?.error ?? 'Failed to update email.';
+      setChangeEmailMessage(msg);
+    },
+  });
+
   const assignmentMutation = useMutation({
     mutationFn: updateAdminUser,
     onSuccess: () => {
@@ -489,6 +510,19 @@ export default function AdminPage() {
       setUserMessage('Failed to unassign branch.');
     },
   });
+
+  const handleResendWelcomeEmail = async (user: AdminUser) => {
+    setResendingEmail((prev) => ({ ...prev, [user.id]: true }));
+    setResendFeedback((prev) => ({ ...prev, [user.id]: '' }));
+    try {
+      await resendWelcomeEmail(user.id);
+      setResendFeedback((prev) => ({ ...prev, [user.id]: 'Sent!' }));
+    } catch {
+      setResendFeedback((prev) => ({ ...prev, [user.id]: 'Failed to send.' }));
+    } finally {
+      setResendingEmail((prev) => ({ ...prev, [user.id]: false }));
+    }
+  };
 
   const handleAssign = (user: AdminUser) => {
     const target = assignmentTarget[user.id];
@@ -1357,6 +1391,67 @@ export default function AdminPage() {
                           ? accessDescriptions.join(', ')
                           : 'None yet. Assign branches to give visibility.'}
                       </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={resendingEmail[user.id]}
+                          onClick={() => handleResendWelcomeEmail(user)}
+                          className="rounded-lg border border-sky-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-sky-400 disabled:opacity-50"
+                        >
+                          {resendingEmail[user.id] ? 'Sending…' : 'Resend Welcome Email'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChangeEmailTarget(changeEmailTarget === user.id ? null : user.id);
+                            setChangeEmailForm({ newEmail: '', confirmEmail: '' });
+                            setChangeEmailMessage('');
+                          }}
+                          className="rounded-lg border border-slate-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-400"
+                        >
+                          Change Email
+                        </button>
+                        {resendFeedback[user.id] && (
+                          <span className="text-[10px] text-slate-400">{resendFeedback[user.id]}</span>
+                        )}
+                      </div>
+                      {changeEmailTarget === user.id && (
+                        <div className="mt-3 space-y-2 border-t border-slate-800 pt-3">
+                          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Change email address</p>
+                          <input
+                            type="email"
+                            placeholder="New email address"
+                            value={changeEmailForm.newEmail}
+                            onChange={(e) => setChangeEmailForm((prev) => ({ ...prev, newEmail: e.target.value }))}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                          />
+                          <input
+                            type="email"
+                            placeholder="Confirm new email address"
+                            value={changeEmailForm.confirmEmail}
+                            onChange={(e) => setChangeEmailForm((prev) => ({ ...prev, confirmEmail: e.target.value }))}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                          />
+                          {changeEmailMessage && (
+                            <p className="text-xs text-slate-400">{changeEmailMessage}</p>
+                          )}
+                          <button
+                            type="button"
+                            disabled={changeEmailMutation.isPending}
+                            onClick={() => {
+                              setChangeEmailMessage('');
+                              changeEmailMutation.mutate({
+                                userId: user.id,
+                                newEmail: changeEmailForm.newEmail.trim(),
+                                confirmEmail: changeEmailForm.confirmEmail.trim(),
+                              });
+                            }}
+                            className="rounded-lg bg-sky-500 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-sky-400 disabled:opacity-50"
+                          >
+                            {changeEmailMutation.isPending ? 'Saving…' : 'Save email'}
+                          </button>
+                        </div>
+                      )}
                       {selectedBusiness && branches.length > 0 && (
                         <div className="mt-3 space-y-2 border-t border-slate-800 pt-3">
                           <label className="text-xs uppercase tracking-[0.3em] text-slate-500">

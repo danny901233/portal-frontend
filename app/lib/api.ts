@@ -173,6 +173,17 @@ export const updateAgentConfiguration = async (
   return data;
 };
 
+export const testTyresoftConnection = async (
+  garageId: string,
+  credentials: { tsWorkspace: string; tsUsername: string; tsPassword: string; tsApiKey: string },
+): Promise<{ ok: boolean; error?: string }> => {
+  const { data } = await api.post<{ ok: boolean; error?: string }>(
+    `/api/garages/${garageId}/tyresoft/test-connection`,
+    credentials,
+  );
+  return data;
+};
+
 export const login = async (
   email: string,
   password: string,

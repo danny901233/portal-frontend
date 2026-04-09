@@ -654,7 +654,7 @@ router.put(
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
             tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
             tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
-            tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
+            tsDepotId: rawTyresoft.tsDepotId != null ? String(rawTyresoft.tsDepotId) : '1',
           }
         : resolvedAgentScript === 'tyresoft-agent' && existingConfig?.integrationProviderConfig
         ? existingConfig.integrationProviderConfig as Prisma.InputJsonValue
@@ -797,6 +797,183 @@ router.post(
       }
       return res.status(502).json({ error: 'Failed to analyse website' });
     }
+  },
+);
+
+// ─── Tyresoft: Test Connection ────────────────────────────────────────────────
+
+router.post(
+  '/garages/:garageId/tyresoft/test-connection',
+  authenticate,
+  async (req: Request, res: Response) => {
+    const { garageId } = req.params;
+    const allowedGarages = resolveAllowedGarages(req.user);
+    if (!allowedGarages.includes(garageId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { tsWorkspace, tsUsername, tsPassword, tsApiKey } = req.body as {
+      tsWorkspace?: string;
+      tsUsername?: string;
+      tsPassword?: string;
+      tsApiKey?: string;
+    };
+
+    if (!tsWorkspace || !tsUsername || !tsPassword || !tsApiKey) {
+      return res.status(400).json({ ok: false, error: 'All Tyresoft credentials are required' });
+    }
+
+    try {
+      const auth = Buffer.from(`${tsUsername}:${tsPassword}`).toString('base64');
+      const resp = await fetch(
+        `https://3p-api.tyresoft.biz/v1/${encodeURIComponent(tsWorkspace)}/vrmLookup/RV06LNT`,
+        {
+          headers: {
+            Authorization: `Basic ${auth}`,
+            'x-api-key': tsApiKey,
+          },
+        },
+      );
+      if (resp.ok) {
+        return res.json({ ok: true });
+      }
+      const text = await resp.text().catch(() => '');
+      return res.json({
+        ok: false,
+        error: `API returned ${resp.status}${text ? ': ' + text.slice(0, 120) : ''}`,
+      });
+    } catch (err: any) {
+      return res.json({ ok: false, error: err.message ?? 'Connection failed' });
+    }
+  },
+);
+
+// ── Custom Rules ──────────────────────────────────────────────────────────────
+
+interface CustomRule {
+  ruleId: string;
+  text: string;
+  active: boolean;
+  createdAt: string;
+}
+
+const MAX_ACTIVE_RULES = 10;
+
+const getRules = async (garageId: string): Promise<CustomRule[]> => {
+  const config = await prisma.agentConfiguration.findUnique({
+    where: { garageId },
+    select: { customRules: true },
+  });
+  if (!config) return [];
+  const raw = config.customRules;
+  if (!Array.isArray(raw)) return [];
+  return raw as unknown as CustomRule[];
+};
+
+const saveRules = async (garageId: string, rules: CustomRule[]) => {
+  await prisma.agentConfiguration.update({
+    where: { garageId },
+    data: { customRules: rules as unknown as Prisma.InputJsonValue },
+  });
+};
+
+// GET /api/config/:garageId/rules
+router.get(
+  '/config/:garageId/rules',
+  authenticate,
+  requireManager,
+  async (req: Request, res: Response) => {
+    const { garageId } = req.params;
+    const rules = await getRules(garageId);
+    res.json({ rules });
+  },
+);
+
+// POST /api/config/:garageId/rules
+router.post(
+  '/config/:garageId/rules',
+  authenticate,
+  requireManager,
+  async (req: Request, res: Response) => {
+    const { garageId } = req.params;
+    const { text, active = true } = req.body as { text?: string; active?: boolean };
+
+    if (!text || typeof text !== 'string' || text.trim().length < 10) {
+      return res.status(400).json({ error: 'Rule text must be at least 10 characters.' });
+    }
+    if (text.trim().length > 500) {
+      return res.status(400).json({ error: 'Rule text must be 500 characters or fewer.' });
+    }
+
+    const rules = await getRules(garageId);
+    const activeCount = rules.filter((r) => r.active).length;
+    if (active && activeCount >= MAX_ACTIVE_RULES) {
+      return res.status(400).json({ error: 'Maximum of 10 active rules reached. Deactivate a rule before adding a new one.' });
+    }
+
+    const newRule: CustomRule = {
+      ruleId: crypto.randomUUID(),
+      text: text.trim(),
+      active: Boolean(active),
+      createdAt: new Date().toISOString(),
+    };
+    await saveRules(garageId, [...rules, newRule]);
+    res.status(201).json({ rule: newRule });
+  },
+);
+
+// PUT /api/config/:garageId/rules/:ruleId
+router.put(
+  '/config/:garageId/rules/:ruleId',
+  authenticate,
+  requireManager,
+  async (req: Request, res: Response) => {
+    const { garageId, ruleId } = req.params;
+    const { text, active } = req.body as { text?: string; active?: boolean };
+
+    const rules = await getRules(garageId);
+    const idx = rules.findIndex((r) => r.ruleId === ruleId);
+    if (idx === -1) return res.status(404).json({ error: 'Rule not found.' });
+
+    if (text !== undefined) {
+      if (typeof text !== 'string' || text.trim().length < 10) {
+        return res.status(400).json({ error: 'Rule text must be at least 10 characters.' });
+      }
+      if (text.trim().length > 500) {
+        return res.status(400).json({ error: 'Rule text must be 500 characters or fewer.' });
+      }
+    }
+
+    if (active === true && !rules[idx].active) {
+      const activeCount = rules.filter((r) => r.active).length;
+      if (activeCount >= MAX_ACTIVE_RULES) {
+        return res.status(400).json({ error: 'Maximum of 10 active rules reached. Deactivate a rule before activating another.' });
+      }
+    }
+
+    const updated: CustomRule = {
+      ...rules[idx],
+      ...(text !== undefined ? { text: text.trim() } : {}),
+      ...(active !== undefined ? { active: Boolean(active) } : {}),
+    };
+    rules[idx] = updated;
+    await saveRules(garageId, rules);
+    res.json({ rule: updated });
+  },
+);
+
+// DELETE /api/config/:garageId/rules/:ruleId
+router.delete(
+  '/config/:garageId/rules/:ruleId',
+  authenticate,
+  requireManager,
+  async (req: Request, res: Response) => {
+    const { garageId, ruleId } = req.params;
+    const rules = await getRules(garageId);
+    const filtered = rules.filter((r) => r.ruleId !== ruleId);
+    if (filtered.length === rules.length) return res.status(404).json({ error: 'Rule not found.' });
+    await saveRules(garageId, filtered);
+    res.status(204).end();
   },
 );
 

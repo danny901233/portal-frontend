@@ -34,6 +34,7 @@ interface ChatAgentResponse {
 // Chat session state (mirrors voice agent's CallState)
 enum Step {
   GREETING = 'greeting',
+  NEED_BRANCH = 'need_branch',
   NEED_NAME = 'need_name',
   NEED_VRN = 'need_vrn',
   CONFIRMING_VEHICLE = 'confirming_vehicle',
@@ -110,6 +111,8 @@ interface ChatSession {
   // prevent hydrateSessionFromMessageHistory from reading contact data that
   // belongs to a *previous* booking by a different customer on the same device.
   sessionStartedAt: string;
+  // Branch selection (for garages with multiple locations)
+  selectedBranch?: string;
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -138,12 +141,44 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
   
   // Try to load from database using raw SQL (sessionState column may not be in Prisma types)
   try {
-    const rows = await prisma.$queryRawUnsafe<Array<{ sessionState: any }>>(
-      `SELECT "sessionState" FROM "ChatConversation" WHERE id = $1`,
+    const rows = await prisma.$queryRawUnsafe<Array<{ sessionState: any; lastMessageAt: Date | null }>>(
+      `SELECT "sessionState", "lastMessageAt" FROM "ChatConversation" WHERE id = $1`,
       conversationId
     );
     
     if (rows.length > 0 && rows[0].sessionState) {
+      // If the last message was more than 4 hours ago, treat as a fresh conversation
+      // (keeps their name/phone but resets all booking state)
+      const lastMsg = rows[0].lastMessageAt ? new Date(rows[0].lastMessageAt) : null;
+      const ageMs = lastMsg ? Date.now() - lastMsg.getTime() : Infinity;
+      const SESSION_EXPIRY_MS = 4 * 60 * 60 * 1000; // 4 hours
+      if (ageMs > SESSION_EXPIRY_MS) {
+        console.log(`[GET_SESSION] Session expired (last message ${Math.round(ageMs / 60000)}min ago) — starting fresh`);
+        // Fall through to create a fresh session below, but preserve name + contact
+        const oldData = rows[0].sessionState as any;
+        const freshSession: ChatSession = {
+          step: Step.GREETING,
+          intent: '',
+          customerNameFirst: oldData.customerNameFirst || '',
+          customerNameLast: oldData.customerNameLast || '',
+          vrn: '', vrnConfirmed: false, sessionId: '',
+          vehicleMake: '', vehicleModel: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
+          bookingDate: '', bookingTime: '',
+          contactPhone: oldData.contactPhone || '',
+          contactEmail: oldData.contactEmail || '',
+          contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
+          postcodeConfirmed: false, notes: '',
+          message: '', preferredCallbackTime: '',
+          diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
+          useDropOffBooking: false,
+          selectedBranch: '',
+        };
+        inMemorySessionCache.set(conversationId, freshSession);
+        return freshSession;
+      }
+
       const sessionData = rows[0].sessionState as any;
       console.log(`[GET_SESSION] Found existing session, step: ${sessionData.step}`);
       const loadedSession: ChatSession = {
@@ -210,6 +245,26 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         });
       }
 
+      // Guard: if session is mid-booking but has no GarageHive sessionId, the previous
+      // vehicle lookup failed or was never saved. Reset back to need_vrn so the bot
+      // re-runs lookup_vehicle. Keep the VRN so the user doesn't have to re-type it.
+      const BOOKING_STEPS_NEEDING_SESSION = [
+        Step.NEED_SERVICE, Step.NEED_BOOKING_CONFIRM, Step.NEED_TIMESLOT,
+        Step.NEED_SLOT_CONFIRM, Step.NEED_CONTACT, Step.CONFIRMING_POSTCODE, Step.CONFIRMED
+      ];
+      if (BOOKING_STEPS_NEEDING_SESSION.includes(loadedSession.step as Step) && !loadedSession.sessionId) {
+        console.log(`[GET_SESSION] Step is ${loadedSession.step} but sessionId is empty — resetting to need_vrn (vrn: ${loadedSession.vrn})`);
+        loadedSession.step = Step.NEED_VRN;
+        loadedSession.vrnConfirmed = false;
+        loadedSession.servicesAvailable = [];
+        loadedSession.serviceSelectedId = '';
+        loadedSession.serviceSelectedName = '';
+        loadedSession.servicePrice = '';
+        loadedSession.timeslotsAvailable = [];
+        loadedSession.pendingSlotDate = '';
+        loadedSession.pendingSlotTime = '';
+      }
+
       inMemorySessionCache.set(conversationId, loadedSession);
       // Auto-advance: if timeslot was already chosen but server restarted before step updated
       if (loadedSession.step === Step.NEED_TIMESLOT && loadedSession.bookingDate && loadedSession.bookingTime) {
@@ -259,6 +314,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     diagnosticQuestions: [],
     useDropOffBooking: false,
     sessionStartedAt: new Date().toISOString(),
+    selectedBranch: '',
   };
 
   inMemorySessionCache.set(conversationId, newSession);
@@ -319,14 +375,15 @@ export async function getChatAgentResponse(
     // Load GarageHive credentials
     // Config may be nested { garagehive: {...}, tyresoft: {...} } or flat { customerId, apiKey, ... }
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
-      const ghConfig = config.integrationProviderConfig as any;
-      const ghData = ghConfig.garagehive || ghConfig;  // support both nested and flat format
-      GH_CUSTOMER_ID = ghData.ghCustomerId || ghData.customerId;
-      GH_API_KEY = ghData.ghApiKey || ghData.apiKey;
-      GH_LOCATION_ID = ghData.ghLocationId || ghData.locationId || '23';
-      DROP_OFF_ENABLED = ghData.enableDropOffBookings || false;
-      DROP_OFF_MESSAGE = ghData.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
-      DROP_OFF_EXCLUDE_SERVICES = ghData.dropOffExcludeServices || ['MOT'];
+      const rawConfig = config.integrationProviderConfig as any;
+      // Support both nested { garagehive: { ... } } and flat { customerId: ... } formats
+      const ghConfig = rawConfig.garagehive || rawConfig;
+      GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
+      GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
+      GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
+      DROP_OFF_ENABLED = ghConfig.enableDropOffBookings || false;
+      DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
+      DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
     }
     if (!GH_CUSTOMER_ID || !GH_API_KEY) {
       console.warn(`[GARAGEHIVE_MISCONFIGURED] garageId=${garageId} is using agentScript=${config.agentScript} but GarageHive credentials are not set in integrationProviderConfig. Vehicle lookups will fall back to take_message.`);
@@ -334,6 +391,17 @@ export async function getChatAgentResponse(
 
     // Get or create session state
     const session = await getOrCreateSession(conversationId);
+
+    // Check if this garage has multiple branches and set initial step
+    console.log(`[BRANCH_CHECK] branchName: "${config.branchName}", garageId: ${garageId}`);
+    const branchNameLower = (config.branchName || '').toLowerCase().replace(/\./g, '');
+    const hasMultipleBranches = branchNameLower.includes('eac telford');
+    console.log(`[BRANCH_CHECK] hasMultipleBranches: ${hasMultipleBranches}, step: ${session.step}, selectedBranch: ${session.selectedBranch}`);
+    if (hasMultipleBranches && session.step === Step.GREETING && !session.selectedBranch) {
+      session.step = Step.NEED_BRANCH;
+      await saveSession(conversationId, session);
+      console.log(`[BRANCH_SELECTION] Multi-branch garage detected, step set to NEED_BRANCH`);
+    }
 
     // Seed contact details passed explicitly from the widget pre-chat form
     let seedApplied = false;
@@ -418,10 +486,18 @@ export async function getChatAgentResponse(
     }
 
     // Fast-path: slot confirmation — customer is saying yes/no to a proposed slot
+    // If step is need_slot_confirm but pending slot is empty (AI asked clarifying question without calling the tool),
+    // reset to need_timeslot so the AI treats the reply as a time preference
+    if (session.step === Step.NEED_SLOT_CONFIRM && (!session.pendingSlotDate || !session.pendingSlotTime)) {
+      console.log('[STATE_GUARD] need_slot_confirm but no pending slot — resetting to need_timeslot');
+      session.step = Step.NEED_TIMESLOT;
+      await saveSession(conversationId, session);
+    }
+
     if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
       // Strip emoji, punctuation, and normalise repeated words before testing intent
       const stripped = message.toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\b(\w+)\s+\1\b/g, '$1');
-      const isYes = /\b(yes|yeah|yep|yup|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please|fine|brilliant|lovely|brill|ace|spot on|do it|book it|book me in)\b/.test(stripped);
+      const isYes = /\b(yes|yeah|yep|yup|yh|ye|ya|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please|fine|brilliant|lovely|brill|ace|spot on|do it|book it|book me in)\b/.test(stripped);
       const isNo = /\b(no|nope|different|another|change|instead|rather|earlier|later|different)\b/.test(stripped);
 
       // Extract any note from the message even during slot confirmation
@@ -897,6 +973,20 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
+        name: 'select_branch',
+        description: 'Select which branch/location the customer wants to book with (for garages with multiple branches).',
+        parameters: {
+          type: 'object',
+          properties: {
+            branch: { type: 'string', description: 'Branch name (e.g., "Halesfield", "Hortonwood")' },
+          },
+          required: ['branch'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'save_caller_name',
         description: 'Save customer name and intent. Call this FIRST when customer introduces themselves or states what they need.',
         parameters: {
@@ -1036,6 +1126,9 @@ async function executeConversationalTool(
     }
 
     switch (toolName) {
+      case 'select_branch':
+        return await handleSelectBranch(args, session, conversationId);
+
       case 'save_caller_name':
         return await handleSaveCallerName(args, session, conversationId);
       
@@ -1096,6 +1189,27 @@ function getNextContactInstruction(session: ChatSession): string {
 }
 
 // Tool handlers (return instructions like voice agent)
+
+async function handleSelectBranch(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  const { branch } = args;
+  
+  session.selectedBranch = branch;
+  
+  // Set location ID based on branch
+  const branchLower = branch.toLowerCase();
+  if (branchLower.includes('hortonwood')) {
+    GH_LOCATION_ID = '390';
+  } else if (branchLower.includes('halesfield')) {
+    GH_LOCATION_ID = '210';
+  }
+  
+  session.step = Step.NEED_NAME;
+  await saveSession(conversationId, session);
+  
+  console.log(`[SELECT_BRANCH] Branch selected: ${branch}, Location ID: ${GH_LOCATION_ID}`);
+  
+  return `Branch selected: ${branch}.\n\nSay: "Great! Can I take your name please?"\nWait for their name, then call save_caller_name.`;
+}
 
 async function handleSaveCallerName(args: any, session: ChatSession, conversationId: string): Promise<string> {
   let { first_name, last_name = '', intent, service_hint = '' } = args;
@@ -1249,7 +1363,28 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
 
 async function handleConfirmVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { confirmed, corrected_first_name = '', corrected_last_name = '' } = args;
+
+  // Guard: if services are already loaded, don't re-run confirm_vehicle — just tell AI to call select_service
+  if (confirmed && session.servicesAvailable && session.servicesAvailable.length > 0 &&
+      (session.step === Step.NEED_SERVICE || session.step === Step.NEED_TIMESLOT)) {
+    console.log(`[CONFIRM_VEHICLE] Services already loaded (${session.servicesAvailable.length}), skipping re-fetch`);
+    const svcList = session.servicesAvailable.map((s: any) => s.name).join(', ');
+    return `SERVICES_ALREADY_LOADED: ${svcList}.\nDo NOT call confirm_vehicle again. Ask the customer what service they need, then call select_service with their answer.`;
+  }
   
+  // Safety guard: if we somehow reached confirm_vehicle without a valid GarageHive sessionId,
+  // reset and re-run the vehicle lookup so we get a proper session.
+  if (confirmed && !session.sessionId) {
+    console.warn(`[CONFIRM_VEHICLE] sessionId is empty — re-running lookup_vehicle for vrn: ${session.vrn}`);
+    session.step = Step.NEED_VRN;
+    session.vrnConfirmed = false;
+    await saveSession(conversationId, session);
+    if (session.vrn) {
+      return `INTERNAL: sessionId was missing. Call lookup_vehicle(vrn="${session.vrn}") now to re-establish the GarageHive session before proceeding.`;
+    }
+    return `INTERNAL: sessionId and vrn are both missing. Ask the customer for their vehicle registration again.`;
+  }
+
   if (!confirmed) {
     session.step = Step.NEED_VRN;
     session.vrn = '';
@@ -1285,6 +1420,9 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
     
     console.log(`[CONFIRM_VEHICLE] Fetched ${services.length} services`);
     console.log(`[CONFIRM_VEHICLE] Services: ${services.map((s: any) => `${s.name}(${s.service_price_id})`).join(', ')}`);
+    
+    // Save services to DB so the next message can call select_service without re-running confirm_vehicle
+    await saveSession(conversationId, session);
     
     if (services.length === 0) {
       return `Vehicle confirmed but no services available.\nSay: "Let me grab your details and we'll give you a call back with a quote."\nThen call take_message.`;
@@ -1334,7 +1472,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const priceNum = parseFloat(String(session.servicePrice));
     const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
-    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nWhich of these slots works for you?\n${firstSlots}"\nWhen the customer responds, call select_timeslot with whatever they say.`;
+    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
   }
 
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
@@ -1429,14 +1567,22 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     }
   }
 
-  // ── If still no match, silently book under "Other" (Python behaviour) ──
+  // ── If still no match, ask the customer to clarify rather than silently booking "Other" ──
   if (!matched) {
-    matched = session.servicesAvailable.find((s: any) => /other|general/i.test(s.name)) || null;
-    if (matched) {
-      console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' — booking under '${matched.name}'`);
+    // Find the closest service name to suggest
+    const svcNames = session.servicesAvailable
+      .filter((s: any) => !/other|general/i.test(s.name))
+      .map((s: any) => s.name);
+    const suggestion = svcNames.length > 0 ? svcNames[0] : null;
+
+    if (suggestion) {
+      const cleanedSuggestion = cleanServiceName(suggestion);
+      console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' — asking customer to clarify, suggesting: ${cleanedSuggestion}`);
+      return `NO_SERVICE_MATCH: "${effectiveServiceName}" didn't match any available service.\nAvailable services: ${svcNames.map(cleanServiceName).join(', ')}.\nSay: "I didn't quite catch that — did you mean a ${cleanedSuggestion}? Or one of these: ${svcNames.slice(0,3).map(cleanServiceName).join(', ')}?"\nWait for their answer, then call select_service again with what they confirm.`;
     } else {
-      // Truly nothing — take a message
-      return `No suitable service found for "${effectiveServiceName}" and no Other/General fallback.\nSay: "I don't have that as a set price right now. Let me take your details and one of the team will give you a call back with a quote."\nThen call take_message.`;
+      // No named services at all — ask rather than silently booking "Other"
+      console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' and no named services — asking customer`);
+      return `NO_SERVICE_MATCH: "${effectiveServiceName}" didn't match any available service and there are no named alternatives.\nSay: "I don't have that as a set price right now. Let me take your details and one of the team will give you a call back with a quote."\nThen call take_message.`;
     }
   }
 
@@ -1513,7 +1659,7 @@ When the customer responds, call select_timeslot with whatever they say.`;
     }
 
     return `SERVICE_SET: ${serviceName} (${priceDisplay}).
-Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nWhich of these slots works for you?\n${firstSlots}"
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"
 When the customer responds, call select_timeslot with whatever they say.`;
     
   } catch (error: any) {
@@ -1539,7 +1685,7 @@ async function handleConfirmBooking(args: any, session: ChatSession, conversatio
   const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
 
   return `SLOTS: Available timeslots below.
-Say: "Which of these slots works for you?\n${firstSlots}"
+Say: "These are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"
 When the customer responds, call select_timeslot with whatever they say.`;
 }
 
@@ -1559,6 +1705,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
   }
 
   console.log(`[SELECT_TIMESLOT] Preference: "${preference}", dropOff: ${session.useDropOffBooking}`);
+  console.log(`[SELECT_TIMESLOT] Available slots: ${(session.timeslotsAvailable || []).map((t: any) => `${t.date} ${t.time}`).join(', ')}`);
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
     return `No timeslots loaded. Call select_service first.`;
@@ -1877,6 +2024,10 @@ async function ghInitAndSetVehicle(registration: string): Promise<any> {
 }
 
 async function ghListServices(sessionId: string): Promise<any[]> {
+  if (!sessionId) {
+    console.error('[GH_LIST_SERVICES] Called with empty sessionId — aborting');
+    throw new Error('GarageHive sessionId is empty — cannot list services');
+  }
   const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
   const headers = {
     'Authorization': `Bearer ${GH_API_KEY}`,
@@ -2134,6 +2285,41 @@ function matchService(query: string, services: any[]): any | null {
     if (bestScore >= 0.5) return bestService;
   }
 
+  // Fuzzy match — find the service whose name is closest by edit distance
+  // Returns the best match only if it's close enough (distance <= 40% of the longer string)
+  function levenshtein(a: string, b: string): number {
+    const m = a.length, n = b.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+      }
+    }
+    return dp[m][n];
+  }
+
+  // Compare query against each word in service names, and also full service names
+  let bestFuzzy: any = null;
+  let bestFuzzyDist = Infinity;
+  const queryWords = queryLower.split(/\s+/);
+  for (const service of services) {
+    const sn = service.name.toLowerCase();
+    // Full name distance
+    const fullDist = levenshtein(queryLower, sn);
+    // Word-level: best distance between any query word and any service name word
+    const snWords = sn.split(/\s+/);
+    const wordDist = Math.min(...queryWords.flatMap(qw => snWords.map((sw: string) => levenshtein(qw, sw))));
+    const dist = Math.min(fullDist, wordDist);
+    if (dist < bestFuzzyDist) {
+      bestFuzzyDist = dist;
+      bestFuzzy = service;
+    }
+  }
+  // Accept fuzzy match if distance is small relative to query length (max 2 edits per word, or 40% of full query)
+  const threshold = Math.max(2, Math.floor(queryLower.length * 0.4));
+  if (bestFuzzy && bestFuzzyDist <= threshold) return bestFuzzy;
+
   return null;
 }
 
@@ -2198,10 +2384,15 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   // Extract a time-of-day hour from text — only matches valid hours (0-23) with am/pm,
   // or HH:MM format. Ignores bare numbers that could be day-of-month (e.g. "25th").
   function extractPrefHour(text: string): number | null {
-    // HH:MM or HH:MMam/pm — trailing \b removed so "9:30am" matches correctly
-    const hhmm = text.match(/\b(\d{1,2}):(\d{2})/);
+    // HH:MM or HH.MM optionally followed by am/pm — e.g. "1:30pm"→13, "1.30"→13, "9:30am"→9, "13:30"→13
+    const hhmm = text.match(/\b(\d{1,2})[:\.](\d{2})\s*(am|pm)?\b/i);
     if (hhmm) {
       let h = parseInt(hhmm[1]);
+      const mer = (hhmm[3] || '').toLowerCase();
+      // No am/pm: hour < 7 with minutes → assume PM (e.g. "1.30" → 13:30, not 01:30)
+      if (!mer && h >= 1 && h <= 6) h += 12;
+      if (mer === 'pm' && h < 12) h += 12;
+      if (mer === 'am' && h === 12) h = 0;
       if (h >= 0 && h <= 23) return h;
     }
     // Number followed by am/pm — negative lookbehind prevents matching "30am" from "9:30am"
@@ -2211,6 +2402,16 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       const mer = ampm[2].toLowerCase();
       if (mer === 'pm' && h < 12) h += 12;
       if (mer === 'am' && h === 12) h = 0;
+      if (h >= 0 && h <= 23) return h;
+    }
+    // Bare number with no am/pm and no colon — e.g. "tomorrow at 1", "around 3"
+    // Hours 1-6 are assumed PM (nobody books a car at 1am), 7-11 assumed AM, 12 = noon
+    const bare = text.match(/\bat\s+(\d{1,2})\b(?!\s*[:apm])/i) || text.match(/\baround\s+(\d{1,2})\b(?!\s*[:apm])/i);
+    if (bare) {
+      let h = parseInt(bare[1]);
+      if (h >= 1 && h <= 6) h += 12; // 1→13, 2→14, ... 6→18
+      if (h >= 7 && h <= 11) { /* stays as-is: 7am–11am */ }
+      if (h === 12) { /* stays 12: noon */ }
       if (h >= 0 && h <= 23) return h;
     }
     return null; // Don't extract bare numbers — they're probably dates
@@ -2237,22 +2438,41 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     return closestByTime(timeslots, ph) ?? timeslots[timeslots.length - 1];
   }
 
-  // "Today" / "Tomorrow"
+  // "Today" / "Tomorrow" — use UK local date to avoid UTC midnight boundary issues
+  // e.g. at 11:30pm UTC the UTC date is still "yesterday" but UK date is already "today"
+  function ukDateStr(offsetDays = 0): string {
+    const now = new Date();
+    // Use Intl.DateTimeFormat to get UK date parts directly — avoids DD/MM/YYYY parse ambiguity
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now);
+    const partMap: Record<string, string> = {};
+    for (const p of parts) partMap[p.type] = p.value;
+    // Construct a date at midnight UK time using explicit year/month/day
+    const ukDate = new Date(parseInt(partMap.year), parseInt(partMap.month) - 1, parseInt(partMap.day));
+    ukDate.setDate(ukDate.getDate() + offsetDays);
+    const y = ukDate.getFullYear();
+    const m = String(ukDate.getMonth() + 1).padStart(2, '0');
+    const d = String(ukDate.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
   if (/\btoday\b/.test(prefLower)) {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const matches = timeslots.filter(t => t.date === todayStr);
+    const matches = timeslots.filter(t => t.date === ukDateStr(0));
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    return null; // today specified but no today slots — let OpenAI explain
   }
   if (/\btomorrow\b/.test(prefLower)) {
-    const d = new Date(); d.setDate(d.getDate() + 1);
-    const matches = timeslots.filter(t => t.date === d.toISOString().split('T')[0]);
+    const matches = timeslots.filter(t => t.date === ukDateStr(1));
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    return null; // tomorrow specified but no tomorrow slots — let OpenAI explain
   }
 
   // "Next week"
   if (/\bnext week\b/.test(prefLower)) {
-    const d = new Date(); d.setDate(d.getDate() + 7);
-    const matches = timeslots.filter(t => t.date >= d.toISOString().split('T')[0]);
+    const nextWeekStr = ukDateStr(7);
+    const matches = timeslots.filter(t => t.date >= nextWeekStr);
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
   }
 
@@ -2262,8 +2482,16 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   const isNext = /\bnext\b/.test(prefLower);
   for (const dayName of dayNames) {
     if (new RegExp(`\\b${dayName}\\b`).test(prefLower)) {
-      const today = new Date();
-      const todayDow = today.getDay(); // 0=Sun
+      const ukNow = (() => {
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(now);
+        const pm: Record<string, string> = {};
+        for (const p of parts) pm[p.type] = p.value;
+        return new Date(parseInt(pm.year), parseInt(pm.month) - 1, parseInt(pm.day));
+      })();
+      const todayDow = ukNow.getDay(); // 0=Sun
       const targetDow = dayNames.indexOf(dayName);
 
       // How many days until the next occurrence of targetDow
@@ -2273,9 +2501,12 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       // "next thursday" skips past the coming one to the one after
       if (isNext && daysUntil <= 7) daysUntil += 7;
 
-      const target = new Date(today);
-      target.setDate(today.getDate() + daysUntil);
-      const targetDateStr = target.toISOString().split('T')[0];
+      const target = new Date(ukNow);
+      target.setDate(ukNow.getDate() + daysUntil);
+      const y = target.getFullYear();
+      const mo = String(target.getMonth() + 1).padStart(2, '0');
+      const dy = String(target.getDate()).padStart(2, '0');
+      const targetDateStr = `${y}-${mo}-${dy}`;
 
       // Find slots on that exact date, or the nearest date after it
       let matches = timeslots.filter(t => t.date === targetDateStr);
@@ -2439,7 +2670,7 @@ TONE EXAMPLES:
       return `- ${s.name}${priceStr}`;
     }).join('\n');
     prompt += `\nAVAILABLE SERVICES:\n${svcLines}\n`;
-    prompt += `If the customer asks "what are the options", "what services do you offer", or "what are the prices", list these services with their prices naturally. Then ask what they need.\n`;
+    prompt += `ONLY if the customer explicitly asks "what are the options", "what services do you offer", or "what are the prices", list these services with their prices naturally. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`;
   }
 
   // ── Available timeslots — inject when in timeslot selection so OpenAI can handle any natural language ──
@@ -2449,7 +2680,7 @@ TONE EXAMPLES:
     ).join('\n');
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
     prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
-    prompt += `For ANY customer response about timing — including "anything later?", "any other dates?", "something else", a specific date/day, or a time preference — ALWAYS call select_timeslot with their exact words. Do NOT list dates yourself or explain availability directly. Let the tool handle it.\n`;
+    prompt += `When the customer mentions ANY time or date preference, call select_timeslot IMMEDIATELY with exactly what they said — do NOT ask clarifying questions about the date or day first. The tool will find the best match. Only ask for clarification if select_timeslot returns NO_MATCH. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
   }
 
   prompt += '\n';
@@ -2463,9 +2694,24 @@ TONE EXAMPLES:
     prompt += `Skip steps 1 and 2 below. Call lookup_vehicle('${session.outboundRegistration}') as your VERY FIRST action — do NOT ask the customer for their name or registration.\n\n`;
   }
 
+  // ── Branch selection (for multi-location garages) ────────────────────────
+  const branchNameClean = branchName.toLowerCase().replace(/\./g, '');
+  const hasMultipleBranches = branchNameClean.includes('eac telford');
+  if (hasMultipleBranches && session.step === Step.NEED_BRANCH && !session.selectedBranch) {
+    prompt += `BRANCH SELECTION REQUIRED: We have two branches.\n`;
+    prompt += `As your FIRST action, ask: "Which branch would you like to book with — Halesfield or Hortonwood?"\n`;
+    prompt += `Wait for their response, then call select_branch with their choice.\n\n`;
+  }
+  if (session.selectedBranch) {
+    prompt += `Branch: ${session.selectedBranch}\n`;
+  }
+
   // ── Booking flow instructions ─────────────────────────────────────────────
-  prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):
-1. Get customer name + intent → call save_caller_name
+  const bookingFlowStart = hasMultipleBranches && !session.selectedBranch 
+    ? `0. Ask which branch (Halesfield or Hortonwood) → call select_branch\n1. ` 
+    : `1. `;
+  
+  prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):\n${bookingFlowStart}Get customer name + intent → call save_caller_name
 2. Get vehicle registration → call lookup_vehicle
 3. IMMEDIATELY call confirm_vehicle(confirmed=true) — do NOT wait for customer input, do NOT ask them to confirm, just call it silently
 4. ONLY after confirm_vehicle succeeds → customer says what work is needed → call select_service
@@ -2487,7 +2733,12 @@ GENERAL RULES:
 - Never invent booking details — only use what tools return
 - If you cannot proceed, offer to take a message for a callback
 - If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT call take_message, do NOT end the conversation
-- Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected\n`;
+- Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected
+
+RECOGNISING AFFIRMATIVE RESPONSES:
+- Treat ALL of the following as "yes": yes, yeah, yep, yup, yh, ye, ya, sure, ok, okay, correct, right, perfect, great, fine, go ahead, do it, brill, brilliant, lovely, spot on, sounds good, that works, that's right, cheers
+- NEVER ask for a registration again if the customer says yes/yh/ya/ye/yep/yup to a question about their vehicle — call confirm_vehicle(confirmed=true) instead
+- If the customer has already confirmed their vehicle (CURRENT STATE shows Vehicle) and says any affirmative, proceed with the booking — do NOT restart the flow\n`;
 
   return prompt;
 }

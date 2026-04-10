@@ -114,7 +114,9 @@ export default function ChatWidget() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Add multiple messages sequentially with typing indicator before each bubble
   const addMessagesSequentially = async (bubbles: string[]) => {
@@ -143,6 +145,13 @@ export default function ChatWidget() {
   const [preChatPhone, setPreChatPhone] = useState('');
   const [preChatMessage, setPreChatMessage] = useState('');
   const [preChatSubmitting, setPreChatSubmitting] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 500);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   useEffect(() => {
     if (!garageId) return;
@@ -263,6 +272,9 @@ export default function ChatWidget() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setSending(true);
 
     try {
@@ -325,16 +337,22 @@ export default function ChatWidget() {
     <>
       {/* Chat Window - Overlay Style */}
       {viewState === 'chat' && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] h-[650px] flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
+        <div className="fixed z-50 flex flex-col animate-in slide-in-from-bottom-4 duration-500" style={{
+          bottom: '0',
+          right: '0',
+          width: 'min(380px, 100vw)',
+          height: 'min(650px, 100dvh)',
           background: config?.primaryColor || '#1e3a8a',
-          borderRadius: '32px',
+          borderRadius: 'clamp(0px, calc((100vw - 380px) * 99), 32px)',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontFamily: "'Poppins', sans-serif",
           fontSize: '16px',
           paddingTop: `${Math.max(100, (config?.logoHeight || 60) + 50)}px`,
-          paddingBottom: '32px',
-          paddingLeft: '24px',
-          paddingRight: '24px'
+          paddingBottom: '16px',
+          paddingLeft: '16px',
+          paddingRight: '16px',
+          boxSizing: 'border-box',
+          overflow: 'visible',
         }}>
           {/* Logo Area - Above the white card */}
           <div className="absolute top-8 left-0 right-0 flex justify-center">
@@ -350,12 +368,15 @@ export default function ChatWidget() {
                 }}
               />
             ) : (
-              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
-                background: 'white'
+              <div className="w-16 h-16 rounded-full overflow-hidden" style={{
+                border: '3px solid white',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
               }}>
-                <svg className="w-8 h-8" style={{ color: config?.primaryColor || '#1e3a8a' }} fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-                </svg>
+                <img 
+                  src="/avatar-headshot.png" 
+                  alt="Receptionist" 
+                  className="w-full h-full object-cover"
+                />
               </div>
             )}
           </div>
@@ -369,15 +390,16 @@ export default function ChatWidget() {
             flexDirection: 'column'
           }}>
             {/* Header inside white rectangle */}
-            <div className="flex items-center justify-between px-6 py-5 flex-shrink-0" style={{
-              borderBottom: '1px solid rgba(0, 0, 0, 0.08)'
+            <div className="flex items-center justify-between flex-shrink-0" style={{
+              borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
+              padding: '12px 14px'
             }}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                  background: config?.primaryColor || '#1e3a8a'
+                  background: config?.primaryColor || '#3f51b5'
                 }}>
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                 </div>
                 <div className="min-w-0 flex-1">
@@ -385,23 +407,27 @@ export default function ChatWidget() {
                 </div>
               </div>
               
-              <button onClick={() => setViewState('closed')} className="transition-all" style={{
-                fontSize: '28px',
-                lineHeight: '28px',
-                fontWeight: 300,
+              <button onClick={() => setViewState('closed')} className="transition-all flex-shrink-0 hover:opacity-70 active:scale-90" style={{
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
                 padding: 0,
                 color: '#6b7280'
               }}>
-                ×
+                <svg style={{ width: '20px', height: '20px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
             {/* Messages */}
             <div className="flex-1 overflow-y-auto space-y-3" style={{ 
               scrollbarWidth: 'thin',
-              padding: '20px 24px'
+              padding: '16px 14px'
             }}>
               {messages.map((msg) => (
                 msg.role === 'system' ? (
@@ -413,17 +439,16 @@ export default function ChatWidget() {
                 ) : (
                 <div key={msg.id} className={`flex items-start gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                   {msg.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                      background: config?.primaryColor || '#3f51b5'
-                    }}>
-                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                      </svg>
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                      <img 
+                        src="/avatar-headshot.png" 
+                        alt="Assistant" 
+                        className="w-full h-full object-cover"
+                      />
                     </div>
                   )}
-                  {/* EXACT Cognigy Message Bubble: 16px border radius, one flat corner, exact shadows */}
-                  <div className={`flex-1 max-w-[75%] text-sm leading-relaxed ${msg.role === 'user' ? '' : ''}`} style={{
-                    padding: '16px 24px',
+                  <div className={`flex-1 max-w-[75%] text-sm leading-relaxed`} style={{
+                    padding: '10px 14px',
                     borderRadius: '16px',
                     ...(msg.role === 'user' ? {
                       backgroundColor: config?.primaryColor || '#3f51b5',
@@ -450,15 +475,15 @@ export default function ChatWidget() {
 
               {sending && (
                 <div className="flex items-start gap-2">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{
-                    background: config?.primaryColor || '#3f51b5'
-                  }}>
-                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                    </svg>
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                    <img 
+                      src="/avatar-headshot.png" 
+                      alt="Assistant" 
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                   <div className="flex gap-1.5" style={{
-                    padding: '16px 24px',
+                    padding: '10px 14px',
                     borderRadius: '16px',
                     borderBottomLeftRadius: '0',
                     backgroundColor: 'white',
@@ -473,29 +498,41 @@ export default function ChatWidget() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area - EXACT Cognigy Style */}
-            <div className="px-4 py-4 flex-shrink-0" style={{
+            {/* Input Area */}
+            <div className="flex-shrink-0" style={{
               backgroundColor: '#fafafa',
-              borderTop: '1px solid rgba(0, 0, 0, 0.08)'
+              borderTop: '1px solid rgba(0, 0, 0, 0.08)',
+              padding: '8px 10px',
+              paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
             }}>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="text"
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', minWidth: 0 }}>
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    // Auto-grow: reset then set to scrollHeight
+                    e.target.style.height = 'auto';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                  }}
                   onKeyDown={handleKeyPress}
                   placeholder="Type your message..."
-                  disabled={sending}
-                  className="flex-1"
                   style={{
-                    padding: '12px 16px',
+                    flex: '1 1 0',
+                    minWidth: 0,
+                    padding: '9px 13px',
                     backgroundColor: 'white',
                     border: '1px solid rgba(0, 0, 0, 0.12)',
-                    borderRadius: '24px',
-                    fontSize: '16px',
+                    borderRadius: '16px',
+                    fontSize: '14px',
                     color: '#000',
                     outline: 'none',
-                    transition: 'border-color 0.2s'
+                    resize: 'none',
+                    overflowY: 'auto',
+                    lineHeight: '1.4',
+                    maxHeight: '120px',
+                    fontFamily: 'inherit',
                   }}
                   onFocus={(e) => e.currentTarget.style.borderColor = config?.primaryColor || '#3f51b5'}
                   onBlur={(e) => e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.12)'}
@@ -503,30 +540,34 @@ export default function ChatWidget() {
                 <button
                   onClick={handleSendMessage}
                   disabled={!input.trim() || sending}
-                  className="flex-shrink-0 rounded-full flex items-center justify-center transition-all"
                   style={{
-                    width: '40px',
-                    height: '40px',
+                    flexShrink: 0,
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '50%',
                     backgroundColor: config?.primaryColor || '#3f51b5',
                     color: 'white',
                     border: 'none',
                     cursor: !input.trim() || sending ? 'not-allowed' : 'pointer',
-                    opacity: !input.trim() || sending ? 0.4 : 1
+                    opacity: !input.trim() || sending ? 0.4 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   {sending ? (
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <svg style={{ width: '14px', height: '14px' }} className="animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
                   ) : (
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg style={{ width: '16px', height: '16px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                     </svg>
                   )}
                 </button>
               </div>
-              <p className="text-xs mt-3 text-center" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-medium" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
+              <p className="text-xs mt-2 text-center" style={{ color: 'rgba(0, 0, 0, 0.4)' }}>Powered by <span className="font-medium" style={{ color: 'rgba(0, 0, 0, 0.6)' }}>ReceptionMate</span></p>
             </div>
           </div>
         </div>
@@ -702,7 +743,7 @@ export default function ChatWidget() {
           {/* Powered by - outside white rectangle */}
           <div className="mt-10 text-center">
             <a 
-              href="https://receptionmate.co.uk" 
+              href="https://receptionmate.co.uk/home" 
               target="_blank" 
               rel="noopener noreferrer"
               className="text-base font-medium hover:underline" 
@@ -723,13 +764,13 @@ export default function ChatWidget() {
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
           fontSize: '16px',
           fontFamily: "'Poppins', sans-serif",
-          paddingTop: `${Math.max(120, (config?.logoHeight || 60) + 70)}px`,
+          paddingTop: `${Math.max(90, (config?.logoHeight || 60) + 40)}px`,
           paddingBottom: '40px',
           paddingLeft: '32px',
           paddingRight: '32px'
         }}>
           {/* Logo Area - Above the white card */}
-          <div className="absolute top-8 left-0 right-0 flex justify-center">
+          <div className="absolute top-4 left-0 right-0 flex justify-center">
             {config?.logoUrl ? (
               <img 
                 src={config.logoUrl} 
@@ -887,7 +928,7 @@ export default function ChatWidget() {
           {/* Powered by - outside white rectangle */}
           <div className="mt-10 text-center">
             <a 
-              href="https://receptionmate.co.uk" 
+              href="https://receptionmate.co.uk/home" 
               target="_blank" 
               rel="noopener noreferrer"
               className="text-base font-medium hover:underline" 
@@ -899,16 +940,22 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Floating Action Button - Larger Design */}
+      {/* Floating Action Button - hidden when chat is open (header has its own close button) */}
       <style jsx>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
       `}</style>
+      {viewState !== 'chat' && (
       <button
         onClick={() => {
           if (viewState === 'closed') {
+            // If a conversation is already active, reopen it directly
+            if (conversationId) {
+              setViewState('chat');
+              return;
+            }
             setIsSpinning(true);
             setTimeout(() => {
               setViewState('menu');
@@ -987,8 +1034,9 @@ export default function ChatWidget() {
           <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
-        )}
+        )}  
       </button>
+      )}
     </>
   );
 }

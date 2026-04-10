@@ -296,7 +296,7 @@ export default function IntegrationsPage() {
                   </div>
                 </div>
 
-                <div>
+                <div className="ml-4 shrink-0">
                   {connection ? (
                     <button
                       onClick={() => disconnectPlatform(connection.id)}

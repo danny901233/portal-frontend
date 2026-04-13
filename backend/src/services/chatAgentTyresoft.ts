@@ -26,6 +26,7 @@ interface TyresoftConfig {
   password: string;
   apiKey: string;
   depotId: number;
+  channelId?: number;
 }
 
 interface TyreProduct {
@@ -65,6 +66,7 @@ interface TyresoftSession {
   availableSlots?: { date: string; time: string; diaryCategoryID: number; estimatedTime: number; slotTypeID: number }[];
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
   lastTyreSearch?: { stock_number: string; description: string; price: number; availability: string; lead_time: string; source_supplier_id: number }[];
+  pendingTyre?: { stock_number: string; description: string; price: number; lead_time: string; source_supplier_id: number };
   branchOverride?: number;  // depot ID set by ts_set_branch (1 = Branch 1, 3 = Branch 2)
 }
 
@@ -152,11 +154,16 @@ function parseLeadTimeDays(leadTime: string): number {
   return m ? parseInt(m[1]) : 0;
 }
 
-// Return YYYY-MM-DD that is `days` calendar days from today
+// Return current date string in UK timezone (YYYY-MM-DD)
+function getUKDateString(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+}
+
+// Return YYYY-MM-DD that is `days` calendar days from today (UK timezone)
 function addDays(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const ukBase = new Date(getUKDateString() + 'T00:00:00Z');
+  ukBase.setUTCDate(ukBase.getUTCDate() + days);
+  return ukBase.toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +216,10 @@ function searchTyres(depotId: number, size: string, brand?: string, maxResults =
 
 const tsSessions = new Map<string, TyresoftSession>();
 
+function tsSessionKey(garageId: string, conversationId: string): string {
+  return `${garageId}:${conversationId}`;
+}
+
 // ---------------------------------------------------------------------------
 // Static service catalogue (matches Tyresoft voice agent configuration)
 // ---------------------------------------------------------------------------
@@ -242,9 +253,7 @@ function toTitleCase(str: string): string {
 }
 
 function getTomorrow(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return addDays(1);
 }
 
 export async function getTyresoftChatResponse(
@@ -272,21 +281,28 @@ export async function getTyresoftChatResponse(
     // Load Tyresoft credentials from integrationProviderConfig
     let tsConfig: TyresoftConfig | undefined;
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
-      const raw = config.integrationProviderConfig as any;
+      const outer = config.integrationProviderConfig as any;
+      // Support namespaced { tyresoft: {...} } and legacy flat format
+      const raw = (outer.tyresoft && typeof outer.tyresoft === 'object') ? outer.tyresoft : outer;
       const workspace = raw.tsWorkspace || raw.workspace || '';
       const username  = raw.tsUsername  || raw.username  || '';
       const password  = raw.tsPassword  || raw.password  || '';
       const apiKey    = raw.tsApiKey    || raw.apiKey    || '';
-      const depotId   = Number(raw.tsDepotId || raw.depotId || 1);
+      const depotIdRaw = raw.tsDepotId || raw.depotId;
+      if (!depotIdRaw) {
+        console.warn(`[TS_AGENT] No depotId configured for garage ${garageId} — falling back to depot 1`);
+      }
+      const depotId   = Number(depotIdRaw || 1);
+      const channelId = raw.tsChannelId ? Number(raw.tsChannelId) : undefined;
       if (workspace && username && password && apiKey) {
-        tsConfig = { workspace, username, password, apiKey, depotId };
+        tsConfig = { workspace, username, password, apiKey, depotId, channelId };
       }
     }
 
     console.log('[TS_AGENT] Config loaded:', { garageId, hasApiCreds: !!tsConfig });
 
     const isOpen    = checkOpeningHours(config.weeklyOpeningHours);
-    const session   = tsSessions.get(conversationId) || {};
+    const session   = tsSessions.get(tsSessionKey(garageId, conversationId)) || {};
     const tools     = buildTools(!!tsConfig);
     const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig);
 
@@ -332,7 +348,7 @@ export async function getTyresoftChatResponse(
 
     // Tool-call loop
     let iterations = 0;
-    while (response.choices[0]?.finish_reason === 'tool_calls' && iterations < 5) {
+    while (response.choices[0]?.finish_reason === 'tool_calls' && iterations < 10) {
       iterations++;
       const toolCalls = response.choices[0].message.tool_calls!;
       messages.push(response.choices[0].message);
@@ -348,7 +364,7 @@ export async function getTyresoftChatResponse(
         }
         console.log(`[TS_AGENT] Tool call: ${call.function.name}`, args);
 
-        const result = await executeTool(call.function.name, args, conversationId, tsConfig);
+        const result = await executeTool(call.function.name, args, garageId, conversationId, tsConfig);
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
@@ -448,17 +464,29 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
-        name: 'ts_add_tyre_to_basket',
-        description: 'Add a selected tyre to the customer basket. ONLY call after presenting the tyre options list to the customer AND the customer has explicitly chosen a specific tyre. Never auto-select — always wait for customer choice.',
+        name: 'ts_select_tyre',
+        description: 'Call this as soon as the customer names a tyre from the list. Saves the selected tyre and tells you to ask for quantity. Do NOT call ts_add_tyre_to_basket until after you have received the quantity from the customer.',
         parameters: {
           type: 'object',
           properties: {
-            stock_number:  { type: 'string', description: 'Stock number of the chosen tyre' },
-            quantity:      { type: 'number', description: 'Number of tyres (default 4 for full set, 2 for axle, 1 for single)' },
-            unit_price:    { type: 'number', description: 'Price per tyre from the search results' },
-            description:   { type: 'string', description: 'Short description, e.g. "Michelin Primacy 4 205/55R16"' },
+            stock_number: { type: 'string', description: 'The option number (e.g. "3") or stock number the customer chose' },
+            description:  { type: 'string', description: 'Tyre description as shown in the list' },
           },
-          required: ['stock_number', 'quantity', 'unit_price', 'description'],
+          required: ['stock_number'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ts_add_tyre_to_basket',
+        description: 'Add the previously selected tyre to the basket. ONLY call after ts_select_tyre AND after the customer has explicitly told you how many tyres they want. Never call without a confirmed quantity.',
+        parameters: {
+          type: 'object',
+          properties: {
+            quantity: { type: 'number', description: 'Number of tyres the customer confirmed — 1, 2, or 4' },
+          },
+          required: ['quantity'],
         },
       },
     },
@@ -512,7 +540,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'ts_get_timeslots',
-        description: 'Fetch available booking timeslots. For tyres use service_ids=[0]. For services use the service ID. Call after the customer has confirmed their choice.',
+        description: 'Fetch available booking timeslots. For tyres use service_ids=[0]. For services use the service ID. Call after the customer has confirmed their choice. If ts_add_tyre_to_basket returned a lead time note, you MUST pass lead_time_notice_shown=true to confirm you have already told the customer about the lead time.',
         parameters: {
           type: 'object',
           properties: {
@@ -524,6 +552,10 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
             start_date: {
               type: 'string',
               description: 'Earliest date to search from, YYYY-MM-DD. Defaults to tomorrow.',
+            },
+            lead_time_notice_shown: {
+              type: 'boolean',
+              description: 'Set to true ONLY after you have told the customer about the lead time (partner stock). Required when basket contains partner stock tyres.',
             },
           },
           required: ['service_ids'],
@@ -631,10 +663,12 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
 async function executeTool(
   name: string,
   args: any,
+  garageId: string,
   conversationId: string,
   tsConfig?: TyresoftConfig
 ): Promise<any> {
-  const session = tsSessions.get(conversationId) || {};
+  const sk = tsSessionKey(garageId, conversationId);
+  const session = tsSessions.get(sk) || {};
 
   try {
     switch (name) {
@@ -652,8 +686,14 @@ async function executeTool(
         // Title-case make/model so the LLM never sees ALL CAPS from the API
         if (vehicle.make)  vehicle.make  = toTitleCase(vehicle.make);
         if (vehicle.model) vehicle.model = toTitleCase(vehicle.model);
-        tsSessions.set(conversationId, { ...session, vrm, vehicle });
-        console.log(`[TS_AGENT] VRM lookup OK: ${vrm} -> ${vehicle.make} ${vehicle.model} (${vehicle.yearOfManufacture || vehicle.year})`);
+        // Auto-compute service tier from engine capacity so LLM never needs to ask the customer
+        const engineCC = Number(vehicle.engineCapacity || vehicle.engineSize || 0);
+        if (engineCC > 0) {
+          vehicle._engineCC = engineCC;
+          vehicle._serviceTier = engineCC <= 1600 ? 'up_to_1600cc' : engineCC <= 2000 ? '1601_to_2000cc' : 'over_2000cc';
+        }
+        tsSessions.set(sk, { ...session, vrm, vehicle });
+        console.log(`[TS_AGENT] VRM lookup OK: ${vrm} -> ${vehicle.make} ${vehicle.model} (${vehicle.yearOfManufacture || vehicle.year}) engineCC=${engineCC}`);
         return vehicle;
       }
 
@@ -681,7 +721,7 @@ async function executeTool(
           _index:             i + 1,
         }));
         // Store real stock codes + availability in session so they can't be hallucinated
-        tsSessions.set(conversationId, {
+        tsSessions.set(sk, {
           ...session,
           lastTyreSearch: tyreList.map(t => ({
             stock_number:       t.stock_number,
@@ -696,39 +736,115 @@ async function executeTool(
         return { found: results.length, size, tyres: tyreList };
       }
 
-      case 'ts_add_tyre_to_basket': {
-        // Resolve real stock number from session — LLM often hallucinates short codes
+      case 'ts_select_tyre': {
+        // Resolve tyre from search results — same logic as before
         const llmStockNumber = String(args.stock_number || '');
         const llmDescription = String(args.description || '').toLowerCase();
         const search = session.lastTyreSearch || [];
-        const matched = search.find(t =>
-          t.stock_number === llmStockNumber ||
-          t.description.toLowerCase().includes(llmDescription) ||
-          llmDescription.includes(t.description.toLowerCase().split(' ').slice(0, 3).join(' '))
-        ) || search.find(t => t.stock_number.includes(llmStockNumber)) || null;
-        const resolvedStockNumber = matched ? matched.stock_number : llmStockNumber;
-        const resolvedPrice       = matched ? matched.price        : (Number(args.unit_price) || 0);
-        const resolvedDescription = matched ? matched.description  : String(args.description || '');
-        if (matched && matched.stock_number !== llmStockNumber) {
-          console.log(`[TS_AGENT] Stock number resolved: LLM sent "${llmStockNumber}" → real code "${resolvedStockNumber}"`);
+
+        if (search.length === 0) {
+          return { error: 'No tyre search results in session. Call ts_search_tyres first.' };
         }
-        const item: TyreBasketItem = {
-          stockNumber:      resolvedStockNumber,
-          quantity:         Number(args.quantity) || 4,
-          unitPrice:        resolvedPrice,
-          description:      resolvedDescription,
-          leadTimeDays:     matched ? parseLeadTimeDays(matched.lead_time) : 0,
-          sourceSupplierID: matched ? (matched.source_supplier_id ?? 0) : 0,
+
+        // 1. List index (e.g. "3" → 3rd result)
+        const isListIndex = /^\d{1,2}$/.test(llmStockNumber) && parseInt(llmStockNumber) >= 1 && parseInt(llmStockNumber) <= search.length;
+        const byIndex = isListIndex ? (search[parseInt(llmStockNumber) - 1] || null) : null;
+
+        // 2. Word-intersection match
+        const tokenize = (s: string) => s.toLowerCase().replace(/[.\-\/]/g, ' ').split(/\s+/).filter(w => w.length > 1);
+        const llmTokens = tokenize(llmDescription);
+        const llmTokenSet = new Set(llmTokens);
+        const wordMatch = (csvDesc: string) => {
+          const csvTokens = tokenize(csvDesc);
+          const shared = csvTokens.filter(w => llmTokenSet.has(w)).length;
+          return llmTokens.length >= 2 && shared >= Math.min(2, llmTokens.length);
         };
-        const basket = [...(session.tyreBasket || []), item];
-        tsSessions.set(conversationId, { ...session, tyreBasket: basket });
+
+        const matched = byIndex ||
+          search.find(t =>
+            t.stock_number === llmStockNumber ||
+            t.description.toLowerCase().includes(llmDescription) ||
+            llmDescription.includes(t.description.toLowerCase().split(' ').slice(0, 3).join(' ')) ||
+            wordMatch(t.description)
+          ) ||
+          (llmStockNumber.length > 6 ? search.find(t => t.stock_number.includes(llmStockNumber)) : null) ||
+          null;
+
+        if (!matched) {
+          return { error: `Could not find tyre matching "${llmStockNumber}" in search results. Ask the customer to clarify which number from the list they want.` };
+        }
+
+        if (matched.stock_number !== llmStockNumber) {
+          console.log(`[TS_AGENT] ts_select_tyre resolved: LLM sent "${llmStockNumber}"${isListIndex ? ' (list index)' : ''} → "${matched.stock_number}"`);
+        }
+
+        // Save as pending — ts_add_tyre_to_basket will use this
+        tsSessions.set(sk, { ...session, pendingTyre: matched });
+
+        return {
+          tyre_selected: true,
+          description: matched.description,
+          price_per_tyre: matched.price,
+          next_step: 'STOP. Ask the customer: "How many do you need — 1, 2, or a full set of 4?" Wait for their answer before calling ts_add_tyre_to_basket.',
+        };
+      }
+
+      case 'ts_add_tyre_to_basket': {
+        const pending = session.pendingTyre;
+        if (!pending) {
+          return { error: 'No tyre selected. Call ts_select_tyre first, then ask the customer for quantity before calling this.' };
+        }
+
+        const quantity = Number(args.quantity);
+        if (!quantity || quantity < 1) {
+          return { error: 'Quantity is required and must be at least 1. Ask the customer how many tyres they need.' };
+        }
+
+        const leadTimeDays    = parseLeadTimeDays(pending.lead_time);
+        const sourceSupplierID = pending.source_supplier_id ?? 0;
+
+        // Prevent double-add: if same stock code already in basket, update quantity
+        const existingBasket = session.tyreBasket || [];
+        const existingIdx = existingBasket.findIndex(i => i.stockNumber === pending.stock_number);
+        let basket: TyreBasketItem[];
+        let item: TyreBasketItem;
+
+        if (existingIdx >= 0) {
+          item = { ...existingBasket[existingIdx], quantity };
+          basket = [...existingBasket];
+          basket[existingIdx] = item;
+          console.log(`[TS_AGENT] Basket updated (deduplicated): ${item.description} x${item.quantity}`);
+        } else {
+          item = {
+            stockNumber:      pending.stock_number,
+            quantity,
+            unitPrice:        pending.price,
+            description:      pending.description,
+            leadTimeDays,
+            sourceSupplierID,
+          };
+          basket = [...existingBasket, item];
+        }
+
+        // Clear pending tyre
+        tsSessions.set(sk, { ...session, tyreBasket: basket, pendingTyre: undefined });
         const total = item.quantity * item.unitPrice;
-        console.log(`[TS_AGENT] Tyre added to basket: ${item.description} x${item.quantity} @ £${item.unitPrice} = £${total}`);
+        console.log(`[TS_AGENT] Tyre added to basket: ${item.description} x${item.quantity} @ £${item.unitPrice} = £${total} | leadTimeDays=${item.leadTimeDays} supplierID=${item.sourceSupplierID}`);
+
+        const effectiveLeadDays = item.leadTimeDays || 0;
+        const earliestDate = effectiveLeadDays > 0 ? addDays(effectiveLeadDays) : null;
         return {
           success: true,
-          item,
+          description: item.description,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
           basket_total: basket.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0),
           basket_count: basket.length,
+          ...(earliestDate ? {
+            lead_time_days: effectiveLeadDays,
+            earliest_fitting_date: earliestDate,
+            note: `PARTNER STOCK — you MUST say this to the customer before proceeding: "Just to let you know, these tyres will need to be ordered in from our warehouse — the earliest fitting date available is ${earliestDate}." Only after saying this should you ask about timeslots.`,
+          } : {}),
         };
       }
 
@@ -749,14 +865,14 @@ async function executeTool(
       }
 
       case 'ts_clear_tyre_basket': {
-        tsSessions.set(conversationId, { ...session, tyreBasket: [] });
+        tsSessions.set(sk, { ...session, tyreBasket: [] });
         return { success: true, message: 'Basket cleared.' };
       }
 
       case 'ts_save_customer_details': {
         const customerName  = String(args.customer_name || '').trim();
         const customerPhone = String(args.customer_phone || '').trim();
-        tsSessions.set(conversationId, { ...session, customerName, customerPhone });
+        tsSessions.set(sk, { ...session, customerName, customerPhone });
         console.log(`[TS_AGENT] Customer details saved: name=${customerName}, phone=${customerPhone}`);
         // Persist name + phone to the conversation so it shows in the portal
         if (conversationId && (customerName || customerPhone)) {
@@ -776,12 +892,20 @@ async function executeTool(
         const slotTime = String(args.slot_time || '').trim();
         const matched  = (session.availableSlots || []).find(s => s.date === slotDate && s.time === slotTime);
         if (!matched) {
-          return { error: 'Slot not found in available slots. Call ts_get_timeslots again to refresh.' };
+          return {
+            error: 'slot_not_in_session',
+            directive: `The slot ${slotDate} ${slotTime} was not in the fetched results. If the customer asked for a different date, call ts_get_timeslots with start_date="${slotDate}" first, then present the new slots before confirming.`,
+          };
         }
         const selectedSlot = { date: matched.date, time: matched.time, diaryCategoryId: matched.diaryCategoryID, estimatedTime: matched.estimatedTime, slotTypeId: matched.slotTypeID };
-        tsSessions.set(conversationId, { ...session, selectedSlot });
-        console.log(`[TS_AGENT] Slot confirmed: ${slotDate} ${slotTime}`);
-        return { success: true, slot_date: slotDate, slot_time: slotTime };
+        tsSessions.set(sk, { ...session, selectedSlot });
+        console.log(`[TS_AGENT] Slot confirmed: ${matched.date} ${matched.time}`);
+        return {
+          confirmed: true,
+          confirmed_date: matched.date,
+          confirmed_time: matched.time,
+          directive: `IMPORTANT: The booking is confirmed for ${matched.date} at ${matched.time}. You MUST use exactly these values when telling the customer their appointment date and time. Do not use any other date or time.`,
+        };
       }
 
       case 'ts_get_timeslots': {
@@ -798,9 +922,27 @@ async function executeTool(
           };
         }
 
-        // Apply lead time: if any basket item is partner stock, push start date out accordingly
+        // Guard: for tyre bookings, basket must have items before fetching slots
+        if (hasTyreOnly && (!session.tyreBasket || session.tyreBasket.length === 0)) {
+          return {
+            error: 'tyre_basket_empty',
+            directive: 'The tyre basket is empty. You must call ts_select_tyre and ts_add_tyre_to_basket (with the customer\'s confirmed quantity) before fetching timeslots.',
+          };
+        }
+
+        // Guard: if basket has partner stock tyres, the lead time notice MUST have been shown to the customer first
         const maxLeadDays = (session.tyreBasket || []).reduce((max, t) => Math.max(max, t.leadTimeDays || 0), 0);
-        const startDate   = args.start_date || (maxLeadDays > 0 ? addDays(maxLeadDays) : getTomorrow());
+        if (maxLeadDays > 0 && !args.lead_time_notice_shown) {
+          const earliestDate = addDays(maxLeadDays);
+          return {
+            error: 'lead_time_notice_required',
+            directive: `You MUST tell the customer this BEFORE fetching timeslots: "Just to let you know, these tyres will need to be ordered in from our warehouse — the earliest fitting date available is ${earliestDate}." Once you have said this, call ts_get_timeslots again with lead_time_notice_shown=true.`,
+          };
+        }
+        const minAllowed  = maxLeadDays > 0 ? addDays(maxLeadDays) : getTomorrow();
+        const requested   = args.start_date || minAllowed;
+        // Enforce minimum server-side — LLM cannot book earlier than lead time allows
+        const startDate   = (maxLeadDays > 0 && requested < minAllowed) ? minAllowed : requested;
         const slotDepotId  = session.branchOverride ?? tsConfig.depotId;
         const resp = await axios.post(
           `${tsBaseUrl(tsConfig)}/availableSlotsForBasket/${slotDepotId}/${startDate}`,
@@ -819,7 +961,7 @@ async function executeTool(
             slotTypeID:      req.slotTypeID       ?? s.slotTypeID      ?? 1,
           };
         });
-        tsSessions.set(conversationId, { ...session, serviceIds: args.service_ids, availableSlots });
+        tsSessions.set(sk, { ...session, serviceIds: args.service_ids, availableSlots });
         console.log(`[TS_AGENT] Timeslots fetched for service_ids=${JSON.stringify(args.service_ids)}, date=${startDate}, count=${availableSlots.length}`);
         // Return only date+time — no metadata the LLM can misuse
         return { available_slots: availableSlots.slice(0, 10).map(s => ({ date: s.date, time: s.time })) };
@@ -896,7 +1038,7 @@ async function executeTool(
         const branch  = Number(args.branch) || 1;
         const depotId = branch === 2 ? 3 : 1; // branch 1 → depot 1, branch 2 → depot 3
         // Clear tyre search + slots since they belong to the old branch
-        tsSessions.set(conversationId, {
+        tsSessions.set(sk, {
           ...session,
           branchOverride:  depotId,
           availableSlots:  undefined,
@@ -940,7 +1082,7 @@ async function executeTool(
 
       case 'ts_create_booking': {
         if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
-        return await tsCreateBooking(args, session, tsConfig, conversationId);
+        return await tsCreateBooking(args, session, tsConfig, garageId, conversationId);
       }
 
       case 'ts_take_message': {
@@ -978,8 +1120,11 @@ async function tsCreateBooking(
   args: any,
   session: TyresoftSession,
   cfg: TyresoftConfig,
+  garageId: string,
   conversationId: string
 ): Promise<any> {
+  const sk = tsSessionKey(garageId, conversationId);
+  console.log(`[TS_AGENT] ts_create_booking called | slot=${args.slot_date} ${args.slot_time} | customer=${args.customer_name} | tyreBasket=${session.tyreBasket?.length || 0} | serviceIds=${JSON.stringify(args.service_ids)}`);
   const headers = tsHeaders(cfg);
   const base    = tsBaseUrl(cfg);
 
@@ -1174,7 +1319,7 @@ async function tsCreateBooking(
       poNumber:    '',
       flag:        0,
       flagNotes:   '',
-      channelID:   24, // ReceptionMate API channel
+      channelID:   cfg.channelId ?? 24, // ReceptionMate API channel (configurable via tsChannelId)
       orderStatus: 'Awaiting Acknowledgement',
       bookingSlot: {
         date:            slotDate,
@@ -1204,6 +1349,7 @@ async function tsCreateBooking(
           return svc ? `${svc.name} @ £${svc.price}` : `serviceID=${sid}`;
         }).join(', ');
 
+    const maxLeadTimeDays = (session.tyreBasket || []).reduce((max, t) => Math.max(max, t.leadTimeDays || 0), 0);
     console.log(`[BOOKING CREATED] ${JSON.stringify({
       timestamp:   new Date().toUTCString(),
       channel:     'chat',
@@ -1218,20 +1364,27 @@ async function tsCreateBooking(
       date:        slotDate,
       time:        slotTime,
       items:       itemSummary,
+      ...(maxLeadTimeDays > 0 ? { partner_stock: true, lead_time_days: maxLeadTimeDays } : {}),
     })}`);
 
     // Back order check — flag if any tyre needs ordering in
+    // Primary: use leadTimeDays already stored on basket item (reliable even if lastTyreSearch was overwritten)
+    // Secondary: cross-check availability string from lastTyreSearch for explicit "back order" status
     const backOrderItems = tyreBasket.filter(item => {
+      if (item.leadTimeDays > 0) return true;
       const found = (session.lastTyreSearch || []).find(t => t.stock_number === item.stockNumber);
       if (!found) return false;
-      const avail    = (found.availability || '').toLowerCase();
-      const leadTime = (found.lead_time    || '').trim();
-      return avail.includes('back') || avail.includes('order') || (leadTime !== '' && leadTime !== '0');
+      const avail = (found.availability || '').toLowerCase();
+      return avail.includes('back') || avail.includes('order');
     });
     const hasBackOrder = backOrderItems.length > 0;
 
-    // Clear session on success
-    tsSessions.delete(conversationId);
+    // Partial session reset — keep name/phone so a second booking in the same chat
+    // still has the customer details (avoids blank entries in BOOKING CREATED log)
+    tsSessions.set(sk, {
+      customerName:  session.customerName,
+      customerPhone: session.customerPhone,
+    });
 
     return {
       success:          true,
@@ -1301,18 +1454,20 @@ function buildSystemPrompt(
     prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
     prompt += `3. Use tyreSizeOptions[0].tyreSizeFront from the lookup as the tyre size — strip any load index or speed rating (e.g. use "235/60R18" not "235/60R18 107V").\n`;
     prompt += `4. Call ts_search_tyres with that size to find available tyres.\n`;
-    prompt += `5. Present options as a numbered list (brand, price per tyre). Ask how many they need — typically 1, 2, or 4.\n`;
-    prompt += `6. Customer picks one — call ts_add_tyre_to_basket with stock_number, quantity, unit_price, description.\n`;
-    prompt += `7. Call ts_get_timeslots with service_ids=[0] (0 = tyre fitting).\n`;
-    prompt += `8. Offer 3-4 slots. If the customer states a time preference (e.g. "around 10", "morning"), call ts_check_preferred_time before listing slots.\n`;
-    prompt += `9. When customer picks a slot, immediately call ts_confirm_slot to save it.\n`;
-    prompt += `10. Ask for name + phone number if not already saved. Once you have both, call ts_save_customer_details immediately.\n`;
-    prompt += `11. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
-    prompt += `12. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
+    prompt += `5. Present options as a numbered list (brand, price per tyre). Ask: "Which of these would you like?"\n`;
+    prompt += `6. Customer names a tyre → call ts_select_tyre immediately. The tool will tell you to ask for quantity. STOP and ask: "How many do you need — 1, 2, or a full set of 4?"\n`;
+    prompt += `7. Customer gives a number → call ts_add_tyre_to_basket with that quantity.\n`;
+    prompt += `   - If the response contains a "note" field: say it to the customer as your NEXT message before anything else.\n`;
+    prompt += `8. Call ts_get_timeslots with service_ids=[0].\n`;
+    prompt += `9. Offer 3-4 slots. If the customer states a time preference (e.g. "around 10", "morning"), call ts_check_preferred_time before listing slots.\n`;
+    prompt += `10. When customer picks a slot, immediately call ts_confirm_slot to save it.\n`;
+    prompt += `11. Ask for name + phone number if not already saved. Once you have both, call ts_save_customer_details immediately.\n`;
+    prompt += `12. Read back the summary: "[quantity] x [tyre description] on [date] at [time] for [name] — shall I confirm?"\n`;
+    prompt += `13. Call ts_create_booking with service_ids=[0] only after explicit YES.\n\n`;
 
     prompt += `SERVICE BOOKING (MOT, full service, alignment, air con, etc.):\n`;
     prompt += `1. ALWAYS ask for their vehicle registration plate FIRST and call ts_lookup_vehicle before anything else.\n`;
-    prompt += `   The VRM lookup returns engineCapacity — use it to auto-select the correct service tier. Never ask the customer for engine size manually.\n`;
+    prompt += `   The VRM lookup returns _serviceTier ("up_to_1600cc", "1601_to_2000cc", or "over_2000cc") — use it to auto-select the correct full service tier. NEVER ask the customer for their engine size.\n`;
     prompt += `2. After ts_lookup_vehicle, confirm the vehicle: "I can see that's a [year] [make] [model] — is that correct?"\n`;
     prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
     prompt += `3. Call ts_get_services to match the customer's request using engineCapacity from the VRM lookup.\n`;
@@ -1322,10 +1477,13 @@ function buildSystemPrompt(
     prompt += `7. Collect name + phone (call ts_save_customer_details once you have both).\n`;
     prompt += `8. Read back summary and confirm — call ts_create_booking only after YES.\n\n`;
 
-    prompt += `MULTI-ITEM TRACKING:\n`;
-    prompt += `- If the customer wants MULTIPLE items (e.g. "tyres AND an MOT", "alignment and air con"), track ALL of them throughout the conversation.\n`;
-    prompt += `- Add each service to the relevant basket or service list before fetching slots.\n`;
-    prompt += `- Do NOT lose track of earlier items when the customer confirms later ones.\n`;
+    prompt += `MULTI-ITEM / COMBINED BOOKING (tyres AND services together):\n`;
+    prompt += `- When the customer wants both tyres and a service in one visit, add the tyre to the basket first (ts_select_tyre → ts_add_tyre_to_basket), then collect the service ID.\n`;
+    prompt += `- CRITICAL: Call ts_get_timeslots ONCE with the service_id(s) — do NOT call it separately for tyres. The tyre basket is already in session and will be included in the booking automatically.\n`;
+    prompt += `  Example: tyres + wheel alignment → ts_get_timeslots with service_ids=[3]. Do NOT call ts_get_timeslots with service_ids=[0] as a separate call.\n`;
+    prompt += `- CRITICAL: Call ts_confirm_slot ONCE for the single shared appointment time. Both tyres and services will be fitted at the same visit.\n`;
+    prompt += `- CRITICAL: Call ts_create_booking ONCE with all service_ids (e.g. service_ids=[3] for alignment — tyres come from the basket).\n`;
+    prompt += `- Do NOT fetch separate slot lists for tyres vs services. One slot. One booking. All items.\n`;
     prompt += `- CRITICAL: Even in a combined tyre + service request, you MUST still present tyre options and wait for the customer to choose before calling ts_add_tyre_to_basket. Never auto-select a tyre — always let the customer pick.\n\n`;
 
     prompt += `BRANCH / LOCATION:\n`;
@@ -1333,9 +1491,16 @@ function buildSystemPrompt(
     prompt += `- After switching branch, tyre searches and available slots reset automatically — search again for the new branch.\n\n`;
 
     prompt += `RULES:\n`;
-    prompt += `- After ts_create_booking succeeds:\n`;
-    prompt += `  If back_order is true in the response, say: "You're all booked in! Reference #[saleNumber]. Just to let you know, we'll need to order your tyres in — they'll be ready for your appointment. We'll see you on [date] at [time]. Is there anything else I can help with?"\n`;
-    prompt += `  Otherwise say: "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [date] at [time] for your [service]. Is there anything else I can help with?"\n`;
+    prompt += `- CRITICAL: NEVER say "you're all booked in", "you're all set", "your reference number is", or any booking confirmation phrase unless ts_create_booking has returned a real saleNumber. Do NOT say "you're all set" after confirming a slot — that is not a booking. A booking only exists after ts_create_booking returns a saleNumber.\n`;
+    prompt += `- CRITICAL DATES: When the customer asks for a date that was NOT in the slots you just showed, you MUST call ts_get_timeslots again with start_date set to that date before doing anything else. Never confirm a slot for a date you have not actually fetched.\n`;
+    prompt += `- CRITICAL DATES: After ts_confirm_slot succeeds, the response contains "confirmed_date" and "confirmed_time". You MUST use EXACTLY those values when telling the customer their appointment. Never use the date the customer verbally requested — only use the date the system confirmed.\n`;
+    prompt += `- CRITICAL: When the customer selects a time slot, you MUST call ts_confirm_slot IMMEDIATELY as a tool call — do NOT just acknowledge it in text and move on.\n`;
+    prompt += `- CRITICAL: After customer says YES to the summary, you MUST call ts_create_booking as a tool call. Do NOT skip it or assume success.\n`;
+    prompt += `- CRITICAL LEAD TIME: If ts_add_tyre_to_basket returns a "note" field, you MUST say it to the customer in your very next message before doing anything else. This is not optional. The exact wording to use: "Just to let you know, these tyres will need to be ordered in from our warehouse — the earliest fitting date available is [earliest_fitting_date]." Only after saying this should you call ts_get_timeslots.\n`;
+    prompt += `- CRITICAL: After ts_create_booking completes successfully, the session is fully reset. If the customer wants to make another booking in the same chat, treat it as a completely fresh booking — ask for their registration again, do not assume anything from the previous booking.\n`;
+    prompt += `- After ts_create_booking succeeds, read the date and time from the session slot (confirmed_date / confirmed_time from ts_confirm_slot), NOT from what the customer verbally said:\n`;
+    prompt += `  If back_order is true: "You're all booked in! Reference #[saleNumber]. Just to let you know, we'll need to order your tyres in — they'll be ready for your appointment. We'll see you on [confirmed_date] at [confirmed_time]. Is there anything else I can help with?"\n`;
+    prompt += `  Otherwise: "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [confirmed_date] at [confirmed_time] for your [service]. Is there anything else I can help with?"\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
@@ -1350,8 +1515,11 @@ function buildSystemPrompt(
     prompt += `- When presenting available time slots, write them as a natural sentence, not a bullet list.\n`;
     prompt += `  Example: "I have 12:30 PM, 1:00 PM, 1:30 PM or 3:30 PM available on March 19th — which works best for you?"\n`;
     prompt += `- If the customer wants to speak to a human or leave a message:\n`;
-    prompt += `  Ask what their message is and confirm you have their phone number.\n`;
-    prompt += `  Call ts_take_message, then tell them: "I've passed your message on to the team. Someone will get back to you shortly."\n`;
+    prompt += `  Step 1: Ask what their message is. Wait for them to give it.\n`;
+    prompt += `  Step 2: Confirm you have their phone number (or ask if not known).\n`;
+    prompt += `  Step 3: Only AFTER you have both the message AND the phone number, call ts_take_message.\n`;
+    prompt += `  CRITICAL: Do NOT call ts_take_message until you have received the actual message content from the customer.\n`;
+    prompt += `  Then tell them: "I've passed your message on to the team. Someone will get back to you shortly."\n`;
     prompt += `  Do NOT continue trying to help after ts_take_message — the conversation is handed off.\n`;
     prompt += `- If the customer explicitly asks to be called back (e.g. "can someone ring me?"):\n`;
     prompt += `  Ask for their name and best number if not already known.\n`;
@@ -1407,8 +1575,8 @@ function buildSystemPrompt(
 function checkOpeningHours(weeklyOpeningHours: any): boolean {
   if (!weeklyOpeningHours || typeof weeklyOpeningHours !== 'object') return true;
   const now  = new Date();
-  const day  = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-  const time = now.toTimeString().slice(0, 5);
+  const day  = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Europe/London' }).toLowerCase();
+  const time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
   const h    = (weeklyOpeningHours as Record<string, any>)[day];
   if (!h?.open || !h?.close) return false;
   return time >= h.open && time <= h.close;

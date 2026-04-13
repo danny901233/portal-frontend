@@ -31,6 +31,7 @@ import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
 import metaInstagramWebhook from './routes/webhooks/meta-instagram.js';
 import gocardlessWebhook from './routes/webhooks/gocardless.js';
 import featureAnnouncementRouter from './routes/featureAnnouncement.js';
+import usersRouter from './routes/users.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 
@@ -87,6 +88,7 @@ app.use('/api', chatRouter);
 app.use('/api', conversationsRouter);
 app.use('/api', outboundRouter);
 app.use('/api', featureAnnouncementRouter);
+app.use('/api', usersRouter);
 app.use('/api', templatesRouter);
 app.use('/api/webhooks', metaWhatsappWebhook);
 app.use('/api/webhooks', metaFacebookWebhook);

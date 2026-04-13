@@ -154,6 +154,14 @@ const tyresoftSettingsSchema = z
   })
   .optional();
 
+const hubspotSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    apiToken: optionalBoundedString(500),
+    ownerId: optionalBoundedString(100),
+  })
+  .optional();
+
 const timeString = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM in 24-hour time');
@@ -244,6 +252,7 @@ export const upsertAgentConfigurationSchema = z.object({
   integrationProvider: z.enum(['none', 'garage_hive']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
+  hubspotSettings: hubspotSettingsSchema,
   agentType: z.enum(['assist', 'automate']).optional(),
   agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),

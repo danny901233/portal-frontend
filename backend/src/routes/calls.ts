@@ -18,6 +18,8 @@ import { resolveAllowedGarages } from '../utils/auth.js';
 import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { trackConfirmedBooking } from '../services/billing.js';
+import { logCallToHubSpot } from '../services/hubspot.js';
+import { cloneHubspotSettings } from '../utils/types.js';
 
 const router = Router();
 
@@ -237,6 +239,7 @@ router.post('/calls', async (req: Request, res: Response) => {
               select: {
                 branchName: true,
                 notificationEmails: true,
+                integrationProviderConfig: true,
               },
             },
           },
@@ -251,6 +254,35 @@ router.post('/calls', async (req: Request, res: Response) => {
       } catch (error) {
         console.error('[BILLING] Failed to track confirmed booking:', error);
       }
+    }
+
+    // Log to HubSpot if configured (independent of diary integrationProvider)
+    const rawConfig = (createdCall.garage?.agentConfiguration?.integrationProviderConfig ?? {}) as Record<string, unknown>;
+    const rawHubspot = (rawConfig.hubspot && typeof rawConfig.hubspot === 'object')
+      ? rawConfig.hubspot as Record<string, unknown>
+      : {};
+    if (rawHubspot.enabled === true && typeof rawHubspot.apiToken === 'string' && rawHubspot.apiToken) {
+      const hubspotSettings = cloneHubspotSettings({
+        enabled: true,
+        apiToken: rawHubspot.apiToken,
+        ownerId: typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId : '',
+      });
+      void logCallToHubSpot({
+        customerPhone: payload.customerPhone ?? null,
+        fromNumber: payload.fromNumber ?? null,
+        customerName: payload.customerName ?? null,
+        registrationNumber: payload.registrationNumber ?? null,
+        summary: payload.summary ?? null,
+        bookingDetails: payload.bookingDetails ?? null,
+        durationSeconds: actualDuration,
+        callType,
+        confirmedBooking: payload.confirmedBooking ?? false,
+        createdAt: createdCall.createdAt,
+        branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
+        recordingUrl: null,
+      }, hubspotSettings).catch((error) => {
+        console.error('[HUBSPOT] Failed to log call:', error);
+      });
     }
 
     // Send notification email (agent already filtered to only send calls >= 30s)
@@ -1115,6 +1147,40 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
       console.error('Failed to fetch garages', error);
     }
     res.status(500).json({ error: 'Failed to fetch garages' });
+  }
+});
+
+// POST /api/calls/report-flagged — called by Observability Dashboard when evaluators flag calls
+// Sends a Discord notification for newly flagged calls (deduplication handled client-side)
+router.post('/calls/report-flagged', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { callId, garageName, reasons } = req.body as {
+      callId?: string;
+      garageName?: string;
+      reasons?: string[];
+    };
+
+    if (!callId || !garageName || !Array.isArray(reasons) || reasons.length === 0) {
+      return res.status(400).json({ error: 'callId, garageName and reasons are required' });
+    }
+
+    await sendDiscordNotification({
+      title: '⚠️ Call Flagged by Evaluator',
+      description: `A call at **${garageName}** was flagged by the observability evaluators.`,
+      color: DISCORD_COLORS.warning,
+      fields: [
+        { name: 'Call ID', value: callId, inline: true },
+        { name: 'Branch', value: garageName, inline: true },
+        { name: 'Reasons', value: reasons.join('\n'), inline: false },
+      ],
+    });
+
+    res.json({ ok: true });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to report flagged call to Discord', error);
+    }
+    res.status(500).json({ error: 'Failed to send notification' });
   }
 });
 

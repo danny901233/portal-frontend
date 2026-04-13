@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
 import ConversationTaggingPanel from '../components/ConversationTaggingPanel';
+import MessagingSetupWizard from '../components/MessagingSetupWizard';
 
 interface Message {
   id: string;
@@ -91,6 +92,7 @@ export default function MessagesPage() {
   const [showPauseDropdown, setShowPauseDropdown] = useState(false);
   const [showTaggingPanel, setShowTaggingPanel] = useState(false);
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean | null>(null);
+  const [showWizard, setShowWizard] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -425,15 +427,26 @@ export default function MessagesPage() {
           <h1 className="text-2xl font-bold text-slate-100">Messages</h1>
           <p className="text-sm text-slate-400 mt-1">Manage all customer conversations in one place</p>
         </div>
-        <button
-          onClick={() => router.push('/integrations')}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors border border-slate-700"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          <span className="text-sm font-medium">Connect Platforms</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowWizard(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors border border-slate-700"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            <span className="text-sm font-medium">Webchat Setup</span>
+          </button>
+          <button
+            onClick={() => router.push('/integrations')}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors border border-slate-700"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            <span className="text-sm font-medium">Connect Platforms</span>
+          </button>
+        </div>
       </div>
 
       <div className="flex h-[calc(100vh-220px)] gap-0">
@@ -951,6 +964,13 @@ export default function MessagesPage() {
         />
       )}
       </div>
+
+      {showWizard && (
+        <MessagingSetupWizard
+          onHide={() => setShowWizard(false)}
+          onDone={() => setShowWizard(false)}
+        />
+      )}
     </div>
   );
 }

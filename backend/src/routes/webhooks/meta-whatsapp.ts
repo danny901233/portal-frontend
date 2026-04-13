@@ -102,11 +102,11 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
         });
 
         if (!connection) {
-          // Self-heal: OAuth flow sometimes stores the wrong phone number ID (e.g. WABA ID or
-          // first number on account instead of the correct one). If there's exactly one active
-          // WhatsApp connection whose stored ID doesn't match, update it automatically.
+          // Self-heal: OAuth flow sometimes stores 'pending_setup' as the phone number ID
+          // when setup was not fully completed. Only auto-correct connections that explicitly
+          // have pending_setup — never overwrite a real phone number ID from another garage.
           const fallback = await prisma.socialMediaConnection.findFirst({
-            where: { platform: 'whatsapp', isActive: true },
+            where: { platform: 'whatsapp', isActive: true, whatsappPhoneNumberId: 'pending_setup' },
             include,
           });
 
@@ -115,7 +115,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             continue;
           }
 
-          console.log(`[WhatsApp] Auto-correcting phone_number_id: ${fallback.whatsappPhoneNumberId} → ${phoneNumberId}`);
+          console.log(`[WhatsApp] Auto-correcting pending_setup → ${phoneNumberId} for garage ${fallback.garageId}`);
           await prisma.socialMediaConnection.update({
             where: { id: fallback.id },
             data: { whatsappPhoneNumberId: phoneNumberId },

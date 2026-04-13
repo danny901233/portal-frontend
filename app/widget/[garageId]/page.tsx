@@ -851,7 +851,7 @@ export default function ChatWidget() {
               <input
                 type="tel"
                 value={preChatPhone}
-                onChange={(e) => setPreChatPhone(e.target.value)}
+                onChange={(e) => setPreChatPhone(e.target.value.replace(/[^0-9+\s\-()]/g, ''))}
                 placeholder="Phone number (e.g. 07700 900000)"
                 style={{
                   width: '100%',

@@ -25,6 +25,7 @@ let GH_LOCATION_ID: string = '23';
 let DROP_OFF_ENABLED: boolean = false;
 let DROP_OFF_MESSAGE: string = 'drop your vehicle off between 8am and half ten in the morning';
 let DROP_OFF_EXCLUDE_SERVICES: string[] = ['MOT'];
+let BOOKING_LEAD_TIME_DAYS: number = 1;
 
 interface ChatAgentResponse {
   content: string;
@@ -107,6 +108,10 @@ interface ChatSession {
   // Widget pre-fill: service hint from initial message (e.g. "MOT")
   serviceHint?: string;
 
+  // Timestamp when this booking session started (or restarted) — used to
+  // prevent hydrateSessionFromMessageHistory from reading contact data that
+  // belongs to a *previous* booking by a different customer on the same device.
+  sessionStartedAt: string;
   // Branch selection (for garages with multiple locations)
   selectedBranch?: string;
 }
@@ -170,6 +175,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
           useDropOffBooking: false,
           selectedBranch: '',
+          sessionStartedAt: new Date().toISOString(),
         };
         inMemorySessionCache.set(conversationId, freshSession);
         return freshSession;
@@ -213,7 +219,34 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         outboundRegistration: sessionData.outboundRegistration || undefined,
         outboundServiceType: sessionData.outboundServiceType || undefined,
         outboundDueDate: sessionData.outboundDueDate || undefined,
+        sessionStartedAt: sessionData.sessionStartedAt || new Date().toISOString(),
       };
+      // If the previous booking was confirmed/done OR a timeslot was already chosen
+      // (covers failed bookings that never reached CONFIRMED), wipe all personal data
+      // so the next person on the same device/conversationId starts completely clean.
+      const staleBooking = loadedSession.step === Step.CONFIRMED || loadedSession.step === Step.DONE ||
+        !!(loadedSession.bookingDate && loadedSession.bookingTime);
+      if (staleBooking) {
+        console.log(`[GET_SESSION] Stale session (step=${loadedSession.step}, bookingDate=${loadedSession.bookingDate}) — resetting for new customer`);
+        Object.assign(loadedSession, {
+          step: Step.GREETING,
+          intent: '',
+          customerNameFirst: '', customerNameLast: '',
+          vrn: '', vrnConfirmed: false, sessionId: '',
+          vehicleMake: '', vehicleModel: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
+          bookingDate: '', bookingTime: '',
+          contactPhone: '', contactEmail: '',
+          contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
+          postcodeConfirmed: false, notes: '',
+          message: '', preferredCallbackTime: '',
+          diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
+          useDropOffBooking: false,
+          sessionStartedAt: new Date().toISOString(),
+        });
+      }
+
       // Guard: if session is mid-booking but has no GarageHive sessionId, the previous
       // vehicle lookup failed or was never saved. Reset back to need_vrn so the bot
       // re-runs lookup_vehicle. Keep the VRN so the user doesn't have to re-type it.
@@ -282,6 +315,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     diagnosticComplete: false,
     diagnosticQuestions: [],
     useDropOffBooking: false,
+    sessionStartedAt: new Date().toISOString(),
     selectedBranch: '',
   };
 
@@ -341,6 +375,7 @@ export async function getChatAgentResponse(
     const isOpen = checkOpeningHours(config.weeklyOpeningHours);
 
     // Load GarageHive credentials
+    // Config may be nested { garagehive: {...}, tyresoft: {...} } or flat { customerId, apiKey, ... }
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
       const rawConfig = config.integrationProviderConfig as any;
       // Support both nested { garagehive: { ... } } and flat { customerId: ... } formats
@@ -352,6 +387,8 @@ export async function getChatAgentResponse(
       DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
       DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
     }
+    // Load booking lead time (minimum days notice required)
+    BOOKING_LEAD_TIME_DAYS = (config as any).bookingLeadTimeDays ?? 1;
     if (!GH_CUSTOMER_ID || !GH_API_KEY) {
       console.warn(`[GARAGEHIVE_MISCONFIGURED] garageId=${garageId} is using agentScript=${config.agentScript} but GarageHive credentials are not set in integrationProviderConfig. Vehicle lookups will fall back to take_message.`);
     }
@@ -392,7 +429,7 @@ export async function getChatAgentResponse(
       take: 10,
     });
 
-    hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string }>);
+    hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string; createdAt: Date }>);
 
     // Re-apply seed after hydration to ensure it wins over any contradictory history
     if (seedContact?.phone && !session.contactPhone) {
@@ -425,9 +462,8 @@ export async function getChatAgentResponse(
         /\b(book|booking|service|mot|appointment|slot|come in|bring (it|the car)|actually|instead)\b/.test(lower);
       if (isRestart || wantsBookingAfterMessage) {
         console.log(`[RESTART] Customer requested restart at step: ${session.step} (wantsBooking: ${wantsBookingAfterMessage})`);
-        // Wipe all booking state but keep name + contact if already collected
-        const savedName = { first: session.customerNameFirst, last: session.customerNameLast };
-        const savedContact = { phone: session.contactPhone, email: session.contactEmail };
+        // Wipe ALL state — a restart may be a different customer on the same device,
+        // so we must never carry over contact info or name from a previous booking.
         Object.assign(session, {
           step: Step.GREETING,
           intent: '',
@@ -436,20 +472,18 @@ export async function getChatAgentResponse(
           servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
           timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
           bookingDate: '', bookingTime: '',
+          contactPhone: '', contactEmail: '',
           contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
           postcodeConfirmed: false, notes: '',
+          customerNameFirst: '', customerNameLast: '',
           message: '', preferredCallbackTime: '',
           diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
           useDropOffBooking: false,
+          sessionStartedAt: new Date().toISOString(),
         });
-        session.customerNameFirst = savedName.first;
-        session.customerNameLast = savedName.last;
-        session.contactPhone = savedContact.phone;
-        session.contactEmail = savedContact.email;
         await saveSession(conversationId, session);
-        const nameGreet = savedName.first ? `, ${savedName.first}` : '';
         return {
-          content: `No problem${nameGreet}! Let's start fresh. What can I help you with?`,
+          content: `No problem! Let's start fresh. What can I help you with?`,
           needsHumanAssistance: false,
         };
       }
@@ -509,6 +543,20 @@ export async function getChatAgentResponse(
           : `Can I just grab a contact number?`;
         return {
           content: `Perfect — just need a couple of details to lock that in. ${nextAsk}`,
+          needsHumanAssistance: false,
+        };
+      }
+
+      // If the customer mentions a specific date/day, treat it as wanting a different slot
+      const mentionsDate = /\b(\d{1,2}(st|nd|rd|th)?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december|today|tomorrow|next week)\b/i.test(message);
+      if (mentionsDate) {
+        session.step = Step.NEED_TIMESLOT;
+        session.pendingSlotDate = '';
+        session.pendingSlotTime = '';
+        await saveSession(conversationId, session);
+        const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
+        return {
+          content: `No problem — here are the available slots:\n${firstSlots}`,
           needsHumanAssistance: false,
         };
       }
@@ -858,13 +906,22 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
   return args;
 }
 
-function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<{ role: string; content: string }>): void {
+function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<{ role: string; content: string; createdAt?: Date }>): void {
   if (!messages || messages.length === 0) {
     return;
   }
 
+  // Only scan messages that belong to the CURRENT booking session.
+  // This prevents a new customer (same device/conversationId) from inheriting
+  // contact details that were typed by a previous customer.
+  const sessionStart = session.sessionStartedAt ? new Date(session.sessionStartedAt) : null;
+
   for (const msg of messages) {
     if (msg.role !== 'user' || !msg.content) {
+      continue;
+    }
+    // Skip messages that predate the current session start
+    if (sessionStart && msg.createdAt && msg.createdAt < sessionStart) {
       continue;
     }
 
@@ -1132,7 +1189,7 @@ function getNextContactInstruction(session: ChatSession): string {
     return `Postcode accepted.\n\nSay: "And your house number or name?"\nWait for house number, then call set_contact_info.`;
   }
 
-  return `All contact info is already collected.\nSay: "Thanks, I’ve got everything I need to confirm this now."\nCall set_contact_info with ZERO SPEECH to finalize.`;
+  return `All contact info is already collected.\nSay: "Thanks, I've got everything I need to confirm this now."\nCall set_contact_info with ZERO SPEECH to finalize.`;
 }
 
 // Tool handlers (return instructions like voice agent)
@@ -1554,11 +1611,18 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     session.step = Step.NEED_TIMESLOT;
     
     // Fetch timeslots BEFORE saving so the cache has them
-    const timeslots = await ghListTimeslots(session.sessionId);
+    const rawTimeslots = await ghListTimeslots(session.sessionId);
+
+    // Filter out slots that don't meet the minimum booking lead time
+    const earliestDate = new Date();
+    earliestDate.setDate(earliestDate.getDate() + BOOKING_LEAD_TIME_DAYS);
+    const earliestStr = earliestDate.toISOString().split('T')[0];
+    const timeslots = rawTimeslots.filter((t: any) => t.date >= earliestStr);
+
     session.timeslotsAvailable = timeslots;
     await saveSession(conversationId, session);
-    
-    console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
+
+    console.log(`[SELECT_SERVICE] Fetched ${rawTimeslots.length} timeslots, ${timeslots.length} after lead time filter (${BOOKING_LEAD_TIME_DAYS} days)`);
     
     if (timeslots.length === 0) {
       // No online timeslots — tell customer and collect contact details via the normal fast-path
@@ -1679,17 +1743,60 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
 Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Does that work for you?" and STOP. Do not mention a specific time. Wait for confirmation.`;
   }
 
+  // "Anything later?", "any other dates?", "more options" — show next available slot with Dan's message
+  const isAskingForMore = /\b(later|more|other|else|different|another|options|alternatives|after that|beyond|further)\b/i.test(preference)
+    && !/\b\d{1,2}(st|nd|rd|th)?\b/.test(preference) // not a specific date
+    && !/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(preference); // not a specific day
+
+  if (isAskingForMore) {
+    // Show slots after the first 3 (which were already displayed)
+    const nextSlots = session.timeslotsAvailable.slice(3);
+    if (nextSlots.length > 0) {
+      const nextDateNatural = formatDateNaturally(nextSlots[0].date);
+      const nextTimeNatural = formatTimeNaturally(nextSlots[0].time);
+      return `MORE_SLOTS requested.\nSay: "The next date I have available is ${nextDateNatural} at ${nextTimeNatural} — does that work for you, or do you have a date in mind?"\nWhen they respond, call select_timeslot again.`;
+    } else {
+      // Already showing all slots — no more
+      const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
+      const lastDateNatural = formatDateNaturally(lastSlot.date);
+      const lastTimeNatural = formatTimeNaturally(lastSlot.time);
+      return `NO_MORE_SLOTS: Online booking only goes up to ${lastDateNatural}.\nSay: "I'm afraid online slots only go up to ${lastDateNatural} at the moment — the latest I can offer is ${lastDateNatural} at ${lastTimeNatural}. Would that work, or would you like the team to call you when later dates open up?"\nWhen they respond, call select_timeslot again.`;
+    }
+  }
+
   const matched = matchTimeslot(preference, session.timeslotsAvailable);
 
   if (!matched) {
-    // No match — tell the agent to explain what’s available and ask again
-    const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
-      `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
-    ).join(', or ');
-    const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
-    return `NO_MATCH: "${preference}" didn't match any available slot. Online availability ends ${formatDateNaturally(lastSlot.date)}.
-Say: "I'm afraid our online diary only goes up to ${formatDateNaturally(lastSlot.date)}. The slots I have are ${firstSlots} — would any of those work?"
-When they choose, call select_timeslot again.`;
+    // No match — implement Dan's suggestion: tell customer the next available date
+    // Try to find the nearest slot at or after the requested date
+    const reqDayMatch = preference.match(/\b(\d{1,2})(st|nd|rd|th)?\b/);
+    const reqMonthMatch = preference.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i);
+    let nearestAfter: any = null;
+    let beyondRange = false;
+    if (reqDayMatch || reqMonthMatch) {
+      const now = new Date();
+      const reqDay = reqDayMatch ? parseInt(reqDayMatch[1]) : 1;
+      const monthNames2 = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+      const reqMonth = reqMonthMatch ? monthNames2.indexOf(reqMonthMatch[1].toLowerCase()) : now.getMonth();
+      const reqYear = reqMonth < now.getMonth() ? now.getFullYear() + 1 : now.getFullYear();
+      const reqDate = new Date(reqYear, reqMonth, reqDay).toISOString().split('T')[0];
+      const afterReq = session.timeslotsAvailable.filter((t: any) => t.date >= reqDate);
+      if (afterReq.length > 0) {
+        nearestAfter = afterReq[0];
+      } else {
+        // Requested date is beyond all available slots — show the latest slot
+        nearestAfter = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
+        beyondRange = true;
+      }
+    } else {
+      nearestAfter = session.timeslotsAvailable[0];
+    }
+    const nextDateNatural = formatDateNaturally(nearestAfter.date);
+    const nextTimeNatural = formatTimeNaturally(nearestAfter.time);
+    const noMatchMsg = beyondRange
+      ? `NO_MATCH: "${preference}" not available — beyond booking range.\nSay: "I'm afraid online slots only go up to ${nextDateNatural} at the moment. The latest I can offer is ${nextDateNatural} at ${nextTimeNatural} — does that work, or would you like the team to call you when later dates open up?"\nWhen they respond, call select_timeslot again.`
+      : `NO_MATCH: "${preference}" not available.\nSay: "I don't have anything on that date — the next available is ${nextDateNatural} at ${nextTimeNatural}. Does that work for you, or do you have another date in mind?"\nWhen they respond, call select_timeslot again.`;
+    return noMatchMsg;
   }
   
   const { date, time } = matched;
@@ -1807,7 +1914,25 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   }
   
   console.log(`[SET_CONTACT] All info collected, submitting to GH API`);
-  
+
+  // Callback flow — no timeslot was booked (no online availability).
+  // Just save the contact details and tell the customer the team will call them.
+  if (!session.bookingDate || !session.bookingTime) {
+    console.log(`[SET_CONTACT] No booking date/time — callback flow, skipping GH API`);
+    session.step = Step.CONFIRMED;
+    await saveSession(conversationId, session);
+    const nameGreet = session.customerNameFirst ? ` ${session.customerNameFirst}` : '';
+    // Include earliest bookable date hint if lead time > 1 day
+    const earliestHint = BOOKING_LEAD_TIME_DAYS > 1
+      ? (() => {
+          const d = new Date();
+          d.setDate(d.getDate() + BOOKING_LEAD_TIME_DAYS);
+          return ` The earliest we can book is ${formatDateNaturally(d.toISOString().split('T')[0])}.`;
+        })()
+      : '';
+    return `Callback details saved.\n\nSay: "Perfect${nameGreet}! I've passed your details to the team and someone will give you a call to get you booked in.${earliestHint} Is there anything else I can help with? 👍"`;
+  }
+
   try {
     // Submit booking with all required GH fields
     const contactAddress = `${session.contactHouseNumber}, ${session.contactStreet}`.replace(/^,\s*/, '').replace(/,\s*$/, '');
@@ -2432,8 +2557,8 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       if (dayNum >= 1 && dayNum <= 31) {
         const onDay = inMonth.filter(t => new Date(t.date + 'T12:00:00').getDate() === dayNum);
         if (onDay.length > 0) return closestByTime(onDay, extractPrefHour(prefLower));
-        // Day not available in that month — return nearest slot in that month
-        return closestByTime(inMonth, extractPrefHour(prefLower));
+        // Specific day in that month not available — return null so the agent explains
+        return null;
       }
     }
     return closestByTime(inMonth, extractPrefHour(prefLower));

@@ -898,9 +898,14 @@ export default function AgentConfigurationsPage() {
             <label className="flex flex-col gap-2 text-sm text-slate-300">
               <span className="text-xs uppercase tracking-wide text-slate-500">Branch phone number</span>
               <input
-                type="text"
+                type="tel"
+                inputMode="numeric"
+                pattern="[0-9+\s\-]*"
                 value={formState.phoneNumber}
-                onChange={handleInputChange('phoneNumber')}
+                onChange={e => {
+                  const val = e.target.value.replace(/[^0-9+\s\-]/g, '');
+                  handleInputChange('phoneNumber')({ ...e, target: { ...e.target, value: val } });
+                }}
                 disabled={!isEditing || mutation.isPending}
                 className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />

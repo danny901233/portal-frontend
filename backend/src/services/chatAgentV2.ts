@@ -25,6 +25,7 @@ let GH_LOCATION_ID: string = '23';
 let DROP_OFF_ENABLED: boolean = false;
 let DROP_OFF_MESSAGE: string = 'drop your vehicle off between 8am and half ten in the morning';
 let DROP_OFF_EXCLUDE_SERVICES: string[] = ['MOT'];
+let BOOKING_LEAD_TIME_DAYS: number = 1;
 
 interface ChatAgentResponse {
   content: string;
@@ -174,6 +175,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
           useDropOffBooking: false,
           selectedBranch: '',
+          sessionStartedAt: new Date().toISOString(),
         };
         inMemorySessionCache.set(conversationId, freshSession);
         return freshSession;
@@ -385,6 +387,8 @@ export async function getChatAgentResponse(
       DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
       DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
     }
+    // Load booking lead time (minimum days notice required)
+    BOOKING_LEAD_TIME_DAYS = (config as any).bookingLeadTimeDays ?? 1;
     if (!GH_CUSTOMER_ID || !GH_API_KEY) {
       console.warn(`[GARAGEHIVE_MISCONFIGURED] garageId=${garageId} is using agentScript=${config.agentScript} but GarageHive credentials are not set in integrationProviderConfig. Vehicle lookups will fall back to take_message.`);
     }
@@ -1607,11 +1611,18 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     session.step = Step.NEED_TIMESLOT;
     
     // Fetch timeslots BEFORE saving so the cache has them
-    const timeslots = await ghListTimeslots(session.sessionId);
+    const rawTimeslots = await ghListTimeslots(session.sessionId);
+
+    // Filter out slots that don't meet the minimum booking lead time
+    const earliestDate = new Date();
+    earliestDate.setDate(earliestDate.getDate() + BOOKING_LEAD_TIME_DAYS);
+    const earliestStr = earliestDate.toISOString().split('T')[0];
+    const timeslots = rawTimeslots.filter((t: any) => t.date >= earliestStr);
+
     session.timeslotsAvailable = timeslots;
     await saveSession(conversationId, session);
-    
-    console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
+
+    console.log(`[SELECT_SERVICE] Fetched ${rawTimeslots.length} timeslots, ${timeslots.length} after lead time filter (${BOOKING_LEAD_TIME_DAYS} days)`);
     
     if (timeslots.length === 0) {
       // No online timeslots — tell customer and collect contact details via the normal fast-path
@@ -1911,7 +1922,15 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     session.step = Step.CONFIRMED;
     await saveSession(conversationId, session);
     const nameGreet = session.customerNameFirst ? ` ${session.customerNameFirst}` : '';
-    return `Callback details saved.\n\nSay: "Perfect${nameGreet}! I've passed your details to the team and someone will give you a call to get you booked in. Is there anything else I can help with? 👍"`;
+    // Include earliest bookable date hint if lead time > 1 day
+    const earliestHint = BOOKING_LEAD_TIME_DAYS > 1
+      ? (() => {
+          const d = new Date();
+          d.setDate(d.getDate() + BOOKING_LEAD_TIME_DAYS);
+          return ` The earliest we can book is ${formatDateNaturally(d.toISOString().split('T')[0])}.`;
+        })()
+      : '';
+    return `Callback details saved.\n\nSay: "Perfect${nameGreet}! I've passed your details to the team and someone will give you a call to get you booked in.${earliestHint} Is there anything else I can help with? 👍"`;
   }
 
   try {

@@ -69,10 +69,15 @@ interface TyresoftSession {
 }
 
 // ---------------------------------------------------------------------------
-// Tyre inventory — loaded from CSV at startup
+// Tyre inventory — per-garage DB-backed cache with CSV file fallback
 // ---------------------------------------------------------------------------
 
-const TYRE_INVENTORY = new Map<number, TyreProduct[]>();
+// In-memory cache: key = "garageId:depotId"
+const TYRE_CACHE = new Map<string, { products: TyreProduct[]; loadedAt: number }>();
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+// Fallback: legacy global CSV inventory (used when no DB rows exist)
+const TYRE_INVENTORY_FALLBACK = new Map<number, TyreProduct[]>();
 
 function parseCSV(filePath: string): TyreProduct[] {
   let content: string;
@@ -129,7 +134,7 @@ function parseCSV(filePath: string): TyreProduct[] {
   return products;
 }
 
-function loadTyreInventory(): void {
+function loadTyreInventoryFallback(): void {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname  = dirname(__filename);
   const dataDir    = join(__dirname, '../../data');
@@ -137,13 +142,60 @@ function loadTyreInventory(): void {
   const branch1 = parseCSV(join(dataDir, 'tyresoft-products-depot-1.csv'));
   const branch2 = parseCSV(join(dataDir, 'tyresoft-products-depot-2.csv'));
 
-  TYRE_INVENTORY.set(1, branch1);  // depot 1 → Branch 1
-  TYRE_INVENTORY.set(3, branch2);  // depot 3 → Branch 2
+  TYRE_INVENTORY_FALLBACK.set(1, branch1);
+  TYRE_INVENTORY_FALLBACK.set(3, branch2);
 
-  console.log(`[TS_AGENT] Tyre inventory loaded: depot1=${branch1.length}, depot3=${branch2.length}`);
+  console.log(`[TS_AGENT] Tyre inventory fallback loaded: depot1=${branch1.length}, depot3=${branch2.length}`);
 }
 
-loadTyreInventory();
+loadTyreInventoryFallback();
+
+async function getInventory(garageId: string, depotId: number): Promise<TyreProduct[]> {
+  const key = `${garageId}:${depotId}`;
+  const cached = TYRE_CACHE.get(key);
+  if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {
+    return cached.products;
+  }
+
+  // Try DB first
+  const rows = await prisma.tyreProduct.findMany({
+    where: { garageId, depotId },
+  });
+
+  if (rows.length > 0) {
+    const products: TyreProduct[] = rows.map(r => ({
+      stockNumber: r.stockNumber,
+      ean: r.ean || '',
+      title: r.title,
+      price: r.retailPrice,
+      width: r.width,
+      aspectRatio: r.aspectRatio,
+      rim: r.rim,
+      speedRating: r.speedRating || '',
+      loadIndex: r.loadIndex || '',
+      brand: r.brandName,
+      runflat: r.runflat,
+      availability: r.leadTime === 'In Stock' ? 'In Stock' : `${r.leadTimeDays} Days`,
+      leadTime: r.leadTime,
+      sourceSupplierID: r.sourceSupplierID,
+    }));
+    TYRE_CACHE.set(key, { products, loadedAt: Date.now() });
+    console.log(`[TS_AGENT] Inventory from DB: garage=${garageId} depot=${depotId} count=${products.length}`);
+    return products;
+  }
+
+  // Fallback to CSV files (legacy garages not yet migrated to DB)
+  const fallback = TYRE_INVENTORY_FALLBACK.get(depotId) ?? TYRE_INVENTORY_FALLBACK.get(1) ?? [];
+  if (fallback.length > 0) {
+    TYRE_CACHE.set(key, { products: fallback, loadedAt: Date.now() });
+    console.log(`[TS_AGENT] Inventory from CSV fallback: depot=${depotId} count=${fallback.length}`);
+  }
+  return fallback;
+}
+
+export function invalidateTyreCache(garageId: string, depotId: number): void {
+  TYRE_CACHE.delete(`${garageId}:${depotId}`);
+}
 
 // Parse "2 Days" → 2, "In Stock" / "0" / "" → 0
 function parseLeadTimeDays(leadTime: string): number {
@@ -187,8 +239,8 @@ function parseTyreSize(size: string): { width: string; aspect: string; rim: stri
   return { width, aspect, rim };
 }
 
-function searchTyres(depotId: number, size: string, brand?: string, maxResults = 5): TyreProduct[] {
-  const inventory = TYRE_INVENTORY.get(depotId) ?? TYRE_INVENTORY.get(1) ?? [];
+async function searchTyres(garageId: string, depotId: number, size: string, brand?: string, maxResults = 5): Promise<TyreProduct[]> {
+  const inventory = await getInventory(garageId, depotId);
   const { width, aspect, rim } = parseTyreSize(size);
 
   const matches = inventory.filter(t => {
@@ -662,7 +714,7 @@ async function executeTool(
         const size     = String(args.size || '');
         const brand    = args.brand ? String(args.brand) : undefined;
         const depotId  = session.branchOverride ?? tsConfig.depotId;
-        const results  = searchTyres(depotId, size, brand);
+        const results  = await searchTyres(garageId, depotId, size, brand);
         if (results.length === 0) {
           return {
             found: 0,

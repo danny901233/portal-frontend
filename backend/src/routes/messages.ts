@@ -558,6 +558,9 @@ router.post(
 
       res.json({ success: true, message });
     } catch (error) {
+      if (error instanceof Error && error.message.includes('24-hour messaging window')) {
+        return res.status(400).json({ error: error.message });
+      }
       console.error('Failed to send message:', error);
       res.status(500).json({ error: 'Failed to send message' });
     }

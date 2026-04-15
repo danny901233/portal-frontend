@@ -88,6 +88,18 @@ export const downloadConfirmedBookingsCsv = async (
   return data;
 };
 
+export const downloadNegativeFeedbackCsv = async (garageId?: string): Promise<Blob> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+  const { data } = await api.get<Blob>(
+    `/api/garages/${targetGarageId}/calls/feedback/export`,
+    { responseType: "blob" }
+  );
+  return data;
+};
+
 export const fetchCalls = async (
   garageId?: string,
   filters?: CallFilters & { page?: number; pageSize?: number }

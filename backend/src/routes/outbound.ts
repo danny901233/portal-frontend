@@ -62,7 +62,7 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
     }
 
     // Derive messageType per contact and normalise phones
-    const normalised = contacts.map((c) => ({
+    const normalisedRaw = contacts.map((c) => ({
       garageId,
       customerName: c.customerName?.trim() || 'Customer',
       phone: normalisePhone(c.phone || ''),
@@ -71,6 +71,14 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
       serviceDueDate: c.serviceDueDate?.trim() || null,
       messageType: c.motDueDate?.trim() ? 'mot' : 'service',
     }));
+
+    // Deduplicate by phone — keep first occurrence
+    const seenPhones = new Set<string>();
+    const normalised = normalisedRaw.filter((c) => {
+      if (!c.phone || seenPhones.has(c.phone)) return false;
+      seenPhones.add(c.phone);
+      return true;
+    });
 
     // Cross-campaign DNC: mark opted-out phones at import time
     const phones = normalised.map((c) => c.phone).filter(Boolean);
@@ -342,14 +350,17 @@ router.post('/sms/inbound', async (req: Request, res: Response) => {
 
   // Validate Twilio signature
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (authToken) {
-    const signature = req.headers['x-twilio-signature'] as string;
-    const url = `${process.env.BACKEND_URL || `https://${req.headers.host}`}/api/sms/inbound`;
-    const valid = twilio.validateRequest(authToken, signature, url, req.body);
-    if (!valid) {
-      res.status(403).send('<Response></Response>');
-      return;
-    }
+  if (!authToken) {
+    console.error('[SMS] TWILIO_AUTH_TOKEN not set — rejecting inbound SMS request');
+    res.status(403).send('<Response></Response>');
+    return;
+  }
+  const signature = req.headers['x-twilio-signature'] as string;
+  const url = `${process.env.BACKEND_URL || `https://${req.headers.host}`}/api/sms/inbound`;
+  const valid = twilio.validateRequest(authToken, signature, url, req.body);
+  if (!valid) {
+    res.status(403).send('<Response></Response>');
+    return;
   }
 
   try {

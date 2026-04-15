@@ -26,6 +26,7 @@ interface TyresoftConfig {
   password: string;
   apiKey: string;
   depotId: number;
+  channelId: number;
 }
 
 interface TyreProduct {
@@ -329,9 +330,10 @@ export async function getTyresoftChatResponse(
       const username  = raw.tsUsername  || raw.username  || '';
       const password  = raw.tsPassword  || raw.password  || '';
       const apiKey    = raw.tsApiKey    || raw.apiKey    || '';
-      const depotId   = Number(raw.tsDepotId || raw.depotId || 1);
+      const depotId   = Number(raw.tsDepotId   || raw.depotId   || 1);
+      const channelId = Number(raw.tsChannelId || raw.channelId || 24);
       if (workspace && username && password && apiKey) {
-        tsConfig = { workspace, username, password, apiKey, depotId };
+        tsConfig = { workspace, username, password, apiKey, depotId, channelId };
       }
     }
 
@@ -1226,7 +1228,7 @@ async function tsCreateBooking(
       poNumber:    '',
       flag:        0,
       flagNotes:   '',
-      channelID:   24, // ReceptionMate API channel
+      channelID:   cfg.channelId,
       orderStatus: 'Awaiting Acknowledgement',
       bookingSlot: {
         date:            slotDate,

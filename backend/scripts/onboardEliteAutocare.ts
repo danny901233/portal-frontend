@@ -70,11 +70,12 @@ async function main() {
         // TEST CREDENTIALS — replace with real values from Dan
         integrationProviderConfig: {
           tyresoft: {
-            tsWorkspace: 'test',
-            tsUsername: 'tyresoft_3pty_api',
-            tsPassword: 'tyresoft_3pty_api',
-            tsApiKey: 'UeA4clkuEl3tmiAasP96h7Rh9X4QMtk99DntTPjF',
-            tsDepotId: 1,
+            tsWorkspace: 'eliteautocare',
+            tsUsername: 'elite_autocare-3pty',
+            tsPassword: '8hh19wv22UI3',
+            tsApiKey: 'HPK6iGMcXiagPXSM5Cbbi7r6onsWnInk195ashPz',
+            tsDepotId: 6,
+            tsChannelId: 31,
           },
         },
         allowBookings: true,
@@ -135,7 +136,7 @@ async function main() {
   console.log('\n✓ Elite Autocare onboarded');
   console.log(`  Garage ID: ${garage.id}`);
   console.log(`  Business ID: ${business.id}`);
-  console.log('  Credentials: TEST (update when real creds received from Dan)');
+  console.log('  Credentials: LIVE (eliteautocare workspace, depot 6, channel 31)');
   console.log('\nNext steps:');
   console.log(`  1. Upload their CSV:  POST /api/garages/${garage.id}/tyre-feed/1`);
   console.log('  2. Update real credentials in integrationProviderConfig');

@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
+import twilio from 'twilio';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
@@ -337,8 +338,19 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
 // Twilio sends application/x-www-form-urlencoded: From, To, Body, MessageSid
 // ---------------------------------------------------------------------------
 router.post('/sms/inbound', async (req: Request, res: Response) => {
-  // Respond 200 immediately so Twilio doesn't retry
   res.set('Content-Type', 'text/xml');
+
+  // Validate Twilio signature
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (authToken) {
+    const signature = req.headers['x-twilio-signature'] as string;
+    const url = `${process.env.BACKEND_URL || `https://${req.headers.host}`}/api/sms/inbound`;
+    const valid = twilio.validateRequest(authToken, signature, url, req.body);
+    if (!valid) {
+      res.status(403).send('<Response></Response>');
+      return;
+    }
+  }
 
   try {
     const { From, Body, To } = req.body as { From: string; Body: string; To: string };

@@ -72,7 +72,12 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
     }
 
     // Decode state
-    const { garageId, platform } = JSON.parse(Buffer.from(state as string, 'base64').toString());
+    let garageId: string, platform: string;
+    try {
+      ({ garageId, platform } = JSON.parse(Buffer.from(state as string, 'base64').toString()));
+    } catch {
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=invalid_state`);
+    }
 
     // Exchange code for access token — Instagram Business Login uses a different endpoint
     let accessToken: string;

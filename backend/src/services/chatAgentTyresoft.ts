@@ -1468,7 +1468,7 @@ function buildSystemPrompt(
     prompt += `   The VRM lookup returns engineCapacity — use it to auto-select the correct service tier. Never ask the customer for engine size manually.\n`;
     prompt += `2. After ts_lookup_vehicle, confirm the vehicle: "I can see that's a [year] [make] [model] — is that correct?"\n`;
     prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
-    prompt += `3. Call ts_get_services to match the customer's request using engineCapacity from the VRM lookup.\n`;
+    prompt += `3. Call ts_get_services to find the matching service. If the service shows "Varies by engine size", you MUST call ts_get_service_price with the service_code and engineCapacity from the VRM lookup to get the exact price. Never calculate or guess variable prices yourself.\n`;
     prompt += `4. Call ts_get_timeslots with the correct service_id(s).\n`;
     prompt += `5. Offer 3-4 slots. If the customer states a time preference, call ts_check_preferred_time before listing slots.\n`;
     prompt += `6. When customer picks a slot, immediately call ts_confirm_slot to save it.\n`;
@@ -1491,6 +1491,7 @@ function buildSystemPrompt(
     prompt += `  Otherwise say: "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [date] at [time] for your [service]. Is there anything else I can help with?"\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
+    prompt += `- CRITICAL: For ANY service that varies by engine size (Full Service, Interim Service, Oil & Filter Change), you MUST call ts_get_service_price every single time a price is requested — even if the vehicle is already in session. Never estimate, interpolate, or guess these prices.\n`;
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
     prompt += `- If tyre size not found in vehicle data, ask the customer directly: "What size tyres does your car take?"\n`;
     prompt += `- If no slots match the customer's preference, call ts_list_all_slots to show all available times.\n`;

@@ -1519,6 +1519,7 @@ function buildSystemPrompt(
       if (session.vrm) {
         prompt += `- Vehicle reg: ${session.vrm}`;
         if (session.vehicle?.make) prompt += ` (${session.vehicle.make} ${session.vehicle.model})`;
+        if (session.vehicle?.engineCapacity) prompt += `, engineCapacity: ${session.vehicle.engineCapacity}cc — use this exact value for ts_get_service_price`;
         prompt += ` — do NOT call ts_lookup_vehicle again\n`;
       }
       if (session.serviceIds?.length) {

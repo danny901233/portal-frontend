@@ -1492,6 +1492,7 @@ function buildSystemPrompt(
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
     prompt += `- CRITICAL: For ANY service that varies by engine size (Full Service, Interim Service, Oil & Filter Change), you MUST call ts_get_service_price every single time a price is requested — even if the vehicle is already in session. Never estimate, interpolate, or guess these prices.\n`;
+    prompt += `- CRITICAL: You must NEVER use a customer-stated engine size (e.g. "2.5 litre", "1.6 diesel") as the engineCC for ts_get_service_price. You MUST always call ts_lookup_vehicle first to get the exact engineCapacity from the VRM data. If the customer has not provided their registration plate, ask for it before quoting any variable-priced service.\n`;
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
     prompt += `- If tyre size not found in vehicle data, ask the customer directly: "What size tyres does your car take?"\n`;
     prompt += `- If no slots match the customer's preference, call ts_list_all_slots to show all available times.\n`;

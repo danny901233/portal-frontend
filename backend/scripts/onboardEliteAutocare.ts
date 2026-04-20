@@ -67,7 +67,6 @@ async function main() {
         branchName: 'Elite Autocare',
         agentScript: 'tyresoft-agent',
         integrationProvider: 'tyresoft',
-        // TEST CREDENTIALS — replace with real values from Dan
         integrationProviderConfig: {
           tyresoft: {
             tsWorkspace: 'eliteautocare',
@@ -76,6 +75,47 @@ async function main() {
             tsApiKey: 'HPK6iGMcXiagPXSM5Cbbi7r6onsWnInk195ashPz',
             tsDepotId: 6,
             tsChannelId: 31,
+            // Engine-size pricing rules (from Charlie Allum)
+            pricingRules: {
+              OIL: [
+                { maxCC: 1000, price: 95.00 },
+                { maxCC: 2000, price: 100.00 },
+                { maxCC: 2996, price: 110.00 },
+                { maxCC: 9999, price: 135.00 },
+              ],
+              INTS: [
+                { maxCC: 1000, price: 110.00 },
+                { maxCC: 1300, price: 135.00 },
+                { maxCC: 1600, price: 145.00 },
+                { maxCC: 2000, price: 160.00 },
+                { maxCC: 2996, price: 175.00 },
+                { maxCC: 9999, price: 195.00 },
+              ],
+              FS: [
+                { maxCC: 1000, price: 145.00 },
+                { maxCC: 1300, price: 155.00 },
+                { maxCC: 1600, price: 170.00 },
+                { maxCC: 2000, price: 195.00 },
+                { maxCC: 2996, price: 225.00 },
+                { maxCC: 9999, price: 255.00 },
+              ],
+            },
+            // Service catalogue (overrides global TYRESOFT_SERVICES for this garage)
+            tsServices: [
+              { id: 'FS',           name: 'Castrol Full Service',              pricingType: 'engine-size' },
+              { id: 'INTS',         name: 'Interim Service',                   pricingType: 'engine-size' },
+              { id: 'OIL',          name: 'Oil & Filter Change',               pricingType: 'engine-size' },
+              { id: 'MOT',          name: 'MOT',                               pricingType: 'fixed', price: 54.00 },
+              { id: 'MOT2',         name: 'MOT (with service)',                pricingType: 'fixed', price: 39.99 },
+              { id: 'TPMS',         name: 'Supply and Fit TPMS Sensor',        pricingType: 'fixed', price: 65.00 },
+              { id: 'TPMSDIAG',     name: 'TPMS Diagnostic',                   pricingType: 'fixed', price: 25.00 },
+              { id: 'WAD',          name: 'Wheel Alignment Diagnostics',        pricingType: 'fixed', price: 16.67 },
+              { id: 'WHEELREFURB1', name: 'Wheel Refurbishment (up to 18")',   pricingType: 'fixed', price: 66.67 },
+              { id: 'WHEELREFURB2', name: 'Wheel Refurbishment (19" and above)', pricingType: 'fixed', price: 83.33 },
+              { id: 'WST',          name: 'Wheel Straightening',               pricingType: 'fixed', price: 50.00 },
+              { id: 'DIAG',         name: 'Diagnostic Assessment',             pricingType: 'fixed', price: 120.00 },
+              { id: 'adas',         name: 'ADAS Diagnostics Check',            pricingType: 'fixed', price: 40.00 },
+            ],
           },
         },
         allowBookings: true,
@@ -98,7 +138,62 @@ async function main() {
     });
     console.log('Created agent config');
   } else {
-    console.log('Agent config already exists — skipping');
+    // Update pricing rules and service catalogue on existing config
+    await prisma.agentConfiguration.update({
+      where: { garageId: garage.id },
+      data: {
+        integrationProviderConfig: {
+          tyresoft: {
+            tsWorkspace: 'eliteautocare',
+            tsUsername: 'elite_autocare-3pty',
+            tsPassword: '8hh19wv22UI3',
+            tsApiKey: 'HPK6iGMcXiagPXSM5Cbbi7r6onsWnInk195ashPz',
+            tsDepotId: 6,
+            tsChannelId: 31,
+            pricingRules: {
+              OIL: [
+                { maxCC: 1000, price: 95.00 },
+                { maxCC: 2000, price: 100.00 },
+                { maxCC: 2996, price: 110.00 },
+                { maxCC: 9999, price: 135.00 },
+              ],
+              INTS: [
+                { maxCC: 1000, price: 110.00 },
+                { maxCC: 1300, price: 135.00 },
+                { maxCC: 1600, price: 145.00 },
+                { maxCC: 2000, price: 160.00 },
+                { maxCC: 2996, price: 175.00 },
+                { maxCC: 9999, price: 195.00 },
+              ],
+              FS: [
+                { maxCC: 1000, price: 145.00 },
+                { maxCC: 1300, price: 155.00 },
+                { maxCC: 1600, price: 170.00 },
+                { maxCC: 2000, price: 195.00 },
+                { maxCC: 2996, price: 225.00 },
+                { maxCC: 9999, price: 255.00 },
+              ],
+            },
+            tsServices: [
+              { id: 'FS',           name: 'Castrol Full Service',              pricingType: 'engine-size' },
+              { id: 'INTS',         name: 'Interim Service',                   pricingType: 'engine-size' },
+              { id: 'OIL',         name: 'Oil & Filter Change',               pricingType: 'engine-size' },
+              { id: 'MOT',          name: 'MOT',                               pricingType: 'fixed', price: 54.00 },
+              { id: 'MOT2',         name: 'MOT (with service)',                pricingType: 'fixed', price: 39.99 },
+              { id: 'TPMS',         name: 'Supply and Fit TPMS Sensor',        pricingType: 'fixed', price: 65.00 },
+              { id: 'TPMSDIAG',     name: 'TPMS Diagnostic',                   pricingType: 'fixed', price: 25.00 },
+              { id: 'WAD',          name: 'Wheel Alignment Diagnostics',        pricingType: 'fixed', price: 16.67 },
+              { id: 'WHEELREFURB1', name: 'Wheel Refurbishment (up to 18")',   pricingType: 'fixed', price: 66.67 },
+              { id: 'WHEELREFURB2', name: 'Wheel Refurbishment (19" and above)', pricingType: 'fixed', price: 83.33 },
+              { id: 'WST',          name: 'Wheel Straightening',               pricingType: 'fixed', price: 50.00 },
+              { id: 'DIAG',         name: 'Diagnostic Assessment',             pricingType: 'fixed', price: 120.00 },
+              { id: 'adas',         name: 'ADAS Diagnostics Check',            pricingType: 'fixed', price: 40.00 },
+            ],
+          },
+        },
+      },
+    });
+    console.log('Agent config updated with pricing rules and service catalogue');
   }
 
   // -------------------------------------------------------------------------

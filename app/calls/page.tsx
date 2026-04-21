@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
-import { fetchCalls, submitCallFeedback } from '../lib/api';
+import { fetchCalls, submitCallFeedback, downloadNegativeFeedbackCsv } from '../lib/api';
 import { getGarageId } from '../lib/auth';
 import {
   TRACKED_TAGS,
@@ -545,6 +545,20 @@ export default function CallsPage() {
     setSearchTerm('');
   }, []);
 
+  const handleExportNegativeFeedback = useCallback(async () => {
+    try {
+      const blob = await downloadNegativeFeedbackCsv(garageId ?? undefined);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `negative-feedback-${garageId}.csv`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      alert('Failed to export negative feedback');
+    }
+  }, [garageId]);
+
   const handleReasonToggle = useCallback((value: string) => {
     setFeedbackReasons((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
   }, []);
@@ -850,6 +864,13 @@ export default function CallsPage() {
                 ? 'Loading…'
                 : `${displayedCalls.length} result${displayedCalls.length === 1 ? '' : 's'}`}
             </span>
+            <button
+              type="button"
+              onClick={handleExportNegativeFeedback}
+              className="rounded-md border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300 hover:border-slate-500 hover:text-slate-100"
+            >
+              Export negative feedback
+            </button>
           </div>
         </div>
 

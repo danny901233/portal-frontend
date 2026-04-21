@@ -558,6 +558,9 @@ router.post(
 
       res.json({ success: true, message });
     } catch (error) {
+      if (error instanceof Error && error.message.includes('24-hour messaging window')) {
+        return res.status(400).json({ error: error.message });
+      }
       console.error('Failed to send message:', error);
       res.status(500).json({ error: 'Failed to send message' });
     }
@@ -736,7 +739,8 @@ router.patch(
         updateData.agentPaused = true;
         updateData.agentPausedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
       } else {
-        // When unflagging, don't automatically resume - let user control that
+        // When unflagging, resume the agent
+        updateData.agentPaused = false;
         updateData.agentPausedUntil = null;
       }
 
@@ -803,7 +807,7 @@ async function sendMessage(
     );
   } else if (conversation.platform === 'facebook') {
     await axios.post(
-      'https://graph.facebook.com/v18.0/me/messages',
+      `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
       {
         recipient: { id: conversation.platformUserId },
         message: { text: content },
@@ -814,7 +818,7 @@ async function sendMessage(
     );
   } else if (conversation.platform === 'instagram') {
     await axios.post(
-      'https://graph.facebook.com/v18.0/me/messages',
+      `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
       {
         recipient: { id: conversation.platformUserId },
         message: { text: content },

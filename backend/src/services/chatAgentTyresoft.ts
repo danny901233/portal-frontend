@@ -4,6 +4,7 @@ import axios from 'axios';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { sendNeedsAttentionEmail } from '../utils/email.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -20,12 +21,27 @@ interface ChatAgentResponse {
   needsHumanAssistance?: boolean;
 }
 
+interface PricingTier {
+  maxCC: number;
+  price: number;
+}
+
+interface ServiceDef {
+  id: string;
+  name: string;
+  pricingType: 'fixed' | 'engine-size';
+  price?: number;
+}
+
 interface TyresoftConfig {
   workspace: string;
   username: string;
   password: string;
   apiKey: string;
   depotId: number;
+  channelId: number;
+  pricingRules?: Record<string, PricingTier[]>;
+  tsServices?: ServiceDef[];
 }
 
 interface TyreProduct {
@@ -66,13 +82,19 @@ interface TyresoftSession {
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
   lastTyreSearch?: { stock_number: string; description: string; price: number; availability: string; lead_time: string; source_supplier_id: number }[];
   branchOverride?: number;  // depot ID set by ts_set_branch (1 = Branch 1, 3 = Branch 2)
+  escalationWarned?: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Tyre inventory — loaded from CSV at startup
+// Tyre inventory — per-garage DB-backed cache with CSV file fallback
 // ---------------------------------------------------------------------------
 
-const TYRE_INVENTORY = new Map<number, TyreProduct[]>();
+// In-memory cache: key = "garageId:depotId"
+const TYRE_CACHE = new Map<string, { products: TyreProduct[]; loadedAt: number }>();
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+// Fallback: legacy global CSV inventory (used when no DB rows exist)
+const TYRE_INVENTORY_FALLBACK = new Map<number, TyreProduct[]>();
 
 function parseCSV(filePath: string): TyreProduct[] {
   let content: string;
@@ -129,7 +151,7 @@ function parseCSV(filePath: string): TyreProduct[] {
   return products;
 }
 
-function loadTyreInventory(): void {
+function loadTyreInventoryFallback(): void {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname  = dirname(__filename);
   const dataDir    = join(__dirname, '../../data');
@@ -137,13 +159,75 @@ function loadTyreInventory(): void {
   const branch1 = parseCSV(join(dataDir, 'tyresoft-products-depot-1.csv'));
   const branch2 = parseCSV(join(dataDir, 'tyresoft-products-depot-2.csv'));
 
-  TYRE_INVENTORY.set(1, branch1);  // depot 1 → Branch 1
-  TYRE_INVENTORY.set(3, branch2);  // depot 3 → Branch 2
+  TYRE_INVENTORY_FALLBACK.set(1, branch1);
+  TYRE_INVENTORY_FALLBACK.set(3, branch2);
 
-  console.log(`[TS_AGENT] Tyre inventory loaded: depot1=${branch1.length}, depot3=${branch2.length}`);
+  console.log(`[TS_AGENT] Tyre inventory fallback loaded: depot1=${branch1.length}, depot3=${branch2.length}`);
 }
 
-loadTyreInventory();
+loadTyreInventoryFallback();
+
+async function getInventory(garageId: string, depotId: number): Promise<TyreProduct[]> {
+  const key = `${garageId}:${depotId}`;
+  const cached = TYRE_CACHE.get(key);
+  if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {
+    return cached.products;
+  }
+
+  // Try DB first
+  const rows = await prisma.tyreProduct.findMany({
+    where: { garageId, depotId },
+  });
+
+  if (rows.length > 0) {
+    const products: TyreProduct[] = rows.map(r => ({
+      stockNumber: r.stockNumber,
+      ean: r.ean || '',
+      title: r.title,
+      price: r.retailPrice,
+      width: r.width,
+      aspectRatio: r.aspectRatio,
+      rim: r.rim,
+      speedRating: r.speedRating || '',
+      loadIndex: r.loadIndex || '',
+      brand: r.brandName,
+      runflat: r.runflat,
+      availability: r.leadTime === 'In Stock' ? 'In Stock' : `${r.leadTimeDays} Days`,
+      leadTime: r.leadTime,
+      sourceSupplierID: r.sourceSupplierID,
+    }));
+    TYRE_CACHE.set(key, { products, loadedAt: Date.now() });
+    console.log(`[TS_AGENT] Inventory from DB: garage=${garageId} depot=${depotId} count=${products.length}`);
+    return products;
+  }
+
+  // Fallback to CSV files (legacy garages not yet migrated to DB)
+  const fallback = TYRE_INVENTORY_FALLBACK.get(depotId) ?? TYRE_INVENTORY_FALLBACK.get(1) ?? [];
+  if (fallback.length > 0) {
+    TYRE_CACHE.set(key, { products: fallback, loadedAt: Date.now() });
+    console.log(`[TS_AGENT] Inventory from CSV fallback: depot=${depotId} count=${fallback.length}`);
+  }
+  return fallback;
+}
+
+export function invalidateTyreCache(garageId: string, depotId: number): void {
+  TYRE_CACHE.delete(`${garageId}:${depotId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic engine-size pricing — LLM never does this arithmetic
+// ---------------------------------------------------------------------------
+
+function getServicePriceForEngine(
+  serviceCode: string,
+  engineCC: number,
+  pricingRules: Record<string, PricingTier[]>
+): number | null {
+  const tiers = pricingRules[serviceCode];
+  if (!tiers || tiers.length === 0) return null;
+  const tier = tiers.find(t => engineCC <= t.maxCC);
+  return tier?.price ?? null;
+}
 
 // Parse "2 Days" → 2, "In Stock" / "0" / "" → 0
 function parseLeadTimeDays(leadTime: string): number {
@@ -187,8 +271,8 @@ function parseTyreSize(size: string): { width: string; aspect: string; rim: stri
   return { width, aspect, rim };
 }
 
-function searchTyres(depotId: number, size: string, brand?: string, maxResults = 5): TyreProduct[] {
-  const inventory = TYRE_INVENTORY.get(depotId) ?? TYRE_INVENTORY.get(1) ?? [];
+async function searchTyres(garageId: string, depotId: number, size: string, brand?: string, maxResults = 5): Promise<TyreProduct[]> {
+  const inventory = await getInventory(garageId, depotId);
   const { width, aspect, rim } = parseTyreSize(size);
 
   const matches = inventory.filter(t => {
@@ -270,16 +354,21 @@ export async function getTyresoftChatResponse(
     const config = garage.agentConfiguration;
 
     // Load Tyresoft credentials from integrationProviderConfig
+    // Supports both flat format ({ tsWorkspace: ... }) and nested ({ tyresoft: { tsWorkspace: ... } })
     let tsConfig: TyresoftConfig | undefined;
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
-      const raw = config.integrationProviderConfig as any;
-      const workspace = raw.tsWorkspace || raw.workspace || '';
-      const username  = raw.tsUsername  || raw.username  || '';
-      const password  = raw.tsPassword  || raw.password  || '';
-      const apiKey    = raw.tsApiKey    || raw.apiKey    || '';
-      const depotId   = Number(raw.tsDepotId || raw.depotId || 1);
+      const full = config.integrationProviderConfig as any;
+      const raw  = full.tyresoft || full; // unwrap nested format if present
+      const workspace    = raw.tsWorkspace || raw.workspace || '';
+      const username     = raw.tsUsername  || raw.username  || '';
+      const password     = raw.tsPassword  || raw.password  || '';
+      const apiKey       = raw.tsApiKey    || raw.apiKey    || '';
+      const depotId      = Number(raw.tsDepotId   || raw.depotId   || 1);
+      const channelId    = Number(raw.tsChannelId || raw.channelId || 24);
+      const pricingRules = raw.pricingRules as Record<string, PricingTier[]> | undefined;
+      const tsServices   = raw.tsServices  as ServiceDef[]                   | undefined;
       if (workspace && username && password && apiKey) {
-        tsConfig = { workspace, username, password, apiKey, depotId };
+        tsConfig = { workspace, username, password, apiKey, depotId, channelId, pricingRules, tsServices };
       }
     }
 
@@ -287,6 +376,30 @@ export async function getTyresoftChatResponse(
 
     const isOpen    = checkOpeningHours(config.weeklyOpeningHours);
     const session   = tsSessions.get(conversationId) || {};
+
+    // Human escalation detection — intercept before calling OpenAI
+    const HUMAN_ESCALATION = /\b(speak to a human|human agent|real person|speak to staff|speak to someone else|talk to a person|someone else|speak to a real|talk to a human|want a human|need a human|get a human)\b/i;
+    if (HUMAN_ESCALATION.test(message)) {
+      if (!session.escalationWarned) {
+        // First mention — soft redirect
+        tsSessions.set(conversationId, { ...session, escalationWarned: true });
+        return {
+          content: "I can help with bookings and general enquiries. Is there something specific I can help you with?",
+          needsHumanAssistance: false,
+        };
+      } else {
+        // Customer persists — flag for human team and pause agent
+        await prisma.chatConversation.update({
+          where: { id: conversationId },
+          data: { needsAttention: true, agentPaused: true },
+        });
+        void fireNeedsAttentionEmailTs(conversationId, garageId);
+        return {
+          content: "No problem — I've flagged this for the team. Someone will be with you shortly.",
+          needsHumanAssistance: true,
+        };
+      }
+    }
     const tools     = buildTools(!!tsConfig);
     const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig);
 
@@ -388,6 +501,21 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
         name: 'ts_get_services',
         description: 'Return the list of bookable services with prices. Call when the customer asks what services are available or wants to book a service (not tyres).',
         parameters: { type: 'object', properties: {} },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ts_get_service_price',
+        description: 'Get the exact price for a service that has engine-size-based pricing (e.g. OIL, INTS, FS). MUST call ts_lookup_vehicle first to get engineCapacity. Never calculate or guess prices yourself — always use this tool for variable-priced services.',
+        parameters: {
+          type: 'object',
+          properties: {
+            service_code: { type: 'string', description: 'Service code, e.g. OIL, INTS, FS' },
+            engine_cc:    { type: 'number', description: 'Engine capacity in CC from the VRM lookup (engineCapacity field)' },
+          },
+          required: ['service_code', 'engine_cc'],
+        },
       },
     },
     {
@@ -628,6 +756,39 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
 // Tool execution
 // ---------------------------------------------------------------------------
 
+/** Fire-and-forget: fetch conversation + agent config and send needs-attention email */
+async function fireNeedsAttentionEmailTs(conversationId: string, garageId: string): Promise<void> {
+  try {
+    const [conversation, agentConfig, recentMessages] = await Promise.all([
+      prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+        select: { customerName: true, customerPhone: true },
+      }),
+      prisma.agentConfiguration.findUnique({
+        where: { garageId },
+        select: { notificationEmails: true, branchName: true },
+      }),
+      prisma.chatMessage.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+      }),
+    ]);
+
+    if (!agentConfig?.notificationEmails?.length) return;
+
+    await sendNeedsAttentionEmail(agentConfig.notificationEmails, {
+      branchName: agentConfig.branchName,
+      customerName: conversation?.customerName ?? null,
+      customerPhone: conversation?.customerPhone ?? null,
+      conversationId,
+      recentMessages: recentMessages.reverse().map(m => ({ role: m.role, content: m.content })),
+    });
+  } catch (err) {
+    console.error('[TS_ESCALATION] Failed to send needs-attention email:', err);
+  }
+}
+
 async function executeTool(
   name: string,
   args: any,
@@ -638,8 +799,19 @@ async function executeTool(
 
   try {
     switch (name) {
-      case 'ts_get_services':
+      case 'ts_get_services': {
+        if (tsConfig?.tsServices) {
+          const list = tsConfig.tsServices.map(s => ({
+            id:    s.id,
+            name:  s.name,
+            price: s.pricingType === 'fixed'
+              ? `£${s.price!.toFixed(2)}`
+              : 'Varies by engine size — call ts_get_service_price after VRM lookup',
+          }));
+          return { services: list };
+        }
         return { services: TYRESOFT_SERVICES };
+      }
 
       case 'ts_lookup_vehicle': {
         if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
@@ -662,7 +834,7 @@ async function executeTool(
         const size     = String(args.size || '');
         const brand    = args.brand ? String(args.brand) : undefined;
         const depotId  = session.branchOverride ?? tsConfig.depotId;
-        const results  = searchTyres(depotId, size, brand);
+        const results  = await searchTyres(garageId, depotId, size, brand);
         if (results.length === 0) {
           return {
             found: 0,
@@ -940,7 +1112,15 @@ async function executeTool(
 
       case 'ts_create_booking': {
         if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
-        return await tsCreateBooking(args, session, tsConfig, conversationId);
+        const bookingResult = await tsCreateBooking(args, session, tsConfig, conversationId);
+        if (bookingResult.success) {
+          // Mark conversation as booking confirmed + resolved
+          await prisma.chatConversation.update({
+            where: { id: conversationId },
+            data: { confirmedBooking: true, status: 'resolved' },
+          }).catch(err => console.error('[TS_AGENT] Failed to update conversation:', err));
+        }
+        return bookingResult;
       }
 
       case 'ts_take_message': {
@@ -958,6 +1138,20 @@ async function executeTool(
         }
 
         return { success: true, message: 'Message taken. The team has been notified and will get back to you shortly.' };
+      }
+
+      case 'ts_get_service_price': {
+        if (!tsConfig?.pricingRules) {
+          return { error: 'No engine-size pricing rules configured for this garage' };
+        }
+        const serviceCode = String(args.service_code || '').toUpperCase();
+        const engineCC    = Number(args.engine_cc)  || 0;
+        const price = getServicePriceForEngine(serviceCode, engineCC, tsConfig.pricingRules);
+        if (price === null) {
+          return { error: `No pricing tier found for service "${serviceCode}" at ${engineCC}cc` };
+        }
+        console.log(`[TS_AGENT] Service price lookup: ${serviceCode} @ ${engineCC}cc → £${price.toFixed(2)}`);
+        return { service_code: serviceCode, engine_cc: engineCC, price: price, price_display: `£${price.toFixed(2)}` };
       }
 
       default:
@@ -1117,8 +1311,34 @@ async function tsCreateBooking(
     }));
     console.log(`[TS_AGENT] Building tyre sale: ${Object.keys(consolidatedTyres).length} consolidated line(s) from ${tyreBasket.length} basket item(s)`);
   } else {
-    // Service booking — look up price from TYRESOFT_SERVICES by service ID
-    items = (args.service_ids as number[]).map((sid) => {
+    // Service booking — look up price deterministically; never trust LLM for pricing
+    items = (args.service_ids as (number | string)[]).map((sid) => {
+      // Per-garage dynamic services (e.g. Elite Autocare with string codes)
+      if (cfg.tsServices) {
+        const svc = cfg.tsServices.find(s => s.id === String(sid));
+        let unitCost = svc?.price ?? 0;
+        // For engine-size services, re-derive price from vehicle CC — belt-and-suspenders
+        if (svc?.pricingType === 'engine-size' && cfg.pricingRules && session.vehicle?.engineCapacity) {
+          const cc = Number(session.vehicle.engineCapacity) || 0;
+          const deterministic = getServicePriceForEngine(String(sid), cc, cfg.pricingRules);
+          if (deterministic !== null) {
+            unitCost = deterministic;
+            console.log(`[TS_AGENT] Deterministic price for ${sid} @ ${cc}cc → £${unitCost}`);
+          }
+        }
+        return {
+          saleLineID:          0,
+          productID:           0,
+          serviceID:           sid,
+          itemCode:            svc?.id ?? String(sid),
+          itemDescription:     svc?.name ?? String(sid),
+          quantity:            1,
+          unitCost,
+          unitCostIncludesVAT: true,
+          discount:            0,
+        };
+      }
+      // Legacy: static TYRESOFT_SERVICES lookup by numeric ID
       const svc = TYRESOFT_SERVICES.find((s) => s.id === sid);
       return {
         saleLineID:           0,
@@ -1174,7 +1394,7 @@ async function tsCreateBooking(
       poNumber:    '',
       flag:        0,
       flagNotes:   '',
-      channelID:   24, // ReceptionMate API channel
+      channelID:   cfg.channelId,
       orderStatus: 'Awaiting Acknowledgement',
       bookingSlot: {
         date:            slotDate,
@@ -1315,7 +1535,7 @@ function buildSystemPrompt(
     prompt += `   The VRM lookup returns engineCapacity — use it to auto-select the correct service tier. Never ask the customer for engine size manually.\n`;
     prompt += `2. After ts_lookup_vehicle, confirm the vehicle: "I can see that's a [year] [make] [model] — is that correct?"\n`;
     prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
-    prompt += `3. Call ts_get_services to match the customer's request using engineCapacity from the VRM lookup.\n`;
+    prompt += `3. Call ts_get_services to find the matching service. If the service shows "Varies by engine size", you MUST call ts_get_service_price with the service_code and engineCapacity from the VRM lookup to get the exact price. Never calculate or guess variable prices yourself.\n`;
     prompt += `4. Call ts_get_timeslots with the correct service_id(s).\n`;
     prompt += `5. Offer 3-4 slots. If the customer states a time preference, call ts_check_preferred_time before listing slots.\n`;
     prompt += `6. When customer picks a slot, immediately call ts_confirm_slot to save it.\n`;
@@ -1338,6 +1558,8 @@ function buildSystemPrompt(
     prompt += `  Otherwise say: "You're all booked in! Your reference number is #[saleNumber] — please quote this when you arrive. We'll see you on [date] at [time] for your [service]. Is there anything else I can help with?"\n`;
     prompt += `- Never call ts_create_booking without explicit customer confirmation.\n`;
     prompt += `- Never re-run ts_lookup_vehicle if already done in this session.\n`;
+    prompt += `- CRITICAL: For ANY service that varies by engine size (Full Service, Interim Service, Oil & Filter Change), you MUST call ts_get_service_price every single time a price is requested — even if the vehicle is already in session. Never estimate, interpolate, or guess these prices.\n`;
+    prompt += `- CRITICAL: You must NEVER use a customer-stated engine size (e.g. "2.5 litre", "1.6 diesel") as the engineCC for ts_get_service_price. You MUST always call ts_lookup_vehicle first to get the exact engineCapacity from the VRM data. If the customer has not provided their registration plate, ask for it before quoting any variable-priced service.\n`;
     prompt += `- Never ask for information already saved in the session (name, phone, VRM, basket).\n`;
     prompt += `- If tyre size not found in vehicle data, ask the customer directly: "What size tyres does your car take?"\n`;
     prompt += `- If no slots match the customer's preference, call ts_list_all_slots to show all available times.\n`;
@@ -1364,6 +1586,7 @@ function buildSystemPrompt(
       if (session.vrm) {
         prompt += `- Vehicle reg: ${session.vrm}`;
         if (session.vehicle?.make) prompt += ` (${session.vehicle.make} ${session.vehicle.model})`;
+        if (session.vehicle?.engineCapacity) prompt += `, engineCapacity: ${session.vehicle.engineCapacity}cc — use this exact value for ts_get_service_price`;
         prompt += ` — do NOT call ts_lookup_vehicle again\n`;
       }
       if (session.serviceIds?.length) {

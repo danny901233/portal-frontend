@@ -67,17 +67,18 @@ router.post('/chat/widget', async (req, res) => {
     }
 
     if (!conversation) {
-      // Create new web chat conversation
+      // Create new widget conversation
       const cleanPhone = contactPhone ? String(contactPhone).replace(/\s+/g, '') : undefined;
       const cleanName = contactName ? String(contactName).trim() : undefined;
       conversation = await prisma.chatConversation.create({
         data: {
           garageId,
-          platform: 'web',
-          platformUserId: `web_${Date.now()}`,
+          platform: 'widget',
+          platformUserId: `widget_${Date.now()}`,
           customerName: cleanName || 'Website Visitor',
           customerPhone: cleanPhone,
           status: 'active',
+          lastMessageAt: new Date(),
         },
       });
       console.log(`[CHAT_ROUTE] New conversation ${conversation.id}, phone: ${cleanPhone || 'none'}, name: ${cleanName || 'none'}`);
@@ -86,10 +87,35 @@ router.post('/chat/widget', async (req, res) => {
       const cleanPhone = String(contactPhone).replace(/\s+/g, '');
       await prisma.chatConversation.update({
         where: { id: conversation.id },
-        data: { customerPhone: cleanPhone, customerName: contactName ? String(contactName).trim() : conversation.customerName },
+        data: {
+          customerPhone: cleanPhone,
+          customerName: contactName ? String(contactName).trim() : conversation.customerName,
+          lastMessageAt: new Date(),
+          unreadCount: { increment: 1 },
+        },
       });
       conversation = { ...conversation, customerPhone: cleanPhone };
       console.log(`[CHAT_ROUTE] Updated conversation ${conversation.id} with phone: ${cleanPhone}`);
+    } else {
+      // Update lastMessageAt and unreadCount for existing conversation
+      await prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: new Date(), unreadCount: { increment: 1 } },
+      });
+    }
+
+    // Check if agent is paused for this conversation
+    const freshConv = await prisma.chatConversation.findUnique({
+      where: { id: conversation.id },
+      select: { agentPaused: true, agentPausedUntil: true },
+    });
+    let isAgentPaused = freshConv?.agentPaused ?? false;
+    if (isAgentPaused && freshConv?.agentPausedUntil && new Date() > freshConv.agentPausedUntil) {
+      await prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: { agentPaused: false, agentPausedUntil: null },
+      });
+      isAgentPaused = false;
     }
 
     // Save user message
@@ -100,6 +126,15 @@ router.post('/chat/widget', async (req, res) => {
         content: message,
       },
     });
+
+    if (isAgentPaused) {
+      return res.json({
+        conversationId: conversation.id,
+        response: "Our team will be with you shortly.",
+        messages: ["Our team will be with you shortly."],
+        needsHumanAssistance: false,
+      });
+    }
 
     // Get AI response — router selects the correct agent based on agentScript
     const agentResponse = await routeChatMessage(

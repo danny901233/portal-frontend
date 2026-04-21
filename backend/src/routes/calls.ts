@@ -180,10 +180,10 @@ router.post('/calls', async (req: Request, res: Response) => {
     // Use recording duration if available (actual call time), otherwise use agent-reported duration
     const actualDuration = finalRecordingDuration ?? payload.durationSeconds;
 
-    // Skip calls under 30 seconds (dropped calls, wrong numbers, etc.)
-    if (actualDuration < 30) {
-      console.log(`[CALL] Skipping short call (${actualDuration}s) for garage ${payload.garageId} - under 30 second threshold`);
-      return res.status(201).json({ success: true, callId: 'skipped', reason: 'Call duration under 30 seconds' });
+    // Skip calls under 55 seconds (dropped calls, wrong numbers, etc.)
+    if (actualDuration < 55) {
+      console.log(`[CALL] Skipping short call (${actualDuration}s) for garage ${payload.garageId} - under 55 second threshold`);
+      return res.status(201).json({ success: true, callId: 'skipped', reason: 'Call duration under 55 seconds' });
     }
 
     await prisma.garage.upsert({
@@ -545,6 +545,71 @@ router.get(
         console.error('Failed to export confirmed bookings CSV', error);
       }
       res.status(500).json({ error: 'Failed to export confirmed bookings' });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// GET /api/garages/:garageId/calls/feedback/export — CSV of negative feedback
+// ---------------------------------------------------------------------------
+router.get(
+  '/garages/:garageId/calls/feedback/export',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+      const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+      const allowedGarages = isStaff ? [] : resolveAllowedGarages(req.user);
+
+      if (!isStaff && !allowedGarages.includes(garageId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const calls = await prisma.call.findMany({
+        where: { garageId, feedback: { rating: 'down' } },
+        orderBy: { createdAt: 'desc' },
+        include: { feedback: true },
+        select: {
+          id: true,
+          createdAt: true,
+          customerName: true,
+          customerPhone: true,
+          durationSeconds: true,
+          callType: true,
+          summary: true,
+          feedback: { select: { rating: true, reasons: true, notes: true } },
+        },
+      });
+
+      const header = ['Call ID', 'Date', 'Caller Name', 'Caller Phone', 'Duration (s)', 'Call Type', 'Reasons', 'Notes', 'Summary'];
+
+      const rows = calls.map((call) => {
+        const reasons = Array.isArray(call.feedback?.reasons) ? (call.feedback.reasons as string[]).join('; ') : '';
+        return [
+          call.id,
+          call.createdAt.toISOString(),
+          call.customerName ?? '',
+          call.customerPhone ?? '',
+          call.durationSeconds,
+          call.callType,
+          reasons,
+          call.feedback?.notes ?? '',
+          call.summary ?? '',
+        ];
+      });
+
+      const csv = [header, ...rows]
+        .map((row) => row.map(csvEscape).join(','))
+        .join('\n');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="negative-feedback-${garageId}.csv"`);
+      res.status(200).send(`${csv}\n`);
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to export negative feedback CSV', error);
+      }
+      res.status(500).json({ error: 'Failed to export negative feedback' });
     }
   },
 );

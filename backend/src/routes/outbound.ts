@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
+import twilio from 'twilio';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
@@ -61,7 +62,7 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
     }
 
     // Derive messageType per contact and normalise phones
-    const normalised = contacts.map((c) => ({
+    const normalisedRaw = contacts.map((c) => ({
       garageId,
       customerName: c.customerName?.trim() || 'Customer',
       phone: normalisePhone(c.phone || ''),
@@ -70,6 +71,14 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
       serviceDueDate: c.serviceDueDate?.trim() || null,
       messageType: c.motDueDate?.trim() ? 'mot' : 'service',
     }));
+
+    // Deduplicate by phone — keep first occurrence
+    const seenPhones = new Set<string>();
+    const normalised = normalisedRaw.filter((c) => {
+      if (!c.phone || seenPhones.has(c.phone)) return false;
+      seenPhones.add(c.phone);
+      return true;
+    });
 
     // Cross-campaign DNC: mark opted-out phones at import time
     const phones = normalised.map((c) => c.phone).filter(Boolean);
@@ -337,8 +346,22 @@ router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, r
 // Twilio sends application/x-www-form-urlencoded: From, To, Body, MessageSid
 // ---------------------------------------------------------------------------
 router.post('/sms/inbound', async (req: Request, res: Response) => {
-  // Respond 200 immediately so Twilio doesn't retry
   res.set('Content-Type', 'text/xml');
+
+  // Validate Twilio signature
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    console.error('[SMS] TWILIO_AUTH_TOKEN not set — rejecting inbound SMS request');
+    res.status(403).send('<Response></Response>');
+    return;
+  }
+  const signature = req.headers['x-twilio-signature'] as string;
+  const url = `${process.env.BACKEND_URL || `https://${req.headers.host}`}/api/sms/inbound`;
+  const valid = twilio.validateRequest(authToken, signature, url, req.body);
+  if (!valid) {
+    res.status(403).send('<Response></Response>');
+    return;
+  }
 
   try {
     const { From, Body, To } = req.body as { From: string; Body: string; To: string };

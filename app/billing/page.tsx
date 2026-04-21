@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getGarageId, getUserBranchRoles } from '../lib/auth';
+import { getGarageId, getUserBranchRoles, isReceptionMateStaff } from '../lib/auth';
+import { ALL_ASSIGNED_BRANCHES_IDENTIFIER } from '../lib/branchScope';
 import type { GarageSummary } from '../types';
 import { fetchGarages } from '../lib/api';
 import {
@@ -18,10 +19,16 @@ import BillingInfoForm from './components/BillingInfoForm';
 import MandateStatusCard from './components/MandateStatusCard';
 
 export default function BillingPage() {
-  const [selectedGarageId, setSelectedGarageId] = useState<string>('all');
+  const [selectedGarageId, setSelectedGarageId] = useState<string>(() => {
+    const navGarage = getGarageId();
+    if (!navGarage || navGarage === ALL_ASSIGNED_BRANCHES_IDENTIFIER) return 'all';
+    return navGarage;
+  });
   const [businessInfo, setBusinessInfo] = useState<BusinessBillingInfo | null>(null);
 
-  // Get managed garages
+  const isStaffUser = useMemo(() => isReceptionMateStaff(), []);
+
+  // Get managed garages (for non-staff manager users)
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
@@ -37,32 +44,43 @@ export default function BillingPage() {
     queryFn: fetchGarages,
   });
 
-  // Filter to only managed garages
+  // Staff see all garages; managers see only their assigned ones
   const managedGarages = useMemo(() => {
     if (!garagesQuery.data?.garages) return [];
+    if (isStaffUser) return garagesQuery.data.garages;
     return garagesQuery.data.garages.filter((garage) =>
       managedGarageIds.includes(garage.id)
     );
-  }, [garagesQuery.data, managedGarageIds]);
+  }, [garagesQuery.data, managedGarageIds, isStaffUser]);
 
-  // Set initial garage selection
+  // Keep billing in sync with navbar garage selection (including live changes)
   useEffect(() => {
-    if (managedGarages.length > 0 && selectedGarageId === 'all') {
-      const storedGarageId = getGarageId();
-      if (storedGarageId && managedGarageIds.includes(storedGarageId)) {
-        setSelectedGarageId(storedGarageId);
-      } else if (managedGarages.length === 1) {
-        setSelectedGarageId(managedGarages[0].id);
+    const syncGarage = () => {
+      const navGarage = getGarageId();
+      if (!navGarage || navGarage === ALL_ASSIGNED_BRANCHES_IDENTIFIER) {
+        setSelectedGarageId('all');
+      } else {
+        setSelectedGarageId(navGarage);
       }
+    };
+    syncGarage();
+    window.addEventListener('storage', syncGarage);
+    return () => window.removeEventListener('storage', syncGarage);
+  }, []);
+
+  // For manager users with one branch and nothing selected, default to it
+  useEffect(() => {
+    if (!isStaffUser && managedGarages.length === 1 && selectedGarageId === 'all') {
+      setSelectedGarageId(managedGarages[0].id);
     }
-  }, [managedGarages, managedGarageIds, selectedGarageId]);
+  }, [managedGarages, isStaffUser, selectedGarageId]);
 
   // Fetch invoices
   const invoicesQuery = useQuery<Invoice[]>({
     queryKey: ['customer-invoices', selectedGarageId],
     queryFn: () =>
       fetchCustomerInvoices(selectedGarageId === 'all' ? undefined : selectedGarageId),
-    enabled: selectedGarageId !== 'all' || managedGarageIds.length > 0,
+    enabled: isStaffUser ? selectedGarageId !== 'all' : (selectedGarageId !== 'all' || managedGarageIds.length > 0),
   });
 
   // Fetch business info
@@ -113,8 +131,8 @@ export default function BillingPage() {
         </p>
       </div>
 
-      {/* Branch Selector */}
-      {managedGarages.length > 1 && (
+      {/* Branch Selector — only shown when on All Branches in navbar */}
+      {managedGarages.length > 1 && selectedGarageId === 'all' && (
         <div className="flex items-center gap-4">
           <label className="text-sm font-medium text-slate-300">View invoices for:</label>
           <select

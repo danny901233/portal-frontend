@@ -4,6 +4,7 @@ import axios from 'axios';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { sendNeedsAttentionEmail } from '../utils/email.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -81,6 +82,7 @@ interface TyresoftSession {
   selectedSlot?: { date: string; time: string; diaryCategoryId: number; estimatedTime: number; slotTypeId: number };
   lastTyreSearch?: { stock_number: string; description: string; price: number; availability: string; lead_time: string; source_supplier_id: number }[];
   branchOverride?: number;  // depot ID set by ts_set_branch (1 = Branch 1, 3 = Branch 2)
+  escalationWarned?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -374,6 +376,30 @@ export async function getTyresoftChatResponse(
 
     const isOpen    = checkOpeningHours(config.weeklyOpeningHours);
     const session   = tsSessions.get(conversationId) || {};
+
+    // Human escalation detection — intercept before calling OpenAI
+    const HUMAN_ESCALATION = /\b(speak to a human|human agent|real person|speak to staff|speak to someone else|talk to a person|someone else|speak to a real|talk to a human|want a human|need a human|get a human)\b/i;
+    if (HUMAN_ESCALATION.test(message)) {
+      if (!session.escalationWarned) {
+        // First mention — soft redirect
+        tsSessions.set(conversationId, { ...session, escalationWarned: true });
+        return {
+          content: "I can help with bookings and general enquiries. Is there something specific I can help you with?",
+          needsHumanAssistance: false,
+        };
+      } else {
+        // Customer persists — flag for human team and pause agent
+        await prisma.chatConversation.update({
+          where: { id: conversationId },
+          data: { needsAttention: true, agentPaused: true },
+        });
+        void fireNeedsAttentionEmailTs(conversationId, garageId);
+        return {
+          content: "No problem — I've flagged this for the team. Someone will be with you shortly.",
+          needsHumanAssistance: true,
+        };
+      }
+    }
     const tools     = buildTools(!!tsConfig);
     const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig);
 
@@ -730,6 +756,39 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
 // Tool execution
 // ---------------------------------------------------------------------------
 
+/** Fire-and-forget: fetch conversation + agent config and send needs-attention email */
+async function fireNeedsAttentionEmailTs(conversationId: string, garageId: string): Promise<void> {
+  try {
+    const [conversation, agentConfig, recentMessages] = await Promise.all([
+      prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+        select: { customerName: true, customerPhone: true },
+      }),
+      prisma.agentConfiguration.findUnique({
+        where: { garageId },
+        select: { notificationEmails: true, branchName: true },
+      }),
+      prisma.chatMessage.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+      }),
+    ]);
+
+    if (!agentConfig?.notificationEmails?.length) return;
+
+    await sendNeedsAttentionEmail(agentConfig.notificationEmails, {
+      branchName: agentConfig.branchName,
+      customerName: conversation?.customerName ?? null,
+      customerPhone: conversation?.customerPhone ?? null,
+      conversationId,
+      recentMessages: recentMessages.reverse().map(m => ({ role: m.role, content: m.content })),
+    });
+  } catch (err) {
+    console.error('[TS_ESCALATION] Failed to send needs-attention email:', err);
+  }
+}
+
 async function executeTool(
   name: string,
   args: any,
@@ -1053,7 +1112,15 @@ async function executeTool(
 
       case 'ts_create_booking': {
         if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
-        return await tsCreateBooking(args, session, tsConfig, conversationId);
+        const bookingResult = await tsCreateBooking(args, session, tsConfig, conversationId);
+        if (bookingResult.success) {
+          // Mark conversation as booking confirmed + resolved
+          await prisma.chatConversation.update({
+            where: { id: conversationId },
+            data: { confirmedBooking: true, status: 'resolved' },
+          }).catch(err => console.error('[TS_AGENT] Failed to update conversation:', err));
+        }
+        return bookingResult;
       }
 
       case 'ts_take_message': {

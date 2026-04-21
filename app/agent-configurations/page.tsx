@@ -249,11 +249,8 @@ export default function AgentConfigurationsPage() {
   const mutation = useMutation({
     mutationFn: (payload: AgentConfiguration) =>
       updateAgentConfiguration(payload, garageId ?? undefined),
-    onSuccess: (data) => {
-      setFormState(cloneConfiguration(data.configuration));
-      setKnowledgeBase(data.knowledgeBase ?? []);
-      setIsEditing(false);
-      setFeedback('Configuration saved and applied to your agent.');
+    onSuccess: () => {
+      window.location.reload();
     },
     onError: (error: unknown) => {
       const message =

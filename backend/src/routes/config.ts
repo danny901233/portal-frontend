@@ -654,13 +654,22 @@ router.put(
     const rawTyresoft = data.tyresoftSettings ?? {};
     // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
     // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
+    // Normalize existing Tyresoft config — handle both flat and nested {tyresoft:{...}} formats
+    const existingRaw = existingConfig?.integrationProviderConfig;
+    const existingTyresoftFlat: object = (() => {
+      if (!existingRaw || typeof existingRaw !== 'object' || Array.isArray(existingRaw)) return {};
+      const top = existingRaw as Record<string, unknown>;
+      if (top.tyresoft && typeof top.tyresoft === 'object' && !Array.isArray(top.tyresoft)) {
+        return top.tyresoft as object;
+      }
+      return top;
+    })();
+
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
-            // Spread existing config first to preserve pricingRules, tsServices, tsChannelId etc.
-            ...(existingConfig?.integrationProviderConfig && typeof existingConfig.integrationProviderConfig === 'object' && !Array.isArray(existingConfig.integrationProviderConfig)
-              ? existingConfig.integrationProviderConfig as object
-              : {}),
+            // Spread normalized existing config to preserve pricingRules, tsServices, tsChannelId etc.
+            ...existingTyresoftFlat,
             tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
             tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',

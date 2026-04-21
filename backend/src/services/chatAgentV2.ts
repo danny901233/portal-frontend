@@ -174,6 +174,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
           useDropOffBooking: false,
           selectedBranch: '',
+          escalationWarned: false,
         };
         inMemorySessionCache.set(conversationId, freshSession);
         return freshSession;

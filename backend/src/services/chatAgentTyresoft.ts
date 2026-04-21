@@ -461,7 +461,7 @@ export async function getTyresoftChatResponse(
         }
         console.log(`[TS_AGENT] Tool call: ${call.function.name}`, args);
 
-        const result = await executeTool(call.function.name, args, conversationId, tsConfig);
+        const result = await executeTool(call.function.name, args, conversationId, tsConfig, garageId);
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
@@ -793,7 +793,8 @@ async function executeTool(
   name: string,
   args: any,
   conversationId: string,
-  tsConfig?: TyresoftConfig
+  tsConfig?: TyresoftConfig,
+  garageId?: string
 ): Promise<any> {
   const session = tsSessions.get(conversationId) || {};
 

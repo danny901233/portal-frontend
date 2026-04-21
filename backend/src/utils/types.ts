@@ -142,4 +142,5 @@ export type AgentConfigurationPayload = {
   allowBookings?: boolean;
   bookingLeadTimeDays?: number;
   voice?: VoiceOption;
+  humanEscalation?: boolean;
 };

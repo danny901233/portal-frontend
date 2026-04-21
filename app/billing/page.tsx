@@ -159,7 +159,7 @@ export default function BillingPage() {
 
       {/* Billing Information */}
       {businessInfo && (
-        <BillingInfoForm businessInfo={businessInfo} onUpdate={handleBusinessInfoUpdate} />
+        <BillingInfoForm businessInfo={businessInfo} onUpdate={handleBusinessInfoUpdate} garageId={selectedGarageId === 'all' ? undefined : selectedGarageId} />
       )}
 
       {/* Direct Debit */}

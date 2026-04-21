@@ -7,9 +7,10 @@ import { updateBusinessBillingInfo } from '../../lib/billing';
 interface BillingInfoFormProps {
   businessInfo: BusinessBillingInfo;
   onUpdate: (updatedInfo: BusinessBillingInfo) => void;
+  garageId?: string;
 }
 
-export default function BillingInfoForm({ businessInfo, onUpdate }: BillingInfoFormProps) {
+export default function BillingInfoForm({ businessInfo, onUpdate, garageId }: BillingInfoFormProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
@@ -27,7 +28,7 @@ export default function BillingInfoForm({ businessInfo, onUpdate }: BillingInfoF
     setIsSaving(true);
 
     try {
-      const updated = await updateBusinessBillingInfo(formData);
+      const updated = await updateBusinessBillingInfo(formData, garageId);
       onUpdate(updated);
       setIsEditing(false);
     } catch (error) {

@@ -215,6 +215,7 @@ router.put('/business-info', authenticate, requireManager, async (req: Request, 
     }
 
     const {
+      garageId: requestedGarageId,
       billingAddress,
       billingCity,
       billingPostcode,
@@ -236,8 +237,13 @@ router.put('/business-info', authenticate, requireManager, async (req: Request, 
       return res.status(404).json({ error: 'No garages found for user' });
     }
 
+    const resolvedGarageId =
+      requestedGarageId && (req.user?.role === 'RECEPTIONMATE_STAFF' || user.garageAccessIds.includes(requestedGarageId))
+        ? requestedGarageId
+        : user.garageAccessIds[0];
+
     const garage = await prisma.garage.findUnique({
-      where: { id: user.garageAccessIds[0] },
+      where: { id: resolvedGarageId },
       select: {
         businessId: true,
       },

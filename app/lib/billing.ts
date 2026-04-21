@@ -119,9 +119,10 @@ export async function fetchBusinessBillingInfo(garageId?: string): Promise<Busin
  * Update business billing information
  */
 export async function updateBusinessBillingInfo(
-  info: Partial<Omit<BusinessBillingInfo, 'id' | 'name' | 'billingInfoUpdatedAt'>>
+  info: Partial<Omit<BusinessBillingInfo, 'id' | 'name' | 'billingInfoUpdatedAt'>>,
+  garageId?: string
 ): Promise<BusinessBillingInfo> {
-  const { data } = await api.put<BusinessInfoResponse>('/api/customer/billing/business-info', info);
+  const { data } = await api.put<BusinessInfoResponse>('/api/customer/billing/business-info', { ...info, garageId });
   return data.business;
 }
 

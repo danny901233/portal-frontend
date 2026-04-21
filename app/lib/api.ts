@@ -506,3 +506,13 @@ export const sendOutboundCampaign = async (id: string): Promise<{ success: boole
   const { data } = await api.post(`/api/outbound/campaigns/${id}/send`);
   return data;
 };
+
+
+export const uploadTyreFeed = async (
+  garageId: string,
+  depotId: number,
+  csvContent: string
+): Promise<{ imported: number; depotId: number; feedVersion: string }> => {
+  const { data } = await api.post(`/api/agent-config/tyre-feed/${garageId}/${depotId}`, { csv: csvContent });
+  return data;
+};

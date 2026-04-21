@@ -144,6 +144,18 @@ const garageHiveSettingsSchema = z
   })
   .optional();
 
+const pricingBracketSchema = z.object({
+  maxCC: z.number(),
+  price: z.number(),
+});
+
+const tsServiceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  pricingType: z.enum(['fixed', 'engine-size']),
+  price: z.number().optional(),
+});
+
 const tyresoftSettingsSchema = z
   .object({
     tsWorkspace: optionalBoundedString(100),
@@ -151,6 +163,9 @@ const tyresoftSettingsSchema = z
     tsPassword: optionalBoundedString(1000),
     tsApiKey: optionalBoundedString(1000),
     tsDepotId: z.union([z.string().max(20), z.number()]).optional(),
+    tsChannelId: z.union([z.string().max(20), z.number()]).optional(),
+    tsServices: z.array(tsServiceSchema).optional(),
+    pricingRules: z.record(z.string(), z.array(pricingBracketSchema)).optional(),
   })
   .optional();
 

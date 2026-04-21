@@ -138,13 +138,20 @@ const parseIntegrationSettings = (
 
   const settingsRecord = rawSettings as Record<string, unknown>;
 
+  // Support both flat structure { instanceUrl, apiKey, ... }
+  // and nested structure { garagehive: { instanceUrl, apiKey, ... } }
+  const ghRecord =
+    typeof settingsRecord.garagehive === 'object' && settingsRecord.garagehive !== null
+      ? (settingsRecord.garagehive as Record<string, unknown>)
+      : settingsRecord;
+
   return {
     integrationProvider: 'garage_hive',
     garageHiveSettings: cloneGarageHiveSettings({
-      instanceUrl: typeof settingsRecord.instanceUrl === 'string' ? settingsRecord.instanceUrl : '',
-      apiKey: typeof settingsRecord.apiKey === 'string' ? settingsRecord.apiKey : '',
-      customerId: typeof settingsRecord.customerId === 'string' ? settingsRecord.customerId : '',
-      locationId: typeof settingsRecord.locationId === 'string' ? settingsRecord.locationId : '',
+      instanceUrl: typeof ghRecord.instanceUrl === 'string' ? ghRecord.instanceUrl : '',
+      apiKey: typeof ghRecord.apiKey === 'string' ? ghRecord.apiKey : '',
+      customerId: typeof ghRecord.customerId === 'string' ? ghRecord.customerId : '',
+      locationId: typeof ghRecord.locationId === 'string' ? ghRecord.locationId : '',
     }),
     tyresoftSettings: createDefaultTyresoftSettings(),
   };
@@ -168,6 +175,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   garageHiveSettings: createDefaultGarageHiveSettings(),
   agentType: 'assist',
   enableSmsBookingLinks: true,
+  humanEscalation: true,
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
@@ -210,6 +218,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
     enableSmsBookingLinks: config.enableSmsBookingLinks ?? true,
+    humanEscalation: config.humanEscalation ?? true,
     allowBookings: config.allowBookings ?? false,
     bookingLeadTimeDays: config.bookingLeadTimeDays ?? 1,
     voice: config.voice ?? 'leah',
@@ -243,6 +252,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     notificationEmails: configuration.notificationEmails || [],
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
+    humanEscalation: configuration.humanEscalation !== false,
     allowBookings: configuration.allowBookings || false,
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
@@ -692,6 +702,7 @@ router.put(
       agentType: resolvedAgentType,
       agentScript: resolvedAgentScript,
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
+      humanEscalation: data.humanEscalation !== false,
       allowBookings: data.allowBookings ?? false,
       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',

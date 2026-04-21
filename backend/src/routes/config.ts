@@ -98,7 +98,11 @@ const parseIntegrationSettings = (
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
     if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
-      const raw = rawSettings as Record<string, unknown>;
+      // Support both flat {tsWorkspace: ...} and nested {tyresoft: {tsWorkspace: ...}} formats
+      const top = rawSettings as Record<string, unknown>;
+      const raw: Record<string, unknown> = (top.tyresoft && typeof top.tyresoft === 'object' && !Array.isArray(top.tyresoft))
+        ? top.tyresoft as Record<string, unknown>
+        : top;
       return {
         integrationProvider: 'none',
         garageHiveSettings: createDefaultGarageHiveSettings(),

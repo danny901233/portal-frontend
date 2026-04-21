@@ -139,7 +139,9 @@ export type AgentConfigurationPayload = {
   agentType: AgentType;
   agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks?: boolean;
+  humanEscalation?: boolean;
   allowBookings?: boolean;
   bookingLeadTimeDays?: number;
   voice?: VoiceOption;
+  humanEscalation?: boolean;
 };

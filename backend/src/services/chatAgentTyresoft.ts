@@ -832,6 +832,7 @@ async function executeTool(
 
       case 'ts_search_tyres': {
         if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
+        if (!garageId) return { error: 'garageId not available for tyre search' };
         const size     = String(args.size || '');
         const brand    = args.brand ? String(args.brand) : undefined;
         const depotId  = session.branchOverride ?? tsConfig.depotId;

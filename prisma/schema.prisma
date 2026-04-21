@@ -20,6 +20,11 @@ model Garage {
   costPerMinuteGbp Float @default(0)
   vatRate Float @default(0.20)
 
+  // Webchat / Messaging Billing
+  messagingSubscriptionCostGbp Float @default(0)
+  includedMessages Int @default(0)
+  costPerMessageGbp Float @default(0)
+
   // Trial and Activation
   trialEndDate DateTime?
   requiresBookingActivation Boolean @default(false)
@@ -141,6 +146,7 @@ model AgentConfiguration {
   agentType         String   @default("assist")
   agentScript       String   @default("receptionmate-agent")
   enableSmsBookingLinks Boolean @default(true)
+  humanEscalation   Boolean  @default(true)
   allowBookings     Boolean  @default(false)
   bookingLeadTimeDays Int    @default(1)
   voice             String   @default("leah")
@@ -400,11 +406,14 @@ model Invoice {
   minutesUsed       Int      @default(0)
   minutesIncluded   Int      @default(0)
   smsCount          Int      @default(0)
-  
+  messagingMessagesCount Int  @default(0)  // Webchat/messaging messages billed
+
   // Costs (in pence for precision)
-  subscriptionAmount Int     // Base subscription cost
-  minutesAmount      Int     @default(0) // Overage minutes cost
-  smsAmount          Int     @default(0) // SMS cost
+  subscriptionAmount      Int  // Base (voice) subscription cost
+  minutesAmount           Int  @default(0)
+  smsAmount               Int  @default(0)
+  messagingSubscriptionAmount Int @default(0)  // Webchat subscription portion
+  messagingMessagesAmount     Int @default(0)  // Webchat overage messages cost
   subtotal           Int     // Before VAT
   vatAmount          Int     // VAT only
   total              Int     // Final amount
@@ -419,6 +428,7 @@ model Invoice {
   
   // GoCardless
   gocardlessPaymentId String?
+  gocardlessChargeDate DateTime?
   paidAt              DateTime?
 
   // Credit/Void tracking

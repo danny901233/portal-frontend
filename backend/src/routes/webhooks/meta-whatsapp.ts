@@ -47,7 +47,42 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
       for (const change of changes) {
         const value = change.value;
 
-        if (!value || !value.messages || !Array.isArray(value.messages)) {
+        if (!value) continue;
+
+        // ---------------------------------------------------------------------------
+        // Handle delivery status updates for outbound campaign messages
+        // ---------------------------------------------------------------------------
+        if (value.statuses && Array.isArray(value.statuses)) {
+          for (const status of value.statuses) {
+            const messageSid = status.id as string | undefined;
+            const metaStatus = status.status as string | undefined; // sent, delivered, read, failed
+            if (!messageSid || !metaStatus) continue;
+
+            // Map Meta status → our contact status
+            let contactStatus: string | null = null;
+            let errorReason: string | null = null;
+
+            if (metaStatus === 'delivered') {
+              contactStatus = 'delivered';
+            } else if (metaStatus === 'read') {
+              contactStatus = 'read';
+            } else if (metaStatus === 'failed') {
+              contactStatus = 'failed';
+              const err = status.errors?.[0];
+              errorReason = err ? `${err.title} (${err.code})` : 'Delivery failed';
+            }
+
+            if (contactStatus) {
+              await prisma.outboundContact.updateMany({
+                where: { messageSid },
+                data: { status: contactStatus, ...(errorReason ? { errorReason } : {}) },
+              });
+              console.log(`[WhatsApp] Delivery status ${metaStatus} for ${messageSid} → ${contactStatus}`);
+            }
+          }
+        }
+
+        if (!value.messages || !Array.isArray(value.messages)) {
           continue;
         }
 
@@ -60,24 +95,32 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
         }
 
         // Find garage by phone_number_id
-        const connection = await prisma.socialMediaConnection.findFirst({
-          where: {
-            platform: 'whatsapp',
-            whatsappPhoneNumberId: phoneNumberId,
-            isActive: true,
-          },
-          include: {
-            garage: {
-              include: {
-                agentConfiguration: true,
-              },
-            },
-          },
+        const include = { garage: { include: { agentConfiguration: true } } };
+        let connection = await prisma.socialMediaConnection.findFirst({
+          where: { platform: 'whatsapp', whatsappPhoneNumberId: phoneNumberId, isActive: true },
+          include,
         });
 
         if (!connection) {
-          console.log(`No garage found for WhatsApp phone_number_id: ${phoneNumberId}`);
-          continue;
+          // Self-heal: OAuth flow sometimes stores the wrong phone number ID (e.g. WABA ID or
+          // first number on account instead of the correct one). If there's exactly one active
+          // WhatsApp connection whose stored ID doesn't match, update it automatically.
+          const fallback = await prisma.socialMediaConnection.findFirst({
+            where: { platform: 'whatsapp', isActive: true },
+            include,
+          });
+
+          if (!fallback) {
+            console.log(`No garage found for WhatsApp phone_number_id: ${phoneNumberId}`);
+            continue;
+          }
+
+          console.log(`[WhatsApp] Auto-correcting phone_number_id: ${fallback.whatsappPhoneNumberId} → ${phoneNumberId}`);
+          await prisma.socialMediaConnection.update({
+            where: { id: fallback.id },
+            data: { whatsappPhoneNumberId: phoneNumberId },
+          });
+          connection = { ...fallback, whatsappPhoneNumberId: phoneNumberId };
         }
 
         // Process each message
@@ -109,6 +152,17 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             },
           });
 
+          // Check if this is a reply to an outbound campaign — phone may be stored with or without +
+          const phoneVariants = [customerPhone, `+${customerPhone}`, customerPhone.replace(/^\+/, '')];
+          const outboundContact = await prisma.outboundContact.findFirst({
+            where: {
+              garageId: connection.garageId,
+              phone: { in: phoneVariants },
+              status: { in: ['sent', 'delivered', 'read'] },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+
           if (!conversation) {
             // Create new conversation
             conversation = await prisma.chatConversation.create({
@@ -137,12 +191,94 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             });
           }
 
+          // Inject outbound context the first time a campaign recipient replies
+          // (status not yet 'replied' means context hasn't been injected yet)
+          if (outboundContact && outboundContact.status !== 'replied') {
+            const reg = outboundContact.registration?.toUpperCase() || null;
+            const dueDate = outboundContact.motDueDate || outboundContact.serviceDueDate || null;
+            const nameParts = (outboundContact.customerName || '').trim().split(/\s+/);
+
+            // Reconstruct the original outbound message so it appears in the conversation view
+            let outboundMessageText: string | null = null;
+            try {
+              const campaign = await prisma.outboundCampaign.findUnique({ where: { id: outboundContact.campaignId } });
+              if (campaign?.messageTemplateId) {
+                const tmpl = await prisma.messageTemplate.findUnique({ where: { id: campaign.messageTemplateId } });
+                if (tmpl) {
+                  const varMap = (campaign.variableMapping as Record<string, string>) || {};
+                  const agentCfg = await prisma.agentConfiguration.findUnique({
+                    where: { garageId: connection.garageId },
+                    select: { branchName: true },
+                  });
+                  const contactFields: Record<string, string> = {
+                    customer_name: nameParts[0] || outboundContact.customerName,
+                    full_name: outboundContact.customerName,
+                    registration: reg || '',
+                    mot_due_date: outboundContact.motDueDate || '',
+                    service_due_date: outboundContact.serviceDueDate || '',
+                    garage_name: agentCfg?.branchName || 'our garage',
+                  };
+                  let body = tmpl.bodyText;
+                  for (const [varNum, field] of Object.entries(varMap)) {
+                    body = body.replace(new RegExp(`\\{\\{${varNum}\\}\\}`, 'g'), contactFields[field] || '');
+                  }
+                  outboundMessageText = body;
+                }
+              }
+            } catch (e) {
+              console.error('[WhatsApp] Failed to reconstruct outbound message:', e);
+            }
+
+            // Save the outbound message as a regular assistant bubble (backdated to when it was sent)
+            if (outboundMessageText) {
+              await prisma.chatMessage.create({
+                data: {
+                  conversationId: conversation.id,
+                  role: 'assistant',
+                  content: outboundMessageText,
+                  createdAt: outboundContact.createdAt,
+                },
+              });
+            }
+
+            // Seed sessionState so the agent knows the registration without asking
+            await prisma.$executeRawUnsafe(
+              `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+              JSON.stringify({
+                customerNameFirst: nameParts[0] || '',
+                customerNameLast: nameParts.slice(1).join(' ') || '',
+                ...(reg && { outboundRegistration: reg }),
+                outboundServiceType: outboundContact.messageType || 'mot',
+                ...(dueDate && { outboundDueDate: dueDate }),
+              }),
+              conversation.id,
+            );
+
+            await prisma.outboundContact.update({
+              where: { id: outboundContact.id },
+              data: { status: 'replied', conversationId: conversation.id },
+            });
+
+            console.log(`[WhatsApp] Outbound reply from ${customerPhone} — message saved, session seeded with reg=${reg}`);
+          }
+
+          // Deduplicate — skip if this Meta message ID was already processed
+          const metaMid = message.id as string | undefined;
+          if (metaMid) {
+            const existing = await prisma.chatMessage.findUnique({ where: { metaMid } });
+            if (existing) {
+              console.log(`[WhatsApp] Duplicate message ignored: ${metaMid}`);
+              continue;
+            }
+          }
+
           // Save customer message
           await prisma.chatMessage.create({
             data: {
               conversationId: conversation.id,
               role: 'user',
               content: messageText,
+              metaMid: metaMid ?? null,
             },
           });
 
@@ -180,23 +316,27 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             });
 
             // Send response via WhatsApp
-            await axios.post(
-              `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-              {
-                messaging_product: 'whatsapp',
-                to: customerPhone,
-                type: 'text',
-                text: { body: agentResponse.content },
-              },
-              {
-                headers: {
-                  Authorization: `Bearer ${connection.accessToken}`,
-                  'Content-Type': 'application/json',
+            try {
+              await axios.post(
+                `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+                {
+                  messaging_product: 'whatsapp',
+                  to: customerPhone,
+                  type: 'text',
+                  text: { body: agentResponse.content },
                 },
-              }
-            );
-
-            console.log(`WhatsApp message sent to ${customerPhone}`);
+                {
+                  headers: {
+                    Authorization: `Bearer ${connection.accessToken}`,
+                    'Content-Type': 'application/json',
+                  },
+                }
+              );
+              console.log(`WhatsApp message sent to ${customerPhone}`);
+            } catch (sendError: any) {
+              const metaError = sendError?.response?.data;
+              console.error(`[WhatsApp] SEND FAILED to ${customerPhone}:`, JSON.stringify(metaError ?? sendError?.message));
+            }
           } else {
             console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
           }

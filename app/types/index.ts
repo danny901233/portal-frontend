@@ -179,6 +179,14 @@ export interface GarageHiveSettings {
   locationId: string;
 }
 
+export interface TyresoftSettings {
+  tsWorkspace: string;
+  tsUsername: string;
+  tsPassword: string;
+  tsApiKey: string;
+  tsDepotId: string;
+}
+
 export interface AgentConfiguration {
   branchName: string;
   phoneNumber: string;
@@ -192,12 +200,18 @@ export interface AgentConfiguration {
   responseSpeed: ResponseSpeed;
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
+  enableDropOffBookings: boolean;
+  dropOffMessage: string;
+  dropOffExcludeServices: string[];
   notificationEmails: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
+  tyresoftSettings: TyresoftSettings;
   agentType: AgentType;
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks: boolean;
+  allowBookings: boolean;
+  bookingLeadTimeDays: number;
   voice: VoiceOption;
 }
 

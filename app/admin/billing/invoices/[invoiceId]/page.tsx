@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { isReceptionMateStaff } from '../../../../lib/auth';
@@ -15,6 +15,12 @@ export default function InvoiceDetailPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const isStaff = isReceptionMateStaff();
+
+  useEffect(() => {
+    if (!isStaff) {
+      router.replace('/calls');
+    }
+  }, [isStaff, router]);
 
   const invoiceQuery = useQuery({
     queryKey: ['invoice', invoiceId],

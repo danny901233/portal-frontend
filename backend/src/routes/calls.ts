@@ -2,6 +2,8 @@ import type { Call, CallFeedback, Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { randomInt } from 'node:crypto';
 import { Router } from 'express';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
@@ -13,7 +15,8 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { sendNegativeFeedbackEmail, sendCallSummaryEmail } from '../utils/email.js';
+import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
+import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { trackConfirmedBooking } from '../services/billing.js';
 
 const router = Router();
@@ -177,10 +180,10 @@ router.post('/calls', async (req: Request, res: Response) => {
     // Use recording duration if available (actual call time), otherwise use agent-reported duration
     const actualDuration = finalRecordingDuration ?? payload.durationSeconds;
 
-    // Skip calls under 30 seconds (dropped calls, wrong numbers, etc.)
-    if (actualDuration < 30) {
-      console.log(`[CALL] Skipping short call (${actualDuration}s) for garage ${payload.garageId} - under 30 second threshold`);
-      return res.status(201).json({ success: true, callId: 'skipped', reason: 'Call duration under 30 seconds' });
+    // Skip calls under 55 seconds (dropped calls, wrong numbers, etc.)
+    if (actualDuration < 55) {
+      console.log(`[CALL] Skipping short call (${actualDuration}s) for garage ${payload.garageId} - under 55 second threshold`);
+      return res.status(201).json({ success: true, callId: 'skipped', reason: 'Call duration under 55 seconds' });
     }
 
     await prisma.garage.upsert({
@@ -253,25 +256,57 @@ router.post('/calls', async (req: Request, res: Response) => {
     // Send notification email (agent already filtered to only send calls >= 30s)
     if (createdCall.garage?.agentConfiguration?.notificationEmails &&
         createdCall.garage.agentConfiguration.notificationEmails.length > 0) {
-      console.log(`[EMAIL] Sending notification for call ${callId} with duration ${actualDuration}s`);
+      console.log(`[EMAIL] Checking payment status for call ${callId} notification (duration ${actualDuration}s)`);
 
-      void sendCallSummaryEmail(createdCall.garage.agentConfiguration.notificationEmails, {
-        branchName: createdCall.garage.agentConfiguration.branchName,
-        summary: payload.summary,
-        transcript: payload.transcript as any,
-        durationSeconds: actualDuration,
-        callType: callType,
-        customerName: payload.customerName,
-        customerPhone: payload.customerPhone,
-        registrationNumber: payload.registrationNumber,
-        confirmedBooking: payload.confirmedBooking ?? false,
-        capturedRevenue: payload.capturedRevenue ?? null,
-        createdAt: createdCall.createdAt.toISOString(),
-        bookingDate: null,
-        priceQuoted: payload.capturedRevenue ?? null,
-      }).catch((error) => {
-        console.error('[EMAIL] Failed to send notification email:', error);
+      // Check if any users with access to this garage need to set up payment
+      const usersWithAccess = await prisma.user.findMany({
+        where: {
+          garageAccessIds: {
+            has: payload.garageId
+          }
+        },
+        select: {
+          email: true,
+          mustSetupPayment: true
+        }
       });
+
+      const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
+      const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+
+      if (userNeedsPaymentSetup) {
+        console.log(`[EMAIL] 💳 User(s) need payment setup - sending payment reminder email`);
+        
+        void sendPaymentSetupReminderEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+          branchName: createdCall.garage.agentConfiguration.branchName,
+          summary: payload.summary,
+          customerPhone: payload.customerPhone,
+          createdAt: createdCall.createdAt.toISOString(),
+          portalUrl,
+        }).catch((error) => {
+          console.error('[EMAIL] Failed to send payment reminder email:', error);
+        });
+      } else {
+        console.log(`[EMAIL] ✅ Sending standard call summary email`);
+        
+        void sendCallSummaryEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+          branchName: createdCall.garage.agentConfiguration.branchName,
+          summary: payload.summary,
+          transcript: payload.transcript as any,
+          durationSeconds: actualDuration,
+          callType: callType,
+          customerName: payload.customerName,
+          customerPhone: payload.customerPhone,
+          registrationNumber: payload.registrationNumber,
+          confirmedBooking: payload.confirmedBooking ?? false,
+          capturedRevenue: payload.capturedRevenue ?? null,
+          createdAt: createdCall.createdAt.toISOString(),
+          bookingDate: null,
+          priceQuoted: payload.capturedRevenue ?? null,
+        }).catch((error) => {
+          console.error('[EMAIL] Failed to send notification email:', error);
+        });
+      }
     }
 
     res.status(201).json({ success: true, callId });
@@ -514,6 +549,71 @@ router.get(
   },
 );
 
+// ---------------------------------------------------------------------------
+// GET /api/garages/:garageId/calls/feedback/export — CSV of negative feedback
+// ---------------------------------------------------------------------------
+router.get(
+  '/garages/:garageId/calls/feedback/export',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+      const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+      const allowedGarages = isStaff ? [] : resolveAllowedGarages(req.user);
+
+      if (!isStaff && !allowedGarages.includes(garageId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const calls = await prisma.call.findMany({
+        where: { garageId, feedback: { rating: 'down' } },
+        orderBy: { createdAt: 'desc' },
+        include: { feedback: true },
+        select: {
+          id: true,
+          createdAt: true,
+          customerName: true,
+          customerPhone: true,
+          durationSeconds: true,
+          callType: true,
+          summary: true,
+          feedback: { select: { rating: true, reasons: true, notes: true } },
+        },
+      });
+
+      const header = ['Call ID', 'Date', 'Caller Name', 'Caller Phone', 'Duration (s)', 'Call Type', 'Reasons', 'Notes', 'Summary'];
+
+      const rows = calls.map((call) => {
+        const reasons = Array.isArray(call.feedback?.reasons) ? (call.feedback.reasons as string[]).join('; ') : '';
+        return [
+          call.id,
+          call.createdAt.toISOString(),
+          call.customerName ?? '',
+          call.customerPhone ?? '',
+          call.durationSeconds,
+          call.callType,
+          reasons,
+          call.feedback?.notes ?? '',
+          call.summary ?? '',
+        ];
+      });
+
+      const csv = [header, ...rows]
+        .map((row) => row.map(csvEscape).join(','))
+        .join('\n');
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="negative-feedback-${garageId}.csv"`);
+      res.status(200).send(`${csv}\n`);
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to export negative feedback CSV', error);
+      }
+      res.status(500).json({ error: 'Failed to export negative feedback' });
+    }
+  },
+);
+
 router.get(
   '/garages/:garageId/calls/:callId',
   authenticate,
@@ -594,19 +694,40 @@ router.post(
         },
       });
 
-      // Send email notification for negative feedback
-      if (rating === 'down' && req.user?.email) {
-        void sendNegativeFeedbackEmail({
-          branchName: call.garage.name,
-          callId,
-          rating: 'down',
-          reasons: normalizedReasons,
-          notes: sanitizedNotes,
-          userEmail: req.user.email,
-          submittedAt: new Date().toISOString(),
+      // Send notifications for negative feedback
+      if (rating === 'down') {
+        const fields = [
+          { name: 'Branch', value: call.garage.name, inline: true },
+          { name: 'Call ID', value: callId, inline: true },
+          { name: 'Duration', value: call.durationSeconds ? `${call.durationSeconds}s` : 'n/a', inline: true },
+        ];
+        if (call.callType) fields.push({ name: 'Type', value: call.callType, inline: true });
+        if (call.customerPhone) fields.push({ name: 'Caller', value: call.customerPhone, inline: true });
+        if (normalizedReasons.length) fields.push({ name: 'Reasons', value: normalizedReasons.join(', '), inline: false });
+        if (sanitizedNotes) fields.push({ name: 'Notes', value: sanitizedNotes, inline: false });
+
+        void sendDiscordNotification({
+          title: 'Negative Call Rating',
+          description: `A call at **${call.garage.name}** was rated thumbs down.`,
+          color: DISCORD_COLORS.error,
+          fields,
         }).catch((error) => {
-          console.error('Failed to send negative feedback email:', error);
+          console.error('Failed to send Discord notification:', error);
         });
+
+        if (req.user?.email) {
+          void sendNegativeFeedbackEmail({
+            branchName: call.garage.name,
+            callId,
+            rating: 'down',
+            reasons: normalizedReasons,
+            notes: sanitizedNotes,
+            userEmail: req.user.email,
+            submittedAt: new Date().toISOString(),
+          }).catch((error) => {
+            console.error('Failed to send negative feedback email:', error);
+          });
+        }
       }
 
       res.json({ feedback: serializeCallFeedback(feedback) });
@@ -772,27 +893,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.status(404).json({ error: 'Recording not available yet for this call' });
     }
 
-    // Strategy 1: Try matching by roomName (most reliable - each call has unique room)
-    if (call.roomName) {
-      console.log(`[RECORDING] Strategy 1: Looking for roomName match: ${call.roomName}`);
-      const existingRecording = await prisma.twilioRecording.findFirst({
-        where: { roomName: call.roomName },
-      });
-
-      if (existingRecording?.recordingSid) {
-        console.log(`[RECORDING] Strategy 1 SUCCESS: Found roomName match`);
-        // Update call with recordingUrl
-        await prisma.call.update({
-          where: { id },
-          data: {
-            recordingUrl: existingRecording.recordingSid,
-          },
-        });
-        return res.json({ recordingUrl: `/api/calls/${id}/recording/audio` });
-      }
-    }
-
-    // Strategy 2: Fetch from Twilio API with smart matching
+    // Fetch from Twilio API with phone-based matching
     // Prefer fromNumber (full E.164) over customerPhone (may be partial/truncated)
     let phoneForTwilioLookup = call.fromNumber || call.customerPhone;
     if (!phoneForTwilioLookup) {
@@ -848,8 +949,12 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.status(500).json({ error: 'Recording service not configured' });
     }
 
-    // Search for recent calls TO this specific garage (no From filter — agent may send wrong caller number)
-    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?To=${encodeURIComponent(garagePhoneNumber)}&PageSize=20`;
+    // Search for recent calls TO this specific garage, filtered by caller phone when available
+    let callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?To=${encodeURIComponent(garagePhoneNumber)}&PageSize=20`;
+    if (phoneForTwilioLookup) {
+      callsUrl += `&From=${encodeURIComponent(phoneForTwilioLookup)}`;
+      console.log(`[RECORDING] Including From filter: ${phoneForTwilioLookup}`);
+    }
     const callsResponse = await fetch(callsUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
@@ -863,51 +968,30 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     const callsData = await callsResponse.json();
 
-    // Find calls within 90 seconds, score by duration similarity
-    const callTime = call.createdAt.getTime();
-    const tightTolerance = 90 * 1000; // 90 seconds (safer window)
-    const broadTolerance = 5 * 60 * 1000; // 5 minutes (fallback)
-
+    // Score all calls by duration similarity — no time window exclusion.
+    // From+To filter already scopes to exact caller+garage, so duration picks
+    // the right call if the same person called twice in one day.
     interface ScoredCall {
       twilioCall: any;
-      timeDiff: number;
       durationDiff: number;
-      score: number;
     }
 
     const scoredCalls: ScoredCall[] = [];
 
     for (const twilioCall of callsData.calls || []) {
-      const twilioCallTime = new Date(twilioCall.start_time).getTime();
-      const timeDiff = Math.abs(twilioCallTime - callTime);
-
-      // Only consider calls within broad tolerance
-      if (timeDiff < broadTolerance) {
-        const twilioCallDuration = parseInt(twilioCall.duration || '0');
-        const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
-
-        // Score: lower is better (prefer close time + close duration)
-        // Time is weighted more heavily (×1000) than duration
-        const score = timeDiff + (durationDiff * 1000);
-
-        scoredCalls.push({
-          twilioCall,
-          timeDiff,
-          durationDiff,
-          score,
-        });
-      }
+      const twilioCallDuration = parseInt(twilioCall.duration || '0');
+      const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
+      scoredCalls.push({ twilioCall, durationDiff });
     }
 
-    // Sort by score (best match first)
-    scoredCalls.sort((a, b) => a.score - b.score);
+    // Sort by duration similarity (closest duration wins)
+    scoredCalls.sort((a, b) => a.durationDiff - b.durationDiff);
 
-    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls within broad window`);
+    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls, matching by duration`);
 
-    // Try candidates in order of best score
-    for (const { twilioCall, timeDiff, durationDiff, score } of scoredCalls) {
-      const withinTightWindow = timeDiff < tightTolerance;
-      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: timeDiff=${timeDiff}ms, durationDiff=${durationDiff}s, score=${score}, inTightWindow=${withinTightWindow}`);
+    // Try candidates in order of best duration match
+    for (const { twilioCall, durationDiff } of scoredCalls) {
+      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: durationDiff=${durationDiff}s (twilio=${twilioCall.duration}s, portal=${call.durationSeconds}s)`);
 
       // CRITICAL SECURITY: Verify this call was TO our garage's number
       // Prevents cross-garage contamination when same customer calls multiple garages
@@ -935,7 +1019,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
           const recording = recordingsData.recordings[0];
           const recordingSid = recording.sid;
 
-          console.log(`[RECORDING] Strategy 2 SUCCESS: Found recording with score=${score}`);
+          console.log(`[RECORDING] SUCCESS: Found recording, durationDiff=${durationDiff}s`);
 
           // Store in TwilioRecording for future lookups
           await prisma.twilioRecording.upsert({
@@ -1004,6 +1088,38 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       return res.status(404).send('No recording available');
     }
 
+    const recordingValue = call.recordingUrl;
+
+    // S3 recordings — fetch securely using AWS SDK
+    if (recordingValue.startsWith('http') && recordingValue.includes('amazonaws.com')) {
+      const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+      const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+      const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+      const s3Bucket = process.env.S3_BUCKET || 'receptionmate-recordings';
+
+      if (!awsAccessKey || !awsSecretKey) {
+        return res.status(500).send('S3 recording service not configured');
+      }
+
+      // Extract S3 object key from URL
+      const url = new URL(recordingValue);
+      const s3Key = url.pathname.replace(/^\//, '');
+
+      const s3Client = new S3Client({
+        region: awsRegion,
+        credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+      });
+
+      const signedUrl = await getSignedUrl(
+        s3Client,
+        new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }),
+        { expiresIn: 3600 }
+      );
+
+      return res.redirect(302, signedUrl);
+    }
+
+    // Twilio recording (SID or twilio.com URL)
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -1011,12 +1127,10 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       return res.status(500).send('Recording service not configured');
     }
 
-    // Fetch the recording from Twilio and stream it
-    const recordingValue = call.recordingUrl;
     const twilioUrl = recordingValue.startsWith('http')
       ? `${recordingValue.replace(/\.mp3$/i, '')}.mp3`
       : `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordingValue}.mp3`;
-    
+
     const twilioResponse = await fetch(twilioUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
@@ -1030,7 +1144,7 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
     // Stream the audio back to the client
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
-    
+
     const buffer = await twilioResponse.arrayBuffer();
     res.send(Buffer.from(buffer));
   } catch (error) {

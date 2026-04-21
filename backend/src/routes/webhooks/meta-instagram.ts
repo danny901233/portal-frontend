@@ -80,10 +80,22 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
           continue;
         }
 
+        // Fetch sender name from Graph API
+        let senderName: string | undefined;
+        try {
+          const profileRes = await axios.get(`https://graph.facebook.com/v18.0/${senderId}`, {
+            params: { fields: 'name', access_token: connection.accessToken },
+          });
+          senderName = profileRes.data?.name as string | undefined;
+        } catch {
+          console.log(`[Instagram] Could not fetch name for sender ${senderId}`);
+        }
+
         // Find or create customer
         const customerId = await findOrCreateCustomer({
           garageId: connection.garageId,
           instagramUserId: senderId,
+          name: senderName,
         });
 
         // Find or create conversation
@@ -103,6 +115,7 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
               platform: 'instagram',
               platformUserId: senderId,
               customerId,
+              customerName: senderName ?? null,
               status: 'active',
               unreadCount: 1,
               lastMessageAt: new Date(),
@@ -114,11 +127,22 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
             where: { id: conversation.id },
             data: {
               customerId,
+              ...(senderName && !conversation.customerName ? { customerName: senderName } : {}),
               unreadCount: { increment: 1 },
               lastMessageAt: new Date(),
               status: 'active',
             },
           });
+        }
+
+        // Deduplicate — skip if this Meta message ID was already processed
+        const metaMid = event.message.mid as string | undefined;
+        if (metaMid) {
+          const existing = await prisma.chatMessage.findUnique({ where: { metaMid } });
+          if (existing) {
+            console.log(`[Instagram] Duplicate message ignored: ${metaMid}`);
+            continue;
+          }
         }
 
         // Save customer message
@@ -127,6 +151,7 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
             conversationId: conversation.id,
             role: 'user',
             content: messageText,
+            metaMid: metaMid ?? null,
           },
         });
 
@@ -162,22 +187,26 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
             },
           });
 
-          // Send response via Instagram Messaging API
-          await axios.post(
-            'https://graph.facebook.com/v18.0/me/messages',
-            {
-              recipient: { id: senderId },
-              message: { text: agentResponse.content },
-            },
-            {
-              headers: {
-                Authorization: `Bearer ${connection.accessToken}`,
-                'Content-Type': 'application/json',
+          // Send response via Facebook Graph API (Instagram DMs via Page)
+          try {
+            await axios.post(
+              `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
+              {
+                recipient: { id: senderId },
+                message: { text: agentResponse.content },
               },
-            }
-          );
-
-          console.log(`Instagram message sent to ${senderId}`);
+              {
+                headers: {
+                  Authorization: `Bearer ${connection.accessToken}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+            console.log(`[Instagram] Message sent to ${senderId}`);
+          } catch (sendError: any) {
+            const metaError = sendError?.response?.data;
+            console.error(`[Instagram] SEND FAILED to ${senderId}:`, JSON.stringify(metaError ?? sendError?.message));
+          }
         } else {
           console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
         }

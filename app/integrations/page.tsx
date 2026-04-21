@@ -12,6 +12,7 @@ interface SocialConnection {
   whatsappPhoneNumberId?: string;
   pageId?: string;
   instagramAccountId?: string;
+  accountName?: string;
   createdAt: string;
 }
 
@@ -209,10 +210,25 @@ export default function IntegrationsPage() {
           </svg>
           <span className="text-sm">Back to Messages</span>
         </button>
-        <h1 className="text-2xl font-bold text-slate-100 mb-2">Social Media Integrations</h1>
+        <h1 className="text-2xl font-bold text-slate-100 mb-2">Integrations</h1>
         <p className="text-slate-400">
           Connect your social media accounts to manage all customer conversations in one place
         </p>
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 mt-5 p-1 bg-slate-800/60 rounded-lg w-fit border border-slate-700">
+          <button
+            className="px-4 py-1.5 text-sm font-medium rounded-md bg-slate-700 text-slate-100 shadow-sm"
+          >
+            Social Media
+          </button>
+          <button
+            onClick={() => router.push('/integrations/widget')}
+            className="px-4 py-1.5 text-sm font-medium rounded-md text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            Website Widget
+          </button>
+        </div>
 
         {/* Status Message */}
         {statusMessage && (
@@ -260,11 +276,17 @@ export default function IntegrationsPage() {
                     <p className="text-sm text-slate-400 mb-3">{platform.description}</p>
 
                     {connection && (
-                      <div className="flex items-center gap-2 text-sm">
+                      <div className="flex items-center gap-2 text-sm flex-wrap">
                         <div className="flex items-center gap-1.5">
                           <div className="w-2 h-2 rounded-full bg-green-500"></div>
                           <span className="text-green-400">Connected</span>
                         </div>
+                        {connection.accountName && (
+                          <>
+                            <span className="text-slate-600">•</span>
+                            <span className="text-slate-300 font-medium">{connection.accountName}</span>
+                          </>
+                        )}
                         <span className="text-slate-600">•</span>
                         <span className="text-slate-500">
                           Since {new Date(connection.createdAt).toLocaleDateString()}
@@ -274,7 +296,7 @@ export default function IntegrationsPage() {
                   </div>
                 </div>
 
-                <div>
+                <div className="ml-4 shrink-0">
                   {connection ? (
                     <button
                       onClick={() => disconnectPlatform(connection.id)}

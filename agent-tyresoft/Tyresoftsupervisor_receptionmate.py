@@ -54,7 +54,7 @@ from agent_infra import (
     match_full_service, normalize_vrn,
     format_vrm_for_speech, format_price_for_speech, format_date_for_speech,
     # Configuration loading
-    load_agent_config, apply_agent_configuration,
+    load_agent_config, apply_agent_configuration, AGENT_CUSTOM_RULES,
     format_time_for_speech, format_tyre_size_for_speech, format_brand_for_speech,
     format_vehicle_for_speech,
     sanitise_phone, sanitise_email,
@@ -80,6 +80,10 @@ from agent_infra import (
 PORTAL_API_URL = os.getenv("PORTAL_API_URL", "https://portal.receptionmate.co.uk/api/calls")
 PORTAL_WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "optional-shared-secret")
 RECORDING_BASE_URL = os.getenv("RECORDING_BASE_URL", "").strip()
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID", "").strip()
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY", "").strip()
+S3_REGION = os.getenv("S3_REGION", "eu-west-2").strip()
+S3_BUCKET = os.getenv("S3_BUCKET", "receptionmate-recordings").strip()
 
 _LIVEKIT_INFERENCE_URL = "https://agent-gateway.livekit.cloud/v1"
 _specialist_llm: Optional[AsyncOpenAI] = None
@@ -308,7 +312,7 @@ def _build_system_prompt() -> str:
         f"  - {code}: {s['name']} ({s['price']} pounds)"
         for code, s in SERVICES.items()
     )
-    return f"""You are Leah, a friendly voice AI receptionist for Tyresoft Tyre Centre.
+    prompt = f"""You are Leah, a friendly voice AI receptionist for Tyresoft Tyre Centre.
 
 TODAY: {now.strftime('%A %d %B %Y')} | TIME: {now.strftime('%H:%M')} UK
 
@@ -378,6 +382,10 @@ Say "No worries, take your time" at most — then STOP and WAIT. Do NOT continue
 Do NOT try to answer rhetorical questions or self-talk. Do NOT give advice on finding their phone number.
 Do NOT assume they've answered YES or NO to your previous question — wait for a clear answer.
 """
+    # Append custom rules if configured for this garage
+    if AGENT_CUSTOM_RULES:
+        prompt += "\n\nCUSTOM RULES FROM GARAGE:\n" + AGENT_CUSTOM_RULES + "\n"
+    return prompt
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1234,6 +1242,15 @@ class TyresoftSupervisor(Agent):
 
         svc = SERVICES[code]
 
+        # VRN is required for ALL service bookings — vehicle must be linked
+        if not s.vrn_confirmed:
+            svc_name = svc['name']
+            return (
+                f"Vehicle registration required for {svc_name}. Need VRN before adding to basket.\n"
+                "Say: 'To get that booked in, I'll need your vehicle registration. Could you read that out for me?'\n"
+                "Then STOP. Wait for VRN."
+            )
+
         # Duplicate prevention: reject if same service already in basket
         for existing in s.basket_items:
             if existing.get("type") == "service" and existing.get("code") == code:
@@ -1390,8 +1407,15 @@ class TyresoftSupervisor(Agent):
                 has_tyres = True
         # Deduplicate service IDs (duplicate IDs may confuse the API)
         service_ids = list(dict.fromkeys(service_ids))
-        if has_tyres or not service_ids:
-            service_ids = [0] + service_ids if service_ids else [0]
+        # CRITICAL: Only use [0] for pure tyre bookings OR when combined with tyres
+        # If booking a service WITHOUT tyres, use ONLY the service ID
+        if has_tyres and not service_ids:
+            # Pure tyre booking
+            service_ids = [0]
+        elif has_tyres and service_ids:
+            # Tyres + service booking (e.g., tyres + wheel alignment)
+            service_ids = [0] + service_ids
+        # else: Pure service booking - use service_ids as-is
 
         # API supports max 2 booking types per request
         if len(service_ids) > 2:
@@ -1675,16 +1699,28 @@ class TyresoftSupervisor(Agent):
                 vehicle_id = veh_result.get("vehicleID", 0)
                 s.vehicle_id = vehicle_id
 
-        # Step 3: Build sale items
+        # Step 3: Build sale items (consolidate duplicate tyre stock numbers)
         sale_items = []
+        tyre_consolidated: dict = {}
         for item in s.basket_items:
             if item["type"] == "tyre":
-                sale_items.append(build_tyre_item(
-                    stock_number=item.get("stock_number", ""),
-                    quantity=item.get("quantity", 1),
-                    unit_price=item.get("price", 0),
-                ))
-            elif item["type"] == "service":
+                key = item.get("stock_number", "")
+                if key in tyre_consolidated:
+                    tyre_consolidated[key]["quantity"] += item.get("quantity", 1)
+                else:
+                    tyre_consolidated[key] = {
+                        "stock_number": key,
+                        "quantity": item.get("quantity", 1),
+                        "price": item.get("price", 0),
+                    }
+        for tyre in tyre_consolidated.values():
+            sale_items.append(build_tyre_item(
+                stock_number=tyre["stock_number"],
+                quantity=tyre["quantity"],
+                unit_price=tyre["price"],
+            ))
+        for item in s.basket_items:
+            if item["type"] == "service":
                 svc = SERVICES.get(item.get("code"), {})
                 sale_items.append(build_service_item(
                     service_id=svc.get("service_id", 0),
@@ -1693,10 +1729,19 @@ class TyresoftSupervisor(Agent):
 
         # Step 4: Create sale
         depot_id = BRANCHES.get(s.selected_branch, {}).get("depot_id", 1)
-        booking_slot = s.selected_slot or {
-            "date": s.booking_date, "time": s.booking_time,
-            "diaryCategoryID": 1, "estimatedTime": 30, "slotTypeID": 1,
-        }
+        if not s.selected_slot:
+            print("[SUBMIT_BOOKING] ERROR: selected_slot is None — aborting to prevent wrong diary booking")
+            return "I'm sorry, something went wrong with the slot selection. Could you please choose a time slot again?"
+        booking_slot = s.selected_slot
+        print(f"[SUBMIT_BOOKING] Booking slot: {booking_slot}")
+        print(f"[SUBMIT_BOOKING] Sale items: {len(sale_items)} items")
+        for idx, item in enumerate(sale_items, 1):
+            svc_id = item.get("serviceID", 0)
+            item_code = item.get("itemCode", "")
+            unit_cost = item.get("unitCost", 0)
+            qty = item.get("quantity", 1)
+            inc_vat = item.get("unitCostIncludesVAT", False)
+            print(f"[SUBMIT_BOOKING]   Item {idx}: serviceID={svc_id}, itemCode={item_code!r}, qty={qty}, unitCost=£{unit_cost:.2f}, includesVAT={inc_vat}")
 
         sale_result = await create_sale(
             depot_id=depot_id, customer_id=s.customer_id,
@@ -1738,6 +1783,31 @@ class TyresoftSupervisor(Agent):
 
         # Log
         print(f"[BOOKING] Ref: {booking_ref} | Sale: {sale_number} | Customer: {s.customer_id} | Vehicle: {vehicle_id}")
+
+        # Structured booking log (matches portal chat agent format for Dan/Tyresoft verification)
+        import json as _json, datetime as _dt
+        _items_parts = []
+        for _it in s.basket_items:
+            if _it["type"] == "tyre":
+                _items_parts.append(f"{_it['quantity']}x {_it.get('description', _it.get('stock_number', ''))} @ £{_it.get('unit_price', 0):.2f}")
+            else:
+                _items_parts.append(_it.get("name", f"serviceID={_it.get('service_id', '?')}"))
+        _vehicle_str = " ".join(filter(None, [getattr(s, "vehicle_year", ""), s.vehicle_make, s.vehicle_model])).strip() or "Unknown"
+        print("[BOOKING CREATED] " + _json.dumps({
+            "timestamp": _dt.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            "channel": "voice",
+            "reference": booking_ref,
+            "sale_id": sale_id,
+            "sale_number": sale_number,
+            "customer": s.customer_name,
+            "phone": s.customer_phone,
+            "vrm": s.vrn,
+            "vehicle": _vehicle_str,
+            "branch": depot_id,
+            "date": s.booking_date,
+            "time": s.booking_time,
+            "items": " | ".join(_items_parts) if _items_parts else "N/A",
+        }))
 
         # Clear basket
         s.basket_items = []
@@ -2052,7 +2122,40 @@ async def entrypoint(ctx: JobContext):
     supervisor = TyresoftSupervisor()
     supervisor._state.room_name = ctx.room.name
     supervisor._state.call_start_time = time.time()  # Track call start for portal logging
-    
+
+    # Start LiveKit egress recording to S3
+    if RECORDING_BASE_URL and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY and S3_BUCKET:
+        try:
+            from livekit.protocol.egress import (
+                RoomCompositeEgressRequest,
+                EncodedFileOutput,
+                EncodedFileType,
+                S3Upload as EgressS3Upload,
+            )
+            lkapi = lk_api.LiveKitAPI()
+            async with lkapi:
+                egress_info = await lkapi.egress.start_room_composite_egress(
+                    RoomCompositeEgressRequest(
+                        room_name=room_name,
+                        file_outputs=[
+                            EncodedFileOutput(
+                                file_type=EncodedFileType.MP4,
+                                filepath=f"{room_name}.mp4",
+                                s3=EgressS3Upload(
+                                    access_key=S3_ACCESS_KEY_ID,
+                                    secret=S3_SECRET_ACCESS_KEY,
+                                    region=S3_REGION,
+                                    bucket=S3_BUCKET,
+                                ),
+                            )
+                        ],
+                    )
+                )
+            supervisor._state.egress_id = egress_info.egress_id
+            print(f"[RECORDING] Started egress recording: {supervisor._state.egress_id}")
+        except Exception as e:
+            print(f"[RECORDING] Failed to start egress recording: {e}")
+
     # Store references for portal logging
     s = supervisor._state
     room_name = ctx.room.name
@@ -2211,6 +2314,16 @@ async def entrypoint(ctx: JobContext):
 
                 print(f"[PORTAL] Call duration: {call_duration}s, Transcript entries: {len(transcript)}")
 
+                # Stop egress recording
+                if s.egress_id:
+                    try:
+                        lkapi = lk_api.LiveKitAPI()
+                        async with lkapi:
+                            await lkapi.egress.stop_egress(s.egress_id)
+                        print(f"[RECORDING] Stopped egress recording: {s.egress_id}")
+                    except Exception as e:
+                        print(f"[RECORDING] Failed to stop egress recording: {e}")
+
                 # Log to portal
                 await log_call_to_portal(
                     garage_id=garage_id,
@@ -2241,7 +2354,7 @@ async def entrypoint(ctx: JobContext):
                 agent=supervisor,
                 room_options=agents.room_io.RoomOptions(
                     audio_input=agents.room_io.AudioInputOptions(
-                        noise_cancellation=noise_cancellation.BVC(),
+                        noise_cancellation=noise_cancellation.BVCTelephony(),
                     ),
                 ),
             )

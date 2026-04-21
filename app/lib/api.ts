@@ -88,6 +88,18 @@ export const downloadConfirmedBookingsCsv = async (
   return data;
 };
 
+export const downloadNegativeFeedbackCsv = async (garageId?: string): Promise<Blob> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+  const { data } = await api.get<Blob>(
+    `/api/garages/${targetGarageId}/calls/feedback/export`,
+    { responseType: "blob" }
+  );
+  return data;
+};
+
 export const fetchCalls = async (
   garageId?: string,
   filters?: CallFilters & { page?: number; pageSize?: number }
@@ -390,5 +402,107 @@ export const deleteInvoice = async (invoiceId: string): Promise<{ success: boole
 
 export const creditInvoice = async (invoiceId: string, reason: string): Promise<{ invoice: import('../types').Invoice }> => {
   const { data } = await api.post(`/api/admin/invoices/${invoiceId}/credit`, { reason });
+  return data;
+};
+
+// ---------------------------------------------------------------------------
+// Outbound Messaging
+// ---------------------------------------------------------------------------
+
+export interface OutboundContactInput {
+  customerName: string;
+  phone: string;
+  registration?: string;
+  motDueDate?: string;
+  serviceDueDate?: string;
+}
+
+export interface OutboundContact extends OutboundContactInput {
+  id: string;
+  campaignId: string;
+  garageId: string;
+  messageType: string;
+  status: string;
+  messageSid?: string | null;
+  errorReason?: string | null;
+  conversationId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OutboundCampaign {
+  id: string;
+  garageId: string;
+  name: string;
+  channel: 'sms' | 'whatsapp';
+  status: string;
+  totalContacts: number;
+  sentCount: number;
+  sentAt?: string | null;
+  messageTemplateId?: string | null;
+  variableMapping?: Record<string, string> | null;
+  createdAt: string;
+  updatedAt: string;
+  contacts?: OutboundContact[];
+  _count?: { contacts: number };
+}
+
+export interface MessageTemplate {
+  id: string;
+  garageId: string;
+  name: string;
+  category: string;
+  language: string;
+  bodyText: string;
+  headerType?: string | null;
+  headerContent?: string | null;
+  footerText?: string | null;
+  buttonType?: string | null;
+  buttonText?: string | null;
+  metaTemplateId?: string | null;
+  status: string;
+  variableSamples?: Record<string, string> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const createOutboundCampaign = async (payload: {
+  garageId: string;
+  name: string;
+  channel: 'sms' | 'whatsapp';
+  contacts: OutboundContactInput[];
+  messageTemplateId?: string;
+  variableMapping?: Record<string, string>;
+}): Promise<{ campaign: OutboundCampaign }> => {
+  const { data } = await api.post('/api/outbound/campaigns', payload);
+  return data;
+};
+
+export const fetchGarageTemplates = async (garageId: string): Promise<{ templates: MessageTemplate[] }> => {
+  const { data } = await api.get(`/api/garages/${garageId}/templates`);
+  return data;
+};
+
+export const updateTemplate = async (
+  garageId: string,
+  templateId: string,
+  payload: Partial<Pick<MessageTemplate, 'category' | 'language' | 'headerType' | 'headerContent' | 'bodyText' | 'footerText' | 'buttonType' | 'buttonText'> & { variableSamples?: Record<string, string> | null; headerSample?: string | null; buttonValue?: string | null }>
+): Promise<{ template: MessageTemplate }> => {
+  const { data } = await api.put(`/api/garages/${garageId}/templates/${templateId}`, payload);
+  return data;
+};
+
+export const fetchOutboundCampaigns = async (garageId: string): Promise<{ campaigns: OutboundCampaign[] }> => {
+  const { data } = await api.get('/api/outbound/campaigns', { params: { garageId } });
+  return data;
+};
+
+export const fetchOutboundCampaign = async (id: string): Promise<{ campaign: OutboundCampaign }> => {
+  const { data } = await api.get(`/api/outbound/campaigns/${id}`);
+  return data;
+};
+
+export const sendOutboundCampaign = async (id: string): Promise<{ success: boolean; message: string }> => {
+  const { data } = await api.post(`/api/outbound/campaigns/${id}/send`);
   return data;
 };

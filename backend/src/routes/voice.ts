@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { sendCallSummaryEmail } from '../utils/email.js';
+import { sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -159,25 +159,57 @@ router.post('/recording-status', async (req: Request, res: Response) => {
 
             if (call?.garage?.agentConfiguration?.notificationEmails &&
                 call.garage.agentConfiguration.notificationEmails.length > 0) {
-              console.log(`[RECORDING] 📧 Sending notification email for call with ${durationSeconds}s duration`);
+              console.log(`[RECORDING] 📧 Checking payment status for notification email (call ${durationSeconds}s duration)`);
 
-              void sendCallSummaryEmail(call.garage.agentConfiguration.notificationEmails, {
-                branchName: call.garage.agentConfiguration.branchName,
-                summary: call.summary,
-                transcript: call.transcript as any,
-                durationSeconds: durationSeconds,
-                callType: call.callType,
-                customerName: call.customerName,
-                customerPhone: call.customerPhone,
-                registrationNumber: call.registrationNumber,
-                confirmedBooking: call.confirmedBooking,
-                capturedRevenue: call.capturedRevenue,
-                createdAt: call.createdAt.toISOString(),
-                bookingDate: null,
-                priceQuoted: call.capturedRevenue,
-              }).catch((error) => {
-                console.error('[RECORDING] Failed to send notification email:', error);
+              // Check if any users with access to this garage need to set up payment
+              const usersWithAccess = await prisma.user.findMany({
+                where: {
+                  garageAccessIds: {
+                    has: call.garageId
+                  }
+                },
+                select: {
+                  email: true,
+                  mustSetupPayment: true
+                }
               });
+
+              const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
+              const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+
+              if (userNeedsPaymentSetup) {
+                console.log(`[RECORDING] 💳 User(s) need payment setup - sending payment reminder email instead`);
+                
+                void sendPaymentSetupReminderEmail(call.garage.agentConfiguration.notificationEmails, {
+                  branchName: call.garage.agentConfiguration.branchName,
+                  summary: call.summary,
+                  customerPhone: call.customerPhone,
+                  createdAt: call.createdAt.toISOString(),
+                  portalUrl,
+                }).catch((error) => {
+                  console.error('[RECORDING] Failed to send payment reminder email:', error);
+                });
+              } else {
+                console.log(`[RECORDING] ✅ Sending standard call summary email`);
+                
+                void sendCallSummaryEmail(call.garage.agentConfiguration.notificationEmails, {
+                  branchName: call.garage.agentConfiguration.branchName,
+                  summary: call.summary,
+                  transcript: call.transcript as any,
+                  durationSeconds: durationSeconds,
+                  callType: call.callType,
+                  customerName: call.customerName,
+                  customerPhone: call.customerPhone,
+                  registrationNumber: call.registrationNumber,
+                  confirmedBooking: call.confirmedBooking,
+                  capturedRevenue: call.capturedRevenue,
+                  createdAt: call.createdAt.toISOString(),
+                  bookingDate: null,
+                  priceQuoted: call.capturedRevenue,
+                }).catch((error) => {
+                  console.error('[RECORDING] Failed to send notification email:', error);
+                });
+              }
             }
           } else {
             console.log(`[RECORDING] No calls updated for CallSid ${CallSid} (may already have recording duration)`);

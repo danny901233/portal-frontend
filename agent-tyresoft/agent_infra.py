@@ -45,7 +45,9 @@ except ImportError:
     BotoCoreError = Exception
     ClientError = Exception
 
-load_dotenv(".env.local")
+# Load environment variables
+load_dotenv(".env.local")  # Override with local settings if present
+load_dotenv(".env")  # Load default settings
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TIMEZONE
@@ -150,7 +152,7 @@ def load_agent_config(garage_id: str) -> dict:
 
 def apply_agent_configuration(configuration: dict):
     """Apply loaded configuration to global variables."""
-    global AGENT_BRANCH_NAME, AGENT_GREETING_LINE, ELEVEN_VOICE_ID, ELEVEN_STABILITY, ELEVEN_SIMILARITY, ELEVEN_STYLE
+    global AGENT_BRANCH_NAME, AGENT_GREETING_LINE, AGENT_CUSTOM_RULES, ELEVEN_VOICE_ID, ELEVEN_STABILITY, ELEVEN_SIMILARITY, ELEVEN_STYLE
     global GARAGE_HOURS
     
     if not isinstance(configuration, dict):
@@ -180,6 +182,12 @@ def apply_agent_configuration(configuration: dict):
         AGENT_GREETING_LINE = greeting_line
         print(f"[APPLY_CONFIG] Greeting line: {greeting_line[:50]}...")
     
+    # Apply custom rules
+    custom_rules = (configuration.get("customRules") or "").strip()
+    if custom_rules:
+        AGENT_CUSTOM_RULES = custom_rules
+        print(f"[APPLY_CONFIG] Custom rules loaded ({len(custom_rules)} chars)")
+
     # Apply voice selection by name
     voice_name = configuration.get("voice")
     if voice_name and isinstance(voice_name, str):
@@ -260,6 +268,7 @@ ERROR_LOG_PATH = os.getenv(
 )
 AGENT_BRANCH_NAME = os.getenv("AGENT_BRANCH_NAME", "Tyresoft")
 AGENT_GREETING_LINE = os.getenv("AGENT_GREETING_LINE", "")
+AGENT_CUSTOM_RULES = ""  # Loaded from portal config
 GARAGE_HOURS: dict = {}  # Loaded from portal configuration
 
 # LiveKit Inference Gateway
@@ -560,6 +569,7 @@ class CallState:
     # Session
     call_ended: bool = False
     call_start_time: float = 0.0  # Unix timestamp when call started
+    egress_id: str = ""  # LiveKit egress ID for call recording
     room_name: str = ""
 
 
@@ -826,6 +836,10 @@ async def send_discord_notification(
     title: str, description: str = "", color: str = "info",
     fields: list = None, is_test: bool = False,
 ):
+    # Temporarily disabled for debugging
+    print(f"[DISCORD] Skipped notification: {title}")
+    return
+    
     if not DISCORD_WEBHOOK_URL:
         return
     if is_test:
@@ -840,9 +854,18 @@ async def send_discord_notification(
     if fields:
         embed["fields"] = fields
     try:
+        payload = {"embeds": [embed]}
+        # Debug: Check for None keys
+        import json
+        try:
+            json.dumps(payload)
+        except TypeError as e:
+            print(f"[DISCORD] JSON serialization error: {e}")
+            print(f"[DISCORD] Payload: {payload}")
+            return
         async with aiohttp.ClientSession() as sess:
             async with sess.post(
-                DISCORD_WEBHOOK_URL, json={"embeds": [embed]},
+                DISCORD_WEBHOOK_URL, json=payload,
                 headers={"Content-Type": "application/json"},
             ) as resp:
                 if resp.status == 204:
@@ -943,6 +966,10 @@ async def _api_call(
     start = time.time()
     body_str = json.dumps(body, indent=2) if body else "N/A"
     try:
+        print(f"[API_DEBUG] Making {method} request to {url}")
+        print(f"[API_DEBUG] Headers: {_get_auth_headers()}")
+        if body:
+            print(f"[API_DEBUG] Body: {body}")
         async with aiohttp.ClientSession(timeout=API_TIMEOUT) as sess:
             if method == "GET":
                 resp = await sess.get(url, headers=_get_auth_headers())
@@ -957,7 +984,7 @@ async def _api_call(
             print(f"[API] {endpoint_name} error {resp.status}: {error_text[:200]}")
             await send_api_error_notification(
                 error_type="HTTP Error", endpoint=endpoint_name,
-                status_code=resp.status, response_time=f"{elapsed:.2f}s",
+                status_code=str(resp.status), response_time=f"{elapsed:.2f}s",
                 request_url=url, request_body=body_str if method != "GET" else "GET",
                 session_id=session_id, error_message=error_text,
             )
@@ -1106,6 +1133,8 @@ async def create_sale(
         cost = itm.get("unitCost", 0)
         kind = "SERVICE" if svc_id else "TYRE"
         print(f"  [{i}] {kind}: code={code!r} svcID={svc_id} qty={qty} unit={cost}")
+    import json as _json
+    print("[CREATE_SALE_PAYLOAD] " + _json.dumps(body))
     return await _api_call("POST", url, body=body, endpoint_name="createSale")
 
 
@@ -1115,6 +1144,7 @@ def build_tyre_item(stock_number: str, quantity: int, unit_price: float) -> dict
         "productEANCode": "", "productManufacturerCode": "",
         "serviceID": 0,  # 0 = tyre item
         "shippingService": False, "incomeAccountID": 0, "sequence": 0,
+        "productItem": True,
         "itemCode": stock_number,
         "itemDescription": "", "recordedDescription": "",
         "technicianID": 0,
@@ -1143,7 +1173,7 @@ def build_service_item(service_id: int, unit_price: float) -> dict:
         "technicianID": 0,
         "quantity": 1,
         "unitCost": unit_price,
-        "unitCostIncludesVAT": False,
+        "unitCostIncludesVAT": True,  # Prices in SERVICES are gross (including VAT)
         "discount": 0, "vatCodeID": 0, "backOrderQuantity": 0,
         "taggedItemIdentifier": "", "linkLineID": 0,
         "hideChildLinks": False, "groupLinkSellPrices": False,

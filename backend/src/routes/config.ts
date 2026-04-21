@@ -9,8 +9,10 @@ import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import {
   cloneGarageHiveSettings,
+  cloneTyresoftSettings,
   cloneWeeklyOpeningHours,
   createDefaultGarageHiveSettings,
+  createDefaultTyresoftSettings,
   createDefaultWeeklyOpeningHours,
 } from '../utils/types.js';
 import type {
@@ -18,6 +20,7 @@ import type {
   GarageHiveSettings,
   IntegrationProvider,
   ResponseSpeed,
+  TyresoftSettings,
   WeeklyOpeningHours,
 } from '../utils/types.js';
 import {
@@ -90,12 +93,38 @@ const parseWeeklyOpeningHours = (value: unknown): WeeklyOpeningHours => {
 const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings } => {
+  agentScript?: string | null,
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
+  // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
+  if (agentScript === 'tyresoft-agent') {
+    if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+      const raw = rawSettings as Record<string, unknown>;
+      return {
+        integrationProvider: 'none',
+        garageHiveSettings: createDefaultGarageHiveSettings(),
+        tyresoftSettings: cloneTyresoftSettings({
+          tsWorkspace: typeof raw.tsWorkspace === 'string' ? raw.tsWorkspace : (typeof raw.workspace === 'string' ? raw.workspace : ''),
+          tsUsername: typeof raw.tsUsername === 'string' ? raw.tsUsername : (typeof raw.username === 'string' ? raw.username : ''),
+          tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
+          tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
+          tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
+        }),
+      };
+    }
+    return {
+      integrationProvider: 'none',
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
+    };
+  }
+
   const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
+
   if (provider !== 'garage_hive') {
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
     };
   }
 
@@ -103,6 +132,7 @@ const parseIntegrationSettings = (
     return {
       integrationProvider: 'garage_hive',
       garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
     };
   }
 
@@ -116,6 +146,7 @@ const parseIntegrationSettings = (
       customerId: typeof settingsRecord.customerId === 'string' ? settingsRecord.customerId : '',
       locationId: typeof settingsRecord.locationId === 'string' ? settingsRecord.locationId : '',
     }),
+    tyresoftSettings: createDefaultTyresoftSettings(),
   };
 };
 
@@ -137,6 +168,8 @@ const defaultConfiguration: AgentConfigurationPayload = {
   garageHiveSettings: createDefaultGarageHiveSettings(),
   agentType: 'assist',
   enableSmsBookingLinks: true,
+  allowBookings: false,
+  bookingLeadTimeDays: 1,
   voice: 'leah',
 };
 const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
@@ -162,6 +195,10 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       typeof config.interruptionSensitivity === 'number'
         ? Math.min(1, Math.max(0, config.interruptionSensitivity))
         : 0.5,
+    allowFastFitOnly: config.allowFastFitOnly ?? false,
+    enableDropOffBookings: config.enableDropOffBookings ?? false,
+    dropOffMessage: config.dropOffMessage ?? 'drop your vehicle off between 8am and half ten in the morning',
+    dropOffExcludeServices: config.dropOffExcludeServices ?? ['MOT'],
     notificationEmails: Array.isArray(config.notificationEmails) ? config.notificationEmails : [],
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
@@ -172,6 +209,9 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
+    enableSmsBookingLinks: config.enableSmsBookingLinks ?? true,
+    allowBookings: config.allowBookings ?? false,
+    bookingLeadTimeDays: config.bookingLeadTimeDays ?? 1,
     voice: config.voice ?? 'leah',
   };
 };
@@ -197,9 +237,14 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
         ? Math.min(1, Math.max(0, configuration.interruptionSensitivity))
         : 0.5,
     allowFastFitOnly: configuration.allowFastFitOnly,
+    enableDropOffBookings: configuration.enableDropOffBookings || false,
+    dropOffMessage: configuration.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
+    dropOffExcludeServices: configuration.dropOffExcludeServices || ['MOT'],
     notificationEmails: configuration.notificationEmails || [],
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
+    allowBookings: configuration.allowBookings || false,
+    bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
     agentScript: (
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
@@ -211,6 +256,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     ...parseIntegrationSettings(
       configuration.integrationProvider,
       configuration.integrationProviderConfig,
+      configuration.agentScript,
     ),
   });
 };
@@ -545,6 +591,13 @@ router.put(
       req.body.agentScript = 'receptionmate-agent';
     }
 
+    // Log drop-off booking fields from request
+    console.log('[AGENT_CONFIG_UPDATE] Drop-off fields received:', {
+      enableDropOffBookings: req.body.enableDropOffBookings,
+      dropOffMessage: req.body.dropOffMessage,
+      dropOffExcludeServices: req.body.dropOffExcludeServices
+    });
+
     const parseResult = upsertAgentConfigurationSchema.safeParse(req.body);
 
     if (!parseResult.success) {
@@ -586,8 +639,26 @@ router.put(
         })
       : createDefaultGarageHiveSettings();
 
+    const existingConfig = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { agentScript: true, integrationProviderConfig: true },
+    });
+
+    const rawTyresoft = data.tyresoftSettings ?? {};
+    // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
+    // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      requestedProvider === 'garage_hive'
+      resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
+        ? {
+            tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
+            tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
+            tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
+            tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
+            tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
+          }
+        : resolvedAgentScript === 'tyresoft-agent' && existingConfig?.integrationProviderConfig
+        ? existingConfig.integrationProviderConfig as Prisma.InputJsonValue
+        : requestedProvider === 'garage_hive'
         ? {
             instanceUrl: garageHiveSettings.instanceUrl,
             apiKey: garageHiveSettings.apiKey,
@@ -612,19 +683,19 @@ router.put(
           ? Math.min(1, Math.max(0, data.interruptionSensitivity))
           : 0.5,
       allowFastFitOnly: data.allowFastFitOnly,
+      enableDropOffBookings: data.enableDropOffBookings || false,
+      dropOffMessage: data.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
+      dropOffExcludeServices: data.dropOffExcludeServices || ['MOT'],
       notificationEmails: data.notificationEmails || [],
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,
       agentType: resolvedAgentType,
       agentScript: resolvedAgentScript,
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
+      allowBookings: data.allowBookings ?? false,
+      bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',
     };
-
-    const existingConfig = await prisma.agentConfiguration.findUnique({
-      where: { garageId },
-      select: { agentScript: true },
-    });
 
     const [configuration, garageRecord] = await Promise.all([
       prisma.agentConfiguration.upsert({

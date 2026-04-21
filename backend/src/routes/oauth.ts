@@ -10,6 +10,10 @@ const META_APP_ID = process.env.META_APP_ID;
 const META_APP_SECRET = process.env.META_APP_SECRET;
 const META_REDIRECT_URI = process.env.META_REDIRECT_URI || 'http://localhost:4000/api/oauth/meta/callback';
 
+// Instagram Business Login uses a separate app
+const INSTAGRAM_APP_ID = process.env.INSTAGRAM_APP_ID;
+const INSTAGRAM_APP_SECRET = process.env.INSTAGRAM_APP_SECRET;
+
 // POST /api/oauth/meta/initiate - Start OAuth flow
 router.post('/oauth/meta/initiate', authenticate, async (req: Request, res: Response) => {
   try {
@@ -26,7 +30,7 @@ router.post('/oauth/meta/initiate', authenticate, async (req: Request, res: Resp
     const scopes: Record<string, string> = {
       whatsapp: 'whatsapp_business_management,whatsapp_business_messaging',
       facebook: 'pages_messaging,pages_manage_metadata,pages_show_list,business_management',
-      instagram: 'instagram_basic,instagram_manage_comments,pages_show_list,business_management',
+      instagram: 'instagram_basic,pages_messaging,pages_show_list,business_management',
     };
 
     const scope = scopes[platform];
@@ -37,10 +41,10 @@ router.post('/oauth/meta/initiate', authenticate, async (req: Request, res: Resp
     // Store state to verify callback
     const state = Buffer.from(JSON.stringify({ garageId, platform })).toString('base64');
 
-    // Build OAuth URL
+    // All platforms use facebook.com OAuth dialog (Instagram connects via Facebook Page)
     const authUrl = new URL('https://www.facebook.com/v18.0/dialog/oauth');
-    authUrl.searchParams.set('client_id', META_APP_ID);
-    authUrl.searchParams.set('redirect_uri', META_REDIRECT_URI);
+    authUrl.searchParams.set('client_id', META_APP_ID!);
+    authUrl.searchParams.set('redirect_uri', META_REDIRECT_URI!);
     authUrl.searchParams.set('scope', scope);
     authUrl.searchParams.set('state', state);
     authUrl.searchParams.set('response_type', 'code');
@@ -68,9 +72,17 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
     }
 
     // Decode state
-    const { garageId, platform } = JSON.parse(Buffer.from(state as string, 'base64').toString());
+    let garageId: string, platform: string;
+    try {
+      ({ garageId, platform } = JSON.parse(Buffer.from(state as string, 'base64').toString()));
+    } catch {
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=invalid_state`);
+    }
 
-    // Exchange code for access token
+    // Exchange code for access token — Instagram Business Login uses a different endpoint
+    let accessToken: string;
+
+    // All platforms (including instagram) use Facebook OAuth token exchange
     const tokenResponse = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
       params: {
         client_id: META_APP_ID,
@@ -79,8 +91,7 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
         code,
       },
     });
-
-    const accessToken = tokenResponse.data.access_token;
+    accessToken = tokenResponse.data.access_token;
 
     // Get platform-specific IDs
     let connectionData: any = {
@@ -97,16 +108,35 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
           params: { access_token: accessToken },
         });
 
-        const businessId = wabResponse.data.data[0]?.id;
-        if (businessId) {
+        const business = wabResponse.data.data[0];
+        if (business) {
+          connectionData.accountName = business.name;
           try {
-            const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${businessId}/phone_numbers`, {
+            // First get the WABA(s) under this business
+            const wabaResponse = await axios.get(`https://graph.facebook.com/v18.0/${business.id}/owned_whatsapp_business_accounts`, {
               params: { access_token: accessToken },
             });
-            connectionData.whatsappPhoneNumberId = phoneResponse.data.data[0]?.id;
+            const waba = wabaResponse.data.data[0];
+            const wabaId = waba?.id;
+            if (wabaId) {
+              // Then get phone numbers under that WABA
+              const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${wabaId}/phone_numbers`, {
+                params: { access_token: accessToken },
+              });
+              const phone = phoneResponse.data.data[0];
+              if (phone?.id) {
+                connectionData.whatsappPhoneNumberId = phone.id;
+                if (phone.display_phone_number) {
+                  connectionData.accountName = phone.display_phone_number;
+                }
+              } else {
+                connectionData.whatsappPhoneNumberId = 'pending_setup';
+              }
+            } else {
+              connectionData.whatsappPhoneNumberId = 'pending_setup';
+            }
           } catch (phoneError) {
             console.log('[OAuth] No WhatsApp phone numbers found - this is OK for initial setup');
-            // Store a placeholder - user needs to configure WhatsApp Business in Meta Business Manager
             connectionData.whatsappPhoneNumberId = 'pending_setup';
           }
         } else {
@@ -117,20 +147,53 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
         console.log('[OAuth] WhatsApp Business not yet configured - this is expected for new apps');
         connectionData.whatsappPhoneNumberId = 'pending_setup';
       }
-    } else if (platform === 'facebook' || platform === 'instagram') {
+    } else if (platform === 'instagram') {
+      // Instagram connects via Facebook Page — get the linked Page and its Instagram Business Account
+      const pagesResponse = await axios.get('https://graph.facebook.com/v18.0/me/accounts', {
+        params: { access_token: accessToken },
+      });
+      console.log('[OAuth] Pages response:', JSON.stringify(pagesResponse.data, null, 2));
+
+      const page = pagesResponse.data.data[0];
+      if (!page) {
+        console.error('[OAuth] No Facebook page found for Instagram connection!');
+        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=no_page_found`);
+      }
+
+      connectionData.pageId = page.id;
+      connectionData.accessToken = page.access_token;
+      connectionData.accountName = page.name;
+
+      // Get the Instagram Business Account linked to this Facebook Page
+      try {
+        const igResponse = await axios.get(`https://graph.facebook.com/v18.0/${page.id}`, {
+          params: { fields: 'instagram_business_account', access_token: page.access_token },
+        });
+        const igAccountId = igResponse.data.instagram_business_account?.id;
+        if (igAccountId) {
+          connectionData.instagramAccountId = igAccountId;
+          // Get Instagram username
+          const igDetailResponse = await axios.get(`https://graph.facebook.com/v18.0/${igAccountId}`, {
+            params: { fields: 'username', access_token: page.access_token },
+          });
+          if (igDetailResponse.data.username) {
+            connectionData.accountName = `@${igDetailResponse.data.username}`;
+          }
+          console.log('[OAuth] Instagram Business Account ID:', igAccountId);
+        }
+      } catch (igErr) {
+        console.log('[OAuth] No Instagram Business Account linked to page — continuing with page only');
+      }
+
+    } else if (platform === 'facebook') {
       // Get Facebook Pages
       console.log('[OAuth] Access token (first 20 chars):', accessToken?.substring(0, 20));
 
-      // Check what user this token belongs to
       const meResponse = await axios.get('https://graph.facebook.com/v18.0/me', {
-        params: {
-          access_token: accessToken,
-          fields: 'id,name,email'
-        },
+        params: { access_token: accessToken, fields: 'id,name,email' },
       });
       console.log('[OAuth] User info:', JSON.stringify(meResponse.data, null, 2));
 
-      // Check permissions
       const permissionsResponse = await axios.get('https://graph.facebook.com/v18.0/me/permissions', {
         params: { access_token: accessToken },
       });
@@ -144,18 +207,25 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
       const page = pagesResponse.data.data[0];
       if (page) {
         connectionData.pageId = page.id;
-        connectionData.accessToken = page.access_token; // Use page access token
+        connectionData.accessToken = page.access_token;
+        connectionData.accountName = page.name;
         console.log('[OAuth] Page found:', page.id, 'Name:', page.name);
 
-        if (platform === 'instagram') {
-          // Get Instagram account connected to the page
-          const igResponse = await axios.get(`https://graph.facebook.com/v18.0/${page.id}`, {
-            params: {
-              fields: 'instagram_business_account',
-              access_token: page.access_token,
-            },
-          });
-          connectionData.instagramAccountId = igResponse.data.instagram_business_account?.id;
+        // Subscribe page to webhook events
+        try {
+          await axios.post(
+            `https://graph.facebook.com/v18.0/${page.id}/subscribed_apps`,
+            null,
+            {
+              params: {
+                access_token: page.access_token,
+                subscribed_fields: 'messages,messaging_postbacks,messaging_optins,message_deliveries,message_reads',
+              },
+            }
+          );
+          console.log('[OAuth] Facebook page subscribed to webhook events:', page.id);
+        } catch (subErr: any) {
+          console.error('[OAuth] Failed to subscribe Facebook page to webhooks:', subErr?.response?.data ?? subErr?.message);
         }
       } else {
         console.error('[OAuth] No Facebook page found in response!');

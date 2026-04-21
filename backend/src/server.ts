@@ -24,10 +24,14 @@ import smsRouter from './routes/sms.js';
 import widgetRouter from './routes/widget.js';
 import chatRouter from './routes/chat.js';
 import conversationsRouter from './routes/conversations.js';
+import outboundRouter from './routes/outbound.js';
+import templatesRouter from './routes/templates.js';
 import metaWhatsappWebhook from './routes/webhooks/meta-whatsapp.js';
 import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
 import metaInstagramWebhook from './routes/webhooks/meta-instagram.js';
 import gocardlessWebhook from './routes/webhooks/gocardless.js';
+import featureAnnouncementRouter from './routes/featureAnnouncement.js';
+import tyreProductFeedRouter from './routes/tyreProductFeed.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 
@@ -56,6 +60,7 @@ app.use(
   }),
 );
 app.use(express.json({ limit: '2mb' }));
+app.use(express.text({ type: 'text/csv', limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' })); // Parse form-urlencoded bodies (Twilio webhooks)
 app.use(morgan('dev'));
 
@@ -82,6 +87,10 @@ app.use('/api', smsRouter);
 app.use('/api', widgetRouter);
 app.use('/api', chatRouter);
 app.use('/api', conversationsRouter);
+app.use('/api', outboundRouter);
+app.use('/api', featureAnnouncementRouter);
+app.use('/api', templatesRouter);
+app.use('/api', tyreProductFeedRouter);
 app.use('/api/webhooks', metaWhatsappWebhook);
 app.use('/api/webhooks', metaFacebookWebhook);
 app.use('/api/webhooks', metaInstagramWebhook);

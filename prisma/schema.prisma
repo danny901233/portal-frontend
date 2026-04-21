@@ -31,6 +31,15 @@ model Garage {
   setupWizardCompleted Boolean @default(false)
   setupWizardCompletedAt DateTime?
 
+  // Widget Customization
+  widgetLogoUrl String?
+  widgetLogoWidth Int @default(120)
+  widgetLogoHeight Int @default(60)
+  widgetPrimaryColor String?
+  widgetButtonColor String?
+  widgetButtonShape String @default("circle")
+  widgetButtonIcon String @default("chat")
+
   calls Call[]
   agentConfiguration AgentConfiguration?
   knowledgeDocuments AgentKnowledgeDocument[]
@@ -41,6 +50,9 @@ model Garage {
   customers Customer[]
   smsBookingLinks SmsBookingLink[]
   invoices Invoice[]
+  messageTemplates MessageTemplate[]
+  outboundCampaigns OutboundCampaign[]
+  tyreProducts TyreProduct[]
 }
 
 model Call {
@@ -121,13 +133,19 @@ model AgentConfiguration {
   responseSpeed     String   @default("normal")
   interruptionSensitivity Float @default(0.5)
   allowFastFitOnly  Boolean  @default(false)
+  enableDropOffBookings Boolean @default(false)
+  dropOffMessage    String   @default("drop your vehicle off between 8am and half ten in the morning")
+  dropOffExcludeServices String[] @default(["MOT"])
   notificationEmails String[] @default([])
   integrationProvider String  @default("none")
   integrationProviderConfig Json?
   agentType         String   @default("assist")
   agentScript       String   @default("receptionmate-agent")
   enableSmsBookingLinks Boolean @default(true)
+  allowBookings     Boolean  @default(false)
+  bookingLeadTimeDays Int    @default(1)
   voice             String   @default("leah")
+  transferNumber    String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
@@ -258,6 +276,7 @@ model ChatMessage {
   content        String
   mediaUrl       String?
   mediaType      String?
+  metaMid        String?  @unique
   createdAt      DateTime @default(now())
 
   @@index([conversationId, createdAt])
@@ -271,6 +290,7 @@ model SocialMediaConnection {
   whatsappPhoneNumberId String?
   pageId                String?
   instagramAccountId    String?
+  accountName           String?
   accessToken           String
   isActive              Boolean  @default(true)
   createdAt             DateTime @default(now())
@@ -278,6 +298,39 @@ model SocialMediaConnection {
 
   @@unique([garageId, platform])
   @@index([garageId])
+}
+
+model MessageTemplate {
+  id                String   @id @default(cuid())
+  garageId          String
+  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+
+  name              String   // Template name (lowercase, underscores only)
+  category          String   // UTILITY, MARKETING, AUTHENTICATION
+  language          String   @default("en_GB")
+
+  // Template content
+  headerType        String?  // none, text, image, document
+  headerContent     String?  // Header text or media URL
+  headerSample      String?  // Sample value for {{1}} in header
+  bodyText          String   // Main message body with {{1}}, {{2}} variables
+  variableSamples   Json?    // Sample values for variables e.g. {"{{1}}":"John","{{2}}":"15th March"}
+  footerText        String?  // Optional footer
+  buttonType        String?  // none, url, call, quick_reply
+  buttonText        String?  // Button label
+  buttonValue       String?  // URL or phone number
+
+  // Meta status
+  metaTemplateId    String?  // Template ID returned by Meta after submission
+  status            String   @default("draft") // draft, pending, approved, rejected
+  rejectionReason   String?  // Reason if rejected by Meta
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([garageId, name])
+  @@index([garageId])
+  @@index([garageId, status])
 }
 
 enum UserRole {
@@ -291,6 +344,87 @@ enum ConfirmedBookingCategory {
   diagnostic
   mot
   other
+}
+
+model OutboundCampaign {
+  id                String   @id @default(cuid())
+  garageId          String
+  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  name              String
+  channel           String   @default("sms") // "sms" | "whatsapp"
+  status            String   @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed"
+  sentAt            DateTime?
+  totalContacts     Int      @default(0)
+  sentCount         Int      @default(0)
+  messageTemplateId String?  // Optional: ID of MessageTemplate to use
+  variableMapping   Json?    // e.g. {"1": "customer_name", "2": "mot_due_date"}
+  contacts          OutboundContact[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([garageId])
+}
+
+model OutboundContact {
+  id             String   @id @default(cuid())
+  campaignId     String
+  campaign       OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  garageId       String
+  customerName   String
+  phone          String
+  registration   String?
+  motDueDate     String?
+  serviceDueDate String?
+  messageType    String   @default("mot") // "mot" | "service"
+  status         String   @default("pending") // "pending" | "sent" | "replied" | "opted_out" | "failed"
+  messageSid     String?
+  errorReason    String?
+  conversationId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([campaignId])
+  @@index([garageId, phone])
+}
+
+model TyreProduct {
+  id                  String   @id @default(cuid())
+  garageId            String
+  garage              Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  depotId             Int
+  stockNumber         String
+  ean                 String?
+  manufacturerCode    String?
+  title               String
+  retailPrice         Float
+  width               String
+  aspectRatio         String
+  rim                 String
+  speedRating         String?
+  loadIndex           String?
+  reinforced          String?
+  vehicleType         String?
+  productType         String?
+  runflat             Boolean  @default(false)
+  rollingResistance   String?
+  wetGrip             String?
+  noisePerformance    String?
+  noiseClassType      String?
+  ecVehicleClass      String?
+  additionalInfo      String?
+  oeFitment           String?
+  brandName           String
+  channelAvailable    Int?
+  leadTime            String   @default("In Stock")
+  leadTimeDays        Int      @default(0)
+  sourceSupplierID    Int      @default(0)
+  feedVersion         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([garageId, depotId, stockNumber])
+  @@index([garageId, depotId])
+  @@index([garageId, depotId, width, aspectRatio, rim])
 }
 
 model Invoice {

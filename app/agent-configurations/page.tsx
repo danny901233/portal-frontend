@@ -23,6 +23,7 @@ import type {
   IntegrationProvider,
   ResponseSpeed,
   TonePreference,
+  TyresoftSettings,
   VoiceOption,
   WeeklyOpeningHours,
   WebsiteScanSummaryPage,
@@ -86,6 +87,22 @@ const cloneGarageHiveSettings = (
   locationId: settings?.locationId ?? '',
 });
 
+const createEmptyTyresoftSettings = (): TyresoftSettings => ({
+  tsWorkspace: '',
+  tsUsername: '',
+  tsPassword: '',
+  tsApiKey: '',
+  tsDepotId: '',
+});
+
+const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): TyresoftSettings => ({
+  tsWorkspace: settings?.tsWorkspace ?? '',
+  tsUsername: settings?.tsUsername ?? '',
+  tsPassword: settings?.tsPassword ?? '',
+  tsApiKey: settings?.tsApiKey ?? '',
+  tsDepotId: settings?.tsDepotId ?? '',
+});
+
 const createEmptyConfiguration = (): AgentConfiguration => ({
   branchName: '',
   phoneNumber: '',
@@ -99,12 +116,18 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   responseSpeed: 'normal',
   interruptionSensitivity: 0.5,
   allowFastFitOnly: false,
+  enableDropOffBookings: false,
+  dropOffMessage: 'drop your vehicle off between 8am and half ten in the morning',
+  dropOffExcludeServices: ['MOT'],
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
+  tyresoftSettings: createEmptyTyresoftSettings(),
   agentType: 'assist',
   agentScript: 'receptionmate-agent-v3',
   enableSmsBookingLinks: true,
+  allowBookings: false,
+  bookingLeadTimeDays: 1,
   voice: 'leah',
 });
 
@@ -112,6 +135,8 @@ const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => (
   ...config,
   weeklyOpeningHours: cloneWeeklyOpeningHours(config.weeklyOpeningHours),
   garageHiveSettings: cloneGarageHiveSettings(config.garageHiveSettings),
+  tyresoftSettings: cloneTyresoftSettings(config.tyresoftSettings),
+  dropOffExcludeServices: [...(config.dropOffExcludeServices || ['MOT'])],
 });
 
 const describeHoursRange = (entry: { open: string | null; close: string | null; closed: boolean }) => {
@@ -129,6 +154,8 @@ type TextFieldKey = Exclude<
   | 'tonePreference'
   | 'responseSpeed'
   | 'allowFastFitOnly'
+  | 'enableDropOffBookings'
+  | 'dropOffExcludeServices'
   | 'weeklyOpeningHours'
   | 'interruptionSensitivity'
   | 'integrationProvider'
@@ -206,9 +233,10 @@ export default function AgentConfigurationsPage() {
     queryKey: ['agent-config', garageId],
     queryFn: () => fetchAgentConfiguration(garageId ?? undefined),
     enabled: Boolean(garageId),
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnMount: 'always',
+    staleTime: 30000, // 30 seconds
+    gcTime: 300000, // 5 minutes
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
   });
 
   const mutation = useMutation({
@@ -520,6 +548,10 @@ export default function AgentConfigurationsPage() {
     if (!query.data?.configuration) {
       return;
     }
+    // Don't reset form state while user is editing
+    if (isEditing) {
+      return;
+    }
     console.log('FRONTEND: API response agentScript:', query.data.configuration.agentScript);
     startTransition(() => {
       setFormState(cloneConfiguration(query.data.configuration));
@@ -528,9 +560,24 @@ export default function AgentConfigurationsPage() {
       setSelectedPageUrls([]);
       setLastScanUrl(null);
     });
-  }, [query.data, startTransition]);
+  }, [query.data, startTransition, isEditing]);
 
   const hasGarage = useMemo(() => Boolean(garageId), [garageId]);
+
+  const ghMisconfigWarning = useMemo(() => {
+    const isGhAgent =
+      formState.agentScript === 'receptionmate-agent-v3' ||
+      formState.agentScript === 'receptionmate-agent';
+    if (!isGhAgent) return null;
+    if (formState.integrationProvider !== 'garage_hive') {
+      return 'This garage is using a GarageHive agent but the Diary Integration is set to "Not connected". The agent will fall back to taking a message instead of booking. Set the integration to Garage Hive and add credentials.';
+    }
+    const { customerId, apiKey } = formState.garageHiveSettings ?? {};
+    if (!customerId?.trim() || !apiKey?.trim()) {
+      return 'GarageHive is selected as the integration but Customer ID or API key is missing. The agent will fall back to taking a message instead of booking. Complete the credentials below.';
+    }
+    return null;
+  }, [formState.agentScript, formState.integrationProvider, formState.garageHiveSettings]);
 
   const knowledgeUpdatedAt = useMemo(() => {
     if (!knowledgeBase.length) {
@@ -650,6 +697,23 @@ export default function AgentConfigurationsPage() {
     setFeedback(null);
   };
 
+  const handleTyresoftSettingsChange = (
+    field: keyof TyresoftSettings,
+  ) => (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isEditing || mutation.isPending) {
+      return;
+    }
+    const { value } = event.target;
+    setFormState((prev) => ({
+      ...prev,
+      tyresoftSettings: {
+        ...prev.tyresoftSettings,
+        [field]: value,
+      },
+    }));
+    setFeedback(null);
+  };
+
   const handleInterruptionSensitivityChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (!isEditing || mutation.isPending) {
       return;
@@ -703,6 +767,11 @@ export default function AgentConfigurationsPage() {
 
   const handleToggle = () => {
     setFormState((prev) => ({ ...prev, allowFastFitOnly: !prev.allowFastFitOnly }));
+    setFeedback(null);
+  };
+
+  const handleDropOffToggle = () => {
+    setFormState((prev) => ({ ...prev, enableDropOffBookings: !prev.enableDropOffBookings }));
     setFeedback(null);
   };
 
@@ -794,6 +863,13 @@ export default function AgentConfigurationsPage() {
           </button>
         </div>
       </header>
+
+      {ghMisconfigWarning && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span className="font-semibold">Configuration warning: </span>
+          {ghMisconfigWarning}
+        </div>
+      )}
 
       {feedback ? (
         <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
@@ -953,11 +1029,94 @@ export default function AgentConfigurationsPage() {
         </section>
 
         {formState.agentType === 'assist' && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-            <h2 className="text-lg font-semibold text-slate-100">SMS Booking Links</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              When enabled, the agent will offer to send customers a text message with a link to book an appointment online. The SMS contains the <strong>Website URL</strong> configured above, so it&rsquo;s best to enter a direct link to your booking page rather than just your homepage.
-            </p>
+          <>
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+              <h2 className="text-lg font-semibold text-slate-100">Booking Preferences</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Configure how the agent handles booking requests from customers.
+              </p>
+
+              <div className="mt-6 flex items-center justify-between">
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-slate-300">
+                    Allow bookings
+                  </span>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Enable the agent to capture booking requests with specific dates
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      allowBookings: !prev.allowBookings
+                    }))
+                  }
+                  disabled={!isEditing || mutation.isPending}
+                  className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                    formState.allowBookings
+                      ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
+                      : 'border-slate-700 bg-slate-900/60 text-slate-200'
+                  } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
+                >
+                  <span
+                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
+                      formState.allowBookings ? 'bg-emerald-500/70' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                        formState.allowBookings ? 'translate-x-5' : 'translate-x-1'
+                      }`}
+                    />
+                  </span>
+                  {formState.allowBookings ? 'Enabled' : 'Disabled'}
+                </button>
+              </div>
+
+              {formState.allowBookings && (
+                <div className="mt-6 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
+                  <label htmlFor="bookingLeadTime" className="block text-sm font-medium text-slate-300">
+                    Booking lead time (days)
+                  </label>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Minimum number of days notice required for bookings
+                  </p>
+                  <div className="mt-3 flex items-center gap-3">
+                    <input
+                      type="number"
+                      id="bookingLeadTime"
+                      min="1"
+                      max="30"
+                      value={formState.bookingLeadTimeDays}
+                      onChange={(e) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          bookingLeadTimeDays: Math.max(1, Math.min(30, Number.parseInt(e.target.value, 10) || 1))
+                        }))
+                      }
+                      disabled={!isEditing || mutation.isPending}
+                      className="block w-32 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-sm text-slate-400">days</span>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
+                    <p className="text-xs text-sky-200">
+                      {formState.bookingLeadTimeDays === 1
+                        ? 'Customers can book for today or any future date.'
+                        : `Customers must book at least ${formState.bookingLeadTimeDays} day${formState.bookingLeadTimeDays === 1 ? '' : 's'} in advance.`}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+              <h2 className="text-lg font-semibold text-slate-100">SMS Booking Links</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                When enabled, the agent will offer to send customers a text message with a link to book an appointment online. The SMS contains the <strong>Website URL</strong> configured above, so it&rsquo;s best to enter a direct link to your booking page rather than just your homepage.
+              </p>
 
             <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
               <p className="text-xs text-sky-200">
@@ -1005,6 +1164,7 @@ export default function AgentConfigurationsPage() {
               </button>
             </div>
           </section>
+          </>
         )}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
@@ -1448,6 +1608,135 @@ export default function AgentConfigurationsPage() {
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+          <h2 className="text-lg font-semibold text-slate-100">Drop-Off Bookings</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Allow date-only bookings with flexible drop-off times instead of specific timeslots.
+          </p>
+
+          <div className="mt-6 flex flex-col gap-3 text-sm text-slate-300">
+            <span className="text-xs uppercase tracking-wide text-slate-500">
+              <span className="inline-flex items-center gap-2">
+                Enable drop-off booking mode
+                <span
+                  className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                  tabIndex={0}
+                  role="button"
+                  aria-label="When enabled, agent offers dates only (not specific times) for most services"
+                >
+                  i
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-48 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                    When enabled, agent offers dates only (not specific times) for most services. Specific timeslots are still used for excluded services like MOTs.
+                  </span>
+                </span>
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={handleDropOffToggle}
+              disabled={!isEditing || mutation.isPending}
+              className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                formState.enableDropOffBookings
+                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
+                  : 'border-slate-700 bg-slate-900/60 text-slate-200'
+              } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
+            >
+              <span
+                className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
+                  formState.enableDropOffBookings ? 'bg-emerald-500/70' : 'bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                    formState.enableDropOffBookings ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </span>
+              {formState.enableDropOffBookings ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+
+          {formState.enableDropOffBookings && (
+            <>
+              <div className="mt-6">
+                <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">
+                    <span className="inline-flex items-center gap-2">
+                      Drop-off message
+                      <span
+                        className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                        tabIndex={0}
+                        role="button"
+                        aria-label="Message the agent includes when confirming drop-off bookings"
+                      >
+                        i
+                        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                          The agent will say this message when confirming a drop-off booking. Example: &quot;drop your vehicle off between 8am and half ten in the morning&quot;
+                        </span>
+                      </span>
+                    </span>
+                  </span>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={formState.dropOffMessage || ''}
+                      onChange={(e) => setFormState((prev) => ({ ...prev, dropOffMessage: e.target.value }))}
+                      placeholder="drop your vehicle off between 8-10:30am"
+                      disabled={mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  ) : (
+                    <span className="text-sm text-slate-200">{formState.dropOffMessage || 'Not set'}</span>
+                  )}
+                </label>
+              </div>
+
+              <div className="mt-6">
+                <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <span className="text-xs uppercase tracking-wide text-slate-500">
+                    <span className="inline-flex items-center gap-2">
+                      Excluded services (comma-separated)
+                      <span
+                        className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                        tabIndex={0}
+                        role="button"
+                        aria-label="Services that should still use specific timeslots instead of drop-off mode"
+                      >
+                        i
+                        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                          Services listed here will still use specific timeslots instead of drop-off mode. Useful for services like MOTs that require the vehicle at a specific time.
+                        </span>
+                      </span>
+                    </span>
+                  </span>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={(formState.dropOffExcludeServices || []).join(', ')}
+                      onChange={(e) =>
+                        setFormState((prev) => ({
+                          ...prev,
+                          dropOffExcludeServices: e.target.value
+                            .split(',')
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                      placeholder="MOT, Diagnostic"
+                      disabled={mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  ) : (
+                    <span className="text-sm text-slate-200">
+                      {(formState.dropOffExcludeServices || []).join(', ') || 'None'}
+                    </span>
+                  )}
+                </label>
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <h2 className="text-lg font-semibold text-slate-100">Agent Type</h2>
           <p className="mt-1 text-sm text-slate-400">
             Choose which agent handles calls for this garage.
@@ -1518,6 +1807,96 @@ export default function AgentConfigurationsPage() {
             </label>
           </div>
         </section>
+
+        {formState.agentScript === 'tyresoft-agent' && canEditAgentType && (
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+            <h2 className="text-lg font-semibold text-slate-100">Tyresoft Configuration</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              API credentials for the Tyresoft tyre centre integration.
+            </p>
+            <div className="mt-6">
+              {isEditing ? (
+                <div className="grid gap-5 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Workspace</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. test"
+                      value={formState.tyresoftSettings.tsWorkspace}
+                      onChange={handleTyresoftSettingsChange('tsWorkspace')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Username</span>
+                    <input
+                      type="text"
+                      value={formState.tyresoftSettings.tsUsername}
+                      onChange={handleTyresoftSettingsChange('tsUsername')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Password</span>
+                    <input
+                      type="password"
+                      value={formState.tyresoftSettings.tsPassword}
+                      onChange={handleTyresoftSettingsChange('tsPassword')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">API Key</span>
+                    <input
+                      type="password"
+                      value={formState.tyresoftSettings.tsApiKey}
+                      onChange={handleTyresoftSettingsChange('tsApiKey')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Depot ID</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1"
+                      value={formState.tyresoftSettings.tsDepotId}
+                      onChange={handleTyresoftSettingsChange('tsDepotId')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Workspace</span>
+                    <div className="text-slate-100">{formState.tyresoftSettings.tsWorkspace || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Username</span>
+                    <div className="text-slate-100">{formState.tyresoftSettings.tsUsername || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Password</span>
+                    <div className="text-slate-100">{maskSecretValue(formState.tyresoftSettings.tsPassword)}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">API Key</span>
+                    <div className="text-slate-100">{maskSecretValue(formState.tyresoftSettings.tsApiKey)}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Depot ID</span>
+                    <div className="text-slate-100">{formState.tyresoftSettings.tsDepotId || 'Not set'}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <h2 className="text-lg font-semibold text-slate-100">Diary Integration</h2>

@@ -193,7 +193,11 @@ export async function generateInvoice(
   }
 
   // Find the user who should be charged for this garage
-  const billingUser = await prisma.user.findFirst({
+  // Priority:
+  // 1. Users who ONLY have access to this garage (actual owners)
+  // 2. Exclude admin/staff accounts (role: ADMIN, STAFF)
+  // 3. Exclude receptionmate.ai/receptionmate.co.uk emails
+  const users = await prisma.user.findMany({
     where: {
       garageAccessIds: {
         has: garageId,
@@ -201,11 +205,36 @@ export async function generateInvoice(
       gocardlessMandateId: {
         not: null,
       },
-    },
-    orderBy: {
-      createdAt: 'asc', // Prefer the oldest user (likely the owner)
+      role: {
+        notIn: ['RECEPTIONMATE_STAFF'],
+      },
+      email: {
+        not: {
+          endsWith: '@receptionmate.ai',
+        },
+      },
     },
   });
+
+  // Filter out receptionmate.co.uk emails
+  const eligibleUsers = users.filter(
+    (u) => !u.email.endsWith('@receptionmate.co.uk')
+  );
+
+  // Prefer users who only have access to this one garage (likely the owner)
+  const singleGarageOwner = eligibleUsers.find(
+    (u) => u.garageAccessIds.length === 1
+  );
+
+  const billingUser = singleGarageOwner || eligibleUsers[0];
+
+  if (billingUser) {
+    console.log('[BILLING] Selected billing user:', {
+      email: billingUser.email,
+      garageCount: billingUser.garageAccessIds.length,
+      reason: singleGarageOwner ? 'single-garage owner' : 'first eligible user',
+    });
+  }
 
   // Create invoice
   const invoice = await prisma.invoice.create({
@@ -803,9 +832,9 @@ export async function createPaymentForInvoice(invoiceId: string) {
   }
   
   if (!user || !user.gocardlessMandateId) {
-    // Fallback: find any user with mandate for this garage
+    // Fallback: find user with mandate for this garage (exclude admin accounts)
     console.log('[BILLING] Falling back to finding user with garage access...');
-    user = await prisma.user.findFirst({
+    const users = await prisma.user.findMany({
       where: {
         garageAccessIds: {
           has: invoice.garageId,
@@ -813,11 +842,36 @@ export async function createPaymentForInvoice(invoiceId: string) {
         gocardlessMandateId: {
           not: null,
         },
-      },
-      orderBy: {
-        createdAt: 'asc', // Prefer oldest user (likely the owner)
+        role: {
+          notIn: ['RECEPTIONMATE_STAFF'],
+        },
+        email: {
+          not: {
+            endsWith: '@receptionmate.ai',
+          },
+        },
       },
     });
+
+    // Filter out receptionmate.co.uk emails
+    const eligibleUsers = users.filter(
+      (u) => !u.email.endsWith('@receptionmate.co.uk')
+    );
+
+    // Prefer users who only have access to this one garage
+    const singleGarageOwner = eligibleUsers.find(
+      (u) => u.garageAccessIds.length === 1
+    );
+
+    user = singleGarageOwner || eligibleUsers[0];
+
+    if (user) {
+      console.log('[BILLING] Fallback user selected:', {
+        email: user.email,
+        garageCount: user.garageAccessIds.length,
+        reason: singleGarageOwner ? 'single-garage owner' : 'first eligible user',
+      });
+    }
   }
 
   if (!user || !user.gocardlessMandateId) {

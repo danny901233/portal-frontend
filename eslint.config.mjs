@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Ignore build artefacts in sub-projects
+    "agent-widget-demo/.next/**",
+    "agent-widget-demo/out/**",
+    "agent-v3/.next/**",
+    "agent-tyresoft/.next/**",
+    "core/.next/**",
   ]),
 ]);
 

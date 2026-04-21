@@ -2,14 +2,58 @@ import { z } from 'zod';
 
 import { WEEKDAY_ORDER } from './types.js';
 
-export const transcriptEntrySchema = z.object({
+// Base message entry (conversation turns) - with explicit type
+const messageEntryWithTypeSchema = z.object({
+  type: z.literal('message'),
   speaker: z.string().min(1),
   text: z.string().min(1),
   timestamp: z.number().nonnegative(),
+  confidence: z.number().min(0).max(1).optional(), // STT confidence score
+  latency_ms: z.number().nonnegative().optional(), // Response latency
 });
 
+// Legacy message entry without type field
+const messageLegacySchema = z.object({
+  speaker: z.string().min(1),
+  text: z.string().min(1),
+  timestamp: z.number().nonnegative(),
+  confidence: z.number().min(0).max(1).optional(),
+  latency_ms: z.number().nonnegative().optional(),
+});
+
+// Tool call entry
+const toolCallEntrySchema = z.object({
+  type: z.literal('tool_call'),
+  tool: z.string().min(1),
+  parameters: z.record(z.any()).nullable().optional(),
+  result: z.any().nullable().optional(),
+  success: z.boolean(),
+  duration_ms: z.number(),
+  error: z.string().nullable().optional(),
+  retry_count: z.number().nullable().optional(),
+  timestamp: z.number().nonnegative(),
+});
+
+// Log entry
+const logEntrySchema = z.object({
+  type: z.literal('log'),
+  level: z.enum(['INFO', 'WARN', 'ERROR', 'DEBUG']),
+  logger: z.string().min(1),
+  message: z.string().min(1),
+  timestamp: z.number().nonnegative(),
+  attributes: z.record(z.any()).optional(),
+});
+
+// Union of all transcript entry types
+export const transcriptEntrySchema = z.union([
+  messageEntryWithTypeSchema,
+  toolCallEntrySchema,
+  logEntrySchema,
+  messageLegacySchema, // Last so it doesn't match entries with type field
+]);
+
 export const metricsSchema = z
-  .record(z.union([z.number(), z.string(), z.boolean(), z.null()]))
+  .record(z.any())
   .refine((metrics) => Object.keys(metrics).length > 0, {
     message: 'Metrics cannot be empty',
   });
@@ -100,6 +144,16 @@ const garageHiveSettingsSchema = z
   })
   .optional();
 
+const tyresoftSettingsSchema = z
+  .object({
+    tsWorkspace: optionalBoundedString(100),
+    tsUsername: optionalBoundedString(100),
+    tsPassword: optionalBoundedString(1000),
+    tsApiKey: optionalBoundedString(1000),
+    tsDepotId: z.union([z.string().max(20), z.number()]).optional(),
+  })
+  .optional();
+
 const timeString = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM in 24-hour time');
@@ -183,12 +237,18 @@ export const upsertAgentConfigurationSchema = z.object({
   responseSpeed: z.enum(['slow', 'normal', 'fast']).optional(),
   interruptionSensitivity: z.number().min(0).max(1).optional(),
   allowFastFitOnly: z.boolean(),
+  enableDropOffBookings: z.boolean().optional(),
+  dropOffMessage: z.string().max(500).optional(),
+  dropOffExcludeServices: z.array(z.string().max(100)).max(20).optional(),
   notificationEmails: z.array(z.string().email().max(254)).max(10).optional(),
   integrationProvider: z.enum(['none', 'garage_hive']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
+  tyresoftSettings: tyresoftSettingsSchema,
   agentType: z.enum(['assist', 'automate']).optional(),
   agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
+  allowBookings: z.boolean().optional(),
+  bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
 }).superRefine((value, ctx) => {
   const provider = value.integrationProvider ?? 'none';

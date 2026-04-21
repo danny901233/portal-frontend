@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { getGarageId, getGarages } from '../../lib/auth';
 
 export default function WidgetEmbedPage() {
+  const router = useRouter();
   const [copiedChat, setCopiedChat] = useState(false);
   const [copiedVoice, setCopiedVoice] = useState(false);
   const [garageId, setGarageId] = useState<string>('');
@@ -73,17 +75,34 @@ export default function WidgetEmbedPage() {
   ];
 
   return (
-    <div className="space-y-8 max-w-4xl">
+    <div className="space-y-8 max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100">Website Widgets</h1>
+        <h1 className="text-2xl font-bold text-slate-100">Integrations</h1>
         <p className="text-sm text-slate-400 mt-1">
           Embed ReceptionMate widgets on your website to let customers reach you instantly.
         </p>
-        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-400">
-          <span className="text-slate-500">Garage ID:</span>
-          <code className="text-slate-300">{garageId}</code>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-300">{garageName}</span>
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 mt-4 p-1 bg-slate-800/60 rounded-lg w-fit border border-slate-700">
+          <button
+            onClick={() => router.push('/integrations')}
+            className="px-4 py-1.5 text-sm font-medium rounded-md text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            Social Media
+          </button>
+          <button
+            className="px-4 py-1.5 text-sm font-medium rounded-md bg-slate-700 text-slate-100 shadow-sm"
+          >
+            Website Widget
+          </button>
+        </div>
+        <div className="mt-3 flex justify-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-400">
+            <span className="text-slate-500">Garage ID:</span>
+            <code className="text-slate-300">{garageId}</code>
+            <span className="text-slate-600">·</span>
+            <span className="text-slate-300">{garageName}</span>
+          </div>
         </div>
       </div>
 
@@ -107,6 +126,15 @@ export default function WidgetEmbedPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
             </svg>
             Preview
+          </button>
+          <button
+            onClick={() => router.push('/integrations/widget/customize')}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+            </svg>
+            Customize
           </button>
         </div>
         <div className="p-6">

@@ -5,10 +5,72 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { fetchCallById } from '../../lib/api';
-import { getGarageId } from '../../lib/auth';
+import { getGarageId, isReceptionMateStaff } from '../../lib/auth';
 import { getFeedbackReasonLabel } from '../../lib/callFeedback';
 import { getCallTagLabel, getCallTagStyle } from '../../lib/callTags';
 import type { CallRecord } from '../../types';
+import { ToolCallEntry } from './components/ToolCallEntry';
+import { LogEntry } from './components/LogEntry';
+
+// Define transcript entry types
+type MessageEntry = {
+  type?: 'message';
+  speaker: string;
+  text: string;
+  timestamp: number;
+  confidence?: number; // STT confidence (0-1)
+  latency_ms?: number; // Response latency in milliseconds
+};
+
+type ToolCallEntry_Type = {
+  type: 'tool_call';
+  tool: string;
+  parameters: Record<string, any>;
+  result?: any;
+  success: boolean;
+  duration_ms: number;
+  error?: string;
+  retry_count?: number;
+  timestamp: number;
+};
+
+type LogEntry_Type = {
+  type: 'log';
+  level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
+  logger: string;
+  message: string;
+  timestamp: number;
+  attributes?: Record<string, any>;
+};
+
+type FunctionCallEntry = {
+  type: 'function_call';
+  id?: string;
+  call_id?: string;
+  name: string;
+  arguments: string | Record<string, any>;
+  created_at: number;
+  extra?: Record<string, any>;
+};
+
+type FunctionCallOutputEntry = {
+  type: 'function_call_output';
+  id?: string;
+  call_id?: string;
+  name: string;
+  output: string | any;
+  is_error?: boolean;
+  created_at: number;
+};
+
+type AgentHandoffEntry = {
+  type: 'agent_handoff';
+  id?: string;
+  new_agent_id?: string;
+  created_at: number;
+};
+
+type TranscriptEntry_Union = MessageEntry | ToolCallEntry_Type | LogEntry_Type | FunctionCallEntry | FunctionCallOutputEntry | AgentHandoffEntry;
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
@@ -22,7 +84,7 @@ const METRIC_EXCLUDE_KEYS = new Set([
   'ttscharacterscount',
 ]);
 
-const MetricCard = ({ label, value }: { label: string; value: number | string | boolean | null }) => {
+const MetricCard = ({ label, value }: { label: string; value: number | string | boolean | null | object }) => {
   let displayValue: string;
   if (typeof value === 'number') {
     displayValue = numberFormatter.format(value);
@@ -30,13 +92,15 @@ const MetricCard = ({ label, value }: { label: string; value: number | string | 
     displayValue = value ? 'Yes' : 'No';
   } else if (value === null) {
     displayValue = '—';
+  } else if (typeof value === 'object' && value !== null) {
+    displayValue = JSON.stringify(value, null, 2);
   } else {
-    displayValue = value;
+    displayValue = String(value);
   }
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
       <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-slate-100">{displayValue}</div>
+      <div className="mt-1 text-2xl font-semibold text-slate-100 whitespace-pre-wrap break-words text-sm">{displayValue}</div>
     </div>
   );
 };
@@ -45,15 +109,118 @@ const TranscriptEntry = ({
   entry,
   offsetSeconds,
 }: {
-  entry: CallRecord['transcript'][number];
+  entry: TranscriptEntry_Union;
   offsetSeconds: number;
-}) => (
-  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
-    <div className="text-xs uppercase tracking-wide text-slate-400">{entry.speaker}</div>
-    <div className="mt-2 whitespace-pre-line text-sm text-slate-100">{entry.text}</div>
-    <div className="mt-2 text-xs text-slate-500">{offsetSeconds}s</div>
-  </div>
-);
+}) => {
+  // Handle function_call (new agent format)
+  if ('type' in entry && entry.type === 'function_call') {
+    const funcEntry = entry as any;
+    let parameters = {};
+    try {
+      parameters = typeof funcEntry.arguments === 'string' ? JSON.parse(funcEntry.arguments) : funcEntry.arguments || {};
+    } catch {
+      parameters = {};
+    }
+    return (
+      <ToolCallEntry
+        tool={funcEntry.name || 'unknown'}
+        parameters={parameters}
+        result={undefined}
+        success={true}
+        duration={0}
+        timestamp={funcEntry.created_at}
+      />
+    );
+  }
+
+  // Handle function_call_output (new agent format)
+  if ('type' in entry && entry.type === 'function_call_output') {
+    const funcEntry = entry as any;
+    return (
+      <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/30 p-4">
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-400">
+            {funcEntry.name} Result
+          </div>
+        </div>
+        <div className="mt-2 whitespace-pre-line text-sm text-slate-300">
+          {typeof funcEntry.output === 'string' ? funcEntry.output : JSON.stringify(funcEntry.output, null, 2)}
+        </div>
+      </div>
+    );
+  }
+
+  // Handle tool calls (old format)
+  if ('type' in entry && entry.type === 'tool_call') {
+    return (
+      <ToolCallEntry
+        tool={entry.tool || 'unknown'}
+        parameters={entry.parameters || {}}
+        result={entry.result}
+        success={entry.success ?? true}
+        duration={entry.duration_ms || 0}
+        error={entry.error}
+        retryCount={entry.retry_count}
+        timestamp={entry.timestamp}
+      />
+    );
+  }
+
+  // Handle log entries
+  if ('type' in entry && entry.type === 'log') {
+    return (
+      <LogEntry
+        level={entry.level || 'INFO'}
+        logger={entry.logger || 'unknown'}
+        message={entry.message || ''}
+        timestamp={entry.timestamp ? new Date(entry.timestamp * 1000).toISOString() : new Date().toISOString()}
+        attributes={entry.attributes}
+      />
+    );
+  }
+
+  // Handle agent_handoff entries (usually hidden, just show a simple message)
+  if ('type' in entry && entry.type === 'agent_handoff') {
+    return (
+      <div className="rounded-lg border border-purple-800/40 bg-purple-950/30 p-3">
+        <div className="text-xs text-purple-400">Agent handoff: {entry.new_agent_id || 'unknown'}</div>
+      </div>
+    );
+  }
+
+  // Regular conversation message - must have speaker and text properties
+  if (!('speaker' in entry) || !('text' in entry)) {
+    return null; // Skip entries without speaker/text
+  }
+
+  const isStaff = isReceptionMateStaff();
+  const confidence = 'confidence' in entry ? entry.confidence : undefined;
+  const latency = 'latency_ms' in entry ? entry.latency_ms : undefined;
+  
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-xs uppercase tracking-wide text-slate-400">{entry.speaker}</div>
+        {isStaff && (confidence !== undefined || latency !== undefined) && (
+          <div className="flex items-center gap-3 text-[10px] text-slate-500">
+            {confidence !== undefined && (
+              <span className={confidence > 0.9 ? 'text-emerald-500' : confidence > 0.7 ? 'text-amber-500' : 'text-rose-500'}>
+                {(confidence * 100).toFixed(0)}% confidence
+              </span>
+            )}
+            {latency !== undefined && (
+              <span className={latency < 500 ? 'text-emerald-500' : latency < 1500 ? 'text-amber-500' : 'text-rose-500'}>
+                {latency}ms
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="mt-2 whitespace-pre-line text-sm text-slate-100">{entry.text}</div>
+      <div className="mt-2 text-xs text-slate-500">{offsetSeconds}s</div>
+    </div>
+  );
+};
 
 const PHONE_REGEX = /\b(?:\+?\d[\d\s-]{6,})\b/;
 
@@ -129,6 +296,7 @@ export default function CallDetailPage() {
   const rawId = params?.id;
   const callId = Array.isArray(rawId) ? rawId[0] : rawId;
   const garageId = getGarageId();
+  const isStaff = isReceptionMateStaff();
   const [copied, setCopied] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [fetchingRecording, setFetchingRecording] = useState(false);
@@ -233,16 +401,32 @@ export default function CallDetailPage() {
 
   const callerName = deriveCallerName(call);
   const callerNumber = formatPhoneNumber(deriveCallerNumber(call));
-  const transcript = [...call.transcript].sort((a, b) => a.timestamp - b.timestamp);
+  
+  // Filter transcript based on user role
+  const allTranscript = [...call.transcript].sort((a, b) => a.timestamp - b.timestamp);
+  const transcript = isStaff
+    ? allTranscript // Staff sees everything
+    : allTranscript.filter((entry) => {
+        // Non-staff users only see messages, not tool_calls/function_calls or logs
+        const entryType = 'type' in entry ? entry.type : 'message';
+        // Allow: message, agent_handoff, or entries without type field
+        // Block: function_call, function_call_output, tool_call, log
+        return entryType === 'message' || entryType === 'agent_handoff' || !('type' in entry);
+      });
+  
   const firstTimestamp = transcript[0]?.timestamp ?? 0;
   const showTranscriptHint = transcript.length > 3;
   const metricEntries = Object.entries(call.metrics ?? {})
-    .filter(([key]) => {
+    .filter(([key, value]) => {
       const normalised = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
       if (normalised.includes('token')) {
         return false;
       }
       if (normalised.includes('sttaudio')) {
+        return false;
+      }
+      // Filter out arrays and large objects (like tool_calls, llm_responses)
+      if (Array.isArray(value)) {
         return false;
       }
       return !METRIC_EXCLUDE_KEYS.has(normalised);
@@ -286,7 +470,7 @@ export default function CallDetailPage() {
         <MetricCard label="Caller Number" value={callerNumber} />
       </section>
 
-      {metricEntries.length > 0 ? (
+      {isStaff && metricEntries.length > 0 ? (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {metricEntries.map(([key, value]) => (
             <MetricCard key={key} label={key.replace(/_/g, ' ')} value={value} />
@@ -305,26 +489,26 @@ export default function CallDetailPage() {
             <h2 className="text-lg font-semibold text-slate-100">Transcript</h2>
             <p className="text-xs uppercase tracking-wide text-slate-500">Scroll to explore the full conversation.</p>
             <div className="relative">
-              <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-2">
+              <div className="max-h-[48rem] space-y-3 overflow-y-auto pr-2 pb-2">
                 {transcript.map((entry: CallRecord['transcript'][number], index) => (
                   <TranscriptEntry
                     key={`${entry.speaker}-${entry.timestamp}-${index}`}
                     entry={entry}
-                    offsetSeconds={Math.max(0, Math.round((entry.timestamp - firstTimestamp) / 1000))}
+                    offsetSeconds={Math.max(0, Math.round(entry.timestamp - firstTimestamp))}
                   />
                 ))}
               </div>
               {showTranscriptHint ? (
                 <>
                   <div
-                    className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-slate-900 via-slate-900/80 to-transparent z-10"
+                    className="pointer-events-none absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-slate-900 via-slate-900/60 to-transparent z-10"
                     aria-hidden
                   />
                   <div
-                    className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-slate-900 via-slate-900/80 to-transparent z-10"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-slate-900 via-slate-900/60 to-transparent z-10"
                     aria-hidden
                   />
-                  <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center z-20">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center z-20">
                     <span className="rounded-full bg-slate-900/90 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-300 shadow-lg shadow-slate-900/60">
                       Scroll to read more
                     </span>

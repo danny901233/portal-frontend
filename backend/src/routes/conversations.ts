@@ -178,6 +178,51 @@ router.post('/conversations/:id/reply', authenticate, async (req: Request, res: 
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/conversations/:id/messages  (alias for /reply — used by messages page)
+// ---------------------------------------------------------------------------
+
+router.post('/conversations/:id/messages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { message, content } = req.body;
+    const text = message ?? content;
+
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'message is required' });
+    }
+
+    if (!isManagerOrStaff(req)) {
+      return res.status(403).json({ error: 'Manager or staff access required' });
+    }
+
+    const conversation = await prisma.chatConversation.findUnique({ where: { id } });
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    if (!hasGarageAccess(req, conversation.garageId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await prisma.chatMessage.create({
+      data: { conversationId: id, role: 'staff', content: text },
+    });
+
+    await prisma.chatConversation.update({
+      where: { id },
+      data: { agentPaused: true, unreadCount: 0, lastMessageAt: new Date() },
+    });
+
+    void sendReplyToChannel(conversation, text).catch((err) =>
+      console.error(`[CONVERSATIONS] Failed to send reply via ${conversation.platform}:`, err)
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[CONVERSATIONS] POST /conversations/:id/messages error:', error);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/conversations/:id/resume
 // ---------------------------------------------------------------------------
 
@@ -282,10 +327,31 @@ async function sendReplyToChannel(
     return;
   }
 
-  if (platform === 'facebook' || platform === 'instagram') {
+  if (platform === 'facebook') {
     if (!platformUserId) return;
     await axios.post(
       'https://graph.facebook.com/v18.0/me/messages',
+      {
+        recipient: { id: platformUserId },
+        message: { text: message },
+        messaging_type: 'MESSAGE_TAG',
+        tag: 'HUMAN_AGENT',
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000,
+      }
+    );
+    return;
+  }
+
+  if (platform === 'instagram') {
+    if (!platformUserId || !connection.pageId) return;
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
       {
         recipient: { id: platformUserId },
         message: { text: message },

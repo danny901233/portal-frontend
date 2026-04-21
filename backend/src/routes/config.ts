@@ -108,6 +108,9 @@ const parseIntegrationSettings = (
           tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
           tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
           tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
+          tsChannelId: typeof raw.tsChannelId === 'string' ? raw.tsChannelId : (raw.tsChannelId != null ? String(raw.tsChannelId) : undefined),
+          tsServices: Array.isArray(raw.tsServices) ? raw.tsServices as TyresoftSettings['tsServices'] : undefined,
+          pricingRules: raw.pricingRules && typeof raw.pricingRules === 'object' && !Array.isArray(raw.pricingRules) ? raw.pricingRules as TyresoftSettings['pricingRules'] : undefined,
         }),
       };
     }
@@ -650,11 +653,18 @@ router.put(
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
+            // Spread existing config first to preserve pricingRules, tsServices, tsChannelId etc.
+            ...(existingConfig?.integrationProviderConfig && typeof existingConfig.integrationProviderConfig === 'object' && !Array.isArray(existingConfig.integrationProviderConfig)
+              ? existingConfig.integrationProviderConfig as object
+              : {}),
             tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
             tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
             tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
             tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
+            // Include pricingRules and tsServices if provided in this save
+            ...(rawTyresoft.pricingRules ? { pricingRules: rawTyresoft.pricingRules } : {}),
+            ...(rawTyresoft.tsServices ? { tsServices: rawTyresoft.tsServices } : {}),
           }
         : resolvedAgentScript === 'tyresoft-agent' && existingConfig?.integrationProviderConfig
         ? existingConfig.integrationProviderConfig as Prisma.InputJsonValue

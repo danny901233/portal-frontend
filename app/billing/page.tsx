@@ -85,8 +85,9 @@ export default function BillingPage() {
 
   // Fetch business info
   const businessInfoQuery = useQuery<BusinessBillingInfo>({
-    queryKey: ['business-billing-info'],
-    queryFn: fetchBusinessBillingInfo,
+    queryKey: ['business-billing-info', selectedGarageId],
+    queryFn: () => fetchBusinessBillingInfo(selectedGarageId === 'all' ? undefined : selectedGarageId),
+    enabled: selectedGarageId !== 'all',
   });
 
   // Fetch mandate status

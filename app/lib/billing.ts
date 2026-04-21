@@ -102,9 +102,16 @@ export async function downloadInvoicePdf(invoiceId: string): Promise<Blob> {
 
 /**
  * Fetch business billing information
+ * @param garageId Optional - get info for specific garage's business
  */
-export async function fetchBusinessBillingInfo(): Promise<BusinessBillingInfo> {
-  const { data } = await api.get<BusinessInfoResponse>('/api/customer/billing/business-info');
+export async function fetchBusinessBillingInfo(garageId?: string): Promise<BusinessBillingInfo> {
+  const params = new URLSearchParams();
+  if (garageId) {
+    params.set('garageId', garageId);
+  }
+  const queryString = params.toString();
+  const url = `/api/customer/billing/business-info${queryString ? `?${queryString}` : ''}`;
+  const { data } = await api.get<BusinessInfoResponse>(url);
   return data.business;
 }
 

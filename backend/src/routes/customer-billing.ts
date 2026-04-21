@@ -143,6 +143,8 @@ router.get('/business-info', authenticate, requireManager, async (req: Request, 
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
+    const requestedGarageId = req.query.garageId as string | undefined;
+
     // Get user to find their business
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -155,9 +157,15 @@ router.get('/business-info', authenticate, requireManager, async (req: Request, 
       return res.status(404).json({ error: 'No garages found for user' });
     }
 
-    // Get first garage to find business
+    // Use requested garageId if provided and allowed, otherwise fall back to first
+    const resolvedGarageId =
+      requestedGarageId && (req.user?.role === 'RECEPTIONMATE_STAFF' || user.garageAccessIds.includes(requestedGarageId))
+        ? requestedGarageId
+        : user.garageAccessIds[0];
+
+    // Get garage to find business
     const garage = await prisma.garage.findUnique({
-      where: { id: user.garageAccessIds[0] },
+      where: { id: resolvedGarageId },
       select: {
         businessId: true,
       },

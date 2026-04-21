@@ -3,6 +3,7 @@ import { generateWeeklyReports, generateMonthlyReports } from './reportGenerator
 import { processMonthlyBilling } from '../services/billing.js';
 import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
 import { refreshTemplateToken } from '../services/metaTemplateToken.js';
+import { syncGocardlessPayments } from '../services/gocardlessSync.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 
@@ -129,4 +130,18 @@ export const initializeScheduledReports = (): void => {
     
     console.log('✓ Feature announcement scheduled: March 7, 2026 at 8:00 AM (UK time)');
   }
+
+  // Daily GoCardless payment sync: Every day at 8:00 AM
+  cron.schedule('0 8 * * *', async () => {
+    console.log('[GC Sync] Running daily GoCardless payment sync...');
+    try {
+      await syncGocardlessPayments();
+    } catch (error) {
+      console.error('[GC Sync] Daily sync failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London',
+  });
+
+  console.log('✓ GoCardless payment sync scheduled: Daily at 8:00 AM (UK time)');
 };

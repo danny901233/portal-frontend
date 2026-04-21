@@ -1,5 +1,19 @@
 import PDFDocument from 'pdfkit';
 import { prisma } from '../db.js';
+import https from 'https';
+
+const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
+
+function fetchLogoBuffer(): Promise<Buffer> {
+  return new Promise((resolve) => {
+    https.get(LOGO_URL, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', () => resolve(Buffer.alloc(0)));
+    }).on('error', () => resolve(Buffer.alloc(0)));
+  });
+}
 
 interface InvoiceData {
   id: string;
@@ -84,7 +98,8 @@ export async function generateInvoicePdf(invoiceId: string): Promise<Buffer> {
  * Create PDF document and return as buffer
  */
 function createPdfBuffer(invoice: InvoiceData, business: BusinessData | null): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
+    const logoBuffer = await fetchLogoBuffer();
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const buffers: Buffer[] = [];
 
@@ -96,7 +111,7 @@ function createPdfBuffer(invoice: InvoiceData, business: BusinessData | null): P
     doc.on('error', reject);
 
     // Add content to PDF
-    addHeader(doc);
+    addHeader(doc, logoBuffer);
     addInvoiceDetails(doc, invoice, business);
     addLineItems(doc, invoice);
     addTotals(doc, invoice);
@@ -109,19 +124,22 @@ function createPdfBuffer(invoice: InvoiceData, business: BusinessData | null): P
 /**
  * Add ReceptionMate header
  */
-function addHeader(doc: typeof PDFDocument.prototype) {
-  // TODO: Add logo image here when available
-  // doc.image('path/to/logo.png', 50, 45, { width: 150 });
+function addHeader(doc: typeof PDFDocument.prototype, logoBuffer: Buffer) {
+  if (logoBuffer.length > 0) {
+    doc.image(logoBuffer, 50, 45, { width: 140 });
+  } else {
+    doc
+      .fontSize(24)
+      .font('Helvetica-Bold')
+      .text('ReceptionMate', 50, 50);
+  }
 
   doc
-    .fontSize(24)
-    .font('Helvetica-Bold')
-    .text('ReceptionMate', 50, 50)
     .fontSize(10)
     .font('Helvetica')
-    .text('AI Phone Answering Service', 50, 80)
-    .text('hello@receptionmate.co.uk', 50, 95)
-    .text('VAT Number: 494543753', 50, 110)
+    .text('AI Phone Answering Service', 50, 95)
+    .text('hello@receptionmate.co.uk', 50, 110)
+    .text('VAT Number: 494543753', 50, 125)
     .moveDown(2);
 }
 

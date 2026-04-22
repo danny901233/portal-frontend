@@ -743,6 +743,67 @@ export default function AgentConfigurationsPage() {
     setFeedback(null);
   };
 
+  const handlePricingBracketChange = (code: string, index: number, field: 'maxCC' | 'price', value: string) => {
+    if (!isEditing || mutation.isPending) return;
+    setFormState((prev) => {
+      const rules = { ...(prev.tyresoftSettings.pricingRules ?? {}) };
+      const brackets = [...(rules[code] ?? [])];
+      brackets[index] = { ...brackets[index], [field]: Number(value) };
+      return {
+        ...prev,
+        tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: { ...rules, [code]: brackets } },
+      };
+    });
+    setFeedback(null);
+  };
+
+  const handleRemovePricingBracket = (code: string, index: number) => {
+    if (!isEditing || mutation.isPending) return;
+    setFormState((prev) => {
+      const rules = { ...(prev.tyresoftSettings.pricingRules ?? {}) };
+      const brackets = (rules[code] ?? []).filter((_, i) => i !== index);
+      return {
+        ...prev,
+        tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: { ...rules, [code]: brackets } },
+      };
+    });
+    setFeedback(null);
+  };
+
+  const handleAddPricingBracket = (code: string) => {
+    if (!isEditing || mutation.isPending) return;
+    setFormState((prev) => {
+      const rules = { ...(prev.tyresoftSettings.pricingRules ?? {}) };
+      const brackets = [...(rules[code] ?? []), { maxCC: 0, price: 0 }];
+      return {
+        ...prev,
+        tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: { ...rules, [code]: brackets } },
+      };
+    });
+    setFeedback(null);
+  };
+
+  const handleCsvUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const garageId = getGarageId();
+    const depotId = parseInt(formState.tyresoftSettings.tsDepotId || '1');
+    if (!garageId || isNaN(depotId)) {
+      setCsvUpload({ uploading: false, result: null, error: 'Depot ID not configured. Save your Tyresoft credentials first.' });
+      return;
+    }
+    setCsvUpload({ uploading: true, result: null, error: null });
+    try {
+      const csvContent = await file.text();
+      const result = await uploadTyreFeed(garageId, depotId, csvContent);
+      setCsvUpload({ uploading: false, result: `Imported ${result.imported.toLocaleString()} products (depot ${result.depotId})`, error: null });
+    } catch (err: any) {
+      const message = err?.response?.data?.error || err?.message || 'Upload failed';
+      setCsvUpload({ uploading: false, result: null, error: message });
+    }
+    event.target.value = '';
+  };
+
   const handleInterruptionSensitivityChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (!isEditing || mutation.isPending) {
       return;

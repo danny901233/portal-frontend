@@ -18,6 +18,7 @@ const baseNavigation = [
   { name: 'Outbound', href: '/outbound', requiresMessaging: true },
   { name: 'Templates', href: '/templates', requiresMessaging: true },
   { name: 'Agent Configurations', href: '/agent-configurations', requiresManager: true },
+  { name: 'Team', href: '/team', requiresManager: true },
   { name: 'Integrations', href: '/integrations', requiresStaff: true },
   { name: 'Observability', href: '/observability', requiresStaff: true },
   { name: 'Billing', href: '/billing' },

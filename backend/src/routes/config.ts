@@ -9,15 +9,18 @@ import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import {
   cloneGarageHiveSettings,
+  cloneHubspotSettings,
   cloneTyresoftSettings,
   cloneWeeklyOpeningHours,
   createDefaultGarageHiveSettings,
+  createDefaultHubspotSettings,
   createDefaultTyresoftSettings,
   createDefaultWeeklyOpeningHours,
 } from '../utils/types.js';
 import type {
   AgentConfigurationPayload,
   GarageHiveSettings,
+  HubspotSettings,
   IntegrationProvider,
   ResponseSpeed,
   TyresoftSettings,
@@ -259,7 +262,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     notificationEmails: configuration.notificationEmails || [],
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
-    humanEscalation: configuration.humanEscalation !== false,
+    humanEscalation: (configuration as Record<string, unknown>).humanEscalation !== false,
     allowBookings: configuration.allowBookings || false,
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
@@ -275,6 +278,16 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       configuration.integrationProviderConfig,
       configuration.agentScript,
     ),
+    hubspotSettings: (() => {
+      const raw = configuration.integrationProviderConfig;
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const cfg = raw as Record<string, unknown>;
+        if (cfg.hubspot && typeof cfg.hubspot === 'object' && !Array.isArray(cfg.hubspot)) {
+          return cloneHubspotSettings(cfg.hubspot as HubspotSettings);
+        }
+      }
+      return createDefaultHubspotSettings();
+    })(),
   });
 };
 
@@ -664,16 +677,18 @@ router.put(
     const rawTyresoft = data.tyresoftSettings ?? {};
     // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
     // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
-    // Normalize existing Tyresoft config — handle both flat and nested {tyresoft:{...}} formats
-    const existingRaw = existingConfig?.integrationProviderConfig;
-    const existingTyresoftFlat: object = (() => {
-      if (!existingRaw || typeof existingRaw !== 'object' || Array.isArray(existingRaw)) return {};
-      const top = existingRaw as Record<string, unknown>;
-      if (top.tyresoft && typeof top.tyresoft === 'object' && !Array.isArray(top.tyresoft)) {
-        return top.tyresoft as object;
-      }
-      return top;
-    })();
+    // Build hubspot sub-object to merge into integrationProviderConfig
+    const hubspotPayload = data.hubspotSettings
+      ? { hubspot: cloneHubspotSettings(data.hubspotSettings) }
+      : (() => {
+          // Preserve existing hubspot config if not provided in this request
+          const existing = existingConfig?.integrationProviderConfig;
+          if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+            const ex = existing as Record<string, unknown>;
+            if (ex.hubspot) return { hubspot: ex.hubspot };
+          }
+          return {};
+        })();
 
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
@@ -685,20 +700,19 @@ router.put(
             tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
             tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
             tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
-            // Include pricingRules and tsServices if provided in this save
-            ...(rawTyresoft.pricingRules ? { pricingRules: rawTyresoft.pricingRules } : {}),
-            ...(rawTyresoft.tsServices ? { tsServices: rawTyresoft.tsServices } : {}),
+            ...hubspotPayload,
           }
         : resolvedAgentScript === 'tyresoft-agent' && existingConfig?.integrationProviderConfig
-        ? existingConfig.integrationProviderConfig as Prisma.InputJsonValue
+        ? { ...(existingConfig.integrationProviderConfig as object), ...hubspotPayload }
         : requestedProvider === 'garage_hive'
         ? {
             instanceUrl: garageHiveSettings.instanceUrl,
             apiKey: garageHiveSettings.apiKey,
             customerId: garageHiveSettings.customerId,
             locationId: garageHiveSettings.locationId,
+            ...hubspotPayload,
           }
-        : null;
+        : Object.keys(hubspotPayload).length > 0 ? hubspotPayload : null;
 
     const normalizedData = {
       branchName: data.branchName,

@@ -21,6 +21,7 @@ import type {
   AgentKnowledgeDocument,
   AgentType,
   DayOfWeek,
+  HubspotSettings,
   IntegrationProvider,
   PricingBracket,
   ResponseSpeed,
@@ -109,6 +110,18 @@ const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): Tyresoft
   pricingRules: settings?.pricingRules ? JSON.parse(JSON.stringify(settings.pricingRules)) : undefined,
 });
 
+const createEmptyHubspotSettings = (): HubspotSettings => ({
+  enabled: false,
+  apiToken: '',
+  ownerId: '',
+});
+
+const cloneHubspotSettings = (settings: HubspotSettings | undefined): HubspotSettings => ({
+  enabled: settings?.enabled === true,
+  apiToken: settings?.apiToken ?? '',
+  ownerId: settings?.ownerId ?? '',
+});
+
 const createEmptyConfiguration = (): AgentConfiguration => ({
   branchName: '',
   phoneNumber: '',
@@ -129,6 +142,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
   tyresoftSettings: createEmptyTyresoftSettings(),
+  hubspotSettings: createEmptyHubspotSettings(),
   agentType: 'assist',
   agentScript: 'receptionmate-agent-v3',
   enableSmsBookingLinks: true,
@@ -142,6 +156,7 @@ const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => (
   weeklyOpeningHours: cloneWeeklyOpeningHours(config.weeklyOpeningHours),
   garageHiveSettings: cloneGarageHiveSettings(config.garageHiveSettings),
   tyresoftSettings: cloneTyresoftSettings(config.tyresoftSettings),
+  hubspotSettings: cloneHubspotSettings(config.hubspotSettings),
   dropOffExcludeServices: [...(config.dropOffExcludeServices || ['MOT'])],
 });
 
@@ -718,51 +733,14 @@ export default function AgentConfigurationsPage() {
     setFeedback(null);
   };
 
-  const handlePricingBracketChange = (serviceCode: string, index: number, field: 'maxCC' | 'price', value: string) => {
-    setFormState((prev) => {
-      const rules = prev.tyresoftSettings.pricingRules ? JSON.parse(JSON.stringify(prev.tyresoftSettings.pricingRules)) : {};
-      if (!rules[serviceCode]) rules[serviceCode] = [];
-      rules[serviceCode][index] = { ...rules[serviceCode][index], [field]: parseFloat(value) || 0 };
-      return { ...prev, tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: rules } };
-    });
-  };
-
-  const handleAddPricingBracket = (serviceCode: string) => {
-    setFormState((prev) => {
-      const rules = prev.tyresoftSettings.pricingRules ? JSON.parse(JSON.stringify(prev.tyresoftSettings.pricingRules)) : {};
-      if (!rules[serviceCode]) rules[serviceCode] = [];
-      rules[serviceCode].push({ maxCC: 0, price: 0 });
-      return { ...prev, tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: rules } };
-    });
-  };
-
-  const handleRemovePricingBracket = (serviceCode: string, index: number) => {
-    setFormState((prev) => {
-      const rules = prev.tyresoftSettings.pricingRules ? JSON.parse(JSON.stringify(prev.tyresoftSettings.pricingRules)) : {};
-      if (rules[serviceCode]) rules[serviceCode].splice(index, 1);
-      return { ...prev, tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: rules } };
-    });
-  };
-
-  const handleCsvUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const garageId = getGarageId();
-    const depotId = parseInt(formState.tyresoftSettings.tsDepotId || '1');
-    if (!garageId || isNaN(depotId)) {
-      setCsvUpload({ uploading: false, result: null, error: 'Depot ID not configured. Save your Tyresoft credentials first.' });
-      return;
-    }
-    setCsvUpload({ uploading: true, result: null, error: null });
-    try {
-      const csvContent = await file.text();
-      const result = await uploadTyreFeed(garageId, depotId, csvContent);
-      setCsvUpload({ uploading: false, result: `Imported ${result.imported.toLocaleString()} products (depot ${result.depotId})`, error: null });
-    } catch (err: any) {
-      const message = err?.response?.data?.error || err?.message || 'Upload failed';
-      setCsvUpload({ uploading: false, result: null, error: message });
-    }
-    event.target.value = '';
+  const handleHubspotSettingsChange = (field: keyof HubspotSettings) => (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isEditing || mutation.isPending) return;
+    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    setFormState((prev) => ({
+      ...prev,
+      hubspotSettings: { ...prev.hubspotSettings, [field]: value },
+    }));
+    setFeedback(null);
   };
 
   const handleInterruptionSensitivityChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -2196,6 +2174,80 @@ export default function AgentConfigurationsPage() {
               !isEditing && (
                 <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
                   No diary integration configured.
+                </div>
+              )
+            )}
+          </div>
+        </section>
+
+        {/* CRM Integration — HubSpot */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+          <h2 className="text-lg font-semibold text-slate-100">CRM Integration</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Connect HubSpot so every inbound call automatically creates a contact and deal record.
+          </p>
+          <div className="mt-6 space-y-5">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formState.hubspotSettings?.enabled === true}
+                onChange={handleHubspotSettingsChange('enabled')}
+                disabled={!isEditing || mutation.isPending}
+                className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500 disabled:cursor-not-allowed"
+              />
+              <span className="text-sm text-slate-300">Enable HubSpot CRM integration</span>
+            </label>
+
+            {formState.hubspotSettings?.enabled && (
+              isEditing ? (
+                <div className="flex flex-col gap-5">
+                  <div className="rounded-xl border border-sky-800/40 bg-sky-950/30 p-4 text-sm text-slate-300">
+                    <p className="mb-3 font-medium text-sky-300">How to set up your HubSpot Private App</p>
+                    <ol className="flex flex-col gap-2 text-slate-400 list-decimal list-inside">
+                      <li>Log in to HubSpot → Settings (top-right gear icon).</li>
+                      <li>Go to <span className="text-slate-200">Integrations → Private Apps</span> → Create a private app.</li>
+                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">crm.objects.deals.write</code>.</li>
+                      <li>Copy the token (starts with <code className="text-sky-300">pat-</code>) and paste it below.</li>
+                    </ol>
+                  </div>
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">HubSpot Private App Token</span>
+                      <input
+                        type="password"
+                        placeholder="pat-na1-..."
+                        value={formState.hubspotSettings?.apiToken ?? ''}
+                        onChange={handleHubspotSettingsChange('apiToken')}
+                        disabled={!isEditing || mutation.isPending}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm text-slate-300">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">HubSpot Owner ID (optional)</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. 11349275740"
+                        value={formState.hubspotSettings?.ownerId ?? ''}
+                        onChange={handleHubspotSettingsChange('ownerId')}
+                        disabled={!isEditing || mutation.isPending}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      />
+                      <span className="text-xs text-slate-500">Assign deals to a specific HubSpot user. Leave blank to log without an owner.</span>
+                    </label>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Private App Token</span>
+                      <div className="text-slate-100">{formState.hubspotSettings?.apiToken ? '••••••••••••••••' : 'Not set'}</div>
+                    </div>
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Owner ID</span>
+                      <div className="text-slate-100">{formState.hubspotSettings?.ownerId || 'Not set'}</div>
+                    </div>
+                  </div>
                 </div>
               )
             )}

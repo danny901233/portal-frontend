@@ -2078,17 +2078,17 @@ export default function AgentConfigurationsPage() {
               isEditing ? (
                 <div className="flex flex-col gap-5">
                   <div className="rounded-xl border border-sky-800/40 bg-sky-950/30 p-4 text-sm text-slate-300">
-                    <p className="mb-3 font-medium text-sky-300">How to set up your HubSpot Private App</p>
+                    <p className="mb-3 font-medium text-sky-300">How to set up your HubSpot token</p>
                     <ol className="flex flex-col gap-2 text-slate-400 list-decimal list-inside">
                       <li>Log in to HubSpot → Settings (top-right gear icon).</li>
-                      <li>Go to <span className="text-slate-200">Integrations → Private Apps</span> → Create a private app.</li>
+                      <li>Go to <span className="text-slate-200">Integrations → Legacy Apps</span> → create or open your app.</li>
                       <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">crm.objects.deals.write</code>.</li>
                       <li>Copy the token (starts with <code className="text-sky-300">pat-</code>) and paste it below.</li>
                     </ol>
                   </div>
                   <div className="grid gap-5 md:grid-cols-2">
                     <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
-                      <span className="text-xs uppercase tracking-wide text-slate-500">HubSpot Private App Token</span>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">HubSpot API Token</span>
                       <input
                         type="password"
                         placeholder="pat-na1-..."

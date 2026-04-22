@@ -187,6 +187,12 @@ export interface TyresoftSettings {
   tsDepotId: string;
 }
 
+export interface HubspotSettings {
+  enabled: boolean;
+  apiToken: string;
+  ownerId: string;
+}
+
 export interface AgentConfiguration {
   branchName: string;
   phoneNumber: string;
@@ -207,6 +213,7 @@ export interface AgentConfiguration {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings: TyresoftSettings;
+  hubspotSettings: HubspotSettings;
   agentType: AgentType;
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks: boolean;

@@ -3,6 +3,10 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline';
+import { createReadStream } from 'node:fs';
+import { access } from 'node:fs/promises';
+import { prisma } from '../db.js';
 
 const router = Router();
 
@@ -194,6 +198,108 @@ router.post('/agent-config', async (req: Request, res: Response) => {
   }
 
   return res.status(204).send();
+});
+
+const SFTP_BASE = process.env.SFTP_UPLOAD_BASE_PATH || '/home/tyresoft-uploads/uploads';
+
+const slugifyBranchName = (name: string) =>
+  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+const parseCsvLine = (line: string): string[] => {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (const char of line) {
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result;
+};
+
+const readCsvAsRecords = (filePath: string): Promise<Record<string, string>[]> =>
+  new Promise((resolve, reject) => {
+    const rows: Record<string, string>[] = [];
+    let headers: string[] = [];
+    let lineNum = 0;
+    const rl = readline.createInterface({
+      input: createReadStream(filePath, { encoding: 'utf8' }),
+      crlfDelay: Infinity,
+    });
+    rl.on('line', (line) => {
+      const fields = parseCsvLine(line);
+      if (lineNum === 0) {
+        headers = fields.map((h) => h.trim());
+      } else if (line.trim()) {
+        const row: Record<string, string> = {};
+        headers.forEach((h, i) => { row[h] = fields[i]?.trim() ?? ''; });
+        rows.push(row);
+      }
+      lineNum++;
+    });
+    rl.on('close', () => resolve(rows));
+    rl.on('error', reject);
+  });
+
+router.get('/tyre-inventory/:garageId', async (req: Request, res: Response) => {
+  if (!ensureSecretIsValid(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { garageId } = req.params;
+  const branchNum = req.query.branch === '2' ? 2 : 1;
+
+  const config = await prisma.agentConfiguration.findUnique({
+    where: { garageId },
+    select: { branchName: true },
+  });
+
+  if (!config) {
+    return res.status(404).json({ error: 'Garage not found' });
+  }
+
+  const folder = slugifyBranchName(config.branchName);
+  const csvPath = path.join(SFTP_BASE, folder, `Products Branch ${branchNum}.csv`);
+
+  try {
+    await access(csvPath);
+  } catch {
+    return res.status(404).json({ error: 'No inventory file found', folder });
+  }
+
+  try {
+    const rows = await readCsvAsRecords(csvPath);
+    const inventory = rows.map((row) => ({
+      stock_number: row['Product Stock Number'] ?? '',
+      ean: row['Product EAN'] ?? '',
+      title: row['Product Title'] ?? '',
+      price: parseFloat(row['Retail'] || '0') || 0,
+      width: row['Width'] ?? '',
+      aspect_ratio: row['Aspect Ratio'] ?? '',
+      rim: row['Rim'] ?? '',
+      speed_rating: row['Speed Rating'] ?? '',
+      load_index: row['Load Index'] ?? '',
+      brand: row['Brand Name'] ?? '',
+      vehicle_type: row['Vehicle Type'] ?? '',
+      product_type: row['Product Type'] ?? '',
+      runflat: (row['Runflat'] ?? 'FALSE').toUpperCase() === 'TRUE',
+      availability: row['Product Channel Available'] ?? '',
+      lead_time: row['Product Channel Lead Time'] ?? '',
+      source_supplier_id: parseInt(row['Product Channel Source Supplier ID'] || '0', 10) || 0,
+    }));
+
+    console.log(`[TYRE_INVENTORY] Serving ${inventory.length} tyres for garage ${garageId} branch ${branchNum} (folder: ${folder})`);
+    return res.json({ branch: branchNum, count: inventory.length, inventory });
+  } catch (error) {
+    console.error('[TYRE_INVENTORY] Failed to read CSV:', error);
+    return res.status(500).json({ error: 'Failed to read inventory file' });
+  }
 });
 
 export default router;

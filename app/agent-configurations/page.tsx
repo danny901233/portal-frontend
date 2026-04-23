@@ -108,12 +108,14 @@ const createEmptyHubspotSettings = (): HubspotSettings => ({
   enabled: false,
   apiToken: '',
   ownerId: '',
+  inboxEmail: '',
 });
 
 const cloneHubspotSettings = (settings: HubspotSettings | undefined): HubspotSettings => ({
   enabled: settings?.enabled === true,
   apiToken: settings?.apiToken ?? '',
   ownerId: settings?.ownerId ?? '',
+  inboxEmail: settings?.inboxEmail ?? '',
 });
 
 const createEmptyConfiguration = (): AgentConfiguration => ({
@@ -2060,7 +2062,7 @@ export default function AgentConfigurationsPage() {
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <h2 className="text-lg font-semibold text-slate-100">CRM Integration</h2>
           <p className="mt-1 text-sm text-slate-400">
-            Connect HubSpot so every inbound call automatically creates a contact and deal record.
+            Connect HubSpot so every inbound call automatically creates a contact and a conversation thread in your Conversations inbox.
           </p>
           <div className="mt-6 space-y-5">
             <label className="flex items-center gap-3 cursor-pointer">
@@ -2078,12 +2080,13 @@ export default function AgentConfigurationsPage() {
               isEditing ? (
                 <div className="flex flex-col gap-5">
                   <div className="rounded-xl border border-sky-800/40 bg-sky-950/30 p-4 text-sm text-slate-300">
-                    <p className="mb-3 font-medium text-sky-300">How to set up your HubSpot token</p>
+                    <p className="mb-3 font-medium text-sky-300">How to set up HubSpot integration</p>
                     <ol className="flex flex-col gap-2 text-slate-400 list-decimal list-inside">
                       <li>Log in to HubSpot → Settings (top-right gear icon).</li>
                       <li>Go to <span className="text-slate-200">Integrations → Legacy Apps</span> → create or open your app.</li>
-                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">crm.objects.deals.write</code>.</li>
+                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">crm.objects.calls.write</code>.</li>
                       <li>Copy the token (starts with <code className="text-sky-300">pat-</code>) and paste it below.</li>
+                      <li>To get your Inbox Email: go to <span className="text-slate-200">Conversations → Settings → Inboxes</span> → click your inbox → <span className="text-slate-200">Team email</span> tab → copy the address (e.g. <code className="text-sky-300">support@12345.hs-inbox.com</code>).</li>
                     </ol>
                   </div>
                   <div className="grid gap-5 md:grid-cols-2">
@@ -2098,6 +2101,18 @@ export default function AgentConfigurationsPage() {
                         className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
                     </label>
+                    <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Inbox Email Address (optional)</span>
+                      <input
+                        type="email"
+                        placeholder="support@12345.hs-inbox.com"
+                        value={formState.hubspotSettings?.inboxEmail ?? ''}
+                        onChange={handleHubspotSettingsChange('inboxEmail')}
+                        disabled={!isEditing || mutation.isPending}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      />
+                      <span className="text-xs text-slate-500">When set, each call will also appear as a new message in your HubSpot Conversations inbox — just like a form submission.</span>
+                    </label>
                     <label className="flex flex-col gap-2 text-sm text-slate-300">
                       <span className="text-xs uppercase tracking-wide text-slate-500">HubSpot Owner ID (optional)</span>
                       <input
@@ -2108,7 +2123,7 @@ export default function AgentConfigurationsPage() {
                         disabled={!isEditing || mutation.isPending}
                         className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
-                      <span className="text-xs text-slate-500">Assign deals to a specific HubSpot user. Leave blank to log without an owner.</span>
+                      <span className="text-xs text-slate-500">Assign call records to a specific HubSpot user. Leave blank to log without an owner.</span>
                     </label>
                   </div>
                 </div>
@@ -2118,6 +2133,10 @@ export default function AgentConfigurationsPage() {
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">Private App Token</span>
                       <div className="text-slate-100">{formState.hubspotSettings?.apiToken ? '••••••••••••••••' : 'Not set'}</div>
+                    </div>
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Inbox Email</span>
+                      <div className="text-slate-100">{formState.hubspotSettings?.inboxEmail || 'Not set'}</div>
                     </div>
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">Owner ID</span>

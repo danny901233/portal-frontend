@@ -255,6 +255,7 @@ export const upsertAgentConfigurationSchema = z.object({
     enabled: z.boolean(),
     apiToken: z.string(),
     ownerId: z.string(),
+    inboxEmail: z.string().optional().default(''),
   }).optional(),
 }).superRefine((value, ctx) => {
   const provider = value.integrationProvider ?? 'none';

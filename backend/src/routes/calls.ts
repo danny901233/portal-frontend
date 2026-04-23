@@ -268,6 +268,7 @@ router.post('/calls', async (req: Request, res: Response) => {
           enabled: true,
           apiToken: rawHubspot.apiToken,
           ownerId: typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId : '',
+          inboxEmail: typeof rawHubspot.inboxEmail === 'string' ? rawHubspot.inboxEmail : '',
         });
         void logCallToHubSpot({
           customerName: payload.customerName ?? null,

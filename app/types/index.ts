@@ -206,6 +206,7 @@ export interface HubspotSettings {
   enabled: boolean;
   apiToken: string;
   ownerId: string;
+  inboxEmail: string;
 }
 
 export interface AgentConfiguration {

@@ -138,18 +138,21 @@ export type HubspotSettings = {
   enabled: boolean;
   apiToken: string;
   ownerId: string;
+  inboxEmail: string;
 };
 
 export const createDefaultHubspotSettings = (): HubspotSettings => ({
   enabled: false,
   apiToken: '',
   ownerId: '',
+  inboxEmail: '',
 });
 
 export const cloneHubspotSettings = (settings?: HubspotSettings | null): HubspotSettings => ({
   enabled: settings?.enabled === true,
   apiToken: typeof settings?.apiToken === 'string' ? settings.apiToken : '',
   ownerId: typeof settings?.ownerId === 'string' ? settings.ownerId : '',
+  inboxEmail: typeof settings?.inboxEmail === 'string' ? settings.inboxEmail : '',
 });
 
 export type AgentConfigurationPayload = {

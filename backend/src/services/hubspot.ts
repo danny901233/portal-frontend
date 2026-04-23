@@ -1,4 +1,5 @@
 import type { HubspotSettings } from '../utils/types.js';
+import { sendEmail } from '../utils/email.js';
 
 const HUBSPOT_API_BASE = 'https://api.hubapi.com';
 
@@ -101,15 +102,11 @@ const createContact = async (call: HubSpotCallData, apiToken: string): Promise<s
 };
 
 /**
- * Creates a HubSpot ticket (appears in inbox, like a form submission).
- * Associates it with the contact if contactId is provided.
+ * Sends an email to the HubSpot inbox email address.
+ * HubSpot converts any inbound email to the inbox address into a conversation
+ * thread in the Main Inbox — exactly like a form submission.
  */
-const createTicket = async (
-  call: HubSpotCallData,
-  contactId: string | null,
-  ownerId: string,
-  apiToken: string,
-): Promise<string | null> => {
+const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string): Promise<void> => {
   const phone = call.customerPhone || call.fromNumber || 'Unknown';
   const subject = call.confirmedBooking
     ? `Booking confirmed — ${call.customerName || phone} (${call.branchName})`
@@ -121,44 +118,26 @@ const createTicket = async (
   if (call.customerName) lines.push(`Name: ${call.customerName}`);
   if (call.registrationNumber) lines.push(`Vehicle Registration: ${call.registrationNumber}`);
   lines.push(`Call Type: ${call.callType || 'Unknown'}`);
-  lines.push(`Duration: ${Math.round(call.durationSeconds / 60)}m ${call.durationSeconds % 60}s`);
+  const mins = Math.floor(call.durationSeconds / 60);
+  const secs = call.durationSeconds % 60;
+  lines.push(`Duration: ${mins}m ${secs}s`);
   if (call.confirmedBooking) lines.push(`Booking Confirmed: Yes`);
   if (call.bookingDetails) lines.push(`\nBooking Details:\n${call.bookingDetails}`);
   if (call.summary) lines.push(`\nCall Summary:\n${call.summary}`);
+  const text = lines.join('\n');
 
-  const properties: Record<string, string> = {
+  const sent = await sendEmail({
+    to: [inboxEmail],
     subject,
-    content: lines.join('\n'),
-    hs_ticket_priority: call.confirmedBooking ? 'HIGH' : 'MEDIUM',
-    hs_pipeline: '0',        // default support pipeline
-    hs_pipeline_stage: '1',  // New
-  };
-
-  if (ownerId) properties.hubspot_owner_id = ownerId;
-
-  const associations = contactId
-    ? [
-        {
-          to: { id: contactId },
-          types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 16 }], // Ticket → Contact
-        },
-      ]
-    : undefined;
-
-  const response = await hubspotFetch('/crm/v3/objects/tickets', apiToken, {
-    method: 'POST',
-    body: JSON.stringify({ properties, ...(associations ? { associations } : {}) }),
+    text,
+    html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${text}</pre>`,
   });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    console.error(`[HUBSPOT] Failed to create ticket: ${response.status} ${text}`);
-    return null;
+  if (sent) {
+    console.log(`[HUBSPOT] Inbox email sent to ${inboxEmail} for call from ${phone}`);
+  } else {
+    console.warn(`[HUBSPOT] Failed to send inbox email to ${inboxEmail}`);
   }
-
-  const result = await response.json() as { id: string };
-  console.log(`[HUBSPOT] Ticket created: ${result.id}`);
-  return result.id;
 };
 
 /**
@@ -209,19 +188,18 @@ const logCallEngagement = async (
 };
 
 /**
- * Main entry point: upserts a contact, creates an inbox ticket, and logs a call engagement.
+ * Main entry point: upserts a contact, sends an inbox email thread, and logs a call engagement.
  *
  * Required Private App scopes:
  *   crm.objects.contacts.read
  *   crm.objects.contacts.write
- *   crm.objects.tickets.write
  *   crm.objects.calls.write
  */
 export const logCallToHubSpot = async (
   call: HubSpotCallData,
   settings: HubspotSettings,
 ): Promise<void> => {
-  const { apiToken, ownerId } = settings;
+  const { apiToken, ownerId, inboxEmail } = settings;
   if (!apiToken) {
     console.error('[HUBSPOT] No API token configured — skipping');
     return;
@@ -241,8 +219,10 @@ export const logCallToHubSpot = async (
     }
   }
 
-  // 2. Create inbox ticket (visible in HubSpot inbox, like a form submission)
-  await createTicket(call, contactId, ownerId, apiToken);
+  // 2. Send inbox email (appears in HubSpot Conversations Main Inbox like a form submission)
+  if (inboxEmail) {
+    await sendInboxEmail(call, inboxEmail);
+  }
 
   // 3. Log call engagement on the contact timeline
   await logCallEngagement(call, contactId, ownerId, apiToken);

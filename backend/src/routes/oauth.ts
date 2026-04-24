@@ -103,44 +103,64 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
 
     if (platform === 'whatsapp') {
       // Get WhatsApp Business Account and Phone Number ID
+      // Iterate ALL businesses to find the one with a WABA + phone number
       try {
         const wabResponse = await axios.get('https://graph.facebook.com/v18.0/me/businesses', {
           params: { access_token: accessToken },
         });
 
-        const business = wabResponse.data.data[0];
-        if (business) {
-          connectionData.accountName = business.name;
+        const businesses: any[] = wabResponse.data.data || [];
+        console.log(`[OAuth] Found ${businesses.length} businesses:`, businesses.map((b: any) => `${b.name} (${b.id})`));
+
+        let found = false;
+        for (const business of businesses) {
           try {
-            // First get the WABA(s) under this business
             const wabaResponse = await axios.get(`https://graph.facebook.com/v18.0/${business.id}/owned_whatsapp_business_accounts`, {
               params: { access_token: accessToken },
             });
-            const waba = wabaResponse.data.data[0];
-            const wabaId = waba?.id;
-            if (wabaId) {
-              // Then get phone numbers under that WABA
-              const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${wabaId}/phone_numbers`, {
-                params: { access_token: accessToken },
-              });
-              const phone = phoneResponse.data.data[0];
-              if (phone?.id) {
-                connectionData.whatsappPhoneNumberId = phone.id;
-                if (phone.display_phone_number) {
-                  connectionData.accountName = phone.display_phone_number;
+            const wabaList: any[] = wabaResponse.data.data || [];
+            console.log(`[OAuth] Business "${business.name}" has ${wabaList.length} WABA(s)`);
+
+            for (const waba of wabaList) {
+              try {
+                const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${waba.id}/phone_numbers`, {
+                  params: { access_token: accessToken },
+                });
+                const phones: any[] = phoneResponse.data.data || [];
+                console.log(`[OAuth] WABA ${waba.id} has ${phones.length} phone number(s)`);
+
+                if (phones.length > 0) {
+                  const phone = phones[0];
+                  connectionData.whatsappPhoneNumberId = phone.id;
+                  connectionData.pageId = waba.id; // store WABA ID in pageId field
+                  connectionData.accountName = phone.display_phone_number || business.name;
+                  console.log(`[OAuth] Using business "${business.name}", WABA ${waba.id}, phone ${phone.id} (${connectionData.accountName})`);
+
+                  // Subscribe this WABA to webhook events
+                  try {
+                    await axios.post(`https://graph.facebook.com/v18.0/${waba.id}/subscribed_apps`, null, {
+                      params: { access_token: accessToken },
+                    });
+                    console.log(`[OAuth] Subscribed WABA ${waba.id} to app webhooks`);
+                  } catch (subErr: any) {
+                    console.error('[OAuth] Failed to subscribe WABA to webhooks:', subErr?.response?.data ?? subErr?.message);
+                  }
+
+                  found = true;
+                  break;
                 }
-              } else {
-                connectionData.whatsappPhoneNumberId = 'pending_setup';
+              } catch (phoneErr) {
+                console.log(`[OAuth] Could not fetch phones for WABA ${waba.id}`);
               }
-            } else {
-              connectionData.whatsappPhoneNumberId = 'pending_setup';
             }
-          } catch (phoneError) {
-            console.log('[OAuth] No WhatsApp phone numbers found - this is OK for initial setup');
-            connectionData.whatsappPhoneNumberId = 'pending_setup';
+            if (found) break;
+          } catch (wabaErr) {
+            console.log(`[OAuth] Could not fetch WABAs for business "${business.name}"`);
           }
-        } else {
-          console.log('[OAuth] No business account found - storing connection for future setup');
+        }
+
+        if (!found) {
+          console.log('[OAuth] No WhatsApp phone numbers found across any business - pending_setup');
           connectionData.whatsappPhoneNumberId = 'pending_setup';
         }
       } catch (wabError) {

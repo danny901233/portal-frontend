@@ -18,6 +18,8 @@ import { resolveAllowedGarages } from '../utils/auth.js';
 import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { trackConfirmedBooking } from '../services/billing.js';
+import { logCallToHubSpot } from '../services/hubspot.js';
+import { cloneHubspotSettings } from '../utils/types.js';
 
 const router = Router();
 
@@ -237,6 +239,7 @@ router.post('/calls', async (req: Request, res: Response) => {
               select: {
                 branchName: true,
                 notificationEmails: true,
+                integrationProviderConfig: true,
               },
             },
           },
@@ -250,6 +253,39 @@ router.post('/calls', async (req: Request, res: Response) => {
         await trackConfirmedBooking(payload.garageId);
       } catch (error) {
         console.error('[BILLING] Failed to track confirmed booking:', error);
+      }
+    }
+
+    // Log to HubSpot if configured
+    const rawConfig = createdCall.garage?.agentConfiguration?.integrationProviderConfig;
+    if (rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)) {
+      const cfg = rawConfig as Record<string, unknown>;
+      const rawHubspot = (cfg.hubspot && typeof cfg.hubspot === 'object' && !Array.isArray(cfg.hubspot))
+        ? cfg.hubspot as Record<string, unknown>
+        : null;
+      if (rawHubspot?.enabled === true && typeof rawHubspot.apiToken === 'string' && rawHubspot.apiToken) {
+        const hubspotSettings = cloneHubspotSettings({
+          enabled: true,
+          apiToken: rawHubspot.apiToken,
+          ownerId: typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId : '',
+          inboxEmail: typeof rawHubspot.inboxEmail === 'string' ? rawHubspot.inboxEmail : '',
+        });
+        void logCallToHubSpot({
+          customerName: payload.customerName ?? null,
+          customerPhone: payload.customerPhone ?? null,
+          fromNumber: null,
+          registrationNumber: payload.registrationNumber ?? null,
+          summary: payload.summary,
+          bookingDetails: payload.bookingDetails ?? null,
+          confirmedBooking: payload.confirmedBooking ?? false,
+          durationSeconds: actualDuration,
+          callType: payload.callType ?? 'unknown',
+          createdAt: new Date(),
+          branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
+          recordingUrl: payload.recordingUrl ?? null,
+        }, hubspotSettings).catch((err: unknown) => {
+          console.error('[HUBSPOT] Failed to log call:', err);
+        });
       }
     }
 

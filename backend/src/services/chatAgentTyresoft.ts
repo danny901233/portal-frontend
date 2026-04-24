@@ -20,12 +20,43 @@ interface ChatAgentResponse {
   needsHumanAssistance?: boolean;
 }
 
+interface PricingTier {
+  maxCC: number;
+  price: number;
+}
+
+interface ServiceDef {
+  id: string | number;  // service code ('FS') OR Tyresoft numeric ID — DB stores string codes
+  code?: string;        // explicit string code when id is numeric
+  tsServiceId?: number; // Tyresoft numeric API service ID (for timeslots/booking); set when known
+  name: string;
+  pricingType: 'fixed' | 'engine-size';
+  price?: number;       // only for pricingType === 'fixed'
+}
+
+// Returns the string service code for pricingRules lookup
+function svcCode(s: ServiceDef): string {
+  if (typeof s.id === 'string') return s.id;
+  return s.code ?? '';
+}
+
+// Returns the numeric Tyresoft API service ID for slot/booking calls
+// Falls back to 1 (general service bay) when not yet configured
+function svcNumericId(s: ServiceDef): number {
+  if (s.tsServiceId != null) return s.tsServiceId;
+  if (typeof s.id === 'number') return s.id;
+  return 1; // general service bay — use until real ID is provided by garage
+}
+
 interface TyresoftConfig {
   workspace: string;
   username: string;
   password: string;
   apiKey: string;
   depotId: number;
+  channelId?: number;                          // Tyresoft channel ID (defaults to 24 if not set)
+  pricingRules?: Record<string, PricingTier[]>; // keyed by service code e.g. 'OIL'
+  tsServices?: ServiceDef[];                    // per-garage service list; overrides TYRESOFT_SERVICES
 }
 
 interface TyreProduct {
@@ -224,6 +255,18 @@ const TYRESOFT_SERVICES = [
   { id: 22, code: 'PUNC', name: 'Puncture Repair',               price: 12.00  },
 ];
 
+// Deterministic engine-size pricing — no LLM arithmetic
+function getServicePriceForEngine(
+  serviceCode: string,
+  engineCC: number,
+  pricingRules: Record<string, PricingTier[]>
+): number | null {
+  const tiers = pricingRules[serviceCode];
+  if (!tiers) return null;
+  const tier = tiers.find(t => engineCC <= t.maxCC);
+  return tier?.price ?? null;
+}
+
 function tsHeaders(cfg: TyresoftConfig): Record<string, string> {
   const creds = Buffer.from(`${cfg.username}:${cfg.password}`).toString('base64');
   return {
@@ -270,16 +313,23 @@ export async function getTyresoftChatResponse(
     const config = garage.agentConfiguration;
 
     // Load Tyresoft credentials from integrationProviderConfig
+    // Supports two storage formats:
+    //   flat:   { workspace, username, ... }          (legacy test/Lurgan Tyre format)
+    //   nested: { tyresoft: { tsWorkspace, ... } }    (Elite Autocare and newer garages)
     let tsConfig: TyresoftConfig | undefined;
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
       const raw = config.integrationProviderConfig as any;
-      const workspace = raw.tsWorkspace || raw.workspace || '';
-      const username  = raw.tsUsername  || raw.username  || '';
-      const password  = raw.tsPassword  || raw.password  || '';
-      const apiKey    = raw.tsApiKey    || raw.apiKey    || '';
-      const depotId   = Number(raw.tsDepotId || raw.depotId || 1);
+      const src = raw.tyresoft || raw; // resolve nested format if present
+      const workspace    = src.tsWorkspace  || src.workspace  || '';
+      const username     = src.tsUsername   || src.username   || '';
+      const password     = src.tsPassword   || src.password   || '';
+      const apiKey       = src.tsApiKey     || src.apiKey     || '';
+      const depotId      = Number(src.tsDepotId  || src.depotId  || 1);
+      const channelId    = (src.tsChannelId || src.channelId) ? Number(src.tsChannelId || src.channelId) : undefined;
+      const pricingRules: Record<string, PricingTier[]> | undefined = src.pricingRules ?? undefined;
+      const tsServices: ServiceDef[] | undefined = src.tsServices ?? undefined;
       if (workspace && username && password && apiKey) {
-        tsConfig = { workspace, username, password, apiKey, depotId };
+        tsConfig = { workspace, username, password, apiKey, depotId, channelId, pricingRules, tsServices };
       }
     }
 
@@ -287,8 +337,8 @@ export async function getTyresoftChatResponse(
 
     const isOpen    = checkOpeningHours(config.weeklyOpeningHours);
     const session   = tsSessions.get(conversationId) || {};
-    const tools     = buildTools(!!tsConfig);
-    const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig);
+    const tools     = buildTools(tsConfig);
+    const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig, tsConfig);
 
     // Build message history
     const previousMessages = (await prisma.chatMessage.findMany({
@@ -380,7 +430,8 @@ export async function getTyresoftChatResponse(
 // Tool definitions
 // ---------------------------------------------------------------------------
 
-function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
+function buildTools(tsConfig?: TyresoftConfig): OpenAI.Chat.ChatCompletionTool[] {
+  const hasCreds = !!tsConfig;
   const tools: OpenAI.Chat.ChatCompletionTool[] = [
     {
       type: 'function',
@@ -388,6 +439,21 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
         name: 'ts_get_services',
         description: 'Return the list of bookable services with prices. Call when the customer asks what services are available or wants to book a service (not tyres).',
         parameters: { type: 'object', properties: {} },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ts_get_service_price',
+        description: 'Get the exact price for a service that has engine-size-based pricing (e.g. OIL, INTS, FS). MUST call ts_lookup_vehicle first to get engineCapacity. Never calculate or guess prices yourself — always use this tool for engine-size services.',
+        parameters: {
+          type: 'object',
+          properties: {
+            serviceCode: { type: 'string', description: 'Service code from ts_get_services, e.g. OIL, INTS, FS' },
+            engineCC:    { type: 'number', description: 'Engine capacity in CC from the VRM lookup result' },
+          },
+          required: ['serviceCode', 'engineCC'],
+        },
       },
     },
     {
@@ -638,8 +704,41 @@ async function executeTool(
 
   try {
     switch (name) {
-      case 'ts_get_services':
-        return { services: TYRESOFT_SERVICES };
+      case 'ts_get_services': {
+        const serviceList = tsConfig?.tsServices
+          ? tsConfig.tsServices.map(s => ({
+              id:    svcNumericId(s),  // numeric ID for ts_get_timeslots; 1 = general bay if not yet configured
+              code:  svcCode(s),
+              name:  s.name,
+              price: s.pricingType === 'fixed'
+                ? `£${s.price!.toFixed(2)}`
+                : 'Varies by engine size — call ts_get_service_price after VRM lookup to get the exact price',
+            }))
+          : TYRESOFT_SERVICES.map(s => ({ id: s.id, code: s.code, name: s.name, price: `£${s.price.toFixed(2)}` }));
+        return { services: serviceList };
+      }
+
+      case 'ts_get_service_price': {
+        if (!tsConfig?.pricingRules) {
+          return { error: 'No engine-size pricing rules configured for this garage' };
+        }
+        // Accept both service code and service name — normalise to uppercase for lookup
+        const rawCode     = String(args.serviceCode || '');
+        const serviceCode = rawCode.toUpperCase();
+        const engineCC    = Number(args.engineCC) || 0;
+        // Try exact match first, then case-insensitive match on pricingRules keys
+        let price = getServicePriceForEngine(serviceCode, engineCC, tsConfig.pricingRules);
+        if (price === null) {
+          // Try lowercase (e.g. 'adas')
+          price = getServicePriceForEngine(rawCode.toLowerCase(), engineCC, tsConfig.pricingRules);
+        }
+        if (price === null) {
+          const knownCodes = Object.keys(tsConfig.pricingRules).join(', ');
+          return { error: `No pricing tier found for "${args.serviceCode}". Engine-size pricing is configured for: ${knownCodes}` };
+        }
+        console.log(`[TS_AGENT] Engine-size price: ${rawCode} @ ${engineCC}cc → £${price.toFixed(2)}`);
+        return { serviceCode: rawCode, engineCC, price: `£${price.toFixed(2)}`, priceNumeric: price };
+      }
 
       case 'ts_lookup_vehicle': {
         if (!tsConfig) return { error: 'Tyresoft API not configured for this garage' };
@@ -1117,19 +1216,38 @@ async function tsCreateBooking(
     }));
     console.log(`[TS_AGENT] Building tyre sale: ${Object.keys(consolidatedTyres).length} consolidated line(s) from ${tyreBasket.length} basket item(s)`);
   } else {
-    // Service booking — look up price from TYRESOFT_SERVICES by service ID
+    // Service booking — resolve price deterministically from tsServices/pricingRules, fall back to TYRESOFT_SERVICES
     items = (args.service_ids as number[]).map((sid) => {
-      const svc = TYRESOFT_SERVICES.find((s) => s.id === sid);
+      // Match by numeric ID: check tsServiceId/numeric id first, then TYRESOFT_SERVICES
+      const tsSvc = cfg.tsServices?.find(s => svcNumericId(s) === sid);
+      const fallbackSvc = TYRESOFT_SERVICES.find(s => s.id === sid);
+      const code = tsSvc ? svcCode(tsSvc) : (fallbackSvc?.code ?? '');
+      const name = tsSvc?.name ?? fallbackSvc?.name ?? '';
+
+      // Deterministic price: use pricingRules if engine-size service
+      let unitCost = tsSvc?.price ?? fallbackSvc?.price ?? 0;
+      if (tsSvc?.pricingType === 'engine-size' && cfg.pricingRules && session.vehicle?.engineCapacity) {
+        const deterministicPrice = getServicePriceForEngine(
+          svcCode(tsSvc),
+          Number(session.vehicle.engineCapacity),
+          cfg.pricingRules
+        );
+        if (deterministicPrice !== null) {
+          console.log(`[TS_AGENT] Deterministic price for ${svcCode(tsSvc)} @ ${session.vehicle.engineCapacity}cc → £${deterministicPrice}`);
+          unitCost = deterministicPrice;
+        }
+      }
+
       return {
-        saleLineID:           0,
-        productID:            0,
-        serviceID:            sid,
-        itemCode:             svc?.code ?? '',
-        itemDescription:      svc?.name ?? '',
-        quantity:             1,
-        unitCost:             svc?.price ?? 0,
-        unitCostIncludesVAT:  true,
-        discount:             0,
+        saleLineID:          0,
+        productID:           0,
+        serviceID:           sid,
+        itemCode:            code,
+        itemDescription:     name,
+        quantity:            1,
+        unitCost,
+        unitCostIncludesVAT: true,
+        discount:            0,
       };
     });
   }
@@ -1174,7 +1292,7 @@ async function tsCreateBooking(
       poNumber:    '',
       flag:        0,
       flagNotes:   '',
-      channelID:   24, // ReceptionMate API channel
+      channelID:   cfg.channelId ?? 24, // ReceptionMate API channel (per-garage override)
       orderStatus: 'Awaiting Acknowledgement',
       bookingSlot: {
         date:            slotDate,
@@ -1200,8 +1318,8 @@ async function tsCreateBooking(
           return acc;
         }, {})).map((t: any) => `${t.quantity}x ${t.description} @ £${t.unitPrice}`).join(', ')
       : (args.service_ids as number[]).map((sid: number) => {
-          const svc = TYRESOFT_SERVICES.find(s => s.id === sid);
-          return svc ? `${svc.name} @ £${svc.price}` : `serviceID=${sid}`;
+          const svc = cfg.tsServices?.find(s => svcNumericId(s) === sid) ?? TYRESOFT_SERVICES.find(s => s.id === sid);
+          return svc ? svc.name : `serviceID=${sid}`;
         }).join(', ');
 
     console.log(`[BOOKING CREATED] ${JSON.stringify({
@@ -1259,7 +1377,8 @@ function buildSystemPrompt(
   knowledgeDocs: any[],
   isOpen: boolean,
   session: TyresoftSession,
-  hasCreds: boolean
+  hasCreds: boolean,
+  tsConfig?: TyresoftConfig
 ): string {
   const branchName = config.branchName || 'our garage';
 
@@ -1315,7 +1434,9 @@ function buildSystemPrompt(
     prompt += `   The VRM lookup returns engineCapacity — use it to auto-select the correct service tier. Never ask the customer for engine size manually.\n`;
     prompt += `2. After ts_lookup_vehicle, confirm the vehicle: "I can see that's a [year] [make] [model] — is that correct?"\n`;
     prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
-    prompt += `3. Call ts_get_services to match the customer's request using engineCapacity from the VRM lookup.\n`;
+    prompt += `3. Call ts_get_services to match the customer's request.\n`;
+    prompt += `   If the service shows "Varies by engine size", call ts_get_service_price with the service code and engineCapacity from the VRM lookup to get the exact price before quoting it.\n`;
+    prompt += `   Never quote a price for engine-size services without calling ts_get_service_price first.\n`;
     prompt += `4. Call ts_get_timeslots with the correct service_id(s).\n`;
     prompt += `5. Offer 3-4 slots. If the customer states a time preference, call ts_check_preferred_time before listing slots.\n`;
     prompt += `6. When customer picks a slot, immediately call ts_confirm_slot to save it.\n`;
@@ -1367,7 +1488,10 @@ function buildSystemPrompt(
         prompt += ` — do NOT call ts_lookup_vehicle again\n`;
       }
       if (session.serviceIds?.length) {
-        const serviceNames = session.serviceIds.map(id => TYRESOFT_SERVICES.find(s => s.id === id)?.name || `ID ${id}`).join(', ');
+        const serviceNames = session.serviceIds.map(id => {
+          const svc = tsConfig?.tsServices?.find(s => svcNumericId(s) === id) ?? TYRESOFT_SERVICES.find(s => s.id === id);
+          return svc?.name || `ID ${id}`;
+        }).join(', ');
         prompt += `- Service selected: ${serviceNames} (IDs: ${session.serviceIds.join(', ')})\n`;
       }
       if (session.tyreBasket?.length) {

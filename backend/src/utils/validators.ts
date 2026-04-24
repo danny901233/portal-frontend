@@ -251,7 +251,6 @@ export const upsertAgentConfigurationSchema = z.object({
   allowBookings: z.boolean().optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
-  humanEscalation: z.boolean().optional(),
 }).superRefine((value, ctx) => {
   const provider = value.integrationProvider ?? 'none';
   if (provider !== 'garage_hive') {

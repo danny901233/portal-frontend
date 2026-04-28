@@ -330,7 +330,7 @@ async function sendReplyToChannel(
   if (platform === 'facebook') {
     if (!platformUserId) return;
     await axios.post(
-      'https://graph.facebook.com/v18.0/me/messages',
+      `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
       {
         recipient: { id: platformUserId },
         message: { text: message },

@@ -517,7 +517,7 @@ router.post(
           garage: {
             include: {
               socialMediaConnections: {
-                where: { platform: { in: ['whatsapp', 'facebook', 'instagram'] } },
+                where: { platform: { in: ['whatsapp', 'facebook', 'instagram'] }, isActive: true },
               },
             },
           },
@@ -811,6 +811,8 @@ async function sendMessage(
       {
         recipient: { id: conversation.platformUserId },
         message: { text: content },
+        messaging_type: 'MESSAGE_TAG',
+        tag: 'HUMAN_AGENT',
       },
       {
         headers: { Authorization: `Bearer ${connection.accessToken}` },

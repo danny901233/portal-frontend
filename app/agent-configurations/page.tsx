@@ -148,6 +148,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   agentType: 'assist',
   agentScript: 'receptionmate-agent-v3',
   enableSmsBookingLinks: true,
+  transferNumber: '',
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
@@ -1505,6 +1506,18 @@ export default function AgentConfigurationsPage() {
                 className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
             </label>
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              <span className="text-xs uppercase tracking-wide text-slate-500">Transfer number</span>
+              <input
+                type="text"
+                value={formState.transferNumber}
+                onChange={handleInputChange('transferNumber')}
+                disabled={!isEditing || mutation.isPending}
+                placeholder="e.g. 07700 900123"
+                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <span className="text-xs text-slate-500">When a caller asks to speak to a human, the AI will transfer them to this number.</span>
+            </label>
           </div>
         </section>
 
@@ -2269,7 +2282,7 @@ export default function AgentConfigurationsPage() {
                     <ol className="flex flex-col gap-2 text-slate-400 list-decimal list-inside">
                       <li>Log in to HubSpot → Settings (top-right gear icon).</li>
                       <li>Go to <span className="text-slate-200">Integrations → Legacy Apps</span> → create or open your app.</li>
-                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">crm.objects.calls.write</code>.</li>
+                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">crm.objects.tickets.write</code>.</li>
                       <li>Copy the token (starts with <code className="text-sky-300">pat-</code>) and paste it below.</li>
                       <li>To get your Inbox Email: go to <span className="text-slate-200">Conversations → Settings → Inboxes</span> → click your inbox → <span className="text-slate-200">Team email</span> tab → copy the address (e.g. <code className="text-sky-300">support@12345.hs-inbox.com</code>).</li>
                     </ol>

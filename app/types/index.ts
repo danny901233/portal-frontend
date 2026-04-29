@@ -179,12 +179,27 @@ export interface GarageHiveSettings {
   locationId: string;
 }
 
+export interface PricingBracket {
+  maxCC: number;
+  price: number;
+}
+
+export interface TsService {
+  id: string;
+  name: string;
+  pricingType: 'fixed' | 'engine-size';
+  price?: number;
+}
+
 export interface TyresoftSettings {
   tsWorkspace: string;
   tsUsername: string;
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
+  tsChannelId?: number;
+  tsServices?: TsService[];
+  pricingRules?: Record<string, PricingBracket[]>;
 }
 
 export interface HubspotSettings {
@@ -218,6 +233,7 @@ export interface AgentConfiguration {
   agentType: AgentType;
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks: boolean;
+  transferNumber: string;
   allowBookings: boolean;
   bookingLeadTimeDays: number;
   voice: VoiceOption;

@@ -2097,9 +2097,9 @@ export default function AgentConfigurationsPage() {
                     <ol className="flex flex-col gap-2 text-slate-400 list-decimal list-inside">
                       <li>Log in to HubSpot → Settings (top-right gear icon).</li>
                       <li>Go to <span className="text-slate-200">Integrations → Legacy Apps</span> → create or open your app.</li>
-                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>.</li>
+                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">tickets</code>, <code className="text-sky-300">crm.objects.calls.write</code>.</li>
                       <li>Copy the token (starts with <code className="text-sky-300">pat-</code>) and paste it below.</li>
-                      <li>To get your Inbox Email: go to <span className="text-slate-200">Conversations → Settings → Inboxes</span> → click your inbox → <span className="text-slate-200">Team email</span> tab → copy the address (e.g. <code className="text-sky-300">support@12345.hs-inbox.com</code>).</li>
+                      <li>Optionally enter your HubSpot Owner ID to assign tickets and calls to a specific user. Leave blank to log without an owner.</li>
                     </ol>
                   </div>
                   <div className="grid gap-5 md:grid-cols-2">

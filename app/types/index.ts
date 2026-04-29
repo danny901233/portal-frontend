@@ -197,7 +197,7 @@ export interface TyresoftSettings {
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
-  tsChannelId?: string;
+  tsChannelId?: number;
   tsServices?: TsService[];
   pricingRules?: Record<string, PricingBracket[]>;
 }
@@ -233,6 +233,7 @@ export interface AgentConfiguration {
   agentType: AgentType;
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
   enableSmsBookingLinks: boolean;
+  transferNumber: string;
   allowBookings: boolean;
   bookingLeadTimeDays: number;
   voice: VoiceOption;

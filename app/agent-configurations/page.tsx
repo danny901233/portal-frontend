@@ -94,6 +94,8 @@ const createEmptyTyresoftSettings = (): TyresoftSettings => ({
   tsPassword: '',
   tsApiKey: '',
   tsDepotId: '',
+  tyreMarkupFlat: '',
+  tyreMarkupPercent: '',
 });
 
 const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): TyresoftSettings => ({
@@ -102,6 +104,8 @@ const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): Tyresoft
   tsPassword: settings?.tsPassword ?? '',
   tsApiKey: settings?.tsApiKey ?? '',
   tsDepotId: settings?.tsDepotId ?? '',
+  tyreMarkupFlat: settings?.tyreMarkupFlat ?? '',
+  tyreMarkupPercent: settings?.tyreMarkupPercent ?? '',
 });
 
 const createEmptyHubspotSettings = (): HubspotSettings => ({
@@ -1909,6 +1913,34 @@ export default function AgentConfigurationsPage() {
                       className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Tyre Markup — Flat (£)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="e.g. 28"
+                      value={formState.tyresoftSettings.tyreMarkupFlat ?? ''}
+                      onChange={handleTyresoftSettingsChange('tyreMarkupFlat')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-xs text-slate-500">Fixed amount added to each tyre price. Leave blank for no markup.</span>
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Tyre Markup — Percentage (%)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      placeholder="e.g. 10"
+                      value={formState.tyresoftSettings.tyreMarkupPercent ?? ''}
+                      onChange={handleTyresoftSettingsChange('tyreMarkupPercent')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-xs text-slate-500">Percentage added on top of tyre price. Leave blank for no markup.</span>
+                  </label>
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -1931,6 +1963,18 @@ export default function AgentConfigurationsPage() {
                   <div>
                     <span className="text-xs uppercase tracking-wide text-slate-500">Depot ID</span>
                     <div className="text-slate-100">{formState.tyresoftSettings.tsDepotId || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Tyre Markup — Flat</span>
+                    <div className="text-slate-100">
+                      {formState.tyresoftSettings.tyreMarkupFlat ? `£${parseFloat(formState.tyresoftSettings.tyreMarkupFlat).toFixed(2)}` : 'None'}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Tyre Markup — Percentage</span>
+                    <div className="text-slate-100">
+                      {formState.tyresoftSettings.tyreMarkupPercent ? `${formState.tyresoftSettings.tyreMarkupPercent}%` : 'None'}
+                    </div>
                   </div>
                 </div>
               )}

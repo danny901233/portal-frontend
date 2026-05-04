@@ -111,6 +111,8 @@ const parseIntegrationSettings = (
           tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
           tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
           tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
+          ...(raw.tyreMarkupFlat != null ? { tyreMarkupFlat: String(raw.tyreMarkupFlat) } : {}),
+          ...(raw.tyreMarkupPercent != null ? { tyreMarkupPercent: String(raw.tyreMarkupPercent) } : {}),
         }),
       };
     }
@@ -179,6 +181,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   agentType: 'assist',
   enableSmsBookingLinks: true,
   humanEscalation: true,
+  transferNumber: '',
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
@@ -222,6 +225,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       'receptionmate-agent',
     enableSmsBookingLinks: config.enableSmsBookingLinks ?? true,
     humanEscalation: config.humanEscalation ?? true,
+    transferNumber: config.transferNumber ?? '',
     allowBookings: config.allowBookings ?? false,
     bookingLeadTimeDays: config.bookingLeadTimeDays ?? 1,
     voice: config.voice ?? 'leah',
@@ -256,6 +260,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
     humanEscalation: (configuration as Record<string, unknown>).humanEscalation !== false,
+    transferNumber: (configuration as Record<string, unknown>).transferNumber as string ?? '',
     allowBookings: configuration.allowBookings || false,
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
@@ -683,14 +688,22 @@ router.put(
           return {};
         })();
 
+    const existingTsConfig = (existingConfig?.integrationProviderConfig as Record<string, unknown>) ?? {};
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
+            ...existingTsConfig,
             tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
             tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
             tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
             tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
+            ...(rawTyresoft.tyreMarkupFlat != null && rawTyresoft.tyreMarkupFlat !== ''
+              ? { tyreMarkupFlat: parseFloat(String(rawTyresoft.tyreMarkupFlat)) }
+              : {}),
+            ...(rawTyresoft.tyreMarkupPercent != null && rawTyresoft.tyreMarkupPercent !== ''
+              ? { tyreMarkupPercent: parseFloat(String(rawTyresoft.tyreMarkupPercent)) }
+              : {}),
             ...hubspotPayload,
           }
         : resolvedAgentScript === 'tyresoft-agent' && existingConfig?.integrationProviderConfig
@@ -731,6 +744,7 @@ router.put(
       agentScript: resolvedAgentScript,
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
       humanEscalation: data.humanEscalation !== false,
+      transferNumber: data.transferNumber || null,
       allowBookings: data.allowBookings ?? false,
       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',

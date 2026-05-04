@@ -200,6 +200,8 @@ export interface TyresoftSettings {
   tsChannelId?: number;
   tsServices?: TsService[];
   pricingRules?: Record<string, PricingBracket[]>;
+  tyreMarkupFlat?: string;
+  tyreMarkupPercent?: string;
 }
 
 export interface HubspotSettings {

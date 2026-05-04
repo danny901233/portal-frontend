@@ -58,6 +58,8 @@ export type TyresoftSettings = {
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
+  tyreMarkupFlat?: string;
+  tyreMarkupPercent?: string;
 };
 
 export const createDefaultTyresoftSettings = (): TyresoftSettings => ({
@@ -74,6 +76,8 @@ export const cloneTyresoftSettings = (settings?: TyresoftSettings | null): Tyres
   tsPassword: typeof settings?.tsPassword === 'string' ? settings.tsPassword : '',
   tsApiKey: typeof settings?.tsApiKey === 'string' ? settings.tsApiKey : '',
   tsDepotId: typeof settings?.tsDepotId === 'string' ? settings.tsDepotId : (settings?.tsDepotId != null ? String(settings.tsDepotId) : ''),
+  ...(settings?.tyreMarkupFlat != null ? { tyreMarkupFlat: String(settings.tyreMarkupFlat) } : {}),
+  ...(settings?.tyreMarkupPercent != null ? { tyreMarkupPercent: String(settings.tyreMarkupPercent) } : {}),
 });
 
 export type GarageHiveSettings = {

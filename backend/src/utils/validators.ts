@@ -151,6 +151,8 @@ const tyresoftSettingsSchema = z
     tsPassword: optionalBoundedString(1000),
     tsApiKey: optionalBoundedString(1000),
     tsDepotId: z.union([z.string().max(20), z.number()]).optional(),
+    tyreMarkupFlat: z.union([z.string().max(20), z.number()]).optional(),
+    tyreMarkupPercent: z.union([z.string().max(20), z.number()]).optional(),
   })
   .optional();
 

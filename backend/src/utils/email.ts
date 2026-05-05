@@ -188,10 +188,14 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+  timeZone: 'Europe/London',
+
   });
   const formattedTime = date.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   });
 
   const formattedBookingDate = bookingDate ? new Date(bookingDate).toLocaleDateString('en-GB', {
@@ -200,6 +204,8 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   }) : null;
 
   return `
@@ -392,10 +398,14 @@ const generateCallSummaryText = (data: CallSummaryEmailData): string => {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+  timeZone: 'Europe/London',
+
   });
   const formattedTime = date.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   });
 
   const formattedBookingDate = bookingDate ? new Date(bookingDate).toLocaleDateString('en-GB', {
@@ -404,6 +414,8 @@ const generateCallSummaryText = (data: CallSummaryEmailData): string => {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   }) : null;
 
   let text = `ReceptionMate - New Call Handled\n`;
@@ -500,6 +512,8 @@ export const sendPaymentSetupReminderEmail = async (
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   });
 
   const html = `
@@ -655,6 +669,8 @@ export const sendNegativeFeedbackEmail = async (
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   });
 
   const html = `

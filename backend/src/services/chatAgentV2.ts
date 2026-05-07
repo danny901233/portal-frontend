@@ -68,6 +68,8 @@ interface ChatSession {
   servicesAvailable: any[];
   serviceSelectedId: string;
   serviceSelectedName: string;
+  serviceSelectedIds: string[];   // all selected service IDs (multi-service bookings)
+  serviceSelectedNames: string[]; // matching display names
   servicePrice: string;
   
   // Timeslot
@@ -86,6 +88,7 @@ interface ChatSession {
   contactHouseNumber: string;
   postcodeConfirmed: boolean;
   notes: string;
+  vehicleMileage?: number;
   
   // Message
   message: string;
@@ -146,7 +149,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
       // If the last message was more than 4 hours ago, treat as a fresh conversation
       // (keeps their name/phone but resets all booking state)
       const lastMsg = rows[0].lastMessageAt ? new Date(rows[0].lastMessageAt) : null;
-      const ageMs = lastMsg ? Date.now() - lastMsg.getTime() : Infinity;
+      const ageMs = lastMsg ? Date.now() - lastMsg.getTime() : 0; // null = brand new conversation, not expired
       const SESSION_EXPIRY_MS = 4 * 60 * 60 * 1000; // 4 hours
       if (ageMs > SESSION_EXPIRY_MS) {
         console.log(`[GET_SESSION] Session expired (last message ${Math.round(ageMs / 60000)}min ago) — starting fresh`);
@@ -159,7 +162,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           customerNameLast: oldData.customerNameLast || '',
           vrn: '', vrnConfirmed: false, sessionId: '',
           vehicleMake: '', vehicleModel: '',
-          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', serviceSelectedIds: [], serviceSelectedNames: [], servicePrice: '',
           timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
           bookingDate: '', bookingTime: '',
           contactPhone: oldData.contactPhone || '',
@@ -190,6 +193,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         servicesAvailable: sessionData.servicesAvailable || [],
         serviceSelectedId: sessionData.serviceSelectedId || '',
         serviceSelectedName: sessionData.serviceSelectedName || '',
+        serviceSelectedIds: sessionData.serviceSelectedIds || [],
+        serviceSelectedNames: sessionData.serviceSelectedNames || [],
         servicePrice: sessionData.servicePrice || '',
         timeslotsAvailable: sessionData.timeslotsAvailable || [],
         pendingSlotDate: sessionData.pendingSlotDate || '',
@@ -213,6 +218,13 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         outboundRegistration: sessionData.outboundRegistration || undefined,
         outboundServiceType: sessionData.outboundServiceType || undefined,
         outboundDueDate: sessionData.outboundDueDate || undefined,
+        // Map outboundServiceType → serviceHint so confirm_vehicle auto-selects the service
+        // without asking "What sort of service were you after?"
+        serviceHint: sessionData.serviceHint || (
+          sessionData.outboundServiceType
+            ? (sessionData.outboundServiceType === 'service' ? 'Full Service' : 'MOT')
+            : undefined
+        ),
       };
       // Guard: if session is mid-booking but has no GarageHive sessionId, the previous
       // vehicle lookup failed or was never saved. Reset back to need_vrn so the bot
@@ -262,6 +274,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     servicesAvailable: [],
     serviceSelectedId: '',
     serviceSelectedName: '',
+    serviceSelectedIds: [],
+    serviceSelectedNames: [],
     servicePrice: '',
     timeslotsAvailable: [],
     pendingSlotDate: '',
@@ -415,6 +429,31 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
+    // Auto-lookup for outbound campaign replies: if we have the registration from seeding but
+    // haven't called GH yet, do the vehicle lookup automatically so the LLM only needs to call
+    // confirm_vehicle (a simple, reliable instruction) rather than figuring out to call lookup_vehicle.
+    if (session.outboundRegistration && !session.vrn && GH_CUSTOMER_ID && GH_API_KEY) {
+      console.log(`[OUTBOUND_AUTO_LOOKUP] Pre-looking up ${session.outboundRegistration} before LLM call`);
+      await handleLookupVehicle({ registration: session.outboundRegistration }, session, conversationId);
+      console.log(`[OUTBOUND_AUTO_LOOKUP] Post-lookup: step=${session.step}, vrn=${session.vrn}, make=${session.vehicleMake}`);
+    }
+
+    // Fast-path: MESSAGE_ONLY follow-up — customer messaged again after take_message was called.
+    // They might be asking "am I booked?", saying thanks, or asking a follow-up question.
+    // Reassure them the team will be in touch; if they want to book instead, let the restart path handle it below.
+    if (session.step === Step.MESSAGE_ONLY) {
+      const lower = message.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+      const wantsBooking = /\b(book|booking|service|mot|appointment|slot|come in|bring (it|the car)|actually|instead)\b/.test(lower);
+      if (!wantsBooking) {
+        const name = session.customerNameFirst || '';
+        const nameStr = name ? `, ${name}` : '';
+        return {
+          content: `You're all set${nameStr} — the team has your details and will give you a call to confirm everything. Is there anything else I can help you with?`,
+          needsHumanAssistance: false,
+        };
+      }
+    }
+
     // Fast-path: restart/cancel detection — customer wants to start over or give up
     // Only trigger before booking is confirmed (no point resetting after CONFIRMED/DONE)
     if (session.step !== Step.CONFIRMED && session.step !== Step.DONE && session.step !== Step.GREETING) {
@@ -433,7 +472,7 @@ export async function getChatAgentResponse(
           intent: '',
           vrn: '', vrnConfirmed: false, sessionId: '',
           vehicleMake: '', vehicleModel: '',
-          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', serviceSelectedIds: [], serviceSelectedNames: [], servicePrice: '',
           timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
           bookingDate: '', bookingTime: '',
           contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
@@ -682,6 +721,8 @@ export async function getChatAgentResponse(
       let needContactFastPath = false;
       let needTimeslotFastPath = false;
       let timeslotFastPathContent = '';
+      let needSlotConfirmFastPath = false;
+      let slotConfirmFastPathContent = '';
 
       for (const toolCall of toolCalls) {
         if (toolCall.type !== 'function') continue;
@@ -707,6 +748,17 @@ export async function getChatAgentResponse(
             role: 'tool',
             tool_call_id: toolCall.id,
             content: 'Skipped - contact collection in progress',
+          });
+          continue;
+        }
+
+        // If timeslot was already proposed this batch, skip remaining tool calls
+        if (needSlotConfirmFastPath) {
+          console.log(`[CHAT_AGENT_V2] Skipping ${functionName} - slot already proposed, using slot-confirm fast-path`);
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: 'Skipped - timeslot proposed, awaiting customer confirmation',
           });
           continue;
         }
@@ -750,6 +802,17 @@ export async function getChatAgentResponse(
             console.log(`[CHAT_AGENT_V2] Service set — using timeslot fast-path`);
           }
         }
+
+        // If select_timeslot proposed a slot (step→NEED_SLOT_CONFIRM), return it directly
+        // without another LLM pass — LLM ignores "Say ONLY" when timeslots list is still in system prompt
+        if (functionName === 'select_timeslot' && (session.step as Step) === Step.NEED_SLOT_CONFIRM) {
+          const sayMatch = instructions.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i);
+          if (sayMatch) {
+            needSlotConfirmFastPath = true;
+            slotConfirmFastPathContent = sayMatch[1].trim();
+            console.log(`[CHAT_AGENT_V2] Slot proposed — using slot-confirm fast-path: "${slotConfirmFastPathContent}"`);
+          }
+        }
       }
 
       // Hand off to fast-path if any tool transitioned us into NEED_CONTACT
@@ -783,6 +846,14 @@ export async function getChatAgentResponse(
       if (needTimeslotFastPath && timeslotFastPathContent) {
         return {
           content: timeslotFastPathContent,
+          needsHumanAssistance: false,
+        };
+      }
+
+      // Timeslot proposed — return the slot confirmation question directly without another GPT call
+      if (needSlotConfirmFastPath && slotConfirmFastPathContent) {
+        return {
+          content: slotConfirmFastPathContent,
           needsHumanAssistance: false,
         };
       }
@@ -1228,9 +1299,6 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     normalized = normalized.slice(0, 7);
   }
   
-  session.vrn = normalized;
-  await saveSession(conversationId, session);
-  
   try {
     // Build VRN variant list — try all common misread substitutions at every position
     const regsToTry = [normalized];
@@ -1388,11 +1456,23 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
     
     // Service hint set — auto-select the service without asking, bypass OpenAI improvisation
     if (session.serviceHint) {
-      const vehicleGreet = `Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel} on the system.`;
-      const slotInstruction = await handleSelectService({ service_name: session.serviceHint }, session, conversationId);
-      const slotMsg = instructionToCustomerReply(slotInstruction);
-      console.log(`[CONFIRM_VEHICLE] serviceHint="${session.serviceHint}" — auto-selected service, returning combined instruction`);
-      return `VEHICLE_AND_SERVICE_SET.\nSay: "${vehicleGreet}\n\n${slotMsg}"\nWhen the customer picks a slot, call select_timeslot.`;
+      // Load timeslots into session internally — do NOT present them yet
+      await handleSelectService({ service_name: session.serviceHint }, session, conversationId);
+      // handleSelectService transitions step to NEED_TIMESLOT on success.
+      // If it returned NO_SERVICE_MATCH (service name not found), step stays NEED_SERVICE.
+      // Force advance to NEED_TIMESLOT so the upsell greeting fires exactly once —
+      // without this, the next customer message re-triggers SERVICE ALREADY KNOWN and
+      // the greeting + upsell repeats.
+      if ((session.step as Step) === Step.NEED_SERVICE) {
+        session.step = Step.NEED_TIMESLOT;
+        await saveSession(conversationId, session);
+        console.log(`[CONFIRM_VEHICLE] serviceHint="${session.serviceHint}" — service not matched, forced step to NEED_TIMESLOT`);
+      }
+      const firstName = session.customerNameFirst || '';
+      const firstNameStr = firstName ? ` ${firstName}` : '';
+      const svcType = session.serviceHint;
+      console.log(`[CONFIRM_VEHICLE] serviceHint="${svcType}" — auto-selected service, upsell then date`);
+      return `VEHICLE_AND_SERVICE_SET.\nSay two separate messages:\n1. "Hi${firstNameStr}! Great, I can get that ${svcType} booked in for you 😊" (warm, brief)\n2. "Is there anything else that needs looking at whilst the vehicle's in with us?" (upsell — new bubble)\nWAIT for their reply.\n- If they mention a specific additional service (e.g. "full service", "oil change", "brakes", "interim service"), call select_service with that service name first. After it's added, ask: "Do you have a preferred date in mind, or shall I suggest the earliest available?"\n- If they mention vague extra work that isn't a named service, note it in the booking notes, then ask for a date.\n- If they say anything like "no", "that's all", "nothing else", "just the ${svcType}", or any negative/short reply — do NOT say goodbye. This is NOT the end of the conversation. Ask: "Do you have a preferred date in mind, or shall I suggest the earliest available?"\nWhen they respond with a date preference, call select_timeslot with their preference (or "earliest" if they want the first available slot).`;
     }
 
     const servicePrompt = `Say: "Perfect! I've got your ${session.vehicleMake} ${session.vehicleModel}. What work does it need?"\nWait for their answer, then call select_service with the service name they mention.`;
@@ -1413,13 +1493,39 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   }
 
   if (session.step === Step.NEED_TIMESLOT && session.serviceSelectedName && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
+    // Try to add the new service on top of the existing one(s)
+    const additionalMatch = matchService(service_name, session.servicesAvailable) ||
+      (await specialistServiceMatch(service_name, session.servicesAvailable))?.service;
+
+    if (additionalMatch && !session.serviceSelectedIds.includes(String(additionalMatch.service_price_id))) {
+      console.log(`[SELECT_SERVICE] Adding extra service: ${additionalMatch.name} to existing ${session.serviceSelectedName}`);
+      try {
+        const allIds = [...session.serviceSelectedIds, String(additionalMatch.service_price_id)];
+        await ghSetServices(session.sessionId, allIds);
+        const timeslots = await ghListTimeslots(session.sessionId);
+
+        session.serviceSelectedIds = allIds;
+        session.serviceSelectedNames = [...session.serviceSelectedNames, cleanServiceName(additionalMatch.name)];
+        session.serviceSelectedName = session.serviceSelectedNames.join(' + ');
+        session.timeslotsAvailable = timeslots;
+        await saveSession(conversationId, session);
+
+        const firstSlots = formatSlotsAsNumberedList(timeslots);
+        return `SERVICE_ADDED: ${session.serviceSelectedName}.\nSay: "No problem — I've added a ${cleanServiceName(additionalMatch.name)} to the booking too. Do you have a preferred date in mind, or shall I suggest the earliest available?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
+      } catch (err) {
+        console.error('[SELECT_SERVICE] Failed to add extra service:', err);
+        // Fall through to re-present existing timeslots
+      }
+    }
+
+    // Couldn't add (no match or already included) — re-present existing timeslots
     console.log('[STATE_GUARD] select_service called again after service already set — re-presenting timeslots');
     const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
     const makeTitle = (session.vehicleMake || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const priceNum = parseFloat(String(session.servicePrice));
     const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
-    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
+    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "I've got you down for a ${session.serviceSelectedName}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
   }
 
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
@@ -1546,10 +1652,12 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   
   try {
     // Set service via API
-    await ghSetService(session.sessionId, String(serviceId));
-    
+    await ghSetServices(session.sessionId, [String(serviceId)]);
+
     session.serviceSelectedId = String(serviceId);
     session.serviceSelectedName = cleanServiceName(serviceName);
+    session.serviceSelectedIds = [String(serviceId)];
+    session.serviceSelectedNames = [cleanServiceName(serviceName)];
     session.servicePrice = price;
     session.step = Step.NEED_TIMESLOT;
     
@@ -1822,6 +1930,7 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
       contact_salutation: 10,
       contact_address2: '',
       notes: session.notes || '',
+      vehicle_mileage: session.vehicleMileage ?? 0,
     });
     
     if (result.status === 'error') {
@@ -1846,7 +1955,11 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     return `${summary}\n\nSay: "All done! You're booked in for ${dateNatural} at ${timeNatural} for a ${session.serviceSelectedName}${confirmedPriceDisplay !== 'POA' ? ` (${confirmedPriceDisplay})` : ''}. We'll send you a confirmation email. See you then! 👍"\n\nBooking complete - conversation can end naturally.`;
     
   } catch (error: any) {
-    console.error('[SET_CONTACT] API error:', error);
+    const errData = error.response?.data;
+    console.error('[SET_CONTACT] API error:', JSON.stringify(errData || error.message));
+    // Mark session as done so follow-up messages get a sensible reply, not re-asked for contact details
+    session.step = Step.MESSAGE_ONLY;
+    await saveSession(conversationId, session);
     return `API error confirming booking.\nSay: "All sorted! The team will give you a call to confirm everything. Thanks ${session.customerNameFirst}! 👍"\nDone.`;
   }
 }
@@ -1878,43 +1991,54 @@ async function ghInitAndSetVehicle(registration: string): Promise<any> {
   if (!GH_CUSTOMER_ID || !GH_API_KEY) {
     throw new Error('GarageHive not configured');
   }
-  
-  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
+
+  // Snapshot credentials locally to avoid race condition with concurrent requests
+  // overwriting the module-level globals between the init and set-vehicle-info calls.
+  const customerId = GH_CUSTOMER_ID;
+  const apiKey = GH_API_KEY;
+  const locationId = parseInt(GH_LOCATION_ID);
+
+  const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${customerId}`;
   const headers = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${GH_API_KEY}`,
+    'Authorization': `Bearer ${apiKey}`,
   };
-  
-  try {
-    // Step 1: Init
-    const initResponse = await axios.post(`${baseUrl}/init`, {}, { headers });
-    const booking = initResponse.data.booking || {};
-    const sessionId = booking.session_id || initResponse.data.sessionId;
-    
-    if (!sessionId) {
-      return { error: 'No session_id in init response' };
+
+  async function tryWithLocation(locId: number): Promise<any> {
+    try {
+      const initResponse = await axios.post(`${baseUrl}/init`, {}, { headers });
+      const booking = initResponse.data.booking || {};
+      const sessionId = booking.session_id || initResponse.data.sessionId;
+      if (!sessionId) return { error: 'No session_id in init response' };
+
+      const vehicleResponse = await axios.post(
+        `${baseUrl}/${sessionId}/set-vehicle-info`,
+        { registration_no: registration, reg_no_country: 'GB', location_id: locId },
+        { headers }
+      );
+      return { ...vehicleResponse.data, session_id: sessionId };
+    } catch (error: any) {
+      const errData = error.response?.data || error.message;
+      console.error('[GH_INIT_VEHICLE] Error:', errData);
+      return { error: errData };
     }
-    
-    // Step 2: Set vehicle
-    const vehicleResponse = await axios.post(
-      `${baseUrl}/${sessionId}/set-vehicle-info`,
-      {
-        registration_no: registration,
-        reg_no_country: 'GB',
-        location_id: parseInt(GH_LOCATION_ID),
-      },
-      { headers }
-    );
-    
-    return {
-      ...vehicleResponse.data,
-      session_id: sessionId,
-    };
-    
-  } catch (error: any) {
-    console.error('[GH_INIT_VEHICLE] Error:', error.response?.data || error.message);
-    return { error: error.response?.data || error.message };
   }
+
+  const result = await tryWithLocation(locationId);
+
+  // If the primary location wasn't found, try the sibling location (handles test accounts
+  // where vehicles are registered under a different branch location ID).
+  if (result.error && typeof result.error === 'object' && result.error.message === 'Selected location not found') {
+    const KNOWN_LOCATION_IDS = [399, 398, 210, 390];
+    for (const fallbackId of KNOWN_LOCATION_IDS) {
+      if (fallbackId === locationId) continue;
+      console.log(`[GH_INIT_VEHICLE] Location ${locationId} not found, retrying with location ${fallbackId}`);
+      const fallback = await tryWithLocation(fallbackId);
+      if (!fallback.error) return fallback;
+    }
+  }
+
+  return result;
 }
 
 async function ghListServices(sessionId: string): Promise<any[]> {
@@ -1931,19 +2055,19 @@ async function ghListServices(sessionId: string): Promise<any[]> {
   return response.data.services || [];
 }
 
-async function ghSetService(sessionId: string, servicePriceId: string): Promise<any> {
+async function ghSetServices(sessionId: string, serviceIds: string[]): Promise<any> {
   const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${GH_API_KEY}`,
   };
-  
+
   const response = await axios.post(
     `${baseUrl}/${sessionId}/set-services`,
-    { servicePriceIDs: [parseInt(servicePriceId)] },
+    { servicePriceIDs: serviceIds.map(id => parseInt(id)) },
     { headers }
   );
-  
+
   return response.data;
 }
 
@@ -2328,8 +2452,8 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     });
   }
 
-  // "First", "earliest", "ASAP"
-  if (/\b(first|earliest|asap|soonest)\b/.test(prefLower)) return timeslots[0];
+  // "First", "earliest", "ASAP", or bare yes/sure meaning "yes, suggest one"
+  if (/\b(first|earliest|asap|soonest|yes|yeah|sure|go ahead|sounds good)\b/.test(prefLower)) return timeslots[0];
 
   // "Last", "latest"
   if (/\b(last|latest)\b/.test(prefLower)) return timeslots[timeslots.length - 1];
@@ -2615,6 +2739,15 @@ TONE EXAMPLES:
     prompt += `Skip steps 1 and 2 below. Call lookup_vehicle('${session.outboundRegistration}') as your VERY FIRST action — do NOT ask the customer for their name or registration.\n\n`;
   }
 
+  // ── Outbound service auto-select: vehicle already looked up, service type known ──
+  // When session is at NEED_SERVICE and we already know what service to book (from the outbound campaign),
+  // skip asking and go straight to select_service, then ask for preferred date.
+  if (session.step === Step.NEED_SERVICE && session.serviceHint) {
+    const firstName = session.customerNameFirst || '';
+    const firstNameStr = firstName ? ` ${firstName}` : '';
+    prompt += `SERVICE ALREADY KNOWN: This customer replied to an outbound ${session.serviceHint} reminder. Do NOT ask what service they need.\nCall select_service('${session.serviceHint}') immediately as your next action.\nAfter the tool responds, say two separate messages:\n1. "Hi${firstNameStr}! Great, I can get that ${session.serviceHint} booked in for you 😊"\n2. "Is there anything else that needs looking at whilst the vehicle's in with us?"\nWAIT for their reply. If they mention extra work, note it in the booking notes. Then ask in a new message: "Do you have a preferred date in mind, or shall I suggest the earliest available?"\nWhen they respond with a date preference, call select_timeslot with their preference.\n\n`;
+  }
+
   // ── Branch selection (for multi-location garages) ────────────────────────
   const branchNameClean = branchName.toLowerCase().replace(/\./g, '');
   const hasMultipleBranches = branchNameClean.includes('eac telford');
@@ -2655,6 +2788,7 @@ GENERAL RULES:
 - If you cannot proceed, offer to take a message for a callback
 - If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT call take_message, do NOT end the conversation
 - Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected
+- If the current step is need_timeslot and the customer says "that's all", "nothing else", "just the MOT/service", "no thanks", "nope", or any short/negative reply — this means "no extras, proceed with booking". Do NOT say goodbye. Immediately ask: "Do you have a preferred date in mind, or shall I suggest the earliest available?"
 
 RECOGNISING AFFIRMATIVE RESPONSES:
 - Treat ALL of the following as "yes": yes, yeah, yep, yup, yh, ye, ya, sure, ok, okay, correct, right, perfect, great, fine, go ahead, do it, brill, brilliant, lovely, spot on, sounds good, that works, that's right, cheers

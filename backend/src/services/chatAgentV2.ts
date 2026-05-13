@@ -839,6 +839,23 @@ export async function getChatAgentResponse(
         // — treat as a note regardless of the question mark
         const isNoteRequest = /\b(can you (also |please )?(note|mention|tell them|check|flag|add|ask them|let them know|make a note)|could you (also |please )?(note|mention|tell them|check|flag)|please (also )?(note|mention|tell them|check|flag|add)|also (note|check|mention|add|flag|tell them)|let them know|make a note)\b/i.test(msg);
 
+        // AI disclosure question — detect even without a "?" (e.g. "is this just AI lol")
+        const isAiDisclosure = /\b(is this (ai|a bot|automated|a robot|a computer|artificial)|are you (ai|a bot|a robot|human|real|automated|an ai|a person)|am i talking to (a human|an ai|a bot|a person|a real person|a machine)|just ai|just a bot|talking to a (human|real person|machine)|thought i was talking to|thought you were|you are (a bot|ai|a robot))\b/i.test(msg);
+        const fieldNeededForDisclosure = !session.contactPhone ? 'phone number'
+          : !session.contactEmail ? 'email address'
+          : !session.contactPostcode ? 'postcode'
+          : 'house number or name';
+        if (isAiDisclosure) {
+          const disclosureSysPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
+          const disclosureMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+            { role: 'system', content: `${disclosureSysPrompt}\n\nThe customer is asking whether they're talking to an AI. Be honest in one sentence: acknowledge you're an AI assistant for the garage, reassure them you can help just as well, then immediately re-ask for their ${fieldNeededForDisclosure}. Stay warm and in character. Do NOT say "Hi there!" or restart the conversation. Do NOT call any tools.` },
+            ...previousMessages.map(m => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content })),
+            { role: 'user', content: msg },
+          ];
+          const disclosureResp = await getOpenAI().chat.completions.create({ model: 'gpt-4o', temperature: 0.5, max_tokens: 150, messages: disclosureMessages });
+          return { content: disclosureResp.choices[0].message.content || `Yes, I'm an AI assistant! I can still get you sorted. Can I grab your ${fieldNeededForDisclosure}?`, needsHumanAssistance: false };
+        }
+
         // Genuine question mid-collection — answer it with OpenAI mini then re-ask for the field
         if (msg.includes('?') && !isNoteRequest) {
           const fieldNeeded = !session.contactPhone ? 'phone number'
@@ -847,7 +864,7 @@ export async function getChatAgentResponse(
             : 'house number or name';
           const miniSystemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
           const miniMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-            { role: 'system', content: `${miniSystemPrompt}\n\nIMPORTANT: The customer asked a question during contact collection. Answer it briefly (1 sentence max), then immediately re-ask for their ${fieldNeeded}. Be warm and natural. Do NOT call any tools.` },
+            { role: 'system', content: `${miniSystemPrompt}\n\nIMPORTANT: The customer asked a question during contact collection. Answer it briefly (1 sentence max), then immediately re-ask for their ${fieldNeeded}. Be warm and natural. Stay in context — do NOT restart the conversation or say "Hi there!". Do NOT call any tools.` },
             ...previousMessages.map(m => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content })),
             { role: 'user', content: msg },
           ];
@@ -1990,7 +2007,19 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     return `Proposed slot: ${dateNatural} at ${timeNatural}.\n\nSay ONLY: "I've got ${dateNatural} at ${timeNatural} — does that work for you?" and STOP.`;
   }
 
-  console.log(`[SELECT_TIMESLOT] Preference: "${preference}", dropOff: ${session.useDropOffBooking}`);
+  // If customer gave a time-of-day only (e.g. "afternoon will do") with no day,
+  // anchor to their previously stated preferredDate so we don't default to tomorrow.
+  const hasDayInPref = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|\d{1,2}(?:st|nd|rd|th)?)\b/i.test(preference);
+  const hasTodInPref = /\b(morning|afternoon|evening)\b/i.test(preference);
+  const effectivePref: string = (hasTodInPref && !hasDayInPref && session.preferredDate)
+    ? (() => {
+        const anchored = `${session.preferredDate} ${preference}`;
+        console.log(`[SELECT_TIMESLOT] Anchored time-of-day to preferredDate: "${anchored}"`);
+        return anchored;
+      })()
+    : preference;
+
+  console.log(`[SELECT_TIMESLOT] Preference: "${effectivePref}", dropOff: ${session.useDropOffBooking}`);
   console.log(`[SELECT_TIMESLOT] Available slots: ${(session.timeslotsAvailable || []).map((t: any) => `${t.date} ${t.time}`).join(', ')}`);
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
@@ -2000,7 +2029,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
   // Drop-off booking: pick the first slot on the requested date, skip time selection
   if (session.useDropOffBooking) {
     // Try to find a date match from the preference
-    const dateMatch = matchTimeslot(preference, session.timeslotsAvailable);
+    const dateMatch = matchTimeslot(effectivePref, session.timeslotsAvailable);
     // Find the first slot on that date (or first overall if no match)
     const targetDate = dateMatch?.date || session.timeslotsAvailable[0].date;
     const slotsOnDate = session.timeslotsAvailable.filter((t: any) => t.date === targetDate);
@@ -2019,7 +2048,7 @@ Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Do
   }
 
   // 'soonest' shortcut — customer doesn't have a preference, auto-pick the earliest slot
-  if (/\bsoonest\b|\bearli\w+\b|\bany[\s-]?time\b|\bdon.?t\s*mind\b|\bas\s*soon\b|\bwhenever\b/i.test(preference)) {
+  if (/\bsoonest\b|\bearli\w+\b|\bany[\s-]?time\b|\bdon.?t\s*mind\b|\bas\s*soon\b|\bwhenever\b/i.test(effectivePref)) {
     const slot = session.timeslotsAvailable[0];
     session.pendingSlotDate = slot.date;
     session.pendingSlotTime = slot.time;
@@ -2033,15 +2062,15 @@ Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Do
 Say ONLY: "The earliest I have is ${dateNatural} at ${timeNatural} — does that work for you?" and STOP.`;
   }
 
-  const matched = matchTimeslot(preference, session.timeslotsAvailable);
+  const matched = matchTimeslot(effectivePref, session.timeslotsAvailable);
 
   if (!matched) {
     // No match — tell the agent to explain what’s available and ask again
     const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
       `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
-    ).join(', or ');
+    ).join(‘, or ‘);
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
-    return `NO_MATCH: "${preference}" didn't match any available slot. Online availability ends ${formatDateNaturally(lastSlot.date)}.
+    return `NO_MATCH: "${effectivePref}" didn’t match any available slot. Online availability ends ${formatDateNaturally(lastSlot.date)}.
 Say: "I'm afraid our online diary only goes up to ${formatDateNaturally(lastSlot.date)}. The slots I have are ${firstSlots} — would any of those work?"
 When they choose, call select_timeslot again.`;
   }
@@ -2910,6 +2939,7 @@ PERSONALITY & CHARACTER:
 - You can use light humour where natural (e.g. if someone apologises for not knowing their reg, "No worries — we'll figure it out!")
 - Never sound like a bot. Never use lists or bullet points in chat. Never start a message with "Sure," or "Great!"
 - Address the customer by first name once you know it, but don't overdo it
+- If asked "are you AI?", "is this a bot?", "am I talking to a human?", or similar: be honest in one sentence — acknowledge you're an AI assistant for ${branchName} and that you can still help — then immediately continue with whatever you were doing. Never deny being AI. Never restart the conversation mid-booking.
 
 TONE EXAMPLES:
 - Instead of "Certainly! I'd be happy to help you with that." → say "Of course — let me sort that for you."
@@ -2993,6 +3023,9 @@ TONE EXAMPLES:
       const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? '' : ` (£${priceNum.toFixed(2).replace(/\.00$/, '')})`;
       const additionalSvc = session.additionalServiceName ? ` + ${session.additionalServiceName}` : '';
       prompt += `- Service: ${session.serviceSelectedName}${additionalSvc}${priceDisplay} — confirmed in GH ✓ do NOT call select_service again UNLESS the customer explicitly asks to add another service\n`;
+      if (session.additionalServiceName && !session.bookingDate) {
+        prompt += `IMPORTANT: When first asking for a date this turn, open with a brief combined booking confirmation — e.g. "So I've got ${session.serviceSelectedName} and ${session.additionalServiceName} both locked in for your ${makeTitle} ${modelTitle}." — then ask for the date.\n`;
+      }
     }
     if (session.timeslotsAvailable?.length > 0 && !session.bookingDate) {
       prompt += `- Timeslots: already fetched (${session.timeslotsAvailable.length} available) — call select_timeslot with the customer's date or time preference. If the customer explicitly asks to add another service, call select_service with that service name first.\n`;
@@ -3074,7 +3107,6 @@ TONE EXAMPLES:
     prompt += `- Named a specific service (or asked "how much for X?") → call select_service with that name IMMEDIATELY. Do NOT quote prices from memory — you must call select_service to confirm the service and get its real price.\n`;
     prompt += `- Customer says "both", "both of them", "yes add it", "the lot", "all of them", "yes both" → call select_service with the service name mentioned in the PREVIOUS customer message\n`;
     prompt += `- Said YES but no service named → ask "Which service would you like to add?" and wait\n`;
-    prompt += `- Asked for price / "how much" / "what would that cost" / "total" / "in total" → reply "${upsellSvcName} is confirmed at ${session.servicePrice ? `£${parseFloat(String(session.servicePrice)).toFixed(2).replace(/\\.00$/, '')}` : 'the quoted price'}. Was there something specific you'd like to add, or shall I get the ${upsellSvcName} booked in?" and wait for their reply.\n`;
     prompt += `- Gave a date, time, or availability preference ("soonest", "asap", "earliest", "any time", "don't mind", "whenever") → call select_timeslot with that preference immediately\n`;
     prompt += `- Declined only, no date given ("no thanks", "just the X") → reply "No problem! Do you have a date in mind?" and wait\n`;
     prompt += `CRITICAL: "${upsellSvcName}" is already booked. Do NOT call select_service('${upsellSvcName}') again. Do NOT ask for name or VRN. Never quote prices without calling select_service first.\n\n`;

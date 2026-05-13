@@ -1320,7 +1320,7 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
           type: 'object',
           properties: {
             message: { type: 'string', description: 'Customer message' },
-            phone: { type: 'string', description: 'Customer phone number' },
+            phone: { type: 'string', description: 'Customer phone number. If the customer corrected themselves (e.g. "no wait", "actually", "wrong number"), use the LAST number they gave, not the first.' },
             callback_time: { type: 'string', description: 'Preferred callback time (optional)' },
           },
           required: ['message', 'phone'],
@@ -2956,7 +2956,11 @@ TONE EXAMPLES:
   prompt += `CURRENT STATE: ${session.step}\n`;
   if (session.customerNameFirst) prompt += `Customer: ${session.customerNameFirst} ${session.customerNameLast || ''}\n`;
   if (session.vrn) prompt += `Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
-  if (session.serviceSelectedName) prompt += `Service: ${session.serviceSelectedName}${session.servicePrice ? ` (${session.servicePrice})` : ''}\n`;
+  if (session.serviceSelectedName) {
+    const spNum = parseFloat(String(session.servicePrice));
+    const spDisplay = (!session.servicePrice || isNaN(spNum) || spNum < 1) ? 'POA' : `£${spNum.toFixed(2).replace(/\.00$/, '')}`;
+    prompt += `Service: ${session.serviceSelectedName} (${spDisplay})\n`;
+  }
   if (session.bookingDate) prompt += `Slot: ${session.bookingDate} at ${session.bookingTime}\n`;
 
   // ── ACTIVE SESSION guards — tell the LLM exactly what's already collected ──
@@ -3057,7 +3061,8 @@ TONE EXAMPLES:
 
   // ── Service removal — honest response ────────────────────────────────────
   if (session.serviceSelectedName) {
-    prompt += `SERVICE REMOVAL: If the customer asks to remove, cancel, or scrap "${session.serviceSelectedName}" or any already-booked service: do NOT pretend to remove it. Respond: "I'm afraid I can't remove it from the system at this point, but I'll make sure to leave a note for the team to double-check when you come in. Did you want to continue with the booking?"\n\n`;
+    prompt += `SERVICE REMOVAL: ONLY if the customer explicitly says to remove, delete, cancel, or drop the "${session.serviceSelectedName}" booking (using words like "remove it", "cancel the booking", "forget it", "don't book that", "scrap it"): say "I'm afraid I can't remove it from the system at this point, but I'll make sure to leave a note for the team to double-check when you come in. Did you want to continue with the booking?"\n`;
+    prompt += `Do NOT apply SERVICE REMOVAL for: questions about what other services are available, asking to add a different service, asking about pricing, or any other non-removal question.\n\n`;
   }
 
   // ── Branch selection (for multi-location garages) ────────────────────────

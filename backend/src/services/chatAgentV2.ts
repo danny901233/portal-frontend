@@ -453,10 +453,14 @@ export async function getChatAgentResponse(
 
     // Also scan the CURRENT message for contact details (e.g. user puts phone in their first message)
     if (!session.contactPhone) {
-      const phoneInMsg = message.match(/(?:\+44\s?7\d{3}|\b07\d{3}|\b44\d{3})\s?\d{3}\s?\d{3,4}\b/i);
-      if (phoneInMsg) {
-        session.contactPhone = phoneInMsg[0].replace(/\s+/g, '');
-        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}`);
+      const phoneMsgMatches = [...message.matchAll(/\+[\d\s\-]{7,18}|\b0\d[\d\s\-]{8,13}|\b44\d[\d\s\-]{7,12}/g)];
+      if (phoneMsgMatches.length > 0) {
+        const hasMsgCorrection = /\b(no wait|actually|sorry|wrong|not that|old number|that.?s wrong|meant to say)\b/i.test(message);
+        const chosenMsgPhone = (hasMsgCorrection && phoneMsgMatches.length > 1)
+          ? phoneMsgMatches[phoneMsgMatches.length - 1][0]
+          : phoneMsgMatches[0][0];
+        session.contactPhone = chosenMsgPhone.replace(/\s+/g, '');
+        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}${hasMsgCorrection ? ' (corrected)' : ''}`);
         seedApplied = true;
       }
     }

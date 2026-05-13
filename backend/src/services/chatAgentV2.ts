@@ -1116,7 +1116,7 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     }
   }
   const isLikelyHouseNumber = /^[A-Za-z0-9\-\s,\.]{1,40}$/.test(text) &&
-    !emailMatch && !phoneMatch && !postcodeMatch &&
+    !emailMatch && !phoneMatches.length && !postcodeMatch &&
     !isYes && !isNo && !looksLikeVrn &&
     !/^(thanks|cheers)$/i.test(text.trim());
 

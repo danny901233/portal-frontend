@@ -988,6 +988,12 @@ export async function getChatAgentResponse(
           continue;
         }
 
+        // Inject price-inquiry flag for select_service — suppresses upsell when customer only wants a price
+        if (functionName === 'select_service') {
+          const priceSignals = /\bhow much\b|\bwhat.?s the (price|cost)\b|\bjust.*price\b|\bprice.*only\b|\bquote only\b/i;
+          functionArgs._isPriceInquiry = priceSignals.test(message);
+        }
+
         // Execute tool and get INSTRUCTIONS for the agent
         const instructions = await executeConversationalTool(
           functionName,
@@ -1893,7 +1899,8 @@ Call confirm_booking(confirmed=true) if yes, confirm_booking(confirmed=false) if
     // Step 3: Upsell — offer once per session, for any service, AFTER it's confirmed in GH
     // Skip if customer already expressed multi-service intent, this is an add-on, or it's drop-off
     const alreadyWantsMultiple = /\bboth\b|\bmot.*(?:and|plus).*service|\bservice.*(?:and|plus).*mot/i.test(service_name || '');
-    if (!session.outboundUpsellOffered && !alreadyWantsMultiple && serviceIdsToSet.length === 1 && !isDropOff) {
+    const isPriceInquiry = !!(args._isPriceInquiry);
+    if (!session.outboundUpsellOffered && !alreadyWantsMultiple && serviceIdsToSet.length === 1 && !isDropOff && !isPriceInquiry) {
       session.outboundUpsellOffered = true;
       session.upsellServiceId = String(serviceId);
       session.upsellServiceName = cleanServiceName(serviceName);
@@ -3031,6 +3038,7 @@ TONE EXAMPLES:
     prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
     prompt += `When the customer mentions ANY time or date preference, call select_timeslot IMMEDIATELY with exactly what they said — do NOT ask clarifying questions about the date or day first. The tool will find the best match. Only ask for clarification if select_timeslot returns NO_MATCH. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
     prompt += `If the customer asks to add another service at this point (e.g. "can you also do the brakes?", "add a full service too"), call select_service with that service name immediately — do NOT call select_timeslot yet.\n`;
+    prompt += `If the customer asks a quick side question (e.g. "how long does it take?", "do you need the keys?", "will you text me?"), answer it briefly in one sentence, then immediately continue with the slot step in the same reply.\n`;
   }
 
   prompt += '\n';

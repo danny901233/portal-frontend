@@ -2968,11 +2968,12 @@ TONE EXAMPLES:
   if (session.bookingDate) prompt += `Slot: ${session.bookingDate} at ${session.bookingTime}\n`;
 
   // ── ACTIVE SESSION guards — tell the LLM exactly what's already collected ──
-  const hasActiveSession = !!(session.vrn || session.serviceSelectedName || session.bookingDate || session.contactPhone);
+  // CRITICAL: LLM must not re-ask for anything listed here
+  const hasActiveSession = !!(session.vrn || session.serviceSelectedName || session.bookingDate || session.contactPhone || session.customerNameFirst);
   if (hasActiveSession) {
     const makeTitle = (session.vehicleMake || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    prompt += `\nACTIVE SESSION (do NOT ask for or re-fetch information already listed here):\n`;
+    prompt += `\nACTIVE SESSION — CRITICAL: do NOT ask for or re-fetch anything already listed here. Never ask for name, VRN, or service again if they appear below:\n`;
     if (session.vrn) {
       prompt += `- Vehicle: ${session.vrn} (${makeTitle} ${modelTitle}) — confirmed ✓ do NOT call lookup_vehicle or confirm_vehicle again\n`;
     }
@@ -2991,7 +2992,7 @@ TONE EXAMPLES:
       prompt += `- Slot: ${session.bookingDate} at ${session.bookingTime} — confirmed ✓ do NOT ask for date/time again\n`;
     }
     if (session.customerNameFirst) {
-      prompt += `- Customer name: ${session.customerNameFirst}${session.customerNameLast ? ' ' + session.customerNameLast : ''} — already known, do NOT ask for name again\n`;
+      prompt += `- Customer name: ${session.customerNameFirst}${session.customerNameLast ? ' ' + session.customerNameLast : ''} — CONFIRMED ✓ NEVER ask for the customer's name again\n`;
     }
     if (session.contactPhone) {
       prompt += `- Phone: ${session.contactPhone} — already collected, do NOT ask again\n`;
@@ -3055,12 +3056,13 @@ TONE EXAMPLES:
   // Upsell follow-up — fires for ALL sessions (cold or outbound) after upsell was offered
   if (session.outboundUpsellOffered && session.step === Step.NEED_SERVICE) {
     const upsellSvcName = session.upsellServiceName || 'the service';
-    prompt += `UPSELL FOLLOW-UP: "${upsellSvcName}" is already confirmed in GarageHive. Timeslots are loaded. Based on the customer's latest message:\n`;
+    const knownName = session.customerNameFirst ? ` Customer name is already known: ${session.customerNameFirst}.` : '';
+    prompt += `UPSELL FOLLOW-UP: "${upsellSvcName}" is already confirmed in GarageHive. Timeslots are loaded.${knownName} Based on the customer's latest message:\n`;
     prompt += `- Named a specific service → call select_service with that name\n`;
     prompt += `- Said YES but no service named → ask "Which service would you like to add?" and wait\n`;
     prompt += `- Gave a date, time, or availability preference ("soonest", "asap", "earliest", "any time", "don't mind", "whenever") → call select_timeslot with that preference immediately\n`;
     prompt += `- Declined only, no date given ("no thanks", "just the X") → reply "No problem! Do you have a date in mind?" and wait\n`;
-    prompt += `CRITICAL: Service is already booked. Do NOT call select_service again. Prioritise calling select_timeslot when any date or time preference is present.\n\n`;
+    prompt += `CRITICAL: Service is already booked. Do NOT call select_service again. Do NOT ask for name or VRN. Prioritise calling select_timeslot when any date or time preference is present.\n\n`;
   }
 
   // ── Service removal — honest response ────────────────────────────────────

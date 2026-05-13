@@ -516,15 +516,16 @@ export async function getChatAgentResponse(
       }
     }
 
-    // Save preferred date when customer mentions one at NEED_TIMESLOT
-    if (session.step === Step.NEED_TIMESLOT) {
+    // Save preferred date whenever customer mentions one — not just at NEED_TIMESLOT
+    // Captures dates from the opening message ("can I book this Friday") for later use
+    if (!session.bookingDate) {
       const datePhraseMatch = message.match(
         /\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next\s+\w+|\d{1,2}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*|\d{4}-\d{2}-\d{2}|\d{1,2}(?:st|nd|rd|th)?(?:\s+may|\s+june|\s+july)?)\b/i
       );
       if (datePhraseMatch && datePhraseMatch[0].toLowerCase() !== (session.preferredDate || '').toLowerCase()) {
         session.preferredDate = datePhraseMatch[0];
         await saveSession(conversationId, session);
-        console.log(`[PREFERRED_DATE] Saved: "${session.preferredDate}"`);
+        console.log(`[PREFERRED_DATE] Saved: "${session.preferredDate}" (step: ${session.step})`);
       }
     }
 
@@ -626,7 +627,7 @@ export async function getChatAgentResponse(
       const isWantsAlternative = !isYes && (
         isNo ||
         dayMismatch ||
-        /\b(afternoon|morning|evening|earlier|later|different|another|instead|any.*(at|around|after|before)|do you have|what about|anything)\b/i.test(stripped)
+        /\b(afternoon|morning|evening|earlier|later|different|another|instead|any.*(at|around|after|before)|do you have|what about|anything|actually|wait)\b/i.test(stripped)
       );
 
       if (isWantsAlternative) {
@@ -643,8 +644,10 @@ export async function getChatAgentResponse(
         // match that directly rather than defaulting to the old preferredDate
         const newDayInMsg = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(message);
         if (newDayInMsg) {
-          console.log(`[SLOT_CONFIRM_ALTDAY] New day detected in "${message}" — calling select_timeslot`);
-          const toolResult = await handleSelectTimeslot({ preference: message }, session, conversationId);
+          // Strip noise words so "No, friday 1pm" → "friday 1pm", "Ahh actually friday" → "friday"
+          const cleanedPref = message.replace(/\b(no|nope|actually|wait|hmm|ahh|ah|oh|not)\b[,\s]*/gi, '').trim() || message;
+          console.log(`[SLOT_CONFIRM_ALTDAY] New day in "${message}" → cleaned: "${cleanedPref}" — calling select_timeslot`);
+          const toolResult = await handleSelectTimeslot({ preference: cleanedPref }, session, conversationId);
           const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
           if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
         }
@@ -1717,7 +1720,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const priceNum = parseFloat(String(session.servicePrice));
     const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
-    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
+    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Do you have a date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
   }
 
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
@@ -1845,6 +1848,8 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   try {
     // Step 1: Build service ID list — prepend original service if this is an upsell add-on
     const serviceIdsToSet: string[] = [];
+    const upsellAddOnName = (session.upsellServiceId && session.upsellServiceId !== String(serviceId))
+      ? session.upsellServiceName : undefined;
     if (session.upsellServiceId && session.upsellServiceId !== String(serviceId)) {
       serviceIdsToSet.push(session.upsellServiceId);
       session.upsellServiceId = undefined;  // consumed
@@ -1934,8 +1939,9 @@ Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. F
 When the customer responds, call select_timeslot with whatever they say.`;
     }
 
+    const alsoMsg = upsellAddOnName ? ` I've also got your ${upsellAddOnName} in the same booking.` : '';
     return `SERVICE_SET: ${serviceName} (${priceDisplay}).
-Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Do you have a date in mind?"
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.${alsoMsg} Do you have a date in mind?"
 When the customer responds:
 - If they name a date or time → call select_timeslot with what they said.
 - If they say "soonest", "earliest", "don't mind", "any time" → call select_timeslot('soonest').
@@ -3066,11 +3072,12 @@ TONE EXAMPLES:
     const upsellSvcName = session.upsellServiceName || 'the service';
     const knownName = session.customerNameFirst ? ` Customer name is already known: ${session.customerNameFirst}.` : '';
     prompt += `UPSELL FOLLOW-UP: "${upsellSvcName}" is already confirmed in GarageHive. Timeslots are loaded.${knownName} Based on the customer's latest message:\n`;
-    prompt += `- Named a specific service → call select_service with that name\n`;
+    prompt += `- Named a specific service (or asked "how much for X?") → call select_service with that name IMMEDIATELY. Do NOT quote prices from memory — you must call select_service to confirm the service and get its real price.\n`;
+    prompt += `- Customer says "both", "both of them", "yes add it", "the lot", "all of them", "yes both" → call select_service with the service name mentioned in the PREVIOUS customer message\n`;
     prompt += `- Said YES but no service named → ask "Which service would you like to add?" and wait\n`;
     prompt += `- Gave a date, time, or availability preference ("soonest", "asap", "earliest", "any time", "don't mind", "whenever") → call select_timeslot with that preference immediately\n`;
     prompt += `- Declined only, no date given ("no thanks", "just the X") → reply "No problem! Do you have a date in mind?" and wait\n`;
-    prompt += `CRITICAL: Service is already booked. Do NOT call select_service again. Do NOT ask for name or VRN. Prioritise calling select_timeslot when any date or time preference is present.\n\n`;
+    prompt += `CRITICAL: "${upsellSvcName}" is already booked. Do NOT call select_service('${upsellSvcName}') again. Do NOT ask for name or VRN. Never quote prices without calling select_service first.\n\n`;
   }
 
   // ── Service removal — honest response ────────────────────────────────────

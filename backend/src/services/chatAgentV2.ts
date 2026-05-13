@@ -2011,13 +2011,11 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
   // anchor to their previously stated preferredDate so we don't default to tomorrow.
   const hasDayInPref = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|\d{1,2}(?:st|nd|rd|th)?)\b/i.test(preference);
   const hasTodInPref = /\b(morning|afternoon|evening)\b/i.test(preference);
-  const effectivePref: string = (hasTodInPref && !hasDayInPref && session.preferredDate)
-    ? (() => {
-        const anchored = `${session.preferredDate} ${preference}`;
-        console.log(`[SELECT_TIMESLOT] Anchored time-of-day to preferredDate: "${anchored}"`);
-        return anchored;
-      })()
-    : preference;
+  let effectivePref = preference;
+  if (hasTodInPref && !hasDayInPref && session.preferredDate) {
+    effectivePref = `${session.preferredDate} ${preference}`;
+    console.log(`[SELECT_TIMESLOT] Anchored time-of-day to preferredDate: "${effectivePref}"`);
+  }
 
   console.log(`[SELECT_TIMESLOT] Preference: "${effectivePref}", dropOff: ${session.useDropOffBooking}`);
   console.log(`[SELECT_TIMESLOT] Available slots: ${(session.timeslotsAvailable || []).map((t: any) => `${t.date} ${t.time}`).join(', ')}`);
@@ -2068,7 +2066,7 @@ Say ONLY: "The earliest I have is ${dateNatural} at ${timeNatural} — does that
     // No match — tell the agent to explain what’s available and ask again
     const firstSlots = session.timeslotsAvailable.slice(0, 3).map((t: any) =>
       `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
-    ).join(‘, or ‘);
+    ).join(', or ');
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
     return `NO_MATCH: "${effectivePref}" didn’t match any available slot. Online availability ends ${formatDateNaturally(lastSlot.date)}.
 Say: "I'm afraid our online diary only goes up to ${formatDateNaturally(lastSlot.date)}. The slots I have are ${firstSlots} — would any of those work?"

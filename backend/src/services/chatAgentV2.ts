@@ -524,6 +524,25 @@ export async function getChatAgentResponse(
       }
     }
 
+    // Fast-path: any date/time preference when timeslots are ready — call select_timeslot directly, skip LLM
+    // Covers NEED_TIMESLOT step AND NEED_SERVICE after upsell decline (service confirmed, step not yet updated)
+    // Prevents LLM stalling with "Let me check... one moment" instead of calling the tool
+    const isAtTimeslotStage = session.step === Step.NEED_TIMESLOT ||
+      (session.step === Step.NEED_SERVICE && !!session.serviceSelectedName && session.timeslotsAvailable?.length > 0);
+    if (isAtTimeslotStage) {
+      const lower = message.toLowerCase();
+      const hasTimePref = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|morning|afternoon|evening|next\s+\w+|\d{1,2}(?:st|nd|rd|th)?|soonest|earliest|asap|any\s*time|don.?t\s*mind|whenever|as\s*soon)\b/i.test(message) ||
+        /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(message);
+      const isQuestion = message.trim().endsWith('?');
+      const isAddService = /\b(add|also|and|plus|as well|too)\b/i.test(lower) && /\b(service|mot|oil|brake|tyre|tire|check|interim|full)\b/i.test(lower);
+      if (hasTimePref && !isQuestion && !isAddService) {
+        console.log(`[TIMESLOT_FASTPATH] Date/time in "${message}" at ${session.step} — calling select_timeslot directly`);
+        const toolResult = await handleSelectTimeslot({ preference: message }, session, conversationId);
+        const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
+        if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
+      }
+    }
+
     // Fast-path: bare time reply when we know which date we last showed slots for
     if (session.step === Step.NEED_TIMESLOT && session.slotsShownDate && session.timeslotsAvailable?.length) {
       const timeInMsg = message.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) ||

@@ -108,6 +108,7 @@ interface ChatSession {
   outboundUpsellOffered?: boolean;
   upsellServiceId?: string;     // service ID saved during upsell, prepended when adding a 2nd service
   upsellServiceName?: string;   // display name of upsell service (for UPSELL_FOLLOW_UP prompt)
+  additionalServiceName?: string; // original service retained after upsell add-on consumed (e.g. MOT when Full Service added)
 
   // Widget pre-fill: service hint from initial message (e.g. "MOT")
   serviceHint?: string;
@@ -577,18 +578,16 @@ export async function getChatAgentResponse(
       const isNo = /\b(no|nope|different|another|change|instead|rather|earlier|later|different)\b/.test(stripped);
 
       // Guard: if message contains a day name that doesn't match the pending slot's day,
-      // it's not a "yes" — customer is asking for a different day ("Wednesday is fine" when pending=Friday)
+      // treat as wants-alternative — fires whether message is a yes OR a bare day name ("Friday?")
       let dayMismatch = false;
-      if (isYes) {
-        const dayInMsg = stripped.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/);
-        if (dayInMsg) {
-          const pendingDow = new Date(session.pendingSlotDate + 'T12:00:00')
-            .toLocaleDateString('en-GB', { weekday: 'long' }).toLowerCase();
-          if (pendingDow !== dayInMsg[0]) {
-            console.log(`[SLOT_CONFIRM] Day mismatch: pending=${pendingDow}, msg="${dayInMsg[0]}" — treating as wants-alternative`);
-            isYes = false;
-            dayMismatch = true;
-          }
+      const dayInMsg = stripped.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/);
+      if (dayInMsg) {
+        const pendingDow = new Date(session.pendingSlotDate + 'T12:00:00')
+          .toLocaleDateString('en-GB', { weekday: 'long' }).toLowerCase();
+        if (pendingDow !== dayInMsg[0]) {
+          console.log(`[SLOT_CONFIRM] Day mismatch: pending=${pendingDow}, msg="${dayInMsg[0]}" — treating as wants-alternative`);
+          isYes = false;
+          dayMismatch = true;
         }
       }
 
@@ -645,7 +644,7 @@ export async function getChatAgentResponse(
         const newDayInMsg = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(message);
         if (newDayInMsg) {
           // Strip noise words so "No, friday 1pm" → "friday 1pm", "Ahh actually friday" → "friday"
-          const cleanedPref = message.replace(/\b(no|nope|actually|wait|hmm|ahh|ah|oh|not)\b[,\s]*/gi, '').trim() || message;
+          const cleanedPref = message.replace(/\b(no|nope|actually|wait|hmm|ahh|ah|oh|not)\b[,.\s]*/gi, '').trim() || message;
           console.log(`[SLOT_CONFIRM_ALTDAY] New day in "${message}" → cleaned: "${cleanedPref}" — calling select_timeslot`);
           const toolResult = await handleSelectTimeslot({ preference: cleanedPref }, session, conversationId);
           const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
@@ -1852,6 +1851,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
       ? session.upsellServiceName : undefined;
     if (session.upsellServiceId && session.upsellServiceId !== String(serviceId)) {
       serviceIdsToSet.push(session.upsellServiceId);
+      session.additionalServiceName = session.upsellServiceName; // retain for ACTIVE SESSION display
       session.upsellServiceId = undefined;  // consumed
     }
     serviceIdsToSet.push(String(serviceId));
@@ -2803,12 +2803,10 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       const dy = String(target.getDate()).padStart(2, '0');
       const targetDateStr = `${y}-${mo}-${dy}`;
 
-      // Find slots on that exact date, or the nearest date after it
+      // Find slots on that exact date only — do NOT fall back to next available
+      // If Friday is requested but not available, return null so NO_MATCH explains it
       let matches = timeslots.filter(t => t.date === targetDateStr);
-      if (matches.length === 0) {
-        // No exact match — find closest slot on or after the target date
-        matches = timeslots.filter(t => t.date >= targetDateStr);
-      }
+      if (matches.length === 0) return null;
       // If customer said e.g. "Saturday 16th", narrow to slot where day-of-week AND day-of-month both match.
       // Without this, "Saturday 16th" would return the nearest Saturday (could be the 9th).
       const domRefine = prefLower.match(/\b(\d{1,2})(st|nd|rd|th)\b/);
@@ -2993,7 +2991,8 @@ TONE EXAMPLES:
     if (session.serviceSelectedName) {
       const priceNum = parseFloat(String(session.servicePrice));
       const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? '' : ` (£${priceNum.toFixed(2).replace(/\.00$/, '')})`;
-      prompt += `- Service: ${session.serviceSelectedName}${priceDisplay} — selected ✓ do NOT call select_service again UNLESS the customer explicitly asks to add another service\n`;
+      const additionalSvc = session.additionalServiceName ? ` + ${session.additionalServiceName}` : '';
+      prompt += `- Service: ${session.serviceSelectedName}${additionalSvc}${priceDisplay} — confirmed in GH ✓ do NOT call select_service again UNLESS the customer explicitly asks to add another service\n`;
     }
     if (session.timeslotsAvailable?.length > 0 && !session.bookingDate) {
       prompt += `- Timeslots: already fetched (${session.timeslotsAvailable.length} available) — call select_timeslot with the customer's date or time preference. If the customer explicitly asks to add another service, call select_service with that service name first.\n`;
@@ -3075,6 +3074,7 @@ TONE EXAMPLES:
     prompt += `- Named a specific service (or asked "how much for X?") → call select_service with that name IMMEDIATELY. Do NOT quote prices from memory — you must call select_service to confirm the service and get its real price.\n`;
     prompt += `- Customer says "both", "both of them", "yes add it", "the lot", "all of them", "yes both" → call select_service with the service name mentioned in the PREVIOUS customer message\n`;
     prompt += `- Said YES but no service named → ask "Which service would you like to add?" and wait\n`;
+    prompt += `- Asked for price / "how much" / "what would that cost" / "total" / "in total" → reply "${upsellSvcName} is confirmed at ${session.servicePrice ? `£${parseFloat(String(session.servicePrice)).toFixed(2).replace(/\\.00$/, '')}` : 'the quoted price'}. Was there something specific you'd like to add, or shall I get the ${upsellSvcName} booked in?" and wait for their reply.\n`;
     prompt += `- Gave a date, time, or availability preference ("soonest", "asap", "earliest", "any time", "don't mind", "whenever") → call select_timeslot with that preference immediately\n`;
     prompt += `- Declined only, no date given ("no thanks", "just the X") → reply "No problem! Do you have a date in mind?" and wait\n`;
     prompt += `CRITICAL: "${upsellSvcName}" is already booked. Do NOT call select_service('${upsellSvcName}') again. Do NOT ask for name or VRN. Never quote prices without calling select_service first.\n\n`;

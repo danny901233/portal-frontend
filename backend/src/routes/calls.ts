@@ -124,7 +124,8 @@ const parseCallJson = (call: Call & { feedback?: CallFeedback | null }): CallWit
 const ensureWebhookSecret = (req: Request) => {
   const configuredSecret = process.env.WEBHOOK_SECRET;
   if (!configuredSecret) {
-    return true;
+    console.error('[CALLS] WEBHOOK_SECRET is not configured — rejecting request');
+    return false;
   }
   const headerSecret =
     req.headers['x-webhook-secret'] ??

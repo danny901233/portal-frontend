@@ -54,43 +54,55 @@ router.post('/chat/widget', async (req, res) => {
   try {
     const { garageId, message, conversationId, contactPhone, contactName } = req.body;
 
-    if (!garageId || !message) {
+    if (!garageId || typeof garageId !== 'string' || !message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Find or create conversation
-    let conversation;
-    if (conversationId) {
-      conversation = await prisma.chatConversation.findUnique({
-        where: { id: conversationId },
-      });
+    // Validate garageId is UUID format
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(garageId)) {
+      return res.status(400).json({ error: 'Invalid garageId' });
     }
 
-    if (!conversation) {
-      // Create new web chat conversation
-      const cleanPhone = contactPhone ? String(contactPhone).replace(/\s+/g, '') : undefined;
-      const cleanName = contactName ? String(contactName).trim() : undefined;
-      conversation = await prisma.chatConversation.create({
-        data: {
-          garageId,
-          platform: 'web',
-          platformUserId: `web_${Date.now()}`,
-          customerName: cleanName || 'Website Visitor',
-          customerPhone: cleanPhone,
-          status: 'active',
-        },
-      });
-      console.log(`[CHAT_ROUTE] New conversation ${conversation.id}, phone: ${cleanPhone || 'none'}, name: ${cleanName || 'none'}`);
-    } else if (contactPhone && !conversation.customerPhone) {
-      // Update existing conversation with phone if we now have it
-      const cleanPhone = String(contactPhone).replace(/\s+/g, '');
-      await prisma.chatConversation.update({
-        where: { id: conversation.id },
-        data: { customerPhone: cleanPhone, customerName: contactName ? String(contactName).trim() : conversation.customerName },
-      });
-      conversation = { ...conversation, customerPhone: cleanPhone };
-      console.log(`[CHAT_ROUTE] Updated conversation ${conversation.id} with phone: ${cleanPhone}`);
+    // Limit message length to prevent abuse
+    if (message.length > 10000) {
+      return res.status(400).json({ error: 'Message too long (max 10000 characters)' });
     }
+
+    // Find or create conversation (wrapped in serialized transaction to prevent duplicates)
+    const cleanPhone = contactPhone ? String(contactPhone).replace(/\s+/g, '') : undefined;
+    const cleanName = contactName ? String(contactName).trim() : undefined;
+
+    let conversation = await prisma.$transaction(async (tx) => {
+      let conv;
+      if (conversationId) {
+        conv = await tx.chatConversation.findUnique({
+          where: { id: conversationId },
+        });
+      }
+
+      if (!conv) {
+        conv = await tx.chatConversation.create({
+          data: {
+            garageId,
+            platform: 'web',
+            platformUserId: `web_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            customerName: cleanName || 'Website Visitor',
+            customerPhone: cleanPhone,
+            status: 'active',
+          },
+        });
+        console.log(`[CHAT_ROUTE] New conversation ${conv.id}, phone: ${cleanPhone || 'none'}, name: ${cleanName || 'none'}`);
+      } else if (contactPhone && !conv.customerPhone) {
+        await tx.chatConversation.update({
+          where: { id: conv.id },
+          data: { customerPhone: cleanPhone, customerName: cleanName || conv.customerName },
+        });
+        conv = { ...conv, customerPhone: cleanPhone ?? null };
+        console.log(`[CHAT_ROUTE] Updated conversation ${conv.id} with phone: ${cleanPhone}`);
+      }
+
+      return conv;
+    });
 
     // Save user message
     await prisma.chatMessage.create({
@@ -108,7 +120,7 @@ router.post('/chat/widget', async (req, res) => {
       conversation.id,
       {
         phone: contactPhone || conversation.customerPhone || undefined,
-        name: contactName || conversation.customerName || undefined
+        name: contactName || (conversation.customerName && conversation.customerName !== 'Website Visitor' ? conversation.customerName : undefined) || undefined
       }
     );
 

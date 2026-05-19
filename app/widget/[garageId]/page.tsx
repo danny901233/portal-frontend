@@ -213,7 +213,8 @@ export default function ChatWidget() {
     setSending(true);
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://18.171.230.217:4000';
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+      if (!backendUrl) throw new Error('Backend URL not configured');
       const response = await fetch(`${backendUrl}/api/chat/widget`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -279,7 +280,8 @@ export default function ChatWidget() {
 
     try {
       // Use production backend
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://18.171.230.217:4000';
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+      if (!backendUrl) throw new Error('Backend URL not configured');
       const response = await fetch(`${backendUrl}/api/chat/widget`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

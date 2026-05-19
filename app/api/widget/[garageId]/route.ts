@@ -8,7 +8,10 @@ export async function GET(
     const { garageId } = await params;
     
     // Use backend API URL - works for both local dev and production
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://18.171.230.217:4000';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+    if (!backendUrl) {
+      return NextResponse.json({ error: 'Backend URL not configured' }, { status: 500 });
+    }
     const response = await fetch(
       `${backendUrl}/api/widget/${garageId}`,
       { 

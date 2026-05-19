@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
-import { routeChatMessage } from '../../services/chatAgentRouter.js';
+import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
 
 const router = Router();
@@ -129,6 +129,13 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
           const messageText = message.text?.body;
           const messageType = message.type;
 
+          // Reject stale messages (older than 5 minutes) — prevents Meta replay of queued messages
+          const msgTimestamp = message.timestamp ? parseInt(message.timestamp, 10) * 1000 : null;
+          if (msgTimestamp && Date.now() - msgTimestamp > 5 * 60 * 1000) {
+            console.log(`[WhatsApp] Ignoring stale message from ${customerPhone} (age: ${Math.round((Date.now() - msgTimestamp) / 60000)}min)`);
+            continue;
+          }
+
           if (messageType !== 'text' || !messageText) {
             console.log(`Unsupported WhatsApp message type: ${messageType}`);
             continue;
@@ -154,7 +161,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
 
           // Check if this is a reply to an outbound campaign — phone may be stored with or without +
           const phoneVariants = [customerPhone, `+${customerPhone}`, customerPhone.replace(/^\+/, '')];
-          const outboundContact = await prisma.outboundContact.findFirst({
+          const allOutboundContacts = await prisma.outboundContact.findMany({
             where: {
               garageId: connection.garageId,
               phone: { in: phoneVariants },
@@ -162,6 +169,12 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             },
             orderBy: { createdAt: 'desc' },
           });
+          // Prefer the contact the customer most likely read (read > delivered > sent), then most recent
+          const statusPriority = ['read', 'delivered', 'sent'];
+          const outboundContact = statusPriority.flatMap(s => allOutboundContacts.filter(c => c.status === s))[0] ?? null;
+          if (allOutboundContacts.length > 1) {
+            console.warn(`[WhatsApp] Multiple active outbound contacts for ${customerPhone} — picked status=${outboundContact?.status} campaignId=${outboundContact?.campaignId}`);
+          }
 
           if (!conversation) {
             // Create new conversation
@@ -241,7 +254,10 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               });
             }
 
-            // Seed sessionState so the agent knows the registration without asking
+            // Seed sessionState so the agent knows the registration without asking.
+            // Also reset booking fields so old session state from a previous flow
+            // (e.g. step=NEED_CONTACT from a different vehicle's conversation) doesn't
+            // cause the agent to skip the booking flow and ask for phone instead.
             await prisma.$executeRawUnsafe(
               `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
               JSON.stringify({
@@ -250,6 +266,22 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 ...(reg && { outboundRegistration: reg }),
                 outboundServiceType: outboundContact.messageType || 'mot',
                 ...(dueDate && { outboundDueDate: dueDate }),
+                // Vehicle is already known from the CSV — trust it, skip VRN confirmation.
+                // Start at need_service so the agent greets + upsells, then goes straight
+                // to timeslot selection. GH session is initialised later by handleSelectService.
+                step: 'need_service',
+                vrn: reg || null,
+                vrnConfirmed: !!(reg),
+                sessionId: null,
+                vehicleMake: null,
+                vehicleModel: null,
+                servicesAvailable: null,
+                serviceSelectedName: null,
+                serviceSelectedId: null,
+                servicePrice: null,
+                timeslotsAvailable: null,
+                bookingDate: null,
+                bookingTime: null,
               }),
               conversation.id,
             );
@@ -258,6 +290,11 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               where: { id: outboundContact.id },
               data: { status: 'replied', conversationId: conversation.id },
             });
+
+            // Invalidate the in-memory session cache so getChatAgentResponse
+            // picks up the freshly-seeded outbound state from the DB instead of
+            // using a stale cached session from a previous conversation.
+            invalidateSessionCache(conversation.id);
 
             console.log(`[WhatsApp] Outbound reply from ${customerPhone} — message saved, session seeded with reg=${reg}`);
           }
@@ -318,7 +355,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             // Send response via WhatsApp
             try {
               await axios.post(
-                `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+                `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
                 {
                   messaging_product: 'whatsapp',
                   to: customerPhone,

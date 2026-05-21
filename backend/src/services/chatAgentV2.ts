@@ -125,6 +125,10 @@ interface ChatSession {
   // Last date we showed a slot list for — anchors bare time picks ("1pm") to the right date
   slotsShownDate?: string;
 
+  // Preferred time stated by customer (e.g. "5pm", "morning", "afternoon")
+  // Carried forward so day-only changes ("Monday instead") keep the time constraint
+  preferredTime?: string;
+
   // Warm resume: set when session resumes after 8-72h gap, cleared after first LLM response
   warmResumeContext?: string;
 
@@ -348,6 +352,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         upsellServiceName: sessionData.upsellServiceName || undefined,
         preferredDate: sessionData.preferredDate || '',
         slotsShownDate: sessionData.slotsShownDate || '',
+        preferredTime: sessionData.preferredTime || undefined,
         warmResumeContext: sessionData.warmResumeContext || undefined,
         collectingMessage: sessionData.collectingMessage || false,
         preMessageStep: sessionData.preMessageStep || undefined,
@@ -771,6 +776,43 @@ export async function getChatAgentResponse(
         session.preferredDate = lastMatch;
         await saveSession(conversationId, session);
         console.log(`[PREFERRED_DATE] Saved: "${session.preferredDate}" (step: ${session.step})`);
+      }
+    }
+
+    // Save preferred time whenever customer mentions one — carried forward across day changes
+    // "past 5pm" / "after 3" / "5pm" / "morning" / "afternoon" / "evening" → saved
+    // "any time" / "earliest" / "don't mind" → cleared
+    if (!session.bookingTime) {
+      const timeLower = message.toLowerCase();
+      const clearTime = /\b(any\s*time|earliest|soonest|don'?t\s*mind|whenever|no\s*preference|flexible)\b/i.test(timeLower);
+      if (clearTime && session.preferredTime) {
+        session.preferredTime = undefined;
+        await saveSession(conversationId, session);
+        console.log(`[PREFERRED_TIME] Cleared (customer said flexible)`);
+      } else {
+        // Match specific times: "5pm", "past 3pm", "after 5", "around 2pm"
+        const timeMatch = timeLower.match(/\b(?:past|after|from|around|at|by)?\s*(\d{1,2})\s*(?::(\d{2}))?\s*(am|pm)?\b/i);
+        // Match period words: "morning", "afternoon", "evening"
+        const periodMatch = timeLower.match(/\b(morning|afternoon|evening)\b/i);
+        let newTime: string | undefined;
+        if (timeMatch) {
+          let h = parseInt(timeMatch[1], 10);
+          const m = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+          const mer = (timeMatch[3] || '').toLowerCase();
+          if (mer === 'pm' && h < 12) h += 12;
+          if (mer === 'am' && h === 12) h = 0;
+          if (!mer && h >= 1 && h <= 6) h += 12; // 1-6 without am/pm = PM in booking context
+          if (h >= 7 && h <= 23) { // reasonable booking hour
+            newTime = `${h}:${String(m).padStart(2, '0')}`;
+          }
+        } else if (periodMatch) {
+          newTime = periodMatch[1].toLowerCase(); // "morning", "afternoon", "evening"
+        }
+        if (newTime && newTime !== session.preferredTime) {
+          session.preferredTime = newTime;
+          await saveSession(conversationId, session);
+          console.log(`[PREFERRED_TIME] Saved: "${session.preferredTime}" (step: ${session.step})`);
+        }
       }
     }
 
@@ -2526,6 +2568,18 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     console.log(`[SELECT_TIMESLOT] Anchored time-of-day to preferredDate: "${effectivePref}"`);
   }
 
+  // Inverse: day given but no time — inject preferredTime so "Monday instead" carries forward "5pm"
+  const hasTimeInPref = /\b(\d{1,2}\s*(?::\d{2})?\s*(?:am|pm)?)\b/i.test(effectivePref) && /\d/.test(effectivePref.match(/\b(\d{1,2})\s*(?::\d{2})?\s*(?:am|pm)?\b/i)?.[1] || '');
+  const hasExplicitTime = hasTimeInPref || hasTodInPref; // "morning"/"afternoon" counts as time intent
+  if (hasDayInPref && !hasExplicitTime && session.preferredTime) {
+    // Inject as "past Xpm" for numeric times, or append period word directly
+    const timeLabel = /^\d/.test(session.preferredTime)
+      ? `past ${formatTimeNaturally(session.preferredTime)}`
+      : session.preferredTime; // "morning", "afternoon", "evening"
+    effectivePref = `${effectivePref} ${timeLabel}`;
+    console.log(`[SELECT_TIMESLOT] Injected preferredTime: "${effectivePref}" (from saved: ${session.preferredTime})`);
+  }
+
   console.log(`[SELECT_TIMESLOT] Preference: "${effectivePref}", dropOff: ${session.useDropOffBooking}`);
   console.log(`[SELECT_TIMESLOT] Available slots: ${(session.timeslotsAvailable || []).map((t: any) => `${t.date} ${t.time}`).join(', ')}`);
 
@@ -2736,6 +2790,7 @@ When they choose, call select_timeslot again.`;
   session.pendingSlotTime = time;
   session.slotsShownDate = date; // anchor future bare time replies to this date
   if (!session.preferredDate) session.preferredDate = date; // remember date for "No" fallback
+  session.preferredTime = undefined; // slot found — time preference served its purpose
   session.step = Step.NEED_SLOT_CONFIRM;
   console.log(`[SELECT_TIMESLOT] Pending slot set: ${date} at ${time}, waiting for confirmation`);
   await saveSession(conversationId, session);

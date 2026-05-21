@@ -961,6 +961,26 @@ export async function getChatAgentResponse(
       }
     }
 
+    // Fast-path: at NEED_TIMESLOT, customer mentions a day/time — call select_timeslot directly
+    // Without this, "What about Monday?" goes to SIDE_QUESTION_NUDGE and the LLM answers
+    // conversationally instead of calling the tool (which is where preferredTime injection lives)
+    if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable?.length > 0) {
+      const normalizedForSlot = normalizeDayTypos(message);
+      const hasDayOrTime = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|morning|afternoon|evening|soonest|earliest|asap|any\s*time|don.?t\s*mind|whenever)\b/i.test(normalizedForSlot) ||
+        /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(message);
+      // Don't intercept pure questions with no scheduling intent like "how long does an MOT take?"
+      const hasSchedulingWord = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|morning|afternoon|evening|\d{1,2}\s*(?:am|pm)|soonest|earliest|instead|prefer|rather|how about|what about)\b/i.test(normalizedForSlot);
+      if (hasDayOrTime && hasSchedulingWord) {
+        console.log(`[TIMESLOT_NEED_FASTPATH] Day/time in "${message}" at need_timeslot — calling select_timeslot directly`);
+        const toolResult = await handleSelectTimeslot({ preference: normalizedForSlot }, session, conversationId);
+        const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
+        if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
+        // No Say pattern — return raw so customer gets feedback
+        console.log(`[TIMESLOT_NEED_FASTPATH] No Say pattern — returning raw: ${toolResult.slice(0, 100)}`);
+        return { content: toolResult, needsHumanAssistance: false };
+      }
+    }
+
     // Fast-path: slot confirmation — customer is saying yes/no to a proposed slot
     // If step is need_slot_confirm but pending slot is empty (AI asked clarifying question without calling the tool),
     // reset to need_timeslot so the AI treats the reply as a time preference

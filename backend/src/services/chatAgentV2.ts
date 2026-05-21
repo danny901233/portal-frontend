@@ -739,7 +739,9 @@ export async function getChatAgentResponse(
         // Lookup failed or partial — extract the Say message and let the user retry
         const failSay = lookupResult.match(/Say:\s*"([\s\S]*?)"/i);
         if (failSay) return { content: failSay[1].trim(), needsHumanAssistance: false };
-        // If no Say match, fall through to LLM
+        // No Say pattern — return a sensible fallback instead of silently dropping the result
+        console.log(`[VRN_FASTPATH] No Say pattern in lookup result — returning fallback`);
+        return { content: "I wasn't able to find that registration — could you double-check it and try again?", needsHumanAssistance: false };
       }
     }
 
@@ -849,7 +851,10 @@ export async function getChatAgentResponse(
           await saveSession(conversationId, session);
           return { content: addSayMatch[1].trim(), needsHumanAssistance: false };
         }
-        // If no Say match, fall through to LLM
+        // No Say pattern — return the tool result directly
+        console.log(`[ADDSERVICE_FASTPATH] No Say pattern in result — returning raw: ${addResult.slice(0, 100)}`);
+        await saveSession(conversationId, session);
+        return { content: addResult, needsHumanAssistance: false };
       }
     }
 
@@ -897,7 +902,14 @@ export async function getChatAgentResponse(
         // If customer only mentions a time/tod but NOT a day, they probably want the same
         // day that was just offered. Inject the pending day name so handleSelectTimeslot
         // picks the right day. e.g. "Do you have 10AM?" after "Friday 8:30am" → "friday 10AM"
-        let slotPreference = normalizedSlotMsg;
+        // Strip rejection/filler words so only the scheduling intent reaches matchTimeslot
+        // e.g. "No, anything past 5pm?" → "anything past 5pm"
+        // e.g. "Not really, I said past 5pm." → "past 5pm"
+        let slotPreference = normalizedSlotMsg
+          .replace(/^(no+|nope|nah|not really|i said|i already said|i told you)[,.\s!?]*/i, '')
+          .replace(/[?.!]+$/g, '')
+          .trim();
+        if (!slotPreference) slotPreference = normalizedSlotMsg; // safety: don't pass empty string
         if (!mentionsDay && session.pendingSlotDate) {
           const pendingDayName = new Date(session.pendingSlotDate + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' }).toLowerCase();
           slotPreference = `${pendingDayName} ${slotPreference}`;
@@ -912,7 +924,9 @@ export async function getChatAgentResponse(
         const toolResult = await handleSelectTimeslot({ preference: slotPreference }, session, conversationId);
         const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
         if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
-        // If no Say match, fall through to LLM
+        // No Say pattern — return the tool result directly so the customer gets feedback
+        console.log(`[SLOT_REBOOK_FASTPATH] No Say pattern in tool result — returning raw: ${toolResult.slice(0, 100)}`);
+        return { content: toolResult, needsHumanAssistance: false };
       }
     }
     // Non-obvious messages at NEED_SLOT_CONFIRM fall through to LLM (typos, questions, rebooks, etc.)
@@ -2518,7 +2532,28 @@ Say ONLY: "The earliest I have is ${dateNatural} at ${timeNatural} — does that
       slotsForMatch = filtered;
       console.log(`[SELECT_TIMESLOT] minTime filter: "${effectivePref}" → minH=${minH}:${String(rawM).padStart(2,'0')}, ${filtered.length}/${session.timeslotsAvailable.length} slots remain`);
     } else {
-      console.log(`[SELECT_TIMESLOT] minTime filter: no slots at/after ${minH}:${String(rawM).padStart(2,'0')} — falling back to all slots`);
+      // No slots at/after the requested time — tell the customer the latest available instead of silently falling back
+      const requestedTimeStr = `${minH}:${String(rawM).padStart(2,'0')}`;
+      console.log(`[SELECT_TIMESLOT] minTime filter: no slots at/after ${requestedTimeStr} — informing customer`);
+      const dayInPref = effectivePref.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i)?.[0]?.toLowerCase();
+      const slotsOnDay = dayInPref
+        ? session.timeslotsAvailable.filter((t: any) => {
+            const dow = new Date(t.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' }).toLowerCase();
+            return dow === dayInPref;
+          })
+        : session.timeslotsAvailable;
+      if (slotsOnDay.length > 0) {
+        const lastSlot = slotsOnDay[slotsOnDay.length - 1];
+        const latestTime = formatTimeNaturally(lastSlot.time);
+        const dayDisplay = dayInPref ? formatDateNaturally(slotsOnDay[0].date) : 'that day';
+        session.step = Step.NEED_TIMESLOT;
+        await saveSession(conversationId, session);
+        const requestedTimeNatural = formatTimeNaturally(requestedTimeStr);
+        return `NO_MATCH: We don't have any slots from ${requestedTimeNatural} onwards. The closest we have on ${dayDisplay} is ${latestTime}.
+Say: "We don't have anything from ${requestedTimeNatural} onwards, I'm afraid. The closest I can do on ${dayDisplay} is ${latestTime} — would that work, or would you prefer a different day?"
+When they respond, call select_timeslot with whatever they say.`;
+      }
+      // If no slots on that day at all, fall through to matchTimeslot which will hit NO_MATCH below
     }
   }
 
@@ -2536,10 +2571,11 @@ Say ONLY: "The earliest I have is ${dateNatural} at ${timeNatural} — does that
         });
         if (slotsOnDay.length > 0) {
           const dayDisplay = formatDateNaturally(slotsOnDay[0].date);
-          const times = [...new Set(slotsOnDay.map((t: any) => formatTimeNaturally(t.time)))].join(' or ');
+          const nearestSlot = slotsOnDay[slotsOnDay.length - 1]; // latest on that day = closest to requested
+          const nearestTime = formatTimeNaturally(nearestSlot.time);
           return `NO_MATCH: No slots at/after requested time on ${dayInFilter}.
-Say: "The slots I have on ${dayDisplay} are ${times} — would any of those work?"
-When they choose, call select_timeslot again.`;
+Say: "The closest I can do on ${dayDisplay} is ${nearestTime} — would that work, or would you prefer a different day?"
+When they respond, call select_timeslot with whatever they say.`;
         }
       }
     }
@@ -2566,10 +2602,11 @@ When they choose, call select_timeslot again.`;
       });
       if (slotsOnDay.length > 0) {
         const dayDisplay = formatDateNaturally(slotsOnDay[0].date);
-        const times = [...new Set(slotsOnDay.map((t: any) => formatTimeNaturally(t.time)))].join(' or ');
-        const onlyOrHave = slotsOnDay.length === 1 ? 'the only slot I have is' : 'I have';
-        return `NO_MATCH: No ${todInPref} slots on ${dayInPref} — ${onlyOrHave} ${times}.
-Say: "I'm afraid I don't have any ${todInPref} slots on ${dayDisplay} — ${onlyOrHave} ${times}. Would that work, or would you prefer a different day?"
+        // Pick the nearest slot to the requested time-of-day
+        const nearestSlot = todInPref === 'morning' ? slotsOnDay[0] : slotsOnDay[slotsOnDay.length - 1];
+        const nearestTime = formatTimeNaturally(nearestSlot.time);
+        return `NO_MATCH: No ${todInPref} slots on ${dayInPref}. Nearest is ${nearestTime}.
+Say: "I don't have any ${todInPref} slots on ${dayDisplay}, I'm afraid. The closest I can do is ${nearestTime} — would that work, or would you prefer a different day?"
 When they respond, call select_timeslot with whatever they say.`;
       }
     }
@@ -2584,10 +2621,22 @@ When they respond, call select_timeslot with whatever they say.`;
       });
       if (slotsOnExactDay.length > 0) {
         const dayDisplay = formatDateNaturally(slotsOnExactDay[0].date);
-        const times = [...new Set(slotsOnExactDay.map((t: any) => formatTimeNaturally(t.time)))].join(' or ');
-        const onlyOrHave = slotsOnExactDay.length === 1 ? 'the only slot I have is' : 'I have';
-        return `NO_MATCH: Requested time not available on ${exactDayInPref} — ${onlyOrHave} ${times}.
-Say: "I'm afraid I don't have that time on ${dayDisplay} — ${onlyOrHave} ${times}. Would that work, or would you prefer a different day?"
+        // Find nearest slot to the requested exact time
+        let reqH = parseInt(exactTimeInPref[1]);
+        const reqMer = (exactTimeInPref[3] ?? exactTimeInPref[2] ?? '').toLowerCase();
+        if (reqMer === 'pm' && reqH < 12) reqH += 12;
+        if (reqMer === 'am' && reqH === 12) reqH = 0;
+        const reqMin = reqH * 60 + (parseInt(exactTimeInPref[2] ?? '0') || 0);
+        let closest = slotsOnExactDay[0];
+        let closestDiff = Infinity;
+        for (const s of slotsOnExactDay) {
+          const [sh, sm] = s.time.split(':').map(Number);
+          const diff = Math.abs(sh * 60 + sm - reqMin);
+          if (diff < closestDiff) { closestDiff = diff; closest = s; }
+        }
+        const nearestTime = formatTimeNaturally(closest.time);
+        return `NO_MATCH: Requested time not available on ${exactDayInPref}. Nearest is ${nearestTime}.
+Say: "I don't have that exact time on ${dayDisplay}, I'm afraid. The closest I can do is ${nearestTime} — would that work, or would you prefer a different day?"
 When they respond, call select_timeslot with whatever they say.`;
       }
     }
@@ -3376,7 +3425,9 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   // "Last", "latest"
   if (/\b(last|latest)\b/.test(prefLower)) return timeslots[timeslots.length - 1];
 
-  // "Later", "after that", "something later", "end of the week" — pick last available slot
+  // "Later", "after that", "something later", "end of the week"
+  // "later" is relative — if the customer was just shown a specific date, offer later on
+  // that same day first. Only jump to a different day if no later slots exist on that day.
   if (/\b(later|after that|end of|something later)\b/.test(prefLower)) {
     const ph = extractPrefHour(prefLower);
     return closestByTime(timeslots, ph) ?? timeslots[timeslots.length - 1];
@@ -3436,6 +3487,7 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     const nextWeekStr = ukDateStr(7);
     const matches = timeslots.filter(t => t.date >= nextWeekStr);
     if (matches.length > 0) return closestByTime(matches, extractPrefHour(prefLower));
+    return null; // next week specified but no slots that far out — let NO_MATCH explain
   }
 
   // Named day — with "next" prefix means skip to the week AFTER the coming occurrence
@@ -3860,6 +3912,11 @@ CRITICAL TOOL ORDER RULES:
 - NEVER call select_timeslot before select_service has been called and returned successfully
 - If you are tempted to call select_service but confirm_vehicle has not been called yet, call confirm_vehicle(confirmed=true) first, then select_service
 - Never call multiple booking tools in the same turn — one tool per response
+
+YOUR CAPABILITIES — be honest about these:
+- You can book new appointments (MOT, servicing, repairs) through GarageHive
+- You can answer general questions using info in this prompt (opening hours, address, services offered, prices)
+- That's it. You CANNOT check MOT due dates, look up existing bookings, check vehicle history, or access any external system beyond the booking engine. If a customer asks for something outside your capabilities, say so honestly and offer what you CAN do (book them in or take a message). Never say "hold on" or "let me check" for something you cannot do.
 
 GENERAL RULES:
 - Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases

@@ -128,6 +128,10 @@ interface ChatSession {
   // Warm resume: set when session resumes after 8-72h gap, cleared after first LLM response
   warmResumeContext?: string;
 
+  // Message-taking: set when customer wants to leave a message, next turn captures the content
+  collectingMessage?: boolean;
+  preMessageStep?: string; // step before message-taking started (for booking resume)
+
   // Transient: raw customer message for the current turn (not persisted to DB)
   lastCustomerMessage?: string;
 }
@@ -345,6 +349,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         preferredDate: sessionData.preferredDate || '',
         slotsShownDate: sessionData.slotsShownDate || '',
         warmResumeContext: sessionData.warmResumeContext || undefined,
+        collectingMessage: sessionData.collectingMessage || false,
+        preMessageStep: sessionData.preMessageStep || undefined,
       };
       // Guard: if session is mid-booking but has no GarageHive sessionId, the previous
       // vehicle lookup failed or was never saved. Reset back to need_vrn so the bot
@@ -626,7 +632,62 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
+    // ── MESSAGE_CONTENT_FASTPATH: collectingMessage flag is set — this message IS the content ──
+    // Fires before anything else so the customer's message goes straight to take_message
+    if (session.collectingMessage) {
+      console.log(`[MESSAGE_CONTENT_FASTPATH] Capturing message content (preMessageStep: ${session.preMessageStep})`);
+      session.collectingMessage = false;
+      const savedStep = session.preMessageStep || '';
+      session.preMessageStep = undefined;
 
+      // Call handleTakeMessage with the customer's raw message
+      await handleTakeMessage(
+        { message: message, phone: session.contactPhone || '', callback_time: '' },
+        session,
+        conversationId
+      );
+
+      // If a booking was in progress, offer to resume
+      const bookingSteps = [Step.NEED_SERVICE, Step.NEED_TIMESLOT, Step.NEED_SLOT_CONFIRM, Step.NEED_CONTACT, Step.CONFIRMING_VEHICLE];
+      const wasBooking = bookingSteps.includes(savedStep as Step) || session.serviceSelectedName;
+      const serviceName = session.serviceSelectedName || session.outboundServiceType?.toUpperCase() || 'your booking';
+
+      if (wasBooking) {
+        // Restore step so booking can continue
+        session.step = savedStep as Step || Step.NEED_SERVICE;
+        await saveSession(conversationId, session);
+        console.log(`[MESSAGE_CONTENT_FASTPATH] Message saved, resuming booking at step: ${session.step}`);
+        return {
+          content: `Got it, ${session.customerNameFirst || 'there'} — I've passed that on and the team will be in touch. Now, shall we carry on with ${serviceName}?`,
+          needsHumanAssistance: false,
+        };
+      }
+
+      return {
+        content: `Got it, ${session.customerNameFirst || 'there'} — I've passed that on and the team will give you a call back. Is there anything else I can help with?`,
+        needsHumanAssistance: false,
+      };
+    }
+
+    // ── MESSAGE_COLLECTING_FASTPATH: customer wants to leave a message mid-conversation ──
+    // Detects "leave a message" / "take a message" / "pass on a message" intent
+    // Sets collectingMessage flag so the NEXT turn captures the content directly
+    {
+      const lower = message.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+      const wantsMessage = /\b(leave|take|pass on|send)\s+(a\s+)?(message|note|msg)\b/.test(lower)
+        || /\b(just\s+)?(a\s+)?message\s*(please|thanks|for them|for the team)?\s*$/i.test(lower);
+      // Don't trigger if we're already in MESSAGE_ONLY or CONFIRMED state
+      if (wantsMessage && session.step !== Step.MESSAGE_ONLY && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+        console.log(`[MESSAGE_COLLECTING_FASTPATH] Customer wants to leave a message at step: ${session.step}`);
+        session.collectingMessage = true;
+        session.preMessageStep = session.step;
+        await saveSession(conversationId, session);
+        return {
+          content: `Of course, ${session.customerNameFirst || 'no problem'}! What would you like me to pass on to the team?`,
+          needsHumanAssistance: false,
+        };
+      }
+    }
 
     // Fast-path: restart/cancel detection — customer wants to start over or give up
     // Only trigger before booking is confirmed (no point resetting after CONFIRMED/DONE)

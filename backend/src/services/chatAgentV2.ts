@@ -1931,7 +1931,11 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
   session.message = message;
   session.contactPhone = phone;
   session.preferredCallbackTime = callback_time;
-  session.step = Step.MESSAGE_ONLY;
+  // Don't overwrite CONFIRMED step — a post-booking take_message is a cancellation note,
+  // not a message-only session. Downgrading CONFIRMED → MESSAGE_ONLY loses booking context.
+  if (session.step !== Step.CONFIRMED) {
+    session.step = Step.MESSAGE_ONLY;
+  }
   await saveSession(conversationId, session);
 
   // Flag conversation as needing attention so it shows up in the Messages inbox

@@ -1,7 +1,6 @@
 import { prisma } from '../db.js';
 import OpenAI from 'openai';
 import axios from 'axios';
-import { sendNeedsAttentionEmail } from '../utils/email.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -69,6 +68,8 @@ interface ChatSession {
   servicesAvailable: any[];
   serviceSelectedId: string;
   serviceSelectedName: string;
+  serviceSelectedIds: string[];   // all selected service IDs (multi-service bookings)
+  serviceSelectedNames: string[]; // matching display names
   servicePrice: string;
   
   // Timeslot
@@ -104,6 +105,10 @@ interface ChatSession {
   outboundRegistration?: string;
   outboundServiceType?: string;
   outboundDueDate?: string;
+  outboundUpsellOffered?: boolean;
+  upsellServiceId?: string;     // service ID saved during upsell, prepended when adding a 2nd service
+  upsellServiceName?: string;   // display name of upsell service (for UPSELL_FOLLOW_UP prompt)
+  additionalServiceName?: string; // original service retained after upsell add-on consumed (e.g. MOT when Full Service added)
 
   // Widget pre-fill: service hint from initial message (e.g. "MOT")
   serviceHint?: string;
@@ -111,8 +116,12 @@ interface ChatSession {
   // Branch selection (for garages with multiple locations)
   selectedBranch?: string;
 
-  // Escalation tracking
-  escalationWarned: boolean;    // true after first "speak to human" deflection
+  // Preferred date stated by customer (e.g. "Tuesday 19th", "next week")
+  // Preserved across step changes so LLM can use it after "No" rejections
+  preferredDate?: string;
+
+  // Last date we showed a slot list for — anchors bare time picks ("1pm") to the right date
+  slotsShownDate?: string;
 }
 
 const inMemorySessionCache = new Map<string, ChatSession>();
@@ -147,13 +156,18 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     );
     
     if (rows.length > 0 && rows[0].sessionState) {
-      // If the last message was more than 4 hours ago, treat as a fresh conversation
-      // (keeps their name/phone but resets all booking state)
-      const lastMsg = rows[0].lastMessageAt ? new Date(rows[0].lastMessageAt) : null;
-      const ageMs = lastMsg ? Date.now() - lastMsg.getTime() : Infinity;
-      const SESSION_EXPIRY_MS = 4 * 60 * 60 * 1000; // 4 hours
+      // If the session hasn't been touched for 8 hours, treat as a fresh conversation.
+      // IMPORTANT: use sessionUpdatedAt (written by saveSession) NOT lastMessageAt —
+      // the webhook updates lastMessageAt BEFORE this function runs, so it's always "now"
+      // and a time-based expiry on lastMessageAt never fires.
+      const sessionData0 = rows[0].sessionState as any;
+      const lastUpdated = sessionData0?.sessionUpdatedAt
+        ? new Date(sessionData0.sessionUpdatedAt)
+        : (rows[0].lastMessageAt ? new Date(rows[0].lastMessageAt) : null);
+      const ageMs = lastUpdated ? Date.now() - lastUpdated.getTime() : Infinity;
+      const SESSION_EXPIRY_MS = 8 * 60 * 60 * 1000; // 8 hours
       if (ageMs > SESSION_EXPIRY_MS) {
-        console.log(`[GET_SESSION] Session expired (last message ${Math.round(ageMs / 60000)}min ago) — starting fresh`);
+        console.log(`[GET_SESSION] Session expired (last updated ${Math.round(ageMs / 60000)}min ago) — starting fresh`);
         // Fall through to create a fresh session below, but preserve name + contact
         const oldData = rows[0].sessionState as any;
         const freshSession: ChatSession = {
@@ -163,7 +177,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           customerNameLast: oldData.customerNameLast || '',
           vrn: '', vrnConfirmed: false, sessionId: '',
           vehicleMake: '', vehicleModel: '',
-          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', serviceSelectedIds: [], serviceSelectedNames: [], servicePrice: '',
           timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
           bookingDate: '', bookingTime: '',
           contactPhone: oldData.contactPhone || '',
@@ -174,7 +188,6 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           diagnosticNotes: '', diagnosticComplete: false, diagnosticQuestions: [],
           useDropOffBooking: false,
           selectedBranch: '',
-          escalationWarned: false,
         };
         inMemorySessionCache.set(conversationId, freshSession);
         return freshSession;
@@ -195,6 +208,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         servicesAvailable: sessionData.servicesAvailable || [],
         serviceSelectedId: sessionData.serviceSelectedId || '',
         serviceSelectedName: sessionData.serviceSelectedName || '',
+        serviceSelectedIds: sessionData.serviceSelectedIds || [],
+        serviceSelectedNames: sessionData.serviceSelectedNames || [],
         servicePrice: sessionData.servicePrice || '',
         timeslotsAvailable: sessionData.timeslotsAvailable || [],
         pendingSlotDate: sessionData.pendingSlotDate || '',
@@ -218,7 +233,11 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         outboundRegistration: sessionData.outboundRegistration || undefined,
         outboundServiceType: sessionData.outboundServiceType || undefined,
         outboundDueDate: sessionData.outboundDueDate || undefined,
-        escalationWarned: sessionData.escalationWarned || false,
+        outboundUpsellOffered: sessionData.outboundUpsellOffered || false,
+        upsellServiceId: sessionData.upsellServiceId || undefined,
+        upsellServiceName: sessionData.upsellServiceName || undefined,
+        preferredDate: sessionData.preferredDate || '',
+        slotsShownDate: sessionData.slotsShownDate || '',
       };
       // Guard: if session is mid-booking but has no GarageHive sessionId, the previous
       // vehicle lookup failed or was never saved. Reset back to need_vrn so the bot
@@ -227,13 +246,16 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         Step.NEED_SERVICE, Step.NEED_BOOKING_CONFIRM, Step.NEED_TIMESLOT,
         Step.NEED_SLOT_CONFIRM, Step.NEED_CONTACT, Step.CONFIRMING_POSTCODE, Step.CONFIRMED
       ];
-      if (BOOKING_STEPS_NEEDING_SESSION.includes(loadedSession.step as Step) && !loadedSession.sessionId) {
+      const isOutboundSession = !!(loadedSession.outboundRegistration && loadedSession.vrn);
+      if (BOOKING_STEPS_NEEDING_SESSION.includes(loadedSession.step as Step) && !loadedSession.sessionId && !isOutboundSession) {
         console.log(`[GET_SESSION] Step is ${loadedSession.step} but sessionId is empty — resetting to need_vrn (vrn: ${loadedSession.vrn})`);
         loadedSession.step = Step.NEED_VRN;
         loadedSession.vrnConfirmed = false;
         loadedSession.servicesAvailable = [];
         loadedSession.serviceSelectedId = '';
         loadedSession.serviceSelectedName = '';
+        loadedSession.serviceSelectedIds = [];
+        loadedSession.serviceSelectedNames = [];
         loadedSession.servicePrice = '';
         loadedSession.timeslotsAvailable = [];
         loadedSession.pendingSlotDate = '';
@@ -268,6 +290,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     servicesAvailable: [],
     serviceSelectedId: '',
     serviceSelectedName: '',
+    serviceSelectedIds: [],
+    serviceSelectedNames: [],
     servicePrice: '',
     timeslotsAvailable: [],
     pendingSlotDate: '',
@@ -289,7 +313,6 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
     diagnosticQuestions: [],
     useDropOffBooking: false,
     selectedBranch: '',
-    escalationWarned: false,
   };
 
   inMemorySessionCache.set(conversationId, newSession);
@@ -306,6 +329,7 @@ async function saveSession(conversationId: string, session: ChatSession): Promis
     const sessionToSave = {
       ...session,
       timeslotsAvailable: (session.timeslotsAvailable || []).slice(0, 5),
+      sessionUpdatedAt: new Date().toISOString(), // used for reliable expiry check
     };
     // Use raw SQL to update sessionState (Prisma client may not have the column in its types)
     const sessionJson = JSON.stringify(sessionToSave);
@@ -319,39 +343,6 @@ async function saveSession(conversationId: string, session: ChatSession): Promis
   } catch (error) {
     console.error(`[SAVE_SESSION] ❌ Failed to save session for ${conversationId}:`, error);
     // Don't throw - in-memory cache is the fallback
-  }
-}
-
-/** Fire-and-forget: fetch conversation + agent config and send needs-attention email */
-async function fireNeedsAttentionEmail(conversationId: string, garageId: string): Promise<void> {
-  try {
-    const [conversation, agentConfig, recentMessages] = await Promise.all([
-      prisma.chatConversation.findUnique({
-        where: { id: conversationId },
-        select: { customerName: true, customerPhone: true },
-      }),
-      prisma.agentConfiguration.findUnique({
-        where: { garageId },
-        select: { notificationEmails: true, branchName: true },
-      }),
-      prisma.chatMessage.findMany({
-        where: { conversationId },
-        orderBy: { createdAt: 'desc' },
-        take: 3,
-      }),
-    ]);
-
-    if (!agentConfig?.notificationEmails?.length) return;
-
-    await sendNeedsAttentionEmail(agentConfig.notificationEmails, {
-      branchName: agentConfig.branchName,
-      customerName: conversation?.customerName ?? null,
-      customerPhone: conversation?.customerPhone ?? null,
-      conversationId,
-      recentMessages: recentMessages.reverse().map(m => ({ role: m.role, content: m.content })),
-    });
-  } catch (err) {
-    console.error('[ESCALATION] Failed to send needs-attention email:', err);
   }
 }
 
@@ -425,11 +416,32 @@ export async function getChatAgentResponse(
       seedApplied = true;
     }
 
+    // Outbound fastpath: auto-lookup vehicle on first customer reply (don't wait for LLM)
+    if (session.outboundRegistration && !session.vrn && !session.vrnConfirmed &&
+        (session.step === Step.NEED_VRN || session.step === Step.GREETING)) {
+      console.log(`[OUTBOUND_FASTPATH] Auto-looking up ${session.outboundRegistration}`);
+      const lookupResult = await handleLookupVehicle({ registration: session.outboundRegistration }, session, conversationId);
+      if (lookupResult.includes('Found:') || lookupResult.includes('confirm_vehicle')) {
+        // Vehicle found — now auto-confirm it
+        const confirmResult = await handleConfirmVehicle({ confirmed: true }, session, conversationId);
+        const vehicleMsg = instructionToCustomerReply(confirmResult);
+        console.log(`[OUTBOUND_FASTPATH] Vehicle confirmed, returning combined response`);
+        await saveSession(conversationId, session);
+        return { content: vehicleMsg, needsHumanAssistance: false };
+      }
+    }
+
     // Build conversation context
+    // Skip old history for fresh outbound sessions — the old messages confuse the LLM
+    // into following previous broken patterns instead of the fresh outbound instructions.
+    const isOutboundFresh = !!(session.outboundRegistration &&
+      (session.step === Step.NEED_VRN ||
+       session.step === Step.NEED_SERVICE ||
+       (session.step as string) === 'confirming_vehicle'));
     const previousMessages = await prisma.chatMessage.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
-      take: 10,
+      take: isOutboundFresh ? 0 : 10,
     });
 
     hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string }>);
@@ -442,10 +454,14 @@ export async function getChatAgentResponse(
 
     // Also scan the CURRENT message for contact details (e.g. user puts phone in their first message)
     if (!session.contactPhone) {
-      const phoneInMsg = message.match(/(?:\+44\s?7\d{3}|\b07\d{3})\s?\d{3}\s?\d{3,4}\b/i);
-      if (phoneInMsg) {
-        session.contactPhone = phoneInMsg[0].replace(/\s+/g, '');
-        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}`);
+      const phoneMsgMatches = [...message.matchAll(/\+[\d\s\-]{7,18}|\b0\d[\d\s\-]{8,13}|\b44\d[\d\s\-]{7,12}/g)];
+      if (phoneMsgMatches.length > 0) {
+        const hasMsgCorrection = /\b(no wait|actually|sorry|wrong|not that|old number|that.?s wrong|meant to say)\b/i.test(message);
+        const chosenMsgPhone = (hasMsgCorrection && phoneMsgMatches.length > 1)
+          ? phoneMsgMatches[phoneMsgMatches.length - 1][0]
+          : phoneMsgMatches[0][0];
+        session.contactPhone = chosenMsgPhone.replace(/\s+/g, '');
+        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}${hasMsgCorrection ? ' (corrected)' : ''}`);
         seedApplied = true;
       }
     }
@@ -455,11 +471,17 @@ export async function getChatAgentResponse(
       await saveSession(conversationId, session);
     }
 
+
+
     // Fast-path: restart/cancel detection — customer wants to start over or give up
     // Only trigger before booking is confirmed (no point resetting after CONFIRMED/DONE)
     if (session.step !== Step.CONFIRMED && session.step !== Step.DONE && session.step !== Step.GREETING) {
       const lower = message.toLowerCase().replace(/[^a-z\s]/g, '').trim();
-      const isRestart = /\b(start (over|again)|restart|reset|begin again|wrong (garage|number|chat)|different (garage|car|vehicle)|cancel (booking|this|everything)|forget it|never ?mind|start from (the )?beginning)\b/.test(lower);
+      // "forget it" / "never mind" only restart if standalone — not when followed by a date/alternative
+      // e.g. "forget it then, next thursday" = reschedule, not cancel
+      const hasFollowUpIntent = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|tomorrow|next|instead|earliest|soonest|actually)\b/.test(lower);
+      const isRestart = /\b(start (over|again)|restart|reset|begin again|wrong (garage|number|chat)|different (garage|car|vehicle)|cancel (booking|this|everything)|start from (the )?beginning)\b/.test(lower) ||
+        ((/\b(forget it|never ?mind)\b/.test(lower)) && !hasFollowUpIntent);
       // Also reset if customer left a message but now wants to book
       const wantsBookingAfterMessage = session.step === Step.MESSAGE_ONLY &&
         /\b(book|booking|service|mot|appointment|slot|come in|bring (it|the car)|actually|instead)\b/.test(lower);
@@ -473,7 +495,7 @@ export async function getChatAgentResponse(
           intent: '',
           vrn: '', vrnConfirmed: false, sessionId: '',
           vehicleMake: '', vehicleModel: '',
-          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', servicePrice: '',
+          servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', serviceSelectedIds: [], serviceSelectedNames: [], servicePrice: '',
           timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
           bookingDate: '', bookingTime: '',
           contactPostcode: '', contactStreet: '', contactCity: '', contactHouseNumber: '',
@@ -495,29 +517,48 @@ export async function getChatAgentResponse(
       }
     }
 
-    // Human escalation detection — intercept before calling OpenAI
-    const HUMAN_ESCALATION = /\b(speak to a human|human agent|real person|speak to staff|speak to someone else|talk to a person|someone else|speak to a real|talk to a human|want a human|need a human|get a human)\b/i;
-    if (HUMAN_ESCALATION.test(message)) {
-      if (!session.escalationWarned) {
-        // First mention — soft redirect
-        session.escalationWarned = true;
+    // Save preferred date whenever customer mentions one — not just at NEED_TIMESLOT
+    // Captures dates from the opening message ("can I book this Friday") for later use
+    if (!session.bookingDate) {
+      const datePhraseMatch = message.match(
+        /\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next\s+\w+|\d{1,2}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*|\d{4}-\d{2}-\d{2}|\d{1,2}(?:st|nd|rd|th)?(?:\s+may|\s+june|\s+july)?)\b/i
+      );
+      if (datePhraseMatch && datePhraseMatch[0].toLowerCase() !== (session.preferredDate || '').toLowerCase()) {
+        session.preferredDate = datePhraseMatch[0];
         await saveSession(conversationId, session);
-        return {
-          content: "I can help with bookings and general enquiries. Is there something specific I can help you with?",
-          needsHumanAssistance: false,
-        };
-      } else {
-        // Customer persists — flag for human team and pause agent
-        await prisma.chatConversation.update({
-          where: { id: conversationId },
-          data: { needsAttention: true, agentPaused: true },
-        });
-        // Send notification email (non-blocking)
-        void fireNeedsAttentionEmail(conversationId, garageId);
-        return {
-          content: "No problem — I've flagged this for the team. Someone will be with you shortly.",
-          needsHumanAssistance: true,
-        };
+        console.log(`[PREFERRED_DATE] Saved: "${session.preferredDate}" (step: ${session.step})`);
+      }
+    }
+
+    // Fast-path: any date/time preference when timeslots are ready — call select_timeslot directly, skip LLM
+    // Covers NEED_TIMESLOT step AND NEED_SERVICE after upsell decline (service confirmed, step not yet updated)
+    // Prevents LLM stalling with "Let me check... one moment" instead of calling the tool
+    const isAtTimeslotStage = session.step === Step.NEED_TIMESLOT ||
+      (session.step === Step.NEED_SERVICE && !!session.serviceSelectedName && session.timeslotsAvailable?.length > 0);
+    if (isAtTimeslotStage) {
+      const lower = message.toLowerCase();
+      const hasTimePref = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|morning|afternoon|evening|next\s+\w+|\d{1,2}(?:st|nd|rd|th)?|soonest|earliest|asap|any\s*time|don.?t\s*mind|whenever|as\s*soon)\b/i.test(message) ||
+        /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(message);
+      const isQuestion = message.trim().endsWith('?');
+      const isAddService = /\b(add|also|and|plus|as well|too)\b/i.test(lower) && /\b(service|mot|oil|brake|tyre|tire|check|interim|full)\b/i.test(lower);
+      if (hasTimePref && !isQuestion && !isAddService) {
+        console.log(`[TIMESLOT_FASTPATH] Date/time in "${message}" at ${session.step} — calling select_timeslot directly`);
+        const toolResult = await handleSelectTimeslot({ preference: message }, session, conversationId);
+        const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
+        if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
+      }
+    }
+
+    // Fast-path: bare time reply when we know which date we last showed slots for
+    if (session.step === Step.NEED_TIMESLOT && session.slotsShownDate && session.timeslotsAvailable?.length) {
+      const timeInMsg = message.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) ||
+                        message.match(/\b(\d{1,2}):(\d{2})\b/);
+      if (timeInMsg) {
+        console.log(`[SLOTS_SHOWN_FASTPATH] slotsShownDate=${session.slotsShownDate}, time in "${message}" — anchoring`);
+        const anchored = `${session.slotsShownDate} at ${message}`;
+        const toolResult = await handleSelectTimeslot({ preference: anchored }, session, conversationId);
+        const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
+        if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
       }
     }
 
@@ -533,8 +574,22 @@ export async function getChatAgentResponse(
     if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
       // Strip emoji, punctuation, and normalise repeated words before testing intent
       const stripped = message.toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\b(\w+)\s+\1\b/g, '$1');
-      const isYes = /\b(yes|yeah|yep|yup|yh|ye|ya|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please|fine|brilliant|lovely|brill|ace|spot on|do it|book it|book me in)\b/.test(stripped);
+      let isYes = /\b(yes|yeah|yep|yup|yh|ye|ya|sure|ok|okay|perfect|great|sounds good|that works|confirm|go ahead|please|fine|brilliant|lovely|brill|ace|spot on|do it|book it|book me in)\b/.test(stripped);
       const isNo = /\b(no|nope|different|another|change|instead|rather|earlier|later|different)\b/.test(stripped);
+
+      // Guard: if message contains a day name that doesn't match the pending slot's day,
+      // treat as wants-alternative — fires whether message is a yes OR a bare day name ("Friday?")
+      let dayMismatch = false;
+      const dayInMsg = stripped.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/);
+      if (dayInMsg) {
+        const pendingDow = new Date(session.pendingSlotDate + 'T12:00:00')
+          .toLocaleDateString('en-GB', { weekday: 'long' }).toLowerCase();
+        if (pendingDow !== dayInMsg[0]) {
+          console.log(`[SLOT_CONFIRM] Day mismatch: pending=${pendingDow}, msg="${dayInMsg[0]}" — treating as wants-alternative`);
+          isYes = false;
+          dayMismatch = true;
+        }
+      }
 
       // Extract any note from the message even during slot confirmation
       const notePattern = /(?:also|and|btw|by the way|ps|p\.s\.?|additionally|there[''s]*s?|it[''s]*s?|she[''s]*s?)\s+(.{10,})/i;
@@ -543,17 +598,121 @@ export async function getChatAgentResponse(
         session.notes = (session.notes ? session.notes + ' | ' : '') + `Customer note: ${noteMatch[1].trim()}`;
       }
 
-      if (isNo) {
+      // Fast-path: customer specifies a time while at slot confirm (e.g. "1pm works" after we proposed 8:30am)
+      // Filter to the date we last showed slots for, then match by time only
+      if (!isYes && session.slotsShownDate && session.timeslotsAvailable?.length) {
+        const timeInMsg = message.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) ||
+                          message.match(/\b(\d{1,2}):(\d{2})\b/);
+        if (timeInMsg) {
+          const slotsOnDate = session.timeslotsAvailable.filter((t: any) => t.date === session.slotsShownDate);
+          if (slotsOnDate.length > 0) {
+            const matched = matchTimeslot(timeInMsg[0], slotsOnDate);
+            if (matched) {
+              console.log(`[SLOT_CONFIRM_FASTPATH] "${timeInMsg[0]}" on ${session.slotsShownDate} → ${matched.date} ${matched.time}`);
+              session.pendingSlotDate = matched.date;
+              session.pendingSlotTime = matched.time;
+              session.slotsShownDate = matched.date;
+              session.step = Step.NEED_SLOT_CONFIRM;
+              await saveSession(conversationId, session);
+              const dateNatural = formatDateNaturally(matched.date);
+              const timeNatural = formatTimeNaturally(matched.time);
+              return { content: `I've got ${dateNatural} at ${timeNatural} — does that work for you?`, needsHumanAssistance: false };
+            }
+          }
+        }
+      }
+
+      // Also treat time/availability questions as "wants alternatives" (e.g. "any in the afternoon?")
+      const isWantsAlternative = !isYes && (
+        isNo ||
+        dayMismatch ||
+        /\b(afternoon|morning|evening|earlier|later|different|another|instead|any.*(at|around|after|before)|do you have|what about|anything|actually|wait)\b/i.test(stripped)
+      );
+
+      if (isWantsAlternative) {
+        // Save pendingSlotDate before clearing — used as fallback for todKeyword search below
+        const savedPendingDate = session.pendingSlotDate;
+
         // Customer wants a different slot — go back to timeslot selection
         session.step = Step.NEED_TIMESLOT;
         session.pendingSlotDate = '';
         session.pendingSlotTime = '';
         await saveSession(conversationId, session);
+
+        // If message names a specific new day ("Thursday instead", "what about Friday afternoon"),
+        // match that directly rather than defaulting to the old preferredDate
+        const newDayInMsg = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(message);
+        if (newDayInMsg) {
+          // Strip noise words so "No, friday 1pm" → "friday 1pm", "Ahh actually friday" → "friday"
+          const cleanedPref = message.replace(/\b(no|nope|actually|wait|hmm|ahh|ah|oh|not)\b[,.\s]*/gi, '').trim() || message;
+          console.log(`[SLOT_CONFIRM_ALTDAY] New day in "${message}" → cleaned: "${cleanedPref}" — calling select_timeslot`);
+          const toolResult = await handleSelectTimeslot({ preference: cleanedPref }, session, conversationId);
+          const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
+          if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
+        }
+
+        // Time-of-day keyword ("morning", "afternoon") — use preferredDate or the just-cleared pendingSlotDate
+        const todKeyword = message.match(/\b(morning|afternoon|evening)\b/i)?.[0];
+        const dayForTod = session.preferredDate || savedPendingDate;
+        if (todKeyword && dayForTod && session.timeslotsAvailable?.length) {
+          console.log(`[SLOT_CONFIRM_TOD] "${todKeyword}" on ${dayForTod} — calling select_timeslot`);
+          const toolResult = await handleSelectTimeslot({ preference: `${dayForTod} ${todKeyword}` }, session, conversationId);
+          const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
+          if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
+        }
+
+        // If we know a preferred date, try to show slots on that date
+        if (session.preferredDate) {
+          const anchored = `${session.preferredDate} ${message}`;
+          const altSlots = session.timeslotsAvailable.filter((t: any) => {
+            const matched = matchTimeslot(session.preferredDate!, session.timeslotsAvailable);
+            return matched && t.date === matched.date;
+          });
+          if (altSlots.length > 0) {
+            const dateNatural = formatDateNaturally(altSlots[0].date);
+            session.slotsShownDate = altSlots[0].date;
+            await saveSession(conversationId, session);
+            const times = altSlots.map((t: any) => formatTimeNaturally(t.time)).join(' or ');
+            return {
+              content: `On ${dateNatural} I've got ${times} — which would you prefer?`,
+              needsHumanAssistance: false,
+            };
+          }
+        }
+
         const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
         return {
           content: `No problem — here are the available slots:\n${firstSlots}`,
           needsHumanAssistance: false,
         };
+      }
+
+      // Contact info given while still at slot confirmation — auto-confirm the slot, then collect contact
+      if (!isYes && !isWantsAlternative) {
+        const earlyContactArgs = extractContactArgsFromMessage(message, session);
+        // Also detect phone pre-saved by early scan (digits-only message) and email attempts
+        const looksLikePhoneMsg = /^\+?[\d\s\-]{7,15}$/.test(message.trim());
+        // Email attempt: has @ OR ends with .letters (e.g. tinagmail.com) — excludes "9.30" (dot + digits)
+        const looksLikeEmailAttempt = message.trim().includes('@') ||
+          (/\.[a-z]{2,}$/i.test(message.trim()) && !message.includes(' ') && message.trim().length < 60);
+        const hasEarlyContact = !!(earlyContactArgs.phone || earlyContactArgs.email || earlyContactArgs.postcode) ||
+                                looksLikePhoneMsg || looksLikeEmailAttempt;
+        if (hasEarlyContact) {
+          console.log(`[SLOT_CONFIRM] Contact info before slot confirmed — auto-confirming ${session.pendingSlotDate} ${session.pendingSlotTime}`);
+          try {
+            await ghSetTimeslot(session.sessionId, session.pendingSlotDate, session.pendingSlotTime);
+          } catch (err) {
+            console.error('[SLOT_CONFIRM] ghSetTimeslot failed on early contact auto-confirm:', err);
+          }
+          session.bookingDate = session.pendingSlotDate;
+          session.bookingTime = session.pendingSlotTime;
+          session.step = Step.NEED_CONTACT;
+          session.pendingSlotDate = '';
+          session.pendingSlotTime = '';
+          await saveSession(conversationId, session);
+          const instructions = await handleSetContactInfo(earlyContactArgs, session, conversationId);
+          return { content: instructionToCustomerReply(instructions), needsHumanAssistance: false };
+        }
       }
 
       if (isYes) {
@@ -577,6 +736,19 @@ export async function getChatAgentResponse(
           content: `Perfect — just need a couple of details to lock that in. ${nextAsk}`,
           needsHumanAssistance: false,
         };
+      }
+
+      // Side question mid-slot confirm — answer briefly then re-ask confirmation
+      if (message.includes('?')) {
+        const dateNatural2 = formatDateNaturally(session.pendingSlotDate);
+        const timeNatural2 = formatTimeNaturally(session.pendingSlotTime);
+        const miniSystemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
+        const miniMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+          { role: 'system', content: `${miniSystemPrompt}\n\nThe customer asked a question while confirming their slot (${dateNatural2} at ${timeNatural2}). Answer briefly in one sentence, then immediately ask: "Shall I go ahead and book you in for ${dateNatural2} at ${timeNatural2}?" Do NOT call any tools.` },
+          { role: 'user', content: message },
+        ];
+        const miniResp = await getOpenAI().chat.completions.create({ model: 'gpt-4o-mini', temperature: 0.5, max_tokens: 120, messages: miniMessages });
+        return { content: miniResp.choices[0].message.content || `Shall I go ahead and book you in for ${dateNatural2} at ${timeNatural2}?`, needsHumanAssistance: false };
       }
 
       // Unclear response — ask again
@@ -621,8 +793,8 @@ export async function getChatAgentResponse(
         const waitingForEmail = !!(session.contactPhone && !session.contactEmail);
         const waitingForPostcode = !!(session.contactPhone && session.contactEmail && !session.contactPostcode);
 
-        // Failed email: has @ but didn't extract a valid address
-        if (waitingForEmail && msg.includes('@')) {
+        // Failed email: has @ but invalid format, OR looks like an email (ends with .com/etc) but missing @
+        if (waitingForEmail && (msg.includes('@') || (/\.[a-z]{2,}$/i.test(msg) && !msg.includes(' ')))) {
           return { content: `Hmm, that doesn't look like a valid email address — could you double-check it?`, needsHumanAssistance: false };
         }
 
@@ -633,9 +805,56 @@ export async function getChatAgentResponse(
           return { content: instructionToCustomerReply(instructions), needsHumanAssistance: false };
         }
 
+        // Customer wants to reschedule AFTER confirming — reset booking and restart timeslot selection
+        const isRescheduleIntent = /\b(can we (do|change|move|switch|reschedule)|actually.*(want|prefer)|sorry.*(can|could).*(do|change|move)|(change|switch|move) (to|it)|reschedule)\b/i.test(msg);
+        if (isRescheduleIntent && /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|tomorrow|today)\b/i.test(msg)) {
+          session.bookingDate = '';
+          session.bookingTime = '';
+          session.pendingSlotDate = '';
+          session.pendingSlotTime = '';
+          session.step = Step.NEED_TIMESLOT;
+          await saveSession(conversationId, session);
+          const toolResult = await handleSelectTimeslot({ preference: msg }, session, conversationId);
+          const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
+          if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
+        }
+
+        // Pure digit/phone string — either pre-saved by early scan, or waiting for phone now
+        const looksLikeJustPhone = /^\+?[\d\s\-]{7,15}$/.test(msg);
+        if (looksLikeJustPhone) {
+          if (!session.contactPhone) {
+            // Not yet saved — save it directly (accepts non-standard formats like 459694969496)
+            session.contactPhone = msg.replace(/[\s\-]/g, '');
+            await saveSession(conversationId, session);
+          }
+          const nextAsk = !session.contactEmail
+            ? `Can I grab your email address?`
+            : !session.contactPostcode
+            ? `What's your postcode?`
+            : `What's your house number or name?`;
+          return { content: nextAsk, needsHumanAssistance: false };
+        }
+
         // Note request phrased as a question ("Can you also note...", "Could you check...", "Please tell them...")
         // — treat as a note regardless of the question mark
         const isNoteRequest = /\b(can you (also |please )?(note|mention|tell them|check|flag|add|ask them|let them know|make a note)|could you (also |please )?(note|mention|tell them|check|flag)|please (also )?(note|mention|tell them|check|flag|add)|also (note|check|mention|add|flag|tell them)|let them know|make a note)\b/i.test(msg);
+
+        // AI disclosure question — detect even without a "?" (e.g. "is this just AI lol")
+        const isAiDisclosure = /\b(is this (ai|a bot|automated|a robot|a computer|artificial)|are you (ai|a bot|a robot|human|real|automated|an ai|a person)|am i talking to (a human|an ai|a bot|a person|a real person|a machine)|just ai|just a bot|talking to a (human|real person|machine)|thought i was talking to|thought you were|you are (a bot|ai|a robot))\b/i.test(msg);
+        const fieldNeededForDisclosure = !session.contactPhone ? 'phone number'
+          : !session.contactEmail ? 'email address'
+          : !session.contactPostcode ? 'postcode'
+          : 'house number or name';
+        if (isAiDisclosure) {
+          const disclosureSysPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
+          const disclosureMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+            { role: 'system', content: `${disclosureSysPrompt}\n\nThe customer is asking whether they're talking to an AI. Be honest in one sentence: acknowledge you're an AI assistant for the garage, reassure them you can help just as well, then immediately re-ask for their ${fieldNeededForDisclosure}. Stay warm and in character. Do NOT say "Hi there!" or restart the conversation. Do NOT call any tools.` },
+            ...previousMessages.map(m => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content })),
+            { role: 'user', content: msg },
+          ];
+          const disclosureResp = await getOpenAI().chat.completions.create({ model: 'gpt-4o', temperature: 0.5, max_tokens: 150, messages: disclosureMessages });
+          return { content: disclosureResp.choices[0].message.content || `Yes, I'm an AI assistant! I can still get you sorted. Can I grab your ${fieldNeededForDisclosure}?`, needsHumanAssistance: false };
+        }
 
         // Genuine question mid-collection — answer it with OpenAI mini then re-ask for the field
         if (msg.includes('?') && !isNoteRequest) {
@@ -645,7 +864,7 @@ export async function getChatAgentResponse(
             : 'house number or name';
           const miniSystemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
           const miniMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-            { role: 'system', content: `${miniSystemPrompt}\n\nIMPORTANT: The customer asked a question during contact collection. Answer it briefly (1 sentence max), then immediately re-ask for their ${fieldNeeded}. Be warm and natural. Do NOT call any tools.` },
+            { role: 'system', content: `${miniSystemPrompt}\n\nIMPORTANT: The customer asked a question during contact collection. Answer it briefly (1 sentence max), then immediately re-ask for their ${fieldNeeded}. Be warm and natural. Stay in context — do NOT restart the conversation or say "Hi there!". Do NOT call any tools.` },
             ...previousMessages.map(m => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content })),
             { role: 'user', content: msg },
           ];
@@ -788,6 +1007,12 @@ export async function getChatAgentResponse(
           continue;
         }
 
+        // Inject price-inquiry flag for select_service — suppresses upsell when customer only wants a price
+        if (functionName === 'select_service') {
+          const priceSignals = /\bhow much\b|\bwhat.?s the (price|cost)\b|\bjust.*price\b|\bprice.*only\b|\bquote only\b/i;
+          functionArgs._isPriceInquiry = priceSignals.test(message);
+        }
+
         // Execute tool and get INSTRUCTIONS for the agent
         const instructions = await executeConversationalTool(
           functionName,
@@ -809,7 +1034,7 @@ export async function getChatAgentResponse(
 
         // If select_service (or confirm_vehicle with serviceHint) transitioned to NEED_TIMESLOT, short-circuit
         if ((functionName === 'select_service' || functionName === 'confirm_vehicle') && (session.step as Step) === Step.NEED_TIMESLOT) {
-          const sayMatch = instructions.match(/Say:\s*"([\s\S]*?)"/i);
+          const sayMatch = instructions.match(/Say(?:\s+EXACTLY)?:\s*"([\s\S]*?)"/i);
           if (sayMatch) {
             needTimeslotFastPath = true;
             timeslotFastPathContent = sayMatch[1].trim();
@@ -879,21 +1104,29 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     args.email = emailMatch[0].toLowerCase();
   }
 
-  const phoneMatch = text.match(/\+[\d\s\-]{7,18}|\b0\d[\d\s\-]{8,13}/);
-  if (!session.contactPhone && phoneMatch) {
-    args.phone = phoneMatch[0].replace(/\s+/g, '');
+  const phoneMatches = [...text.matchAll(/\+[\d\s\-]{7,18}|\b0\d[\d\s\-]{8,13}|\b44\d[\d\s\-]{7,12}/g)];
+  if (!session.contactPhone && phoneMatches.length > 0) {
+    // If customer corrects themselves ("no wait", "actually", "sorry", "wrong number"), use last number
+    const hasCorrection = /\b(no wait|actually|sorry|wrong|not that|old number|that.?s wrong|meant to say)\b/i.test(text);
+    const chosenPhone = (hasCorrection && phoneMatches.length > 1)
+      ? phoneMatches[phoneMatches.length - 1][0]
+      : phoneMatches[0][0];
+    args.phone = chosenPhone.replace(/\s+/g, '');
   }
 
-  // UK postcode: outward (e.g. CV23, B1, SW1A, W1A) + optional space + inward (digit + 2 letters)
+  // UK postcode: outward (e.g. CV23, B1, SW1A, W1A) + optional space + inward (digit + 1-2 letters)
   // Crucially the inward section must start with a digit — this prevents VRNs like V20ALA matching
-  // Also accepts typos missing the last 1-2 chars (e.g. cv239z, cv239)
-  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{0,2})\b/i);
+  // Requiring at least 1 trailing letter rejects digit-ending VRN prefixes like BD19, KE18
+  const postcodeMatch = text.match(/\b([A-Z]{1,2}\d[\dA-Z]?\s*\d[A-Z]{1,2})\b/i);
   // Reject if it looks like a VRN: letters+digits+letters pattern BUT does NOT end in digit+2letters (inward code)
   // e.g. V20ALA = VRN (ends in ALA not 0AL), cv339bt = postcode (ends in 9BT — digit+2letters ✓)
   const looksLikeVrnPostcode = postcodeMatch &&
     /^[A-Z]{1,3}\d{1,4}[A-Z]{1,3}$/i.test(postcodeMatch[1].replace(/\s/g, '')) &&
     !/\d[A-Z]{2}$/i.test(postcodeMatch[1].replace(/\s/g, ''));
-  const looksLikePostcode = !!postcodeMatch && !looksLikeVrnPostcode && postcodeMatch[1].length >= 4;
+  // Also reject if the candidate is a substring of the known VRN (e.g. KE18 from VRN KE18VBX)
+  const partOfVrn = session.vrn && postcodeMatch &&
+    session.vrn.replace(/\s/g, '').toUpperCase().includes(postcodeMatch[1].replace(/\s/g, '').toUpperCase());
+  const looksLikePostcode = !!postcodeMatch && !looksLikeVrnPostcode && !partOfVrn && postcodeMatch[1].length >= 4;
   if (!session.contactPostcode && looksLikePostcode && postcodeMatch) {
     args.postcode = postcodeMatch[1].replace(/\s+/g, '').toUpperCase();
   }
@@ -912,13 +1145,17 @@ function extractContactArgsFromMessage(message: string, session: ChatSession): a
     }
   }
   const isLikelyHouseNumber = /^[A-Za-z0-9\-\s,\.]{1,40}$/.test(text) &&
-    !emailMatch && !phoneMatch && !postcodeMatch &&
+    !emailMatch && !phoneMatches.length && !postcodeMatch &&
     !isYes && !isNo && !looksLikeVrn &&
     !/^(thanks|cheers)$/i.test(text.trim());
 
   // Only capture as house number once we already have postcode saved
   if (!session.contactHouseNumber && session.contactPostcode && isLikelyHouseNumber) {
-    args.houseNumber = text;
+    // Extract just the house number/name from potentially verbose messages
+    // e.g. "yes Manchester, house number 8" → "8"; "it is flat 3" → "flat 3"; "22a" → "22a"
+    const hnMatch = text.match(/(?:(?:house|flat|apartment|unit)\s*(?:number|no\.?|num)?\s*(?:is\s*)?)(\d+\s*[a-zA-Z]?|[a-zA-Z]+\s*\d+)/i);
+    const numMatch = text.match(/\b(\d+[a-zA-Z]?)\b/);
+    args.houseNumber = hnMatch ? hnMatch[1].trim() : (numMatch && text.length > 20 ? numMatch[1] : text);
   }
 
   return args;
@@ -959,7 +1196,7 @@ function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<
 }
 
 function instructionToCustomerReply(instructions: string): string {
-  const sayMatch = instructions.match(/Say:\s*"([\s\S]*?)"/i);
+  const sayMatch = instructions.match(/Say(?:\s+EXACTLY)?:\s*"([\s\S]*?)"/i);
   if (sayMatch && sayMatch[1]) {
     return sayMatch[1].trim();
   }
@@ -1112,7 +1349,7 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
           type: 'object',
           properties: {
             message: { type: 'string', description: 'Customer message' },
-            phone: { type: 'string', description: 'Customer phone number' },
+            phone: { type: 'string', description: 'Customer phone number. If the customer corrected themselves (e.g. "no wait", "actually", "wrong number"), use the LAST number they gave, not the first.' },
             callback_time: { type: 'string', description: 'Preferred callback time (optional)' },
           },
           required: ['message', 'phone'],
@@ -1228,10 +1465,12 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
   let { first_name, last_name = '', intent, service_hint = '' } = args;
 
   // Strip noise words that creep in when customers type multiple things on one line
-  // e.g. "dandan" from "dan" + "quote", "v20alaquote" from reg + intent
-  const noiseWords = /\b(quote|booking|book|service|mot|call|please|thanks|hi|hello|hey)\b/gi;
+  const noiseWords = /\b(quote|booking|book|service|mot|call|please|thanks|hi|hello|hey|for|on|at|a|an|my|me|the|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|today|tomorrow|next|this|week|whatever|wait|sorry|actually|just|now|too|also|both|fine|unknown|there|you|yeah|yes|no|nope|ok|okay|right|sure|great)\b/gi;
   first_name = (first_name || '').replace(noiseWords, '').replace(/\s+/g, ' ').trim();
   last_name = (last_name || '').replace(noiseWords, '').replace(/\s+/g, ' ').trim();
+
+  // Reject clearly bad names: contain digits (VRN-like), suspiciously long, or blank after cleaning
+  if (/\d/.test(first_name) || first_name.length > 30) first_name = '';
 
   if (session.step === Step.NEED_CONTACT) {
     console.log('[STATE_GUARD] Ignoring save_caller_name during NEED_CONTACT');
@@ -1266,7 +1505,19 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
   const timeGreeting = hourLondon < 12 ? 'morning' : hourLondon < 17 ? 'afternoon' : 'evening';
   const firstName = first_name.charAt(0).toUpperCase() + first_name.slice(1).toLowerCase();
 
-  return `Name saved: ${firstName}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay two separate messages:\n1. "Good ${timeGreeting}, ${firstName}!" (warm, brief — just a greeting)\n2. "What's your vehicle registration?" (new bubble — just the question, nothing else)\nDo NOT combine them. Wait for registration, then call lookup_vehicle.`;
+  // If a vehicle is already on file, ask customer to confirm it rather than silently reusing it
+  if (session.vrn && session.vehicleMake && session.vehicleModel) {
+    const makeTitle = session.vehicleMake.charAt(0).toUpperCase() + session.vehicleMake.slice(1).toLowerCase();
+    const modelTitle = session.vehicleModel.split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    const greet = firstName ? `Good ${timeGreeting}, ${firstName}!\n\n` : '';
+    return `Name saved: ${firstName || '(none)'}. VRN on file: ${session.vrn} (${makeTitle} ${modelTitle}).\n\nSay: "${greet}I have your ${makeTitle} ${modelTitle} (${session.vrn}) on file — is that still the vehicle you'd like to book in?"\nIf yes, call confirm_vehicle with registration="${session.vrn}" confirmed=true. If they give a different reg, call lookup_vehicle with that new reg.`;
+  }
+
+  if (!firstName) {
+    return `No name provided — do NOT invent or guess a name.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay: "Sorry, could I just grab your name?" and wait. When they reply, call save_caller_name again with their name.\nDo NOT call lookup_vehicle until you have a name.`;
+  }
+
+  return `Name saved: ${firstName}.\nIntent: ${intent}${service_hint ? ` for ${service_hint}` : ''}.\n\nSay: "Good ${timeGreeting}, ${firstName}! What's your vehicle registration?" — greeting and reg question in ONE response. Wait for registration, then call lookup_vehicle.`;
 }
 
 async function handleLookupVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
@@ -1444,7 +1695,7 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
     const serviceList = services.slice(0, 5).map((s: any, i: number) => {
       const p = s.price || 0;
       let priceStr = '';
-      if (!s.hide_service_prices && p > 0) {
+      if (!s.hide_service_prices && p >= 1) {
         if (s.estimate) priceStr = ` — from around £${p}`;
         else if (s.from_price) priceStr = ` — from £${p}`;
         else priceStr = ` — £${p}`;
@@ -1485,7 +1736,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const priceNum = parseFloat(String(session.servicePrice));
     const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
-    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
+    return `SERVICE_ALREADY_SET: ${session.serviceSelectedName} (${priceDisplay}).\nSay: "A ${session.serviceSelectedName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Do you have a date in mind?"\nWhen the customer responds, call select_timeslot with whatever they say.`;
   }
 
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
@@ -1607,27 +1858,35 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   if (session.diagnosticNotes) {
     session.notes = (session.notes ? session.notes + ' | ' : '') + `Symptom: ${session.diagnosticNotes}`;
   }
-  
+
   console.log(`[SELECT_SERVICE] Matched: ${serviceName} (${serviceId}), £${price}`);
-  
+
   try {
-    // Set service via API
-    await ghSetService(session.sessionId, String(serviceId));
-    
+    // Step 1: Build service ID list — prepend original service if this is an upsell add-on
+    const serviceIdsToSet: string[] = [];
+    const upsellAddOnName = (session.upsellServiceId && session.upsellServiceId !== String(serviceId))
+      ? session.upsellServiceName : undefined;
+    if (session.upsellServiceId && session.upsellServiceId !== String(serviceId)) {
+      serviceIdsToSet.push(session.upsellServiceId);
+      session.additionalServiceName = session.upsellServiceName; // retain for ACTIVE SESSION display
+      session.upsellServiceId = undefined;  // consumed
+    }
+    serviceIdsToSet.push(String(serviceId));
+
+    // Step 2: Confirm service in GarageHive immediately — price is now real
+    await ghSetService(session.sessionId, serviceIdsToSet);
+
     session.serviceSelectedId = String(serviceId);
     session.serviceSelectedName = cleanServiceName(serviceName);
     session.servicePrice = price;
-    session.step = Step.NEED_TIMESLOT;
-    
-    // Fetch timeslots BEFORE saving so the cache has them
+
+    // Fetch timeslots right away (needed for both upsell and normal path)
     const timeslots = await ghListTimeslots(session.sessionId);
     session.timeslotsAvailable = timeslots;
-    await saveSession(conversationId, session);
-    
     console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
-    
+
     if (timeslots.length === 0) {
-      // No online timeslots — tell customer and collect contact details via the normal fast-path
+      // No online timeslots — tell customer and collect contact details
       session.notes = (session.notes ? session.notes + ' | ' : '') + `Callback requested: no online availability for ${serviceName}`;
       session.step = Step.NEED_CONTACT;
       await saveSession(conversationId, session);
@@ -1638,15 +1897,13 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 Say: "I'm sorry, I don't have any online availability showing for that at the moment — it could be the team need to assess it first. Let me take your details and someone will give you a call to get you sorted. ${nextAsk}"
 Wait for their response.`;
     }
-    
-    const firstSlots = formatSlotsAsNumberedList(timeslots);
-    
+
     const makeTitle = session.vehicleMake.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = session.vehicleModel.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const priceNum = parseFloat(String(price));
     const priceDisplay = (!price || isNaN(priceNum) || priceNum < 1) ? 'POA' : `£${priceNum.toFixed(2).replace(/\.00$/, '')}`;
 
-    // Quote flow vs booking flow
+    // Quote flow — return price and ask to confirm before booking
     if (session.intent === 'quote') {
       session.step = Step.NEED_BOOKING_CONFIRM;
       await saveSession(conversationId, session);
@@ -1660,6 +1917,34 @@ Call confirm_booking(confirmed=true) if yes, confirm_booking(confirmed=false) if
       (excl: string) => serviceName.toLowerCase().includes(excl.toLowerCase())
     );
     session.useDropOffBooking = isDropOff;
+
+    // Step 3: Upsell — offer once per session, for any service, AFTER it's confirmed in GH
+    // Skip if customer already expressed multi-service intent, this is an add-on, or it's drop-off
+    const alreadyWantsMultiple = /\bboth\b|\bmot.*(?:and|plus).*service|\bservice.*(?:and|plus).*mot/i.test(service_name || '');
+    const isPriceInquiry = !!(args._isPriceInquiry);
+    if (!session.outboundUpsellOffered && !alreadyWantsMultiple && serviceIdsToSet.length === 1 && !isDropOff && !isPriceInquiry) {
+      session.outboundUpsellOffered = true;
+      session.upsellServiceId = String(serviceId);
+      session.upsellServiceName = cleanServiceName(serviceName);
+      session.step = Step.NEED_SERVICE;  // hold here while upsell pending
+      await saveSession(conversationId, session);
+      const upsellName = session.customerNameFirst ? `, ${session.customerNameFirst}` : '';
+      const priceAnswer = priceDisplay !== 'POA'
+        ? `The ${cleanServiceName(serviceName)} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. `
+        : '';
+      console.log(`[UPSELL] ${serviceName} confirmed in GH — offering upsell`);
+      return `UPSELL: ${cleanServiceName(serviceName)} is confirmed in GarageHive. Timeslots are loaded.
+Say EXACTLY: "${priceAnswer}No problem${upsellName}! Just while I have you — is there anything else that needs doing whilst the vehicle's in with us?"
+IMPORTANT — on the customer's next reply:
+- Declined / "no thanks" / didn't name a service → reply "No problem! Do you have a date in mind?" and call select_timeslot when they give a date or time.
+- Declined AND mentioned a date/time in the same message → call select_timeslot with that date/time immediately.
+- Said YES but no service named → ask "Which service would you like to add?" and wait.
+- Named a specific service → call select_service with that name.
+Do NOT call select_service('${cleanServiceName(serviceName)}') again.`;
+    }
+
+    // Step 4: No upsell (or add-on accepted) — proceed to slot selection
+    session.step = Step.NEED_TIMESLOT;
     await saveSession(conversationId, session);
 
     if (isDropOff) {
@@ -1671,10 +1956,14 @@ Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. F
 When the customer responds, call select_timeslot with whatever they say.`;
     }
 
+    const alsoMsg = upsellAddOnName ? ` I've also got your ${upsellAddOnName} in the same booking.` : '';
     return `SERVICE_SET: ${serviceName} (${priceDisplay}).
-Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.\n\nThese are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"
-When the customer responds, call select_timeslot with whatever they say.`;
-    
+Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}.${alsoMsg} Do you have a date in mind?"
+When the customer responds:
+- If they name a date or time → call select_timeslot with what they said.
+- If they say "soonest", "earliest", "don't mind", "any time" → call select_timeslot('soonest').
+- If vague ("next week", "end of month") → ask "Which day works best for you?" without calling select_timeslot yet.`;
+
   } catch (error: any) {
     console.error('[SELECT_SERVICE] API error:', error);
     return `Failed to set service.\nSay: "Let me take your details and the team will book that in for you." Then call take_message.`;
@@ -1695,11 +1984,12 @@ async function handleConfirmBooking(args: any, session: ChatSession, conversatio
   session.step = Step.NEED_TIMESLOT;
   await saveSession(conversationId, session);
 
-  const firstSlots = formatSlotsAsNumberedList(session.timeslotsAvailable);
-
-  return `SLOTS: Available timeslots below.
-Say: "These are the next available dates:\n${firstSlots}\n\nOr alternatively, do you have a date in mind?"
-When the customer responds, call select_timeslot with whatever they say.`;
+  return `SLOTS: Available timeslots loaded.
+Say: "Do you have a date in mind?"
+When the customer responds:
+- If they name a date or time → call select_timeslot with what they said.
+- If they say "soonest", "earliest", "don't mind", "any time" → call select_timeslot('soonest').
+- If vague ("next week", "end of month") → ask "Which day works best for you?" without calling select_timeslot yet.`;
 }
 
 async function handleSelectTimeslot(args: any, session: ChatSession, conversationId: string): Promise<string> {
@@ -1717,7 +2007,17 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     return `Proposed slot: ${dateNatural} at ${timeNatural}.\n\nSay ONLY: "I've got ${dateNatural} at ${timeNatural} — does that work for you?" and STOP.`;
   }
 
-  console.log(`[SELECT_TIMESLOT] Preference: "${preference}", dropOff: ${session.useDropOffBooking}`);
+  // If customer gave a time-of-day only (e.g. "afternoon will do") with no day,
+  // anchor to their previously stated preferredDate so we don't default to tomorrow.
+  const hasDayInPref = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|\d{1,2}(?:st|nd|rd|th)?)\b/i.test(preference);
+  const hasTodInPref = /\b(morning|afternoon|evening)\b/i.test(preference);
+  let effectivePref = preference;
+  if (hasTodInPref && !hasDayInPref && session.preferredDate) {
+    effectivePref = `${session.preferredDate} ${preference}`;
+    console.log(`[SELECT_TIMESLOT] Anchored time-of-day to preferredDate: "${effectivePref}"`);
+  }
+
+  console.log(`[SELECT_TIMESLOT] Preference: "${effectivePref}", dropOff: ${session.useDropOffBooking}`);
   console.log(`[SELECT_TIMESLOT] Available slots: ${(session.timeslotsAvailable || []).map((t: any) => `${t.date} ${t.time}`).join(', ')}`);
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
@@ -1727,7 +2027,7 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
   // Drop-off booking: pick the first slot on the requested date, skip time selection
   if (session.useDropOffBooking) {
     // Try to find a date match from the preference
-    const dateMatch = matchTimeslot(preference, session.timeslotsAvailable);
+    const dateMatch = matchTimeslot(effectivePref, session.timeslotsAvailable);
     // Find the first slot on that date (or first overall if no match)
     const targetDate = dateMatch?.date || session.timeslotsAvailable[0].date;
     const slotsOnDate = session.timeslotsAvailable.filter((t: any) => t.date === targetDate);
@@ -1745,7 +2045,22 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
 Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Does that work for you?" and STOP. Do not mention a specific time. Wait for confirmation.`;
   }
 
-  const matched = matchTimeslot(preference, session.timeslotsAvailable);
+  // 'soonest' shortcut — customer doesn't have a preference, auto-pick the earliest slot
+  if (/\bsoonest\b|\bearli\w+\b|\bany[\s-]?time\b|\bdon.?t\s*mind\b|\bas\s*soon\b|\bwhenever\b/i.test(effectivePref)) {
+    const slot = session.timeslotsAvailable[0];
+    session.pendingSlotDate = slot.date;
+    session.pendingSlotTime = slot.time;
+    session.step = Step.NEED_SLOT_CONFIRM;
+    await saveSession(conversationId, session);
+    const dateNatural = formatDateNaturally(slot.date);
+    const timeNatural = formatTimeNaturally(slot.time);
+    console.log(`[SELECT_TIMESLOT] Soonest shortcut — auto-selected ${slot.date} at ${slot.time}`);
+    return `Proposed slot: ${dateNatural} at ${timeNatural}.
+
+Say ONLY: "The earliest I have is ${dateNatural} at ${timeNatural} — does that work for you?" and STOP.`;
+  }
+
+  const matched = matchTimeslot(effectivePref, session.timeslotsAvailable);
 
   if (!matched) {
     // No match — tell the agent to explain what’s available and ask again
@@ -1753,7 +2068,7 @@ Say ONLY: "I've got you down for ${dateNatural} — just ${DROP_OFF_MESSAGE}. Do
       `${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)}`
     ).join(', or ');
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
-    return `NO_MATCH: "${preference}" didn't match any available slot. Online availability ends ${formatDateNaturally(lastSlot.date)}.
+    return `NO_MATCH: "${effectivePref}" didn’t match any available slot. Online availability ends ${formatDateNaturally(lastSlot.date)}.
 Say: "I'm afraid our online diary only goes up to ${formatDateNaturally(lastSlot.date)}. The slots I have are ${firstSlots} — would any of those work?"
 When they choose, call select_timeslot again.`;
   }
@@ -1774,6 +2089,8 @@ When they choose, call select_timeslot again.`;
   // Store as pending slot — don't book yet, ask customer to confirm first
   session.pendingSlotDate = date;
   session.pendingSlotTime = time;
+  session.slotsShownDate = date; // anchor future bare time replies to this date
+  if (!session.preferredDate) session.preferredDate = date; // remember date for "No" fallback
   session.step = Step.NEED_SLOT_CONFIRM;
   console.log(`[SELECT_TIMESLOT] Pending slot set: ${date} at ${time}, waiting for confirmation`);
   await saveSession(conversationId, session);
@@ -1787,11 +2104,20 @@ Say ONLY: "I've got ${dateNatural} at ${timeNatural} — does that work for you?
 }
 
 async function handleSetContactInfo(args: any, session: ChatSession, conversationId: string): Promise<string> {
-  const { phone = '', email = '', postcode = '', houseNumber = '' } = args;
+  const phone: string = args?.phone ?? '';
+  const email: string = args?.email ?? '';
+  const postcode: string = args?.postcode ?? '';
+  const houseNumber: string = args?.houseNumber ?? '';
   
   console.log(`[SET_CONTACT] Args - Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, House: ${houseNumber}`);
   console.log(`[SET_CONTACT] Session step: ${session.step}, Phone: ${session.contactPhone}, Email: ${session.contactEmail}, Postcode: ${session.contactPostcode}, House: ${session.contactHouseNumber}`);
   
+  // Guard: do not collect contact info before a service and slot are confirmed
+  if (!session.serviceSelectedName && !session.bookingDate) {
+    console.log(`[SET_CONTACT] Called before service/slot confirmed — redirecting`);
+    return `No service or timeslot confirmed yet. Do NOT collect contact info. Choose one of:\n- If the customer asked to book a specific service → call select_service with that service name\n- If no suitable service is available and they want a callback → call take_message instead`;
+  }
+
   // Force correct step — if booking is already set, we're always in contact collection
   if (session.bookingDate && session.bookingTime && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
     session.step = Step.NEED_CONTACT;
@@ -1803,6 +2129,10 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     console.log(`[SET_CONTACT] Saved phone: ${phone}`);
   }
   if (email && !session.contactEmail) {
+    if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email)) {
+      console.log(`[SET_CONTACT] Invalid email rejected: ${email}`);
+      return `Invalid email format. Say: "That doesn't look like a valid email — could you double-check it?" and wait.`;
+    }
     session.contactEmail = email;
     console.log(`[SET_CONTACT] Saved email: ${email}`);
   }
@@ -1878,8 +2208,8 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     // Submit booking with all required GH fields
     const contactAddress = `${session.contactHouseNumber}, ${session.contactStreet}`.replace(/^,\s*/, '').replace(/,\s*$/, '');
     const result = await ghSetContactInfo(session.sessionId, {
-      contact_name: session.customerNameFirst,
-      contact_last_name: session.customerNameLast,
+      contact_name: session.customerNameFirst || 'Customer',
+      contact_last_name: session.customerNameLast || '',
       contact_email: session.contactEmail,
       contact_number: session.contactPhone,
       contact_address: contactAddress,
@@ -1888,22 +2218,17 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
       contact_salutation: 10,
       contact_address2: '',
       notes: session.notes || '',
+      vehicle_mileage: 1,
     });
     
     if (result.status === 'error') {
       console.error('[SET_CONTACT] Booking failed:', result);
-      return `Failed to confirm booking: ${result.message || 'Unknown error'}.\nSay: "Having a bit of trouble with the booking system. The team will give you a call to confirm everything. Thanks ${session.customerNameFirst}! 👍"\nDone.`;
+      return `Failed to confirm booking: ${result.message || 'Unknown error'}.\nSay: "Sorry ${session.customerNameFirst}, I hit a snag getting that submitted — something went wrong on our end. Please call the garage directly to confirm your slot, or try again and I'll rebook it for you."\nDone.`;
     }
     
     session.step = Step.CONFIRMED;
     await saveSession(conversationId, session);
-
-    // Mark conversation as booking confirmed + resolved
-    await prisma.chatConversation.update({
-      where: { id: conversationId },
-      data: { confirmedBooking: true, status: 'resolved' },
-    }).catch(err => console.error('[SET_CONTACT] Failed to update conversation:', err));
-
+    
     console.log('[SET_CONTACT] Booking confirmed!');
     
     const dateNatural = formatDateNaturally(session.bookingDate);
@@ -1918,8 +2243,8 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     return `${summary}\n\nSay: "All done! You're booked in for ${dateNatural} at ${timeNatural} for a ${session.serviceSelectedName}${confirmedPriceDisplay !== 'POA' ? ` (${confirmedPriceDisplay})` : ''}. We'll send you a confirmation email. See you then! 👍"\n\nBooking complete - conversation can end naturally.`;
     
   } catch (error: any) {
-    console.error('[SET_CONTACT] API error:', error);
-    return `API error confirming booking.\nSay: "All sorted! The team will give you a call to confirm everything. Thanks ${session.customerNameFirst}! 👍"\nDone.`;
+    console.error('[SET_CONTACT] API error:', error.response?.data || error.message);
+    return `API error confirming booking.\nSay: "Sorry ${session.customerNameFirst}, something went wrong on our end and the booking didn't go through. Please call the garage directly to get that slot locked in — really sorry about that!"\nDone.`;
   }
 }
 
@@ -2003,16 +2328,17 @@ async function ghListServices(sessionId: string): Promise<any[]> {
   return response.data.services || [];
 }
 
-async function ghSetService(sessionId: string, servicePriceId: string): Promise<any> {
+async function ghSetService(sessionId: string, servicePriceId: string | string[]): Promise<any> {
   const baseUrl = `https://onlinebooking.garagehive.co.uk/api/external-booking/${GH_CUSTOMER_ID}`;
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${GH_API_KEY}`,
   };
-  
+  const ids = (Array.isArray(servicePriceId) ? servicePriceId : [servicePriceId]).map(Number);
+
   const response = await axios.post(
     `${baseUrl}/${sessionId}/set-services`,
-    { servicePriceIDs: [parseInt(servicePriceId)] },
+    { servicePriceIDs: ids },
     { headers }
   );
   
@@ -2388,6 +2714,10 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       if (h === 12) { /* stays 12: noon */ }
       if (h >= 0 && h <= 23) return h;
     }
+    // Time-of-day keywords — morning/afternoon/evening
+    if (/\bmorning\b/.test(text)) return 9;
+    if (/\bafternoon\b/.test(text)) return 14;
+    if (/\bevening\b/.test(text)) return 17;
     return null; // Don't extract bare numbers — they're probably dates
   }
 
@@ -2406,10 +2736,14 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   // "Last", "latest"
   if (/\b(last|latest)\b/.test(prefLower)) return timeslots[timeslots.length - 1];
 
-  // "Later", "after that", "something later", "end of the week", "next month"
-  if (/\b(later|after that|end of|next month|further out|something later)\b/.test(prefLower)) {
+  // "Later", "after that", "something later", "end of the week" — pick last available slot
+  if (/\b(later|after that|end of|something later)\b/.test(prefLower)) {
     const ph = extractPrefHour(prefLower);
     return closestByTime(timeslots, ph) ?? timeslots[timeslots.length - 1];
+  }
+  // "Next month", "further out" — outside our booking window; return null so LLM explains
+  if (/\b(next month|further out)\b/.test(prefLower)) {
+    return null;
   }
 
   // "Today" / "Tomorrow" — use UK local date to avoid UTC midnight boundary issues
@@ -2482,10 +2816,12 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
 
       // How many days until the next occurrence of targetDow
       let daysUntil = (targetDow - todayDow + 7) % 7;
+      const wasSameDay = daysUntil === 0;
       if (daysUntil === 0) daysUntil = 7; // "thursday" when today is thursday = next week
 
       // "next thursday" skips past the coming one to the one after
-      if (isNext && daysUntil <= 7) daysUntil += 7;
+      // but only if it wasn't already the same day (which was bumped from 0→7 above)
+      if (isNext && !wasSameDay && daysUntil < 7) daysUntil += 7;
 
       const target = new Date(ukNow);
       target.setDate(ukNow.getDate() + daysUntil);
@@ -2494,11 +2830,26 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
       const dy = String(target.getDate()).padStart(2, '0');
       const targetDateStr = `${y}-${mo}-${dy}`;
 
-      // Find slots on that exact date, or the nearest date after it
+      // Find slots on that exact date only — do NOT fall back to next available
+      // If Friday is requested but not available, return null so NO_MATCH explains it
       let matches = timeslots.filter(t => t.date === targetDateStr);
-      if (matches.length === 0) {
-        // No exact match — find closest slot on or after the target date
-        matches = timeslots.filter(t => t.date >= targetDateStr);
+      if (matches.length === 0) return null;
+      // If customer said e.g. "Saturday 16th", narrow to slot where day-of-week AND day-of-month both match.
+      // Without this, "Saturday 16th" would return the nearest Saturday (could be the 9th).
+      const domRefine = prefLower.match(/\b(\d{1,2})(st|nd|rd|th)\b/);
+      if (domRefine) {
+        const dayNum = parseInt(domRefine[1]);
+        const refined = timeslots.filter(t => {
+          const d = new Date(t.date + 'T12:00:00');
+          return d.getDay() === targetDow && d.getDate() === dayNum;
+        });
+        if (refined.length > 0) {
+          const ph = extractPrefHour(prefLower);
+          const best = closestByTime(refined, ph);
+          if (ph !== null && Math.abs(parseInt(best.time.split(':')[0]) - ph) > 3) return null;
+          return best;
+        }
+        // Ordinal mentioned but no slot on that Saturday-the-Nth — fall through to nearest Saturday
       }
       if (matches.length > 0) {
         const ph = extractPrefHour(prefLower);
@@ -2586,6 +2937,7 @@ PERSONALITY & CHARACTER:
 - You can use light humour where natural (e.g. if someone apologises for not knowing their reg, "No worries — we'll figure it out!")
 - Never sound like a bot. Never use lists or bullet points in chat. Never start a message with "Sure," or "Great!"
 - Address the customer by first name once you know it, but don't overdo it
+- If asked "are you AI?", "is this a bot?", "am I talking to a human?", or similar: be honest in one sentence — acknowledge you're an AI assistant for ${branchName} and that you can still help — then immediately continue with whatever you were doing. Never deny being AI. Never restart the conversation mid-booking.
 
 TONE EXAMPLES:
 - Instead of "Certainly! I'd be happy to help you with that." → say "Of course — let me sort that for you."
@@ -2647,8 +2999,55 @@ TONE EXAMPLES:
   prompt += `CURRENT STATE: ${session.step}\n`;
   if (session.customerNameFirst) prompt += `Customer: ${session.customerNameFirst} ${session.customerNameLast || ''}\n`;
   if (session.vrn) prompt += `Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
-  if (session.serviceSelectedName) prompt += `Service: ${session.serviceSelectedName}${session.servicePrice ? ` (${session.servicePrice})` : ''}\n`;
+  if (session.serviceSelectedName) {
+    const spNum = parseFloat(String(session.servicePrice));
+    const spDisplay = (!session.servicePrice || isNaN(spNum) || spNum < 1) ? 'POA' : `£${spNum.toFixed(2).replace(/\.00$/, '')}`;
+    prompt += `Service: ${session.serviceSelectedName} (${spDisplay})\n`;
+  }
   if (session.bookingDate) prompt += `Slot: ${session.bookingDate} at ${session.bookingTime}\n`;
+
+  // ── ACTIVE SESSION guards — tell the LLM exactly what's already collected ──
+  // CRITICAL: LLM must not re-ask for anything listed here
+  const hasActiveSession = !!(session.vrn || session.serviceSelectedName || session.bookingDate || session.contactPhone || session.customerNameFirst);
+  if (hasActiveSession) {
+    const makeTitle = (session.vehicleMake || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    prompt += `\nACTIVE SESSION — CRITICAL: do NOT ask for or re-fetch anything already listed here. Never ask for name, VRN, or service again if they appear below:\n`;
+    if (session.vrn) {
+      prompt += `- Vehicle: ${session.vrn} (${makeTitle} ${modelTitle}) — confirmed ✓ do NOT call lookup_vehicle or confirm_vehicle again\n`;
+    }
+    if (session.serviceSelectedName) {
+      const priceNum = parseFloat(String(session.servicePrice));
+      const priceDisplay = (!session.servicePrice || isNaN(priceNum) || priceNum < 1) ? '' : ` (£${priceNum.toFixed(2).replace(/\.00$/, '')})`;
+      const additionalSvc = session.additionalServiceName ? ` + ${session.additionalServiceName}` : '';
+      prompt += `- Service: ${session.serviceSelectedName}${additionalSvc}${priceDisplay} — confirmed in GH ✓ do NOT call select_service again UNLESS the customer explicitly asks to add another service\n`;
+      if (session.additionalServiceName && !session.bookingDate) {
+        prompt += `IMPORTANT: When first asking for a date this turn, open with a brief combined booking confirmation — e.g. "So I've got ${session.serviceSelectedName} and ${session.additionalServiceName} both locked in for your ${makeTitle} ${modelTitle}." — then ask for the date.\n`;
+      }
+    }
+    if (session.timeslotsAvailable?.length > 0 && !session.bookingDate) {
+      prompt += `- Timeslots: already fetched (${session.timeslotsAvailable.length} available) — call select_timeslot with the customer's date or time preference. If the customer explicitly asks to add another service, call select_service with that service name first.\n`;
+    }
+    if (session.preferredDate) {
+      prompt += `- Customer's preferred date: "${session.preferredDate}" — if they say "No" or ask for alternatives, call select_timeslot with this date + their time preference\n`;
+    }
+    if (session.bookingDate && session.bookingTime) {
+      prompt += `- Slot: ${session.bookingDate} at ${session.bookingTime} — confirmed ✓ do NOT ask for date/time again\n`;
+    }
+    if (session.customerNameFirst) {
+      prompt += `- Customer name: ${session.customerNameFirst}${session.customerNameLast ? ' ' + session.customerNameLast : ''} — CONFIRMED ✓ NEVER ask for the customer's name again\n`;
+    }
+    if (session.contactPhone) {
+      prompt += `- Phone: ${session.contactPhone} — already collected, do NOT ask again\n`;
+    }
+    if (session.contactEmail) {
+      prompt += `- Email: ${session.contactEmail} — already collected, do NOT ask again\n`;
+    }
+    if (session.contactPostcode) {
+      prompt += `- Postcode: ${session.contactPostcode} — already collected, do NOT ask again\n`;
+    }
+    prompt += `\n`;
+  }
 
   // ── Available services — inject when loaded so agent can answer price/options questions ──
   if (session.servicesAvailable && session.servicesAvailable.length > 0) {
@@ -2674,6 +3073,8 @@ TONE EXAMPLES:
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
     prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
     prompt += `When the customer mentions ANY time or date preference, call select_timeslot IMMEDIATELY with exactly what they said — do NOT ask clarifying questions about the date or day first. The tool will find the best match. Only ask for clarification if select_timeslot returns NO_MATCH. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
+    prompt += `If the customer asks to add another service at this point (e.g. "can you also do the brakes?", "add a full service too"), call select_service with that service name immediately — do NOT call select_timeslot yet.\n`;
+    prompt += `If the customer asks a quick side question (e.g. "how long does it take?", "do you need the keys?", "will you text me?"), answer it briefly in one sentence, then immediately continue with the slot step in the same reply.\n`;
   }
 
   prompt += '\n';
@@ -2685,6 +3086,34 @@ TONE EXAMPLES:
     prompt += `- Their registration is ${session.outboundRegistration}\n`;
     if (session.outboundDueDate) prompt += `- ${svcType} is due on ${session.outboundDueDate}\n`;
     prompt += `Skip steps 1 and 2 below. Call lookup_vehicle('${session.outboundRegistration}') as your VERY FIRST action — do NOT ask the customer for their name or registration.\n\n`;
+  }
+
+  // Outbound context at NEED_SERVICE — only for outbound sessions before upsell has fired
+  if (session.outboundServiceType && session.vrn &&
+      session.step === Step.NEED_SERVICE && !session.outboundUpsellOffered) {
+    const svcLabel = session.outboundServiceType === 'service' ? 'service' : 'MOT';
+    prompt += `OUTBOUND CONTEXT: This customer replied to an outbound ${svcLabel} reminder`;
+    if (session.outboundDueDate) prompt += ` (due ${session.outboundDueDate})`;
+    prompt += `.\nCall confirm_vehicle then select_service('${svcLabel}') — do NOT ask generically what they need.\n\n`;
+  }
+
+  // Upsell follow-up — fires for ALL sessions (cold or outbound) after upsell was offered
+  if (session.outboundUpsellOffered && session.step === Step.NEED_SERVICE) {
+    const upsellSvcName = session.upsellServiceName || 'the service';
+    const knownName = session.customerNameFirst ? ` Customer name is already known: ${session.customerNameFirst}.` : '';
+    prompt += `UPSELL FOLLOW-UP: "${upsellSvcName}" is already confirmed in GarageHive. Timeslots are loaded.${knownName} Based on the customer's latest message:\n`;
+    prompt += `- Named a specific service (or asked "how much for X?") → call select_service with that name IMMEDIATELY. Do NOT quote prices from memory — you must call select_service to confirm the service and get its real price.\n`;
+    prompt += `- Customer says "both", "both of them", "yes add it", "the lot", "all of them", "yes both" → call select_service with the service name mentioned in the PREVIOUS customer message\n`;
+    prompt += `- Said YES but no service named → ask "Which service would you like to add?" and wait\n`;
+    prompt += `- Gave a date, time, or availability preference ("soonest", "asap", "earliest", "any time", "don't mind", "whenever") → call select_timeslot with that preference immediately\n`;
+    prompt += `- Declined only, no date given ("no thanks", "just the X") → reply "No problem! Do you have a date in mind?" and wait\n`;
+    prompt += `CRITICAL: "${upsellSvcName}" is already booked. Do NOT call select_service('${upsellSvcName}') again. Do NOT ask for name or VRN. Never quote prices without calling select_service first.\n\n`;
+  }
+
+  // ── Service removal — honest response ────────────────────────────────────
+  if (session.serviceSelectedName) {
+    prompt += `SERVICE REMOVAL: ONLY if the customer explicitly says to remove, delete, cancel, or drop the "${session.serviceSelectedName}" booking (using words like "remove it", "cancel the booking", "forget it", "don't book that", "scrap it"): say "I'm afraid I can't remove it from the system at this point, but I'll make sure to leave a note for the team to double-check when you come in. Did you want to continue with the booking?"\n`;
+    prompt += `Do NOT apply SERVICE REMOVAL for: questions about what other services are available, asking to add a different service, asking about pricing, or any other non-removal question.\n\n`;
   }
 
   // ── Branch selection (for multi-location garages) ────────────────────────
@@ -2724,9 +3153,11 @@ GENERAL RULES:
 - Keep responses short (1–2 sentences)
 - Address customer by first name only
 - Never invent booking details — only use what tools return
+- If the customer asks a side question mid-booking (e.g. "how long does it take?", "what time do you open?", "is parking free?"), answer briefly in one sentence, then immediately continue with the current booking step — do NOT ignore the question and do NOT abandon the booking flow
 - If you cannot proceed, offer to take a message for a callback
 - If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT call take_message, do NOT end the conversation
 - Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected
+- If the current step is need_timeslot and the customer says "that's all", "nothing else", "just the MOT/service", "no thanks", "nope", or any short/negative reply — this means "no extras, proceed with booking". Do NOT say goodbye. Immediately ask: "Do you have a preferred date in mind, or shall I suggest the earliest available?"
 
 RECOGNISING AFFIRMATIVE RESPONSES:
 - Treat ALL of the following as "yes": yes, yeah, yep, yup, yh, ye, ya, sure, ok, okay, correct, right, perfect, great, fine, go ahead, do it, brill, brilliant, lovely, spot on, sounds good, that works, that's right, cheers

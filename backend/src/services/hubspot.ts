@@ -2,9 +2,16 @@ import type { HubspotSettings } from '../utils/types.js';
 import { sendEmail } from '../utils/email.js';
 
 const HUBSPOT_API_BASE = 'https://api.hubapi.com';
+const SYNTHETIC_EMAIL_DOMAIN = 'receptionmate.co.uk';
 
 // Call disposition GUIDs (HubSpot standard)
 const DISPOSITION_CONNECTED = 'f240bbac-87c9-4f6e-bf70-924b57d47db7';
+
+/** Generate a synthetic email from a phone number for HubSpot contact-to-inbox linking */
+const syntheticEmail = (phone: string): string => {
+  const clean = phone.replace(/[^0-9+]/g, '');
+  return `caller-${clean}@${SYNTHETIC_EMAIL_DOMAIN}`;
+};
 
 export interface HubSpotCallData {
   customerPhone: string | null;
@@ -36,7 +43,12 @@ const hubspotFetch = async (
   });
 };
 
-const findContactByPhone = async (phone: string, apiToken: string): Promise<string | null> => {
+interface ContactMatch {
+  id: string;
+  email: string | null;
+}
+
+const findContactByPhone = async (phone: string, apiToken: string): Promise<ContactMatch | null> => {
   try {
     const response = await hubspotFetch('/crm/v3/objects/contacts/search', apiToken, {
       method: 'POST',
@@ -44,23 +56,28 @@ const findContactByPhone = async (phone: string, apiToken: string): Promise<stri
         filterGroups: [
           { filters: [{ propertyName: 'phone', operator: 'EQ', value: phone }] },
         ],
-        properties: ['id'],
+        properties: ['email'],
         limit: 1,
       }),
     });
     if (!response.ok) return null;
-    const data = await response.json() as { results?: Array<{ id: string }> };
-    return data.results?.[0]?.id ?? null;
+    const data = await response.json() as { results?: Array<{ id: string; properties?: { email?: string } }> };
+    const hit = data.results?.[0];
+    if (!hit) return null;
+    return { id: hit.id, email: hit.properties?.email || null };
   } catch {
     return null;
   }
 };
 
-const createContact = async (call: HubSpotCallData, apiToken: string): Promise<string | null> => {
+const createContact = async (call: HubSpotCallData, apiToken: string): Promise<ContactMatch | null> => {
   try {
     const phone = call.customerPhone || call.fromNumber;
     const properties: Record<string, string> = {};
-    if (phone) properties.phone = phone;
+    if (phone) {
+      properties.phone = phone;
+      properties.email = syntheticEmail(phone);
+    }
     if (call.customerName) {
       const parts = call.customerName.trim().split(/\s+/);
       properties.firstname = parts[0];
@@ -78,11 +95,31 @@ const createContact = async (call: HubSpotCallData, apiToken: string): Promise<s
       return null;
     }
     const data = await response.json() as { id: string };
-    console.log(`[HUBSPOT] Created new contact ${data.id}`);
-    return data.id;
+    console.log(`[HUBSPOT] Created new contact ${data.id} with email ${properties.email || 'none'}`);
+    return { id: data.id, email: properties.email || null };
   } catch (err) {
     console.error('[HUBSPOT] Error creating contact:', err);
     return null;
+  }
+};
+
+/** Update an existing contact to add a synthetic email (only if they have no email) */
+const updateContactEmail = async (contactId: string, email: string, apiToken: string): Promise<boolean> => {
+  try {
+    const response = await hubspotFetch(`/crm/v3/objects/contacts/${contactId}`, apiToken, {
+      method: 'PATCH',
+      body: JSON.stringify({ properties: { email } }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      console.error(`[HUBSPOT] Failed to update contact email: ${response.status} ${text}`);
+      return false;
+    }
+    console.log(`[HUBSPOT] Updated contact ${contactId} with email ${email}`);
+    return true;
+  } catch (err) {
+    console.error('[HUBSPOT] Error updating contact email:', err);
+    return false;
   }
 };
 
@@ -149,7 +186,7 @@ const createTicket = async (
  * HubSpot converts any inbound email to that address into a conversation thread
  * in the Conversations Inbox — the same way form submissions appear.
  */
-const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string): Promise<void> => {
+const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contactEmail: string | null): Promise<void> => {
   const phone = call.customerPhone || call.fromNumber || 'Unknown';
   const subject = call.confirmedBooking
     ? `Booking confirmed - ${call.customerName || phone} (${call.branchName})`
@@ -170,15 +207,22 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string): Promis
   if (call.summary) lines.push(`\nCall Summary:\n${call.summary}`);
   const text = lines.join('\n');
 
+  // Send FROM the contact's email so HubSpot links the inbox thread to the contact
+  const displayName = call.customerName || phone;
+  const fromAddress = contactEmail
+    ? `"${displayName}" <${contactEmail}>`
+    : undefined; // falls back to default MAILGUN_FROM
+
   const sent = await sendEmail({
     to: [inboxEmail],
     subject,
     text,
-    html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${text}</pre>`,
+    html: `<div style="font-family:sans-serif">${text.replace(/\n/g, '<br>')}</div>`,
+    from: fromAddress,
   });
 
   if (sent) {
-    console.log(`[HUBSPOT] Inbox email sent to ${inboxEmail} for call from ${phone}`);
+    console.log(`[HUBSPOT] Inbox email sent to ${inboxEmail} from ${contactEmail || 'default'} for call from ${phone}`);
   } else {
     console.warn(`[HUBSPOT] Failed to send inbox email to ${inboxEmail}`);
   }
@@ -243,24 +287,39 @@ export const logCallToHubSpot = async (
 
   const callerPhone = call.customerPhone || call.fromNumber;
 
-  // 1. Find or create the contact
+  // 1. Find or create the contact, ensuring they have an email for inbox linking
   let contactId: string | null = null;
+  let contactEmail: string | null = null;
+
   if (callerPhone) {
-    contactId = await findContactByPhone(callerPhone, apiToken);
-    if (contactId) {
-      console.log(`[HUBSPOT] Found existing contact ${contactId} for ${callerPhone}`);
+    const existing = await findContactByPhone(callerPhone, apiToken);
+    if (existing) {
+      contactId = existing.id;
+      contactEmail = existing.email;
+      console.log(`[HUBSPOT] Found existing contact ${contactId} for ${callerPhone} (email: ${contactEmail || 'none'})`);
+
+      // If existing contact has no email, add synthetic email for inbox linking
+      if (!contactEmail) {
+        const synthetic = syntheticEmail(callerPhone);
+        const updated = await updateContactEmail(contactId, synthetic, apiToken);
+        if (updated) contactEmail = synthetic;
+      }
     } else {
       console.log(`[HUBSPOT] No contact found for ${callerPhone} - creating new contact`);
-      contactId = await createContact(call, apiToken);
+      const created = await createContact(call, apiToken);
+      if (created) {
+        contactId = created.id;
+        contactEmail = created.email;
+      }
     }
   }
 
   // 2. Create ticket linked to the caller's contact (CRM → Tickets)
   await createTicket(call, contactId, ownerId, apiToken);
 
-  // 3. Send inbox email (creates a thread in HubSpot Conversations inbox)
+  // 3. Send inbox email FROM the contact's email so HubSpot links the thread to the contact
   if (inboxEmail) {
-    await sendInboxEmail(call, inboxEmail);
+    await sendInboxEmail(call, inboxEmail, contactEmail);
   }
 
   // 4. Log call engagement on the contact timeline

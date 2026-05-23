@@ -6,6 +6,7 @@ interface EmailOptions {
   subject: string;
   html: string;
   text: string;
+  from?: string;
 }
 
 const getMailgunConfig = () => {
@@ -42,7 +43,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
   }
 
   const form = new URLSearchParams();
-  form.set('from', config.from);
+  form.set('from', options.from || config.from);
   form.set('to', options.to.join(', '));
   form.set('subject', options.subject);
   form.set('text', options.text);

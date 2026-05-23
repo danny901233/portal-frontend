@@ -1,4 +1,5 @@
 import type { HubspotSettings } from '../utils/types.js';
+import { sendEmail } from '../utils/email.js';
 
 const HUBSPOT_API_BASE = 'https://api.hubapi.com';
 
@@ -143,6 +144,46 @@ const createTicket = async (
   console.log(`[HUBSPOT] Ticket created: ${data.id}`);
 };
 
+/**
+ * Sends an email to the garage's HubSpot inbox address.
+ * HubSpot converts any inbound email to that address into a conversation thread
+ * in the Conversations Inbox — the same way form submissions appear.
+ */
+const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string): Promise<void> => {
+  const phone = call.customerPhone || call.fromNumber || 'Unknown';
+  const subject = call.confirmedBooking
+    ? `Booking confirmed - ${call.customerName || phone} (${call.branchName})`
+    : `Inbound call - ${call.customerName || phone} (${call.branchName})`;
+
+  const mins = Math.floor(call.durationSeconds / 60);
+  const secs = call.durationSeconds % 60;
+
+  const lines: string[] = [];
+  lines.push(`Branch: ${call.branchName}`);
+  lines.push(`Phone: ${phone}`);
+  if (call.customerName) lines.push(`Name: ${call.customerName}`);
+  if (call.registrationNumber) lines.push(`Vehicle Registration: ${call.registrationNumber}`);
+  lines.push(`Call Type: ${call.callType || 'Unknown'}`);
+  lines.push(`Duration: ${mins}m ${secs}s`);
+  if (call.confirmedBooking) lines.push(`Booking Confirmed: Yes`);
+  if (call.bookingDetails) lines.push(`\nBooking Details:\n${call.bookingDetails}`);
+  if (call.summary) lines.push(`\nCall Summary:\n${call.summary}`);
+  const text = lines.join('\n');
+
+  const sent = await sendEmail({
+    to: [inboxEmail],
+    subject,
+    text,
+    html: `<pre style="font-family:sans-serif;white-space:pre-wrap">${text}</pre>`,
+  });
+
+  if (sent) {
+    console.log(`[HUBSPOT] Inbox email sent to ${inboxEmail} for call from ${phone}`);
+  } else {
+    console.warn(`[HUBSPOT] Failed to send inbox email to ${inboxEmail}`);
+  }
+};
+
 const logCallEngagement = async (
   call: HubSpotCallData,
   contactId: string | null,
@@ -194,7 +235,7 @@ export const logCallToHubSpot = async (
   call: HubSpotCallData,
   settings: HubspotSettings,
 ): Promise<void> => {
-  const { apiToken, ownerId } = settings;
+  const { apiToken, ownerId, inboxEmail } = settings;
   if (!apiToken) {
     console.error('[HUBSPOT] No API token configured - skipping');
     return;
@@ -214,9 +255,14 @@ export const logCallToHubSpot = async (
     }
   }
 
-  // 2. Create ticket in inbox linked to the caller's contact
+  // 2. Create ticket linked to the caller's contact (CRM → Tickets)
   await createTicket(call, contactId, ownerId, apiToken);
 
-  // 3. Log call engagement on the contact timeline
+  // 3. Send inbox email (creates a thread in HubSpot Conversations inbox)
+  if (inboxEmail) {
+    await sendInboxEmail(call, inboxEmail);
+  }
+
+  // 4. Log call engagement on the contact timeline
   await logCallEngagement(call, contactId, ownerId, apiToken);
 };

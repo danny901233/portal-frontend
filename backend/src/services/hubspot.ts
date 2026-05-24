@@ -26,6 +26,7 @@ export interface HubSpotCallData {
   createdAt: Date;
   branchName: string;
   recordingUrl?: string | null;
+  transcript?: Array<{ speaker: string; text: string }> | null;
 }
 
 const hubspotFetch = async (
@@ -205,7 +206,25 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contact
   if (call.confirmedBooking) lines.push(`Booking Confirmed: Yes`);
   if (call.bookingDetails) lines.push(`\nBooking Details:\n${call.bookingDetails}`);
   if (call.summary) lines.push(`\nCall Summary:\n${call.summary}`);
+
+  // Add transcript if available
+  if (call.transcript && call.transcript.length > 0) {
+    lines.push(`\nCall Transcript:`);
+    for (const entry of call.transcript) {
+      lines.push(`${entry.speaker}: ${entry.text}`);
+    }
+  }
+
   const text = lines.join('\n');
+
+  // Warning banner for synthetic email
+  const isSynthetic = contactEmail?.includes(`@${SYNTHETIC_EMAIL_DOMAIN}`);
+  const warningBanner = isSynthetic
+    ? `⚠️ DO NOT REPLY BY EMAIL — this is a system-generated address. Call the customer on ${phone} instead.\n\n`
+    : '';
+  const warningHtml = isSynthetic
+    ? `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#856404"><strong>⚠️ DO NOT REPLY BY EMAIL</strong> — this is a system-generated address. Call the customer on <strong>${phone}</strong> instead.</div>`
+    : '';
 
   // Send FROM the contact's email so HubSpot links the inbox thread to the contact
   const displayName = call.customerName || phone;
@@ -216,8 +235,8 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contact
   const sent = await sendEmail({
     to: [inboxEmail],
     subject,
-    text,
-    html: `<div style="font-family:sans-serif">${text.replace(/\n/g, '<br>')}</div>`,
+    text: warningBanner + text,
+    html: `<div style="font-family:sans-serif">${warningHtml}${text.replace(/\n/g, '<br>')}</div>`,
     from: fromAddress,
   });
 

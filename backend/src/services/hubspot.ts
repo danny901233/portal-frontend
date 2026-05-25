@@ -196,6 +196,7 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contact
   const mins = Math.floor(call.durationSeconds / 60);
   const secs = call.durationSeconds % 60;
 
+  // Plain text version (for non-HTML email clients)
   const lines: string[] = [];
   lines.push(`Branch: ${call.branchName}`);
   lines.push(`Phone: ${phone}`);
@@ -206,18 +207,15 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contact
   if (call.confirmedBooking) lines.push(`Booking Confirmed: Yes`);
   if (call.bookingDetails) lines.push(`\nBooking Details:\n${call.bookingDetails}`);
   if (call.summary) lines.push(`\nCall Summary:\n${call.summary}`);
-
-  // Add transcript if available
   if (call.transcript && call.transcript.length > 0) {
     lines.push(`\nCall Transcript:`);
     for (const entry of call.transcript) {
       lines.push(`${entry.speaker}: ${entry.text}`);
     }
   }
-
   const text = lines.join('\n');
 
-  // Warning banner for synthetic email
+  // HTML version — call details as plain text, transcript as styled table
   const isSynthetic = contactEmail?.includes(`@${SYNTHETIC_EMAIL_DOMAIN}`);
   const warningBanner = isSynthetic
     ? `⚠️ DO NOT REPLY BY EMAIL — this is a system-generated address. Call the customer on ${phone} instead.\n\n`
@@ -226,17 +224,44 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contact
     ? `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#856404"><strong>⚠️ DO NOT REPLY BY EMAIL</strong> — this is a system-generated address. Call the customer on <strong>${phone}</strong> instead.</div>`
     : '';
 
+  // Build call details (plain text with <br>)
+  const detailLines: string[] = [];
+  detailLines.push(`Branch: ${call.branchName}`);
+  detailLines.push(`Phone: ${phone}`);
+  if (call.customerName) detailLines.push(`Name: ${call.customerName}`);
+  if (call.registrationNumber) detailLines.push(`Vehicle Registration: ${call.registrationNumber}`);
+  detailLines.push(`Call Type: ${call.callType || 'Unknown'}`);
+  detailLines.push(`Duration: ${mins}m ${secs}s`);
+  if (call.confirmedBooking) detailLines.push(`Booking Confirmed: Yes`);
+  if (call.bookingDetails) detailLines.push(`<br>Booking Details:<br>${call.bookingDetails}`);
+  if (call.summary) detailLines.push(`<br>Call Summary:<br>${call.summary}`);
+  const detailsHtml = detailLines.join('<br>');
+
+  // Build transcript HTML table
+  let transcriptHtml = '';
+  if (call.transcript && call.transcript.length > 0) {
+    const rows = call.transcript.map((entry, i) => {
+      const isAgent = entry.speaker.toLowerCase().includes('agent');
+      const bgColor = i % 2 === 1 ? ' style="background:#f8f9fa;"' : '';
+      const nameColor = isAgent ? '#4f46e5' : '#0e7490';
+      return `<tr${bgColor}><td style="padding:4px 8px;color:${nameColor};font-weight:600;white-space:nowrap;vertical-align:top;width:1%;">${entry.speaker}</td><td style="padding:4px 8px;">${entry.text}</td></tr>`;
+    }).join('');
+    transcriptHtml = `<br><div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Call Transcript</div><table style="width:100%;border-collapse:collapse;font-size:13px;line-height:1.4;">${rows}</table>`;
+  }
+
+  const html = `<div style="font-family:sans-serif">${warningHtml}${detailsHtml}${transcriptHtml}</div>`;
+
   // Send FROM the contact's email so HubSpot links the inbox thread to the contact
   const displayName = call.customerName || phone;
   const fromAddress = contactEmail
     ? `"${displayName}" <${contactEmail}>`
-    : undefined; // falls back to default MAILGUN_FROM
+    : undefined;
 
   const sent = await sendEmail({
     to: [inboxEmail],
     subject,
     text: warningBanner + text,
-    html: `<div style="font-family:sans-serif">${warningHtml}${text.replace(/\n/g, '<br>')}</div>`,
+    html,
     from: fromAddress,
   });
 

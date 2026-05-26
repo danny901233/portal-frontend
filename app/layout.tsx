@@ -26,7 +26,7 @@ export default async function RootLayout({
         <head>
           <style>{`
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { overflow: hidden; }
+            html, body { overflow: hidden; background: transparent !important; }
           `}</style>
         </head>
         <body>{children}</body>

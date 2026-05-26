@@ -24,24 +24,7 @@ export default function WidgetEmbedPage() {
 
   const chatEmbedCode = garageId
     ? `<!-- ReceptionMate Chat Widget -->
-<script>
-(function(){
-  var d=document,f=d.createElement('iframe');
-  f.id='receptionmate-widget';
-  f.src='https://portal.receptionmate.co.uk/widget/${garageId}';
-  f.allow='microphone';
-  f.title='ReceptionMate Chat';
-  f.style.cssText='position:fixed;bottom:0;right:0;z-index:999999;border:none;width:260px;height:150px;background:transparent;color-scheme:normal;transition:width 0.3s ease,height 0.3s ease;';
-  d.body.appendChild(f);
-  window.addEventListener('message',function(e){
-    if(e.origin!=='https://portal.receptionmate.co.uk')return;
-    if(e.data&&e.data.type==='rm-resize'){
-      f.style.width=e.data.width;
-      f.style.height=e.data.height;
-    }
-  });
-})();
-</script>`
+<script src="https://portal.receptionmate.co.uk/widget.js" data-garage-id="${garageId}" defer></script>`
     : '';
 
   const voiceEmbedCode = garageId

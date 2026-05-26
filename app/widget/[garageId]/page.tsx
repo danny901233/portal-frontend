@@ -120,11 +120,17 @@ export default function ChatWidget() {
 
   useEffect(() => {
     if (typeof window === 'undefined' || window.parent === window) return;
-    const size = viewState === 'closed'
-      ? { width: '90px', height: '90px' }
-      : { width: '420px', height: '720px' };
-    window.parent.postMessage({ type: 'rm-resize', ...size }, '*');
-  }, [viewState]);
+    if (viewState !== 'closed') {
+      window.parent.postMessage({ type: 'rm-resize', width: '440px', height: '740px' }, '*');
+    } else {
+      const isPill = config?.buttonShape === 'pill';
+      window.parent.postMessage({
+        type: 'rm-resize',
+        width: isPill ? '260px' : '150px',
+        height: '150px',
+      }, '*');
+    }
+  }, [viewState, config?.buttonShape]);
 
   // Add multiple messages sequentially with typing indicator before each bubble
   const addMessagesSequentially = async (bubbles: string[]) => {

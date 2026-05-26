@@ -24,15 +24,23 @@ export default function WidgetEmbedPage() {
 
   const chatEmbedCode = garageId
     ? `<!-- ReceptionMate Chat Widget -->
-<iframe 
-  src="https://portal.receptionmate.co.uk/widget/${garageId}" 
-  style="position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; border: none; pointer-events: none; z-index: 999999;"
-  allow="microphone"
-  id="receptionmate-widget"
-></iframe>
 <script>
-  // Make only the widget clickable
-  document.getElementById('receptionmate-widget').contentWindow.document.body.style.pointerEvents = 'auto';
+(function(){
+  var d=document,f=d.createElement('iframe');
+  f.id='receptionmate-widget';
+  f.src='https://portal.receptionmate.co.uk/widget/${garageId}';
+  f.allow='microphone';
+  f.title='ReceptionMate Chat';
+  f.style.cssText='position:fixed;bottom:0;right:0;z-index:999999;border:none;width:90px;height:90px;background:transparent;color-scheme:normal;';
+  d.body.appendChild(f);
+  window.addEventListener('message',function(e){
+    if(e.origin!=='https://portal.receptionmate.co.uk')return;
+    if(e.data&&e.data.type==='rm-resize'){
+      f.style.width=e.data.width;
+      f.style.height=e.data.height;
+    }
+  });
+})();
 </script>`
     : '';
 

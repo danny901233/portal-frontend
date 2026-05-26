@@ -118,6 +118,14 @@ export default function ChatWidget() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.parent === window) return;
+    const size = viewState === 'closed'
+      ? { width: '90px', height: '90px' }
+      : { width: '420px', height: '720px' };
+    window.parent.postMessage({ type: 'rm-resize', ...size }, '*');
+  }, [viewState]);
+
   // Add multiple messages sequentially with typing indicator before each bubble
   const addMessagesSequentially = async (bubbles: string[]) => {
     for (let i = 0; i < bubbles.length; i++) {
@@ -213,8 +221,7 @@ export default function ChatWidget() {
     setSending(true);
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://18.171.230.217:4000';
-      const response = await fetch(`${backendUrl}/api/chat/widget`, {
+      const response = await fetch('/api/chat/widget', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -279,8 +286,7 @@ export default function ChatWidget() {
 
     try {
       // Use production backend
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://18.171.230.217:4000';
-      const response = await fetch(`${backendUrl}/api/chat/widget`, {
+      const response = await fetch('/api/chat/widget', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

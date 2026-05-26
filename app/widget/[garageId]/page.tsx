@@ -121,7 +121,7 @@ export default function ChatWidget() {
   useEffect(() => {
     if (typeof window === 'undefined' || window.parent === window) return;
     if (viewState !== 'closed') {
-      window.parent.postMessage({ type: 'rm-resize', width: '440px', height: '740px' }, '*');
+      window.parent.postMessage({ type: 'rm-resize', width: '460px', height: '760px' }, '*');
     } else {
       const isPill = config?.buttonShape === 'pill';
       window.parent.postMessage({
@@ -958,27 +958,40 @@ export default function ChatWidget() {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
+        @keyframes pulse-pop {
+          0% { transform: scale(1); }
+          40% { transform: scale(0.92); }
+          100% { transform: scale(1); }
+        }
       `}</style>
       {viewState !== 'chat' && (
       <button
         onClick={() => {
           if (viewState === 'closed') {
-            // If a conversation is already active, reopen it directly
             if (conversationId) {
               setViewState('chat');
               return;
             }
-            setIsSpinning(true);
-            setTimeout(() => {
-              setViewState('menu');
-              setIsSpinning(false);
-            }, 600);
+            const isCircle = config?.buttonShape !== 'pill';
+            if (isCircle) {
+              setIsSpinning(true);
+              setTimeout(() => {
+                setViewState('menu');
+                setIsSpinning(false);
+              }, 600);
+            } else {
+              setIsSpinning(true);
+              setTimeout(() => {
+                setViewState('menu');
+                setIsSpinning(false);
+              }, 350);
+            }
           } else {
             setViewState('closed');
           }
         }}
         className="fixed bottom-6 right-6 z-50 flex items-center gap-3 transition-all duration-300 ease-out hover:scale-105 active:scale-95 whitespace-nowrap"
-        style={{ 
+        style={{
           width: viewState === 'closed' && config?.buttonShape === 'pill' ? '180px' : '64px',
           height: '64px',
           background: config?.buttonColor || config?.primaryColor || '#3f51b5',
@@ -991,7 +1004,11 @@ export default function ChatWidget() {
           fontWeight: 700,
           fontFamily: "'Poppins', sans-serif",
           borderRadius: config?.buttonShape === 'pill' ? '32px' : config?.buttonShape === 'circle' ? '50%' : config?.buttonShape === 'square' ? '8px' : '16px',
-          animation: isSpinning ? 'spin 0.6s linear' : 'none'
+          animation: isSpinning
+            ? config?.buttonShape === 'pill'
+              ? 'pulse-pop 0.35s ease-out'
+              : 'spin 0.6s linear'
+            : 'none'
         }}
         aria-label={viewState === 'closed' ? 'Open chat' : 'Close chat'}
       >

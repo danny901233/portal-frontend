@@ -4,6 +4,8 @@ import axios from 'axios';
 import { prisma } from '../../db.js';
 import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 
@@ -126,7 +128,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
         // Process each message
         for (const message of value.messages) {
           const customerPhone = message.from;
-          const messageText = message.text?.body;
+          let messageText = message.text?.body;
           const messageType = message.type;
 
           // Reject stale messages (older than 5 minutes) — prevents Meta replay of queued messages
@@ -136,7 +138,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             continue;
           }
 
-          if (messageType !== 'text' || !messageText) {
+          if (messageType !== 'text' && messageType !== 'image') {
             console.log(`Unsupported WhatsApp message type: ${messageType}`);
             continue;
           }
@@ -286,6 +288,12 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               conversation.id,
             );
 
+            const seedResult = await prisma.$queryRawUnsafe<Array<{ sessionState: any }>>(
+              `SELECT "sessionState" FROM "ChatConversation" WHERE id = $1`,
+              conversation.id
+            );
+            console.log(`[WhatsApp] Seed verify — step: ${seedResult[0]?.sessionState?.step}, vrn: ${seedResult[0]?.sessionState?.vrn}, convId: ${conversation.id}`);
+
             await prisma.outboundContact.update({
               where: { id: outboundContact.id },
               data: { status: 'replied', conversationId: conversation.id },
@@ -309,12 +317,65 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             }
           }
 
+          // Handle image messages — download from Graph API and upload to S3
+          let mediaUrl: string | null = null;
+          let mediaType: string | null = null;
+          if (messageType === 'image') {
+            try {
+              const imageInfo = message.image;
+              const mediaId = imageInfo?.id;
+              const caption = imageInfo?.caption || '';
+              if (mediaId) {
+                const mediaResp = await axios.get(`https://graph.facebook.com/v21.0/${mediaId}`, {
+                  headers: { Authorization: `Bearer ${connection.accessToken}` },
+                });
+                const downloadUrl = mediaResp.data.url;
+                const mimeType = mediaResp.data.mime_type || 'image/jpeg';
+
+                const imageResp = await axios.get(downloadUrl, {
+                  headers: { Authorization: `Bearer ${connection.accessToken}` },
+                  responseType: 'arraybuffer',
+                });
+
+                const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+                const s3Key = `chat-media/${connection.garageId}/${conversation.id}/${randomUUID()}.${ext}`;
+                const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+                const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+                const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+                const s3Bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
+
+                if (awsAccessKey && awsSecretKey) {
+                  const s3 = new S3Client({
+                    region: awsRegion,
+                    credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+                  });
+                  await s3.send(new PutObjectCommand({
+                    Bucket: s3Bucket,
+                    Key: s3Key,
+                    Body: Buffer.from(imageResp.data),
+                    ContentType: mimeType,
+                  }));
+                  mediaUrl = `https://${s3Bucket}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
+                  mediaType = mimeType;
+                  console.log(`[WhatsApp] Image uploaded to S3: ${s3Key}`);
+                }
+                if (caption) {
+                  messageText = caption;
+                }
+              }
+            } catch (imgErr) {
+              console.error('[WhatsApp] Failed to download/upload image:', imgErr);
+            }
+          }
+
           // Save customer message
           await prisma.chatMessage.create({
             data: {
               conversationId: conversation.id,
               role: 'user',
-              content: messageText,
+              content: messageText || (mediaUrl ? '[Image]' : ''),
+              mediaUrl,
+              mediaType,
               metaMid: metaMid ?? null,
             },
           });
@@ -333,13 +394,14 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             }
           }
 
-          // Only send agent response if agent is not paused
+          // Only send agent response if agent is not paused and there's text to process
           // Note: We always respond to incoming messages as they're within the 24-hour window
-          if (!isAgentPaused) {
+          const agentText = messageText || (mediaUrl ? '[Customer sent an image]' : null);
+          if (!isAgentPaused && agentText) {
             // Get AI response — router selects the correct agent based on agentScript
             const agentResponse = await routeChatMessage(
               connection.garageId,
-              messageText,
+              agentText,
               conversation.id
             );
 

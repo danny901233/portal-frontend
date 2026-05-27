@@ -3,8 +3,17 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { randomUUID } from 'crypto';
+import multer from 'multer';
 
 const router = Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 16 * 1024 * 1024 },
+});
 
 // GET /api/garages/:garageId/messaging-access - Check if garage has messaging access
 router.get(
@@ -564,6 +573,107 @@ router.post(
   }
 );
 
+// POST /api/conversations/:conversationId/messages/image - Send image message
+router.post(
+  '/conversations/:conversationId/messages/image',
+  authenticate,
+  upload.single('image'),
+  async (req: Request, res: Response) => {
+    try {
+      const { conversationId } = req.params;
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) {
+        return res.status(400).json({ error: 'No image file provided' });
+      }
+
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({ error: 'Unsupported image type. Use JPEG, PNG, or WebP.' });
+      }
+
+      const conversation = await prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+        include: {
+          garage: {
+            include: {
+              socialMediaConnections: {
+                where: { platform: { in: ['whatsapp', 'facebook', 'instagram'] }, isActive: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      // Upload to S3
+      const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+      const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+      const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+      const s3Bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
+
+      if (!awsAccessKey || !awsSecretKey) {
+        return res.status(500).json({ error: 'S3 not configured' });
+      }
+
+      const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+      const s3Key = `chat-media/${conversation.garageId}/${conversationId}/${randomUUID()}.${ext}`;
+
+      const s3 = new S3Client({
+        region: awsRegion,
+        credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+      });
+
+      await s3.send(new PutObjectCommand({
+        Bucket: s3Bucket,
+        Key: s3Key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      }));
+
+      const mediaUrl = `https://${s3Bucket}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
+      const caption = (req.body.caption || '').trim();
+
+      // Save message to DB
+      const message = await prisma.chatMessage.create({
+        data: {
+          conversationId,
+          role: 'assistant',
+          content: caption || '[Image]',
+          mediaUrl,
+          mediaType: file.mimetype,
+        },
+      });
+
+      // Update conversation and pause agent
+      await prisma.chatConversation.update({
+        where: { id: conversationId },
+        data: {
+          lastMessageAt: new Date(),
+          agentPaused: true,
+          agentPausedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
+
+      // Send via WhatsApp
+      const connection = conversation.garage.socialMediaConnections.find(
+        (c) => c.platform === conversation.platform
+      );
+
+      if (connection) {
+        await sendImageMessage(conversation, mediaUrl, caption, connection);
+      }
+
+      res.json({ success: true, message });
+    } catch (error) {
+      console.error('Failed to send image message:', error);
+      res.status(500).json({ error: 'Failed to send image message' });
+    }
+  }
+);
+
 // PATCH /api/conversations/:conversationId - Update conversation status
 router.patch(
   '/conversations/:conversationId',
@@ -827,5 +937,78 @@ async function sendMessage(
     );
   }
 }
+
+// Helper function to send image via platform API
+async function sendImageMessage(
+  conversation: any,
+  imageUrl: string,
+  caption: string,
+  connection: any
+): Promise<void> {
+  const axios = (await import('axios')).default;
+
+  if (['whatsapp', 'facebook', 'instagram'].includes(conversation.platform)) {
+    if (!isWithinMessagingWindow(conversation.lastMessageAt)) {
+      throw new Error('Cannot send message: 24-hour messaging window has expired.');
+    }
+  }
+
+  if (conversation.platform === 'whatsapp') {
+    await axios.post(
+      `https://graph.facebook.com/v21.0/${connection.whatsappPhoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: conversation.customerPhone,
+        type: 'image',
+        image: { link: imageUrl, ...(caption && { caption }) },
+      },
+      {
+        headers: { Authorization: `Bearer ${connection.accessToken}` },
+      }
+    );
+  }
+}
+
+// GET /api/media/signed-url - Get signed S3 URL for viewing images
+router.get(
+  '/media/signed-url',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { url } = req.query;
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ error: 'URL parameter required' });
+      }
+
+      const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+      const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+      const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+      const s3Bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
+
+      if (!awsAccessKey || !awsSecretKey) {
+        return res.status(500).json({ error: 'S3 not configured' });
+      }
+
+      const parsedUrl = new URL(url);
+      const s3Key = parsedUrl.pathname.replace(/^\//, '');
+
+      const s3 = new S3Client({
+        region: awsRegion,
+        credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+      });
+
+      const signedUrl = await getSignedUrl(
+        s3,
+        new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }),
+        { expiresIn: 3600 }
+      );
+
+      res.json({ success: true, signedUrl });
+    } catch (error) {
+      console.error('Failed to generate signed URL:', error);
+      res.status(500).json({ error: 'Failed to generate signed URL' });
+    }
+  }
+);
 
 export default router;

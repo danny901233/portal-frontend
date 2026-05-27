@@ -24,16 +24,7 @@ export default function WidgetEmbedPage() {
 
   const chatEmbedCode = garageId
     ? `<!-- ReceptionMate Chat Widget -->
-<iframe 
-  src="https://portal.receptionmate.co.uk/widget/${garageId}" 
-  style="position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; border: none; pointer-events: none; z-index: 999999;"
-  allow="microphone"
-  id="receptionmate-widget"
-></iframe>
-<script>
-  // Make only the widget clickable
-  document.getElementById('receptionmate-widget').contentWindow.document.body.style.pointerEvents = 'auto';
-</script>`
+<script src="https://portal.receptionmate.co.uk/widget.js" data-garage-id="${garageId}" defer></script>`
     : '';
 
   const voiceEmbedCode = garageId

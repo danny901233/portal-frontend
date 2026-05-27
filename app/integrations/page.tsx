@@ -101,6 +101,7 @@ export default function IntegrationsPage() {
       setConnections(data.connections || []);
     } catch (error) {
       console.error('Error fetching connections:', error);
+      setStatusMessage({ type: 'error', text: 'Failed to load connections. Please refresh.' });
     } finally {
       setLoading(false);
     }

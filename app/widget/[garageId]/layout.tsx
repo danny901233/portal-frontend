@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import '../../globals.css';
 
 export const metadata: Metadata = {
   title: 'Chat Widget',
@@ -20,13 +19,13 @@ export default function WidgetLayout({
           html, body {
             width: 100%;
             max-width: 100vw;
-            overflow-x: hidden;
-            overflow-y: hidden;
-            background: transparent;
+            overflow: hidden;
+            background: transparent !important;
+            color-scheme: light;
           }
         `}</style>
       </head>
-      <body>{children}</body>
+      <body style={{ background: 'transparent' }}>{children}</body>
     </html>
   );
 }

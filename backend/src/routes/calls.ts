@@ -942,12 +942,16 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     const callsData = await callsResponse.json();
 
-    // Score all calls by duration similarity — no time window exclusion.
-    // From+To filter already scopes to exact caller+garage, so duration picks
-    // the right call if the same person called twice in one day.
+    // Score calls by time proximity + duration similarity.
+    // Time window prevents matching recordings from hours-apart calls
+    // (e.g. two anonymous callers to the same garage with similar durations).
+    const MAX_TIME_DIFF_MS = 30 * 60 * 1000; // 30 minutes
+    const callCreatedAt = new Date(call.createdAt).getTime();
+
     interface ScoredCall {
       twilioCall: any;
       durationDiff: number;
+      timeDiffMs: number;
     }
 
     const scoredCalls: ScoredCall[] = [];
@@ -955,17 +959,26 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     for (const twilioCall of callsData.calls || []) {
       const twilioCallDuration = parseInt(twilioCall.duration || '0');
       const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
-      scoredCalls.push({ twilioCall, durationDiff });
+      const twilioStartTime = new Date(twilioCall.start_time || twilioCall.date_created).getTime();
+      const timeDiffMs = Math.abs(twilioStartTime - callCreatedAt);
+
+      // Skip calls that are more than 30 minutes apart
+      if (timeDiffMs > MAX_TIME_DIFF_MS) {
+        console.log(`[RECORDING] Skipping CallSid ${twilioCall.sid}: too far apart (${Math.round(timeDiffMs / 60000)}min)`);
+        continue;
+      }
+
+      scoredCalls.push({ twilioCall, durationDiff, timeDiffMs });
     }
 
-    // Sort by duration similarity (closest duration wins)
-    scoredCalls.sort((a, b) => a.durationDiff - b.durationDiff);
+    // Sort by time proximity first, then duration similarity as tiebreaker
+    scoredCalls.sort((a, b) => a.timeDiffMs - b.timeDiffMs || a.durationDiff - b.durationDiff);
 
-    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls, matching by duration`);
+    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls within ${MAX_TIME_DIFF_MS / 60000}min window`);
 
-    // Try candidates in order of best duration match
-    for (const { twilioCall, durationDiff } of scoredCalls) {
-      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: durationDiff=${durationDiff}s (twilio=${twilioCall.duration}s, portal=${call.durationSeconds}s)`);
+    // Try candidates in order of best time + duration match
+    for (const { twilioCall, durationDiff, timeDiffMs } of scoredCalls) {
+      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: timeDiff=${Math.round(timeDiffMs / 60000)}min, durationDiff=${durationDiff}s (twilio=${twilioCall.duration}s, portal=${call.durationSeconds}s)`);
 
       // CRITICAL SECURITY: Verify this call was TO our garage's number
       // Prevents cross-garage contamination when same customer calls multiple garages

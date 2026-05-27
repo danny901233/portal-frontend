@@ -308,7 +308,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
       }
 
       const sessionData = rows[0].sessionState as any;
-      console.log(`[GET_SESSION] Found existing session, step: ${sessionData.step}`);
+      console.log(`[GET_SESSION] Found existing session, step: ${sessionData.step}, typeof sessionState: ${typeof rows[0].sessionState}, keys: ${Object.keys(rows[0].sessionState || {}).slice(0, 10).join(',')}`);
+      if (!sessionData.step) console.log(`[GET_SESSION] RAW sessionState: ${JSON.stringify(rows[0].sessionState).substring(0, 300)}`);
       const loadedSession: ChatSession = {
         step: sessionData.step || Step.GREETING,
         intent: sessionData.intent || '',
@@ -769,7 +770,7 @@ export async function getChatAgentResponse(
     // Uses LAST match so "If sunday is closed, do you do Saturday?" captures "Saturday" not "sunday"
     if (!session.bookingDate) {
       const normalizedMsg = normalizeDayTypos(message); // fix typos like "Satruday" → "saturday"
-      const dateRegex = /\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next\s+\w+|\d{1,2}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*|\d{4}-\d{2}-\d{2}|\d{1,2}(?:st|nd|rd|th)?(?:\s+may|\s+june|\s+july)?)\b/gi;
+      const dateRegex = /\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next\s+\w+|\d{1,2}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*|\d{4}-\d{2}-\d{2}|\d{1,2}(?:st|nd|rd|th)(?:\s+(?:may|june|july))?|\d{1,2}\s+(?:of\s+)?(?:may|june|july))\b/gi;
       const allDateMatches = [...normalizedMsg.matchAll(dateRegex)];
       const lastMatch = allDateMatches.length > 0 ? allDateMatches[allDateMatches.length - 1][0] : null;
       if (lastMatch && lastMatch.toLowerCase() !== (session.preferredDate || '').toLowerCase()) {
@@ -908,7 +909,7 @@ export async function getChatAgentResponse(
         // Skip the already-selected service
         if (svcLower === currentServiceName) return false;
         // Match key words from service name (e.g. "brakes" from "Brakes", "full service" from "Full Service")
-        const keywords = svcLower.split(/[\s\-\/()]+/).filter((w: string) => w.length > 2 && !/class|car|change|oil|filter/i.test(w));
+        const keywords = svcLower.split(/[\s\-\/()]+/).filter((w: string) => w.length > 2 && !/class|car|change|oil|filter|services?/i.test(w));
         return keywords.some((kw: string) => lower.includes(kw));
       });
       if (mentionedService) {
@@ -2682,8 +2683,10 @@ Say ONLY: "The earliest I have is ${dateNatural} at ${timeNatural} — does that
         const latestTime = formatTimeNaturally(lastSlot.time);
         const dayDisplay = dayInPref ? formatDateNaturally(slotsOnDay[0].date) : 'that day';
         session.step = Step.NEED_TIMESLOT;
+        session.preferredTime = undefined; // time constraint addressed — don't re-inject on next turn
         await saveSession(conversationId, session);
         const requestedTimeNatural = formatTimeNaturally(requestedTimeStr);
+        console.log(`[SELECT_TIMESLOT] Cleared preferredTime after NO_MATCH (minTime direct: ${requestedTimeNatural})`);
         return `NO_MATCH: We don't have any slots from ${requestedTimeNatural} onwards. The closest we have on ${dayDisplay} is ${latestTime}.
 Say: "We don't have anything from ${requestedTimeNatural} onwards, I'm afraid. The closest I can do on ${dayDisplay} is ${latestTime} — would that work, or would you prefer a different day?"
 When they respond, call select_timeslot with whatever they say.`;
@@ -2708,6 +2711,9 @@ When they respond, call select_timeslot with whatever they say.`;
           const dayDisplay = formatDateNaturally(slotsOnDay[0].date);
           const nearestSlot = slotsOnDay[slotsOnDay.length - 1]; // latest on that day = closest to requested
           const nearestTime = formatTimeNaturally(nearestSlot.time);
+          session.preferredTime = undefined; // time constraint addressed — don't re-inject on next turn
+          await saveSession(conversationId, session);
+          console.log(`[SELECT_TIMESLOT] Cleared preferredTime after NO_MATCH (minTime matchTimeslot: ${dayInFilter})`);
           return `NO_MATCH: No slots at/after requested time on ${dayInFilter}.
 Say: "The closest I can do on ${dayDisplay} is ${nearestTime} — would that work, or would you prefer a different day?"
 When they respond, call select_timeslot with whatever they say.`;
@@ -2740,6 +2746,9 @@ When they choose, call select_timeslot again.`;
         // Pick the nearest slot to the requested time-of-day
         const nearestSlot = todInPref === 'morning' ? slotsOnDay[0] : slotsOnDay[slotsOnDay.length - 1];
         const nearestTime = formatTimeNaturally(nearestSlot.time);
+        session.preferredTime = undefined; // time constraint addressed — don't re-inject on next turn
+        await saveSession(conversationId, session);
+        console.log(`[SELECT_TIMESLOT] Cleared preferredTime after NO_MATCH (tod mismatch: ${todInPref} on ${dayInPref})`);
         return `NO_MATCH: No ${todInPref} slots on ${dayInPref}. Nearest is ${nearestTime}.
 Say: "I don't have any ${todInPref} slots on ${dayDisplay}, I'm afraid. The closest I can do is ${nearestTime} — would that work, or would you prefer a different day?"
 When they respond, call select_timeslot with whatever they say.`;
@@ -2770,6 +2779,9 @@ When they respond, call select_timeslot with whatever they say.`;
           if (diff < closestDiff) { closestDiff = diff; closest = s; }
         }
         const nearestTime = formatTimeNaturally(closest.time);
+        session.preferredTime = undefined; // time constraint addressed — don't re-inject on next turn
+        await saveSession(conversationId, session);
+        console.log(`[SELECT_TIMESLOT] Cleared preferredTime after NO_MATCH (exact time on ${exactDayInPref})`);
         return `NO_MATCH: Requested time not available on ${exactDayInPref}. Nearest is ${nearestTime}.
 Say: "I don't have that exact time on ${dayDisplay}, I'm afraid. The closest I can do is ${nearestTime} — would that work, or would you prefer a different day?"
 When they respond, call select_timeslot with whatever they say.`;

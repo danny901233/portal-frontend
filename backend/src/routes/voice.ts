@@ -51,7 +51,7 @@ router.post('/voice', async (req: Request, res: Response) => {
   console.log(`[VOICE] Routing garage ${garageId} (agentType=${agentType}) via ${livekitSipDomain}`);
 
   // Build recording status callback URL
-  const portalBaseUrl = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';
+  const portalBaseUrl = process.env.PORTAL_BASE_URL || 'https://api.receptionmate.co.uk';
   const recordingCallbackUrl = `${portalBaseUrl}/webhooks/recording-status`;
 
   // Return TwiML that dials the LiveKit SIP address with recording enabled

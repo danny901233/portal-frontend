@@ -46,6 +46,7 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
   const [stats, setStats] = useState<MessageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -68,8 +69,9 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
           const data = await response.json();
           setStats(data.stats);
         }
-      } catch (error) {
-        console.error('Error fetching message stats:', error);
+      } catch (err) {
+        console.error('Error fetching message stats:', err);
+        setError('Failed to load message stats');
       } finally {
         setLoading(false);
       }

@@ -2,8 +2,10 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
-import { routeChatMessage } from '../../services/chatAgentRouter.js';
+import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 
@@ -126,10 +128,17 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
         // Process each message
         for (const message of value.messages) {
           const customerPhone = message.from;
-          const messageText = message.text?.body;
+          let messageText = message.text?.body;
           const messageType = message.type;
 
-          if (messageType !== 'text' || !messageText) {
+          // Reject stale messages (older than 5 minutes) — prevents Meta replay of queued messages
+          const msgTimestamp = message.timestamp ? parseInt(message.timestamp, 10) * 1000 : null;
+          if (msgTimestamp && Date.now() - msgTimestamp > 5 * 60 * 1000) {
+            console.log(`[WhatsApp] Ignoring stale message from ${customerPhone} (age: ${Math.round((Date.now() - msgTimestamp) / 60000)}min)`);
+            continue;
+          }
+
+          if (messageType !== 'text' && messageType !== 'image') {
             console.log(`Unsupported WhatsApp message type: ${messageType}`);
             continue;
           }
@@ -154,7 +163,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
 
           // Check if this is a reply to an outbound campaign — phone may be stored with or without +
           const phoneVariants = [customerPhone, `+${customerPhone}`, customerPhone.replace(/^\+/, '')];
-          const outboundContact = await prisma.outboundContact.findFirst({
+          const allOutboundContacts = await prisma.outboundContact.findMany({
             where: {
               garageId: connection.garageId,
               phone: { in: phoneVariants },
@@ -162,6 +171,12 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             },
             orderBy: { createdAt: 'desc' },
           });
+          // Prefer the contact the customer most likely read (read > delivered > sent), then most recent
+          const statusPriority = ['read', 'delivered', 'sent'];
+          const outboundContact = statusPriority.flatMap(s => allOutboundContacts.filter(c => c.status === s))[0] ?? null;
+          if (allOutboundContacts.length > 1) {
+            console.warn(`[WhatsApp] Multiple active outbound contacts for ${customerPhone} — picked status=${outboundContact?.status} campaignId=${outboundContact?.campaignId}`);
+          }
 
           if (!conversation) {
             // Create new conversation
@@ -241,7 +256,10 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               });
             }
 
-            // Seed sessionState so the agent knows the registration without asking
+            // Seed sessionState so the agent knows the registration without asking.
+            // Also reset booking fields so old session state from a previous flow
+            // (e.g. step=NEED_CONTACT from a different vehicle's conversation) doesn't
+            // cause the agent to skip the booking flow and ask for phone instead.
             await prisma.$executeRawUnsafe(
               `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
               JSON.stringify({
@@ -250,14 +268,41 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 ...(reg && { outboundRegistration: reg }),
                 outboundServiceType: outboundContact.messageType || 'mot',
                 ...(dueDate && { outboundDueDate: dueDate }),
+                // Vehicle is already known from the CSV — trust it, skip VRN confirmation.
+                // Start at need_service so the agent greets + upsells, then goes straight
+                // to timeslot selection. GH session is initialised later by handleSelectService.
+                step: 'need_service',
+                vrn: reg || null,
+                vrnConfirmed: !!(reg),
+                sessionId: null,
+                vehicleMake: null,
+                vehicleModel: null,
+                servicesAvailable: null,
+                serviceSelectedName: null,
+                serviceSelectedId: null,
+                servicePrice: null,
+                timeslotsAvailable: null,
+                bookingDate: null,
+                bookingTime: null,
               }),
               conversation.id,
             );
+
+            const seedResult = await prisma.$queryRawUnsafe<Array<{ sessionState: any }>>(
+              `SELECT "sessionState" FROM "ChatConversation" WHERE id = $1`,
+              conversation.id
+            );
+            console.log(`[WhatsApp] Seed verify — step: ${seedResult[0]?.sessionState?.step}, vrn: ${seedResult[0]?.sessionState?.vrn}, convId: ${conversation.id}`);
 
             await prisma.outboundContact.update({
               where: { id: outboundContact.id },
               data: { status: 'replied', conversationId: conversation.id },
             });
+
+            // Invalidate the in-memory session cache so getChatAgentResponse
+            // picks up the freshly-seeded outbound state from the DB instead of
+            // using a stale cached session from a previous conversation.
+            invalidateSessionCache(conversation.id);
 
             console.log(`[WhatsApp] Outbound reply from ${customerPhone} — message saved, session seeded with reg=${reg}`);
           }
@@ -272,12 +317,65 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             }
           }
 
+          // Handle image messages — download from Graph API and upload to S3
+          let mediaUrl: string | null = null;
+          let mediaType: string | null = null;
+          if (messageType === 'image') {
+            try {
+              const imageInfo = message.image;
+              const mediaId = imageInfo?.id;
+              const caption = imageInfo?.caption || '';
+              if (mediaId) {
+                const mediaResp = await axios.get(`https://graph.facebook.com/v21.0/${mediaId}`, {
+                  headers: { Authorization: `Bearer ${connection.accessToken}` },
+                });
+                const downloadUrl = mediaResp.data.url;
+                const mimeType = mediaResp.data.mime_type || 'image/jpeg';
+
+                const imageResp = await axios.get(downloadUrl, {
+                  headers: { Authorization: `Bearer ${connection.accessToken}` },
+                  responseType: 'arraybuffer',
+                });
+
+                const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+                const s3Key = `chat-media/${connection.garageId}/${conversation.id}/${randomUUID()}.${ext}`;
+                const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+                const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+                const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+                const s3Bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
+
+                if (awsAccessKey && awsSecretKey) {
+                  const s3 = new S3Client({
+                    region: awsRegion,
+                    credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+                  });
+                  await s3.send(new PutObjectCommand({
+                    Bucket: s3Bucket,
+                    Key: s3Key,
+                    Body: Buffer.from(imageResp.data),
+                    ContentType: mimeType,
+                  }));
+                  mediaUrl = `https://${s3Bucket}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
+                  mediaType = mimeType;
+                  console.log(`[WhatsApp] Image uploaded to S3: ${s3Key}`);
+                }
+                if (caption) {
+                  messageText = caption;
+                }
+              }
+            } catch (imgErr) {
+              console.error('[WhatsApp] Failed to download/upload image:', imgErr);
+            }
+          }
+
           // Save customer message
           await prisma.chatMessage.create({
             data: {
               conversationId: conversation.id,
               role: 'user',
-              content: messageText,
+              content: messageText || (mediaUrl ? '[Image]' : ''),
+              mediaUrl,
+              mediaType,
               metaMid: metaMid ?? null,
             },
           });
@@ -296,13 +394,14 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             }
           }
 
-          // Only send agent response if agent is not paused
+          // Only send agent response if agent is not paused and there's text to process
           // Note: We always respond to incoming messages as they're within the 24-hour window
-          if (!isAgentPaused) {
+          const agentText = messageText || (mediaUrl ? '[Customer sent an image]' : null);
+          if (!isAgentPaused && agentText) {
             // Get AI response — router selects the correct agent based on agentScript
             const agentResponse = await routeChatMessage(
               connection.garageId,
-              messageText,
+              agentText,
               conversation.id
             );
 
@@ -318,7 +417,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             // Send response via WhatsApp
             try {
               await axios.post(
-                `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+                `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
                 {
                   messaging_product: 'whatsapp',
                   to: customerPhone,

@@ -20,6 +20,7 @@ export default function SmsStatsWidget({ garageId, startDate, endDate }: SmsStat
   const [stats, setStats] = useState<SmsStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -42,8 +43,9 @@ export default function SmsStatsWidget({ garageId, startDate, endDate }: SmsStat
           const data = await response.json();
           setStats(data.stats);
         }
-      } catch (error) {
-        console.error('Error fetching SMS stats:', error);
+      } catch (err) {
+        console.error('Error fetching SMS stats:', err);
+        setError('Failed to load SMS stats');
       } finally {
         setLoading(false);
       }

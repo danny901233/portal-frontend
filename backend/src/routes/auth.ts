@@ -11,7 +11,34 @@ import { z } from 'zod';
 
 const router = Router();
 
-router.post('/login', async (req: Request, res: Response) => {
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimit(windowMs: number, maxAttempts: number) {
+  return (req: Request, res: Response, next: () => void) => {
+    const key = `${req.path}:${req.ip}`;
+    const now = Date.now();
+    const entry = rateLimitMap.get(key);
+
+    if (!entry || now > entry.resetAt) {
+      rateLimitMap.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    if (entry.count >= maxAttempts) {
+      const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+      res.set('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+    }
+
+    entry.count++;
+    return next();
+  };
+}
+
+const authLimiter = rateLimit(15 * 60 * 1000, 10);
+const passwordResetLimiter = rateLimit(15 * 60 * 1000, 5);
+
+router.post('/login', authLimiter, async (req: Request, res: Response) => {
   try {
     const result = loginSchema.safeParse(req.body);
     if (!result.success) {
@@ -153,7 +180,7 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/request-password-reset', async (req: Request, res: Response) => {
+router.post('/request-password-reset', passwordResetLimiter, async (req: Request, res: Response) => {
   try {
     const schema = z.object({ email: z.string().email() });
     const result = schema.safeParse(req.body);
@@ -275,7 +302,7 @@ ReceptionMate
   }
 });
 
-router.post('/reset-password', async (req: Request, res: Response) => {
+router.post('/reset-password', passwordResetLimiter, async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       token: z.string().min(1),
@@ -319,7 +346,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/verify-magic-link', async (req: Request, res: Response) => {
+router.post('/verify-magic-link', authLimiter, async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       token: z.string().min(1),

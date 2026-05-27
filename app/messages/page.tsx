@@ -12,6 +12,8 @@ interface Message {
   content: string;
   createdAt: string;
   platform?: string;
+  mediaUrl?: string;
+  mediaType?: string;
 }
 
 interface Conversation {
@@ -91,6 +93,11 @@ export default function MessagesPage() {
   const [showPauseDropdown, setShowPauseDropdown] = useState(false);
   const [showTaggingPanel, setShowTaggingPanel] = useState(false);
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [sendingImage, setSendingImage] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -235,6 +242,79 @@ export default function MessagesPage() {
     } finally {
       setSending(false);
     }
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert('Please select a JPEG, PNG, or WebP image.');
+      return;
+    }
+    if (file.size > 16 * 1024 * 1024) {
+      alert('Image must be under 16MB.');
+      return;
+    }
+    setSelectedImage(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const cancelImage = () => {
+    setSelectedImage(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  };
+
+  const sendImage = async () => {
+    if (!selectedConversation || !selectedImage) return;
+    setSendingImage(true);
+    try {
+      const token = getSessionToken();
+      const formData = new FormData();
+      formData.append('image', selectedImage);
+      if (messageInput.trim()) formData.append('caption', messageInput.trim());
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/messages/image`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        }
+      );
+      if (!response.ok) throw new Error('Failed to send image');
+
+      cancelImage();
+      setMessageInput('');
+      await fetchConversationDetail(selectedConversation.id);
+      await fetchConversations();
+    } catch (error) {
+      console.error('Error sending image:', error);
+      alert('Failed to send image');
+    } finally {
+      setSendingImage(false);
+    }
+  };
+
+  const getSignedMediaUrl = async (url: string): Promise<string> => {
+    try {
+      const token = getSessionToken();
+      const resp = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/media/signed-url?url=${encodeURIComponent(url)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!resp.ok) return url;
+      const data = await resp.json();
+      return data.signedUrl || url;
+    } catch {
+      return url;
+    }
+  };
+
+  const openLightbox = async (mediaUrl: string) => {
+    const signed = await getSignedMediaUrl(mediaUrl);
+    setLightboxUrl(signed);
   };
 
   const updateConversationStatus = async (status: string) => {
@@ -876,7 +956,24 @@ export default function MessagesPage() {
                         : 'bg-purple-600 text-white'
                     )}
                   >
-                    <p className="text-sm">{message.content}</p>
+                    {message.mediaUrl && message.mediaType?.startsWith('image/') && (
+                      <img
+                        src={message.mediaUrl}
+                        alt="Shared image"
+                        className="max-w-full max-h-64 rounded-md mb-2 cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => openLightbox(message.mediaUrl!)}
+                        onError={(e) => {
+                          const img = e.target as HTMLImageElement;
+                          if (!img.dataset.retried) {
+                            img.dataset.retried = 'true';
+                            getSignedMediaUrl(message.mediaUrl!).then(url => { img.src = url; });
+                          }
+                        }}
+                      />
+                    )}
+                    {message.content && message.content !== '[Image]' && (
+                      <p className="text-sm">{message.content}</p>
+                    )}
                     <p className={cn('text-xs mt-1', message.role === 'user' ? 'text-slate-500' : 'text-purple-200')}>
                       {formatTime(message.createdAt)}
                     </p>
@@ -897,23 +994,51 @@ export default function MessagesPage() {
                   </div>
                 ) : (
                   <>
+                    {imagePreview && (
+                      <div className="mb-3 relative inline-block">
+                        <img src={imagePreview} alt="Preview" className="max-h-32 rounded-lg border border-slate-700" />
+                        <button
+                          onClick={cancelImage}
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs"
+                        >
+                          X
+                        </button>
+                      </div>
+                    )}
                     <div className="flex gap-2">
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleImageSelect}
+                        className="hidden"
+                      />
+                      <button
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={sending || sendingImage}
+                        className="px-3 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors disabled:opacity-50"
+                        title="Attach image"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </button>
                       <input
                         type="text"
                         value={messageInput}
                         onChange={(e) => setMessageInput(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                        placeholder="Write a message"
+                        onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (selectedImage ? sendImage() : sendMessage())}
+                        placeholder={selectedImage ? 'Add a caption (optional)' : 'Write a message'}
                         maxLength={1600}
                         className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        disabled={sending}
+                        disabled={sending || sendingImage}
                       />
                       <button
-                        onClick={sendMessage}
-                        disabled={sending || !messageInput.trim()}
+                        onClick={selectedImage ? sendImage : sendMessage}
+                        disabled={(sending || sendingImage) || (!selectedImage && !messageInput.trim())}
                         className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {sending ? 'Sending...' : 'Send'}
+                        {sendingImage ? 'Sending...' : sending ? 'Sending...' : 'Send'}
                       </button>
                     </div>
                     <div className="text-right text-xs text-slate-500 mt-1">
@@ -951,6 +1076,27 @@ export default function MessagesPage() {
         />
       )}
       </div>
+
+      {/* Image Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-8"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white text-2xl hover:text-slate-300"
+            onClick={() => setLightboxUrl(null)}
+          >
+            X
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Full size"
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

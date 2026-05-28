@@ -252,6 +252,7 @@ export const upsertAgentConfigurationSchema = z.object({
   allowBookings: z.boolean().optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
+  customRules: z.array(z.object({ text: z.string(), active: z.boolean() })).optional().nullable(),
   hubspotSettings: z.object({
     enabled: z.boolean(),
     apiToken: z.string(),

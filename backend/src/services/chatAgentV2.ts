@@ -21,6 +21,9 @@ let GH_CUSTOMER_ID: string | undefined;
 let GH_API_KEY: string | undefined;
 let GH_LOCATION_ID: string = '23';
 
+// Multi-branch configuration — loaded from customRules.branches
+let GARAGE_BRANCHES: { name: string; locationId: string }[] = [];
+
 // Drop-off booking configuration
 let DROP_OFF_ENABLED: boolean = false;
 let DROP_OFF_MESSAGE: string = 'drop your vehicle off between 8am and half ten in the morning';
@@ -369,7 +372,6 @@ export async function getChatAgentResponse(
     }
 
     const config = garage.agentConfiguration;
-    const isOpen = checkOpeningHours(config.weeklyOpeningHours);
 
     // Load GarageHive credentials
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
@@ -391,10 +393,9 @@ export async function getChatAgentResponse(
     const session = await getOrCreateSession(conversationId);
 
     // Check if this garage has multiple branches and set initial step
-    console.log(`[BRANCH_CHECK] branchName: "${config.branchName}", garageId: ${garageId}`);
-    const branchNameLower = (config.branchName || '').toLowerCase().replace(/\./g, '');
-    const hasMultipleBranches = branchNameLower.includes('eac telford');
-    console.log(`[BRANCH_CHECK] hasMultipleBranches: ${hasMultipleBranches}, step: ${session.step}, selectedBranch: ${session.selectedBranch}`);
+    GARAGE_BRANCHES = (config as any).customRules?.branches ?? [];
+    const hasMultipleBranches = GARAGE_BRANCHES.length > 1;
+    console.log(`[BRANCH_CHECK] branchName: "${config.branchName}", branches: ${GARAGE_BRANCHES.length}, step: ${session.step}, selectedBranch: ${session.selectedBranch}`);
     if (hasMultipleBranches && session.step === Step.GREETING && !session.selectedBranch) {
       session.step = Step.NEED_BRANCH;
       await saveSession(conversationId, session);
@@ -742,7 +743,7 @@ export async function getChatAgentResponse(
       if (message.includes('?')) {
         const dateNatural2 = formatDateNaturally(session.pendingSlotDate);
         const timeNatural2 = formatTimeNaturally(session.pendingSlotTime);
-        const miniSystemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
+        const miniSystemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, session);
         const miniMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
           { role: 'system', content: `${miniSystemPrompt}\n\nThe customer asked a question while confirming their slot (${dateNatural2} at ${timeNatural2}). Answer briefly in one sentence, then immediately ask: "Shall I go ahead and book you in for ${dateNatural2} at ${timeNatural2}?" Do NOT call any tools.` },
           { role: 'user', content: message },
@@ -846,7 +847,7 @@ export async function getChatAgentResponse(
           : !session.contactPostcode ? 'postcode'
           : 'house number or name';
         if (isAiDisclosure) {
-          const disclosureSysPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
+          const disclosureSysPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, session);
           const disclosureMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
             { role: 'system', content: `${disclosureSysPrompt}\n\nThe customer is asking whether they're talking to an AI. Be honest in one sentence: acknowledge you're an AI assistant for the garage, reassure them you can help just as well, then immediately re-ask for their ${fieldNeededForDisclosure}. Stay warm and in character. Do NOT say "Hi there!" or restart the conversation. Do NOT call any tools.` },
             ...previousMessages.map(m => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content })),
@@ -862,7 +863,7 @@ export async function getChatAgentResponse(
             : !session.contactEmail ? 'email address'
             : !session.contactPostcode ? 'postcode'
             : 'house number or name';
-          const miniSystemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
+          const miniSystemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, session);
           const miniMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
             { role: 'system', content: `${miniSystemPrompt}\n\nIMPORTANT: The customer asked a question during contact collection. Answer it briefly (1 sentence max), then immediately re-ask for their ${fieldNeeded}. Be warm and natural. Stay in context — do NOT restart the conversation or say "Hi there!". Do NOT call any tools.` },
             ...previousMessages.map(m => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content })),
@@ -890,7 +891,7 @@ export async function getChatAgentResponse(
     }
 
     // Build system prompt with state awareness
-    const systemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, isOpen, session);
+    const systemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, session);
 
     // Build messages
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -1228,7 +1229,7 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
         parameters: {
           type: 'object',
           properties: {
-            branch: { type: 'string', description: 'Branch name (e.g., "Halesfield", "Hortonwood")' },
+            branch: { type: 'string', description: `Branch name (e.g., ${GARAGE_BRANCHES.map(b => `"${b.name}"`).join(', ') || '"Branch A", "Branch B"'})` },
           },
           required: ['branch'],
         },
@@ -1442,20 +1443,19 @@ function getNextContactInstruction(session: ChatSession): string {
 
 async function handleSelectBranch(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { branch } = args;
-  
+
   session.selectedBranch = branch;
-  
-  // Set location ID based on branch
+
+  // Set location ID from branches config
   const branchLower = branch.toLowerCase();
-  if (branchLower.includes('hortonwood')) {
-    GH_LOCATION_ID = '390';
-  } else if (branchLower.includes('halesfield')) {
-    GH_LOCATION_ID = '210';
+  const matched = GARAGE_BRANCHES.find(b => branchLower.includes(b.name.toLowerCase()));
+  if (matched) {
+    GH_LOCATION_ID = matched.locationId;
   }
-  
+
   session.step = Step.NEED_NAME;
   await saveSession(conversationId, session);
-  
+
   console.log(`[SELECT_BRANCH] Branch selected: ${branch}, Location ID: ${GH_LOCATION_ID}`);
   
   return `Branch selected: ${branch}.\n\nSay: "Great! Can I take your name please?"\nWait for their name, then call save_caller_name.`;
@@ -1486,7 +1486,9 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
   console.log(`[SAVE_NAME] About to save session...`);
   
   if (intent === 'message') {
-    session.step = Step.MESSAGE_ONLY;
+    if (session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+      session.step = Step.MESSAGE_ONLY;
+    }
     await saveSession(conversationId, session);
     console.log(`[SAVE_NAME] Session saved for message intent`);
     const hourLondon2 = parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }), 10);
@@ -2215,7 +2217,7 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
       contact_address: contactAddress,
       contact_city: session.contactCity,
       contact_postcode: session.contactPostcode,
-      contact_salutation: 10,
+      contact_salutation: 0,
       contact_address2: '',
       notes: session.notes || '',
       vehicle_mileage: 1,
@@ -2256,7 +2258,9 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
   session.message = message;
   session.contactPhone = phone;
   session.preferredCallbackTime = callback_time;
-  session.step = Step.MESSAGE_ONLY;
+  if (session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+    session.step = Step.MESSAGE_ONLY;
+  }
   await saveSession(conversationId, session);
 
   // Flag conversation as needing attention so it shows up in the Messages inbox
@@ -2739,7 +2743,8 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   // "Later", "after that", "something later", "end of the week" — pick last available slot
   if (/\b(later|after that|end of|something later)\b/.test(prefLower)) {
     const ph = extractPrefHour(prefLower);
-    return closestByTime(timeslots, ph) ?? timeslots[timeslots.length - 1];
+    if (ph !== null) return closestByTime(timeslots, ph) ?? timeslots[timeslots.length - 1];
+    return timeslots[timeslots.length - 1];
   }
   // "Next month", "further out" — outside our booking window; return null so LLM explains
   if (/\b(next month|further out)\b/.test(prefLower)) {
@@ -2919,7 +2924,7 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   return null;
 }
 
-function buildSystemPromptV2(config: any, knowledgeDocuments: any[], _isOpen: boolean, session: ChatSession): string {
+function buildSystemPromptV2(config: any, knowledgeDocuments: any[], session: ChatSession): string {
   const branchName = config.branchName || 'our garage';
 
   // ── Persona ──────────────────────────────────────────────────────────────
@@ -3117,11 +3122,12 @@ TONE EXAMPLES:
   }
 
   // ── Branch selection (for multi-location garages) ────────────────────────
-  const branchNameClean = branchName.toLowerCase().replace(/\./g, '');
-  const hasMultipleBranches = branchNameClean.includes('eac telford');
+  const hasMultipleBranches = GARAGE_BRANCHES.length > 1;
+  const branchNames = GARAGE_BRANCHES.map(b => b.name);
+  const branchListStr = branchNames.join(' or ');
   if (hasMultipleBranches && session.step === Step.NEED_BRANCH && !session.selectedBranch) {
-    prompt += `BRANCH SELECTION REQUIRED: We have two branches.\n`;
-    prompt += `As your FIRST action, ask: "Which branch would you like to book with — Halesfield or Hortonwood?"\n`;
+    prompt += `BRANCH SELECTION REQUIRED: We have ${branchNames.length} branches.\n`;
+    prompt += `As your FIRST action, ask: "Which branch would you like to book with — ${branchListStr}?"\n`;
     prompt += `Wait for their response, then call select_branch with their choice.\n\n`;
   }
   if (session.selectedBranch) {
@@ -3129,8 +3135,8 @@ TONE EXAMPLES:
   }
 
   // ── Booking flow instructions ─────────────────────────────────────────────
-  const bookingFlowStart = hasMultipleBranches && !session.selectedBranch 
-    ? `0. Ask which branch (Halesfield or Hortonwood) → call select_branch\n1. ` 
+  const bookingFlowStart = hasMultipleBranches && !session.selectedBranch
+    ? `0. Ask which branch (${branchListStr}) → call select_branch\n1. `
     : `1. `;
   
   prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):\n${bookingFlowStart}Get customer name + intent → call save_caller_name
@@ -3167,26 +3173,3 @@ RECOGNISING AFFIRMATIVE RESPONSES:
   return prompt;
 }
 
-function checkOpeningHours(weeklyOpeningHours: any): boolean {
-  if (!weeklyOpeningHours || typeof weeklyOpeningHours !== 'object') {
-    return true;
-  }
-
-  const now = new Date();
-  const currentDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-  const currentTime = now.toTimeString().slice(0, 5);
-
-  const todayHours = weeklyOpeningHours[currentDay];
-
-  if (!todayHours || typeof todayHours !== 'object') {
-    return false;
-  }
-
-  const { open, close } = todayHours;
-
-  if (!open || !close) {
-    return false;
-  }
-
-  return currentTime >= open && currentTime <= close;
-}

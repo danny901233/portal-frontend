@@ -42,7 +42,8 @@ export async function routeChatMessage(
   garageId: string,
   message: string,
   conversationId: string,
-  seedContact?: SeedContact
+  seedContact?: SeedContact,
+  imageUrl?: string
 ): Promise<ChatAgentResponse> {
   const config = await prisma.agentConfiguration.findUnique({
     where: { garageId },
@@ -59,6 +60,6 @@ export async function routeChatMessage(
     }
 
     // Default: GarageHive (chatAgentV2)
-    return getGHResponse(garageId, message, conversationId, seedContact);
+    return getGHResponse(garageId, message, conversationId, seedContact, imageUrl);
   });
 }

@@ -353,7 +353,8 @@ export async function getChatAgentResponse(
   garageId: string,
   message: string,
   conversationId: string,
-  seedContact?: { phone?: string; name?: string }
+  seedContact?: { phone?: string; name?: string },
+  imageUrl?: string
 ): Promise<ChatAgentResponse> {
   try {
     const garage = await prisma.garage.findUnique({
@@ -547,6 +548,29 @@ export async function getChatAgentResponse(
         const toolResult = await handleSelectTimeslot({ preference: message }, session, conversationId);
         const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
         if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
+      }
+    }
+
+    // Fast-path: upsell decline — "nothing", "no thanks", "just the mot", "that's it" etc.
+    // Bypasses LLM to prevent misinterpreting "just mot" as a new select_service call
+    if (session.outboundUpsellOffered && session.step === Step.NEED_SERVICE && session.upsellServiceId) {
+      const lower = message.toLowerCase().trim();
+      const isDecline = /\b(nothing|no\s*thanks|no\s*ta|nah|nope|that'?s?\s*(it|all)|not\s*really|i'?m\s*(good|fine|ok|okay)|just\s+(the\s+)?\w+)\b/i.test(lower);
+      if (isDecline) {
+        const hasTimePref = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today|morning|afternoon|evening|next\s+\w+|\d{1,2}(?:st|nd|rd|th)?|soonest|earliest|asap|any\s*time|don.?t\s*mind|whenever|as\s*soon)\b/i.test(message) ||
+          /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(message);
+        if (hasTimePref) {
+          console.log(`[UPSELL_DECLINE_FASTPATH] Decline + time pref in "${message}" — calling select_timeslot`);
+          session.step = Step.NEED_TIMESLOT;
+          await saveSession(conversationId, session);
+          const toolResult = await handleSelectTimeslot({ preference: message }, session, conversationId);
+          const sayMatch = toolResult.match(/Say ONLY:\s*"([\s\S]*?)"\s*and STOP/i) || toolResult.match(/Say:\s*"([\s\S]*?)"/i);
+          if (sayMatch) return { content: sayMatch[1].trim(), needsHumanAssistance: false };
+        }
+        console.log(`[UPSELL_DECLINE_FASTPATH] Decline detected in "${message}" — advancing to NEED_TIMESLOT`);
+        session.step = Step.NEED_TIMESLOT;
+        await saveSession(conversationId, session);
+        return { content: `No problem! Do you have a date in mind?`, needsHumanAssistance: false };
       }
     }
 
@@ -905,7 +929,17 @@ export async function getChatAgentResponse(
       });
     }
 
-    messages.push({ role: 'user', content: message });
+    if (imageUrl) {
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: message },
+          { type: 'image_url', image_url: { url: imageUrl, detail: 'low' } },
+        ] as any,
+      });
+    } else {
+      messages.push({ role: 'user', content: message });
+    }
 
     // Call OpenAI with function tools (instruction-based)
     // Slightly higher temperature gives the personality prompt more room to produce natural, varied responses
@@ -1821,7 +1855,20 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     : service_name;
 
   // ── Specialist GPT-4o-mini service match (mirrors Python specialist_service_match) ──
-  let matched = matchService(effectiveServiceName, session.servicesAvailable);
+  // Filter out variants of the already-selected service to prevent "mot" from matching
+  // "MOT Class 4 (car) - Discounted" when "MOT Class 4 (car)" is already booked
+  const filteredServices = session.serviceSelectedName
+    ? session.servicesAvailable.filter((s: any) => {
+        if (s.name === session.serviceSelectedName) return false; // exact same service
+        const currentKw = new Set(session.serviceSelectedName!.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3));
+        const candidateKw = new Set(s.name.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 3));
+        const isVariant = currentKw.size > 0 && [...currentKw].every(k => candidateKw.has(k));
+        if (isVariant) console.log(`[SELECT_SERVICE] Filtering variant "${s.name}" (superset of "${session.serviceSelectedName}")`);
+        return !isVariant;
+      })
+    : session.servicesAvailable;
+
+  let matched = matchService(effectiveServiceName, filteredServices);
   let matchReason = '';
 
   if (!matched) {

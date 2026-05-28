@@ -228,7 +228,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   };
 };
 
-const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
+export const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
   if (!configuration) {
     return sanitizeConfigForResponse(defaultConfiguration);
   }
@@ -298,7 +298,7 @@ const serializeKnowledgeDocument = (document: PrismaKnowledgeDocument) => ({
 
 type SerializedKnowledgeDocument = ReturnType<typeof serializeKnowledgeDocument>;
 
-const loadKnowledgeBase = async (garageId: string): Promise<SerializedKnowledgeDocument[]> => {
+export const loadKnowledgeBase = async (garageId: string): Promise<SerializedKnowledgeDocument[]> => {
   const documents = await prisma.agentKnowledgeDocument.findMany({
     where: { garageId },
     orderBy: [{ createdAt: 'asc' }],

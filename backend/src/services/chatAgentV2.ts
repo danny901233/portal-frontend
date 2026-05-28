@@ -322,6 +322,11 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
   return newSession;
 }
 
+export function invalidateSessionCache(conversationId: string): void {
+  inMemorySessionCache.delete(conversationId);
+  sessionLastAccessed.delete(conversationId);
+}
+
 async function saveSession(conversationId: string, session: ChatSession): Promise<void> {
   inMemorySessionCache.set(conversationId, { ...session });
   sessionLastAccessed.set(conversationId, Date.now());

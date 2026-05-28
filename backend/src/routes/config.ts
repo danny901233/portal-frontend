@@ -266,6 +266,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     allowBookings: configuration.allowBookings || false,
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
+    customRules: Array.isArray((configuration as any).customRules) ? (configuration as any).customRules : null,
     agentScript: (
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
@@ -551,7 +552,7 @@ const sendAgentConfigWebhook = async (garageId: string) => {
     console.log('[WEBHOOK] agentType in configuration:', configuration.agentType);
     console.log('[WEBHOOK] Full configuration:', JSON.stringify(configuration, null, 2));
 
-    await fetch(webhookUrl, {
+    const webhookRes = await fetch(webhookUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -562,6 +563,11 @@ const sendAgentConfigWebhook = async (garageId: string) => {
         knowledgeVersion,
       }),
     });
+    console.log(`[WEBHOOK] Response for ${garageId}: ${webhookRes.status}`);
+    if (!webhookRes.ok) {
+      const body = await webhookRes.text().catch(() => '');
+      console.error(`[WEBHOOK] Failed for ${garageId}: ${webhookRes.status} ${body.substring(0, 200)}`);
+    }
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       console.error('Failed to send agent configuration webhook', error);
@@ -743,6 +749,7 @@ router.put(
       allowBookings: data.allowBookings ?? false,
       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',
+      ...(data.customRules !== undefined && { customRules: data.customRules as Prisma.InputJsonValue ?? Prisma.JsonNull }),
     };
 
     const [configuration, garageRecord] = await Promise.all([

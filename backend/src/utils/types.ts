@@ -184,4 +184,5 @@ export type AgentConfigurationPayload = {
   allowBookings?: boolean;
   bookingLeadTimeDays?: number;
   voice?: VoiceOption;
+  customRules?: Array<{ text: string; active: boolean }> | null;
 };

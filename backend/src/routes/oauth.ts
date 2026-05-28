@@ -1,10 +1,33 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import { createHmac } from 'node:crypto';
 import axios from 'axios';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
+
+const OAUTH_STATE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+
+function signOAuthState(payload: Record<string, unknown>): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET is not configured');
+  const withTimestamp = { ...payload, ts: Date.now() };
+  const data = JSON.stringify(withTimestamp);
+  const sig = createHmac('sha256', secret).update(data).digest('hex');
+  return Buffer.from(JSON.stringify({ d: withTimestamp, s: sig })).toString('base64');
+}
+
+function verifyOAuthState(state: string): Record<string, unknown> {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET is not configured');
+  const parsed = JSON.parse(Buffer.from(state, 'base64').toString());
+  const { d, s } = parsed;
+  const expected = createHmac('sha256', secret).update(JSON.stringify(d)).digest('hex');
+  if (s !== expected) throw new Error('Invalid OAuth state signature');
+  if (Date.now() - d.ts > OAUTH_STATE_MAX_AGE_MS) throw new Error('OAuth state expired');
+  return d;
+}
 
 const META_APP_ID = process.env.META_APP_ID;
 const META_APP_SECRET = process.env.META_APP_SECRET;
@@ -38,8 +61,8 @@ router.post('/oauth/meta/initiate', authenticate, async (req: Request, res: Resp
       return res.status(400).json({ error: 'Invalid platform' });
     }
 
-    // Store state to verify callback
-    const state = Buffer.from(JSON.stringify({ garageId, platform })).toString('base64');
+    // Store state to verify callback — signed to prevent forgery
+    const state = signOAuthState({ garageId, platform });
 
     // All platforms use facebook.com OAuth dialog (Instagram connects via Facebook Page)
     const authUrl = new URL('https://www.facebook.com/v18.0/dialog/oauth');
@@ -71,13 +94,8 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=missing_params`);
     }
 
-    // Decode state
-    let garageId: string, platform: string;
-    try {
-      ({ garageId, platform } = JSON.parse(Buffer.from(state as string, 'base64').toString()));
-    } catch {
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=invalid_state`);
-    }
+    // Verify and decode state — rejects tampered or expired states
+    const { garageId, platform } = verifyOAuthState(state as string) as { garageId: string; platform: string };
 
     // Exchange code for access token — Instagram Business Login uses a different endpoint
     let accessToken: string;

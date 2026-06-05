@@ -146,6 +146,7 @@ model AgentConfiguration {
   bookingLeadTimeDays Int    @default(1)
   voice             String   @default("leah")
   transferNumber    String?
+  dataCollectionFields Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }

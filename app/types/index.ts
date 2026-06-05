@@ -228,6 +228,18 @@ export interface AgentConfiguration {
   allowBookings: boolean;
   bookingLeadTimeDays: number;
   voice: VoiceOption;
+  dataCollectionFields?: DataCollectionField[] | null;
+}
+
+// Jodie-style per-garage toggleable data-collection fields (consumed by the
+// new RMB agents). Each entry tells the agent: ask for this info, mark it
+// required if so flagged, and use the instruction as a how-to hint.
+export interface DataCollectionField {
+  key: string;
+  label: string;
+  active: boolean;
+  required: boolean;
+  instruction?: string | null;
 }
 
 export interface AgentConfigurationResponse {

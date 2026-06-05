@@ -178,6 +178,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
+  dataCollectionFields: null,
 };
 const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
@@ -253,6 +254,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     allowBookings: configuration.allowBookings || false,
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
+    dataCollectionFields: Array.isArray((configuration as any).dataCollectionFields) ? (configuration as any).dataCollectionFields : null,
     agentScript: (
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
@@ -718,6 +720,7 @@ router.put(
       allowBookings: data.allowBookings ?? false,
       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',
+      ...(data.dataCollectionFields !== undefined && { dataCollectionFields: data.dataCollectionFields as Prisma.InputJsonValue ?? Prisma.JsonNull }),
     };
 
     const [configuration, garageRecord] = await Promise.all([

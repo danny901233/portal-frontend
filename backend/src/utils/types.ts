@@ -160,4 +160,11 @@ export type AgentConfigurationPayload = {
   allowBookings?: boolean;
   bookingLeadTimeDays?: number;
   voice?: VoiceOption;
+  dataCollectionFields?: Array<{
+    key: string;
+    label: string;
+    active: boolean;
+    required: boolean;
+    instruction?: string | null;
+  }> | null;
 };

@@ -265,6 +265,17 @@ export const upsertAgentConfigurationSchema = z.object({
   allowBookings: z.boolean().optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
+  // Jodie-style per-garage toggleable data-collection fields (consumed by the
+  // new RMB agents via DynamoDB AgentConfig). Each entry: key (machine id),
+  // label (caller-facing), active (toggle), required (must collect),
+  // instruction (optional how-to hint).
+  dataCollectionFields: z.array(z.object({
+    key: z.string().min(1).max(64),
+    label: z.string().min(1).max(120),
+    active: z.boolean(),
+    required: z.boolean(),
+    instruction: z.string().max(280).optional().nullable(),
+  })).optional().nullable(),
 }).superRefine((value, ctx) => {
   const provider = value.integrationProvider ?? 'none';
   if (provider !== 'garage_hive') {

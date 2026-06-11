@@ -14,11 +14,10 @@ import { getGarageId, isReceptionMateStaff } from '../lib/auth';
 import { useToast } from '../components/Toast';
 import StickySaveBar from '../components/StickySaveBar';
 import DataCollectionFieldsSection from './DataCollectionFieldsSection';
+import CustomRulesSection from './CustomRulesSection';
 
-// RM Internal: the dataCollectionFields toggle UI is gated to the RM branch
-// garage only during the beta rollout. Once Dan greenlights, drop this gate
-// to expose the feature to every garage's admin UI.
-const RM_BRANCH_GARAGE_ID = 'd51dfa55-15d0-4d60-ad81-c675579d16f6';
+// Data Collection Fields + Custom Rules are now GA — every garage admin can
+// edit them. Beta gate dropped 2026-06-11.
 import {
   createEmptyWeeklyOpeningHours,
   WEEKDAY_ORDER,
@@ -155,6 +154,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   bookingLeadTimeDays: 1,
   voice: 'leah',
   dataCollectionFields: null,
+  customRules: null,
 });
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
@@ -204,10 +204,11 @@ const agentTypeOptions: { value: AgentType; label: string; description: string }
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
-const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent'; label: string; description: string }[] = [
+const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent'; label: string; description: string }[] = [
   { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
   { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture' },
   { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre centre integration with inventory management' },
+  { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on the second LiveKit Cloud account — message-taking only, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
 ];
 const maskSecretValue = (value: string) => {
   if (!value) {
@@ -1208,16 +1209,23 @@ export default function AgentConfigurationsPage() {
           </>
         )}
 
-        {garageId === RM_BRANCH_GARAGE_ID && (
-          <DataCollectionFieldsSection
-            fields={formState.dataCollectionFields ?? null}
-            disabled={mutation.isPending}
-            onChange={(nextFields) => {
-              setFormState((prev) => (prev ? { ...prev, dataCollectionFields: nextFields } : prev));
-              setIsEditing(true);
-            }}
-          />
-        )}
+        <CustomRulesSection
+          rules={formState.customRules ?? null}
+          disabled={mutation.isPending}
+          onChange={(nextRules) => {
+            setFormState((prev) => (prev ? { ...prev, customRules: nextRules } : prev));
+            setIsEditing(true);
+          }}
+        />
+
+        <DataCollectionFieldsSection
+          fields={formState.dataCollectionFields ?? null}
+          disabled={mutation.isPending}
+          onChange={(nextFields) => {
+            setFormState((prev) => (prev ? { ...prev, dataCollectionFields: nextFields } : prev));
+            setIsEditing(true);
+          }}
+        />
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1845,7 +1853,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}

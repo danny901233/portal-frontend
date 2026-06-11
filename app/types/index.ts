@@ -231,13 +231,23 @@ export interface AgentConfiguration {
   tyresoftSettings: TyresoftSettings;
   hubspotSettings: HubspotSettings;
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
   allowBookings: boolean;
   bookingLeadTimeDays: number;
   voice: VoiceOption;
   dataCollectionFields?: DataCollectionField[] | null;
+  customRules?: CustomRule[] | null;
+}
+
+// Free-text behaviour rules per garage (injected at the very top of the agent
+// prompt). Each rule is a short sentence the agent must obey, e.g. "For air-con
+// services tell callers to just turn up — no booking needed." Inactive rules
+// are ignored by the agent.
+export interface CustomRule {
+  text: string;
+  active: boolean;
 }
 
 // Jodie-style per-garage toggleable data-collection fields (consumed by RMB agents).

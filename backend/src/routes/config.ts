@@ -215,7 +215,8 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
-    agentScript: 
+    agentScript:
+      config.agentScript === 'Assist-agent' ? 'Assist-agent' :
       config.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
@@ -264,6 +265,7 @@ export const buildConfigurationResponse = (configuration: PrismaAgentConfigurati
     dataCollectionFields: Array.isArray((configuration as any).dataCollectionFields) ? (configuration as any).dataCollectionFields : null,
     transferNumber: configuration.transferNumber || null,
     agentScript: (
+      configuration.agentScript === 'Assist-agent' ? 'Assist-agent' :
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
@@ -571,7 +573,16 @@ const sendAgentConfigWebhook = async (garageId: string) => {
   }
 };
 
-const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent') => {
+type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent';
+
+// Maps the per-garage agentScript to the LiveKit Cloud account that hosts
+// that agent. Assist-agent lives on Account 2 (rmb-assist-account2,
+// receptionmate-9dznd24r). Everything else lives on Account 1.
+const livekitAccountForAgentScript = (agentScript: AgentScript): 'account1' | 'account2' => {
+  return agentScript === 'Assist-agent' ? 'account2' : 'account1';
+};
+
+const updateSipDispatchRule = async (garageId: string, agentScript: AgentScript) => {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
   if (!onboardingUrl) {
     console.log('[UPDATE_SIP] No onboarding service URL configured');
@@ -580,6 +591,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
 
   try {
     const agentName = agentScript;
+    const account = livekitAccountForAgentScript(agentScript);
 
     const onboardingSecret = process.env.ONBOARDING_SECRET;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -587,7 +599,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
       headers['x-onboarding-secret'] = onboardingSecret;
     }
 
-    console.log(`[UPDATE_SIP] Updating dispatch rule for garage ${garageId} to agent: ${agentName}`);
+    console.log(`[UPDATE_SIP] account=${account} garage=${garageId} → agent: ${agentName}`);
 
     await fetch(`${onboardingUrl}/update-agent`, {
       method: 'POST',
@@ -595,6 +607,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
       body: JSON.stringify({
         garageId,
         agentName,
+        account,
       }),
     });
   } catch (error) {
@@ -641,7 +654,11 @@ router.put(
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
     let resolvedAgentType: 'assist' | 'automate' = data.agentType === 'automate' ? 'automate' : 'assist';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
+    let resolvedAgentScript: AgentScript =
+      data.agentScript === 'Assist-agent' ? 'Assist-agent' :
+      data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
+      data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
+      'receptionmate-agent';
 
     if (!canEditAgentType) {
       const existingConfig = await prisma.agentConfiguration.findUnique({
@@ -649,7 +666,11 @@ router.put(
         select: { agentType: true, agentScript: true },
       });
       resolvedAgentType = existingConfig?.agentType === 'automate' ? 'automate' : 'assist';
-      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
+      resolvedAgentScript =
+        existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' :
+        existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
+        existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
+        'receptionmate-agent';
     }
 
     const normalizedWeeklyOpeningHours = data.weeklyOpeningHours

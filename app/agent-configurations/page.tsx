@@ -11,6 +11,14 @@ import {
   updateAgentConfiguration,
 } from '../lib/api';
 import { getGarageId, isReceptionMateStaff } from '../lib/auth';
+import { useToast } from '../components/Toast';
+import StickySaveBar from '../components/StickySaveBar';
+import DataCollectionFieldsSection from './DataCollectionFieldsSection';
+
+// RM Internal: the dataCollectionFields toggle UI is gated to the RM branch
+// garage only during the beta rollout. Once Dan greenlights, drop this gate
+// to expose the feature to every garage's admin UI.
+const RM_BRANCH_GARAGE_ID = 'd51dfa55-15d0-4d60-ad81-c675579d16f6';
 import {
   createEmptyWeeklyOpeningHours,
   WEEKDAY_ORDER,
@@ -146,6 +154,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
+  dataCollectionFields: null,
 });
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
@@ -257,6 +266,8 @@ export default function AgentConfigurationsPage() {
     refetchOnWindowFocus: false,
   });
 
+  const toast = useToast();
+
   const mutation = useMutation({
     mutationFn: (payload: AgentConfiguration) =>
       updateAgentConfiguration(payload, garageId ?? undefined),
@@ -264,12 +275,14 @@ export default function AgentConfigurationsPage() {
       setFormState(cloneConfiguration(data.configuration));
       setKnowledgeBase(data.knowledgeBase ?? []);
       setIsEditing(false);
-      setFeedback('Configuration saved and applied to your agent.');
+      setFeedback(null);
+      toast.success('Configuration saved', 'Changes applied to your agent.');
     },
     onError: (error: unknown) => {
       const message =
         error instanceof Error ? error.message : 'Failed to save configuration. Please try again.';
-      setFeedback(message);
+      setFeedback(null);
+      toast.error('Save failed', message);
     },
   });
 
@@ -1193,6 +1206,17 @@ export default function AgentConfigurationsPage() {
             </div>
           </section>
           </>
+        )}
+
+        {garageId === RM_BRANCH_GARAGE_ID && (
+          <DataCollectionFieldsSection
+            fields={formState.dataCollectionFields ?? null}
+            disabled={mutation.isPending}
+            onChange={(nextFields) => {
+              setFormState((prev) => (prev ? { ...prev, dataCollectionFields: nextFields } : prev));
+              setIsEditing(true);
+            }}
+          />
         )}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
@@ -2179,6 +2203,20 @@ export default function AgentConfigurationsPage() {
           {query.error instanceof Error ? query.error.message : 'Please try again later.'}
         </div>
       ) : null}
+
+      <StickySaveBar
+        visible={isEditing}
+        saving={mutation.isPending}
+        summary="Review your changes, then save to apply them to your agent."
+        onSave={() => mutation.mutate(formState)}
+        onDiscard={() => {
+          if (query.data) {
+            setFormState(cloneConfiguration(query.data.configuration));
+          }
+          setIsEditing(false);
+          setFeedback(null);
+        }}
+      />
     </div>
   );
 }

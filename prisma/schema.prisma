@@ -150,6 +150,9 @@ model AgentConfiguration {
   allowBookings     Boolean  @default(false)
   bookingLeadTimeDays Int    @default(1)
   voice             String   @default("leah")
+  transferNumber    String?
+  customRules       Json?
+  dataCollectionFields Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }

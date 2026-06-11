@@ -182,6 +182,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
+  dataCollectionFields: null,
 };
 const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
@@ -228,7 +229,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   };
 };
 
-const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
+export const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
   if (!configuration) {
     return sanitizeConfigForResponse(defaultConfiguration);
   }
@@ -259,6 +260,9 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     allowBookings: configuration.allowBookings || false,
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
+    customRules: Array.isArray((configuration as any).customRules) ? (configuration as any).customRules : null,
+    dataCollectionFields: Array.isArray((configuration as any).dataCollectionFields) ? (configuration as any).dataCollectionFields : null,
+    transferNumber: configuration.transferNumber || null,
     agentScript: (
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
@@ -297,7 +301,7 @@ const serializeKnowledgeDocument = (document: PrismaKnowledgeDocument) => ({
 
 type SerializedKnowledgeDocument = ReturnType<typeof serializeKnowledgeDocument>;
 
-const loadKnowledgeBase = async (garageId: string): Promise<SerializedKnowledgeDocument[]> => {
+export const loadKnowledgeBase = async (garageId: string): Promise<SerializedKnowledgeDocument[]> => {
   const documents = await prisma.agentKnowledgeDocument.findMany({
     where: { garageId },
     orderBy: [{ createdAt: 'asc' }],
@@ -544,7 +548,7 @@ const sendAgentConfigWebhook = async (garageId: string) => {
     console.log('[WEBHOOK] agentType in configuration:', configuration.agentType);
     console.log('[WEBHOOK] Full configuration:', JSON.stringify(configuration, null, 2));
 
-    await fetch(webhookUrl, {
+    const webhookRes = await fetch(webhookUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -555,6 +559,11 @@ const sendAgentConfigWebhook = async (garageId: string) => {
         knowledgeVersion,
       }),
     });
+    console.log(`[WEBHOOK] Response for ${garageId}: ${webhookRes.status}`);
+    if (!webhookRes.ok) {
+      const body = await webhookRes.text().catch(() => '');
+      console.error(`[WEBHOOK] Failed for ${garageId}: ${webhookRes.status} ${body.substring(0, 200)}`);
+    }
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       console.error('Failed to send agent configuration webhook', error);
@@ -734,6 +743,8 @@ router.put(
       allowBookings: data.allowBookings ?? false,
       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',
+      ...(data.customRules !== undefined && { customRules: data.customRules as Prisma.InputJsonValue ?? Prisma.JsonNull }),
+      ...(data.dataCollectionFields !== undefined && { dataCollectionFields: data.dataCollectionFields as Prisma.InputJsonValue ?? Prisma.JsonNull }),
     };
 
     const [configuration, garageRecord] = await Promise.all([

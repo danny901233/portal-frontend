@@ -248,7 +248,7 @@ export const upsertAgentConfigurationSchema = z.object({
   agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'Assist-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
-  transferNumber: z.union([z.string().max(50), z.literal('')]).optional(),
+  transferNumber: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
   allowBookings: z.boolean().optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),

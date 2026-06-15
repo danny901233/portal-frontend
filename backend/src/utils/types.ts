@@ -159,7 +159,7 @@ export type AgentConfigurationPayload = {
   tyresoftSettings?: TyresoftSettings;
   hubspotSettings?: HubspotSettings;
   agentType: AgentType;
-  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent';
+  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent';
   enableSmsBookingLinks?: boolean;
   humanEscalation?: boolean;
   transferNumber?: string | null;

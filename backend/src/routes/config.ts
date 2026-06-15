@@ -217,6 +217,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
     agentScript:
       config.agentScript === 'Assist-agent' ? 'Assist-agent' :
+      config.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       config.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
@@ -266,6 +267,7 @@ export const buildConfigurationResponse = (configuration: PrismaAgentConfigurati
     transferNumber: configuration.transferNumber || null,
     agentScript: (
       configuration.agentScript === 'Assist-agent' ? 'Assist-agent' :
+      configuration.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
@@ -573,13 +575,18 @@ const sendAgentConfigWebhook = async (garageId: string) => {
   }
 };
 
-type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent';
+type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent';
 
 // Maps the per-garage agentScript to the LiveKit Cloud account that hosts
-// that agent. Assist-agent lives on Account 2 (rmb-assist-account2,
-// receptionmate-9dznd24r). Everything else lives on Account 1.
+// that agent. Assist-agent and GarageHive-agent live on Account 2
+// (receptionmate-9dznd24r — rmb-assist-account2 and rmb-garagehive-account2
+// projects respectively, both on the same cluster). Everything else lives
+// on Account 1.
 const livekitAccountForAgentScript = (agentScript: AgentScript): 'account1' | 'account2' => {
-  return agentScript === 'Assist-agent' ? 'account2' : 'account1';
+  if (agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent') {
+    return 'account2';
+  }
+  return 'account1';
 };
 
 const updateSipDispatchRule = async (garageId: string, agentScript: AgentScript) => {
@@ -656,6 +663,7 @@ router.put(
     let resolvedAgentType: 'assist' | 'automate' = data.agentType === 'automate' ? 'automate' : 'assist';
     let resolvedAgentScript: AgentScript =
       data.agentScript === 'Assist-agent' ? 'Assist-agent' :
+      data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       'receptionmate-agent';
@@ -668,6 +676,7 @@ router.put(
       resolvedAgentType = existingConfig?.agentType === 'automate' ? 'automate' : 'assist';
       resolvedAgentScript =
         existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' :
+        existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
         existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
         existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
         'receptionmate-agent';

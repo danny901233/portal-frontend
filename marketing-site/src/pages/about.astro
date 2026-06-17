@@ -58,19 +58,26 @@ const milestones = [
       <div class="rounded-2xl border border-ink-200 bg-white p-8 sm:p-10">
         <h2 class="text-2xl font-bold text-ink-900">The problem we wouldn't let go</h2>
         <div class="mt-4 space-y-4 text-base leading-relaxed text-ink-700">
-          <p>
+          <!-- Short version for mobile. -->
+          <p class="md:hidden">
+            With over a decade working inside UK garages, we watched the same problem play out
+            at every site — phones ringing during the lunchtime rush, bookings slipping through
+            the cracks, customers calling the next garage on Google.
+          </p>
+          <!-- Full story for tablet + desktop. -->
+          <p class="hidden md:block">
             With over a decade working inside automotive garages and main-dealer service departments,
             we've watched the same problem play out at every site — phones ringing during the lunchtime
             rush, diaries scribbled over twice, and the receptionist getting blamed when a booking fell
             through the cracks.
           </p>
-          <p>
+          <p class="hidden md:block">
             What we found wasn't a software problem. It was a <em>physics</em> problem.
             One receptionist. Three lines. A workshop full of cars. The phone rings while she's already
             on a call, or she's gone to lunch, or she's chasing a tech for a quote. The customer hangs up
             and rings the next garage on Google.
           </p>
-          <p>
+          <p class="hidden md:block">
             Existing answering services took messages — they didn't book jobs. Voicemails got ignored.
             Receptionist-as-a-service costs three times what a missed booking is worth and still doesn't
             scale on a Monday morning.

@@ -89,7 +89,8 @@ const personas = [
 
           <h3 class="mt-4 text-xl font-semibold text-ink-900">{p.name}</h3>
           <p class="text-sm text-ink-500">{p.role}</p>
-          <p class="mt-3 text-base text-ink-700">{p.blurb}</p>
+          <!-- Blurb hidden on mobile to keep persona cards compact. -->
+          <p class="mt-3 hidden text-base text-ink-700 md:block">{p.blurb}</p>
 
           <!-- Now playing indicator (hidden by default) -->
           <div class="persona-playing-bar mt-4 hidden items-center gap-2 rounded-lg bg-brand-50 px-3 py-2 ring-1 ring-brand-200">
@@ -102,7 +103,8 @@ const personas = [
             <span class="text-xs font-medium text-brand-700">Speaking…</span>
           </div>
 
-          <div class="mt-5 flex flex-wrap gap-2">
+          <!-- Skill chips hidden on mobile — too many chips makes the card scroll. -->
+          <div class="mt-5 hidden flex-wrap gap-2 md:flex">
             {p.skills.map((s) => (
               <span class="rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-700">{s}</span>
             ))}

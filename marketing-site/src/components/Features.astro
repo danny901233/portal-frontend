@@ -60,7 +60,8 @@ const iconMap: Record<string, string> = {
             </svg>
           </div>
           <h3 class="mt-4 text-lg font-semibold text-ink-900">{f.title}</h3>
-          <p class="mt-2 text-base text-ink-600">{f.body}</p>
+          <!-- Body hidden on mobile — titles + icons tell the story; descriptions read on desktop. -->
+          <p class="mt-2 hidden text-base text-ink-600 sm:block">{f.body}</p>
         </div>
       ))}
     </div>

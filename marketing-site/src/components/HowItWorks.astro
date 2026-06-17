@@ -32,6 +32,27 @@
               </div>
             </div>
           </button>
+          <!-- Mobile-only mini-mockup for this step. Hidden at lg+ where the
+               sticky right-pane handles the visual. -->
+          <div class="mt-3 overflow-hidden rounded-2xl border border-ink-200 bg-white p-4 shadow-sm lg:hidden">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-500">Sign up</p>
+            <div class="mt-3 space-y-2.5">
+              <div>
+                <label class="block text-xs font-medium text-ink-700">Garage name</label>
+                <div class="mt-1 rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900">Hillside Garage</div>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-ink-700">Services</label>
+                <div class="mt-1 flex flex-wrap gap-1.5">
+                  <span class="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">MOT</span>
+                  <span class="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">Service</span>
+                  <span class="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">Diagnostics</span>
+                  <span class="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">Tyres</span>
+                </div>
+              </div>
+              <button type="button" class="mt-2 w-full rounded-lg bg-brand-600 py-2 text-sm font-semibold text-white">Continue</button>
+            </div>
+          </div>
         </li>
 
         <li>
@@ -47,6 +68,24 @@
               </div>
             </div>
           </button>
+          <div class="mt-3 overflow-hidden rounded-2xl border border-ink-200 bg-gradient-to-br from-brand-50 to-white p-4 shadow-sm lg:hidden">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-brand-700">Incoming · Leah is answering</p>
+            <div class="mt-3 flex items-center gap-3">
+              <span class="relative inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <span class="absolute inset-0 animate-ping rounded-full bg-emerald-500 opacity-30"></span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.05-.24c1.16.39 2.41.6 3.69.6a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.28.21 2.53.6 3.69a1 1 0 0 1-.24 1.05l-2.24 2.05Z"/></svg>
+              </span>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold text-ink-900">07700 900 123</p>
+                <p class="text-[11px] text-ink-500">0:42 · Live transcript</p>
+              </div>
+            </div>
+            <div class="mt-3 space-y-2 rounded-xl bg-white p-3">
+              <p class="text-xs"><span class="font-semibold text-brand-700">Leah:</span> <span class="text-ink-800">Hi, ReceptionMate — how can I help?</span></p>
+              <p class="text-xs"><span class="font-semibold text-ink-700">Caller:</span> <span class="text-ink-800">Book my Golf in for an MOT Tuesday.</span></p>
+              <p class="text-xs"><span class="font-semibold text-brand-700">Leah:</span> <span class="text-ink-800">Lovely. Can I take your reg?</span></p>
+            </div>
+          </div>
         </li>
 
         <li>
@@ -62,6 +101,32 @@
               </div>
             </div>
           </button>
+          <div class="mt-3 overflow-hidden rounded-2xl border border-ink-200 bg-white p-4 shadow-sm lg:hidden">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-500">Call forwarding · BT landline</p>
+            <ul class="mt-3 divide-y divide-ink-100 rounded-xl border border-ink-200">
+              <li class="flex items-center justify-between gap-3 px-3 py-2.5">
+                <div>
+                  <p class="text-sm font-medium text-ink-900">When busy</p>
+                  <p class="text-[11px] text-ink-500">Forward to ReceptionMate</p>
+                </div>
+                <span class="inline-flex h-5 w-9 items-center rounded-full bg-emerald-500 p-0.5"><span class="ml-auto h-4 w-4 rounded-full bg-white"></span></span>
+              </li>
+              <li class="flex items-center justify-between gap-3 px-3 py-2.5">
+                <div>
+                  <p class="text-sm font-medium text-ink-900">No answer after 5 rings</p>
+                  <p class="text-[11px] text-ink-500">Forward to ReceptionMate</p>
+                </div>
+                <span class="inline-flex h-5 w-9 items-center rounded-full bg-emerald-500 p-0.5"><span class="ml-auto h-4 w-4 rounded-full bg-white"></span></span>
+              </li>
+              <li class="flex items-center justify-between gap-3 px-3 py-2.5">
+                <div>
+                  <p class="text-sm font-medium text-ink-900">Out of hours</p>
+                  <p class="text-[11px] text-ink-500">All calls to ReceptionMate</p>
+                </div>
+                <span class="inline-flex h-5 w-9 items-center rounded-full bg-emerald-500 p-0.5"><span class="ml-auto h-4 w-4 rounded-full bg-white"></span></span>
+              </li>
+            </ul>
+          </div>
         </li>
 
         <li>
@@ -77,14 +142,42 @@
               </div>
             </div>
           </button>
+          <div class="mt-3 overflow-hidden rounded-2xl border border-ink-200 bg-white p-4 shadow-sm lg:hidden">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-500">Recent bookings</p>
+              <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">+3 today</span>
+            </div>
+            <ul class="mt-3 divide-y divide-ink-100 rounded-xl border border-ink-200">
+              <li class="flex items-center justify-between px-3 py-2.5">
+                <div>
+                  <p class="text-sm font-medium text-ink-900">J. Davies</p>
+                  <p class="text-[11px] text-ink-500">MOT · Tue 8:00</p>
+                </div>
+                <span class="text-sm font-semibold text-emerald-700">£54.85</span>
+              </li>
+              <li class="flex items-center justify-between px-3 py-2.5">
+                <div>
+                  <p class="text-sm font-medium text-ink-900">S. Patel</p>
+                  <p class="text-[11px] text-ink-500">Interim service · Wed 10:30</p>
+                </div>
+                <span class="text-sm font-semibold text-emerald-700">£225.00</span>
+              </li>
+              <li class="flex items-center justify-between px-3 py-2.5">
+                <div>
+                  <p class="text-sm font-medium text-ink-900">A. Bell</p>
+                  <p class="text-[11px] text-ink-500">Diagnostic · Fri 13:30</p>
+                </div>
+                <span class="text-sm font-semibold text-emerald-700">£165.00</span>
+              </li>
+            </ul>
+          </div>
         </li>
       </ol>
 
       <!-- ===== RIGHT: Browser window mockup =====
-           On mobile renders inline below the steps and auto-cycles through
-           each screen on a 5-second interval. On desktop sticks beside the
-           step list and reacts to click + auto-cycle (existing JS handles both). -->
-      <div class="lg:sticky lg:top-24 lg:col-span-7">
+           Hidden on mobile (each step now has its own inline illustration
+           directly below it). Renders + sticks on lg+ only. -->
+      <div class="hidden lg:sticky lg:top-24 lg:col-span-7 lg:block">
         <div class="relative mx-auto w-full max-w-[640px]">
           <div class="relative overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-2xl shadow-ink-900/20">
             <!-- Browser chrome -->

@@ -12,12 +12,24 @@
 // Astro picks it up at the next build.
 
 import OpenAI from 'openai';
-import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BLOG_DIR = join(__dirname, '..', 'src', 'content', 'blog');
+const IMAGE_DIR = join(__dirname, '..', 'public', 'blog');
+
+// Consistent visual identity across blog posts. The DALL-E prompt prefixes
+// every per-post brief with this so cards on the /blog index feel like one
+// family, not a Pinterest mess.
+const IMAGE_STYLE = [
+  'A documentary photograph in a real UK independent garage workshop.',
+  'Natural daylight, slightly desaturated, lightly cinematic.',
+  'No text anywhere in the image. No logos. No human faces visible.',
+  'Composition leaves clean space on the right third for an overlay headline.',
+].join(' ');
 
 // Buyer-intent topic pillars. The model picks one we haven't covered.
 // Order matters for the prompt — first match wins. Add new topics here as
@@ -180,9 +192,53 @@ Remember: frontmatter then body. No H1 in the body. UK English. End with a soft 
     process.exit(4);
   }
 
+  // Generate a hero image via DALL-E that matches the post topic.
+  const imageInfo = await generateHeroImage(client, slug, titleMatch[1], topic);
+
+  // Inject heroImage + heroImageAlt into the frontmatter before writing.
+  // We splice them in just before the closing `---` so they keep the same
+  // visual grouping as title/description.
+  const withImage = imageInfo
+    ? text.replace(
+        /^(---\n[\s\S]*?)\n---/m,
+        (_, fm) =>
+          `${fm}\nheroImage: "${imageInfo.path}"\nheroImageAlt: "${imageInfo.alt.replace(/"/g, '\\"')}"\n---`,
+      )
+    : text;
+
   const outPath = join(BLOG_DIR, `${slug}.md`);
-  writeFileSync(outPath, text + '\n', 'utf8');
+  writeFileSync(outPath, withImage + '\n', 'utf8');
   console.log(`Wrote ${outPath}`);
+}
+
+// Generate a DALL-E hero image for the post. Returns { path, alt } or null
+// on failure — we never let an image-gen problem block post publication.
+async function generateHeroImage(client, slug, title, topic) {
+  try {
+    if (!existsSync(IMAGE_DIR)) mkdirSync(IMAGE_DIR, { recursive: true });
+    const prompt = `${IMAGE_STYLE}\n\nSubject: a scene that illustrates "${title}" in the context of a UK independent garage. ${topic.angle}`;
+    const res = await client.images.generate({
+      model: 'gpt-image-1',
+      prompt,
+      size: '1536x1024',
+      quality: 'medium',
+      n: 1,
+    });
+    const b64 = res.data?.[0]?.b64_json;
+    if (!b64) {
+      console.warn('Image generation returned no data; continuing without hero image.');
+      return null;
+    }
+    const outPath = join(IMAGE_DIR, `${slug}.png`);
+    writeFileSync(outPath, Buffer.from(b64, 'base64'));
+    const publicPath = `/blog/${slug}.png`;
+    const alt = `Illustration for "${title}"`;
+    console.log(`Wrote ${outPath}`);
+    return { path: publicPath, alt };
+  } catch (err) {
+    console.warn('Image generation failed, continuing without hero image:', err?.message ?? err);
+    return null;
+  }
 }
 
 function slugify(s) {

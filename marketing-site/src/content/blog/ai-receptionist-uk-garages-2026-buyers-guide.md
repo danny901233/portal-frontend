@@ -4,6 +4,8 @@ description: "Everything a UK garage owner should evaluate before picking an AI 
 publishedAt: 2026-06-10
 author: human
 tags: ["guide", "ai", "garages"]
+heroImage: "/blog/ai-receptionist-uk-garages-2026-buyers-guide.png"
+heroImageAlt: "Illustration for \"AI receptionist for UK garages: a 2026 buyer's guide\""
 ---
 
 If you run an independent garage in the UK in 2026, you are almost certainly losing bookings to missed calls. Across the 100,000+ calls our platform handles each month, the data is stubborn: between 18% and 34% of inbound calls to UK garages go unanswered, depending on day of week and time of year. MOT season makes it worse. Saturdays make it worse. A single technician chasing a parts query at the wrong moment makes it worse.
@@ -69,4 +71,4 @@ The most useful 30 minutes you can spend evaluating an AI receptionist is to giv
 
 ---
 
-If you'd like to see ReceptionMate handle a real call from your garage — built specifically for UK automotive, integrated with Garage Hive and Tyresoft, with a flat monthly fee — [book a demo](/get-started). We'll port your number for free.
+If you'd like to see ReceptionMate handle a real call from your garage — built specifically for UK automotive, integrated with Garage Hive and Tyresoft — [book a demo](/get-started). You keep your existing number; we set up call forwarding so the AI only catches the calls your team can't get to.

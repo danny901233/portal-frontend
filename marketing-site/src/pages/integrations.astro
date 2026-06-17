@@ -1,0 +1,168 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+interface Integration {
+  name: string;
+  category: 'DMS' | 'CRM' | 'Calendar' | 'Telephony' | 'Messaging';
+  status: 'Live' | 'Beta' | 'On request';
+  summary: string;
+  // What the integration actually does in the call flow. Keep claims tight —
+  // every word here is a promise to a buyer.
+  capabilities: string[];
+}
+
+const integrations: Integration[] = [
+  {
+    name: 'Garage Hive',
+    category: 'DMS',
+    status: 'Live',
+    summary: 'The most popular UK garage management system among independents.',
+    capabilities: [
+      'Reads live diary availability during the call',
+      'Writes confirmed bookings with vehicle, service and time slot',
+      'Pulls customer history when a known caller rings',
+    ],
+  },
+  {
+    name: 'Tyresoft',
+    category: 'DMS',
+    status: 'Live',
+    summary: 'Tyre-fit and EPOS platform used by independent tyre shops and generalist garages.',
+    capabilities: [
+      'Quotes tyre fitments from live stock during the call',
+      'Books fitments straight into the workshop diary',
+      'Captures vehicle, tyre size and brand preferences',
+    ],
+  },
+  {
+    name: 'HubSpot',
+    category: 'CRM',
+    status: 'Live',
+    summary: 'Pushes calls, transcripts and bookings into HubSpot as contact + deal records.',
+    capabilities: [
+      'Creates or updates contact records on every call',
+      'Logs call transcripts as engagement notes',
+      'Triggers HubSpot workflows on booking events',
+    ],
+  },
+  {
+    name: 'Twilio',
+    category: 'Telephony',
+    status: 'Live',
+    summary: 'The telephony layer powering inbound calls and SMS delivery.',
+    capabilities: [
+      'UK-based numbers with sub-second routing',
+      'SMS confirmations and reminders',
+      'Call recording with encrypted storage',
+    ],
+  },
+  {
+    name: 'Outlook & Google Calendar',
+    category: 'Calendar',
+    status: 'Live',
+    summary: 'For garages running diary in a generic calendar rather than a DMS.',
+    capabilities: [
+      'Reads the calendar during the call to find open slots',
+      'Writes appointments straight into the right calendar',
+      'Respects busy / out-of-office rules',
+    ],
+  },
+  {
+    name: 'WhatsApp Business',
+    category: 'Messaging',
+    status: 'Live',
+    summary: 'For sending confirmations and follow-ups over WhatsApp instead of SMS.',
+    capabilities: [
+      'Sends booking confirmations via WhatsApp templates',
+      'Two-way replies handled through the portal',
+      'Customer opt-in respected per call',
+    ],
+  },
+];
+
+const categories = ['DMS', 'CRM', 'Calendar', 'Telephony', 'Messaging'] as const;
+
+const statusStyles: Record<Integration['status'], string> = {
+  Live: 'bg-emerald-50 text-emerald-700',
+  Beta: 'bg-amber-50 text-amber-700',
+  'On request': 'bg-ink-100 text-ink-600',
+};
+---
+
+<BaseLayout
+  title="Integrations — ReceptionMate connects to Garage Hive, Tyresoft, HubSpot and more"
+  description="ReceptionMate's AI receptionist integrates with the UK garage stack — Garage Hive, Tyresoft, HubSpot, calendars and telephony — to book jobs directly during the call."
+>
+  <!-- Hero -->
+  <section class="bg-white pt-16 pb-10 sm:pt-20 sm:pb-12">
+    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Integrations</p>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
+        Connects to the tools your garage already runs on.
+      </h1>
+      <p class="mt-4 max-w-3xl text-lg leading-relaxed text-ink-700">
+        ReceptionMate isn't a replacement for your garage management system —
+        it works with it. Live integrations with Garage Hive, Tyresoft, HubSpot
+        and the rest mean every booking the AI captures lands in your diary,
+        without a CSV import in sight.
+      </p>
+    </div>
+  </section>
+
+  <!-- Categories grid -->
+  <section class="bg-ink-50 py-12 sm:py-16">
+    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 space-y-12">
+      {categories.map((cat) => {
+        const list = integrations.filter((i) => i.category === cat);
+        if (list.length === 0) return null;
+        return (
+          <div>
+            <h2 class="text-2xl font-bold text-ink-900">{cat}</h2>
+            <div class="mt-5 grid gap-4 md:grid-cols-2">
+              {list.map((i) => (
+                <article class="rounded-2xl border border-ink-200 bg-white p-6">
+                  <div class="flex items-start justify-between gap-3">
+                    <h3 class="text-lg font-semibold text-ink-900">{i.name}</h3>
+                    <span class={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[i.status]}`}>
+                      {i.status}
+                    </span>
+                  </div>
+                  <p class="mt-2 text-sm leading-relaxed text-ink-700">{i.summary}</p>
+                  <ul class="mt-4 space-y-2">
+                    {i.capabilities.map((c) => (
+                      <li class="flex items-start gap-2 text-sm text-ink-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                        <span>{c}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </section>
+
+  <!-- CTA: integration request -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
+      <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        Don't see your system?
+      </h2>
+      <p class="mt-4 text-lg leading-relaxed text-ink-700">
+        We add new integrations regularly. If you run a modern DMS or CRM and
+        you'd like ReceptionMate to talk to it, email
+        <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>
+        and we'll tell you straight whether it's on the roadmap.
+      </p>
+      <a
+        href="/get-started"
+        class="mt-8 inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-700 transition"
+      >
+        Get started
+      </a>
+    </div>
+  </section>
+</BaseLayout>

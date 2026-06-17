@@ -35,6 +35,7 @@ const {
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://rsms.me/" />
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <slot name="head" />
   </head>
 
   <body class="bg-white text-ink-700 antialiased font-sans">
@@ -44,32 +45,78 @@ const {
 
     <slot name="nav">
       <header class="sticky top-0 z-40 border-b border-ink-200/80 bg-white/85 backdrop-blur-md">
-        <nav class="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+        <nav class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
           <a href="/" class="flex items-center text-ink-900" aria-label="ReceptionMate home">
-            <span class="inline-flex h-12 items-center justify-center rounded-xl bg-brand-600 px-3 py-1.5">
+            <span class="inline-flex h-14 items-center justify-center rounded-xl bg-brand-600 px-3 py-2 sm:h-20 sm:rounded-2xl sm:px-5 sm:py-3 md:h-28 md:px-7 md:py-4">
               <img
                 src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
                 alt=""
-                class="h-8 w-auto"
+                class="h-9 w-auto sm:h-14 md:h-20"
               />
             </span>
           </a>
           <div class="hidden items-center gap-7 md:flex">
-            <a href="/#how-it-works" class="text-sm font-medium text-ink-600 hover:text-ink-900">How it works</a>
-            <a href="/#features" class="text-sm font-medium text-ink-600 hover:text-ink-900">Features</a>
+            <a href="/how-it-works" class="text-sm font-medium text-ink-600 hover:text-ink-900">How it works</a>
+            <a href="/pricing" class="text-sm font-medium text-ink-600 hover:text-ink-900">Pricing</a>
             <a href="/case-studies" class="text-sm font-medium text-ink-600 hover:text-ink-900">Case studies</a>
-            <a href="/news" class="text-sm font-medium text-ink-600 hover:text-ink-900">News</a>
             <a href="/blog" class="text-sm font-medium text-ink-600 hover:text-ink-900">Blog</a>
-            <a href="/alternatives" class="text-sm font-medium text-ink-600 hover:text-ink-900">Alternatives</a>
+            <a href="/faqs" class="text-sm font-medium text-ink-600 hover:text-ink-900">FAQs</a>
             <a href="/about" class="text-sm font-medium text-ink-600 hover:text-ink-900">Why ReceptionMate</a>
             <a href="https://portal.receptionmate.co.uk/login" class="text-sm font-medium text-ink-600 hover:text-ink-900">Sign in</a>
             <a href="/get-started" class="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
               Get started
             </a>
           </div>
-          <a href="/get-started" class="md:hidden rounded-md bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white">Get started</a>
+
+          <!-- Mobile toolbar: Get started CTA + hamburger -->
+          <div class="flex items-center gap-2 md:hidden">
+            <a href="/get-started" class="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white">Get started</a>
+            <button
+              type="button"
+              id="mobile-menu-toggle"
+              class="inline-flex h-10 w-10 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-700 hover:bg-ink-50"
+              aria-expanded="false"
+              aria-controls="mobile-menu"
+              aria-label="Open menu"
+            >
+              <svg id="mobile-menu-icon-open" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+              <svg id="mobile-menu-icon-close" xmlns="http://www.w3.org/2000/svg" class="hidden h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
         </nav>
+
+        <!-- Mobile slide-down menu -->
+        <div id="mobile-menu" class="hidden border-t border-ink-200 bg-white md:hidden">
+          <div class="mx-auto max-w-7xl px-4 py-4 sm:px-6">
+            <ul class="space-y-1">
+              <li><a href="/how-it-works" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">How it works</a></li>
+              <li><a href="/pricing" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Pricing</a></li>
+              <li><a href="/case-studies" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Case studies</a></li>
+              <li><a href="/blog" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Blog</a></li>
+              <li><a href="/faqs" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">FAQs</a></li>
+              <li><a href="/connect" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Connect — WhatsApp + Web chat</a></li>
+              <li><a href="/integrations" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Integrations</a></li>
+              <li><a href="/about" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Why ReceptionMate</a></li>
+              <li class="border-t border-ink-200 pt-2 mt-2"><a href="https://portal.receptionmate.co.uk/login" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Sign in</a></li>
+            </ul>
+          </div>
+        </div>
       </header>
+
+      <script>
+        // Mobile menu toggle — vanilla JS, no framework.
+        const toggle = document.getElementById('mobile-menu-toggle');
+        const menu = document.getElementById('mobile-menu');
+        const iconOpen = document.getElementById('mobile-menu-icon-open');
+        const iconClose = document.getElementById('mobile-menu-icon-close');
+        toggle?.addEventListener('click', () => {
+          const open = menu?.classList.toggle('hidden') === false;
+          iconOpen?.classList.toggle('hidden', open);
+          iconClose?.classList.toggle('hidden', !open);
+          toggle.setAttribute('aria-expanded', String(open));
+          toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+        });
+      </script>
     </slot>
 
     <main id="main">
@@ -78,6 +125,56 @@ const {
 
     <!-- Global lead-capture modal — triggered by any [data-lead-cta] element -->
     <LeadModal />
+
+    <!-- Cookie consent banner. Vanilla, no library. Shows on first visit only;
+         stores `receptionmate.cookie-consent` in localStorage as either
+         'accepted' or 'declined'. We currently only set essential cookies so
+         either choice is fine — the banner is in place so analytics or
+         marketing cookies can read the stored consent before firing later. -->
+    <div
+      id="cookie-banner"
+      class="fixed inset-x-0 bottom-0 z-50 hidden border-t border-ink-200 bg-white shadow-2xl shadow-ink-900/20"
+      role="dialog"
+      aria-label="Cookie consent"
+      aria-live="polite"
+    >
+      <div class="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:gap-6 sm:px-6">
+        <p class="flex-1 text-sm text-ink-700">
+          We use essential cookies to make this site work. With your permission we'd
+          also use a few non-essential cookies (e.g. analytics) to understand which
+          pages are useful. See our <a href="/privacy" class="text-brand-600 underline">privacy policy</a>.
+        </p>
+        <div class="flex shrink-0 gap-2">
+          <button
+            type="button"
+            id="cookie-decline"
+            class="rounded-md border border-ink-300 bg-white px-4 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50"
+          >Decline non-essential</button>
+          <button
+            type="button"
+            id="cookie-accept"
+            class="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+          >Accept all</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const KEY = 'receptionmate.cookie-consent';
+      const banner = document.getElementById('cookie-banner');
+      try {
+        const existing = localStorage.getItem(KEY);
+        if (!existing) banner?.classList.remove('hidden');
+      } catch {
+        // localStorage blocked — just leave the banner hidden, no consent stored.
+      }
+      const setConsent = (value: 'accepted' | 'declined') => {
+        try { localStorage.setItem(KEY, value); } catch {}
+        banner?.classList.add('hidden');
+      };
+      document.getElementById('cookie-accept')?.addEventListener('click', () => setConsent('accepted'));
+      document.getElementById('cookie-decline')?.addEventListener('click', () => setConsent('declined'));
+    </script>
 
     <footer class="border-t border-ink-200 bg-ink-50 py-12">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -102,10 +199,14 @@ const {
           <div>
             <h3 class="text-sm font-semibold text-ink-900">Product</h3>
             <ul class="mt-3 space-y-2 text-sm text-ink-600">
-              <li><a href="/#how-it-works" class="hover:text-brand-600">How it works</a></li>
-              <li><a href="/#features" class="hover:text-brand-600">Features</a></li>
+              <li><a href="/how-it-works" class="hover:text-brand-600">How it works</a></li>
+              <li><a href="/pricing" class="hover:text-brand-600">Pricing</a></li>
+              <li><a href="/connect" class="hover:text-brand-600">Connect (WhatsApp + Web chat)</a></li>
               <li><a href="/case-studies" class="hover:text-brand-600">Case studies</a></li>
-              <li><a href="/news" class="hover:text-brand-600">News</a></li>
+              <li><a href="/blog" class="hover:text-brand-600">Blog</a></li>
+              <li><a href="/faqs" class="hover:text-brand-600">FAQs</a></li>
+              <li><a href="/integrations" class="hover:text-brand-600">Integrations</a></li>
+              <li><a href="/alternatives" class="hover:text-brand-600">Alternatives</a></li>
               <li><a href="/about" class="hover:text-brand-600">Why us</a></li>
               <li><a href="/get-started" class="hover:text-brand-600">Get started</a></li>
             </ul>
@@ -120,8 +221,27 @@ const {
             </ul>
           </div>
         </div>
-        <div class="mt-10 border-t border-ink-200 pt-6 text-xs text-ink-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <!-- Trust strip -->
+        <div class="mt-10 border-t border-ink-200 pt-6">
+          <div class="flex flex-wrap items-center justify-center gap-3 sm:justify-start">
+            <span class="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+              UK GDPR compliant
+            </span>
+            <span class="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+              Company No. 16839506
+            </span>
+            <span class="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+              TLS encrypted
+            </span>
+          </div>
+        </div>
+
+        <div class="mt-6 border-t border-ink-200 pt-6 text-xs text-ink-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <p>© {new Date().getFullYear()} ReceptionMate Ltd. All rights reserved.</p>
+          <p>Registered in England &amp; Wales · Studio 9, 50–54 St. Paul's Square, Birmingham B3 1QS</p>
         </div>
       </div>
     </footer>

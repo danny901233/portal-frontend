@@ -1,19 +1,20 @@
 ---
+// Verbatim quotes from real case-study customers. If you update one of the
+// case studies on /case-studies, keep these aligned — they're the same words.
+// `result` is the factual outcome row shown under the quote — not invented
+// text, drawn from the corresponding case study.
 const quotes = [
   {
-    quote: "We were losing two or three bookings a day to missed calls. ReceptionMate caught all of them in the first week — it pays for itself by Tuesday.",
-    name: "Daniel Tyldesley",
-    role: "Director, EAC Telford",
+    quote: "Over the 2 months (Oct / Nov) looking at the uplift in sales from the final invoice value and deducting your invoices, INO have generated an additional £21k that would have otherwise been lost sales.",
+    name: "Louise",
+    role: "In'n'Out Autocentres",
+    result: "992 calls answered · 245 bookings captured · £34,089 revenue",
   },
   {
-    quote: "The team can actually focus on the work now. Leah deals with the noise — quote requests, callbacks, MOT bookings — and only puts the proper ones through.",
-    name: "Owner",
-    role: "St Johns Garage",
-  },
-  {
-    quote: "Set up in a day. Honestly didn't expect it to handle northeast accents this well.",
-    name: "Branch Manager",
-    role: "In'n'out Autocentres",
+    quote: "Bookings we would have lost are now in our diary the next morning.",
+    name: "Mark",
+    role: "EAC Telford",
+    result: "1,468 calls answered · 158 bookings captured · £28,761 revenue",
   },
 ];
 ---
@@ -27,7 +28,7 @@ const quotes = [
       </h2>
     </div>
 
-    <div class="mt-14 grid gap-6 md:grid-cols-3">
+    <div class="mx-auto mt-14 grid max-w-5xl gap-6 md:grid-cols-2">
       {quotes.map((q) => (
         <figure class="flex flex-col justify-between rounded-2xl border border-ink-200 bg-ink-50 p-6">
           <blockquote class="text-base text-ink-800">
@@ -36,6 +37,9 @@ const quotes = [
           <figcaption class="mt-6 border-t border-ink-200 pt-4">
             <p class="text-sm font-semibold text-ink-900">{q.name}</p>
             <p class="text-xs text-ink-500">{q.role}</p>
+            {q.result && (
+              <p class="mt-2 text-xs font-medium text-brand-700">{q.result}</p>
+            )}
           </figcaption>
         </figure>
       ))}

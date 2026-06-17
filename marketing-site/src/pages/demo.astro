@@ -1,0 +1,24 @@
+---
+// The talking-avatar demo lives on the portal at /demo (one window — full
+// portal layout + floating avatar + click-to-ask buttons all on one page,
+// no iframe). This route is just a redirect so existing links from the
+// marketing site (nav "Get started" CTA etc.) still work.
+
+const PORTAL_DEMO_URL = import.meta.env.PUBLIC_PORTAL_DEMO_URL
+  || 'https://portal.receptionmate.co.uk/demo';
+---
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="refresh" content={`0; url=${PORTAL_DEMO_URL}`} />
+    <link rel="canonical" href={PORTAL_DEMO_URL} />
+    <title>Opening the ReceptionMate demo…</title>
+    <script define:vars={{ PORTAL_DEMO_URL }}>
+      window.location.replace(PORTAL_DEMO_URL);
+    </script>
+  </head>
+  <body style="font-family:system-ui,-apple-system,sans-serif;padding:2rem;">
+    <p>Opening the ReceptionMate demo… <a href={PORTAL_DEMO_URL}>Continue</a></p>
+  </body>
+</html>

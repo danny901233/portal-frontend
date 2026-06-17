@@ -1,0 +1,63 @@
+---
+// Dealer Surge style "AI is alive" visual — phone icon with animated ripples
+// and a CSS-animated waveform. Pure CSS, ships zero JS.
+---
+
+<div class="relative mx-auto w-full max-w-3xl">
+  <div class="relative overflow-hidden rounded-3xl border border-ink-200 bg-gradient-to-br from-ink-50 to-white p-6 shadow-xl shadow-brand-900/5 sm:p-10">
+    <!-- Top-left badge -->
+    <span class="absolute left-5 top-5 rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-sm font-semibold text-ink-900 shadow-sm">
+      24/7
+    </span>
+
+    <!-- Top-right status -->
+    <span class="absolute right-5 top-5 inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-sm font-semibold text-ink-700 shadow-sm">
+      <span class="relative flex h-2 w-2">
+        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+      </span>
+      AI Active
+    </span>
+
+    <!-- Phone icon + ripples -->
+    <div class="relative mx-auto mt-12 flex h-56 w-full items-center justify-center sm:h-72">
+      <!-- Concentric ripple rings -->
+      <span class="absolute h-32 w-32 rounded-full border border-ink-300/40 [animation:ripple_2.4s_ease-out_infinite] [animation-delay:0s]"></span>
+      <span class="absolute h-32 w-32 rounded-full border border-ink-300/40 [animation:ripple_2.4s_ease-out_infinite] [animation-delay:0.8s]"></span>
+      <span class="absolute h-32 w-32 rounded-full border border-ink-300/40 [animation:ripple_2.4s_ease-out_infinite] [animation-delay:1.6s]"></span>
+
+      <!-- Phone icon tile -->
+      <span class="relative inline-flex h-24 w-24 items-center justify-center rounded-2xl bg-ink-900 shadow-lg shadow-ink-900/30">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z"/>
+        </svg>
+      </span>
+    </div>
+
+    <!-- Waveform — 24 bars, each bouncing at its own pace via CSS -->
+    <div class="mx-auto mt-6 flex h-12 items-end justify-center gap-1.5 sm:gap-2">
+      {Array.from({ length: 24 }).map((_, i) => (
+        <span
+          class="w-1 rounded-full bg-rose-400/80 sm:w-1.5"
+          style={`animation: wave 1.${(i % 7) + 1}s ease-in-out ${i * 0.07}s infinite; height: ${20 + ((i * 13) % 60)}%;`}
+        ></span>
+      ))}
+    </div>
+
+    <!-- Sub label -->
+    <p class="mt-4 text-center text-sm font-medium text-ink-500">
+      Leah is listening — and ready to book your customer in
+    </p>
+  </div>
+</div>
+
+<style is:global>
+  @keyframes ripple {
+    0%   { transform: scale(0.6); opacity: 0.9; }
+    100% { transform: scale(2.4); opacity: 0;   }
+  }
+  @keyframes wave {
+    0%, 100% { transform: scaleY(0.4); }
+    50%      { transform: scaleY(1.4); }
+  }
+</style>

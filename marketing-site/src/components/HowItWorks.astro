@@ -1,0 +1,560 @@
+---
+// Interactive "How it works" — sticky two-pane with auto-advancing browser-window mockup.
+// Each step shows what the garage owner actually sees IN A BROWSER at that point —
+// either the marketing site (step 1) or the receptionmate portal (steps 2–4).
+---
+
+<section id="how-it-works" class="bg-white py-20 sm:py-24">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-3xl text-center">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">How it works</p>
+      <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        From sign-up to first booking — in minutes.
+      </h2>
+      <p class="mt-4 text-lg text-ink-600">
+        Click any step to preview. Or just sit back and watch the tour.
+      </p>
+    </div>
+
+    <div id="how-root" class="mt-14 grid gap-10 lg:grid-cols-12 lg:items-start lg:gap-10">
+      <!-- ===== LEFT: Step list ===== -->
+      <ol class="space-y-3 lg:col-span-5">
+        <li>
+          <button data-step="0" class="how-step group block w-full rounded-2xl border border-ink-200 bg-white p-5 text-left transition hover:border-brand-200 hover:bg-brand-50/30">
+            <div class="flex items-center gap-4">
+              <span class="how-num inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-100 font-mono text-sm font-bold text-ink-500 transition group-aria-[current=step]:bg-brand-600 group-aria-[current=step]:text-white">01</span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-baseline justify-between gap-3">
+                  <h3 class="text-lg font-semibold text-ink-900">Tell us about your garage</h3>
+                  <span class="shrink-0 text-xs text-ink-500">60 sec</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">Type your garage name on receptionmate.co.uk. We pull your services, hours and prices from Google — you confirm.</p>
+              </div>
+            </div>
+          </button>
+        </li>
+
+        <li>
+          <button data-step="1" class="how-step group block w-full rounded-2xl border border-ink-200 bg-white p-5 text-left transition hover:border-brand-200 hover:bg-brand-50/30">
+            <div class="flex items-center gap-4">
+              <span class="how-num inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-100 font-mono text-sm font-bold text-ink-500 transition group-aria-[current=step]:bg-brand-600 group-aria-[current=step]:text-white">02</span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-baseline justify-between gap-3">
+                  <h3 class="text-lg font-semibold text-ink-900">Call Leah yourself</h3>
+                  <span class="shrink-0 text-xs text-ink-500">live in minutes</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">We email you a live test number. Call it, throw any awkward booking at her, and watch the call appear in your portal in real time.</p>
+              </div>
+            </div>
+          </button>
+        </li>
+
+        <li>
+          <button data-step="2" class="how-step group block w-full rounded-2xl border border-ink-200 bg-white p-5 text-left transition hover:border-brand-200 hover:bg-brand-50/30">
+            <div class="flex items-center gap-4">
+              <span class="how-num inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-100 font-mono text-sm font-bold text-ink-500 transition group-aria-[current=step]:bg-brand-600 group-aria-[current=step]:text-white">03</span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-baseline justify-between gap-3">
+                  <h3 class="text-lg font-semibold text-ink-900">Forward your calls</h3>
+                  <span class="shrink-0 text-xs text-ink-500">30 sec</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">The portal walks you through call forwarding for your exact UK carrier — BT, Vodafone, EE, O2 or VoIP. Or use our number directly.</p>
+              </div>
+            </div>
+          </button>
+        </li>
+
+        <li>
+          <button data-step="3" class="how-step group block w-full rounded-2xl border border-ink-200 bg-white p-5 text-left transition hover:border-brand-200 hover:bg-brand-50/30">
+            <div class="flex items-center gap-4">
+              <span class="how-num inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-100 font-mono text-sm font-bold text-ink-500 transition group-aria-[current=step]:bg-brand-600 group-aria-[current=step]:text-white">04</span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-baseline justify-between gap-3">
+                  <h3 class="text-lg font-semibold text-ink-900">Watch the bookings roll in</h3>
+                  <span class="shrink-0 text-xs text-ink-500">ongoing</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">Calls, transcripts and confirmed bookings show up in the portal. Customer gets an SMS confirmation. Your team picks up the work, not the phone.</p>
+              </div>
+            </div>
+          </button>
+        </li>
+      </ol>
+
+      <!-- ===== RIGHT: Sticky browser window mockup ===== -->
+      <div class="lg:sticky lg:top-24 lg:col-span-7">
+        <div class="relative mx-auto w-full max-w-[640px]">
+          <div class="relative overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-2xl shadow-ink-900/20">
+            <!-- Browser chrome -->
+            <div class="flex items-center gap-3 border-b border-ink-200 bg-ink-50 px-4 py-3">
+              <div class="flex items-center gap-1.5">
+                <span class="h-3 w-3 rounded-full bg-rose-400"></span>
+                <span class="h-3 w-3 rounded-full bg-amber-400"></span>
+                <span class="h-3 w-3 rounded-full bg-emerald-400"></span>
+              </div>
+              <div class="flex flex-1 items-center justify-center">
+                <div id="how-url" class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1 text-[11px] text-ink-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                  <span id="how-url-text">receptionmate.co.uk</span>
+                </div>
+              </div>
+              <div class="h-3 w-12"></div> <!-- spacer to balance the traffic lights on the left -->
+            </div>
+
+            <!-- Screen area -->
+            <div class="relative h-[520px] overflow-hidden bg-white">
+
+              <!-- ============ Screen 0: signup on the marketing site ============ -->
+              <div class="how-screen absolute inset-0 opacity-0 transition-opacity duration-500" data-screen="0" data-url="receptionmate.co.uk">
+                <div class="flex h-full flex-col">
+                  <!-- mini-nav -->
+                  <div class="flex items-center justify-between border-b border-ink-100 bg-white px-5 py-3">
+                    <span class="inline-flex h-7 items-center rounded-md bg-brand-600 px-2">
+                      <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="" class="h-4 w-auto"/>
+                    </span>
+                    <span class="rounded-md bg-brand-600 px-2.5 py-1 text-[10px] font-semibold text-white">Get started</span>
+                  </div>
+
+                  <div class="flex-1 px-6 py-6 text-center">
+                    <span class="inline-block rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[9px] font-semibold text-brand-700">Built for UK garages</span>
+                    <h4 class="mt-3 text-xl font-bold tracking-tight text-ink-900">The AI receptionist<br/><span class="text-brand-600">for UK garages.</span></h4>
+                    <p class="mt-2 text-[10.5px] text-ink-600">Answers every call · Captures the booking · 24/7</p>
+
+                    <!-- pill -->
+                    <div class="mt-4 flex items-center gap-1.5 rounded-full border border-ink-200 bg-white p-1.5 shadow">
+                      <div class="flex flex-1 items-center pl-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 shrink-0 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <span class="ml-2 truncate text-left text-[11px] text-ink-900">Acme Auto Centre<span class="how-cursor ml-px inline-block h-3 w-px bg-ink-900 align-middle"></span></span>
+                      </div>
+                      <span class="rounded-full bg-brand-600 px-3 py-1.5 text-[10px] font-semibold text-white">Get started →</span>
+                    </div>
+
+                    <!-- result cards -->
+                    <div class="mt-3 space-y-1.5 text-left">
+                      <div class="flex items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/50 p-2">
+                        <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-100 text-brand-600">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                        </span>
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-[11px] font-semibold text-ink-900">Acme Auto Centre</p>
+                          <p class="truncate text-[9.5px] text-ink-500">12 High Street, Telford · ★ 4.6 · 84 reviews</p>
+                        </div>
+                      </div>
+                      <div class="flex items-start gap-2 rounded-xl border border-ink-200 bg-white p-2">
+                        <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-ink-100 text-ink-500">
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                        </span>
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-[11px] font-semibold text-ink-900">Acme Auto Ltd</p>
+                          <p class="truncate text-[9.5px] text-ink-500">18 High Street, Birmingham</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ============ Screen 1: live call in the portal (Calls page) ============ -->
+              <div class="how-screen absolute inset-0 opacity-0 transition-opacity duration-500" data-screen="1" data-url="portal.receptionmate.co.uk/calls">
+                <div class="flex h-full bg-slate-50">
+                  <!-- Real portal sidebar: brand-600 bg, white logo, icons + active-pill, ReceptionMate number card at the bottom -->
+                  <div class="hidden w-36 shrink-0 flex-col bg-brand-600 sm:flex">
+                    <div class="flex items-center justify-center px-2 py-3">
+                      <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="" class="h-9 w-auto"/>
+                    </div>
+                    <div class="flex-1 space-y-0.5 px-1.5 pb-2 text-[9.5px] font-medium">
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+                        Dashboard
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md bg-white px-1.5 py-1.5 font-semibold text-brand-700 shadow-sm">
+                        <svg class="h-2.5 w-2.5 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        Calls
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                        Messages
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        Agent Setup
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                        Billing
+                      </div>
+                    </div>
+                    <!-- Your ReceptionMate number card -->
+                    <div class="border-t border-white/10 px-1.5 py-2">
+                      <div class="rounded-lg bg-white/10 p-1.5 ring-1 ring-white/15">
+                        <div class="flex items-center gap-1.5">
+                          <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-white/15 text-white">
+                            <svg class="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                          </span>
+                          <div class="min-w-0 flex-1">
+                            <p class="text-[6px] font-semibold uppercase tracking-wider text-brand-100 leading-tight">Your ReceptionMate number</p>
+                            <p class="mt-0.5 text-[8.5px] font-semibold text-white leading-none">0333 370 1610</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Right pane: header + content -->
+                  <div class="flex flex-1 flex-col">
+                    <!-- Top header bar -->
+                    <div class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
+                      <div class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[9.5px] text-slate-900">
+                        <span>Acme Auto Centre</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                      </div>
+                      <div class="text-right">
+                        <p class="text-[7.5px] font-medium uppercase tracking-[0.2em] text-slate-500">Signed in</p>
+                        <p class="text-[9.5px] font-semibold text-slate-900">dan@acmeauto.co.uk</p>
+                      </div>
+                    </div>
+                    <div class="flex-1 px-4 py-3">
+                      <h4 class="text-sm font-bold text-slate-900">Call Activity</h4>
+                      <p class="text-[9.5px] text-slate-500">Monitor interactions from your ReceptionMate AI voice agent.</p>
+
+                      <!-- KPI strip (mirrors real Calls page) -->
+                      <div class="mt-2 grid grid-cols-4 gap-1.5">
+                        <div class="rounded-lg border border-slate-200 bg-white p-1.5">
+                          <p class="text-[8px] font-medium uppercase tracking-wide text-slate-500">Total calls</p>
+                          <p class="mt-0.5 text-sm font-semibold text-slate-900">142</p>
+                        </div>
+                        <div class="rounded-lg border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-1.5">
+                          <p class="text-[8px] font-medium uppercase tracking-wide text-emerald-700">Confirmed</p>
+                          <p class="mt-0.5 text-sm font-semibold text-emerald-700">53</p>
+                        </div>
+                        <div class="rounded-lg border border-slate-200 bg-white p-1.5">
+                          <p class="text-[8px] font-medium uppercase tracking-wide text-slate-500">Avg</p>
+                          <p class="mt-0.5 text-sm font-semibold text-slate-900">1:34</p>
+                        </div>
+                        <div class="rounded-lg border border-slate-200 bg-white p-1.5">
+                          <p class="text-[8px] font-medium uppercase tracking-wide text-slate-500">Time saved</p>
+                          <p class="mt-0.5 text-sm font-semibold text-slate-900">3h 47m</p>
+                        </div>
+                      </div>
+
+                      <!-- Live call card -->
+                      <div class="mt-2 rounded-xl border border-slate-200 bg-white">
+                        <div class="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                          <div>
+                            <p class="text-[10px] font-semibold text-slate-900">Live call in progress</p>
+                            <p class="text-[8.5px] text-slate-500">07700 900 123 · 00:42</p>
+                          </div>
+                          <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8.5px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                            <span class="relative flex h-1 w-1">
+                              <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                              <span class="relative inline-flex h-1 w-1 rounded-full bg-emerald-500"></span>
+                            </span>
+                            Booking captured
+                          </span>
+                        </div>
+                        <div class="space-y-1 px-3 py-2 text-[9.5px]">
+                          <div class="flex gap-1.5">
+                            <span class="font-semibold text-brand-600">Leah</span>
+                            <p class="text-slate-700">Hi, ReceptionMate — how can I help?</p>
+                          </div>
+                          <div class="flex justify-end gap-1.5">
+                            <p class="text-right text-slate-800">Book my Golf in for an MOT Tuesday.</p>
+                            <span class="font-semibold text-slate-500">Caller</span>
+                          </div>
+                          <div class="flex gap-1.5">
+                            <span class="font-semibold text-brand-600">Leah</span>
+                            <p class="text-slate-700">Lovely. Can I take your reg?</p>
+                          </div>
+                          <div class="flex justify-end gap-1.5">
+                            <p class="text-right text-slate-800">BV14 DCE.</p>
+                            <span class="font-semibold text-slate-500">Caller</span>
+                          </div>
+                        </div>
+                        <div class="border-t border-emerald-200 bg-emerald-50/70 px-3 py-1.5">
+                          <div class="grid grid-cols-3 gap-1 text-[9px]">
+                            <div><p class="text-slate-500">Customer</p><p class="font-semibold text-slate-900">VW Golf</p></div>
+                            <div><p class="text-slate-500">Service</p><p class="font-semibold text-slate-900">MOT</p></div>
+                            <div><p class="text-slate-500">Slot</p><p class="font-semibold text-slate-900">Tue 8am</p></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ============ Screen 2: call forwarding setup ============ -->
+              <div class="how-screen absolute inset-0 opacity-0 transition-opacity duration-500" data-screen="2" data-url="portal.receptionmate.co.uk/agent-setup">
+                <div class="flex h-full bg-slate-50">
+                  <div class="hidden w-36 shrink-0 flex-col bg-brand-600 sm:flex">
+                    <div class="flex items-center justify-center px-2 py-3">
+                      <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="" class="h-9 w-auto"/>
+                    </div>
+                    <div class="flex-1 space-y-0.5 px-1.5 pb-2 text-[9.5px] font-medium">
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+                        Dashboard
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        Calls
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                        Messages
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md bg-white px-1.5 py-1.5 font-semibold text-brand-700 shadow-sm">
+                        <svg class="h-2.5 w-2.5 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        Agent Setup
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                        Billing
+                      </div>
+                    </div>
+                    <div class="border-t border-white/10 px-1.5 py-2">
+                      <div class="rounded-lg bg-white/10 p-1.5 ring-1 ring-white/15">
+                        <div class="flex items-center gap-1.5">
+                          <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-white/15 text-white">
+                            <svg class="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                          </span>
+                          <div class="min-w-0 flex-1">
+                            <p class="text-[6px] font-semibold uppercase tracking-wider text-brand-100 leading-tight">Your ReceptionMate number</p>
+                            <p class="mt-0.5 text-[8.5px] font-semibold text-white leading-none">0333 370 1610</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flex flex-1 flex-col">
+                    <div class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
+                      <div class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[9.5px] text-slate-900">
+                        <span>Acme Auto Centre</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                      </div>
+                      <div class="text-right">
+                        <p class="text-[7.5px] font-medium uppercase tracking-[0.2em] text-slate-500">Signed in</p>
+                        <p class="text-[9.5px] font-semibold text-slate-900">dan@acmeauto.co.uk</p>
+                      </div>
+                    </div>
+                    <div class="flex-1 px-4 py-3">
+                      <p class="text-[9px] text-slate-500">Setup · Routing</p>
+                      <h4 class="mt-0.5 text-sm font-bold text-slate-900">Forward your calls</h4>
+                      <p class="mt-0.5 text-[9.5px] text-slate-600">When your line is busy or unanswered, calls roll to your ReceptionMate number.</p>
+
+                      <div class="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                        <p class="text-[9px] font-semibold text-slate-700">Your phone provider</p>
+                        <div class="mt-1 flex items-center justify-between rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[10px] text-slate-900 shadow-sm">
+                          <span>BT Business · Landline</span>
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                        </div>
+
+                        <p class="mt-3 text-[9px] font-semibold text-slate-700">Forward when busy or unanswered</p>
+                        <ol class="mt-1 space-y-1 text-[9.5px] text-slate-700">
+                          <li class="flex gap-2"><span class="font-semibold text-brand-600">1.</span> From the garage phone, dial <code class="rounded bg-slate-100 px-1 font-mono text-[9px]">*61*0203 488 5500#</code></li>
+                          <li class="flex gap-2"><span class="font-semibold text-brand-600">2.</span> Wait for the confirmation tone.</li>
+                          <li class="flex gap-2"><span class="font-semibold text-brand-600">3.</span> Hang up. Forwarding is live.</li>
+                        </ol>
+
+                        <button class="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-[10px] font-semibold text-white shadow-md shadow-brand-600/25">
+                          I've set it up — test the forwarding
+                          <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ============ Screen 3: dashboard with captured revenue band + bookings ============ -->
+              <div class="how-screen absolute inset-0 opacity-0 transition-opacity duration-500" data-screen="3" data-url="portal.receptionmate.co.uk">
+                <div class="flex h-full bg-slate-50">
+                  <div class="hidden w-36 shrink-0 flex-col bg-brand-600 sm:flex">
+                    <div class="flex items-center justify-center px-2 py-3">
+                      <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="" class="h-9 w-auto"/>
+                    </div>
+                    <div class="flex-1 space-y-0.5 px-1.5 pb-2 text-[9.5px] font-medium">
+                      <div class="flex items-center gap-1.5 rounded-md bg-white px-1.5 py-1.5 font-semibold text-brand-700 shadow-sm">
+                        <svg class="h-2.5 w-2.5 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+                        Dashboard
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        Calls
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                        Messages
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        Agent Setup
+                      </div>
+                      <div class="flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-brand-100">
+                        <svg class="h-2.5 w-2.5 text-brand-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                        Billing
+                      </div>
+                    </div>
+                    <div class="border-t border-white/10 px-1.5 py-2">
+                      <div class="rounded-lg bg-white/10 p-1.5 ring-1 ring-white/15">
+                        <div class="flex items-center gap-1.5">
+                          <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-white/15 text-white">
+                            <svg class="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                          </span>
+                          <div class="min-w-0 flex-1">
+                            <p class="text-[6px] font-semibold uppercase tracking-wider text-brand-100 leading-tight">Your ReceptionMate number</p>
+                            <p class="mt-0.5 text-[8.5px] font-semibold text-white leading-none">0333 370 1610</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flex flex-1 flex-col">
+                    <div class="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
+                      <div class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-[9.5px] text-slate-900">
+                        <span>Acme Auto Centre</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                      </div>
+                      <div class="text-right">
+                        <p class="text-[7.5px] font-medium uppercase tracking-[0.2em] text-slate-500">Signed in</p>
+                        <p class="text-[9.5px] font-semibold text-slate-900">dan@acmeauto.co.uk</p>
+                      </div>
+                    </div>
+                    <div class="flex-1 px-4 py-3">
+                      <h4 class="text-sm font-bold text-slate-900">Dashboard</h4>
+                      <p class="text-[9px] text-slate-500">Monitor call performance, booking conversion, and sentiment at a glance.</p>
+
+                      <!-- Captured revenue hero band (mirrors real dashboard) -->
+                      <div class="relative mt-2 overflow-hidden rounded-xl bg-brand-600 px-3 py-3 shadow-md shadow-brand-600/20">
+                        <div class="absolute -top-8 -right-8 h-16 w-16 rounded-full bg-brand-400/30 blur-2xl"></div>
+                        <div class="absolute -bottom-8 -left-8 h-16 w-16 rounded-full bg-fuchsia-500/20 blur-2xl"></div>
+                        <div class="relative grid grid-cols-2 gap-3">
+                          <div>
+                            <p class="text-[7.5px] font-semibold uppercase tracking-[0.25em] text-brand-100">Captured Revenue</p>
+                            <p class="mt-0.5 text-lg font-semibold text-white">£3,847</p>
+                            <p class="mt-0.5 text-[8.5px] text-brand-100">This week's bookings</p>
+                          </div>
+                          <div class="rounded-lg border border-white/15 bg-white/10 px-2 py-1.5 backdrop-blur-sm">
+                            <p class="text-[7.5px] font-semibold uppercase tracking-[0.2em] text-brand-100">Confirmed bookings</p>
+                            <p class="mt-0.5 text-lg font-semibold text-white">23</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- 3 KPI tiles (mirrors real dashboard) -->
+                      <div class="mt-2 grid grid-cols-3 gap-1.5">
+                        <div class="rounded-lg border border-slate-200 bg-white p-1.5">
+                          <p class="text-[7.5px] font-medium uppercase tracking-wide text-slate-500">Total calls</p>
+                          <p class="mt-0.5 text-sm font-semibold text-slate-900">142</p>
+                        </div>
+                        <div class="rounded-lg border border-slate-200 bg-white p-1.5">
+                          <p class="text-[7.5px] font-medium uppercase tracking-wide text-slate-500">Time saved</p>
+                          <p class="mt-0.5 text-sm font-semibold text-slate-900">3h 47m</p>
+                        </div>
+                        <div class="rounded-lg border border-slate-200 bg-white p-1.5">
+                          <p class="text-[7.5px] font-medium uppercase tracking-wide text-slate-500">Top tag</p>
+                          <p class="mt-0.5 text-sm font-semibold text-slate-900">MOT</p>
+                        </div>
+                      </div>
+
+                      <p class="mt-3 text-[9px] font-semibold uppercase tracking-wide text-slate-500">Recent bookings</p>
+                      <div class="mt-1 space-y-1">
+                        {[
+                          { name: 'J. Davies', svc: 'MOT',           when: 'Tue 8:00',  price: '£54.85' },
+                          { name: 'S. Patel',  svc: 'Interim service', when: 'Wed 10:30', price: '£225.00' },
+                          { name: 'R. Khan',   svc: 'Brake fluid',   when: 'Thu 9:15',  price: '£50.00' },
+                          { name: 'A. Bell',   svc: 'Diagnostic',    when: 'Fri 13:30', price: '£165.00' },
+                        ].map((b) => (
+                          <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                            <div class="min-w-0">
+                              <p class="truncate text-[9.5px] font-semibold text-slate-900">{b.name}</p>
+                              <p class="truncate text-[8.5px] text-slate-500">{b.svc} · {b.when}</p>
+                            </div>
+                            <span class="shrink-0 text-[9px] font-semibold text-emerald-700">{b.price}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                </div>
+              </div>
+
+              <!-- Progress bar -->
+              <div class="absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden bg-ink-100">
+                <div id="how-progress" class="h-full w-0 bg-brand-600 transition-[width]"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script is:inline>
+  (() => {
+    const root      = document.getElementById('how-root');
+    if (!root) return;
+    const steps     = Array.from(root.querySelectorAll('.how-step'));
+    const screens   = Array.from(root.querySelectorAll('.how-screen'));
+    const progress  = document.getElementById('how-progress');
+    const urlText   = document.getElementById('how-url-text');
+    const DURATION  = 6000;
+
+    let current = 0;
+    let timer   = null;
+    let userInteracted = false;
+
+    function setStep(i) {
+      current = i;
+      steps.forEach((s, idx) => {
+        if (idx === i) s.setAttribute('aria-current', 'step'); else s.removeAttribute('aria-current');
+      });
+      screens.forEach((s, idx) => {
+        s.style.opacity = idx === i ? '1' : '0';
+        s.style.pointerEvents = idx === i ? 'auto' : 'none';
+      });
+      // Update the browser URL bar
+      const active = screens[i];
+      if (urlText && active) urlText.textContent = active.dataset.url || 'receptionmate.co.uk';
+      resetProgress();
+    }
+
+    function resetProgress() {
+      if (!progress) return;
+      progress.style.transitionDuration = '0ms';
+      progress.style.width = '0%';
+      void progress.offsetWidth;
+      progress.style.transitionDuration = DURATION + 'ms';
+      progress.style.width = '100%';
+    }
+
+    function scheduleNext() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (userInteracted) return;
+        setStep((current + 1) % steps.length);
+        scheduleNext();
+      }, DURATION);
+    }
+
+    steps.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        userInteracted = true;
+        if (timer) clearTimeout(timer);
+        setStep(parseInt(btn.dataset.step, 10));
+      });
+    });
+
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting && !userInteracted) {
+          setStep(current);
+          scheduleNext();
+        } else if (timer) {
+          clearTimeout(timer);
+        }
+      });
+    }, { threshold: 0.35 });
+    io.observe(root);
+
+    setStep(0);
+  })();
+</script>

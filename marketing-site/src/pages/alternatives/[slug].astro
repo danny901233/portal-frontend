@@ -1,0 +1,147 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import WhyUs from '../../components/WhyUs.astro';
+import { COMPETITORS } from '../../data/competitors';
+
+export function getStaticPaths() {
+  return COMPETITORS.map((c) => ({
+    params: { slug: c.slug },
+    props: { competitor: c },
+  }));
+}
+
+const { competitor } = Astro.props;
+const { displayName, oneLiner, whyConsiderAlternative, category } = competitor;
+
+const isHumanService = category === 'human-service';
+const headlineLeft = `ReceptionMate vs ${displayName}`;
+
+const seoTitle = `${displayName} alternative for UK garages — ReceptionMate`;
+const seoDescription = `Looking for a ${displayName} alternative? See why UK garages switch to ReceptionMate — the AI receptionist built specifically for automotive.`;
+
+const reasonsToSwitch = isHumanService
+  ? [
+      {
+        title: 'Costs don\'t scale with call volume',
+        body: `Human services like ${displayName} charge per call or per minute — busy Mondays and MOT-due weeks send your bill spiking. ReceptionMate is flat-fee.`,
+      },
+      {
+        title: 'Books straight into Garage Hive & Tyresoft',
+        body: 'No more "we\'ll get a message to you" — the booking lands in your diary while the customer\'s still on the line.',
+      },
+      {
+        title: 'Automotive vocabulary, not generic',
+        body: 'MOT, interim, cambelt, DPF, EGR, advisories — ReceptionMate already knows them. No need to spell out what an A-service is.',
+      },
+      {
+        title: '24/7 including bank holidays',
+        body: `Most human services charge premium tiers for out-of-hours. ReceptionMate answers every call at the same flat rate, all year.`,
+      },
+    ]
+  : [
+      {
+        title: 'Built for UK automotive from day one',
+        body: `${displayName} is a horizontal product retrofitted with a garage preset. ReceptionMate is the only AI receptionist designed specifically for UK garages.`,
+      },
+      {
+        title: 'Handles UK reg plates and accents',
+        body: 'Trained on real UK garage calls — Scouse, Glaswegian, West Country, you name it. Captures number plates first time.',
+      },
+      {
+        title: 'Books straight into Garage Hive & Tyresoft',
+        body: 'Live DMS integration during the call, not a CSV export at midnight.',
+      },
+      {
+        title: 'DVLA vehicle lookup and MOT history built in',
+        body: 'Caller gives the reg, ReceptionMate pulls make, model, year, tax and MOT status — and uses it to quote the right service.',
+      },
+    ];
+---
+
+<BaseLayout title={seoTitle} description={seoDescription}>
+
+  <!-- Hero -->
+  <section class="relative isolate overflow-hidden bg-white">
+    <div class="absolute inset-0 -z-10">
+      <div class="absolute -top-40 left-1/2 h-96 w-[800px] -translate-x-1/2 rounded-full bg-brand-100/60 blur-3xl"></div>
+    </div>
+
+    <div class="mx-auto max-w-5xl px-4 pt-16 pb-12 sm:px-6 lg:px-8 lg:pt-20">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">
+        {displayName} alternative
+      </p>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl lg:text-6xl">
+        {headlineLeft}
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg leading-relaxed text-ink-700">
+        {oneLiner}
+      </p>
+      <p class="mt-4 max-w-3xl text-base leading-relaxed text-ink-600">
+        {whyConsiderAlternative}
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a
+          href="/get-started"
+          class="inline-flex items-center justify-center rounded-md bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition"
+        >
+          Try ReceptionMate free
+        </a>
+        <a
+          href="/case-studies"
+          class="inline-flex items-center justify-center rounded-md border border-ink-300 px-5 py-3 text-sm font-semibold text-ink-700 hover:border-ink-400 transition"
+        >
+          See garage case studies
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Why switch -->
+  <section class="bg-ink-50 py-16 sm:py-20">
+    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-3xl text-center">
+        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Why garages switch</p>
+        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Four reasons UK garages move from {displayName} to ReceptionMate.
+        </h2>
+      </div>
+
+      <div class="mt-12 grid gap-6 md:grid-cols-2">
+        {reasonsToSwitch.map((r) => (
+          <div class="rounded-2xl border border-ink-200 bg-white p-6">
+            <h3 class="text-lg font-semibold text-ink-900">{r.title}</h3>
+            <p class="mt-2 text-base leading-relaxed text-ink-700">{r.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison table — reuses the homepage comparison so the messaging
+       stays consistent across the site. -->
+  <WhyUs />
+
+  <!-- CTA -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+      <div class="relative overflow-hidden rounded-3xl bg-brand-600 p-10 text-center sm:p-14">
+        <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          Stop losing bookings to {displayName}.
+        </h2>
+        <p class="mx-auto mt-4 max-w-2xl text-lg text-brand-100">
+          Try ReceptionMate free. No contract. We'll port your existing number or
+          give you a new one — your AI receptionist is live in under an hour.
+        </p>
+        <div class="mt-8">
+          <a
+            href="/get-started"
+            class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition"
+          >
+            Get started
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

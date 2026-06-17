@@ -1,0 +1,71 @@
+---
+// Social-proof strip — infinite horizontal scroll, full colour, pauses on hover.
+// To add real logos: drop the files into marketing-site/public/garages/.
+// Per-logo size class so quieter / paler logos can hold their own next to
+// the bold ones. Default is h-12; bump specific entries to h-16.
+const garages = [
+  { name: 'EAC Telford',            logo: '/garages/EAC-logo.png',          sizeClass: 'h-12 max-w-[160px]' },
+  { name: 'In and Out Autocentres', logo: '/garages/ino-autocentres.png',   sizeClass: 'h-12 max-w-[160px]' },
+  { name: 'RPM Malvern',            logo: '/garages/rpm-malvern.png',       sizeClass: 'h-12 max-w-[160px]' },
+  { name: 'St Johns Garage',        logo: '/garages/st-johns-garage.png',   sizeClass: 'h-16 max-w-[200px]' },
+  { name: 'Bee Cool ACS',           logo: '/garages/bee-cool.png',          sizeClass: 'h-16 max-w-[200px]' },
+  { name: 'ADS Automotive',         logo: '/garages/ads-automotive.png',    sizeClass: 'h-12 max-w-[160px]' },
+  { name: 'C&G Autorepairs',        logo: '/garages/c%26g-autorepairs.png', sizeClass: 'h-12 max-w-[160px]' },
+  { name: 'ServiceSure',            logo: '/garages/servicesure.png',       sizeClass: 'h-12 max-w-[160px]' },
+];
+---
+
+<section class="border-y border-ink-200 bg-ink-50 py-10">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <p class="text-center text-xs uppercase tracking-wider text-ink-500 font-semibold">
+      Trusted by garages across the UK
+    </p>
+
+    <!-- Scroll container: clip overflow, soft fade on each edge so the loop
+         feels seamless rather than cutting off mid-logo. -->
+    <div class="logo-scroller mt-7 overflow-hidden">
+      <ul class="logo-track flex w-max items-center gap-x-14">
+        <!-- Loop the list twice so translateX(-50%) lands on a seam. -->
+        {[...garages, ...garages].map((g, i) => (
+          <li class="shrink-0">
+            <img
+              src={g.logo}
+              alt={g.name}
+              loading="lazy"
+              aria-hidden={i >= garages.length ? 'true' : 'false'}
+              class={`${g.sizeClass} w-auto object-contain opacity-90 transition hover:opacity-100`}
+              onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'inline-block whitespace-nowrap text-base font-semibold text-ink-700',textContent:this.alt}));"
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .logo-scroller {
+    /* Soft fade on the edges so logos don't pop in/out abruptly. */
+    -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+            mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+  }
+  .logo-track {
+    animation: logo-scroll 35s linear infinite;
+  }
+  .logo-scroller:hover .logo-track {
+    animation-play-state: paused;
+  }
+  @keyframes logo-scroll {
+    from { transform: translateX(0); }
+    /* We rendered the list twice; the loop seam sits exactly at -50%. */
+    to   { transform: translateX(-50%); }
+  }
+  /* Respect users who prefer reduced motion. */
+  @media (prefers-reduced-motion: reduce) {
+    .logo-track {
+      animation: none;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+  }
+</style>

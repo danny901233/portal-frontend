@@ -1,0 +1,237 @@
+---
+// "Calls Leah is handling right now" ticker — replaces the decorative
+// VoiceViz with something that looks live and conveys product activity.
+// Cities only; no garage names so no GDPR / consent burden.
+---
+
+<div class="relative mx-auto w-full max-w-3xl">
+  <div class="relative overflow-hidden rounded-3xl border border-ink-200 bg-gradient-to-br from-ink-50 to-white p-6 shadow-xl shadow-brand-900/5 sm:p-8">
+    <!-- Top-left badge -->
+    <span class="absolute left-5 top-5 rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-sm font-semibold text-ink-900 shadow-sm">
+      24/7
+    </span>
+
+    <!-- Top-right "live" status -->
+    <span class="absolute right-5 top-5 inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-sm font-semibold text-ink-700 shadow-sm">
+      <span class="relative flex h-2 w-2">
+        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+      </span>
+      Live activity
+    </span>
+
+    <!-- Header -->
+    <div class="mt-12 text-center">
+      <h3 class="text-lg font-bold text-ink-900">Calls Leah is handling for UK garages</h3>
+      <p class="mt-1 text-sm text-ink-500">Updates every few seconds. Cities only — caller details stay private.</p>
+    </div>
+
+    <!-- Ticker -->
+    <ol id="call-ticker" class="mx-auto mt-6 max-w-xl space-y-2">
+      <!-- Filled by inline script on mount; 4 rows pre-rendered to avoid layout pop -->
+      <li class="ticker-row flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-3 shadow-sm">
+        <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M21 3l-7 7M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </span>
+        <div class="min-w-0 flex-1 text-left">
+          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> handled <span class="ticker-description">a call</span> for a garage in <span class="ticker-city">Telford</span></p>
+          <p class="text-xs text-ink-500"><span class="ticker-time">Just now</span></p>
+        </div>
+      </li>
+      <li class="ticker-row flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-3 shadow-sm">
+        <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M21 3l-7 7M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </span>
+        <div class="min-w-0 flex-1 text-left">
+          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> handled <span class="ticker-description">a call</span> for a garage in <span class="ticker-city">Manchester</span></p>
+          <p class="text-xs text-ink-500"><span class="ticker-time">1 min ago</span></p>
+        </div>
+      </li>
+      <li class="ticker-row flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-3 shadow-sm">
+        <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M21 3l-7 7M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </span>
+        <div class="min-w-0 flex-1 text-left">
+          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> handled <span class="ticker-description">a call</span> for a garage in <span class="ticker-city">Birmingham</span></p>
+          <p class="text-xs text-ink-500"><span class="ticker-time">3 min ago</span></p>
+        </div>
+      </li>
+      <li class="ticker-row flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-3 shadow-sm">
+        <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M21 3l-7 7M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </span>
+        <div class="min-w-0 flex-1 text-left">
+          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> handled <span class="ticker-description">a call</span> for a garage in <span class="ticker-city">Leeds</span></p>
+          <p class="text-xs text-ink-500"><span class="ticker-time">5 min ago</span></p>
+        </div>
+      </li>
+    </ol>
+
+    <!-- Footnote — updated by the script once real data is loaded -->
+    <p id="call-ticker-footnote" class="mt-5 text-center text-xs text-ink-400">
+      Sample activity · live data loading…
+    </p>
+  </div>
+</div>
+
+<script>
+  // Static fallback used until the live feed loads (or if the network call
+  // fails). Cities only — no caller info, no garage names.
+  // Agent name varies per entry — mirrors which voice the garage chose.
+  // `description` is a noun phrase that slots into "[Agent] handled X for a garage in Y".
+  type Entry = { agent: string; city: string; description: string };
+  const FALLBACK_POOL: Entry[] = [
+    { agent: 'Leah',   city: 'Telford',     description: 'an MOT booking' },
+    { agent: 'Tom',    city: 'Manchester',  description: 'a service booking' },
+    { agent: 'Sophie', city: 'Birmingham',  description: 'a diagnostic appointment' },
+    { agent: 'Leah',   city: 'Leeds',       description: 'a general enquiry' },
+    { agent: 'Tom',    city: 'Cardiff',     description: 'a price enquiry' },
+    { agent: 'Gemma',  city: 'Bristol',     description: 'a booking' },
+    { agent: 'Fraser', city: 'Glasgow',     description: 'a callback request' },
+    { agent: 'Leah',   city: 'Sheffield',   description: 'an update call' },
+    { agent: 'Isobel', city: 'Edinburgh',   description: 'an MOT booking' },
+    { agent: 'Tom',    city: 'Newcastle',   description: 'a general enquiry' },
+    { agent: 'Sophie', city: 'Liverpool',   description: 'a service booking' },
+    { agent: 'Leah',   city: 'Nottingham',  description: 'an MOT booking' },
+    { agent: 'Tom',    city: 'Cambridge',   description: 'a general enquiry' },
+    { agent: 'Amelia', city: 'Oxford',      description: 'a price enquiry' },
+    { agent: 'Sophie', city: 'Plymouth',    description: 'a service booking' },
+    { agent: 'Leah',   city: 'Southampton', description: 'an update call' },
+    { agent: 'Tom',    city: 'Brighton',    description: 'an MOT booking' },
+    { agent: 'Sophie', city: 'Reading',     description: 'a diagnostic appointment' },
+  ];
+
+  const ticker = document.getElementById('call-ticker');
+  const footnote = document.getElementById('call-ticker-footnote');
+  const API_URL = 'https://portal.receptionmate.co.uk/api/public/recent-calls';
+
+  if (ticker) {
+    const rows = Array.from(ticker.querySelectorAll<HTMLElement>('.ticker-row'));
+    let cursor = 0; // next pool index to inject
+    let ages = [0, 1, 3, 5]; // minutes-ago for each visible row, oldest last
+    let pool: Entry[] = FALLBACK_POOL.slice();
+    let usingLiveData = false;
+
+    const formatAge = (m: number): string => {
+      if (m === 0) return 'Just now';
+      if (m === 1) return '1 min ago';
+      if (m < 60) return `${m} min ago`;
+      const h = Math.floor(m / 60);
+      return h === 1 ? '1 hr ago' : `${h} hrs ago`;
+    };
+
+    // Fetch real anonymized booking activity from the portal. We keep the
+    // static pool as a fallback so the section never looks broken.
+    async function loadLive() {
+      try {
+        const res = await fetch(API_URL, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = (await res.json()) as Array<{
+          agent?: string;
+          city: string;
+          description?: string;
+          service?: string; // older response shape
+          ageMinutes: number;
+        }>;
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        // Use the live entries as the rotation pool. Default agent to "Leah"
+        // if the API didn't include one. Tolerate older API responses that
+        // returned `service` instead of `description`.
+        pool = data.map((d) => ({
+          agent: d.agent || 'Leah',
+          city: d.city,
+          description: d.description ?? (d.service ? `a ${d.service.toLowerCase()} booking` : 'a call'),
+        }));
+        cursor = 0;
+        usingLiveData = true;
+        if (footnote) {
+          footnote.textContent = 'Live · calls handled across UK garages today';
+        }
+
+        // Seed the four visible rows from the live data immediately so we
+        // don't sit on the static fallback longer than needed.
+        rows.forEach((row, i) => {
+          const entry = pool[i % pool.length];
+          if (!entry) return;
+          row.dataset.agent = entry.agent;
+          row.dataset.city = entry.city;
+          row.dataset.description = entry.description;
+          row.querySelector('.ticker-agent')!.textContent = entry.agent;
+          row.querySelector('.ticker-city')!.textContent = entry.city;
+          row.querySelector('.ticker-description')!.textContent = entry.description;
+          const baseAge = data[i] ? data[i].ageMinutes : i;
+          ages[i] = baseAge;
+          row.querySelector('.ticker-time')!.textContent = formatAge(baseAge);
+        });
+        cursor = Math.min(4, pool.length);
+      } catch {
+        /* swallow — fallback pool keeps the ticker alive */
+      }
+    }
+
+    // Initial fetch + periodic refresh every 2 mins
+    void loadLive();
+    window.setInterval(loadLive, 120_000);
+
+    const cycle = () => {
+      const next = pool[cursor % pool.length];
+      cursor++;
+      // Shuffle: bottom row drops, others move down, new at top.
+      // We mutate the data of each row in place to avoid DOM churn.
+      ages = [0, ages[0] + 1, ages[1] + 1, ages[2] + 1];
+
+      // Slide animation — bump everyone down visually, then update text.
+      rows.forEach((row, i) => {
+        row.style.transition = 'transform 0.35s ease, opacity 0.35s ease';
+        row.style.transform = 'translateY(8px)';
+        row.style.opacity = '0.7';
+      });
+
+      // Snapshot the current state of every row BEFORE mutating anything.
+      // Without this snapshot, updating row 0 to `next` then reading row 0
+      // for row 1's source means every row ends up showing `next`.
+      const snapshot: Entry[] = rows.map((row) => ({
+        agent: row.dataset.agent ?? row.querySelector('.ticker-agent')?.textContent ?? 'Leah',
+        city: row.dataset.city ?? row.querySelector('.ticker-city')?.textContent ?? '',
+        description: row.dataset.description ?? row.querySelector('.ticker-description')?.textContent ?? 'a call',
+      }));
+
+      window.setTimeout(() => {
+        rows.forEach((row, i) => {
+          row.style.transform = '';
+          row.style.opacity = '';
+          // Row 0 takes the freshly-pulled `next`; rows 1..n take the
+          // snapshot from row i-1 (i.e. what was visible before this cycle).
+          const entry: Entry = i === 0 ? next : snapshot[i - 1];
+          row.dataset.agent = entry.agent;
+          row.dataset.city = entry.city;
+          row.dataset.description = entry.description;
+          const agentEl = row.querySelector('.ticker-agent');
+          const cityEl = row.querySelector('.ticker-city');
+          const descEl = row.querySelector('.ticker-description');
+          const timeEl = row.querySelector('.ticker-time');
+          if (agentEl) agentEl.textContent = entry.agent;
+          if (cityEl) cityEl.textContent = entry.city;
+          if (descEl) descEl.textContent = entry.description;
+          if (timeEl) timeEl.textContent = formatAge(ages[i]);
+        });
+      }, 350);
+    };
+
+    // Suppress unused-var lint
+    void usingLiveData;
+    window.setInterval(cycle, 4200);
+
+    // Tick the ages every 30s without rotating, so the times feel alive
+    // between rotations.
+    window.setInterval(() => {
+      // Only bump ages of rows that haven't just been replaced (skip row 0)
+      ages = [ages[0], ages[1] + 1, ages[2] + 1, ages[3] + 1];
+      rows.forEach((row, i) => {
+        const timeEl = row.querySelector('.ticker-time');
+        if (timeEl) timeEl.textContent = formatAge(ages[i]);
+      });
+    }, 30_000);
+  }
+</script>

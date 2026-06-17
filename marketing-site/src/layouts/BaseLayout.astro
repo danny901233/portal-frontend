@@ -1,0 +1,129 @@
+---
+import '../styles/global.css';
+import LeadModal from '../components/LeadModal.astro';
+
+interface Props {
+  title?: string;
+  description?: string;
+  ogImage?: string;
+}
+
+const {
+  title = 'ReceptionMate — AI receptionist for UK garages',
+  description = 'ReceptionMate answers every call, books every job. Stop losing customers to missed calls — our AI receptionist captures bookings 24/7 and sends them straight to your team.',
+  ogImage = '/og.png',
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en-GB" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#3426cf" />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+  </head>
+
+  <body class="bg-white text-ink-700 antialiased font-sans">
+    <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-brand-600 focus:text-white focus:rounded-md">
+      Skip to content
+    </a>
+
+    <slot name="nav">
+      <header class="sticky top-0 z-40 border-b border-ink-200/80 bg-white/85 backdrop-blur-md">
+        <nav class="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <a href="/" class="flex items-center text-ink-900" aria-label="ReceptionMate home">
+            <span class="inline-flex h-12 items-center justify-center rounded-xl bg-brand-600 px-3 py-1.5">
+              <img
+                src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+                alt=""
+                class="h-8 w-auto"
+              />
+            </span>
+          </a>
+          <div class="hidden items-center gap-7 md:flex">
+            <a href="/#how-it-works" class="text-sm font-medium text-ink-600 hover:text-ink-900">How it works</a>
+            <a href="/#features" class="text-sm font-medium text-ink-600 hover:text-ink-900">Features</a>
+            <a href="/case-studies" class="text-sm font-medium text-ink-600 hover:text-ink-900">Case studies</a>
+            <a href="/news" class="text-sm font-medium text-ink-600 hover:text-ink-900">News</a>
+            <a href="/blog" class="text-sm font-medium text-ink-600 hover:text-ink-900">Blog</a>
+            <a href="/alternatives" class="text-sm font-medium text-ink-600 hover:text-ink-900">Alternatives</a>
+            <a href="/about" class="text-sm font-medium text-ink-600 hover:text-ink-900">Why ReceptionMate</a>
+            <a href="https://portal.receptionmate.co.uk/login" class="text-sm font-medium text-ink-600 hover:text-ink-900">Sign in</a>
+            <a href="/get-started" class="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
+              Get started
+            </a>
+          </div>
+          <a href="/get-started" class="md:hidden rounded-md bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white">Get started</a>
+        </nav>
+      </header>
+    </slot>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <!-- Global lead-capture modal — triggered by any [data-lead-cta] element -->
+    <LeadModal />
+
+    <footer class="border-t border-ink-200 bg-ink-50 py-12">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-2 gap-8 md:grid-cols-4">
+          <div class="col-span-2">
+            <div class="flex items-center">
+              <span class="inline-flex h-14 items-center justify-center rounded-xl bg-brand-600 px-4 py-2">
+                <img
+                  src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+                  alt="ReceptionMate"
+                  class="h-10 w-auto"
+                />
+              </span>
+            </div>
+            <p class="mt-3 max-w-sm text-sm text-ink-600">
+              AI receptionist for UK garages. Answer every call, book every job — automatically.
+            </p>
+            <p class="mt-4 text-sm text-ink-600">
+              <a href="mailto:hello@receptionmate.co.uk" class="hover:text-brand-600">hello@receptionmate.co.uk</a>
+            </p>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-ink-900">Product</h3>
+            <ul class="mt-3 space-y-2 text-sm text-ink-600">
+              <li><a href="/#how-it-works" class="hover:text-brand-600">How it works</a></li>
+              <li><a href="/#features" class="hover:text-brand-600">Features</a></li>
+              <li><a href="/case-studies" class="hover:text-brand-600">Case studies</a></li>
+              <li><a href="/news" class="hover:text-brand-600">News</a></li>
+              <li><a href="/about" class="hover:text-brand-600">Why us</a></li>
+              <li><a href="/get-started" class="hover:text-brand-600">Get started</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-ink-900">Company</h3>
+            <ul class="mt-3 space-y-2 text-sm text-ink-600">
+              <li><a href="/about" class="hover:text-brand-600">About</a></li>
+              <li><a href="https://portal.receptionmate.co.uk/login" class="hover:text-brand-600">Sign in</a></li>
+              <li><a href="mailto:hello@receptionmate.co.uk" class="hover:text-brand-600">Contact</a></li>
+              <li><a href="/privacy" class="hover:text-brand-600">Privacy</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="mt-10 border-t border-ink-200 pt-6 text-xs text-ink-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p>© {new Date().getFullYear()} ReceptionMate Ltd. All rights reserved.</p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

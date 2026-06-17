@@ -284,48 +284,81 @@ function renderMark(m: Mark) {
         </table>
       </div>
 
-      <!-- Mobile: stacked per group -->
-      <div class="mt-10 grid gap-6 md:hidden">
-        {groupOrder.map((group) => {
-          const rows = features.filter((f) => f.group === group);
-          return (
-            <div class="rounded-2xl border border-ink-200 bg-white p-5">
-              <h3 class="text-xs font-semibold uppercase tracking-wider text-brand-700">{group}</h3>
-              <div class="mt-3 space-y-3">
-                {rows.map((row) => {
-                  const m = [renderMark(row.assist), renderMark(row.automate), renderMark(row.connect)];
-                  return (
-                    <div class="border-t border-ink-100 pt-3 first:border-t-0 first:pt-0">
-                      <p class="text-sm font-medium text-ink-900">{row.label}</p>
-                      {row.detail && <p class="mt-0.5 text-xs text-ink-500">{row.detail}</p>}
-                      <dl class="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                        {['Assist', 'Automate', 'Connect'].map((name, i) => (
-                          <div>
-                            <dt class="text-[10px] font-semibold uppercase tracking-wider text-ink-500">{name}</dt>
-                            <dd class="mt-1 flex justify-center text-sm">
-                              {m[i].type === 'yes' ? (
-                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand-50 text-brand-600">
-                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                                </span>
-                              ) : m[i].type === 'no' ? (
-                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink-100 text-ink-400">
-                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-                                </span>
-                              ) : (
-                                <span class="font-medium text-ink-800">{m[i].value}</span>
-                              )}
-                            </dd>
+      <!-- Mobile: skip the grid of icons (it was chaotic at narrow widths) and
+           show a tabbed picker — visitor selects one tier and sees just the
+           features included in it, as a clean list. Desktop's wide
+           comparison table above handles the side-by-side view. -->
+      <div class="mt-10 md:hidden">
+        <div role="tablist" class="grid grid-cols-3 gap-2 rounded-xl bg-ink-100 p-1">
+          {['Assist', 'Automate', 'Connect'].map((name, i) => (
+            <button
+              type="button"
+              role="tab"
+              data-tier-tab={name.toLowerCase()}
+              aria-selected={i === 1 ? 'true' : 'false'}
+              class={`pricing-tier-tab rounded-lg px-3 py-2 text-sm font-semibold transition ${i === 1 ? 'bg-white text-brand-700 shadow-sm' : 'text-ink-600'}`}
+            >{name}</button>
+          ))}
+        </div>
+
+        {['assist', 'automate', 'connect'].map((tierKey) => (
+          <div
+            data-tier-panel={tierKey}
+            class={`pricing-tier-panel mt-5 ${tierKey === 'automate' ? '' : 'hidden'}`}
+          >
+            {groupOrder.map((group) => {
+              const rows = features.filter((f) => f.group === group);
+              const includedRows = rows.filter((r) => {
+                const v = (r as any)[tierKey];
+                return v === true || typeof v === 'string';
+              });
+              if (includedRows.length === 0) return null;
+              return (
+                <div class="mt-4 first:mt-0">
+                  <h3 class="text-xs font-semibold uppercase tracking-wider text-brand-700">{group}</h3>
+                  <ul class="mt-2 divide-y divide-ink-100 rounded-xl border border-ink-200 bg-white">
+                    {includedRows.map((row) => {
+                      const v = (row as any)[tierKey];
+                      const valueLabel = typeof v === 'string' ? v : null;
+                      return (
+                        <li class="flex items-start gap-3 px-4 py-3">
+                          <span class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                          </span>
+                          <div class="min-w-0 flex-1">
+                            <p class="text-sm font-medium text-ink-900">{row.label}</p>
+                            {row.detail && <p class="mt-0.5 text-xs text-ink-500">{row.detail}</p>}
+                            {valueLabel && <p class="mt-1 text-xs font-medium text-brand-700">{valueLabel}</p>}
                           </div>
-                        ))}
-                      </dl>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
+
+      <script>
+        const tabs = document.querySelectorAll<HTMLButtonElement>('.pricing-tier-tab');
+        const panels = document.querySelectorAll<HTMLElement>('.pricing-tier-panel');
+        tabs.forEach((tab) => {
+          tab.addEventListener('click', () => {
+            const key = tab.dataset.tierTab;
+            tabs.forEach((t) => {
+              const active = t === tab;
+              t.setAttribute('aria-selected', String(active));
+              t.classList.toggle('bg-white', active);
+              t.classList.toggle('text-brand-700', active);
+              t.classList.toggle('shadow-sm', active);
+              t.classList.toggle('text-ink-600', !active);
+            });
+            panels.forEach((p) => p.classList.toggle('hidden', p.dataset.tierPanel !== key));
+          });
+        });
+      </script>
     </div>
   </section>
 

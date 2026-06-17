@@ -85,36 +85,88 @@ const {
           </div>
         </nav>
 
-        <!-- Mobile slide-down menu -->
-        <div id="mobile-menu" class="hidden border-t border-ink-200 bg-white md:hidden">
-          <div class="mx-auto max-w-7xl px-4 py-4 sm:px-6">
-            <ul class="space-y-1">
-              <li><a href="/how-it-works" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">How it works</a></li>
-              <li><a href="/pricing" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Pricing</a></li>
-              <li><a href="/case-studies" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Case studies</a></li>
-              <li><a href="/blog" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Blog</a></li>
-              <li><a href="/faqs" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">FAQs</a></li>
-              <li><a href="/connect" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Connect — WhatsApp + Web chat</a></li>
-              <li><a href="/integrations" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Integrations</a></li>
-              <li><a href="/about" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Why ReceptionMate</a></li>
-              <li class="border-t border-ink-200 pt-2 mt-2"><a href="https://portal.receptionmate.co.uk/login" class="block rounded-md px-3 py-2 text-base font-medium text-ink-700 hover:bg-ink-50">Sign in</a></li>
+        <!-- Mobile full-screen menu overlay — Jodie-style. Fills the viewport,
+             centred nav links in large type, with Login + Get started CTAs
+             pinned at the bottom. -->
+        <div id="mobile-menu" class="fixed inset-x-0 top-[var(--mobile-header-h,5rem)] bottom-0 z-30 hidden flex-col bg-white md:hidden">
+          <nav class="flex-1 overflow-y-auto px-6 py-10">
+            <ul class="space-y-1 text-center">
+              <li><a href="/how-it-works" class="block py-3 text-xl font-medium text-ink-900 hover:text-brand-700">How it works</a></li>
+              <li><a href="/pricing"      class="block py-3 text-xl font-medium text-ink-900 hover:text-brand-700">Pricing</a></li>
+              <li><a href="/case-studies" class="block py-3 text-xl font-medium text-ink-900 hover:text-brand-700">Case studies</a></li>
+              <li><a href="/connect"      class="block py-3 text-xl font-medium text-ink-900 hover:text-brand-700">Connect</a></li>
+              <li><a href="/integrations" class="block py-3 text-xl font-medium text-ink-900 hover:text-brand-700">Integrations</a></li>
+              <li><a href="/blog"         class="block py-3 text-xl font-medium text-ink-900 hover:text-brand-700">Blog</a></li>
+              <li><a href="/faqs"         class="block py-3 text-xl font-medium text-ink-900 hover:text-brand-700">FAQs</a></li>
+              <li><a href="/about"        class="block py-3 text-xl font-medium text-ink-900 hover:text-brand-700">Why ReceptionMate</a></li>
             </ul>
+          </nav>
+          <div class="space-y-3 border-t border-ink-200 px-6 py-5 pb-8">
+            <a
+              href="https://portal.receptionmate.co.uk/login"
+              class="block w-full rounded-xl border border-ink-300 bg-white py-3.5 text-center text-base font-semibold text-ink-900 hover:bg-ink-50"
+            >Login</a>
+            <a
+              href="/get-started"
+              class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3.5 text-center text-base font-semibold text-white shadow-md shadow-brand-600/25 hover:bg-brand-700"
+            >
+              Get started
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+            </a>
           </div>
         </div>
       </header>
 
       <script>
-        // Mobile menu toggle — vanilla JS, no framework.
+        // Mobile full-screen menu toggle. Uses flex layout when open so the
+        // bottom CTA bar pins to the viewport bottom. Locks body scroll while
+        // open so the user can't accidentally scroll the page behind the
+        // overlay. Pins the overlay below the header by measuring its height.
         const toggle = document.getElementById('mobile-menu-toggle');
         const menu = document.getElementById('mobile-menu');
         const iconOpen = document.getElementById('mobile-menu-icon-open');
         const iconClose = document.getElementById('mobile-menu-icon-close');
+        const headerEl = toggle?.closest('header');
+
+        const updateHeaderHeight = () => {
+          if (!headerEl) return;
+          const h = headerEl.getBoundingClientRect().height;
+          document.documentElement.style.setProperty('--mobile-header-h', `${h}px`);
+        };
+        updateHeaderHeight();
+        window.addEventListener('resize', updateHeaderHeight);
+
         toggle?.addEventListener('click', () => {
-          const open = menu?.classList.toggle('hidden') === false;
+          const willOpen = menu?.classList.contains('hidden');
+          if (willOpen) {
+            updateHeaderHeight();
+            menu?.classList.remove('hidden');
+            menu?.classList.add('flex');
+            document.body.style.overflow = 'hidden';
+          } else {
+            menu?.classList.add('hidden');
+            menu?.classList.remove('flex');
+            document.body.style.overflow = '';
+          }
+          const open = !!willOpen;
           iconOpen?.classList.toggle('hidden', open);
           iconClose?.classList.toggle('hidden', !open);
           toggle.setAttribute('aria-expanded', String(open));
           toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+        });
+
+        // Close the menu when any link inside it is tapped — avoids landing on
+        // the new page with the overlay still showing.
+        menu?.querySelectorAll('a').forEach((a) => {
+          a.addEventListener('click', () => {
+            menu.classList.add('hidden');
+            menu.classList.remove('flex');
+            document.body.style.overflow = '';
+            iconOpen?.classList.remove('hidden');
+            iconClose?.classList.add('hidden');
+            toggle?.setAttribute('aria-expanded', 'false');
+            toggle?.setAttribute('aria-label', 'Open menu');
+          });
         });
       </script>
     </slot>

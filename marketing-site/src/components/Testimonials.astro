@@ -30,17 +30,28 @@ const quotes = [
 
     <div class="mx-auto mt-14 grid max-w-5xl gap-6 md:grid-cols-2">
       {quotes.map((q) => (
-        <figure class="flex flex-col justify-between rounded-2xl border border-ink-200 bg-ink-50 p-6">
-          <blockquote class="text-base text-ink-800">
+        <figure class="flex flex-col justify-between rounded-2xl border border-ink-200 bg-white p-6 shadow-sm">
+          <!-- Review-style header: avatar initial + name + 5-star rating, looks like a TrustPilot/Google review. -->
+          <header class="flex items-center gap-3">
+            <span class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-600 text-base font-bold text-white">
+              {q.name.charAt(0)}
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-ink-900">{q.name}</p>
+              <p class="text-xs text-ink-500">{q.role}</p>
+            </div>
+            <div class="flex items-center gap-0.5 text-amber-500" aria-label="5 out of 5 stars">
+              {Array.from({ length: 5 }).map(() => (
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>
+              ))}
+            </div>
+          </header>
+          <blockquote class="mt-5 text-base text-ink-800">
             <p class="leading-relaxed">"{q.quote}"</p>
           </blockquote>
-          <figcaption class="mt-6 border-t border-ink-200 pt-4">
-            <p class="text-sm font-semibold text-ink-900">{q.name}</p>
-            <p class="text-xs text-ink-500">{q.role}</p>
-            {q.result && (
-              <p class="mt-2 text-xs font-medium text-brand-700">{q.result}</p>
-            )}
-          </figcaption>
+          {q.result && (
+            <p class="mt-5 border-t border-ink-200 pt-4 text-xs font-medium text-brand-700">{q.result}</p>
+          )}
         </figure>
       ))}
     </div>

@@ -21,6 +21,10 @@ const blog = defineCollection({
     // Hide a post without deleting it. Useful when a generated post is wrong
     // and we want to keep it in git history but not show it.
     draft: z.boolean().default(false),
+    // Hero image — typically auto-generated via DALL-E by the post generator.
+    // Path is relative to /public e.g. "/blog/my-slug.jpg".
+    heroImage: z.string().optional(),
+    heroImageAlt: z.string().optional(),
   }),
 });
 

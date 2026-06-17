@@ -1,0 +1,376 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+// Three packages, one comparison page. Single source of truth: when a feature
+// row moves from ✗ to ✓ for a tier, change it here and the homepage Tiers
+// component reads the same conceptual model.
+
+type Mark = boolean | string;
+
+interface Feature {
+  group: string;
+  label: string;
+  detail?: string;
+  assist: Mark;
+  automate: Mark;
+  connect: Mark;
+}
+
+const tiers = [
+  {
+    key: 'assist',
+    name: 'Assist',
+    tagline: 'Catch every call.',
+    price: '£200',
+    priceUnit: '/month',
+    priceFootnote: '400 minutes included · £0.25 / overage minute',
+    cta: 'Start with Assist',
+    href: '/get-started?tier=assist',
+    recommended: false,
+  },
+  {
+    key: 'automate',
+    name: 'Automate',
+    tagline: 'Book every job.',
+    price: 'Custom',
+    priceUnit: '',
+    priceFootnote: 'Based on branches & integrations',
+    cta: 'Talk to us about Automate',
+    href: '/get-started?tier=automate',
+    recommended: true,
+  },
+  {
+    key: 'connect',
+    name: 'Connect',
+    tagline: 'Inbound from every channel. Outbound that books itself.',
+    price: 'Talk to us',
+    priceUnit: '',
+    priceFootnote: 'Pricing based on contact volume',
+    cta: 'Talk to us about Connect',
+    href: '/get-started?tier=connect',
+    recommended: false,
+  },
+];
+
+const features: Feature[] = [
+  // VOICE
+  {
+    group: 'Voice receptionist',
+    label: 'Answers every inbound call',
+    assist: true, automate: true, connect: false,
+  },
+  {
+    group: 'Voice receptionist',
+    label: 'Captures customer, vehicle and service details',
+    assist: true, automate: true, connect: false,
+  },
+  {
+    group: 'Voice receptionist',
+    label: 'DVLA vehicle lookup during the call',
+    detail: 'Make, model, year, fuel type, MOT status — pulled live.',
+    assist: true, automate: true, connect: false,
+  },
+  {
+    group: 'Voice receptionist',
+    label: 'MOT history checker',
+    assist: true, automate: true, connect: false,
+  },
+  {
+    group: 'Voice receptionist',
+    label: 'SMS confirmation to the customer',
+    assist: true, automate: true, connect: true,
+  },
+  {
+    group: 'Voice receptionist',
+    label: 'Books slots straight into your diary',
+    detail: 'Live integration with Garage Hive, Tyresoft, calendars and more.',
+    assist: false, automate: true, connect: false,
+  },
+  {
+    group: 'Voice receptionist',
+    label: 'Quotes prices from your service menu on the call',
+    assist: false, automate: true, connect: false,
+  },
+  {
+    group: 'Voice receptionist',
+    label: 'Multi-branch routing',
+    assist: false, automate: true, connect: false,
+  },
+  // MESSAGING
+  {
+    group: 'Messaging (web + social)',
+    label: 'Web chat widget on your garage website',
+    assist: false, automate: false, connect: true,
+  },
+  {
+    group: 'Messaging (web + social)',
+    label: 'WhatsApp Business inbound',
+    assist: false, automate: false, connect: true,
+  },
+  {
+    group: 'Messaging (web + social)',
+    label: 'Instagram DM inbound',
+    assist: false, automate: false, connect: true,
+  },
+  {
+    group: 'Messaging (web + social)',
+    label: 'Facebook Messenger inbound',
+    assist: false, automate: false, connect: true,
+  },
+  {
+    group: 'Messaging (web + social)',
+    label: 'Outbound MOT and service reminders',
+    detail: 'To opted-in existing customers — books in the same conversation.',
+    assist: false, automate: false, connect: true,
+  },
+  // PORTAL
+  {
+    group: 'Portal & reporting',
+    label: 'All calls, transcripts and messages in one inbox',
+    assist: true, automate: true, connect: true,
+  },
+  {
+    group: 'Portal & reporting',
+    label: 'Conversation tagging & search',
+    assist: true, automate: true, connect: true,
+  },
+  {
+    group: 'Portal & reporting',
+    label: 'Weekly performance summary',
+    assist: true, automate: true, connect: true,
+  },
+  // SUPPORT
+  {
+    group: 'Setup & support',
+    label: 'Time to live',
+    assist: 'Minutes', automate: '3–5 days', connect: '3–5 days',
+  },
+  {
+    group: 'Setup & support',
+    label: 'Setup help',
+    assist: 'Self-serve', automate: 'White-glove', connect: 'Guided',
+  },
+  {
+    group: 'Setup & support',
+    label: 'Minimum contract',
+    assist: 'None', automate: 'None', connect: 'None',
+  },
+];
+
+const groupOrder = ['Voice receptionist', 'Messaging (web + social)', 'Portal & reporting', 'Setup & support'];
+
+function renderMark(m: Mark) {
+  if (typeof m === 'string') return { type: 'text', value: m };
+  return m ? { type: 'yes' } : { type: 'no' };
+}
+---
+
+<BaseLayout
+  title="Pricing — ReceptionMate packages for UK garages"
+  description="Three ReceptionMate packages — Assist, Automate and Connect — compared side-by-side. Pick the AI receptionist tier that fits your UK garage."
+>
+  <!-- Hero -->
+  <section class="bg-white pt-16 pb-10 sm:pt-20 sm:pb-12">
+    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Pricing</p>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
+        Three packages. Pick the one that fits.
+      </h1>
+      <p class="mt-4 max-w-3xl text-lg leading-relaxed text-ink-700">
+        All packages are billed monthly with no minimum contract. Most garages
+        start with Assist or Automate for the voice side, and add Connect
+        when they're ready to take messaging and outbound campaigns on as well.
+      </p>
+    </div>
+  </section>
+
+  <!-- Tier cards -->
+  <section class="bg-ink-50 py-12 sm:py-16">
+    <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+      <div class="grid gap-6 lg:grid-cols-3 lg:items-stretch">
+        {tiers.map((t) => (
+          <article class={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-sm transition hover:shadow-md ${t.recommended ? 'border-brand-200 ring-2 ring-brand-600 lg:-my-2' : 'border-ink-200'}`}>
+            {t.recommended && (
+              <span class="absolute -top-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow">
+                Most popular
+              </span>
+            )}
+            <h2 class="text-2xl font-bold text-ink-900">{t.name}</h2>
+            <p class="mt-1 text-sm font-medium text-brand-700">{t.tagline}</p>
+            <div class="mt-5 pb-5 border-b border-ink-200">
+              <div class="flex items-baseline gap-1">
+                <span class="text-3xl font-bold text-ink-900">{t.price}</span>
+                {t.priceUnit && <span class="text-base font-medium text-ink-500">{t.priceUnit}</span>}
+              </div>
+              <p class="mt-1 text-xs text-ink-500">{t.priceFootnote}</p>
+            </div>
+            <a
+              href={t.href}
+              class={`mt-auto inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold transition ${t.recommended ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/25 hover:bg-brand-700' : 'border border-ink-300 bg-white text-ink-900 hover:border-brand-300 hover:text-brand-700'}`}>
+              {t.cta}
+            </a>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison table — desktop -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-3xl text-center">
+        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Compare</p>
+        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          What's in each package.
+        </h2>
+      </div>
+
+      <!-- Desktop comparison table -->
+      <div class="mt-12 hidden overflow-hidden rounded-2xl border border-ink-200 md:block">
+        <table class="w-full text-left">
+          <thead>
+            <tr class="border-b border-ink-200 bg-ink-50">
+              <th scope="col" class="px-6 py-5 text-sm font-semibold text-ink-900 w-[40%]">Feature</th>
+              {tiers.map((t) => (
+                <th scope="col" class="px-6 py-5 text-center">
+                  <p class="text-sm font-semibold text-ink-900">{t.name}</p>
+                  <p class="mt-1 text-xs text-ink-500">{t.price}{t.priceUnit}</p>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {groupOrder.map((group) => {
+              const rows = features.filter((f) => f.group === group);
+              return (
+                <>
+                  <tr class="bg-ink-50/60">
+                    <th scope="rowgroup" colspan="4" class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-brand-700">
+                      {group}
+                    </th>
+                  </tr>
+                  {rows.map((row) => {
+                    const a = renderMark(row.assist);
+                    const au = renderMark(row.automate);
+                    const co = renderMark(row.connect);
+                    return (
+                      <tr class="border-b border-ink-100 last:border-b-0">
+                        <td class="px-6 py-4 align-top">
+                          <p class="text-sm font-medium text-ink-900">{row.label}</p>
+                          {row.detail && <p class="mt-0.5 text-xs text-ink-500">{row.detail}</p>}
+                        </td>
+                        {[a, au, co].map((m) => (
+                          <td class="px-6 py-4 text-center align-top text-sm">
+                            {m.type === 'yes' ? (
+                              <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                              </span>
+                            ) : m.type === 'no' ? (
+                              <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                              </span>
+                            ) : (
+                              <span class="font-medium text-ink-800">{m.value}</span>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Mobile: stacked per group -->
+      <div class="mt-10 grid gap-6 md:hidden">
+        {groupOrder.map((group) => {
+          const rows = features.filter((f) => f.group === group);
+          return (
+            <div class="rounded-2xl border border-ink-200 bg-white p-5">
+              <h3 class="text-xs font-semibold uppercase tracking-wider text-brand-700">{group}</h3>
+              <div class="mt-3 space-y-3">
+                {rows.map((row) => {
+                  const m = [renderMark(row.assist), renderMark(row.automate), renderMark(row.connect)];
+                  return (
+                    <div class="border-t border-ink-100 pt-3 first:border-t-0 first:pt-0">
+                      <p class="text-sm font-medium text-ink-900">{row.label}</p>
+                      {row.detail && <p class="mt-0.5 text-xs text-ink-500">{row.detail}</p>}
+                      <dl class="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                        {['Assist', 'Automate', 'Connect'].map((name, i) => (
+                          <div>
+                            <dt class="text-[10px] font-semibold uppercase tracking-wider text-ink-500">{name}</dt>
+                            <dd class="mt-1 flex justify-center text-sm">
+                              {m[i].type === 'yes' ? (
+                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                </span>
+                              ) : m[i].type === 'no' ? (
+                                <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink-100 text-ink-400">
+                                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </span>
+                              ) : (
+                                <span class="font-medium text-ink-800">{m[i].value}</span>
+                              )}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing FAQ -->
+  <section class="bg-ink-50 py-16 sm:py-20">
+    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+      <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">Pricing FAQ.</h2>
+      <div class="mt-8 space-y-3">
+        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
+          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">Can I combine Assist or Automate with Connect?</summary>
+          <p class="mt-3 text-base leading-relaxed text-ink-700">Yes. The voice side (Assist or Automate) and the messaging side (Connect) are designed to work together. Most multi-channel garages start with one and add the other.</p>
+        </details>
+        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
+          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">What happens if I exceed the included minutes on Assist?</summary>
+          <p class="mt-3 text-base leading-relaxed text-ink-700">Overage is billed at £0.25 per minute. We'll flag it in the portal as you approach the included allowance so there are no surprises on your invoice.</p>
+        </details>
+        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
+          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">Why is Automate "Custom" priced?</summary>
+          <p class="mt-3 text-base leading-relaxed text-ink-700">Automate's pricing depends on how many branches you run and which integrations you need (Garage Hive, Tyresoft, custom DMS). Talk to us and we'll give you a fixed monthly number after a short scoping call.</p>
+        </details>
+        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
+          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">Is there a contract?</summary>
+          <p class="mt-3 text-base leading-relaxed text-ink-700">No minimum contract on any package. You can change tier or cancel any time — just disable the call-forwarding rule.</p>
+        </details>
+        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
+          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">Do you offer a free trial?</summary>
+          <p class="mt-3 text-base leading-relaxed text-ink-700">No — but you can switch on a paid month and switch it off at the end of it, no questions asked. Most garages see the platform pay for itself in the first fortnight.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+      <div class="rounded-3xl bg-brand-600 p-10 text-center sm:p-14">
+        <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">Not sure which one fits?</h2>
+        <p class="mx-auto mt-4 max-w-2xl text-lg text-brand-100">
+          A 15-minute call with us is enough to figure it out. We'll look at your call volume and
+          recommend Assist, Automate, Connect — or a combination.
+        </p>
+        <div class="mt-8">
+          <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition">Talk to us</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

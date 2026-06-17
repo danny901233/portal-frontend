@@ -1,0 +1,158 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import HowItWorks from '../components/HowItWorks.astro';
+
+const sections = [
+  {
+    h2: '1. Sign up in 60 seconds',
+    body: `Type your garage name into the receptionmate.co.uk sign-up flow. We pull your services, opening hours, prices and brand details from your existing Google Business Profile and your website — no forms to fill in. You confirm what's right, correct what's wrong, and that's it.`,
+  },
+  {
+    h2: '2. Pick your receptionist\'s voice',
+    body: `Three voices, all UK-trained for automotive: Leah (warm, friendly), Tom (efficient, neutral), Sophie (calm, professional). Listen to samples, pick the one that fits your brand. You can change later. The voice you choose is what every caller hears from then on.`,
+  },
+  {
+    h2: '3. Test it on a live number',
+    body: `We email you a working test number within a few minutes. Call it. Throw any tricky booking at it — an MOT plus a wheel alignment plus a brake inspection. Watch the call appear in your portal in real time with the transcript, the actions taken, and the booking captured. If anything\'s off, you can tune the agent's behaviour from the portal — no developers needed.`,
+  },
+  {
+    h2: '4. Set up call forwarding, go live',
+    body: `You don\'t port your number — you keep it. We give you a ReceptionMate number, and you set conditional call forwarding on your existing landline or mobile: if the call rings 5–7 times without anyone picking up, it forwards to ReceptionMate. Out of hours, every incoming call goes straight to ReceptionMate. Your team still picks up first when they can — ReceptionMate only catches the calls that would have been missed. There\'s no downtime, no contract change with your telco, and you can reverse it in minutes.`,
+  },
+];
+---
+
+<BaseLayout
+  title="How ReceptionMate works — UK garage AI receptionist explained"
+  description="See exactly how ReceptionMate answers calls, captures bookings and pushes them into Garage Hive or Tyresoft — step by step, from sign-up to first booking."
+>
+
+  <!-- Hero -->
+  <section class="relative isolate overflow-hidden bg-white">
+    <div class="absolute inset-0 -z-10">
+      <div class="absolute -top-40 left-1/2 h-96 w-[800px] -translate-x-1/2 rounded-full bg-brand-100/60 blur-3xl"></div>
+    </div>
+    <div class="mx-auto max-w-5xl px-4 pt-16 pb-12 sm:px-6 lg:px-8 lg:pt-20">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">How it works</p>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl lg:text-6xl">
+        From sign-up to your<br/>
+        <span class="text-brand-600">first booking — in minutes.</span>
+      </h1>
+      <p class="mt-6 max-w-2xl text-lg leading-relaxed text-ink-700">
+        ReceptionMate answers calls in a natural UK voice, captures the booking
+        directly into your garage management system, and confirms by text — all
+        on the same call. Here's exactly how it works, end to end.
+      </p>
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
+          Get started
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive overview reuses the homepage component -->
+  <HowItWorks />
+
+  <!-- Step-by-step writeup -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+      <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        Walked through, step by step.
+      </h2>
+      <p class="mt-4 text-lg text-ink-700">
+        The four things that happen between signing up and your first AI-captured
+        booking. No technical knowledge needed at any point.
+      </p>
+
+      <div class="mt-12 space-y-12">
+        {sections.map((s) => (
+          <div>
+            <h3 class="text-2xl font-bold text-ink-900">{s.h2}</h3>
+            <p class="mt-3 text-base leading-relaxed text-ink-700">{s.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- What's happening under the hood -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+      <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        What's happening behind the scenes.
+      </h2>
+      <p class="mt-4 text-lg text-ink-700">
+        You don't need to know any of this to use ReceptionMate — but if you
+        want to understand the moving parts, here's the short version.
+      </p>
+
+      <div class="mt-10 grid gap-6 md:grid-cols-2">
+        <div class="rounded-2xl border border-ink-200 bg-white p-6">
+          <h3 class="text-lg font-semibold text-ink-900">UK telephony</h3>
+          <p class="mt-2 text-base leading-relaxed text-ink-700">
+            Calls arrive over a UK-based telephony layer with sub-100ms routing.
+            The caller hears the agent pick up as if a human was at the desk.
+          </p>
+        </div>
+        <div class="rounded-2xl border border-ink-200 bg-white p-6">
+          <h3 class="text-lg font-semibold text-ink-900">Voice trained on UK garages</h3>
+          <p class="mt-2 text-base leading-relaxed text-ink-700">
+            Speech recognition tuned for British accents and garage vocabulary —
+            MOT, advisory, DPF, EGR, cambelt, half-shaft. No "American auto"
+            confusion.
+          </p>
+        </div>
+        <div class="rounded-2xl border border-ink-200 bg-white p-6">
+          <h3 class="text-lg font-semibold text-ink-900">Live DMS integration</h3>
+          <p class="mt-2 text-base leading-relaxed text-ink-700">
+            Direct integrations with Garage Hive, Tyresoft and others read your
+            diary and write bookings during the call — not at the end of the
+            day.
+          </p>
+        </div>
+        <div class="rounded-2xl border border-ink-200 bg-white p-6">
+          <h3 class="text-lg font-semibold text-ink-900">DVLA + MOT lookups</h3>
+          <p class="mt-2 text-base leading-relaxed text-ink-700">
+            DVSA / DVLA APIs return vehicle and MOT data in under 200ms, so the
+            agent confirms the right car back to the customer in real time.
+          </p>
+        </div>
+        <div class="rounded-2xl border border-ink-200 bg-white p-6">
+          <h3 class="text-lg font-semibold text-ink-900">SMS confirmations</h3>
+          <p class="mt-2 text-base leading-relaxed text-ink-700">
+            Bookings trigger an SMS confirmation before the call ends, and a
+            reminder the day before — drastically reducing no-shows.
+          </p>
+        </div>
+        <div class="rounded-2xl border border-ink-200 bg-white p-6">
+          <h3 class="text-lg font-semibold text-ink-900">Your portal</h3>
+          <p class="mt-2 text-base leading-relaxed text-ink-700">
+            Every call, transcript, booking and message lives in your dashboard.
+            Search, tag, replay, export. Your data, on your terms.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+      <div class="rounded-3xl bg-brand-600 p-10 text-center sm:p-14">
+        <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          See it on your own number.
+        </h2>
+        <p class="mx-auto mt-4 max-w-2xl text-lg text-brand-100">
+          We'll set you up with a live test line within minutes. Try any kind of
+          booking. If you like what you hear, go live the same week.
+        </p>
+        <div class="mt-8">
+          <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition">
+            Get started
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

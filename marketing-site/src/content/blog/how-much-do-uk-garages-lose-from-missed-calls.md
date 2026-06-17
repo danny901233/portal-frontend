@@ -4,6 +4,8 @@ description: "We analysed call patterns across UK independent garages to put a r
 publishedAt: 2026-06-14
 author: human
 tags: ["data", "missed calls", "garages"]
+heroImage: "/blog/how-much-do-uk-garages-lose-from-missed-calls.png"
+heroImageAlt: "Illustration for \"How much do UK garages lose from missed calls?\""
 ---
 
 Every garage owner intuitively knows missed calls cost money. Very few have a number. Without a number, the cost of *not* fixing the problem stays vague — and vague problems don't get prioritised.

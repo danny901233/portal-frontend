@@ -168,14 +168,29 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
     const q = $query.value.trim();
     if (q.length < 2) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
     debounce = window.setTimeout(async () => {
-      await ensurePlaces();
-      if (!placesReady) return;
+      // Always show a manual-entry fallback at the bottom so visitors whose
+      // garage isn't on Google can still proceed with whatever they typed.
+      const appendManualRow = () => {
+        const li = document.createElement('li');
+        li.className = 'flex cursor-pointer items-start gap-3 border-t border-ink-200 bg-ink-50/60 px-4 py-3 hover:bg-ink-100';
+        li.innerHTML = `
+          <svg class="mt-0.5 h-4 w-4 shrink-0 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-semibold text-ink-900">Can't find your garage?</p>
+            <p class="truncate text-xs text-ink-500">Continue with &ldquo;${q.replace(/"/g, '&quot;')}&rdquo; and enter details manually</p>
+          </div>`;
+        li.addEventListener('click', () => {
+          $results.classList.add('hidden');
+          openWizard({ businessName: q });
+        });
+        $results.appendChild(li);
+      };
 
       // Normalise both APIs into a uniform { mainText, secondaryText } list.
       const renderList = (items) => {
         $results.innerHTML = '';
-        if (!items || items.length === 0) { $results.classList.add('hidden'); return; }
-        items.slice(0, 6).forEach(({ mainText, secondaryText }) => {
+        const list = (items || []).slice(0, 6);
+        list.forEach(({ mainText, secondaryText }) => {
           const li = document.createElement('li');
           li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
           li.innerHTML = `
@@ -190,8 +205,17 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
           });
           $results.appendChild(li);
         });
+        // Always tail with a manual-entry fallback — useful both when zero
+        // results came back and when the user can't see their garage in the
+        // suggestions.
+        appendManualRow();
         $results.classList.remove('hidden');
       };
+
+      await ensurePlaces();
+      // If Places didn't load (network / quota / API down), don't trap the
+      // visitor — just show the manual-entry row so they can still proceed.
+      if (!placesReady) { renderList([]); return; }
 
       if (placesMode === 'new') {
         try {

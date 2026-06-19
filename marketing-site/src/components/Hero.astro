@@ -159,6 +159,7 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
     const params = new URLSearchParams();
     if (opts?.businessName) params.set('name', opts.businessName);
     if (opts?.address)      params.set('address', opts.address);
+    if (opts?.placeId)      params.set('placeId', opts.placeId);
     window.location.href = '/get-started' + (params.toString() ? '?' + params.toString() : '');
   }
 
@@ -190,7 +191,7 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
       const renderList = (items) => {
         $results.innerHTML = '';
         const list = (items || []).slice(0, 6);
-        list.forEach(({ mainText, secondaryText }) => {
+        list.forEach(({ mainText, secondaryText, placeId }) => {
           const li = document.createElement('li');
           li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
           li.innerHTML = `
@@ -201,7 +202,7 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
             </div>`;
           li.addEventListener('click', () => {
             $results.classList.add('hidden');
-            openWizard({ businessName: mainText, address: secondaryText });
+            openWizard({ businessName: mainText, address: secondaryText, placeId });
           });
           $results.appendChild(li);
         });
@@ -230,6 +231,7 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
             return {
               mainText:      pp?.mainText?.toString()      || pp?.text?.toString() || '',
               secondaryText: pp?.secondaryText?.toString() || '',
+              placeId:       pp?.placeId || '',
             };
           }));
         } catch (err) {
@@ -245,6 +247,7 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
             renderList((preds || []).map((p) => ({
               mainText:      p.structured_formatting?.main_text      || p.description || '',
               secondaryText: p.structured_formatting?.secondary_text || '',
+              placeId:       p.place_id || '',
             })));
           },
         );

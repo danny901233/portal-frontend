@@ -465,6 +465,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
   const state = {
     businessName: '',
     address: '',
+    placeId: '',
     tier: '',
     gms: '',
     gmsName: '',
@@ -501,8 +502,9 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
   const qs = new URLSearchParams(location.search);
   const seedName = qs.get('name') || '';
   const seedAddr = qs.get('address') || '';
+  const seedPlaceId = qs.get('placeId') || '';
   const seedTier = qs.get('tier') || '';
-  if (seedName.length >= 2) { state.businessName = seedName; state.address = seedAddr; }
+  if (seedName.length >= 2) { state.businessName = seedName; state.address = seedAddr; state.placeId = seedPlaceId; }
   if (['assist','automate','connect'].includes(seedTier)) state.tier = seedTier;
 
   function setStep(name, pushHistory) {
@@ -574,9 +576,10 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
   const $search  = document.getElementById('gs-search');
   const $results = document.getElementById('gs-search-results');
 
-  function pickBusiness(name, addr) {
+  function pickBusiness(name, addr, placeId) {
     state.businessName = name;
     state.address = addr || '';
+    state.placeId = placeId || '';
     updateBusinessReadback();
     $results.classList.add('hidden');
     setStep('package', true);
@@ -595,7 +598,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
   function renderResults(items) {
     $results.innerHTML = '';
     if (!items.length) { $results.classList.add('hidden'); return; }
-    items.slice(0, 6).forEach(({ mainText, secondaryText }) => {
+    items.slice(0, 6).forEach(({ mainText, secondaryText, placeId }) => {
       const li = document.createElement('li');
       li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
       li.innerHTML = `
@@ -604,7 +607,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
           <p class="truncate text-sm font-semibold text-ink-900">${mainText}</p>
           <p class="truncate text-xs text-ink-500">${secondaryText}</p>
         </div>`;
-      li.addEventListener('click', () => pickBusiness(mainText, secondaryText));
+      li.addEventListener('click', () => pickBusiness(mainText, secondaryText, placeId));
       $results.appendChild(li);
     });
     $results.classList.remove('hidden');
@@ -626,6 +629,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
           renderResults((suggestions || []).map((s) => ({
             mainText:      s.placePrediction?.mainText?.toString()      || s.placePrediction?.text?.toString() || '',
             secondaryText: s.placePrediction?.secondaryText?.toString() || '',
+            placeId:       s.placePrediction?.placeId || '',
           })));
         } catch (err) { console.error('[get-started] autocomplete failed', err); }
       } else if (legacySvc) {
@@ -634,6 +638,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
           (preds) => renderResults((preds || []).map((p) => ({
             mainText:      p.structured_formatting?.main_text      || p.description || '',
             secondaryText: p.structured_formatting?.secondary_text || '',
+            placeId:       p.place_id || '',
           }))),
         );
       }
@@ -746,6 +751,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
           businessName: state.businessName,
           email,
           address: state.address,
+          googlePlaceId: state.placeId,
           name,
         }),
       });

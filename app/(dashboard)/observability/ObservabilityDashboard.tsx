@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getGarageId, getSessionToken } from '../../lib/auth';
+import { useBranchScope } from '../../lib/branchScope';
 
 // --- Types ---
 
@@ -161,6 +162,9 @@ function computeFlaggedCalls(callsData: CallData[], config: EvaluatorConfig): Fl
 // --- Component ---
 
 export function ObservabilityDashboard() {
+  const { scope, allowAllAssignedOption, selectedGarageId } = useBranchScope();
+  // "All branches" selected at the top → aggregate every garage; otherwise drill into one branch.
+  const aggregateAllBranches = scope === 'all' && allowAllAssignedOption;
   const [timeRange, setTimeRange] = useState('24h');
   const [loading, setLoading] = useState(true);
   const [calls, setCalls] = useState<CallData[]>([]);
@@ -221,12 +225,14 @@ export function ObservabilityDashboard() {
 
   useEffect(() => {
     fetchData();
-  }, [timeRange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeRange, aggregateAllBranches, selectedGarageId]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const garageId = getGarageId() || 'any';
+      // 'any' = cross-garage aggregate (all branches); otherwise the selected branch.
+      const garageId = aggregateAllBranches ? 'any' : (selectedGarageId || getGarageId() || 'any');
       const token = getSessionToken();
 
       if (!token) {

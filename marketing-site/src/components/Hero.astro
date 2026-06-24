@@ -1,7 +1,5 @@
 ---
-import CallTicker from './CallTicker.astro';
-
-const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
+// Hero - CTA-led; the garage lookup typeahead lives at step 1 of the /get-started wizard.
 ---
 
 <section class="relative isolate overflow-hidden bg-white">
@@ -28,41 +26,26 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
         straight to your team. 24/7.
       </p>
 
-      <!-- ===== Inline garage lookup pill ===== -->
-      <!-- Type a garage name, pick from Google's suggestions, and the
-           "Get started" wizard opens at step 2 with the business pre-filled. -->
-      <div id="hero-lookup-stage" class="mx-auto mt-8 w-full max-w-2xl">
-        <div class="flex items-center gap-2 rounded-full border border-ink-200 bg-white p-2 shadow-xl shadow-brand-900/10">
-          <div class="flex flex-1 items-center pl-4">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-            </svg>
-            <input
-              type="text"
-              id="hero-lookup-query"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="Find your garage…"
-              class="flex-1 ml-3 bg-transparent py-2 text-base text-ink-900 placeholder:text-ink-400 focus:outline-none"
-            />
-          </div>
-          <a
-            href="/get-started"
-            id="hero-lookup-cta"
-            class="inline-flex items-center justify-center gap-2 rounded-full bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-brand-600/30 hover:bg-brand-700 transition sm:px-6 sm:text-base"
-          >
-            Get started
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
-          </a>
-        </div>
-
-        <!-- Result list (populated by JS) -->
-        <ul id="hero-lookup-results" class="mx-auto mt-2 hidden max-w-xl overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-lg text-left"></ul>
-
-        <p class="mt-3 text-sm text-ink-500">
-          Simple monthly billing
-        </p>
+      <!-- ===== CTA buttons (the garage lookup now lives at step 1 of the wizard) ===== -->
+      <div class="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <a
+          href="/get-started"
+          class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-7 py-3.5 text-base font-semibold text-white shadow-lg shadow-brand-600/30 hover:bg-brand-700 transition sm:w-auto"
+        >
+          Get started
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+        </a>
+        <a
+          href="/how-it-works"
+          class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-ink-300 bg-white px-7 py-3.5 text-base font-semibold text-ink-800 hover:bg-ink-50 transition sm:w-auto"
+        >
+          See how it works
+        </a>
       </div>
+
+      <p class="mt-5 text-sm text-ink-500">
+        Simple monthly billing &middot; keep your number
+      </p>
 
       <!-- Avatar / rating row — hidden on mobile to reduce hero clutter -->
       <div class="mt-7 hidden items-center justify-center gap-4 sm:flex">
@@ -83,187 +66,5 @@ const GOOGLE_API_KEY = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
         </div>
       </div>
     </div>
-
-    <!-- Live activity ticker — hidden on mobile to reduce hero clutter -->
-    <div class="mt-16 hidden sm:block">
-      <CallTicker />
-    </div>
   </div>
 </section>
-
-<script is:inline define:vars={{ GOOGLE_API_KEY }}>
-  // Hero pill is just a friendlier entry point to the wizard. Typing surfaces
-  // Google Places matches; clicking one (or the CTA) opens the GetStarted
-  // modal with the business pre-filled, jumping straight to step 2.
-  const $query   = document.getElementById('hero-lookup-query');
-  const $results = document.getElementById('hero-lookup-results');
-  const $cta     = document.getElementById('hero-lookup-cta');
-
-  let placesReady = false;
-  let placesLoadPromise = null;
-  let placesMode = ''; // 'new' (AutocompleteSuggestion) or 'legacy' (AutocompleteService)
-  let legacySvc = null;
-
-  // Surface Google Maps load failures so a missing key / domain restriction
-  // / disabled Places API doesn't fail silently.
-  window.gm_authFailure = () => {
-    console.error('[hero-lookup] Google Maps auth failed — key invalid, restricted to wrong domain, or Places API not enabled.');
-  };
-
-  // Uses the modern `AutocompleteSuggestion` API. `AutocompleteService` was
-  // discontinued for new GCP projects in March 2025, so this code path is the
-  // only one that works on freshly-created Maps keys.
-  function ensurePlaces() {
-    if (placesReady) return Promise.resolve();
-    if (!GOOGLE_API_KEY) {
-      console.warn('[hero-lookup] PUBLIC_GOOGLE_MAPS_API_KEY is empty — restart `npm run dev` after editing .env.');
-      return Promise.resolve();
-    }
-    if (placesLoadPromise) return placesLoadPromise;
-    placesLoadPromise = new Promise((resolve) => {
-      if (window.google?.maps?.places?.AutocompleteSuggestion) {
-        placesReady = true;
-        return resolve();
-      }
-      const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&libraries=places&v=weekly`;
-      s.async = true; s.defer = true;
-      s.onload = () => {
-        const placesNs = window.google?.maps?.places;
-        console.log('[hero-lookup] google.maps.places keys:', placesNs ? Object.keys(placesNs) : 'NULL');
-        if (placesNs?.AutocompleteSuggestion) {
-          placesMode = 'new';
-          placesReady = true;
-        } else if (placesNs?.AutocompleteService) {
-          placesMode = 'legacy';
-          legacySvc = new google.maps.places.AutocompleteService();
-          placesReady = true;
-          console.info('[hero-lookup] Using legacy AutocompleteService.');
-        } else {
-          console.error('[hero-lookup] Places library loaded but neither AutocompleteSuggestion nor AutocompleteService is available.');
-        }
-        resolve();
-      };
-      s.onerror = (err) => {
-        console.error('[hero-lookup] Failed to load Google Maps script', err);
-        resolve();
-      };
-      document.head.appendChild(s);
-    });
-    return placesLoadPromise;
-  }
-
-  // Navigate to the multi-step /get-started page, passing what the user
-  // already typed/picked via query string so we can skip step 1.
-  function openWizard(opts) {
-    const params = new URLSearchParams();
-    if (opts?.businessName) params.set('name', opts.businessName);
-    if (opts?.address)      params.set('address', opts.address);
-    window.location.href = '/get-started' + (params.toString() ? '?' + params.toString() : '');
-  }
-
-  let debounce = null;
-  $query?.addEventListener('input', () => {
-    window.clearTimeout(debounce);
-    const q = $query.value.trim();
-    if (q.length < 2) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
-    debounce = window.setTimeout(async () => {
-      // Always show a manual-entry fallback at the bottom so visitors whose
-      // garage isn't on Google can still proceed with whatever they typed.
-      const appendManualRow = () => {
-        const li = document.createElement('li');
-        li.className = 'flex cursor-pointer items-start gap-3 border-t border-ink-200 bg-ink-50/60 px-4 py-3 hover:bg-ink-100';
-        li.innerHTML = `
-          <svg class="mt-0.5 h-4 w-4 shrink-0 text-ink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-semibold text-ink-900">Can't find your garage?</p>
-            <p class="truncate text-xs text-ink-500">Continue with &ldquo;${q.replace(/"/g, '&quot;')}&rdquo; and enter details manually</p>
-          </div>`;
-        li.addEventListener('click', () => {
-          $results.classList.add('hidden');
-          openWizard({ businessName: q });
-        });
-        $results.appendChild(li);
-      };
-
-      // Normalise both APIs into a uniform { mainText, secondaryText } list.
-      const renderList = (items) => {
-        $results.innerHTML = '';
-        const list = (items || []).slice(0, 6);
-        list.forEach(({ mainText, secondaryText }) => {
-          const li = document.createElement('li');
-          li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
-          li.innerHTML = `
-            <svg class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold text-ink-900">${mainText}</p>
-              <p class="truncate text-xs text-ink-500">${secondaryText}</p>
-            </div>`;
-          li.addEventListener('click', () => {
-            $results.classList.add('hidden');
-            openWizard({ businessName: mainText, address: secondaryText });
-          });
-          $results.appendChild(li);
-        });
-        // Always tail with a manual-entry fallback — useful both when zero
-        // results came back and when the user can't see their garage in the
-        // suggestions.
-        appendManualRow();
-        $results.classList.remove('hidden');
-      };
-
-      await ensurePlaces();
-      // If Places didn't load (network / quota / API down), don't trap the
-      // visitor — just show the manual-entry row so they can still proceed.
-      if (!placesReady) { renderList([]); return; }
-
-      if (placesMode === 'new') {
-        try {
-          const { suggestions } = await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-            input: q,
-            includedRegionCodes: ['gb'],
-            language: 'en-GB',
-            region: 'GB',
-          });
-          renderList((suggestions || []).map((s) => {
-            const pp = s.placePrediction;
-            return {
-              mainText:      pp?.mainText?.toString()      || pp?.text?.toString() || '',
-              secondaryText: pp?.secondaryText?.toString() || '',
-            };
-          }));
-        } catch (err) {
-          console.error('[hero-lookup] fetchAutocompleteSuggestions failed', err);
-        }
-      } else if (placesMode === 'legacy' && legacySvc) {
-        legacySvc.getPlacePredictions(
-          { input: q, componentRestrictions: { country: 'gb' } },
-          (preds, status) => {
-            if (status && status !== 'OK' && status !== google.maps.places.PlacesServiceStatus.OK) {
-              console.warn('[hero-lookup] legacy autocomplete status:', status);
-            }
-            renderList((preds || []).map((p) => ({
-              mainText:      p.structured_formatting?.main_text      || p.description || '',
-              secondaryText: p.structured_formatting?.secondary_text || '',
-            })));
-          },
-        );
-      }
-    }, 200);
-  });
-
-  // If the user has typed something but not picked a result, forward what
-  // they typed to /get-started so step 1 isn't blank on arrival.
-  $cta?.addEventListener('click', (e) => {
-    const q = $query?.value.trim() || '';
-    if (!q) return; // empty input → let the plain href handle it
-    e.preventDefault();
-    openWizard({ businessName: q });
-  });
-
-  // Hide the dropdown when clicking outside the lookup stage.
-  document.addEventListener('click', (e) => {
-    const stage = document.getElementById('hero-lookup-stage');
-    if (stage && !stage.contains(e.target)) $results.classList.add('hidden');
-  });
-</script>

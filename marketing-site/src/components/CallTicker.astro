@@ -146,10 +146,18 @@
         }>;
         if (!Array.isArray(data) || data.length === 0) return;
 
+        // SAFETY NET (mirrors the backend guard): never render anything that
+        // looks like a garage / business name in the "for a garage in [city]"
+        // slot — towns only. Belt-and-braces against a stale cache or any other
+        // path leaking a name. We must NEVER name a garage.
+        const BIZ_NAME_RE = /\b(auto|automotive|repair|repairs|garage|garages|motor|motors|service|services|tyre|tyres|mot|vehicle|vehicles|bodyshop|coachworks|mechanic|mechanics|ltd|limited|centre|center|specialist|specialists|car|cars)\b/i;
+        const safe = data.filter((d) => !!d.city && !/&/.test(d.city) && !BIZ_NAME_RE.test(d.city));
+        if (safe.length === 0) return; // keep the safe static fallback pool
+
         // Use the live entries as the rotation pool. Default agent to "Leah"
         // if the API didn't include one. Tolerate older API responses that
         // returned `service` instead of `description`.
-        pool = data.map((d) => ({
+        pool = safe.map((d) => ({
           agent: d.agent || 'Leah',
           city: d.city,
           description: d.description ?? (d.service ? `a ${d.service.toLowerCase()} booking` : 'a call'),

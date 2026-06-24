@@ -13,6 +13,53 @@ const {
   description = 'ReceptionMate answers every call, books every job. Stop losing customers to missed calls — our AI receptionist captures bookings 24/7 and sends them straight to your team.',
   ogImage = '/og.png',
 } = Astro.props;
+
+const canonical = new URL(Astro.url.pathname, 'https://receptionmate.co.uk').href;
+
+// Site-wide structured data — Organization + WebSite + SoftwareApplication.
+// Helps Google understand the brand (name/logo/address) and qualifies the
+// site for richer results; the FAQ page adds its own FAQPage schema on top.
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': 'https://receptionmate.co.uk/#organization',
+      name: 'ReceptionMate',
+      legalName: 'ReceptionMate Ltd',
+      url: 'https://receptionmate.co.uk/',
+      logo: 'https://receptionmate.co.uk/favicon.png',
+      description:
+        'AI receptionist for UK garages — answers every call, captures the booking, and sends it straight to your team, 24/7.',
+      address: {
+        '@type': 'PostalAddress',
+        streetAddress: "Studio 9, 50–54 St. Paul's Square",
+        addressLocality: 'Birmingham',
+        postalCode: 'B3 1QS',
+        addressCountry: 'GB',
+      },
+      areaServed: { '@type': 'Country', name: 'United Kingdom' },
+    },
+    {
+      '@type': 'WebSite',
+      '@id': 'https://receptionmate.co.uk/#website',
+      url: 'https://receptionmate.co.uk/',
+      name: 'ReceptionMate',
+      inLanguage: 'en-GB',
+      publisher: { '@id': 'https://receptionmate.co.uk/#organization' },
+    },
+    {
+      '@type': 'SoftwareApplication',
+      name: 'ReceptionMate',
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'Web',
+      url: 'https://receptionmate.co.uk/',
+      description:
+        'AI voice and chat receptionist built for UK garages. Answers calls, books MOTs and services straight into your diary, and takes messages 24/7.',
+      provider: { '@id': 'https://receptionmate.co.uk/#organization' },
+    },
+  ],
+};
 ---
 
 <!doctype html>
@@ -32,13 +79,18 @@ const {
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImage} />
+    <meta property="og:url" content={canonical} />
     <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="canonical" href={canonical} />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://rsms.me/" />
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
     <slot name="head" />
   </head>
 

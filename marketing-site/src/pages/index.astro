@@ -18,8 +18,8 @@ import Signup from '../components/Signup.astro';
 <BaseLayout>
   <Hero />
   <SocialProof />
-  <!-- Live calls feed — sits below the rotating trusted-by banner -->
-  <section class="bg-white pb-16 sm:pb-20">
+  <!-- Live calls feed — desktop only (hidden on phones/tablets) -->
+  <section class="hidden bg-white pb-16 sm:pb-20 lg:block">
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
       <CallTicker />
     </div>

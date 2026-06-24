@@ -245,12 +245,24 @@ export const upsertAgentConfigurationSchema = z.object({
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
   agentType: z.enum(['assist', 'automate']).optional(),
-  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent']).optional(),
+  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'Assist-agent', 'GarageHive-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
+  transferNumber: z.union([z.string().max(50), z.literal('')]).optional(),
   allowBookings: z.boolean().optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
+  customRules: z.array(z.object({ text: z.string(), active: z.boolean() })).optional().nullable(),
+  // Jodie-style per-garage toggleable data-collection fields (consumed by RMB agents
+  // via DynamoDB AgentConfig). Each entry: key (machine id), label (caller-facing),
+  // active (toggle), required (must collect), instruction (optional how-to hint).
+  dataCollectionFields: z.array(z.object({
+    key: z.string().min(1).max(64),
+    label: z.string().min(1).max(120),
+    active: z.boolean(),
+    required: z.boolean(),
+    instruction: z.string().max(280).optional().nullable(),
+  })).optional().nullable(),
   hubspotSettings: z.object({
     enabled: z.boolean(),
     apiToken: z.string(),

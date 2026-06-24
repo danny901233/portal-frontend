@@ -11,6 +11,13 @@ import {
   updateAgentConfiguration,
 } from '../lib/api';
 import { getGarageId, isReceptionMateStaff } from '../lib/auth';
+import { useToast } from '../components/Toast';
+import StickySaveBar from '../components/StickySaveBar';
+import DataCollectionFieldsSection from './DataCollectionFieldsSection';
+import CustomRulesSection from './CustomRulesSection';
+
+// Data Collection Fields + Custom Rules are now GA — every garage admin can
+// edit them. Beta gate dropped 2026-06-11.
 import {
   createEmptyWeeklyOpeningHours,
   WEEKDAY_ORDER,
@@ -142,9 +149,12 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   agentType: 'assist',
   agentScript: 'receptionmate-agent-v3',
   enableSmsBookingLinks: true,
+  transferNumber: '',
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
+  dataCollectionFields: null,
+  customRules: null,
 });
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
@@ -194,10 +204,12 @@ const agentTypeOptions: { value: AgentType; label: string; description: string }
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
-const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent'; label: string; description: string }[] = [
+const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent'; label: string; description: string }[] = [
   { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
   { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture' },
   { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre centre integration with inventory management' },
+  { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on the second LiveKit Cloud account — message-taking only, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
+  { value: 'GarageHive-agent', label: 'RMB-GarageHive', description: 'New GarageHive booking + take-message agent on the second LiveKit Cloud account — full booking flow, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
 ];
 const maskSecretValue = (value: string) => {
   if (!value) {
@@ -256,6 +268,8 @@ export default function AgentConfigurationsPage() {
     refetchOnWindowFocus: false,
   });
 
+  const toast = useToast();
+
   const mutation = useMutation({
     mutationFn: (payload: AgentConfiguration) =>
       updateAgentConfiguration(payload, garageId ?? undefined),
@@ -263,12 +277,14 @@ export default function AgentConfigurationsPage() {
       setFormState(cloneConfiguration(data.configuration));
       setKnowledgeBase(data.knowledgeBase ?? []);
       setIsEditing(false);
-      setFeedback('Configuration saved and applied to your agent.');
+      setFeedback(null);
+      toast.success('Configuration saved', 'Changes applied to your agent.');
     },
     onError: (error: unknown) => {
       const message =
         error instanceof Error ? error.message : 'Failed to save configuration. Please try again.';
-      setFeedback(message);
+      setFeedback(null);
+      toast.error('Save failed', message);
     },
   });
 
@@ -1194,6 +1210,24 @@ export default function AgentConfigurationsPage() {
           </>
         )}
 
+        <CustomRulesSection
+          rules={formState.customRules ?? null}
+          disabled={mutation.isPending}
+          onChange={(nextRules) => {
+            setFormState((prev) => (prev ? { ...prev, customRules: nextRules } : prev));
+            setIsEditing(true);
+          }}
+        />
+
+        <DataCollectionFieldsSection
+          fields={formState.dataCollectionFields ?? null}
+          disabled={mutation.isPending}
+          onChange={(nextFields) => {
+            setFormState((prev) => (prev ? { ...prev, dataCollectionFields: nextFields } : prev));
+            setIsEditing(true);
+          }}
+        />
+
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -1439,6 +1473,18 @@ export default function AgentConfigurationsPage() {
                 placeholder="e.g. Thanks for calling ReceptionMate Garage"
                 className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
+            </label>
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              <span className="text-xs uppercase tracking-wide text-slate-500">Transfer number</span>
+              <input
+                type="text"
+                value={formState.transferNumber}
+                onChange={handleInputChange('transferNumber')}
+                disabled={!isEditing || mutation.isPending}
+                placeholder="e.g. 07700 900123"
+                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <span className="text-xs text-slate-500">When a caller asks to speak to a human, the AI will transfer them to this number.</span>
             </label>
           </div>
         </section>
@@ -1808,7 +1854,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}
@@ -2084,9 +2130,9 @@ export default function AgentConfigurationsPage() {
                     <ol className="flex flex-col gap-2 text-slate-400 list-decimal list-inside">
                       <li>Log in to HubSpot → Settings (top-right gear icon).</li>
                       <li>Go to <span className="text-slate-200">Integrations → Legacy Apps</span> → create or open your app.</li>
-                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">crm.objects.calls.write</code>.</li>
+                      <li>Under Scopes, enable: <code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">tickets</code>, <code className="text-sky-300">crm.objects.calls.write</code>.</li>
                       <li>Copy the token (starts with <code className="text-sky-300">pat-</code>) and paste it below.</li>
-                      <li>To get your Inbox Email: go to <span className="text-slate-200">Conversations → Settings → Inboxes</span> → click your inbox → <span className="text-slate-200">Team email</span> tab → copy the address (e.g. <code className="text-sky-300">support@12345.hs-inbox.com</code>).</li>
+                      <li>Optionally enter your HubSpot Owner ID to assign tickets and calls to a specific user. Leave blank to log without an owner.</li>
                     </ol>
                   </div>
                   <div className="grid gap-5 md:grid-cols-2">
@@ -2166,6 +2212,20 @@ export default function AgentConfigurationsPage() {
           {query.error instanceof Error ? query.error.message : 'Please try again later.'}
         </div>
       ) : null}
+
+      <StickySaveBar
+        visible={isEditing}
+        saving={mutation.isPending}
+        summary="Review your changes, then save to apply them to your agent."
+        onSave={() => mutation.mutate(formState)}
+        onDiscard={() => {
+          if (query.data) {
+            setFormState(cloneConfiguration(query.data.configuration));
+          }
+          setIsEditing(false);
+          setFeedback(null);
+        }}
+      />
     </div>
   );
 }

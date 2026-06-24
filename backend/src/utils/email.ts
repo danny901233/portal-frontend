@@ -6,6 +6,7 @@ interface EmailOptions {
   subject: string;
   html: string;
   text: string;
+  from?: string;
 }
 
 const getMailgunConfig = () => {
@@ -42,7 +43,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
   }
 
   const form = new URLSearchParams();
-  form.set('from', config.from);
+  form.set('from', options.from || config.from);
   form.set('to', options.to.join(', '));
   form.set('subject', options.subject);
   form.set('text', options.text);
@@ -188,10 +189,14 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+  timeZone: 'Europe/London',
+
   });
   const formattedTime = date.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   });
 
   const formattedBookingDate = bookingDate ? new Date(bookingDate).toLocaleDateString('en-GB', {
@@ -200,6 +205,8 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   }) : null;
 
   return `
@@ -392,10 +399,14 @@ const generateCallSummaryText = (data: CallSummaryEmailData): string => {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+  timeZone: 'Europe/London',
+
   });
   const formattedTime = date.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   });
 
   const formattedBookingDate = bookingDate ? new Date(bookingDate).toLocaleDateString('en-GB', {
@@ -404,6 +415,8 @@ const generateCallSummaryText = (data: CallSummaryEmailData): string => {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   }) : null;
 
   let text = `ReceptionMate - New Call Handled\n`;
@@ -500,6 +513,8 @@ export const sendPaymentSetupReminderEmail = async (
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   });
 
   const html = `
@@ -655,6 +670,8 @@ export const sendNegativeFeedbackEmail = async (
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+  timeZone: 'Europe/London',
+
   });
 
   const html = `

@@ -25,7 +25,7 @@ import {
   setGarageId,
   setGarages,
 } from '../lib/auth';
-import { fetchGarages } from '../lib/api';
+import { fetchAgentConfiguration, fetchGarages } from '../lib/api';
 import { fetchOnboardingStatus } from '../lib/onboarding';
 import type { GarageSummary } from '../types';
 
@@ -48,6 +48,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [conversationsNeedingAttention, setConversationsNeedingAttention] = useState(0);
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
   const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
+  const [receptionMateNumber, setReceptionMateNumber] = useState<string | null>(null);
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
@@ -69,7 +70,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [garages, managedGarageIdSet, restrictToAssignedBranches]);
   const visibleGarageIds = useMemo(() => visibleGarages.map((garage) => garage.id), [visibleGarages]);
   const allowAllAssignedBranches = useMemo(
-    () => pathname === '/dashboard' && visibleGarageIds.length > 1,
+    () => (pathname === '/dashboard' || pathname === '/observability') && visibleGarageIds.length > 1,
     [pathname, visibleGarageIds.length],
   );
 
@@ -80,6 +81,28 @@ export default function AppShell({ children }: { children: ReactNode }) {
       setBranchScope('single');
     }
   }, [allowAllAssignedBranches, branchScope]);
+
+  // Load the selected branch's ReceptionMate (Twilio) number for the sidebar footer.
+  useEffect(() => {
+    if (branchScope === 'all' || !garageId) {
+      setReceptionMateNumber(null);
+      return;
+    }
+
+    let cancelled = false;
+    setReceptionMateNumber(null);
+    fetchAgentConfiguration(garageId)
+      .then((config) => {
+        if (!cancelled) setReceptionMateNumber(config.twilioNumber ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setReceptionMateNumber(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branchScope, garageId]);
 
   const branchScopeValue = useMemo(
     () => ({
@@ -340,6 +363,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         hasManagerAccess={managedGarageIds.length > 0}
         isManagerUser={isStaffUser || isAdminUser}
         messagesNeedingAttention={messagesNeedingAttention}
+        receptionMateNumber={receptionMateNumber}
       />
       <div className="flex flex-1 flex-col">
         <Navbar

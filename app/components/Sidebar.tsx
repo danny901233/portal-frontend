@@ -35,6 +35,7 @@ export default function Sidebar({
   hasManagerAccess = false,
   isManagerUser = false,
   messagesNeedingAttention = 0,
+  receptionMateNumber = null,
 }: {
   activePath: string;
   showAdminLink?: boolean;
@@ -42,6 +43,7 @@ export default function Sidebar({
   hasManagerAccess?: boolean;
   isManagerUser?: boolean;
   messagesNeedingAttention?: number;
+  receptionMateNumber?: string | null;
 }) {
   const items = useMemo(() => {
     // Filter navigation based on permissions
@@ -144,6 +146,20 @@ export default function Sidebar({
           ))}
         </div>
       </div>
+      {receptionMateNumber && (
+        <div className="border-t border-slate-800 px-5 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Your ReceptionMate number
+          </div>
+          <a
+            href={`tel:${receptionMateNumber}`}
+            className="mt-1 block font-mono text-sm font-semibold text-slate-100 hover:text-white"
+          >
+            {receptionMateNumber}
+          </a>
+        </div>
+      )}
+
       <div className="border-t border-slate-800 px-5 py-4 text-xs text-slate-500">
         © {new Date().getFullYear()} ReceptionMate
       </div>

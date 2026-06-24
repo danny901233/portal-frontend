@@ -179,12 +179,27 @@ export interface GarageHiveSettings {
   locationId: string;
 }
 
+export interface PricingBracket {
+  maxCC: number;
+  price: number;
+}
+
+export interface TsService {
+  id: string;
+  name: string;
+  pricingType: 'fixed' | 'engine-size';
+  price?: number;
+}
+
 export interface TyresoftSettings {
   tsWorkspace: string;
   tsUsername: string;
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
+  tsChannelId?: number;
+  tsServices?: TsService[];
+  pricingRules?: Record<string, PricingBracket[]>;
 }
 
 export interface HubspotSettings {
@@ -216,11 +231,34 @@ export interface AgentConfiguration {
   tyresoftSettings: TyresoftSettings;
   hubspotSettings: HubspotSettings;
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent';
   enableSmsBookingLinks: boolean;
+  transferNumber: string;
   allowBookings: boolean;
   bookingLeadTimeDays: number;
   voice: VoiceOption;
+  dataCollectionFields?: DataCollectionField[] | null;
+  customRules?: CustomRule[] | null;
+}
+
+// Free-text behaviour rules per garage (injected at the very top of the agent
+// prompt). Each rule is a short sentence the agent must obey, e.g. "For air-con
+// services tell callers to just turn up — no booking needed." Inactive rules
+// are ignored by the agent.
+export interface CustomRule {
+  text: string;
+  active: boolean;
+}
+
+// Jodie-style per-garage toggleable data-collection fields (consumed by RMB agents).
+// Each entry tells the agent: ask for this info, mark it required if so flagged,
+// and use the instruction as a how-to hint in the prompt.
+export interface DataCollectionField {
+  key: string;
+  label: string;
+  active: boolean;
+  required: boolean;
+  instruction?: string | null;
 }
 
 export interface AgentConfigurationResponse {

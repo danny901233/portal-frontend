@@ -40,6 +40,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Backfill any missing hero images
+        # Self-heals posts whose hero image was lost (e.g. generated but never committed).
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node scripts/backfill-blog-images.mjs
+
       - name: Generate post
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -49,11 +55,13 @@ jobs:
         run: |
           git config user.name "receptionmate-bot"
           git config user.email "bot@receptionmate.co.uk"
-          # Only commit if there's actually a new file
-          if [ -n "$(git status --porcelain src/content/blog)" ]; then
-            git add src/content/blog/
-            git commit -m "blog(auto): new post via scheduled generator"
+          # Commit the post AND its hero image (public/blog). Committing only src/content/blog
+          # was the bug: the generated PNG was written to public/blog but never pushed, so every
+          # post pointed at a missing image.
+          if [ -n "$(git status --porcelain src/content/blog public/blog)" ]; then
+            git add src/content/blog/ public/blog/
+            git commit -m "blog(auto): new post + hero image via scheduled generator"
             git push
           else
-            echo "No new post written — skipping commit."
+            echo "No new post or image written — skipping commit."
           fi

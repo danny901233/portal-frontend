@@ -4,6 +4,7 @@ import { processMonthlyBilling } from '../services/billing.js';
 import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
 import { refreshTemplateToken } from '../services/metaTemplateToken.js';
 import { syncGocardlessPayments } from '../services/gocardlessSync.js';
+import { syncNegativeFeedbackToExcel } from '../services/feedbackExcelSync.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 
@@ -144,4 +145,23 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ GoCardless payment sync scheduled: Daily at 8:00 AM (UK time)');
+
+  // Negative feedback → OneDrive Excel sync: Every 2 hours
+  cron.schedule('0 */2 * * *', async () => {
+    console.log('[FEEDBACK-SYNC] Running negative feedback Excel sync...');
+    try {
+      const result = await syncNegativeFeedbackToExcel();
+      if (result.appended > 0) {
+        console.log(`[FEEDBACK-SYNC] ✓ Appended ${result.appended} rows, ${result.skipped} already synced`);
+      } else {
+        console.log('[FEEDBACK-SYNC] ✓ No new rows to sync');
+      }
+    } catch (error) {
+      console.error('[FEEDBACK-SYNC] ❌ Sync failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London',
+  });
+
+  console.log('✓ Negative feedback Excel sync scheduled: Every 2 hours (UK time)');
 };

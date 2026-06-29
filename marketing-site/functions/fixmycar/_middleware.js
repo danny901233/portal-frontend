@@ -13,7 +13,7 @@ function loginPage(error) {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex,nofollow" />
-<title>ReceptionMate × FixMyCar</title>
+<title>ReceptionMate</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
   *{box-sizing:border-box;}
@@ -38,12 +38,12 @@ function loginPage(error) {
 <body>
   <form class="card" method="POST" autocomplete="off">
     <div class="logo"><img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" /></div>
-    <h1>FixMyCar × ReceptionMate</h1>
-    <p>This page is private. Enter the password to continue.</p>
+    <h1>Private access</h1>
+    <p>Enter the password to continue.</p>
     ${error ? '<div class="err">Incorrect password — please try again.</div>' : '<div class="err"></div>'}
     <input type="password" name="password" placeholder="Password" autofocus required />
     <button type="submit">View &rarr;</button>
-    <div class="foot">Private &middot; prepared for FixMyCar</div>
+    <div class="foot">ReceptionMate</div>
   </form>
 </body>
 </html>`;

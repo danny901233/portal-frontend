@@ -1,0 +1,33 @@
+---
+const stats = [
+  { value: '30%', label: 'of garage calls go unanswered', note: 'industry average' },
+  { value: '£140', label: 'average value of a missed booking', note: 'lost revenue per call' },
+  { value: '74%', label: "of callers won't try again", note: 'they call your competitor' },
+];
+---
+
+<section class="bg-white py-20 sm:py-24">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-3xl text-center">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">The problem</p>
+      <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        Every missed call is a customer in the next garage.
+      </h2>
+      <!-- Long supporting paragraph hidden on mobile — stats below carry the message. -->
+      <p class="mt-4 hidden text-lg text-ink-600 md:block">
+        Your team is on the ramps, on the phone, or at lunch. Meanwhile the phone rings,
+        rings, rings — and another booking walks away.
+      </p>
+    </div>
+
+    <div class="mt-14 grid gap-6 sm:grid-cols-3">
+      {stats.map((s) => (
+        <div class="rounded-2xl border border-ink-200 bg-ink-50 p-6 text-center">
+          <p class="text-5xl font-bold tracking-tight text-brand-600">{s.value}</p>
+          <p class="mt-3 text-base font-semibold text-ink-900">{s.label}</p>
+          <p class="mt-1 text-sm text-ink-500">{s.note}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

@@ -1,0 +1,229 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+// Real customer outcomes — pasted from the Oct–Dec 2025 reporting period.
+// Numbers are the actual ones in the case-study deck so we don't have to
+// keep two sources of truth in sync.
+const CASE_STUDIES = [
+  {
+    slug: 'eac-telford',
+    name: 'EAC Telford',
+    type: 'Independent Garage & Service Centre',
+    location: 'Telford, Shropshire',
+    period: 'Oct – Dec 2025',
+    logo: '/garages/EAC-logo.png',
+    overview:
+      'EAC Telford partnered with ReceptionMate to handle overflow and after-hours calls — making sure every customer enquiry was answered professionally and efficiently. Their main goal: stop losing potential bookings when the team was busy or the phones went unanswered.',
+    impact:
+      "ReceptionMate's AI Voice Agent let EAC Telford capture customers they would have otherwise missed, boosting their monthly workload and reducing lost opportunities. The business now benefits from instant call handling, improved customer satisfaction, and detailed call analytics that show exactly where enquiries are coming from.",
+    stats: [
+      { label: 'Calls answered',         value: '1,468',      icon: 'phone'    },
+      { label: 'Bookings made',          value: '158',        icon: 'calendar' },
+      { label: 'Revenue (excl. upsell)', value: '£9,806.16',  icon: 'money'    },
+      { label: 'Revenue (incl. upsell)', value: '£28,761.86', icon: 'sparkle', highlight: true },
+    ],
+    quote: 'Bookings we would have lost are now in our diary the next morning.',
+    quoteFrom: 'Mark, EAC Telford',
+  },
+  {
+    slug: 'inn-out-norwich',
+    name: "In'n'Out Autocentres Norwich & Spalding",
+    type: 'Fast-Fit Service & MOT Centre',
+    location: 'Norwich & Spalding',
+    period: 'Oct – Dec 2025',
+    logo: '/garages/ino-autocentres.png',
+    overview:
+      "In'n'Out Autocentres Norwich implemented ReceptionMate's AI Voice Agent to improve call handling efficiency and capture more bookings during peak hours and after-hours periods. The goal: no missed enquiries, fast professional communication, and accurate booking management.",
+    impact:
+      "Over October and November alone, ReceptionMate captured an additional £21,000 of work for In'n'Out across two branches — bookings that would have otherwise been lost. The trial generated enough confidence that Louise asked to extend it by another three months and roll it out to two more centres.",
+    stats: [
+      { label: 'Calls answered',         value: '992',        icon: 'phone'    },
+      { label: 'Bookings made',          value: '245',        icon: 'calendar' },
+      { label: 'Revenue (excl. upsell)', value: '£24,769.50', icon: 'money'    },
+      { label: 'Revenue (incl. upsell)', value: '£34,089',    icon: 'sparkle', highlight: true },
+    ],
+    quote: 'Over the 2 months (Oct / Nov) looking at the uplift in sales from the final invoice value and deducting your invoices, INO have generated an additional £21k that would have otherwise been lost sales.',
+    quoteFrom: "Louise, In'n'Out Autocentres",
+  },
+  {
+    slug: 'cg-auto-repairs',
+    name: 'C & G Auto Repairs',
+    type: 'Independent Garage',
+    location: 'Swansea',
+    period: 'March – May 2026',
+    logo: '/garages/cg-autorepairs.png',
+    overview:
+      'C & G Auto Repairs handle a focused volume of calls — every booking opportunity has to count. They use ReceptionMate to capture every enquiry, every quote request, and every booking 24/7, so nothing slips through the cracks during busy days in the workshop.',
+    impact:
+      "Of the 92 calls where the customer was actually trying to book or asking for a quote, ReceptionMate captured 36 confirmed bookings — a 39% conversion rate from booking intent to confirmed job. At an estimated average invoice value of £180 per job, that's roughly £6,480 of captured revenue that would have otherwise been missed.",
+    stats: [
+      { label: 'Calls answered',                value: '243',    icon: 'phone'    },
+      { label: 'Confirmed bookings',            value: '36',     icon: 'calendar' },
+      { label: 'Conversion (intent → booking)', value: '39%',    icon: 'sparkle'  },
+      { label: 'Est. revenue captured',         value: '£6,480', icon: 'money', highlight: true },
+    ],
+    // No quote yet — leave blank, the page renders without one.
+  },
+];
+
+// Aggregate hero stats across all case studies.
+function parseNumber(v: string): number {
+  return Number(v.replace(/[^0-9.]/g, '')) || 0;
+}
+function findStat(stats: { label: string; value: string }[], match: RegExp): string {
+  return stats.find((s) => match.test(s.label))?.value ?? '';
+}
+const totalCalls = CASE_STUDIES.reduce((s, c) => s + parseNumber(findStat(c.stats, /^calls answered/i)), 0);
+const totalBookings = CASE_STUDIES.reduce((s, c) => {
+  const v = findStat(c.stats, /confirmed bookings|^bookings made/i);
+  return s + parseNumber(v);
+}, 0);
+// Only sum stats that look like a £ amount — keeps percentages / counts out
+// of the revenue total when a case study doesn't track £ value. Matches both
+// "Revenue (incl. upsell)" and "Est. revenue captured" so estimated numbers
+// still roll up into the headline.
+const totalRevenue = CASE_STUDIES.reduce((s, c) => {
+  const v = findStat(c.stats, /revenue \(incl|est\. revenue/i);
+  if (!v.startsWith('£')) return s;
+  return s + parseNumber(v);
+}, 0);
+
+function formatGbp(n: number): string {
+  return '£' + n.toLocaleString('en-GB');
+}
+
+function statIcon(name: string) {
+  const map: Record<string, string> = {
+    phone:    'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z',
+    calendar: 'M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z',
+    money:    'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm.88 16.79V20h-1.76v-1.21c-1.79-.4-2.62-1.61-2.62-2.66h1.6c.06.74.65 1.5 1.94 1.5 1.07 0 1.81-.46 1.81-1.27 0-.7-.5-1.13-2.02-1.51-1.93-.47-3.18-1.27-3.18-2.85 0-1.42 1.13-2.39 2.47-2.74V8h1.76v1.27c1.55.37 2.4 1.48 2.4 2.68h-1.6c-.06-.83-.74-1.4-1.66-1.4-1.05 0-1.71.5-1.71 1.21 0 .65.51 1.06 1.97 1.43 1.96.49 3.23 1.27 3.23 2.94 0 1.5-1.18 2.38-2.63 2.66z',
+    sparkle:  'M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25zM11.5 9.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25z',
+  };
+  return map[name] ?? map.sparkle;
+}
+---
+
+<BaseLayout title="UK garage success stories — ReceptionMate" description="Real garages, real numbers. See how ReceptionMate captured 2,460 calls and over £60,000 of bookings for UK garages in a single quarter.">
+
+  <!-- ===== Hero ===== -->
+  <section class="relative isolate overflow-hidden bg-white">
+    <div class="absolute inset-0 -z-10">
+      <div class="absolute -top-40 left-1/2 h-96 w-[800px] -translate-x-1/2 rounded-full bg-brand-100/60 blur-3xl"></div>
+    </div>
+
+    <div class="mx-auto max-w-5xl px-4 pt-16 pb-12 sm:px-6 lg:pt-24">
+      <div class="text-center">
+        <div class="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
+          <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          Customer outcomes · Q4 2025
+        </div>
+        <h1 class="mt-6 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
+          Real garages.<br /><span class="text-brand-600">Real numbers.</span>
+        </h1>
+        <p class="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-ink-600 sm:text-lg">
+          We don&rsquo;t share pixel-perfect testimonials. Here&rsquo;s exactly what ReceptionMate captured for two UK garages over a single quarter — straight from their call logs.
+        </p>
+      </div>
+
+      <!-- Aggregate hero stats -->
+      <div class="mx-auto mt-10 grid max-w-3xl grid-cols-3 gap-3 sm:gap-4">
+        <div class="rounded-2xl border border-ink-200 bg-white px-4 py-5 text-center shadow-sm">
+          <p class="text-xl font-bold text-ink-900 sm:text-3xl lg:text-4xl">{totalCalls.toLocaleString('en-GB')}</p>
+          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-ink-500">Calls captured</p>
+        </div>
+        <div class="rounded-2xl border border-ink-200 bg-white px-4 py-5 text-center shadow-sm">
+          <p class="text-xl font-bold text-ink-900 sm:text-3xl lg:text-4xl">{totalBookings}</p>
+          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-ink-500">Bookings made</p>
+        </div>
+        <div class="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-4 py-5 text-center shadow-sm">
+          <p class="text-lg font-bold leading-tight text-emerald-700 sm:text-3xl lg:text-4xl">{formatGbp(totalRevenue)}</p>
+          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-emerald-700">Revenue captured</p>
+        </div>
+      </div>
+      <p class="mt-3 text-center text-xs text-ink-500">Across 2 garages · 3 months · Including upsell.</p>
+    </div>
+  </section>
+
+  <!-- ===== Case studies ===== -->
+  <section class="bg-ink-50/40 py-16 sm:py-20">
+    <div class="mx-auto max-w-5xl space-y-12 px-4 sm:px-6">
+      {CASE_STUDIES.map((cs, idx) => (
+        <article id={cs.slug} class="overflow-hidden rounded-3xl border border-ink-200 bg-white shadow-xl">
+          <!-- Top strip: logo + meta -->
+          <div class="grid gap-6 border-b border-ink-200 bg-gradient-to-br from-brand-50/60 to-white p-8 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">
+                Case study {String(idx + 1).padStart(2, '0')}
+              </p>
+              <h2 class="mt-2 text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">{cs.name}</h2>
+              <p class="mt-1 text-sm text-ink-600">{cs.type} · {cs.location}</p>
+              <p class="mt-0.5 text-xs text-ink-500">Reporting period: {cs.period}</p>
+            </div>
+            <div class="flex justify-center sm:justify-end">
+              <div class="flex h-24 w-44 items-center justify-center rounded-xl border border-ink-200 bg-white p-3">
+                <img src={cs.logo} alt={`${cs.name} logo`} class="max-h-full max-w-full object-contain" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Stats grid -->
+          <div class="grid grid-cols-2 gap-4 p-8 sm:grid-cols-4 sm:gap-3">
+            {cs.stats.map((s) => (
+              <div class={`rounded-2xl border p-5 ${s.highlight ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white' : 'border-ink-200 bg-white'}`}>
+                <span class={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${s.highlight ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-100 text-brand-600'}`}>
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d={statIcon(s.icon)} /></svg>
+                </span>
+                <p class={`mt-3 text-2xl font-bold sm:text-3xl ${s.highlight ? 'text-emerald-700' : 'text-ink-900'}`}>{s.value}</p>
+                <p class="mt-0.5 text-xs font-medium uppercase tracking-wider text-ink-500">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <!-- Body: overview, impact, quote -->
+          <div class="grid gap-8 border-t border-ink-100 p-8 lg:grid-cols-2">
+            <div>
+              <h3 class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">Overview</h3>
+              <p class="mt-3 text-sm leading-relaxed text-ink-700">{cs.overview}</p>
+            </div>
+            <div>
+              <h3 class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">Impact</h3>
+              <p class="mt-3 text-sm leading-relaxed text-ink-700">{cs.impact}</p>
+            </div>
+          </div>
+
+
+          <!-- Pull-quote — only renders when the case study has one -->
+          {cs.quote && (
+            <div class="border-t border-ink-100 bg-ink-50/60 p-8">
+              <blockquote class="mx-auto max-w-3xl text-center">
+                <svg class="mx-auto h-6 w-6 text-brand-400" viewBox="0 0 24 24" fill="currentColor"><path d="M4 17h3l2-4V7H3v6h3zm10 0h3l2-4V7h-6v6h3z"/></svg>
+                <p class="mt-3 text-lg font-medium text-ink-900 sm:text-xl">&ldquo;{cs.quote}&rdquo;</p>
+                <footer class="mt-3 text-sm text-ink-500">— {cs.quoteFrom}</footer>
+              </blockquote>
+            </div>
+          )}
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <!-- ===== CTA strip ===== -->
+  <section class="bg-brand-600 text-white">
+    <div class="mx-auto max-w-5xl px-4 py-16 text-center sm:px-6 sm:py-20">
+      <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Want results like these?</h2>
+      <p class="mx-auto mt-3 max-w-xl text-base text-brand-100">
+        Get set up in 5 minutes. You keep your existing number — we configure
+        call forwarding so the AI catches the calls your team can't get to.
+      </p>
+      <div class="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <a href="/get-started" class="inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-brand-700 shadow-lg shadow-brand-900/30 hover:bg-brand-50 transition">
+          Get started
+          <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+        </a>
+        <a href="/demo" class="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/40 bg-transparent px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition">
+          Talk to Tom (live demo)
+        </a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

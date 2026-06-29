@@ -57,7 +57,6 @@ model Garage {
   invoices Invoice[]
   messageTemplates MessageTemplate[]
   outboundCampaigns OutboundCampaign[]
-  tyreProducts TyreProduct[]
 }
 
 model Call {
@@ -153,6 +152,7 @@ model AgentConfiguration {
   voice             String   @default("leah")
   transferNumber    String?
   customRules       Json?
+  dataCollectionFields Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
@@ -392,46 +392,6 @@ model OutboundContact {
 
   @@index([campaignId])
   @@index([garageId, phone])
-}
-
-model TyreProduct {
-  id                  String   @id @default(cuid())
-  garageId            String
-  garage              Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  depotId             Int
-  stockNumber         String
-  ean                 String?
-  manufacturerCode    String?
-  title               String
-  retailPrice         Float
-  width               String
-  aspectRatio         String
-  rim                 String
-  speedRating         String?
-  loadIndex           String?
-  reinforced          String?
-  vehicleType         String?
-  productType         String?
-  runflat             Boolean  @default(false)
-  rollingResistance   String?
-  wetGrip             String?
-  noisePerformance    String?
-  noiseClassType      String?
-  ecVehicleClass      String?
-  additionalInfo      String?
-  oeFitment           String?
-  brandName           String
-  channelAvailable    Int?
-  leadTime            String   @default("In Stock")
-  leadTimeDays        Int      @default(0)
-  sourceSupplierID    Int      @default(0)
-  feedVersion         String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@unique([garageId, depotId, stockNumber])
-  @@index([garageId, depotId])
-  @@index([garageId, depotId, width, aspectRatio, rim])
 }
 
 model Invoice {

@@ -1,0 +1,219 @@
+---
+// Comparison section — ReceptionMate vs generic AI receptionists vs human
+// answering services. Named competitors (Jodie, Smith.ai) appear in column
+// headers rather than per-row so we keep the table readable and the
+// claims are about category capability, not specific feature digs.
+
+interface Row {
+  label: string;
+  detail?: string;
+  receptionmate: boolean;
+  genericAI: boolean;
+  humanService: boolean;
+}
+
+const rows: Row[] = [
+  {
+    label: 'Built specifically for UK garages',
+    detail: 'Designed around how MOT bays, service drops, and parts orders actually flow.',
+    receptionmate: true,
+    genericAI: false,
+    humanService: false,
+  },
+  {
+    label: 'Understands automotive vocabulary',
+    detail: 'MOT, interim, full service, cambelt, DPF, EGR, brake pads, alignment, diagnostics.',
+    receptionmate: true,
+    genericAI: false,
+    humanService: false,
+  },
+  {
+    label: 'Live DVLA vehicle lookup during the call',
+    detail: 'Caller gives the reg, agent instantly pulls make, model, year, fuel type, tax and MOT status — and uses it to quote the right service.',
+    receptionmate: true,
+    genericAI: false,
+    humanService: false,
+  },
+  {
+    label: 'MOT history checker built in',
+    detail: 'Reads recent pass/fail history and advisories so the agent can flag what is due and pre-warn the workshop.',
+    receptionmate: true,
+    genericAI: false,
+    humanService: false,
+  },
+  {
+    label: 'Answers every call, even at peaks',
+    detail: 'Infinite concurrency — Monday morning rush, lunchtime queue, Saturday spike. No ringing out, no voicemail, no queue music.',
+    receptionmate: true,
+    genericAI: true,
+    humanService: false,
+  },
+  {
+    label: 'Books directly into Garage Hive, Tyresoft & more',
+    detail: 'Slots reserved in real time during the call — no double-bookings.',
+    receptionmate: true,
+    genericAI: false,
+    humanService: false,
+  },
+  {
+    label: '24/7 — including evenings, weekends and bank holidays',
+    receptionmate: true,
+    genericAI: true,
+    humanService: false,
+  },
+  {
+    label: 'Trained on real UK garage calls',
+    detail: 'Not retrofitted from an American product or a generic SaaS template.',
+    receptionmate: true,
+    genericAI: false,
+    humanService: false,
+  },
+  {
+    label: 'No scripts — natural, on-brand conversation',
+    receptionmate: true,
+    genericAI: true,
+    humanService: false,
+  },
+];
+---
+
+<section class="bg-white py-20 sm:py-24">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-3xl text-center">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Why ReceptionMate</p>
+      <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        Built for garages, not nail salons.
+      </h2>
+      <!-- Short version on mobile, full pitch on desktop. -->
+      <p class="mt-5 text-lg text-ink-600 md:hidden">
+        ReceptionMate is the only AI receptionist built from the ground up for UK automotive.
+      </p>
+      <p class="mt-5 hidden text-lg text-ink-600 md:block">
+        Most AI receptionists — Smith.ai, Synthflow, Jodie and dozens like them — are
+        general-purpose tools sold to dentists, law firms, salons and garages with the same
+        script. Traditional answering services (Moneypenny, AnswerConnect, Ruby, AllDayPA) put
+        humans on the phone reading from a checklist. ReceptionMate is the only one built from
+        the ground up for UK automotive.
+      </p>
+    </div>
+
+    <!-- Desktop / tablet: comparison table -->
+    <div class="mt-14 hidden md:block">
+      <div class="overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-sm">
+        <table class="w-full text-left">
+          <thead>
+            <tr class="border-b border-ink-200 bg-ink-50">
+              <th scope="col" class="px-6 py-5 text-sm font-semibold text-ink-900">
+                Capability
+              </th>
+              <th scope="col" class="px-6 py-5 text-center">
+                <div class="inline-flex flex-col items-center">
+                  <span class="rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">
+                    ReceptionMate
+                  </span>
+                  <span class="mt-1 text-xs text-ink-500">Built for garages</span>
+                </div>
+              </th>
+              <th scope="col" class="px-6 py-5 text-center">
+                <div class="inline-flex flex-col items-center">
+                  <span class="text-sm font-semibold text-ink-700">Generic AI receptionists</span>
+                  <span class="mt-1 text-xs text-ink-500">Smith.ai, Synthflow, Jodie</span>
+                </div>
+              </th>
+              <th scope="col" class="px-6 py-5 text-center">
+                <div class="inline-flex flex-col items-center">
+                  <span class="text-sm font-semibold text-ink-700">Human answering service</span>
+                  <span class="mt-1 text-xs text-ink-500">Moneypenny, AnswerConnect, Ruby</span>
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-ink-100">
+            {rows.map((row) => (
+              <tr class="hover:bg-ink-50/40">
+                <td class="px-6 py-5 align-top">
+                  <p class="text-sm font-semibold text-ink-900">{row.label}</p>
+                  {row.detail && (
+                    <p class="mt-1 text-xs text-ink-500">{row.detail}</p>
+                  )}
+                </td>
+                <td class="px-6 py-5 text-center align-top">
+                  {row.receptionmate ? (
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-brand-600" aria-label="Yes">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </span>
+                  ) : (
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label="No">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </span>
+                  )}
+                </td>
+                <td class="px-6 py-5 text-center align-top">
+                  {row.genericAI ? (
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-500" aria-label="Yes">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </span>
+                  ) : (
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label="No">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </span>
+                  )}
+                </td>
+                <td class="px-6 py-5 text-center align-top">
+                  {row.humanService ? (
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-500" aria-label="Yes">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </span>
+                  ) : (
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label="No">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Mobile: compact single-column checklist of what ReceptionMate does.
+         Drops the side-by-side comparison entirely on mobile — the "vs others"
+         framing is communicated by the intro paragraph above, and repeating
+         RM/Generic AI/Human columns for every row read as text-heavy. -->
+    <div class="mt-10 md:hidden">
+      <ul class="divide-y divide-ink-200 rounded-2xl border border-ink-200 bg-white">
+        {rows.map((row) => (
+          <li class="flex items-start gap-3 px-4 py-3.5">
+            <span class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+            </span>
+            <span class="text-sm font-medium leading-snug text-ink-900">{row.label}</span>
+          </li>
+        ))}
+      </ul>
+      <div class="mt-4 rounded-xl border border-ink-200 bg-ink-50 px-4 py-3 text-xs leading-relaxed text-ink-600">
+        <span class="font-semibold text-ink-900">Generic AI receptionists and human answering services miss most of these.</span>
+        See full comparison on desktop.
+      </div>
+    </div>
+
+    <div class="mt-10 text-center">
+      <p class="text-sm text-ink-500">
+        Comparisons based on publicly available product documentation as of June 2026.
+      </p>
+    </div>
+  </div>
+</section>

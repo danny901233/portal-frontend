@@ -52,27 +52,12 @@ export type AgentType = 'assist' | 'automate';
 
 export type VoiceOption = 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia';
 
-export type PricingBracket = {
-  maxCC: number;
-  price: number;
-};
-
-export type TsService = {
-  id: string;
-  name: string;
-  pricingType: 'fixed' | 'engine-size';
-  price?: number;
-};
-
 export type TyresoftSettings = {
   tsWorkspace: string;
   tsUsername: string;
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
-  tsChannelId?: string;
-  tsServices?: TsService[];
-  pricingRules?: Record<string, PricingBracket[]>;
 };
 
 export const createDefaultTyresoftSettings = (): TyresoftSettings => ({
@@ -89,9 +74,6 @@ export const cloneTyresoftSettings = (settings?: TyresoftSettings | null): Tyres
   tsPassword: typeof settings?.tsPassword === 'string' ? settings.tsPassword : '',
   tsApiKey: typeof settings?.tsApiKey === 'string' ? settings.tsApiKey : '',
   tsDepotId: typeof settings?.tsDepotId === 'string' ? settings.tsDepotId : (settings?.tsDepotId != null ? String(settings.tsDepotId) : ''),
-  tsChannelId: typeof settings?.tsChannelId === 'string' ? settings.tsChannelId : undefined,
-  tsServices: Array.isArray(settings?.tsServices) ? settings.tsServices : undefined,
-  pricingRules: settings?.pricingRules && typeof settings.pricingRules === 'object' ? settings.pricingRules : undefined,
 });
 
 export type GarageHiveSettings = {
@@ -177,7 +159,7 @@ export type AgentConfigurationPayload = {
   tyresoftSettings?: TyresoftSettings;
   hubspotSettings?: HubspotSettings;
   agentType: AgentType;
-  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
+  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent';
   enableSmsBookingLinks?: boolean;
   humanEscalation?: boolean;
   transferNumber?: string | null;
@@ -185,4 +167,11 @@ export type AgentConfigurationPayload = {
   bookingLeadTimeDays?: number;
   voice?: VoiceOption;
   customRules?: Array<{ text: string; active: boolean }> | null;
+  dataCollectionFields?: Array<{
+    key: string;
+    label: string;
+    active: boolean;
+    required: boolean;
+    instruction?: string | null;
+  }> | null;
 };

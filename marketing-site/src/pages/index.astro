@@ -1,0 +1,37 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/Hero.astro';
+import SocialProof from '../components/SocialProof.astro';
+import CallTicker from '../components/CallTicker.astro';
+import Problem from '../components/Problem.astro';
+import Personas from '../components/Personas.astro';
+import Tiers from '../components/Tiers.astro';
+import HowItWorks from '../components/HowItWorks.astro';
+import Features from '../components/Features.astro';
+import ConnectHighlight from '../components/ConnectHighlight.astro';
+import WhyUs from '../components/WhyUs.astro';
+import Testimonials from '../components/Testimonials.astro';
+import HomepageFaqs from '../components/HomepageFaqs.astro';
+import Signup from '../components/Signup.astro';
+---
+
+<BaseLayout>
+  <Hero />
+  <SocialProof />
+  <!-- Live calls feed — sits below the rotating trusted-by banner -->
+  <section class="bg-white pb-16 sm:pb-20">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <CallTicker />
+    </div>
+  </section>
+  <Problem />
+  <Personas />
+  <HowItWorks />
+  <Features />
+  <ConnectHighlight />
+  <Tiers />
+  <WhyUs />
+  <Testimonials />
+  <HomepageFaqs />
+  <Signup />
+</BaseLayout>

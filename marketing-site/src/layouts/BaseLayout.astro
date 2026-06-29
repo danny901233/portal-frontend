@@ -1,0 +1,293 @@
+---
+import '../styles/global.css';
+import LeadModal from '../components/LeadModal.astro';
+
+interface Props {
+  title?: string;
+  description?: string;
+  ogImage?: string;
+}
+
+const {
+  title = 'ReceptionMate — AI receptionist for UK garages',
+  description = 'ReceptionMate answers every call, books every job. Stop losing customers to missed calls — our AI receptionist captures bookings 24/7 and sends them straight to your team.',
+  ogImage = '/og.png',
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en-GB" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#3426cf" />
+    <!-- Stripe verification code -->
+    <meta name="stripe-verification" content="tepxfk" />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <slot name="head" />
+  </head>
+
+  <body class="bg-white text-ink-700 antialiased font-sans">
+    <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-brand-600 focus:text-white focus:rounded-md">
+      Skip to content
+    </a>
+
+    <slot name="nav">
+      <header class="sticky top-0 z-40 border-b border-ink-200/80 bg-white/85 backdrop-blur-md">
+        <nav class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+          <a href="/" class="flex items-center text-ink-900" aria-label="ReceptionMate home">
+            <span class="inline-flex h-20 items-center justify-center rounded-2xl bg-brand-600 px-5 py-3 sm:h-24 sm:px-6 md:h-28 md:px-7 md:py-4">
+              <img
+                src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+                alt=""
+                class="h-14 w-auto sm:h-16 md:h-20"
+              />
+            </span>
+          </a>
+          <div class="hidden items-center gap-7 md:flex">
+            <a href="/how-it-works" class="text-sm font-medium text-ink-600 hover:text-ink-900">How it works</a>
+            <a href="/pricing" class="text-sm font-medium text-ink-600 hover:text-ink-900">Pricing</a>
+            <a href="/case-studies" class="text-sm font-medium text-ink-600 hover:text-ink-900">Case studies</a>
+            <a href="/blog" class="text-sm font-medium text-ink-600 hover:text-ink-900">Blog</a>
+            <a href="/faqs" class="text-sm font-medium text-ink-600 hover:text-ink-900">FAQs</a>
+            <a href="/about" class="text-sm font-medium text-ink-600 hover:text-ink-900">Why ReceptionMate</a>
+            <a href="https://portal.receptionmate.co.uk/login" class="text-sm font-medium text-ink-600 hover:text-ink-900">Sign in</a>
+            <a href="/get-started" class="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
+              Get started
+            </a>
+          </div>
+
+          <!-- Mobile toolbar: just the hamburger. The page already CTAs at
+               multiple points; keeping the top bar uncluttered. -->
+          <div class="flex items-center gap-2 md:hidden">
+            <button
+              type="button"
+              id="mobile-menu-toggle"
+              class="inline-flex h-10 w-10 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-700 hover:bg-ink-50"
+              aria-expanded="false"
+              aria-controls="mobile-menu"
+              aria-label="Open menu"
+            >
+              <svg id="mobile-menu-icon-open" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+              <svg id="mobile-menu-icon-close" xmlns="http://www.w3.org/2000/svg" class="hidden h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </nav>
+
+      </header>
+
+      <!-- Mobile full-screen menu overlay — sits OUTSIDE the sticky <header>
+           so the overlay can cover the whole viewport (header excluded) at
+           z-40, above all page content. inset-0 + top-24 keeps the brand
+           header chip visible at the top while the rest of the screen is the
+           menu. -->
+      <div id="mobile-menu" class="fixed inset-0 top-24 z-40 hidden flex-col bg-white md:hidden">
+        <nav class="flex-1 overflow-y-auto px-6 py-6">
+          <ul class="space-y-1">
+            <li><a href="/how-it-works" class="block rounded-md px-4 py-3 text-lg font-medium text-ink-900 hover:bg-ink-50">How it works</a></li>
+            <li><a href="/pricing"      class="block rounded-md px-4 py-3 text-lg font-medium text-ink-900 hover:bg-ink-50">Pricing</a></li>
+            <li><a href="/case-studies" class="block rounded-md px-4 py-3 text-lg font-medium text-ink-900 hover:bg-ink-50">Case studies</a></li>
+            <li><a href="/connect"      class="block rounded-md px-4 py-3 text-lg font-medium text-ink-900 hover:bg-ink-50">Connect — WhatsApp + Web chat</a></li>
+            <li><a href="/integrations" class="block rounded-md px-4 py-3 text-lg font-medium text-ink-900 hover:bg-ink-50">Integrations</a></li>
+            <li><a href="/blog"         class="block rounded-md px-4 py-3 text-lg font-medium text-ink-900 hover:bg-ink-50">Blog</a></li>
+            <li><a href="/faqs"         class="block rounded-md px-4 py-3 text-lg font-medium text-ink-900 hover:bg-ink-50">FAQs</a></li>
+            <li><a href="/about"        class="block rounded-md px-4 py-3 text-lg font-medium text-ink-900 hover:bg-ink-50">Why ReceptionMate</a></li>
+          </ul>
+        </nav>
+        <div class="space-y-3 border-t border-ink-200 px-6 py-5 pb-8">
+          <a
+            href="https://portal.receptionmate.co.uk/login"
+            class="block w-full rounded-xl border border-ink-300 bg-white py-3.5 text-center text-base font-semibold text-ink-900 hover:bg-ink-50"
+          >Login</a>
+          <a
+            href="/get-started"
+            class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3.5 text-center text-base font-semibold text-white shadow-md shadow-brand-600/25 hover:bg-brand-700"
+          >
+            Get started
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <script>
+        // Mobile menu toggle. Uses flex layout when open so the bottom CTA bar
+        // pins to the viewport bottom. Locks body scroll while open so the
+        // user can't scroll the page behind the overlay.
+        const toggle = document.getElementById('mobile-menu-toggle');
+        const menu = document.getElementById('mobile-menu');
+        const iconOpen = document.getElementById('mobile-menu-icon-open');
+        const iconClose = document.getElementById('mobile-menu-icon-close');
+
+        const closeMenu = () => {
+          menu?.classList.add('hidden');
+          menu?.classList.remove('flex');
+          document.body.style.overflow = '';
+          iconOpen?.classList.remove('hidden');
+          iconClose?.classList.add('hidden');
+          toggle?.setAttribute('aria-expanded', 'false');
+          toggle?.setAttribute('aria-label', 'Open menu');
+        };
+
+        const openMenu = () => {
+          menu?.classList.remove('hidden');
+          menu?.classList.add('flex');
+          document.body.style.overflow = 'hidden';
+          iconOpen?.classList.add('hidden');
+          iconClose?.classList.remove('hidden');
+          toggle?.setAttribute('aria-expanded', 'true');
+          toggle?.setAttribute('aria-label', 'Close menu');
+        };
+
+        toggle?.addEventListener('click', () => {
+          if (menu?.classList.contains('hidden')) openMenu();
+          else closeMenu();
+        });
+
+        // Close when any link inside the overlay is tapped.
+        menu?.querySelectorAll('a').forEach((a) => a.addEventListener('click', closeMenu));
+      </script>
+    </slot>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <!-- Global lead-capture modal — triggered by any [data-lead-cta] element -->
+    <LeadModal />
+
+    <!-- Cookie consent banner. Vanilla, no library. Shows on first visit only;
+         stores `receptionmate.cookie-consent` in localStorage as either
+         'accepted' or 'declined'. We currently only set essential cookies so
+         either choice is fine — the banner is in place so analytics or
+         marketing cookies can read the stored consent before firing later. -->
+    <div
+      id="cookie-banner"
+      class="fixed inset-x-0 bottom-0 z-50 hidden border-t border-ink-200 bg-white shadow-2xl shadow-ink-900/20"
+      role="dialog"
+      aria-label="Cookie consent"
+      aria-live="polite"
+    >
+      <div class="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:gap-6 sm:px-6">
+        <p class="flex-1 text-sm text-ink-700">
+          We use essential cookies to make this site work. With your permission we'd
+          also use a few non-essential cookies (e.g. analytics) to understand which
+          pages are useful. See our <a href="/privacy" class="text-brand-600 underline">privacy policy</a>.
+        </p>
+        <div class="flex shrink-0 gap-2">
+          <button
+            type="button"
+            id="cookie-decline"
+            class="rounded-md border border-ink-300 bg-white px-4 py-2 text-sm font-semibold text-ink-700 hover:bg-ink-50"
+          >Decline non-essential</button>
+          <button
+            type="button"
+            id="cookie-accept"
+            class="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+          >Accept all</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const KEY = 'receptionmate.cookie-consent';
+      const banner = document.getElementById('cookie-banner');
+      try {
+        const existing = localStorage.getItem(KEY);
+        if (!existing) banner?.classList.remove('hidden');
+      } catch {
+        // localStorage blocked — just leave the banner hidden, no consent stored.
+      }
+      const setConsent = (value: 'accepted' | 'declined') => {
+        try { localStorage.setItem(KEY, value); } catch {}
+        banner?.classList.add('hidden');
+      };
+      document.getElementById('cookie-accept')?.addEventListener('click', () => setConsent('accepted'));
+      document.getElementById('cookie-decline')?.addEventListener('click', () => setConsent('declined'));
+    </script>
+
+    <footer class="border-t border-ink-200 bg-ink-50 py-12">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-2 gap-8 md:grid-cols-4">
+          <div class="col-span-2">
+            <div class="flex items-center">
+              <span class="inline-flex h-14 items-center justify-center rounded-xl bg-brand-600 px-4 py-2">
+                <img
+                  src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+                  alt="ReceptionMate"
+                  class="h-10 w-auto"
+                />
+              </span>
+            </div>
+            <p class="mt-3 max-w-sm text-sm text-ink-600">
+              AI receptionist for UK garages. Answer every call, book every job — automatically.
+            </p>
+            <p class="mt-4 text-sm text-ink-600">
+              <a href="mailto:hello@receptionmate.co.uk" class="hover:text-brand-600">hello@receptionmate.co.uk</a>
+            </p>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-ink-900">Product</h3>
+            <ul class="mt-3 space-y-2 text-sm text-ink-600">
+              <li><a href="/how-it-works" class="hover:text-brand-600">How it works</a></li>
+              <li><a href="/pricing" class="hover:text-brand-600">Pricing</a></li>
+              <li><a href="/connect" class="hover:text-brand-600">Connect (WhatsApp + Web chat)</a></li>
+              <li><a href="/case-studies" class="hover:text-brand-600">Case studies</a></li>
+              <li><a href="/blog" class="hover:text-brand-600">Blog</a></li>
+              <li><a href="/faqs" class="hover:text-brand-600">FAQs</a></li>
+              <li><a href="/integrations" class="hover:text-brand-600">Integrations</a></li>
+              <li><a href="/alternatives" class="hover:text-brand-600">Alternatives</a></li>
+              <li><a href="/about" class="hover:text-brand-600">Why us</a></li>
+              <li><a href="/get-started" class="hover:text-brand-600">Get started</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-ink-900">Company</h3>
+            <ul class="mt-3 space-y-2 text-sm text-ink-600">
+              <li><a href="/about" class="hover:text-brand-600">About</a></li>
+              <li><a href="https://portal.receptionmate.co.uk/login" class="hover:text-brand-600">Sign in</a></li>
+              <li><a href="mailto:hello@receptionmate.co.uk" class="hover:text-brand-600">Contact</a></li>
+              <li><a href="/privacy" class="hover:text-brand-600">Privacy</a></li>
+            </ul>
+          </div>
+        </div>
+        <!-- Trust strip -->
+        <div class="mt-10 border-t border-ink-200 pt-6">
+          <div class="flex flex-wrap items-center justify-center gap-3 sm:justify-start">
+            <span class="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+              UK GDPR compliant
+            </span>
+            <span class="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+              Company No. 16839506
+            </span>
+            <span class="inline-flex items-center gap-2 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+              TLS encrypted
+            </span>
+          </div>
+        </div>
+
+        <div class="mt-6 border-t border-ink-200 pt-6 text-xs text-ink-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p>© {new Date().getFullYear()} ReceptionMate Ltd. All rights reserved.</p>
+          <p>Registered in England &amp; Wales · Studio 9, 50–54 St. Paul's Square, Birmingham B3 1QS</p>
+        </div>
+        <!-- Stripe site/business verification code -->
+        <p class="mt-3 text-[11px] text-ink-400">Verification: tepxfk</p>
+      </div>
+    </footer>
+  </body>
+</html>

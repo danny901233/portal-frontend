@@ -1,0 +1,213 @@
+---
+const personas = [
+  {
+    name: 'Leah',
+    role: 'AI Receptionist',
+    blurb: "Picks up every call within one ring, captures the booking, and texts the customer a confirmation.",
+    skills: ['MOTs', 'Services', 'Repairs', 'Diagnostics'],
+    accent: 'bg-brand-600',
+    accentRing: 'ring-brand-200',
+    avatar: '/personas/leah.jpg',
+    audio: '/voice-samples/leah.mp3',
+  },
+  {
+    name: 'Tom',
+    role: 'AI Service Advisor',
+    blurb: "Quotes prices, books drop-offs, handles complex multi-service jobs without skipping a beat.",
+    skills: ['Quotes', 'Drop-offs', 'Upsells', 'Callbacks'],
+    accent: 'bg-emerald-600',
+    accentRing: 'ring-emerald-200',
+    avatar: '/personas/tom.jpg',
+    audio: '/voice-samples/tom.mp3',
+  },
+  {
+    name: 'Sophie',
+    role: 'AI Aftersales',
+    blurb: "Follows up after the job, books the next service, recovers customers who didn't rebook.",
+    skills: ['Follow-ups', 'Re-engagement', 'Reviews', 'Loyalty'],
+    accent: 'bg-amber-600',
+    accentRing: 'ring-amber-200',
+    avatar: '/personas/sophie.jpg',
+    audio: '/voice-samples/sophie.mp3',
+  },
+];
+---
+
+<section id="features" class="bg-ink-50 py-20 sm:py-24">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-3xl text-center">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Your team — without the overheads</p>
+      <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        Three specialists. One subscription.
+      </h2>
+      <p class="mt-4 text-lg text-ink-600">
+        Each one trained for a specific part of the customer journey. Press play to hear how they answer.
+      </p>
+    </div>
+
+    <div class="mt-14 grid gap-6 md:grid-cols-3">
+      {personas.map((p) => (
+        <article
+          class="persona-card group relative cursor-pointer rounded-2xl border border-ink-200 bg-white p-6 text-left transition hover:border-brand-300 hover:shadow-lg hover:shadow-brand-900/5"
+          data-persona={p.name.toLowerCase()}
+          data-audio={p.audio}
+        >
+          <div class={`absolute inset-x-0 top-0 h-1 rounded-t-2xl ${p.accent}`}></div>
+
+          <div class="flex items-start justify-between gap-3">
+            <div class="relative inline-flex h-16 w-16 shrink-0 items-center justify-center">
+              <img
+                src={p.avatar}
+                alt={`Avatar of ${p.name}`}
+                class={`h-full w-full rounded-full bg-ink-50 object-cover ring-4 ${p.accentRing} shadow-md`}
+                loading="lazy"
+              />
+              <span class={`absolute -bottom-0.5 -right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full ${p.accent} text-[10px] font-bold text-white ring-2 ring-white`}>
+                {p.name.charAt(0)}
+              </span>
+            </div>
+            <button
+              type="button"
+              class="persona-play group/btn relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-700 transition hover:border-brand-300 hover:text-brand-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/30"
+              aria-label={`Hear ${p.name} speak`}
+            >
+              <!-- Play -->
+              <svg class="persona-play-icon h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+              <!-- Pause (hidden by default) -->
+              <svg class="persona-pause-icon hidden h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/>
+              </svg>
+              <!-- Loading (hidden by default) -->
+              <svg class="persona-loading-icon hidden h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/>
+                <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+
+          <h3 class="mt-4 text-xl font-semibold text-ink-900">{p.name}</h3>
+          <p class="text-sm text-ink-500">{p.role}</p>
+          <!-- Blurb hidden on mobile to keep persona cards compact. -->
+          <p class="mt-3 hidden text-base text-ink-700 md:block">{p.blurb}</p>
+
+          <!-- Now playing indicator (hidden by default) -->
+          <div class="persona-playing-bar mt-4 hidden items-center gap-2 rounded-lg bg-brand-50 px-3 py-2 ring-1 ring-brand-200">
+            <div class="flex items-end gap-0.5">
+              <span class="persona-bar inline-block h-3 w-0.5 origin-bottom rounded-full bg-brand-600"></span>
+              <span class="persona-bar inline-block h-4 w-0.5 origin-bottom rounded-full bg-brand-600" style="animation-delay: 0.15s"></span>
+              <span class="persona-bar inline-block h-2.5 w-0.5 origin-bottom rounded-full bg-brand-600" style="animation-delay: 0.3s"></span>
+              <span class="persona-bar inline-block h-3.5 w-0.5 origin-bottom rounded-full bg-brand-600" style="animation-delay: 0.45s"></span>
+            </div>
+            <span class="text-xs font-medium text-brand-700">Speaking…</span>
+          </div>
+
+          <!-- Skill chips hidden on mobile — too many chips makes the card scroll. -->
+          <div class="mt-5 hidden flex-wrap gap-2 md:flex">
+            {p.skills.map((s) => (
+              <span class="rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-700">{s}</span>
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>
+
+<script>
+  // Single shared audio element so only one persona can speak at a time.
+  // Card-level click OR play-button click triggers the same playback path.
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('.persona-card'));
+  let audio: HTMLAudioElement | null = null;
+  let activeCard: HTMLElement | null = null;
+
+  function setCardState(card: HTMLElement, state: 'idle' | 'loading' | 'playing') {
+    const playIcon = card.querySelector('.persona-play-icon') as HTMLElement | null;
+    const pauseIcon = card.querySelector('.persona-pause-icon') as HTMLElement | null;
+    const loadingIcon = card.querySelector('.persona-loading-icon') as HTMLElement | null;
+    const playingBar = card.querySelector('.persona-playing-bar') as HTMLElement | null;
+    playIcon?.classList.toggle('hidden', state !== 'idle');
+    pauseIcon?.classList.toggle('hidden', state !== 'playing');
+    loadingIcon?.classList.toggle('hidden', state !== 'loading');
+    if (playingBar) {
+      playingBar.classList.toggle('hidden', state !== 'playing');
+      playingBar.classList.toggle('flex', state === 'playing');
+    }
+    card.classList.toggle('ring-2', state !== 'idle');
+    card.classList.toggle('ring-brand-600', state !== 'idle');
+  }
+
+  function stopActive() {
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    if (activeCard) {
+      setCardState(activeCard, 'idle');
+      activeCard = null;
+    }
+  }
+
+  cards.forEach((card) => {
+    const src = card.dataset.audio;
+    if (!src) return;
+
+    const trigger = (e: Event) => {
+      e.preventDefault();
+      // If this card is already playing or loading, treat as stop
+      if (activeCard === card) {
+        stopActive();
+        return;
+      }
+      // Stop whatever else is playing and start this one
+      stopActive();
+      activeCard = card;
+      setCardState(card, 'loading');
+      if (!audio) audio = new Audio();
+      audio.src = src;
+      audio.onplaying = () => {
+        if (activeCard === card) setCardState(card, 'playing');
+      };
+      audio.onended = () => {
+        if (activeCard === card) {
+          setCardState(card, 'idle');
+          activeCard = null;
+        }
+      };
+      audio.onerror = () => {
+        setCardState(card, 'idle');
+        activeCard = null;
+      };
+      audio.play().catch(() => {
+        setCardState(card, 'idle');
+        activeCard = null;
+      });
+    };
+
+    card.addEventListener('click', trigger);
+    // Prevent click bubbling from the play button — we want the same effect
+    // either way but no double-fire.
+    const btn = card.querySelector('.persona-play') as HTMLElement | null;
+    btn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      trigger(e);
+    });
+  });
+
+  // Stop audio if the user leaves the page so it doesn't keep talking in
+  // the background of another tab.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopActive();
+  });
+</script>
+
+<style>
+  .persona-bar {
+    animation: persona-eq 0.9s ease-in-out infinite alternate;
+  }
+  @keyframes persona-eq {
+    0% { transform: scaleY(0.4); }
+    100% { transform: scaleY(1); }
+  }
+</style>

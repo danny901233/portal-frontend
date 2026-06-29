@@ -1,0 +1,61 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { COMPETITORS } from '../../data/competitors';
+
+const human = COMPETITORS.filter((c) => c.category === 'human-service');
+const ai = COMPETITORS.filter((c) => c.category === 'generic-ai');
+---
+
+<BaseLayout
+  title="Compare ReceptionMate to alternatives — for UK garages"
+  description="Comparing ReceptionMate to Moneypenny, AnswerConnect, Ruby, AllDayPA, Jodie, Smith.ai and other answering services for UK garages."
+>
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Compare</p>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
+        How ReceptionMate compares.
+      </h1>
+      <p class="mt-4 max-w-3xl text-lg text-ink-700">
+        Looking at an answering service for your garage? See how ReceptionMate
+        stacks up against the main alternatives.
+      </p>
+
+      <div class="mt-12 space-y-12">
+        <div>
+          <h2 class="text-2xl font-bold text-ink-900">Human answering services</h2>
+          <div class="mt-5 grid gap-4 sm:grid-cols-2">
+            {human.map((c) => (
+              <a
+                href={`/alternatives/${c.slug}`}
+                class="group block rounded-2xl border border-ink-200 bg-white p-5 transition hover:border-brand-300 hover:shadow-md"
+              >
+                <h3 class="text-lg font-semibold text-ink-900 group-hover:text-brand-700">
+                  {c.displayName} alternative
+                </h3>
+                <p class="mt-2 text-sm text-ink-600">{c.oneLiner}</p>
+              </a>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <h2 class="text-2xl font-bold text-ink-900">Generic AI receptionists</h2>
+          <div class="mt-5 grid gap-4 sm:grid-cols-2">
+            {ai.map((c) => (
+              <a
+                href={`/alternatives/${c.slug}`}
+                class="group block rounded-2xl border border-ink-200 bg-white p-5 transition hover:border-brand-300 hover:shadow-md"
+              >
+                <h3 class="text-lg font-semibold text-ink-900 group-hover:text-brand-700">
+                  {c.displayName} alternative
+                </h3>
+                <p class="mt-2 text-sm text-ink-600">{c.oneLiner}</p>
+              </a>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

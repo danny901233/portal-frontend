@@ -9,9 +9,15 @@ import {
   generateVoicePreview,
   ingestWebsiteKnowledge,
   updateAgentConfiguration,
-  uploadTyreFeed,
 } from '../lib/api';
 import { getGarageId, isReceptionMateStaff } from '../lib/auth';
+import { useToast } from '../components/Toast';
+import StickySaveBar from '../components/StickySaveBar';
+import DataCollectionFieldsSection from './DataCollectionFieldsSection';
+import CustomRulesSection from './CustomRulesSection';
+
+// Data Collection Fields + Custom Rules are now GA — every garage admin can
+// edit them. Beta gate dropped 2026-06-11.
 import {
   createEmptyWeeklyOpeningHours,
   WEEKDAY_ORDER,
@@ -23,10 +29,8 @@ import type {
   DayOfWeek,
   HubspotSettings,
   IntegrationProvider,
-  PricingBracket,
   ResponseSpeed,
   TonePreference,
-  TsService,
   TyresoftSettings,
   VoiceOption,
   WeeklyOpeningHours,
@@ -105,9 +109,6 @@ const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): Tyresoft
   tsPassword: settings?.tsPassword ?? '',
   tsApiKey: settings?.tsApiKey ?? '',
   tsDepotId: settings?.tsDepotId ?? '',
-  tsChannelId: settings?.tsChannelId,
-  tsServices: settings?.tsServices ? [...settings.tsServices] : undefined,
-  pricingRules: settings?.pricingRules ? JSON.parse(JSON.stringify(settings.pricingRules)) : undefined,
 });
 
 const createEmptyHubspotSettings = (): HubspotSettings => ({
@@ -152,6 +153,8 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
+  dataCollectionFields: null,
+  customRules: null,
 });
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
@@ -201,10 +204,12 @@ const agentTypeOptions: { value: AgentType; label: string; description: string }
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
-const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent'; label: string; description: string }[] = [
+const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent'; label: string; description: string }[] = [
   { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
   { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture' },
   { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre centre integration with inventory management' },
+  { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on the second LiveKit Cloud account — message-taking only, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
+  { value: 'GarageHive-agent', label: 'RMB-GarageHive', description: 'New GarageHive booking + take-message agent on the second LiveKit Cloud account — full booking flow, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
 ];
 const maskSecretValue = (value: string) => {
   if (!value) {
@@ -250,7 +255,6 @@ export default function AgentConfigurationsPage() {
   const [newNotificationEmail, setNewNotificationEmail] = useState<string>('');
   const [playingVoice, setPlayingVoice] = useState<VoiceOption | null>(null);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
-  const [csvUpload, setCsvUpload] = useState<{ uploading: boolean; result: string | null; error: string | null }>({ uploading: false, result: null, error: null });
   const [, startTransition] = useTransition();
   const canEditAgentType = isReceptionMateStaff();
 
@@ -264,16 +268,23 @@ export default function AgentConfigurationsPage() {
     refetchOnWindowFocus: false,
   });
 
+  const toast = useToast();
+
   const mutation = useMutation({
     mutationFn: (payload: AgentConfiguration) =>
       updateAgentConfiguration(payload, garageId ?? undefined),
-    onSuccess: () => {
-      window.location.reload();
+    onSuccess: (data) => {
+      setFormState(cloneConfiguration(data.configuration));
+      setKnowledgeBase(data.knowledgeBase ?? []);
+      setIsEditing(false);
+      setFeedback(null);
+      toast.success('Configuration saved', 'Changes applied to your agent.');
     },
     onError: (error: unknown) => {
       const message =
         error instanceof Error ? error.message : 'Failed to save configuration. Please try again.';
-      setFeedback(message);
+      setFeedback(null);
+      toast.error('Save failed', message);
     },
   });
 
@@ -746,67 +757,6 @@ export default function AgentConfigurationsPage() {
     setFeedback(null);
   };
 
-  const handlePricingBracketChange = (code: string, index: number, field: 'maxCC' | 'price', value: string) => {
-    if (!isEditing || mutation.isPending) return;
-    setFormState((prev) => {
-      const rules = { ...(prev.tyresoftSettings.pricingRules ?? {}) };
-      const brackets = [...(rules[code] ?? [])];
-      brackets[index] = { ...brackets[index], [field]: Number(value) };
-      return {
-        ...prev,
-        tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: { ...rules, [code]: brackets } },
-      };
-    });
-    setFeedback(null);
-  };
-
-  const handleRemovePricingBracket = (code: string, index: number) => {
-    if (!isEditing || mutation.isPending) return;
-    setFormState((prev) => {
-      const rules = { ...(prev.tyresoftSettings.pricingRules ?? {}) };
-      const brackets = (rules[code] ?? []).filter((_, i) => i !== index);
-      return {
-        ...prev,
-        tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: { ...rules, [code]: brackets } },
-      };
-    });
-    setFeedback(null);
-  };
-
-  const handleAddPricingBracket = (code: string) => {
-    if (!isEditing || mutation.isPending) return;
-    setFormState((prev) => {
-      const rules = { ...(prev.tyresoftSettings.pricingRules ?? {}) };
-      const brackets = [...(rules[code] ?? []), { maxCC: 0, price: 0 }];
-      return {
-        ...prev,
-        tyresoftSettings: { ...prev.tyresoftSettings, pricingRules: { ...rules, [code]: brackets } },
-      };
-    });
-    setFeedback(null);
-  };
-
-  const handleCsvUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const garageId = getGarageId();
-    const depotId = parseInt(formState.tyresoftSettings.tsDepotId || '1');
-    if (!garageId || isNaN(depotId)) {
-      setCsvUpload({ uploading: false, result: null, error: 'Depot ID not configured. Save your Tyresoft credentials first.' });
-      return;
-    }
-    setCsvUpload({ uploading: true, result: null, error: null });
-    try {
-      const csvContent = await file.text();
-      const result = await uploadTyreFeed(garageId, depotId, csvContent);
-      setCsvUpload({ uploading: false, result: `Imported ${result.imported.toLocaleString()} products (depot ${result.depotId})`, error: null });
-    } catch (err: any) {
-      const message = err?.response?.data?.error || err?.message || 'Upload failed';
-      setCsvUpload({ uploading: false, result: null, error: message });
-    }
-    event.target.value = '';
-  };
-
   const handleInterruptionSensitivityChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (!isEditing || mutation.isPending) {
       return;
@@ -1259,6 +1209,24 @@ export default function AgentConfigurationsPage() {
           </section>
           </>
         )}
+
+        <CustomRulesSection
+          rules={formState.customRules ?? null}
+          disabled={mutation.isPending}
+          onChange={(nextRules) => {
+            setFormState((prev) => (prev ? { ...prev, customRules: nextRules } : prev));
+            setIsEditing(true);
+          }}
+        />
+
+        <DataCollectionFieldsSection
+          fields={formState.dataCollectionFields ?? null}
+          disabled={mutation.isPending}
+          onChange={(nextFields) => {
+            setFormState((prev) => (prev ? { ...prev, dataCollectionFields: nextFields } : prev));
+            setIsEditing(true);
+          }}
+        />
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1886,7 +1854,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}
@@ -1998,126 +1966,6 @@ export default function AgentConfigurationsPage() {
                     <div className="text-slate-100">{formState.tyresoftSettings.tsDepotId || 'Not set'}</div>
                   </div>
                 </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {formState.agentScript === 'tyresoft-agent' && canEditAgentType && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-            <h2 className="text-lg font-semibold text-slate-100">Pricing Rules</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Engine-size price brackets for variable-price services (e.g. Full Service, Interim Service, Oil &amp; Filter Change). Saved with the main Save button.
-            </p>
-            <div className="mt-6 space-y-6">
-              {(() => {
-                const engineSizeCodes = formState.tyresoftSettings.tsServices
-                  ?.filter((s: TsService) => s.pricingType === 'engine-size')
-                  .map((s: TsService) => s.id)
-                  ?? Object.keys(formState.tyresoftSettings.pricingRules ?? {});
-                const allCodes = Array.from(new Set([...engineSizeCodes, ...Object.keys(formState.tyresoftSettings.pricingRules ?? {})]));
-                if (allCodes.length === 0) {
-                  return <p className="text-sm text-slate-500">No engine-size services configured. Add services via the Tyresoft API or contact support.</p>;
-                }
-                return allCodes.map((code) => {
-                  const svc = formState.tyresoftSettings.tsServices?.find((s: TsService) => s.id === code);
-                  const brackets: PricingBracket[] = formState.tyresoftSettings.pricingRules?.[code] ?? [];
-                  return (
-                    <div key={code} className="rounded-lg border border-slate-700 p-4">
-                      <h3 className="mb-3 text-sm font-medium text-slate-200">{svc?.name ?? code}</h3>
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-xs uppercase tracking-wide text-slate-500">
-                            <th className="pb-2 text-left">Engine Up To (cc)</th>
-                            <th className="pb-2 text-left">Price (£)</th>
-                            {isEditing && <th className="pb-2" />}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800">
-                          {brackets.map((b, i) => (
-                            <tr key={i}>
-                              <td className="py-1 pr-4">
-                                {isEditing ? (
-                                  <input
-                                    type="number"
-                                    value={b.maxCC || ''}
-                                    onChange={e => handlePricingBracketChange(code, i, 'maxCC', e.target.value)}
-                                    className="w-24 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100 focus:border-sky-500 focus:outline-none"
-                                  />
-                                ) : (
-                                  <span className="text-slate-100">{b.maxCC.toLocaleString()}</span>
-                                )}
-                              </td>
-                              <td className="py-1 pr-4">
-                                {isEditing ? (
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    value={b.price || ''}
-                                    onChange={e => handlePricingBracketChange(code, i, 'price', e.target.value)}
-                                    className="w-24 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-100 focus:border-sky-500 focus:outline-none"
-                                  />
-                                ) : (
-                                  <span className="text-slate-100">£{b.price.toFixed(2)}</span>
-                                )}
-                              </td>
-                              {isEditing && (
-                                <td className="py-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemovePricingBracket(code, i)}
-                                    className="text-xs text-red-400 hover:text-red-300"
-                                  >
-                                    Remove
-                                  </button>
-                                </td>
-                              )}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {isEditing && (
-                        <button
-                          type="button"
-                          onClick={() => handleAddPricingBracket(code)}
-                          className="mt-3 text-xs text-sky-400 hover:text-sky-300"
-                        >
-                          + Add bracket
-                        </button>
-                      )}
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          </section>
-        )}
-
-        {formState.agentScript === 'tyresoft-agent' && canEditAgentType && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-            <h2 className="text-lg font-semibold text-slate-100">Tyre Inventory</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              Upload the Tyresoft products CSV to populate this garage&apos;s tyre inventory. This replaces the current inventory for the configured depot.
-            </p>
-            <div className="mt-6">
-              <label className="flex flex-col gap-2 text-sm text-slate-300">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Products CSV</span>
-                <input
-                  type="file"
-                  accept=".csv"
-                  disabled={csvUpload.uploading}
-                  onChange={handleCsvUpload}
-                  className="file:mr-3 file:rounded file:border-0 file:bg-sky-600 file:px-3 file:py-1 file:text-sm file:text-white file:cursor-pointer hover:file:bg-sky-500 text-slate-400 disabled:opacity-60"
-                />
-              </label>
-              {csvUpload.uploading && (
-                <p className="mt-3 text-sm text-slate-400">Uploading...</p>
-              )}
-              {csvUpload.result && (
-                <p className="mt-3 text-sm text-emerald-400">✓ {csvUpload.result}</p>
-              )}
-              {csvUpload.error && (
-                <p className="mt-3 text-sm text-red-400">✗ {csvUpload.error}</p>
               )}
             </div>
           </section>
@@ -2364,6 +2212,20 @@ export default function AgentConfigurationsPage() {
           {query.error instanceof Error ? query.error.message : 'Please try again later.'}
         </div>
       ) : null}
+
+      <StickySaveBar
+        visible={isEditing}
+        saving={mutation.isPending}
+        summary="Review your changes, then save to apply them to your agent."
+        onSave={() => mutation.mutate(formState)}
+        onDiscard={() => {
+          if (query.data) {
+            setFormState(cloneConfiguration(query.data.configuration));
+          }
+          setIsEditing(false);
+          setFeedback(null);
+        }}
+      />
     </div>
   );
 }

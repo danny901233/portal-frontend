@@ -1,0 +1,118 @@
+---
+// Homepage feature highlight for Connect — the messaging + outbound side of
+// the product. Sits alongside the voice-focused sections so visitors don't
+// leave thinking ReceptionMate is just a phone product.
+
+// Channel glyphs — proper brand silhouettes. Each is a single 24x24 SVG
+// path used inside a coloured pill so the buttons look like the real
+// channel logos (rather than just dots).
+const channels = [
+  {
+    name: 'Web chat',
+    swatch: 'bg-brand-600',
+    icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z',
+  },
+  {
+    name: 'WhatsApp',
+    swatch: 'bg-emerald-500',
+    icon: 'M17.5 14.4c-.3-.15-1.7-.85-2-1s-.5-.15-.7.15-.8 1-1 1.2-.4.2-.7.05a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.65-2.05c-.2-.3 0-.5.13-.65.13-.15.3-.4.45-.6s.2-.3.3-.5a.55.55 0 0 0 0-.5c0-.15-.6-1.5-.85-2.05-.2-.5-.4-.45-.6-.45h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.95 2.2 5.2 5.2 0 0 0 1.1 2.8 12 12 0 0 0 4.5 4 5.4 5.4 0 0 0 1.5.5 3.6 3.6 0 0 0 1.65.1c.5-.1 1.55-.65 1.75-1.25s.2-1.1.15-1.2-.25-.2-.55-.35Z M20.5 3.5A10 10 0 0 0 12 1a10.5 10.5 0 0 0-9 16l-1.5 5.5 5.6-1.5A10.5 10.5 0 0 0 12 22.5 10.5 10.5 0 0 0 22.5 12a10.5 10.5 0 0 0-2-8.5Z',
+  },
+  {
+    name: 'Instagram',
+    swatch: 'bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400',
+    icon: 'M12 2.16c3.21 0 3.58.01 4.85.07a6.6 6.6 0 0 1 2.23.41 3.7 3.7 0 0 1 1.38.9c.4.4.71.86.9 1.38a6.6 6.6 0 0 1 .41 2.23c.06 1.27.07 1.64.07 4.85s-.01 3.58-.07 4.85a6.6 6.6 0 0 1-.41 2.23 4 4 0 0 1-2.28 2.28 6.6 6.6 0 0 1-2.23.41c-1.27.06-1.64.07-4.85.07s-3.58-.01-4.85-.07a6.6 6.6 0 0 1-2.23-.41 4 4 0 0 1-2.28-2.28 6.6 6.6 0 0 1-.41-2.23C2.17 15.58 2.16 15.21 2.16 12s.01-3.58.07-4.85a6.6 6.6 0 0 1 .41-2.23 4 4 0 0 1 2.28-2.28A6.6 6.6 0 0 1 7.15 2.23C8.42 2.17 8.79 2.16 12 2.16ZM12 0C8.74 0 8.33.01 7.05.07a8.8 8.8 0 0 0-2.92.56 6.15 6.15 0 0 0-3.5 3.5 8.8 8.8 0 0 0-.56 2.92C0 8.33 0 8.74 0 12s.01 3.67.07 4.95a8.8 8.8 0 0 0 .56 2.92 6.15 6.15 0 0 0 3.5 3.5 8.8 8.8 0 0 0 2.92.56C8.33 24 8.74 24 12 24s3.67-.01 4.95-.07a8.8 8.8 0 0 0 2.92-.56 6.15 6.15 0 0 0 3.5-3.5 8.8 8.8 0 0 0 .56-2.92C24 15.67 24 15.26 24 12s-.01-3.67-.07-4.95a8.8 8.8 0 0 0-.56-2.92 6.15 6.15 0 0 0-3.5-3.5A8.8 8.8 0 0 0 16.95.07C15.67 0 15.26 0 12 0Zm0 5.84A6.16 6.16 0 1 0 18.16 12 6.16 6.16 0 0 0 12 5.84Zm0 10.16A4 4 0 1 1 16 12a4 4 0 0 1-4 4Zm6.41-10.4a1.44 1.44 0 1 1-1.44-1.44 1.44 1.44 0 0 1 1.44 1.44Z',
+  },
+  {
+    name: 'Facebook',
+    swatch: 'bg-sky-500',
+    icon: 'M12 2C6.48 2 2 6.07 2 11.13c0 2.83 1.4 5.35 3.6 7.03V22l3.3-1.81a11.16 11.16 0 0 0 3.1.44c5.52 0 10-4.07 10-9.5S17.52 2 12 2Zm.98 12.78-2.53-2.7-4.95 2.7 5.45-5.78 2.6 2.7 4.88-2.7-5.45 5.78Z',
+  },
+];
+
+const GARAGE_NAME = 'Hillside Garage';
+const GARAGE_INITIAL = 'H';
+
+const thread = [
+  { from: 'rm', text: `Hi Sarah, it's Tom from ${GARAGE_NAME} 👋 Your VB07 CJZ is due for its MOT on 15 March. Want me to book it in?` },
+  { from: 'customer', text: 'Yes please — Thursday afternoon if you have it?' },
+  { from: 'rm', text: 'Got Thursday 15th at 14:00 free — I\'ll hold it for you.' },
+  { from: 'customer', text: 'Perfect 👍' },
+];
+---
+
+<section class="bg-ink-50 py-20 sm:py-24">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="grid gap-12 text-center lg:grid-cols-2 lg:items-center lg:text-left">
+
+      <!-- Left: pitch -->
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Connect — messaging & outbound</p>
+        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          The phone isn't the only place customers ring.
+        </h2>
+        <p class="mt-4 text-lg leading-relaxed text-ink-700">
+          ReceptionMate Connect answers messages across web chat, WhatsApp,
+          Instagram and Facebook — and sends opted-in MOT and service reminders
+          that book customers in without anyone in the workshop typing a thing.
+        </p>
+
+        <div class="mt-6 flex flex-wrap gap-2">
+          {channels.map((c) => (
+            <span class="inline-flex items-center gap-2 rounded-full bg-white pl-1.5 pr-3 py-1 text-sm font-medium text-ink-800 shadow-sm">
+              <span class={`inline-flex h-6 w-6 items-center justify-center rounded-full ${c.swatch} text-white`}>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d={c.icon}/></svg>
+              </span>
+              {c.name}
+            </span>
+          ))}
+        </div>
+
+        <ul class="mt-8 space-y-3">
+          <li class="flex items-start gap-3 text-base text-ink-700">
+            <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            <span>Outbound MOT and service reminders to your existing opted-in customers.</span>
+          </li>
+          <li class="flex items-start gap-3 text-base text-ink-700">
+            <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            <span>Customer replies, ReceptionMate books — your team only sees the confirmed appointment.</span>
+          </li>
+          <li class="flex items-start gap-3 text-base text-ink-700">
+            <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            <span>All conversations land in the same ReceptionMate inbox as your calls.</span>
+          </li>
+        </ul>
+
+        <div class="mt-8">
+          <a href="/connect" class="inline-flex items-center justify-center gap-2 rounded-md bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
+            See how Connect works
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <!-- Right: WhatsApp thread mockup -->
+      <div class="relative">
+        <div class="mx-auto max-w-sm rounded-3xl border border-ink-200 bg-white shadow-xl shadow-emerald-900/10 overflow-hidden">
+          <header class="flex items-center gap-3 bg-emerald-600 px-4 py-3">
+            <span class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-emerald-600 font-bold">{GARAGE_INITIAL}</span>
+            <div class="min-w-0 flex-1 text-white">
+              <p class="text-sm font-semibold leading-tight">{GARAGE_NAME}</p>
+              <p class="text-xs text-emerald-100">online · via WhatsApp</p>
+            </div>
+          </header>
+          <ol class="space-y-2 bg-[#e5ddd5] px-3 py-4">
+            {thread.map((m) => (
+              <li class={m.from === 'rm' ? 'flex justify-end' : 'flex justify-start'}>
+                <div class={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed shadow-sm ${m.from === 'rm' ? 'bg-emerald-100 text-ink-900 rounded-tr-sm' : 'bg-white text-ink-900 rounded-tl-sm'}`}>
+                  {m.text}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+        <p class="mt-3 text-center text-xs text-ink-500">An MOT reminder thread — entirely automated.</p>
+      </div>
+
+    </div>
+  </div>
+</section>

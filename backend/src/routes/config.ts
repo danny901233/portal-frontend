@@ -101,11 +101,7 @@ const parseIntegrationSettings = (
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
     if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
-      // Support both flat {tsWorkspace: ...} and nested {tyresoft: {tsWorkspace: ...}} formats
-      const top = rawSettings as Record<string, unknown>;
-      const raw: Record<string, unknown> = (top.tyresoft && typeof top.tyresoft === 'object' && !Array.isArray(top.tyresoft))
-        ? top.tyresoft as Record<string, unknown>
-        : top;
+      const raw = rawSettings as Record<string, unknown>;
       return {
         integrationProvider: 'none',
         garageHiveSettings: createDefaultGarageHiveSettings(),
@@ -115,9 +111,6 @@ const parseIntegrationSettings = (
           tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
           tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
           tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
-          tsChannelId: typeof raw.tsChannelId === 'string' ? raw.tsChannelId : (raw.tsChannelId != null ? String(raw.tsChannelId) : undefined),
-          tsServices: Array.isArray(raw.tsServices) ? raw.tsServices as TyresoftSettings['tsServices'] : undefined,
-          pricingRules: raw.pricingRules && typeof raw.pricingRules === 'object' && !Array.isArray(raw.pricingRules) ? raw.pricingRules as TyresoftSettings['pricingRules'] : undefined,
         }),
       };
     }
@@ -189,6 +182,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
+  dataCollectionFields: null,
 };
 const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
@@ -221,7 +215,9 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     integrationProvider: sanitizedProvider,
     garageHiveSettings,
     agentType: config.agentType === 'automate' ? 'automate' : 'assist',
-    agentScript: 
+    agentScript:
+      config.agentScript === 'Assist-agent' ? 'Assist-agent' :
+      config.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       config.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
@@ -235,7 +231,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   };
 };
 
-const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
+export const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
   if (!configuration) {
     return sanitizeConfigForResponse(defaultConfiguration);
   }
@@ -267,7 +263,11 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
     customRules: Array.isArray((configuration as any).customRules) ? (configuration as any).customRules : null,
+    dataCollectionFields: Array.isArray((configuration as any).dataCollectionFields) ? (configuration as any).dataCollectionFields : null,
+    transferNumber: configuration.transferNumber || null,
     agentScript: (
+      configuration.agentScript === 'Assist-agent' ? 'Assist-agent' :
+      configuration.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
@@ -305,7 +305,7 @@ const serializeKnowledgeDocument = (document: PrismaKnowledgeDocument) => ({
 
 type SerializedKnowledgeDocument = ReturnType<typeof serializeKnowledgeDocument>;
 
-const loadKnowledgeBase = async (garageId: string): Promise<SerializedKnowledgeDocument[]> => {
+export const loadKnowledgeBase = async (garageId: string): Promise<SerializedKnowledgeDocument[]> => {
   const documents = await prisma.agentKnowledgeDocument.findMany({
     where: { garageId },
     orderBy: [{ createdAt: 'asc' }],
@@ -575,7 +575,21 @@ const sendAgentConfigWebhook = async (garageId: string) => {
   }
 };
 
-const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent') => {
+type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent';
+
+// Maps the per-garage agentScript to the LiveKit Cloud account that hosts
+// that agent. Assist-agent and GarageHive-agent live on Account 2
+// (receptionmate-9dznd24r — rmb-assist-account2 and rmb-garagehive-account2
+// projects respectively, both on the same cluster). Everything else lives
+// on Account 1.
+const livekitAccountForAgentScript = (agentScript: AgentScript): 'account1' | 'account2' => {
+  if (agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent') {
+    return 'account2';
+  }
+  return 'account1';
+};
+
+const updateSipDispatchRule = async (garageId: string, agentScript: AgentScript) => {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
   if (!onboardingUrl) {
     console.log('[UPDATE_SIP] No onboarding service URL configured');
@@ -584,6 +598,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
 
   try {
     const agentName = agentScript;
+    const account = livekitAccountForAgentScript(agentScript);
 
     const onboardingSecret = process.env.ONBOARDING_SECRET;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -591,7 +606,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
       headers['x-onboarding-secret'] = onboardingSecret;
     }
 
-    console.log(`[UPDATE_SIP] Updating dispatch rule for garage ${garageId} to agent: ${agentName}`);
+    console.log(`[UPDATE_SIP] account=${account} garage=${garageId} → agent: ${agentName}`);
 
     await fetch(`${onboardingUrl}/update-agent`, {
       method: 'POST',
@@ -599,6 +614,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
       body: JSON.stringify({
         garageId,
         agentName,
+        account,
       }),
     });
   } catch (error) {
@@ -645,7 +661,12 @@ router.put(
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
     let resolvedAgentType: 'assist' | 'automate' = data.agentType === 'automate' ? 'automate' : 'assist';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
+    let resolvedAgentScript: AgentScript =
+      data.agentScript === 'Assist-agent' ? 'Assist-agent' :
+      data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
+      data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
+      data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
+      'receptionmate-agent';
 
     if (!canEditAgentType) {
       const existingConfig = await prisma.agentConfiguration.findUnique({
@@ -653,7 +674,12 @@ router.put(
         select: { agentType: true, agentScript: true },
       });
       resolvedAgentType = existingConfig?.agentType === 'automate' ? 'automate' : 'assist';
-      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
+      resolvedAgentScript =
+        existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' :
+        existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
+        existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
+        existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
+        'receptionmate-agent';
     }
 
     const normalizedWeeklyOpeningHours = data.weeklyOpeningHours
@@ -699,8 +725,6 @@ router.put(
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
-            // Spread normalized existing config to preserve pricingRules, tsServices, tsChannelId etc.
-            ...existingTyresoftFlat,
             tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
             tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
@@ -750,6 +774,7 @@ router.put(
       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',
       ...(data.customRules !== undefined && { customRules: data.customRules as Prisma.InputJsonValue ?? Prisma.JsonNull }),
+      ...(data.dataCollectionFields !== undefined && { dataCollectionFields: data.dataCollectionFields as Prisma.InputJsonValue ?? Prisma.JsonNull }),
     };
 
     const [configuration, garageRecord] = await Promise.all([

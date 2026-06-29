@@ -1,0 +1,382 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+// /connect is the messaging-side companion to the voice receptionist.
+// Two halves: inbound (chat across channels) and outbound (WhatsApp
+// campaigns to opted-in existing customers — never cold).
+
+interface Channel {
+  name: string;
+  blurb: string;
+  swatch: string; // brand colour tile background
+  icon: string;   // inline SVG path used inside a 24x24 viewBox
+}
+
+const channels: Channel[] = [
+  {
+    name: 'Web chat',
+    blurb: 'A chat widget on your garage website that books the job 24/7 — same logic as the voice agent, just typed.',
+    swatch: 'bg-brand-600',
+    icon: 'M12 2C6.48 2 2 5.92 2 10.75c0 2.4 1.13 4.56 2.95 6.11L4 22l5.4-2.86A11 11 0 0 0 12 19.5c5.52 0 10-3.92 10-8.75S17.52 2 12 2Z',
+  },
+  {
+    name: 'WhatsApp Business',
+    blurb: "Customers message the garage's WhatsApp Business number — ReceptionMate replies, captures details, and books the job.",
+    swatch: 'bg-emerald-500',
+    icon: 'M17.5 14.4c-.3-.15-1.7-.85-2-1s-.5-.15-.7.15-.8 1-1 1.2-.4.2-.7.05a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.65-2.05c-.2-.3 0-.5.13-.65.13-.15.3-.4.45-.6s.2-.3.3-.5a.55.55 0 0 0 0-.5c0-.15-.6-1.5-.85-2.05-.2-.5-.4-.45-.6-.45h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.95 2.2 5.2 5.2 0 0 0 1.1 2.8 12 12 0 0 0 4.5 4 5.4 5.4 0 0 0 1.5.5 3.6 3.6 0 0 0 1.65.1c.5-.1 1.55-.65 1.75-1.25s.2-1.1.15-1.2-.25-.2-.55-.35Z M20.5 3.5A10 10 0 0 0 12 1a10.5 10.5 0 0 0-9 16l-1.5 5.5 5.6-1.5A10.5 10.5 0 0 0 12 22.5 10.5 10.5 0 0 0 22.5 12a10.5 10.5 0 0 0-2-8.5Z',
+  },
+  {
+    name: 'Instagram DM',
+    blurb: 'DMs sent to the garage account are picked up and replied to in real time, with the same booking logic.',
+    swatch: 'bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400',
+    icon: 'M12 2.16c3.21 0 3.58.01 4.85.07a6.6 6.6 0 0 1 2.23.41 3.7 3.7 0 0 1 1.38.9c.4.4.71.86.9 1.38a6.6 6.6 0 0 1 .41 2.23c.06 1.27.07 1.64.07 4.85s-.01 3.58-.07 4.85a6.6 6.6 0 0 1-.41 2.23 4 4 0 0 1-2.28 2.28 6.6 6.6 0 0 1-2.23.41c-1.27.06-1.64.07-4.85.07s-3.58-.01-4.85-.07a6.6 6.6 0 0 1-2.23-.41 4 4 0 0 1-2.28-2.28 6.6 6.6 0 0 1-.41-2.23C2.17 15.58 2.16 15.21 2.16 12s.01-3.58.07-4.85a6.6 6.6 0 0 1 .41-2.23 4 4 0 0 1 2.28-2.28A6.6 6.6 0 0 1 7.15 2.23C8.42 2.17 8.79 2.16 12 2.16ZM12 0C8.74 0 8.33.01 7.05.07a8.8 8.8 0 0 0-2.92.56 6.15 6.15 0 0 0-3.5 3.5 8.8 8.8 0 0 0-.56 2.92C0 8.33 0 8.74 0 12s.01 3.67.07 4.95a8.8 8.8 0 0 0 .56 2.92 6.15 6.15 0 0 0 3.5 3.5 8.8 8.8 0 0 0 2.92.56C8.33 24 8.74 24 12 24s3.67-.01 4.95-.07a8.8 8.8 0 0 0 2.92-.56 6.15 6.15 0 0 0 3.5-3.5 8.8 8.8 0 0 0 .56-2.92C24 15.67 24 15.26 24 12s-.01-3.67-.07-4.95a8.8 8.8 0 0 0-.56-2.92 6.15 6.15 0 0 0-3.5-3.5A8.8 8.8 0 0 0 16.95.07C15.67 0 15.26 0 12 0Zm0 5.84A6.16 6.16 0 1 0 18.16 12 6.16 6.16 0 0 0 12 5.84Zm0 10.16A4 4 0 1 1 16 12a4 4 0 0 1-4 4Zm6.41-10.4a1.44 1.44 0 1 1-1.44-1.44 1.44 1.44 0 0 1 1.44 1.44Z',
+  },
+  {
+    name: 'Facebook Messenger',
+    blurb: 'Messages sent via the garage Facebook page get answered automatically — bookings flow into the diary.',
+    swatch: 'bg-sky-500',
+    icon: 'M12 2C6.48 2 2 6.07 2 11.13c0 2.83 1.4 5.35 3.6 7.03V22l3.3-1.81a11.16 11.16 0 0 0 3.1.44c5.52 0 10-4.07 10-9.5S17.52 2 12 2Zm.98 12.78-2.53-2.7-4.95 2.7 5.45-5.78 2.6 2.7 4.88-2.7-5.45 5.78Z',
+  },
+];
+
+// A scripted WhatsApp thread that gets rendered as a chat bubble visual.
+// `from`: 'rm' = ReceptionMate side (right, green); 'customer' = left (white).
+const GARAGE_NAME = 'Hillside Garage';
+const GARAGE_INITIAL = 'H';
+
+const threadMOT = [
+  { from: 'rm', text: `Hi Sarah, it's Tom from ${GARAGE_NAME} 👋 Your VB07 CJZ is due for its MOT on 15 March. Want me to book it in?` },
+  { from: 'customer', text: 'Yes please — Thursday afternoon if you have it?' },
+  { from: 'rm', text: 'Got Thursday 15th at 14:00 free — I\'ll hold it for you. Want me to add an interim service while it\'s in?' },
+  { from: 'customer', text: 'Yeah go on, sounds good 👍' },
+  { from: 'rm', text: "Booked: 15 March, 14:00 — MOT + interim service. We'll text the day before. See you Thursday, Sarah." },
+];
+
+const useCases = [
+  { h3: 'MOT reminders', body: 'Customers whose MOT is due get a reminder a fortnight out — and book the slot in the same conversation.' },
+  { h3: 'Service reminders', body: 'Anniversary servicing reminders go out automatically. Customer replies, ReceptionMate books.' },
+  { h3: 'Missed-call follow-up', body: 'When a call goes unanswered, ReceptionMate sends the caller a WhatsApp to pick the conversation back up — and books from there.' },
+  { h3: 'Quote follow-up', body: 'Customers who got a quote but didn\'t book get a gentle nudge a few days later — captured as a fresh booking opportunity.' },
+];
+---
+
+<BaseLayout
+  title="Connect — AI webchat, WhatsApp, Instagram and Facebook for UK garages"
+  description="ReceptionMate Connect answers messages from web chat, WhatsApp, Instagram and Facebook — and sends opted-in MOT and service reminders that book themselves."
+>
+  <!-- Hero -->
+  <section class="relative isolate overflow-hidden bg-white">
+    <div class="absolute inset-0 -z-10">
+      <div class="absolute -top-40 left-1/2 h-96 w-[800px] -translate-x-1/2 rounded-full bg-brand-100/60 blur-3xl"></div>
+    </div>
+
+    <div class="mx-auto max-w-5xl px-4 pt-16 pb-12 sm:px-6 lg:px-8 lg:pt-20">
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Connect</p>
+      <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl lg:text-6xl">
+        Inbound from every channel.<br/>
+        <span class="text-brand-600">Outbound that books itself.</span>
+      </h1>
+      <p class="mt-6 max-w-3xl text-lg leading-relaxed text-ink-700">
+        ReceptionMate Connect handles the messaging side of your garage —
+        replying to web-chat enquiries, WhatsApp, Instagram and Facebook in
+        real time, and sending opted-in MOT and service reminders that turn
+        into bookings without anyone in the workshop lifting a finger.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
+          Get started
+        </a>
+        <a href="/how-it-works" class="inline-flex items-center justify-center rounded-md border border-ink-300 px-5 py-3 text-sm font-semibold text-ink-700 hover:border-ink-400 transition">
+          Voice receptionist instead?
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Inbound: channels -->
+  <section class="bg-ink-50 py-16 sm:py-20">
+    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-3xl text-center">
+        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Inbound</p>
+        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Four channels, one inbox.
+        </h2>
+        <p class="mt-4 text-lg text-ink-700">
+          Customers reach out where it suits them. Every message lands in your
+          ReceptionMate inbox alongside the calls — replied to instantly,
+          booked when the intent is there.
+        </p>
+      </div>
+
+      <div class="mt-12 grid gap-5 sm:grid-cols-2">
+        {channels.map((c) => (
+          <article class="flex gap-4 rounded-2xl border border-ink-200 bg-white p-6">
+            <span class={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${c.swatch} text-white`}>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d={c.icon}/></svg>
+            </span>
+            <div>
+              <h3 class="text-lg font-semibold text-ink-900">{c.name}</h3>
+              <p class="mt-1 text-sm leading-relaxed text-ink-700">{c.blurb}</p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Web-chat widget showcase. Visual matches the actual portal widget at
+       app/widget/[garageId]/page.tsx — brand-coloured outer panel, white
+       inner card with three teal-bordered buttons, then a sample chat. -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+      <div class="grid gap-12 lg:grid-cols-2 lg:items-center">
+
+        <!-- Left: copy -->
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Webchat widget</p>
+          <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+            One line of code, live on your website.
+          </h2>
+          <p class="mt-4 text-lg leading-relaxed text-ink-700">
+            Drop a single snippet onto your garage's website and the
+            ReceptionMate widget appears in the corner. Visitors pick how they
+            want to talk — WhatsApp, live chat or phone — and ReceptionMate
+            picks up immediately on whichever channel they chose.
+          </p>
+          <ul class="mt-6 space-y-3">
+            <li class="flex items-start gap-3 text-base text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span><strong class="text-ink-900">Branded to your garage</strong> — your colours, your logo, your phone number.</span>
+            </li>
+            <li class="flex items-start gap-3 text-base text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span><strong class="text-ink-900">Customer picks the channel</strong> — WhatsApp, live chat or phone all in one widget.</span>
+            </li>
+            <li class="flex items-start gap-3 text-base text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span><strong class="text-ink-900">Books in the conversation</strong> — chat captures vehicle, service and timeslot, just like the voice agent.</span>
+            </li>
+            <li class="flex items-start gap-3 text-base text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span><strong class="text-ink-900">Works on any site</strong> — Wix, WordPress, Squarespace, custom builds, all the same install.</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Right: widget mockup framed inside a faux browser window so the
+             corner-floating launcher reads correctly. Visual is sized down
+             vs. the actual widget (380px → max-w-[300px]) to fit the column. -->
+        <div class="relative">
+          <!-- Soft brand glow behind the widget -->
+          <div class="pointer-events-none absolute inset-0 -z-10 mx-auto h-72 w-72 translate-y-12 rounded-full bg-brand-200/40 blur-3xl"></div>
+
+          <!-- Mock browser window -->
+          <div class="relative mx-auto max-w-md overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-2xl shadow-brand-900/15">
+            <!-- Browser chrome -->
+            <div class="flex items-center gap-2 border-b border-ink-200 bg-ink-50 px-3 py-2">
+              <span class="inline-block h-2.5 w-2.5 rounded-full bg-rose-400"></span>
+              <span class="inline-block h-2.5 w-2.5 rounded-full bg-amber-400"></span>
+              <span class="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+              <span class="ml-3 truncate rounded-md bg-white px-3 py-0.5 text-[10px] font-medium text-ink-500">yourgarage.co.uk</span>
+            </div>
+
+            <!-- Faux page content behind the widget -->
+            <div class="relative h-[420px] bg-gradient-to-br from-ink-50 to-white p-5">
+              <div class="space-y-2">
+                <div class="h-3 w-2/3 rounded bg-ink-200/80"></div>
+                <div class="h-3 w-3/4 rounded bg-ink-200/60"></div>
+                <div class="h-3 w-1/2 rounded bg-ink-200/60"></div>
+              </div>
+              <div class="mt-6 space-y-2">
+                <div class="h-2 w-full rounded bg-ink-200/40"></div>
+                <div class="h-2 w-5/6 rounded bg-ink-200/40"></div>
+                <div class="h-2 w-4/5 rounded bg-ink-200/40"></div>
+                <div class="h-2 w-3/4 rounded bg-ink-200/40"></div>
+              </div>
+
+              <!-- The expanded widget, positioned bottom-right like in production -->
+              <div class="absolute bottom-20 right-4 w-[260px] overflow-hidden shadow-xl shadow-brand-900/25" style="border-radius: 24px; background: #3426cf;">
+                <!-- Garage logo — modern minimal mark sitting directly on the
+                     panel: no tile, no card, just the H monogram + wordmark
+                     in white. Stand-in for an uploaded customer logo. -->
+                <div class="flex justify-center py-5">
+                  <div class="flex items-center gap-2.5">
+                    <!-- Geometric H monogram (no tile, pure white strokes) -->
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" viewBox="0 0 40 40" aria-hidden="true">
+                      <rect x="9"  y="9" width="5" height="22" rx="1" fill="#ffffff"/>
+                      <rect x="26" y="9" width="5" height="22" rx="1" fill="#ffffff"/>
+                      <rect x="14" y="18" width="12" height="4" fill="#ffffff"/>
+                      <circle cx="34" cy="9" r="2.5" fill="#ffffff"/>
+                    </svg>
+                    <!-- Stacked wordmark -->
+                    <div class="flex flex-col leading-none" style="font-family: 'Poppins', system-ui, sans-serif;">
+                      <span class="text-[11px] font-extrabold tracking-[0.18em] text-white">HILLSIDE</span>
+                      <span class="mt-1 text-[8px] font-semibold tracking-[0.32em] text-white/70">GARAGE</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- White inner card -->
+                <div class="mx-3 mb-3 rounded-2xl bg-white p-3" style="box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+                  <h4 class="mb-2.5 text-xs font-semibold text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">Message us on…</h4>
+
+                  <div class="space-y-1.5">
+                    <!-- WhatsApp -->
+                    <div class="flex items-center gap-2 rounded-xl border bg-white px-2 py-1.5" style="border-color: #5DDCC2; border-width: 1.5px;">
+                      <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.15-1.7-.85-2-1s-.5-.15-.7.15-.8 1-1 1.2-.4.2-.7.05a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.65-2.05c-.2-.3 0-.5.13-.65.13-.15.3-.4.45-.6s.2-.3.3-.5a.55.55 0 0 0 0-.5c0-.15-.6-1.5-.85-2.05-.2-.5-.4-.45-.6-.45h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.95 2.2 5.2 5.2 0 0 0 1.1 2.8 12 12 0 0 0 4.5 4 5.4 5.4 0 0 0 1.5.5 3.6 3.6 0 0 0 1.65.1c.5-.1 1.55-.65 1.75-1.25s.2-1.1.15-1.2-.25-.2-.55-.35Z M20.5 3.5A10 10 0 0 0 12 1a10.5 10.5 0 0 0-9 16l-1.5 5.5 5.6-1.5A10.5 10.5 0 0 0 12 22.5 10.5 10.5 0 0 0 22.5 12a10.5 10.5 0 0 0-2-8.5Z"/></svg>
+                      </span>
+                      <span class="text-xs font-medium text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">WhatsApp</span>
+                    </div>
+                    <!-- Live Chat -->
+                    <div class="flex items-center gap-2 rounded-xl border bg-white px-2 py-1.5" style="border-color: #5DDCC2; border-width: 1.5px;">
+                      <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white" style="background: #3426cf;">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                      </span>
+                      <span class="text-xs font-medium text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">Live Chat</span>
+                    </div>
+                    <!-- Phone -->
+                    <div class="flex items-center gap-2 rounded-xl border bg-white px-2 py-1.5" style="border-color: #5DDCC2; border-width: 1.5px;">
+                      <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ink-800 text-white">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.05-.24c1.16.39 2.41.6 3.69.6a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.28.21 2.53.6 3.69a1 1 0 0 1-.24 1.05l-2.24 2.05Z"/></svg>
+                      </span>
+                      <span class="text-xs font-medium text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">Phone</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Floating launcher button, exactly where it lives in production -->
+              <span class="absolute bottom-4 right-4 inline-flex h-12 w-12 items-center justify-center rounded-full text-white shadow-xl shadow-brand-900/30" style="background: #3426cf;">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </span>
+            </div>
+          </div>
+          <p class="mt-4 text-center text-xs text-ink-500">The widget as it appears on a garage's website.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Outbound: WhatsApp campaigns -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+      <div class="grid gap-10 lg:grid-cols-2 lg:items-center">
+        <!-- Left: copy -->
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Outbound</p>
+          <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+            MOT and service reminders that book themselves.
+          </h2>
+          <p class="mt-4 text-lg leading-relaxed text-ink-700">
+            ReceptionMate Connect sends WhatsApp reminders to your existing
+            opted-in customers when their MOT or service is due. When they
+            reply, it books the slot, confirms the appointment, and adds it to
+            your diary — without anyone in the workshop typing a thing.
+          </p>
+          <ul class="mt-6 space-y-3">
+            <li class="flex items-start gap-3 text-base text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span><strong class="text-ink-900">Opt-in only.</strong> Campaigns go to your existing customers who agreed to be contacted — never cold lists.</span>
+            </li>
+            <li class="flex items-start gap-3 text-base text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span><strong class="text-ink-900">In your voice.</strong> Messages come from your garage's branded WhatsApp Business number — not a generic shortcode.</span>
+            </li>
+            <li class="flex items-start gap-3 text-base text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span><strong class="text-ink-900">Books in the conversation.</strong> Customer says yes, ReceptionMate offers slots, confirms the appointment, all in one thread.</span>
+            </li>
+            <li class="flex items-start gap-3 text-base text-ink-700">
+              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              <span><strong class="text-ink-900">Hands off.</strong> Your team only sees the booking when it's confirmed — no replying, no chasing, no calendar work.</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Right: WhatsApp thread mockup -->
+        <div class="relative">
+          <div class="mx-auto max-w-sm rounded-3xl border border-ink-200 bg-white shadow-xl shadow-emerald-900/10 overflow-hidden">
+            <!-- Phone-style header -->
+            <header class="flex items-center gap-3 bg-emerald-600 px-4 py-3">
+              <span class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-emerald-600 font-bold">{GARAGE_INITIAL}</span>
+              <div class="min-w-0 flex-1 text-white">
+                <p class="text-sm font-semibold leading-tight">{GARAGE_NAME}</p>
+                <p class="text-xs text-emerald-100">online · via WhatsApp</p>
+              </div>
+            </header>
+            <!-- Thread -->
+            <ol class="space-y-2 bg-[#e5ddd5] px-3 py-4">
+              {threadMOT.map((m) => (
+                <li class={m.from === 'rm' ? 'flex justify-end' : 'flex justify-start'}>
+                  <div class={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed shadow-sm ${m.from === 'rm' ? 'bg-emerald-100 text-ink-900 rounded-tr-sm' : 'bg-white text-ink-900 rounded-tl-sm'}`}>
+                    {m.text}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <p class="mt-3 text-center text-xs text-ink-500">An MOT reminder thread — entirely automated.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Use cases strip -->
+  <section class="bg-ink-50 py-16 sm:py-20">
+    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-3xl text-center">
+        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Use cases</p>
+        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          What Connect runs for your garage.
+        </h2>
+      </div>
+
+      <div class="mt-12 grid gap-5 sm:grid-cols-2">
+        {useCases.map((u) => (
+          <div class="rounded-2xl border border-ink-200 bg-white p-6">
+            <h3 class="text-lg font-semibold text-ink-900">{u.h3}</h3>
+            <p class="mt-2 text-base leading-relaxed text-ink-700">{u.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Same portal angle -->
+  <section class="bg-white py-16 sm:py-20">
+    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
+      <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        Lives in the same portal as your calls.
+      </h2>
+      <p class="mt-4 text-lg leading-relaxed text-ink-700">
+        Every message, every reply, every booking — across web chat, WhatsApp,
+        Instagram and Facebook — sits alongside your voice calls in the
+        ReceptionMate dashboard. One inbox, one source of truth, one place to
+        review what the AI did.
+      </p>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="bg-white pb-20">
+    <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+      <div class="relative overflow-hidden rounded-3xl bg-brand-600 p-10 text-center sm:p-14">
+        <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          Turn your customer list into a booking pipeline.
+        </h2>
+        <p class="mx-auto mt-4 max-w-2xl text-lg text-brand-100">
+          Already running web chat or WhatsApp? We layer in — without changing
+          your number or your existing channels.
+        </p>
+        <div class="mt-8">
+          <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition">
+            Get started
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

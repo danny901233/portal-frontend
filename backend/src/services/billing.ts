@@ -633,29 +633,48 @@ export async function generateInvoicesForUser(userId: string) {
       const vatAmount = Math.round(subtotal * garage.vatRate);
       const total = subtotal + vatAmount;
 
-      // Create invoice
-      const invoice = await prisma.invoice.create({
-        data: {
-          garageId,
-          businessId: garage.businessId,
-          periodStart,
-          periodEnd,
-          minutesUsed: usage.minutesUsed,
-          minutesIncluded: garage.includedMinutes,
-          smsCount: usage.smsCount,
-          subscriptionAmount,
-          minutesAmount,
-          smsAmount,
-          messagingSubscriptionAmount,
-          subtotal,
-          vatAmount,
-          total,
-          subscriptionCostGbp: garage.subscriptionCostGbp,
-          costPerMinuteGbp: garage.costPerMinuteGbp,
-          vatRate: garage.vatRate,
-          status: 'draft',
-        },
+      // Anti-double-bill: never re-bill a period that's already paid or has a payment in flight.
+      // (The historic duplicate invoices — e.g. St Johns charged twice for Apr–May — came from
+      // re-billing the same period.)
+      const alreadyBilled = await prisma.invoice.findFirst({
+        where: { garageId, periodStart, periodEnd, status: { in: ['paid', 'pending'] } },
       });
+      if (alreadyBilled) {
+        console.log(`Garage ${garage.name} already has a ${alreadyBilled.status} invoice for ${periodStart.toISOString().slice(0,10)}→${periodEnd.toISOString().slice(0,10)}, skipping`);
+        results.push({ garageId, garageName: garage.name, success: true, message: 'Already billed for this period' });
+        continue;
+      }
+
+      const invoiceData = {
+        garageId,
+        businessId: garage.businessId,
+        periodStart,
+        periodEnd,
+        minutesUsed: usage.minutesUsed,
+        minutesIncluded: garage.includedMinutes,
+        smsCount: usage.smsCount,
+        subscriptionAmount,
+        minutesAmount,
+        smsAmount,
+        messagingSubscriptionAmount,
+        subtotal,
+        vatAmount,
+        total,
+        subscriptionCostGbp: garage.subscriptionCostGbp,
+        costPerMinuteGbp: garage.costPerMinuteGbp,
+        vatRate: garage.vatRate,
+        status: 'draft',
+      };
+
+      // Idempotent: if a previous run left a draft/failed invoice for this exact period (e.g. a
+      // charge that errored and wasn't retried), reuse and refresh it instead of creating a
+      // duplicate row.
+      const existingUnpaid = await prisma.invoice.findFirst({
+        where: { garageId, periodStart, periodEnd, status: { in: ['draft', 'failed'] } },
+      });
+      const invoice = existingUnpaid
+        ? await prisma.invoice.update({ where: { id: existingUnpaid.id }, data: invoiceData })
+        : await prisma.invoice.create({ data: invoiceData });
 
       // Store invoice for later combined charging
       invoicesToCharge.push({
@@ -685,6 +704,7 @@ export async function generateInvoicesForUser(userId: string) {
   }
 
   // Create ONE combined GoCardless payment for all invoices
+  let chargeSucceeded = false;
   if (invoicesToCharge.length > 0) {
     try {
       const totalAmount = invoicesToCharge.reduce((sum, item) => sum + item.total, 0);
@@ -698,14 +718,16 @@ export async function generateInvoicesForUser(userId: string) {
 
       const client = getGocardlessClient();
 
-      // Format charge_date as YYYY-MM-DD (the actual billing date)
-      const chargeDateStr = periodEnd.toISOString().split('T')[0];
-
-      // Create single combined payment
-      const payment = await client.payments.create({
+      // charge_date is normally the billing date — but GoCardless REJECTS a charge_date in the
+      // past (with a ValidationFailedError), which happens when a run lands on/after the billing
+      // date (e.g. VWGS, 11 Jun for a 10 Jun date). When the billing date has already passed,
+      // omit charge_date so GoCardless collects on the earliest valid working day instead of
+      // hard-failing and silently orphaning the invoice.
+      const todayStr = new Date().toISOString().split('T')[0];
+      const billingDateStr = periodEnd.toISOString().split('T')[0];
+      const paymentArgs: any = {
         amount: totalAmount,
         currency: 'GBP',
-        charge_date: chargeDateStr,
         description: `ReceptionMate - ${invoicesToCharge.length} branch${invoicesToCharge.length > 1 ? 'es' : ''}`,
         metadata: {
           user_id: user.id,
@@ -715,7 +737,13 @@ export async function generateInvoicesForUser(userId: string) {
         links: {
           mandate: user.gocardlessMandateId,
         },
-      });
+      };
+      if (billingDateStr > todayStr) {
+        paymentArgs.charge_date = billingDateStr;
+      }
+
+      // Create single combined payment
+      const payment = await client.payments.create(paymentArgs);
 
       // Update all invoices with the same payment ID
       for (const item of invoicesToCharge) {
@@ -727,6 +755,7 @@ export async function generateInvoicesForUser(userId: string) {
           },
         });
       }
+      chargeSucceeded = true;
 
       // Log details
       const breakdown = invoicesToCharge.map(item =>
@@ -746,6 +775,14 @@ export async function generateInvoicesForUser(userId: string) {
 
     } catch (paymentError) {
       console.error(`Failed to create combined payment:`, paymentError);
+      // Mark the invoices FAILED (not leave them as draft) so the failure is visible and the
+      // amount can be retried/collected — previously a failed charge left a silent draft.
+      for (const item of invoicesToCharge) {
+        await prisma.invoice.update({
+          where: { id: item.invoice.id },
+          data: { status: 'failed' },
+        }).catch(() => {});
+      }
       results.forEach(r => {
         if (r.success && !r.error) {
           (r as any).charged = false;
@@ -755,25 +792,32 @@ export async function generateInvoicesForUser(userId: string) {
     }
   }
 
-  // Update user's next billing date (anniversary billing - same day next month)
-  const newNextBillingDate = new Date(user.nextBillingDate);
-  newNextBillingDate.setMonth(newNextBillingDate.getMonth() + 1);
+  // Advance the billing cycle ONLY when we actually collected (or there was nothing to charge —
+  // e.g. trial or a skipped garage). Previously this advanced unconditionally, so a FAILED charge
+  // still moved the cycle forward and the uncollected month was silently orphaned (St Johns, VWGS).
+  let resolvedNextBillingDate = user.nextBillingDate;
+  if (chargeSucceeded || invoicesToCharge.length === 0) {
+    const newNextBillingDate = new Date(user.nextBillingDate);
+    newNextBillingDate.setMonth(newNextBillingDate.getMonth() + 1);
+    resolvedNextBillingDate = newNextBillingDate;
 
-  // Update billing dates
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      billingCycleStartDate: user.nextBillingDate, // Move cycle start forward
-      nextBillingDate: newNextBillingDate,
-    },
-  });
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        billingCycleStartDate: user.nextBillingDate, // Move cycle start forward
+        nextBillingDate: newNextBillingDate,
+      },
+    });
+  } else {
+    console.warn(`[BILLING] Not advancing billing date for ${user.email} — charge failed; period ${periodStart.toISOString().slice(0,10)}→${periodEnd.toISOString().slice(0,10)} will be retried.`);
+  }
 
   return {
     userId: user.id,
     userEmail: user.email,
     periodStart,
     periodEnd,
-    nextBillingDate: newNextBillingDate,
+    nextBillingDate: resolvedNextBillingDate,
     results,
   };
 }

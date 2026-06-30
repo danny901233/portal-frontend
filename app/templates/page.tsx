@@ -27,7 +27,7 @@ interface MessageTemplate {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-slate-500/20 text-slate-300',
+  draft: 'bg-slate-500/20 text-slate-600',
   pending: 'bg-yellow-500/20 text-yellow-300',
   approved: 'bg-green-500/20 text-green-300',
   rejected: 'bg-red-500/20 text-red-300',
@@ -352,7 +352,7 @@ export default function TemplatesPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-blue-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500" />
       </div>
     );
   }
@@ -361,8 +361,8 @@ export default function TemplatesPage() {
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-100">Message Templates</h1>
-          <p className="mt-1 text-sm text-slate-400">
+          <h1 className="text-2xl font-semibold text-slate-900">Message Templates</h1>
+          <p className="mt-1 text-sm text-slate-500">
             Create WhatsApp message templates for appointment reminders, marketing, and more.
             Templates must be approved by Meta before use.
           </p>
@@ -398,11 +398,11 @@ export default function TemplatesPage() {
           <div className="flex gap-6 items-start">
 
             {/* Left — form fields */}
-            <div className="flex-1 rounded-xl border border-slate-700 bg-slate-800/50 p-6">
-              <h2 className="mb-1 text-lg font-semibold text-slate-100">
+            <div className="flex-1 rounded-xl border border-slate-300 bg-slate-50 p-6">
+              <h2 className="mb-1 text-lg font-semibold text-slate-900">
                 {editingTemplateId ? 'Edit Template' : 'Create Template'}
               </h2>
-              <p className="mb-5 text-sm text-slate-400">Fill in the header, body and footer sections of your template.</p>
+              <p className="mb-5 text-sm text-slate-500">Fill in the header, body and footer sections of your template.</p>
               {editingTemplateId && (
                 <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
                   Editing will reset this template to draft. You'll need to resubmit to WhatsApp for approval.
@@ -411,14 +411,14 @@ export default function TemplatesPage() {
 
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Template Name</label>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Template Name</label>
                   <input
                     type="text"
                     value={formName}
                     onChange={e => setFormName(e.target.value)}
                     placeholder="Enter template name here"
                     disabled={!!editingTemplateId}
-                    className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                     required
                   />
                   <p className="mt-1 text-xs text-slate-500">
@@ -426,11 +426,11 @@ export default function TemplatesPage() {
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Category</label>
                   <select
                     value={formCategory}
                     onChange={e => setFormCategory(e.target.value)}
-                    className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
                   >
                     {CATEGORIES.map(c => (
                       <option key={c.value} value={c.value}>{c.label} — {c.desc}</option>
@@ -440,17 +440,17 @@ export default function TemplatesPage() {
               </div>
 
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-300 mb-1">Header <span className="text-slate-500 font-normal">(optional)</span></label>
+                <label className="block text-sm font-medium text-slate-600 mb-1">Header <span className="text-slate-500 font-normal">(optional)</span></label>
                 <input
                   type="text"
                   value={formHeader}
                   onChange={e => setFormHeader(e.target.value)}
                   placeholder="Hello there — or use {{1}} for a variable"
-                  className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
                 />
                 {/\{\{1\}\}/.test(formHeader) && (
                   <div className="mt-2 flex items-center gap-2">
-                    <span className="shrink-0 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 font-mono text-xs text-blue-300">{'{{1}}'}</span>
+                    <span className="shrink-0 rounded-md border border-slate-300 bg-slate-100 px-2.5 py-1.5 font-mono text-xs text-blue-300">{'{{1}}'}</span>
 
                     {/* Header tag picker */}
                     <div className="relative shrink-0" ref={headerTagPickerRef}>
@@ -474,7 +474,7 @@ export default function TemplatesPage() {
                         <button
                           type="button"
                           onClick={() => setShowHeaderTagPicker(v => !v)}
-                          className="flex items-center gap-1.5 rounded-full border border-dashed border-slate-500 bg-slate-800 px-2.5 py-1 text-xs text-slate-400 hover:border-blue-400 hover:text-blue-300 transition-colors whitespace-nowrap"
+                          className="flex items-center gap-1.5 rounded-full border border-dashed border-slate-500 bg-slate-100 px-2.5 py-1 text-xs text-slate-500 hover:border-blue-400 hover:text-blue-300 transition-colors whitespace-nowrap"
                         >
                           <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M17.707 9.293l-7-7A1 1 0 0010 2H4a2 2 0 00-2 2v6a1 1 0 00.293.707l7 7a1 1 0 001.414 0l7-7a1 1 0 000-1.414z" clipRule="evenodd" />
@@ -484,7 +484,7 @@ export default function TemplatesPage() {
                       )}
 
                       {showHeaderTagPicker && (
-                        <div className="absolute left-0 top-full z-30 mt-1 w-52 rounded-lg border border-slate-600 bg-slate-800 shadow-xl">
+                        <div className="absolute left-0 top-full z-30 mt-1 w-52 rounded-lg border border-slate-300 bg-slate-100 shadow-xl">
                           <p className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Assign variable</p>
                           {VARIABLE_FIELDS.map(field => (
                             <button
@@ -495,7 +495,7 @@ export default function TemplatesPage() {
                                 if (field.sample) setFormHeaderSample(field.sample);
                                 setShowHeaderTagPicker(false);
                               }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-700 transition-colors"
                             >
                               <svg className="h-3 w-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M17.707 9.293l-7-7A1 1 0 0010 2H4a2 2 0 00-2 2v6a1 1 0 00.293.707l7 7a1 1 0 001.414 0l7-7a1 1 0 000-1.414z" clipRule="evenodd" />
@@ -513,7 +513,7 @@ export default function TemplatesPage() {
                       value={formHeaderSample}
                       onChange={e => setFormHeaderSample(e.target.value)}
                       placeholder={formHeaderLabel ? `e.g. ${VARIABLE_FIELDS.find(f => f.label === formHeaderLabel)?.sample || 'sample value'}` : 'e.g. MOT Reminder'}
-                      className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-400 focus:outline-none"
+                      className="flex-1 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-400 focus:outline-none"
                     />
                   </div>
                 )}
@@ -521,14 +521,14 @@ export default function TemplatesPage() {
 
               <div className="mb-4">
                 <div className="mb-1 flex items-center justify-between">
-                  <label className="text-sm font-medium text-slate-300">
+                  <label className="text-sm font-medium text-slate-600">
                     Body <span className="text-red-400">*</span>
                   </label>
                   <div className="relative" ref={varPickerRef}>
                     <button
                       type="button"
                       onClick={() => setShowVarPicker(v => !v)}
-                      className="flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs font-medium text-blue-300 hover:bg-slate-700 hover:text-blue-200 transition-colors"
+                      className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-slate-100 px-2.5 py-1 text-xs font-medium text-blue-300 hover:bg-slate-700 hover:text-blue-200 transition-colors"
                     >
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -536,14 +536,14 @@ export default function TemplatesPage() {
                       Insert variable
                     </button>
                     {showVarPicker && (
-                      <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-slate-600 bg-slate-800 shadow-xl">
+                      <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-slate-300 bg-slate-100 shadow-xl">
                         <p className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Select a field</p>
                         {VARIABLE_FIELDS.map(field => (
                           <button
                             key={field.label}
                             type="button"
                             onClick={() => insertVariable(field)}
-                            className="block w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-700 transition-colors"
                           >
                             {field.label}
                             {field.sample && (
@@ -551,11 +551,11 @@ export default function TemplatesPage() {
                             )}
                           </button>
                         ))}
-                        <div className="border-t border-slate-700 p-1">
+                        <div className="border-t border-slate-300 p-1">
                           <button
                             type="button"
                             onClick={() => setShowVarPicker(false)}
-                            className="block w-full rounded px-2 py-1 text-xs text-slate-500 hover:text-slate-300 transition-colors text-center"
+                            className="block w-full rounded px-2 py-1 text-xs text-slate-500 hover:text-slate-600 transition-colors text-center"
                           >
                             Cancel
                           </button>
@@ -570,7 +570,7 @@ export default function TemplatesPage() {
                   onChange={e => setFormBody(e.target.value)}
                   placeholder="Enter template body here"
                   rows={4}
-                  className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
                   required
                 />
                 <p className="mt-1 text-xs text-slate-500">
@@ -582,8 +582,8 @@ export default function TemplatesPage() {
 
                 {/* Variable sample inputs with tag picker */}
                 {detectedVariables.length > 0 && (
-                  <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900/60 p-3 space-y-2">
-                    <p className="text-xs font-medium text-slate-400">
+                  <div className="mt-3 rounded-lg border border-slate-300 bg-white p-3 space-y-2">
+                    <p className="text-xs font-medium text-slate-500">
                       Sample values <span className="text-slate-500 font-normal">— required for Meta approval</span>
                     </p>
                     {detectedVariables.map(variable => {
@@ -591,7 +591,7 @@ export default function TemplatesPage() {
                       return (
                         <div key={variable} className="flex items-center gap-2">
                           {/* Variable badge */}
-                          <span className="shrink-0 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 font-mono text-xs text-blue-300">
+                          <span className="shrink-0 rounded-md border border-slate-300 bg-slate-100 px-2.5 py-1.5 font-mono text-xs text-blue-300">
                             {variable}
                           </span>
 
@@ -623,7 +623,7 @@ export default function TemplatesPage() {
                               <button
                                 type="button"
                                 onClick={() => setShowTagPicker(showTagPicker === variable ? null : variable)}
-                                className="flex items-center gap-1.5 rounded-full border border-dashed border-slate-500 bg-slate-800 px-2.5 py-1 text-xs text-slate-400 hover:border-blue-400 hover:text-blue-300 transition-colors whitespace-nowrap"
+                                className="flex items-center gap-1.5 rounded-full border border-dashed border-slate-500 bg-slate-100 px-2.5 py-1 text-xs text-slate-500 hover:border-blue-400 hover:text-blue-300 transition-colors whitespace-nowrap"
                               >
                                 <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
                                   <path fillRule="evenodd" d="M17.707 9.293l-7-7A1 1 0 0010 2H4a2 2 0 00-2 2v6a1 1 0 00.293.707l7 7a1 1 0 001.414 0l7-7a1 1 0 000-1.414z" clipRule="evenodd" />
@@ -633,7 +633,7 @@ export default function TemplatesPage() {
                             )}
 
                             {showTagPicker === variable && (
-                              <div className="absolute left-0 top-full z-30 mt-1 w-52 rounded-lg border border-slate-600 bg-slate-800 shadow-xl">
+                              <div className="absolute left-0 top-full z-30 mt-1 w-52 rounded-lg border border-slate-300 bg-slate-100 shadow-xl">
                                 <p className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Assign variable</p>
                                 {VARIABLE_FIELDS.map(field => (
                                   <button
@@ -648,7 +648,7 @@ export default function TemplatesPage() {
                                       }));
                                       setShowTagPicker(null);
                                     }}
-                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-700 transition-colors"
                                   >
                                     <svg className="h-3 w-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
                                       <path fillRule="evenodd" d="M17.707 9.293l-7-7A1 1 0 0010 2H4a2 2 0 00-2 2v6a1 1 0 00.293.707l7 7a1 1 0 001.414 0l7-7a1 1 0 000-1.414z" clipRule="evenodd" />
@@ -667,7 +667,7 @@ export default function TemplatesPage() {
                             value={formVariableSamples[variable] || ''}
                             onChange={e => setFormVariableSamples(prev => ({ ...prev, [variable]: e.target.value }))}
                             placeholder={assignedLabel ? `e.g. ${VARIABLE_FIELDS.find(f => f.label === assignedLabel)?.sample || 'sample value'}` : 'Enter sample value'}
-                            className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-400 focus:outline-none"
+                            className="flex-1 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-400 focus:outline-none"
                           />
                         </div>
                       );
@@ -677,23 +677,23 @@ export default function TemplatesPage() {
               </div>
 
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-300 mb-1">Footer <span className="text-slate-500 font-normal">(optional)</span></label>
+                <label className="block text-sm font-medium text-slate-600 mb-1">Footer <span className="text-slate-500 font-normal">(optional)</span></label>
                 <input
                   type="text"
                   value={formFooter}
                   onChange={e => setFormFooter(e.target.value)}
                   placeholder="Enter footer body here"
-                  className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
                 />
               </div>
 
               <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-300 mb-1">Button <span className="text-slate-500 font-normal">(optional)</span></label>
+                <label className="block text-sm font-medium text-slate-600 mb-1">Button <span className="text-slate-500 font-normal">(optional)</span></label>
                 <div className="grid grid-cols-3 gap-3">
                   <select
                     value={formButtonType}
                     onChange={e => setFormButtonType(e.target.value)}
-                    className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
                   >
                     <option value="none">No button</option>
                     <option value="url">URL button</option>
@@ -706,14 +706,14 @@ export default function TemplatesPage() {
                         value={formButtonText}
                         onChange={e => setFormButtonText(e.target.value)}
                         placeholder="Button label"
-                        className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
                       />
                       <input
                         type="text"
                         value={formButtonValue}
                         onChange={e => setFormButtonValue(e.target.value)}
                         placeholder={formButtonType === 'url' ? 'https://...' : '+44...'}
-                        className="rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
                       />
                     </>
                   )}
@@ -735,7 +735,7 @@ export default function TemplatesPage() {
             <div className="w-80 shrink-0">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Preview</p>
               {/* Phone frame */}
-              <div className="rounded-2xl border border-slate-600 overflow-hidden shadow-xl">
+              <div className="rounded-2xl border border-slate-300 overflow-hidden shadow-xl">
                 {/* WhatsApp header bar */}
                 <div className="bg-[#075e54] px-4 py-3 flex items-center gap-3">
                   <div className="h-8 w-8 rounded-full bg-slate-400/40 flex items-center justify-center">
@@ -788,21 +788,21 @@ export default function TemplatesPage() {
 
       {/* Template list */}
       {templates.length === 0 && !showForm ? (
-        <div className="rounded-xl border border-slate-700 bg-slate-800/30 p-12 text-center">
-          <p className="text-slate-400">No templates yet. Create your first template to get started.</p>
+        <div className="rounded-xl border border-slate-300 bg-slate-50 p-12 text-center">
+          <p className="text-slate-500">No templates yet. Create your first template to get started.</p>
         </div>
       ) : (
         <div className="space-y-3">
           {templates.map(t => (
-            <div key={t.id} className="rounded-xl border border-slate-700 bg-slate-800/50 p-5">
+            <div key={t.id} className="rounded-xl border border-slate-300 bg-slate-50 p-5">
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="flex items-center gap-3">
-                    <h3 className="font-medium text-slate-100">{t.name}</h3>
+                    <h3 className="font-medium text-slate-900">{t.name}</h3>
                     <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLORS[t.status] || STATUS_COLORS.draft)}>
                       {t.status}
                     </span>
-                    <span className="rounded-full bg-slate-700/50 px-2.5 py-0.5 text-xs text-slate-400">
+                    <span className="rounded-full bg-slate-700/50 px-2.5 py-0.5 text-xs text-slate-500">
                       {t.category}
                     </span>
                   </div>
@@ -848,7 +848,7 @@ export default function TemplatesPage() {
                   )}
                   <button
                     onClick={() => handleEdit(t)}
-                    className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-600 transition-colors"
+                    className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-600 transition-colors"
                   >
                     Edit
                   </button>
@@ -862,12 +862,12 @@ export default function TemplatesPage() {
               </div>
 
               {/* Template body preview */}
-              <div className="rounded-lg bg-slate-900/50 p-3">
-                {t.headerContent && <p className="font-semibold text-slate-300 text-sm mb-1">{t.headerContent}</p>}
-                <p className="text-sm text-slate-400 whitespace-pre-wrap">{t.bodyText}</p>
+              <div className="rounded-lg bg-white p-3">
+                {t.headerContent && <p className="font-semibold text-slate-600 text-sm mb-1">{t.headerContent}</p>}
+                <p className="text-sm text-slate-500 whitespace-pre-wrap">{t.bodyText}</p>
                 {t.footerText && <p className="mt-1 text-xs text-slate-500">{t.footerText}</p>}
                 {t.buttonType && t.buttonText && (
-                  <div className="mt-2 border-t border-slate-700 pt-2 text-center">
+                  <div className="mt-2 border-t border-slate-300 pt-2 text-center">
                     <span className="text-xs text-blue-400">{t.buttonText}</span>
                   </div>
                 )}

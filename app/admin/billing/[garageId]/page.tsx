@@ -104,7 +104,7 @@ export default function GarageBillingConfigPage() {
 
   if (!isStaff) {
     return (
-      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
         Access denied - staff only
       </div>
     );
@@ -142,34 +142,34 @@ export default function GarageBillingConfigPage() {
         <div>
           <button
             onClick={() => router.push('/admin')}
-            className="text-sm text-slate-400 hover:text-slate-300 mb-2"
+            className="text-sm text-slate-500 hover:text-slate-600 mb-2"
           >
             ← Back to Admin
           </button>
-          <h1 className="text-2xl font-semibold text-slate-50">
+          <h1 className="text-2xl font-semibold text-slate-900">
             {configQuery.data?.config.name || 'Loading...'}
           </h1>
-          <p className="text-sm text-slate-400">Configure billing settings</p>
+          <p className="text-sm text-slate-500">Configure billing settings</p>
         </div>
       </header>
 
       {feedback && (
-        <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+        <div className="rounded-lg border border-brand-200 bg-brand-100 px-4 py-3 text-sm text-brand-700">
           {feedback}
         </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Configuration Form */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-          <h2 className="text-lg font-semibold text-slate-100 mb-4">Billing Configuration</h2>
+        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Billing Configuration</h2>
 
           {configQuery.isLoading ? (
-            <div className="text-sm text-slate-400">Loading configuration...</div>
+            <div className="text-sm text-slate-500">Loading configuration...</div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs text-slate-400 mb-2">
+                <label className="block text-xs text-slate-500 mb-2">
                   Monthly Subscription Cost (£)
                 </label>
                 <input
@@ -180,7 +180,7 @@ export default function GarageBillingConfigPage() {
                   onChange={(e) =>
                     setConfig({ ...config, subscriptionCostGbp: parseFloat(e.target.value) || 0 })
                   }
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                   required
                 />
                 <p className="text-xs text-slate-500 mt-1">
@@ -189,7 +189,7 @@ export default function GarageBillingConfigPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-slate-400 mb-2">
+                <label className="block text-xs text-slate-500 mb-2">
                   Included Minutes
                 </label>
                 <input
@@ -199,7 +199,7 @@ export default function GarageBillingConfigPage() {
                   onChange={(e) =>
                     setConfig({ ...config, includedMinutes: parseInt(e.target.value) || 0 })
                   }
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                   required
                 />
                 <p className="text-xs text-slate-500 mt-1">
@@ -208,7 +208,7 @@ export default function GarageBillingConfigPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-slate-400 mb-2">
+                <label className="block text-xs text-slate-500 mb-2">
                   Cost Per Minute (£)
                 </label>
                 <input
@@ -219,7 +219,7 @@ export default function GarageBillingConfigPage() {
                   onChange={(e) =>
                     setConfig({ ...config, costPerMinuteGbp: parseFloat(e.target.value) || 0 })
                   }
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                   required
                 />
                 <p className="text-xs text-slate-500 mt-1">
@@ -228,7 +228,7 @@ export default function GarageBillingConfigPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-slate-400 mb-2">
+                <label className="block text-xs text-slate-500 mb-2">
                   VAT Rate
                 </label>
                 <input
@@ -240,7 +240,7 @@ export default function GarageBillingConfigPage() {
                   onChange={(e) =>
                     setConfig({ ...config, vatRate: parseFloat(e.target.value) || 0 })
                   }
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                   required
                 />
                 <p className="text-xs text-slate-500 mt-1">
@@ -248,13 +248,13 @@ export default function GarageBillingConfigPage() {
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-slate-700 mt-6">
-                <h3 className="text-sm font-semibold text-slate-300 mb-4">Trial & Activation</h3>
+              <div className="pt-4 border-t border-slate-300 mt-6">
+                <h3 className="text-sm font-semibold text-slate-600 mb-4">Trial & Activation</h3>
 
                 <div className="space-y-4">
                   {/* Trial Period */}
                   <div>
-                    <label className="block text-xs text-slate-400 mb-2">
+                    <label className="block text-xs text-slate-500 mb-2">
                       Free Trial Period (days)
                     </label>
                     <input
@@ -264,13 +264,13 @@ export default function GarageBillingConfigPage() {
                       onChange={(e) =>
                         setConfig({ ...config, trialDays: parseInt(e.target.value) || 0 })
                       }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                     />
                     <p className="text-xs text-slate-500 mt-1">
                       Set to 14 for Assist plan. 0 = no trial. All charges (subscription + usage) free during trial.
                     </p>
                     {configQuery.data?.config.trialEndDate && new Date(configQuery.data.config.trialEndDate) > new Date() && (
-                      <p className="text-xs text-amber-400 mt-2">
+                      <p className="text-xs text-amber-700 mt-2">
                         Currently in trial until {new Date(configQuery.data.config.trialEndDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
                       </p>
                     )}
@@ -285,15 +285,15 @@ export default function GarageBillingConfigPage() {
                         onChange={(e) =>
                           setConfig({ ...config, requiresBookingActivation: e.target.checked })
                         }
-                        className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                        className="h-4 w-4 rounded border-slate-300 bg-white text-brand-600"
                       />
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-500">
                         Require confirmed bookings before charging subscription (Automate plan)
                       </span>
                     </label>
                     {config.requiresBookingActivation && (
                       <div className="ml-6 mt-2">
-                        <label className="block text-xs text-slate-400 mb-2">
+                        <label className="block text-xs text-slate-500 mb-2">
                           Bookings Required
                         </label>
                         <input
@@ -306,20 +306,20 @@ export default function GarageBillingConfigPage() {
                               bookingsRequiredForActivation: parseInt(e.target.value) || 4,
                             })
                           }
-                          className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                         />
                         <p className="text-xs text-slate-500 mt-1">
                           Usage (minutes/SMS) still charged, but no subscription until this many bookings confirmed.
                         </p>
                         {configQuery.data?.config.requiresBookingActivation && !configQuery.data.config.subscriptionActivatedAt && (
-                          <div className="mt-2 rounded-lg bg-sky-500/10 border border-sky-500/30 p-3">
-                            <p className="text-xs text-sky-300">
+                          <div className="mt-2 rounded-lg bg-brand-100 border border-brand-200 p-3">
+                            <p className="text-xs text-brand-700">
                               Current progress: {configQuery.data.config.activationBookingsCount} / {configQuery.data.config.bookingsRequiredForActivation} bookings
                             </p>
                           </div>
                         )}
                         {configQuery.data?.config.subscriptionActivatedAt && (
-                          <p className="text-xs text-emerald-400 mt-2">
+                          <p className="text-xs text-emerald-700 mt-2">
                             ✓ Subscription activated on {new Date(configQuery.data.config.subscriptionActivatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
                           </p>
                         )}
@@ -333,7 +333,7 @@ export default function GarageBillingConfigPage() {
                 <button
                   type="submit"
                   disabled={updateMutation.isPending}
-                  className="w-full rounded-md bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-60"
+                  className="w-full rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
                 >
                   {updateMutation.isPending ? 'Saving...' : 'Save Configuration'}
                 </button>
@@ -343,48 +343,48 @@ export default function GarageBillingConfigPage() {
         </section>
 
         {/* Usage Preview */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-          <h2 className="text-lg font-semibold text-slate-100 mb-4">Usage Preview</h2>
+        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Usage Preview</h2>
 
           <div className="space-y-4 mb-6">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-2">Start Date</label>
+                <label className="block text-xs text-slate-500 mb-2">Start Date</label>
                 <input
                   type="date"
                   value={usageDates.start}
                   onChange={(e) => setUsageDates({ ...usageDates, start: e.target.value })}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-2">End Date</label>
+                <label className="block text-xs text-slate-500 mb-2">End Date</label>
                 <input
                   type="date"
                   value={usageDates.end}
                   onChange={(e) => setUsageDates({ ...usageDates, end: e.target.value })}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                 />
               </div>
             </div>
           </div>
 
           {usageQuery.isLoading ? (
-            <div className="text-sm text-slate-400">Calculating usage...</div>
+            <div className="text-sm text-slate-500">Calculating usage...</div>
           ) : usageQuery.data ? (
             <div className="space-y-4">
-              <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-                <h3 className="text-sm font-medium text-slate-300 mb-3">Usage</h3>
+              <div className="rounded-lg border border-slate-300 bg-slate-50 p-4">
+                <h3 className="text-sm font-medium text-slate-600 mb-3">Usage</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Minutes Used</span>
-                    <span className="text-slate-100 font-medium">
+                    <span className="text-slate-500">Minutes Used</span>
+                    <span className="text-slate-900 font-medium">
                       {usageQuery.data.usage.minutesUsed} min
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">SMS Sent</span>
-                    <span className="text-slate-100 font-medium">
+                    <span className="text-slate-500">SMS Sent</span>
+                    <span className="text-slate-900 font-medium">
                       {usageQuery.data.usage.smsCount}
                     </span>
                   </div>
@@ -392,32 +392,32 @@ export default function GarageBillingConfigPage() {
               </div>
 
               {calculateEstimate() && (
-                <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-                  <h3 className="text-sm font-medium text-slate-300 mb-3">Estimated Charges</h3>
+                <div className="rounded-lg border border-slate-300 bg-slate-50 p-4">
+                  <h3 className="text-sm font-medium text-slate-600 mb-3">Estimated Charges</h3>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Subscription</span>
-                      <span className="text-slate-100">{calculateEstimate()!.subscription}</span>
+                      <span className="text-slate-500">Subscription</span>
+                      <span className="text-slate-900">{calculateEstimate()!.subscription}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Overage Minutes</span>
-                      <span className="text-slate-100">{calculateEstimate()!.minutes}</span>
+                      <span className="text-slate-500">Overage Minutes</span>
+                      <span className="text-slate-900">{calculateEstimate()!.minutes}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-400">SMS</span>
-                      <span className="text-slate-100">{calculateEstimate()!.sms}</span>
+                      <span className="text-slate-500">SMS</span>
+                      <span className="text-slate-900">{calculateEstimate()!.sms}</span>
                     </div>
-                    <div className="flex justify-between pt-2 border-t border-slate-700">
-                      <span className="text-slate-400">Subtotal</span>
-                      <span className="text-slate-100">{calculateEstimate()!.subtotal}</span>
+                    <div className="flex justify-between pt-2 border-t border-slate-300">
+                      <span className="text-slate-500">Subtotal</span>
+                      <span className="text-slate-900">{calculateEstimate()!.subtotal}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-400">VAT ({(config.vatRate * 100).toFixed(0)}%)</span>
-                      <span className="text-slate-100">{calculateEstimate()!.vat}</span>
+                      <span className="text-slate-500">VAT ({(config.vatRate * 100).toFixed(0)}%)</span>
+                      <span className="text-slate-900">{calculateEstimate()!.vat}</span>
                     </div>
-                    <div className="flex justify-between pt-2 border-t border-slate-700">
-                      <span className="text-slate-300 font-medium">Total</span>
-                      <span className="text-slate-100 font-semibold text-base">
+                    <div className="flex justify-between pt-2 border-t border-slate-300">
+                      <span className="text-slate-600 font-medium">Total</span>
+                      <span className="text-slate-900 font-semibold text-base">
                         {calculateEstimate()!.total}
                       </span>
                     </div>
@@ -426,7 +426,7 @@ export default function GarageBillingConfigPage() {
               )}
             </div>
           ) : (
-            <div className="text-sm text-slate-400">
+            <div className="text-sm text-slate-500">
               Select dates to preview usage and charges
             </div>
           )}

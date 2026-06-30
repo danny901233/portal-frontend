@@ -483,6 +483,12 @@ router.get(
         console.log(`Auto-resolved conversation ${conversationId} - past 24-hour messaging window`);
       }
 
+      // Chat-agent tool calls across all merged conversations (UI interleaves into the thread by createdAt).
+      const toolCalls = await prisma.chatToolCall.findMany({
+        where: { conversationId: { in: allConversations.map(c => c.id) } },
+        orderBy: { createdAt: 'asc' },
+      });
+
       res.json({
         success: true,
         conversation: {
@@ -490,6 +496,7 @@ router.get(
           messages: allMessages,
           platforms: allConversations.map(c => c.platform),
           conversationIds: allConversations.map(c => c.id),
+          toolCalls,
           withinMessagingWindow,
         },
       });

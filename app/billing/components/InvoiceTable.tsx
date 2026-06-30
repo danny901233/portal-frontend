@@ -28,15 +28,15 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'paid':
-        return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+        return 'bg-emerald-50 text-emerald-700 border-emerald-300';
       case 'pending':
-        return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+        return 'bg-amber-50 text-amber-700 border-amber-300';
       case 'failed':
         return 'bg-red-500/10 text-red-400 border-red-500/20';
       case 'draft':
-        return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+        return 'bg-slate-500/10 text-slate-500 border-slate-500/20';
       default:
-        return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+        return 'bg-slate-500/10 text-slate-500 border-slate-500/20';
     }
   };
 
@@ -54,8 +54,8 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
 
   if (invoices.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-12 text-center">
-        <div className="text-slate-400">
+      <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
+        <div className="text-slate-500">
           <svg
             className="mx-auto mb-4 h-12 w-12 text-slate-600"
             fill="none"
@@ -77,53 +77,53 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/50">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-slate-800 bg-slate-900/80">
-              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <tr className="border-b border-slate-200 bg-white">
+              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Invoice #
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Branch
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Period
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Amount
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Status
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Date
               </th>
-              <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Actions
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody className="divide-y divide-slate-200">
             {invoices.map((invoice) => (
-              <tr key={invoice.id} className="transition-colors hover:bg-slate-800/30">
+              <tr key={invoice.id} className="transition-colors hover:bg-slate-50">
                 <td className="px-6 py-4">
-                  <span className="font-mono text-sm text-slate-300">
+                  <span className="font-mono text-sm text-slate-600">
                     {invoice.id.slice(0, 8).toUpperCase()}
                   </span>
                 </td>
                 <td className="px-6 py-4">
-                  <span className="text-sm text-slate-300">{invoice.garage.name}</span>
+                  <span className="text-sm text-slate-600">{invoice.garage.name}</span>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="text-sm text-slate-400">
+                  <div className="text-sm text-slate-500">
                     <div>{formatDate(invoice.periodStart)}</div>
                     <div className="text-xs text-slate-500">to {formatDate(invoice.periodEnd)}</div>
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  <span className="text-sm font-semibold text-slate-200">
+                  <span className="text-sm font-semibold text-slate-700">
                     {formatCurrency(invoice.total)}
                   </span>
                 </td>
@@ -135,7 +135,7 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
                   </span>
                 </td>
                 <td className="px-6 py-4">
-                  <span className="text-sm text-slate-400">{formatDate(invoice.createdAt)}</span>
+                  <span className="text-sm text-slate-500">{formatDate(invoice.createdAt)}</span>
                 </td>
                 <td className="px-6 py-4 text-right">
                   <button

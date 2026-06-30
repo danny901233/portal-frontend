@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import SetupWizard from './SetupWizard';
+import SupportChatWidget from './SupportChatWidget';
 import {
   ALL_ASSIGNED_BRANCHES_IDENTIFIER,
   BranchScopeProvider,
@@ -25,11 +26,11 @@ import {
   setGarageId,
   setGarages,
 } from '../lib/auth';
-import { fetchAgentConfiguration, fetchGarages } from '../lib/api';
+import { fetchGarages, fetchPendingAgreement } from '../lib/api';
 import { fetchOnboardingStatus } from '../lib/onboarding';
 import type { GarageSummary } from '../types';
 
-const publicPaths = new Set(['/login', '/reset-password', '/terms']);
+const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {
@@ -48,7 +49,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [conversationsNeedingAttention, setConversationsNeedingAttention] = useState(0);
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
   const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
-  const [receptionMateNumber, setReceptionMateNumber] = useState<string | null>(null);
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
@@ -81,28 +81,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
       setBranchScope('single');
     }
   }, [allowAllAssignedBranches, branchScope]);
-
-  // Load the selected branch's ReceptionMate (Twilio) number for the sidebar footer.
-  useEffect(() => {
-    if (branchScope === 'all' || !garageId) {
-      setReceptionMateNumber(null);
-      return;
-    }
-
-    let cancelled = false;
-    setReceptionMateNumber(null);
-    fetchAgentConfiguration(garageId)
-      .then((config) => {
-        if (!cancelled) setReceptionMateNumber(config.twilioNumber ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setReceptionMateNumber(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [branchScope, garageId]);
 
   const branchScopeValue = useMemo(
     () => ({
@@ -209,6 +187,29 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
     void bootstrapSession();
   }, [bootstrapSession, shouldShowChrome]);
+
+  // Agreement-sign gate — if the user has an unsigned agreement, force them to
+  // /agreement/sign before they can use the portal. We allow staff to bypass
+  // so they can keep working even if a stale draft exists on their account.
+  useEffect(() => {
+    if (!shouldShowChrome || !isReady || !userId || isStaffUser) return;
+    if (pathname?.startsWith('/agreement/sign')) return;
+
+    let cancelled = false;
+    fetchPendingAgreement()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.agreement) {
+          router.replace('/agreement/sign');
+        }
+      })
+      .catch(() => {
+        /* don't block the portal on a transient agreement check failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldShowChrome, isReady, userId, isStaffUser, pathname, router]);
 
   // Check if setup wizard should be shown
   useEffect(() => {
@@ -348,14 +349,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const shellContent = !shouldShowChrome ? (
     <>{children}</>
   ) : !isReady ? (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
+    <div className="flex min-h-screen items-center justify-center bg-white text-slate-900">
       <div className="space-y-2 text-center">
         <div className="text-xl font-semibold">Loading ReceptionMate…</div>
-        <div className="text-sm text-slate-400">Preparing your dashboard</div>
+        <div className="text-sm text-slate-500">Preparing your dashboard</div>
       </div>
     </div>
   ) : (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100">
+    <div className="flex min-h-screen bg-slate-50 text-slate-900">
       <Sidebar
         activePath={pathname ?? '/calls'}
         showAdminLink={isStaffUser}
@@ -363,7 +364,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         hasManagerAccess={managedGarageIds.length > 0}
         isManagerUser={isStaffUser || isAdminUser}
         messagesNeedingAttention={messagesNeedingAttention}
-        receptionMateNumber={receptionMateNumber}
+        garageId={garageId}
       />
       <div className="flex flex-1 flex-col">
         <Navbar
@@ -372,6 +373,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           garages={visibleGarages}
           selectedGarageId={selectedGarageValue}
           allowAllAssignedBranches={allowAllAssignedBranches}
+          isStaff={isStaffUser}
           onSelectGarage={handleSelectGarage}
           onLogout={() => {
             clearSession();
@@ -382,6 +384,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
         />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
+      {/* Floating "Need help?" chat with the RM team — only renders when authed */}
+      <SupportChatWidget />
     </div>
   );
 

@@ -200,6 +200,24 @@ export interface TyresoftSettings {
   tsChannelId?: number;
   tsServices?: TsService[];
   pricingRules?: Record<string, PricingBracket[]>;
+  // Metadata about the most recent Services.csv upload. Written by the backend
+  // CSV import endpoint; the Training tab uses it to show "Currently using …".
+  tsServicesUpload?: {
+    fileName: string;
+    uploadedAt: string;
+    services: number;
+    brackets: number;
+  };
+  // Per-garage tyre markup. The agent applies this to the raw Tyresoft supplier
+  // price before quoting. type='flat' = £X added per tyre. type='percent' = X%
+  // added. Stored in integrationProviderConfig as tyreMarkupFlat or
+  // tyreMarkupPercent (top-level, where the deployed agent reads it).
+  tyreMarkupType?: 'flat' | 'percent';
+  tyreMarkupValue?: string;
+  // Numeric mirrors surfaced by the backend GET response (the deployed agent
+  // reads these). The form itself only edits type/value.
+  tyreMarkupFlat?: number;
+  tyreMarkupPercent?: number;
 }
 
 export interface HubspotSettings {
@@ -211,6 +229,7 @@ export interface HubspotSettings {
 
 export interface AgentConfiguration {
   branchName: string;
+  agentName?: string;
   phoneNumber: string;
   emailAddress: string;
   branchAddress: string;

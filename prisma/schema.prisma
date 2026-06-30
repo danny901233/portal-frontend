@@ -9,152 +9,282 @@ datasource db {
 }
 
 model Garage {
-  id    String @id @default(uuid())
-  name  String
-  twilioNumber String?
+  id                 String  @id @default(uuid())
+  name               String
+  twilioNumber       String?
   hasMessagingAccess Boolean @default(false)
 
   // Billing Configuration
   subscriptionCostGbp Float @default(0)
-  includedMinutes Int @default(0)
-  costPerMinuteGbp Float @default(0)
-  vatRate Float @default(0.20)
+  includedMinutes     Int   @default(0)
+  costPerMinuteGbp    Float @default(0)
+  vatRate             Float @default(0.20)
 
   // Webchat / Messaging Billing
   messagingSubscriptionCostGbp Float @default(0)
-  includedMessages Int @default(0)
-  costPerMessageGbp Float @default(0)
+  includedMessages             Int   @default(0)
+  costPerMessageGbp            Float @default(0)
 
   // Trial and Activation
-  trialEndDate DateTime?
-  requiresBookingActivation Boolean @default(false)
-  bookingsRequiredForActivation Int @default(4)
-  activationBookingsCount Int @default(0)
-  subscriptionActivatedAt DateTime?
+  trialEndDate                  DateTime?
+  requiresBookingActivation     Boolean   @default(false)
+  bookingsRequiredForActivation Int       @default(4)
+  activationBookingsCount       Int       @default(0)
+  subscriptionActivatedAt       DateTime?
 
   // Setup Wizard
-  setupWizardCompleted Boolean @default(false)
+  setupWizardCompleted   Boolean   @default(false)
   setupWizardCompletedAt DateTime?
 
   // Widget Customization
-  widgetLogoUrl String?
-  widgetLogoWidth Int @default(120)
-  widgetLogoHeight Int @default(60)
+  widgetLogoUrl      String?
+  widgetLogoWidth    Int     @default(120)
+  widgetLogoHeight   Int     @default(60)
   widgetPrimaryColor String?
-  widgetButtonColor String?
-  widgetButtonShape String @default("circle")
-  widgetButtonIcon String @default("chat")
+  widgetButtonColor  String?
+  widgetButtonShape  String  @default("circle")
+  widgetButtonIcon   String  @default("chat")
 
-  calls Call[]
-  agentConfiguration AgentConfiguration?
-  knowledgeDocuments AgentKnowledgeDocument[]
-  business   Business? @relation(fields: [businessId], references: [id])
-  businessId String?
-  conversations ChatConversation[]
+  calls                  Call[]
+  agentConfiguration     AgentConfiguration?
+  knowledgeDocuments     AgentKnowledgeDocument[]
+  business               Business?                @relation(fields: [businessId], references: [id])
+  businessId             String?
+  conversations          ChatConversation[]
   socialMediaConnections SocialMediaConnection[]
-  customers Customer[]
-  smsBookingLinks SmsBookingLink[]
-  invoices Invoice[]
-  messageTemplates MessageTemplate[]
-  outboundCampaigns OutboundCampaign[]
+  customers              Customer[]
+  smsBookingLinks        SmsBookingLink[]
+  invoices               Invoice[]
+  messageTemplates       MessageTemplate[]
+  outboundCampaigns      OutboundCampaign[]
 }
 
 model Call {
-  id           String   @id @default(cuid())
-  garageId     String
-  garage       Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  roomName     String
-  recordingUrl String?
+  id                       String                    @id @default(cuid())
+  garageId                 String
+  garage                   Garage                    @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  roomName                 String
+  recordingUrl             String?
   recordingDurationSeconds Int?
-  recordingCompletedAt DateTime?
-  twilioCallSid String?
-  fromNumber     String?
-  durationSeconds Int    @default(0)
-  callType       String  @default("unknown")
-  registrationNumber String?
-  customerName   String?
-  customerPhone  String?
-  confirmedBooking Boolean @default(false)
+  recordingCompletedAt     DateTime?
+  twilioCallSid            String?
+  fromNumber               String?
+  durationSeconds          Int                       @default(0)
+  callType                 String                    @default("unknown")
+  registrationNumber       String?
+  customerName             String?
+  customerPhone            String?
+  confirmedBooking         Boolean                   @default(false)
   confirmedBookingCategory ConfirmedBookingCategory?
-  capturedRevenue Float?
-  bookingDetails String?
-  metrics      Json
-  transcript   Json
-  summary      String
-  emotionData  Json?
-  createdAt    DateTime @default(now())
-  feedback     CallFeedback?
+  capturedRevenue          Float?
+  bookingDetails           String?
+  metrics                  Json
+  transcript               Json
+  summary                  String
+  emotionData              Json?
+  createdAt                DateTime                  @default(now())
+  feedback                 CallFeedback?
 }
 
 model TwilioRecording {
-  id        String   @id @default(cuid())
-  callSid   String   @unique
-  recordingSid String?
-  recordingUrl String
+  id                       String    @id @default(cuid())
+  callSid                  String    @unique
+  recordingSid             String?
+  recordingUrl             String
   recordingDurationSeconds Int?
-  completedAt DateTime?
-  roomName  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  completedAt              DateTime?
+  roomName                 String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 }
 
 model User {
-  id           String @id @default(cuid())
-  email        String @unique
-  passwordHash String
-  mustChangePassword Boolean @default(false)
-  mustSetupPayment   Boolean @default(false)
-  gocardlessMandateId String?
-  gocardlessCustomerId String?
+  id                    String    @id @default(cuid())
+  email                 String    @unique
+  passwordHash          String
+  mustChangePassword    Boolean   @default(false)
+  mustSetupPayment      Boolean   @default(false)
+  gocardlessMandateId   String?
+  gocardlessCustomerId  String?
   billingCycleStartDate DateTime?
-  nextBillingDate      DateTime?
-  garageAccessIds String[] @default([])
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  role         UserRole @default(USER)
-  branchRoles  Json @default("{}")
-  resetToken       String?
-  resetTokenExpiry DateTime?
+  nextBillingDate       DateTime?
+  garageAccessIds       String[]  @default([])
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  role                  UserRole  @default(USER)
+  branchRoles           Json      @default("{}")
+  resetToken            String?
+  resetTokenExpiry      DateTime?
 
   // Onboarding tracking
-  setupWizardCompleted Boolean @default(false)
+  setupWizardCompleted   Boolean   @default(false)
   setupWizardCompletedAt DateTime?
+
+  // Service agreement
+  mustSignAgreement Boolean     @default(true)
+  agreements        Agreement[]
+
+  // Magic-link tokens for "sign your agreement" links (short-lived, single-use)
+  signLinkTokens SignLinkToken[]
+
+  // In-portal support chat with the ReceptionMate team
+  supportConversation SupportConversation?
+  supportMessages     SupportMessage[]
+}
+
+// Lightweight inbound-support chat between a portal user (the customer) and
+// the ReceptionMate team. One thread per user — keeps the team's view simple
+// and avoids fragmenting context across multiple "tickets".
+model SupportConversation {
+  id              String           @id @default(cuid())
+  userId          String           @unique
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 'ai' (AI is handling) | 'awaiting_staff' (escalated, staff hasn't replied) |
+  // 'staff_handled' (a staff member has replied) | 'closed'
+  status          String           @default("ai")
+  aiTurns         Int              @default(0)
+  // Cached for the admin inbox so we don't have to fan out joins for every row
+  lastMessageAt   DateTime         @default(now())
+  lastMessageText String?
+  // Unread counters — incremented on inbound, reset by the relevant side
+  unreadForUser   Int              @default(0)
+  unreadForStaff  Int              @default(0)
+  closedAt        DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  messages        SupportMessage[]
+
+  @@index([lastMessageAt])
+  @@index([status])
+}
+
+model SupportMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // Sender — `senderUserId` set when a real human sent it (could be the
+  // customer User or an RM staff User). `senderRole` distinguishes who sent it
+  // so the UI can render bubbles correctly regardless of who the User is.
+  senderRole     String // 'customer' | 'staff' | 'system'
+  senderUserId   String?
+  sender         User?               @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  channel        String              @default("portal") // 'portal' | 'whatsapp' | 'slack' (future)
+  body           String              @db.Text
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// SaaS service agreement — one per business; staff issues a draft with commercial
+// terms, customer signs in the portal. Snapshot of the rendered HTML is stored so
+// updates to the template don't change what a customer has already signed.
+model Agreement {
+  id      String @id @default(cuid())
+  type    String // 'saas' (today) or 'partnership' (future)
+  version String // template version, e.g. '1.0'
+  status  String @default("draft") // 'draft' | 'sent' | 'signed' | 'externally_signed' | 'voided'
+
+  // Who it's for
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id])
+
+  // Commercial terms (the placeholders from the PDF)
+  clientName    String // matches the business name at the time of issue
+  setupFeeGbp   Float     @default(0)
+  licenceFeeGbp Float // £ per centre per month
+  centresCount  Int       @default(1)
+  licences      String[]  @default(["assist"]) // any of: assist, automate, connect
+  goLiveDate    DateTime?
+
+  // Rendered content snapshot — the exact HTML they saw at sign time
+  templateSnapshot String @db.Text
+
+  // Signature audit
+  signedAt        DateTime?
+  signedByName    String?
+  signedByEmail   String?
+  signedFromIp    String?
+  signedUserAgent String?
+  // Drawn-signature PNG as base64 data URL — embedded into templateSnapshot
+  signatureImage  String?   @db.Text
+
+  // Generated PDF copy
+  pdfUrl String?
+
+  // External signature (for High Level legacy customers)
+  externallySignedAt   DateTime?
+  externalSignatureRef String? // free text — e.g. High Level envelope ID
+
+  // Admin metadata
+  issuedByUserId String? // staff who created the draft
+  voidedAt       DateTime?
+  voidedReason   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([businessId])
+  @@index([status])
+}
+
+// Short-lived single-use tokens for "sign your agreement" email links.
+// Used so customers in the sales-led flow can land directly on /agreement/sign
+// without having to log in first.
+model SignLinkToken {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agreementId String?
+  purpose     String    @default("sign_agreement") // 'sign_agreement' for now
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model AgentConfiguration {
-  id                String   @id @default(cuid())
-  garageId          String   @unique
-  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  branchName        String
-  phoneNumber       String?
-  emailAddress      String?
-  branchAddress     String?
-  websiteUrl        String?
-  weeklyOpeningHours Json?
-  holidayClosures   String?
-  greetingLine      String?
-  tonePreference    String   @default("standard")
-  responseSpeed     String   @default("normal")
-  interruptionSensitivity Float @default(0.5)
-  allowFastFitOnly  Boolean  @default(false)
-  enableDropOffBookings Boolean @default(false)
-  dropOffMessage    String   @default("drop your vehicle off between 8am and half ten in the morning")
-  dropOffExcludeServices String[] @default(["MOT"])
-  notificationEmails String[] @default([])
-  integrationProvider String  @default("none")
+  id                        String   @id @default(cuid())
+  garageId                  String   @unique
+  garage                    Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  branchName                String
+  agentName                 String?
+  phoneNumber               String?
+  emailAddress              String?
+  branchAddress             String?
+  websiteUrl                String?
+  weeklyOpeningHours        Json?
+  holidayClosures           String?
+  greetingLine              String?
+  tonePreference            String   @default("standard")
+  responseSpeed             String   @default("normal")
+  interruptionSensitivity   Float    @default(0.5)
+  allowFastFitOnly          Boolean  @default(false)
+  enableDropOffBookings     Boolean  @default(false)
+  dropOffMessage            String   @default("drop your vehicle off between 8am and half ten in the morning")
+  dropOffExcludeServices    String[] @default(["MOT"])
+  notificationEmails        String[] @default([])
+  integrationProvider       String   @default("none")
   integrationProviderConfig Json?
-  agentType         String   @default("assist")
-  agentScript       String   @default("receptionmate-agent")
-  enableSmsBookingLinks Boolean @default(true)
-  humanEscalation   Boolean  @default(true)
-  allowBookings     Boolean  @default(false)
-  bookingLeadTimeDays Int    @default(1)
-  voice             String   @default("leah")
-  transferNumber    String?
-  customRules       Json?
-  dataCollectionFields Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  agentType                 String   @default("assist")
+  agentScript               String   @default("receptionmate-agent")
+  enableSmsBookingLinks     Boolean  @default(true)
+  humanEscalation           Boolean  @default(true)
+  transferNumber            String?
+  allowBookings             Boolean  @default(false)
+  bookingLeadTimeDays       Int      @default(1)
+  customRules               Json?
+  dataCollectionFields      Json?
+  faqs                      Json?
+  pronunciations            Json?
+  voice                     String   @default("leah")
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
 
 model AgentKnowledgeDocument {
@@ -185,22 +315,23 @@ model CallFeedback {
 }
 
 model SmsBookingLink {
-  id              String   @id @default(cuid())
-  garageId        String
-  garage          Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  phoneNumber     String
+  id               String   @id @default(cuid())
+  garageId         String
+  garage           Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  phoneNumber      String
   twilioMessageSid String?
-  status          String   @default("sent")
-  costGbp         Float    @default(0.99)
-  createdAt       DateTime @default(now())
+  status           String   @default("sent")
+  costGbp          Float    @default(0.99)
+  createdAt        DateTime @default(now())
 
   @@index([garageId, createdAt])
   @@index([garageId])
 }
 
 model Business {
-  id           String   @id @default(cuid())
+  id           String      @id @default(cuid())
   name         String
+  agreements   Agreement[]
   contactName  String?
   contactEmail String?
   contactPhone String?
@@ -208,34 +339,34 @@ model Business {
   garages      Garage[]
 
   // Billing Information
-  billingAddress      String?
-  billingCity         String?
-  billingPostcode     String?
-  billingCountry      String? @default("United Kingdom")
-  vatNumber           String?
-  companyRegNumber    String?
-  billingEmail        String?
+  billingAddress       String?
+  billingCity          String?
+  billingPostcode      String?
+  billingCountry       String?   @default("United Kingdom")
+  vatNumber            String?
+  companyRegNumber     String?
+  billingEmail         String?
   billingInfoUpdatedAt DateTime?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Customer {
-  id                String   @id @default(cuid())
-  garageId          String
-  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  name              String?
-  phone             String?
-  email             String?
-  whatsappId        String?
-  facebookUserId    String?
-  instagramUserId   String?
-  notes             String?
-  metadata          Json?
-  conversations     ChatConversation[]
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String             @id @default(cuid())
+  garageId        String
+  garage          Garage             @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  name            String?
+  phone           String?
+  email           String?
+  whatsappId      String?
+  facebookUserId  String?
+  instagramUserId String?
+  notes           String?
+  metadata        Json?
+  conversations   ChatConversation[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   @@index([garageId])
   @@index([garageId, phone])
@@ -243,31 +374,34 @@ model Customer {
 }
 
 model ChatConversation {
-  id            String   @id @default(cuid())
-  garageId      String
-  garage        Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  customerId    String?
-  customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  platform      String
-  customerPhone String?
-  platformUserId String?
-  customerName  String?
-  status        String   @default("active")
-  agentPaused   Boolean  @default(false)
-  agentPausedUntil DateTime?
-  needsAttention Boolean @default(false)
-  messageType   String?
-  confirmedBooking Boolean @default(false)
+  id                       String                    @id @default(cuid())
+  garageId                 String
+  garage                   Garage                    @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  customerId               String?
+  customer                 Customer?                 @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  platform                 String
+  customerPhone            String?
+  platformUserId           String?
+  customerName             String?
+  status                   String                    @default("active")
+  agentPaused              Boolean                   @default(false)
+  agentPausedUntil         DateTime?
+  pausedByUserId           String?
+  pausedByUserEmail        String?
+  needsAttention           Boolean                   @default(false)
+  messageType              String?
+  confirmedBooking         Boolean                   @default(false)
   confirmedBookingCategory ConfirmedBookingCategory?
-  capturedRevenue Float?
-  bookingDetails String?
-  tags          String[] @default([])
-  unreadCount   Int      @default(0)
-  lastMessageAt DateTime @default(now())
-  sessionState  Json?
-  messages      ChatMessage[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  capturedRevenue          Float?
+  bookingDetails           String?
+  tags                     String[]                  @default([])
+  unreadCount              Int                       @default(0)
+  lastMessageAt            DateTime                  @default(now())
+  sessionState             Json?
+  messages                 ChatMessage[]
+  toolCalls                ChatToolCall[]
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
 
   @@index([garageId, status])
   @@index([garageId, platform])
@@ -276,17 +410,41 @@ model ChatConversation {
 }
 
 model ChatMessage {
-  id             String   @id @default(cuid())
+  id             String           @id @default(cuid())
   conversationId String
   conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           String
   content        String
   mediaUrl       String?
   mediaType      String?
-  metaMid        String?  @unique
-  createdAt      DateTime @default(now())
+  metaMid        String?          @unique
+  staffUserId    String?
+  staffUserEmail String?
+  createdAt      DateTime         @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+// Observability for the web-chat agents: one row per tool call the agent makes.
+// Written fire-and-forget from the agent tool loop (chatAgentAssist/V2/Tyresoft).
+// Powers the per-conversation tool timeline and the staff success-rate dashboard.
+model ChatToolCall {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  garageId       String
+  agentType      String // assist | automate | tyresoft
+  toolName       String
+  args           Json?
+  result         Json?
+  success        Boolean
+  errorMessage   String?
+  durationMs     Int?
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([garageId, createdAt])
+  @@index([toolName, success])
 }
 
 model SocialMediaConnection {
@@ -308,32 +466,32 @@ model SocialMediaConnection {
 }
 
 model MessageTemplate {
-  id                String   @id @default(cuid())
-  garageId          String
-  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  garageId String
+  garage   Garage @relation(fields: [garageId], references: [id], onDelete: Cascade)
 
-  name              String   // Template name (lowercase, underscores only)
-  category          String   // UTILITY, MARKETING, AUTHENTICATION
-  language          String   @default("en_GB")
+  name     String // Template name (lowercase, underscores only)
+  category String // UTILITY, MARKETING, AUTHENTICATION
+  language String @default("en_GB")
 
   // Template content
-  headerType        String?  // none, text, image, document
-  headerContent     String?  // Header text or media URL
-  headerSample      String?  // Sample value for {{1}} in header
-  bodyText          String   // Main message body with {{1}}, {{2}} variables
-  variableSamples   Json?    // Sample values for variables e.g. {"{{1}}":"John","{{2}}":"15th March"}
-  footerText        String?  // Optional footer
-  buttonType        String?  // none, url, call, quick_reply
-  buttonText        String?  // Button label
-  buttonValue       String?  // URL or phone number
+  headerType      String? // none, text, image, document
+  headerContent   String? // Header text or media URL
+  headerSample    String? // Sample value for {{1}} in header
+  bodyText        String // Main message body with {{1}}, {{2}} variables
+  variableSamples Json? // Sample values for variables e.g. {"{{1}}":"John","{{2}}":"15th March"}
+  footerText      String? // Optional footer
+  buttonType      String? // none, url, call, quick_reply
+  buttonText      String? // Button label
+  buttonValue     String? // URL or phone number
 
   // Meta status
-  metaTemplateId    String?  // Template ID returned by Meta after submission
-  status            String   @default("draft") // draft, pending, approved, rejected
-  rejectionReason   String?  // Reason if rejected by Meta
+  metaTemplateId  String? // Template ID returned by Meta after submission
+  status          String  @default("draft") // draft, pending, approved, rejected
+  rejectionReason String? // Reason if rejected by Meta
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([garageId, name])
   @@index([garageId])
@@ -354,26 +512,26 @@ enum ConfirmedBookingCategory {
 }
 
 model OutboundCampaign {
-  id                String   @id @default(cuid())
+  id                String            @id @default(cuid())
   garageId          String
-  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  garage            Garage            @relation(fields: [garageId], references: [id], onDelete: Cascade)
   name              String
-  channel           String   @default("sms") // "sms" | "whatsapp"
-  status            String   @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed"
+  channel           String            @default("sms") // "sms" | "whatsapp"
+  status            String            @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed"
   sentAt            DateTime?
-  totalContacts     Int      @default(0)
-  sentCount         Int      @default(0)
-  messageTemplateId String?  // Optional: ID of MessageTemplate to use
-  variableMapping   Json?    // e.g. {"1": "customer_name", "2": "mot_due_date"}
+  totalContacts     Int               @default(0)
+  sentCount         Int               @default(0)
+  messageTemplateId String? // Optional: ID of MessageTemplate to use
+  variableMapping   Json? // e.g. {"1": "customer_name", "2": "mot_due_date"}
   contacts          OutboundContact[]
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@index([garageId])
 }
 
 model OutboundContact {
-  id             String   @id @default(cuid())
+  id             String           @id @default(cuid())
   campaignId     String
   campaign       OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   garageId       String
@@ -382,66 +540,66 @@ model OutboundContact {
   registration   String?
   motDueDate     String?
   serviceDueDate String?
-  messageType    String   @default("mot") // "mot" | "service"
-  status         String   @default("pending") // "pending" | "sent" | "replied" | "opted_out" | "failed"
+  messageType    String           @default("mot") // "mot" | "service"
+  status         String           @default("pending") // "pending" | "sent" | "replied" | "opted_out" | "failed"
   messageSid     String?
   errorReason    String?
   conversationId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   @@index([campaignId])
   @@index([garageId, phone])
 }
 
 model Invoice {
-  id                String   @id @default(cuid())
-  garageId          String
-  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  businessId        String?
-  userId            String?  // User who should be charged for this invoice
-  
+  id         String  @id @default(cuid())
+  garageId   String
+  garage     Garage  @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  businessId String?
+  userId     String? // User who should be charged for this invoice
+
   // Billing Period
-  periodStart       DateTime
-  periodEnd         DateTime
-  
+  periodStart DateTime
+  periodEnd   DateTime
+
   // Usage
-  minutesUsed       Int      @default(0)
-  minutesIncluded   Int      @default(0)
-  smsCount          Int      @default(0)
-  messagingMessagesCount Int  @default(0)  // Webchat/messaging messages billed
+  minutesUsed            Int @default(0)
+  minutesIncluded        Int @default(0)
+  smsCount               Int @default(0)
+  messagingMessagesCount Int @default(0) // Webchat/messaging messages billed
 
   // Costs (in pence for precision)
-  subscriptionAmount      Int  // Base (voice) subscription cost
-  minutesAmount           Int  @default(0)
-  smsAmount               Int  @default(0)
-  messagingSubscriptionAmount Int @default(0)  // Webchat subscription portion
-  messagingMessagesAmount     Int @default(0)  // Webchat overage messages cost
-  subtotal           Int     // Before VAT
-  vatAmount          Int     // VAT only
-  total              Int     // Final amount
-  
+  subscriptionAmount          Int // Base (voice) subscription cost
+  minutesAmount               Int @default(0)
+  smsAmount                   Int @default(0)
+  messagingSubscriptionAmount Int @default(0) // Webchat subscription portion
+  messagingMessagesAmount     Int @default(0) // Webchat overage messages cost
+  subtotal                    Int // Before VAT
+  vatAmount                   Int // VAT only
+  total                       Int // Final amount
+
   // Rates used (stored for audit trail)
   subscriptionCostGbp Float
   costPerMinuteGbp    Float
   vatRate             Float
-  
+
   // Status
-  status            String   @default("draft") // draft, pending, paid, failed, cancelled
-  
+  status String @default("draft") // draft, pending, paid, failed, cancelled
+
   // GoCardless
-  gocardlessPaymentId String?
+  gocardlessPaymentId  String?
   gocardlessChargeDate DateTime?
-  paidAt              DateTime?
+  paidAt               DateTime?
 
   // Credit/Void tracking
-  creditReason        String?
-  creditedAt          DateTime?
+  creditReason String?
+  creditedAt   DateTime?
 
   // Metadata
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([garageId, periodStart])
   @@index([businessId, periodStart])
   @@index([status])

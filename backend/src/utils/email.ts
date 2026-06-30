@@ -1,12 +1,19 @@
 import nodemailer from 'nodemailer';
 import type { TranscriptEntry } from './types.js';
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer | string;       // Buffer, or base64-encoded string when `encoding` is set
+  encoding?: 'base64';
+  contentType?: string;           // e.g. 'application/pdf'
+}
+
 interface EmailOptions {
   to: string[];
   subject: string;
   html: string;
   text: string;
-  from?: string;
+  attachments?: EmailAttachment[];
 }
 
 const getMailgunConfig = () => {
@@ -42,20 +49,47 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     return false;
   }
 
-  const form = new URLSearchParams();
-  form.set('from', options.from || config.from);
-  form.set('to', options.to.join(', '));
-  form.set('subject', options.subject);
-  form.set('text', options.text);
-  form.set('html', options.html);
+  // Mailgun accepts either application/x-www-form-urlencoded (no attachments)
+  // or multipart/form-data (with attachments). Use multipart whenever
+  // attachments are present so the file bytes ride through correctly.
+  const hasAttachments = (options.attachments?.length ?? 0) > 0;
+
+  let body: BodyInit;
+  const headers: Record<string, string> = {
+    Authorization: `Basic ${Buffer.from(`api:${config.apiKey}`).toString('base64')}`,
+  };
+
+  if (hasAttachments) {
+    const form = new FormData();
+    form.set('from', config.from);
+    form.set('to', options.to.join(', '));
+    form.set('subject', options.subject);
+    form.set('text', options.text);
+    form.set('html', options.html);
+    for (const att of options.attachments!) {
+      const buf = att.encoding === 'base64' && typeof att.content === 'string'
+        ? Buffer.from(att.content, 'base64')
+        : (att.content as Buffer);
+      const blob = new Blob([new Uint8Array(buf)], { type: att.contentType ?? 'application/octet-stream' });
+      form.append('attachment', blob, att.filename);
+    }
+    body = form;
+    // FormData will set its own multipart Content-Type with the boundary
+  } else {
+    const form = new URLSearchParams();
+    form.set('from', config.from);
+    form.set('to', options.to.join(', '));
+    form.set('subject', options.subject);
+    form.set('text', options.text);
+    form.set('html', options.html);
+    body = form.toString();
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+  }
 
   const response = await fetch(`${config.apiBase}/v3/${config.domain}/messages`, {
     method: 'POST',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`api:${config.apiKey}`).toString('base64')}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: form.toString(),
+    headers,
+    body,
   });
 
   if (!response.ok) {
@@ -89,6 +123,13 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
     subject: options.subject,
     text: options.text,
     html: options.html,
+    attachments: options.attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.encoding === 'base64' && typeof a.content === 'string'
+        ? Buffer.from(a.content, 'base64')
+        : a.content,
+      contentType: a.contentType,
+    })),
   });
 
   return true;
@@ -189,14 +230,10 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  timeZone: 'Europe/London',
-
   });
   const formattedTime = date.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
-  timeZone: 'Europe/London',
-
   });
 
   const formattedBookingDate = bookingDate ? new Date(bookingDate).toLocaleDateString('en-GB', {
@@ -205,8 +242,6 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  timeZone: 'Europe/London',
-
   }) : null;
 
   return `
@@ -399,14 +434,10 @@ const generateCallSummaryText = (data: CallSummaryEmailData): string => {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  timeZone: 'Europe/London',
-
   });
   const formattedTime = date.toLocaleTimeString('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
-  timeZone: 'Europe/London',
-
   });
 
   const formattedBookingDate = bookingDate ? new Date(bookingDate).toLocaleDateString('en-GB', {
@@ -415,8 +446,6 @@ const generateCallSummaryText = (data: CallSummaryEmailData): string => {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  timeZone: 'Europe/London',
-
   }) : null;
 
   let text = `ReceptionMate - New Call Handled\n`;
@@ -513,8 +542,6 @@ export const sendPaymentSetupReminderEmail = async (
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  timeZone: 'Europe/London',
-
   });
 
   const html = `
@@ -670,8 +697,6 @@ export const sendNegativeFeedbackEmail = async (
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  timeZone: 'Europe/London',
-
   });
 
   const html = `

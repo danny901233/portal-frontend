@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
 
+// Meta WhatsApp Embedded Signup (public values — the app id is exposed in every OAuth URL anyway).
+const META_APP_ID = '1600229954436428';
+const WA_CONFIG_ID = '888785980261763';
+
 interface SocialConnection {
   id: string;
   platform: string;
@@ -81,6 +85,21 @@ export default function IntegrationsPage() {
     }
   }, [selectedGarageId]);
 
+  // Load the Facebook JS SDK for WhatsApp Embedded Signup (lets garages create a WABA inline).
+  useEffect(() => {
+    if (document.getElementById('facebook-jssdk')) return;
+    (window as any).fbAsyncInit = function () {
+      (window as any).FB?.init({ appId: META_APP_ID, autoLogAppEvents: true, xfbml: false, version: 'v21.0' });
+    };
+    const script = document.createElement('script');
+    script.id = 'facebook-jssdk';
+    script.src = 'https://connect.facebook.net/en_US/sdk.js';
+    script.async = true;
+    script.defer = true;
+    script.crossOrigin = 'anonymous';
+    document.body.appendChild(script);
+  }, []);
+
   const fetchConnections = async () => {
     if (!selectedGarageId) return;
 
@@ -101,14 +120,83 @@ export default function IntegrationsPage() {
       setConnections(data.connections || []);
     } catch (error) {
       console.error('Error fetching connections:', error);
-      setStatusMessage({ type: 'error', text: 'Failed to load connections. Please refresh.' });
     } finally {
       setLoading(false);
     }
   };
 
+  // WhatsApp uses Meta Embedded Signup (JS SDK popup) instead of the redirect OAuth, so garages
+  // without a WhatsApp Business account can create one inline. FB.login returns an auth code; the
+  // WA_EMBEDDED_SIGNUP message event carries the new WABA id + phone number id.
+  const connectWhatsAppEmbedded = () => {
+    if (!selectedGarageId) return;
+    const FB = (window as any).FB;
+    if (!FB) {
+      setStatusMessage({ type: 'error', text: 'WhatsApp connect is still loading — please try again in a moment.' });
+      return;
+    }
+
+    const signup: { wabaId?: string; phoneNumberId?: string } = {};
+    const onMessage = (event: MessageEvent) => {
+      if (!event.origin.includes('facebook.com')) return;
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (data?.type === 'WA_EMBEDDED_SIGNUP' && data?.event === 'FINISH') {
+          signup.wabaId = data.data?.waba_id;
+          signup.phoneNumberId = data.data?.phone_number_id;
+        }
+      } catch { /* ignore non-JSON postMessages */ }
+    };
+    window.addEventListener('message', onMessage);
+
+    FB.login(
+      (response: any) => {
+        window.removeEventListener('message', onMessage);
+        const code = response?.authResponse?.code;
+        if (!code) {
+          setStatusMessage({ type: 'error', text: 'WhatsApp sign-up was cancelled before it finished.' });
+          return;
+        }
+        finishWhatsAppSignup(code, signup.wabaId, signup.phoneNumberId);
+      },
+      {
+        config_id: WA_CONFIG_ID,
+        response_type: 'code',
+        override_default_response_type: true,
+        extras: { feature: 'whatsapp_embedded_signup', setup: {}, sessionInfoVersion: '3' },
+      }
+    );
+  };
+
+  const finishWhatsAppSignup = async (code: string, wabaId?: string, phoneNumberId?: string) => {
+    try {
+      const token = getSessionToken();
+      const pageUrl = window.location.origin + window.location.pathname;
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/oauth/whatsapp/embedded-signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code, wabaId, phoneNumberId, garageId: selectedGarageId, configId: WA_CONFIG_ID, pageUrl }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusMessage({ type: 'success', text: `WhatsApp connected${data.accountName ? ` (${data.accountName})` : ''}! You can now receive messages.` });
+        fetchConnections();
+      } else {
+        setStatusMessage({ type: 'error', text: `WhatsApp connect failed: ${data.error || data.detail || 'unknown error'}` });
+      }
+    } catch {
+      setStatusMessage({ type: 'error', text: 'WhatsApp connect failed. Please try again or contact support.' });
+    }
+  };
+
   const connectPlatform = async (platformId: string) => {
     if (!selectedGarageId) return;
+
+    // WhatsApp → Embedded Signup popup; Facebook/Instagram → redirect OAuth.
+    if (platformId === 'whatsapp') {
+      connectWhatsAppEmbedded();
+      return;
+    }
 
     try {
       const token = getSessionToken();
@@ -134,7 +222,7 @@ export default function IntegrationsPage() {
         window.location.href = data.authUrl;
       } else if (data.message) {
         // Show setup message if Meta app not configured yet
-        alert(data.message + '\n\nPlease contact support@receptionmate.com to complete your Meta app setup.');
+        alert(data.message + '\n\nPlease contact hello@receptionmate.co.uk to complete your Meta app setup.');
       }
     } catch (error) {
       console.error('Error initiating OAuth:', error);
@@ -194,7 +282,7 @@ export default function IntegrationsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-slate-400">Loading integrations...</div>
+        <div className="text-slate-500">Loading integrations...</div>
       </div>
     );
   }
@@ -204,30 +292,31 @@ export default function IntegrationsPage() {
       <div className="mb-6">
         <button
           onClick={() => router.push('/messages')}
-          className="flex items-center gap-2 text-slate-400 hover:text-slate-100 transition-colors mb-4"
+          className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors mb-4"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
           <span className="text-sm">Back to Messages</span>
         </button>
-        <h1 className="text-2xl font-bold text-slate-100 mb-2">Integrations</h1>
-        <p className="text-slate-400">
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">Integrations</h1>
+        <p className="text-slate-500">
           Connect your social media accounts to manage all customer conversations in one place
         </p>
 
         {/* Tab switcher */}
-        <div className="flex gap-1 mt-5 p-1 bg-slate-800/60 rounded-lg w-fit border border-slate-700">
+        <div className="flex gap-1 mt-5 p-1 bg-slate-100 rounded-lg w-fit">
           <button
-            className="px-4 py-1.5 text-sm font-medium rounded-md bg-slate-700 text-slate-100 shadow-sm"
+            className="px-4 py-1.5 text-sm font-semibold rounded-md bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
+            aria-current="page"
           >
-            Social Media
+            Social media
           </button>
           <button
             onClick={() => router.push('/integrations/widget')}
-            className="px-4 py-1.5 text-sm font-medium rounded-md text-slate-400 hover:text-slate-200 transition-colors"
+            className="px-4 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:text-slate-900 transition-colors"
           >
-            Website Widget
+            Website widget
           </button>
         </div>
 
@@ -236,8 +325,8 @@ export default function IntegrationsPage() {
           <div className={cn(
             'mt-4 p-4 rounded-lg border',
             statusMessage.type === 'success'
-              ? 'bg-green-500/10 border-green-500/30 text-green-400'
-              : 'bg-red-500/10 border-red-500/30 text-red-400'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
           )}>
             <div className="flex items-center gap-2">
               {statusMessage.type === 'success' ? (
@@ -263,7 +352,7 @@ export default function IntegrationsPage() {
           return (
             <div
               key={platform.id}
-              className="bg-slate-900/40 border border-slate-800 rounded-lg p-6"
+              className="bg-white border border-slate-200 rounded-lg p-6"
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
@@ -271,26 +360,23 @@ export default function IntegrationsPage() {
                     <Icon />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-slate-100 mb-1">
+                    <h3 className="text-lg font-semibold text-slate-900 mb-1">
                       {platform.name}
                     </h3>
-                    <p className="text-sm text-slate-400 mb-3">{platform.description}</p>
+                    <p className="text-sm text-slate-500 mb-3">{platform.description}</p>
 
                     {connection && (
                       <div className="flex items-center gap-2 text-sm flex-wrap">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                          <span className="text-green-400">Connected</span>
-                        </div>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                          Connected
+                        </span>
                         {connection.accountName && (
-                          <>
-                            <span className="text-slate-600">•</span>
-                            <span className="text-slate-300 font-medium">{connection.accountName}</span>
-                          </>
+                          <span className="text-slate-700 font-medium">{connection.accountName}</span>
                         )}
-                        <span className="text-slate-600">•</span>
+                        <span className="text-slate-300">·</span>
                         <span className="text-slate-500">
-                          Since {new Date(connection.createdAt).toLocaleDateString()}
+                          since {new Date(connection.createdAt).toLocaleDateString()}
                         </span>
                       </div>
                     )}
@@ -301,15 +387,44 @@ export default function IntegrationsPage() {
                   {connection ? (
                     <button
                       onClick={() => disconnectPlatform(connection.id)}
-                      className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors"
+                      className="px-4 py-2 text-sm border border-slate-300 bg-white hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 text-slate-700 rounded-md transition-colors"
                     >
                       Disconnect
                     </button>
+                  ) : platform.id === 'whatsapp' ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => connectWhatsAppEmbedded()}
+                        className={cn(
+                          'px-3 py-2 text-sm text-white rounded-md transition-colors shadow-sm',
+                          platform.color,
+                          'hover:opacity-90'
+                        )}
+                      >
+                        Set up new
+                      </button>
+                      <button
+                        onClick={() => {
+                          const token = getSessionToken();
+                          fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/oauth/meta/initiate`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({ platform: 'whatsapp', garageId: selectedGarageId }),
+                          })
+                            .then(r => r.json())
+                            .then(data => { if (data.authUrl) window.location.href = data.authUrl; })
+                            .catch(() => alert('Failed to connect. Please try again.'));
+                        }}
+                        className="px-3 py-2 text-sm text-slate-700 bg-white hover:bg-slate-50 rounded-md transition-colors border border-slate-300 shadow-sm"
+                      >
+                        Connect existing
+                      </button>
+                    </div>
                   ) : (
                     <button
                       onClick={() => connectPlatform(platform.id)}
                       className={cn(
-                        'px-4 py-2 text-sm text-white rounded-md transition-colors',
+                        'px-4 py-2 text-sm text-white rounded-md transition-colors shadow-sm',
                         platform.color,
                         'hover:opacity-90'
                       )}
@@ -324,38 +439,44 @@ export default function IntegrationsPage() {
         })}
       </div>
 
-      <div className="mt-8 bg-slate-900/40 border border-slate-800 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-slate-100 mb-2">Need Help?</h3>
-        <p className="text-sm text-slate-400 mb-4">
-          Setting up social media integrations requires verification with Meta. Our team will help you:
-        </p>
-        <ul className="space-y-2 text-sm text-slate-400 mb-4">
-          <li className="flex items-start gap-2">
-            <span className="text-purple-400 mt-0.5">•</span>
-            <span>Create or connect your Meta Business Account</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-purple-400 mt-0.5">•</span>
-            <span>Verify your WhatsApp Business number</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-purple-400 mt-0.5">•</span>
-            <span>Set up webhook configurations</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-purple-400 mt-0.5">•</span>
-            <span>Configure message templates and permissions</span>
-          </li>
-        </ul>
-        <a
-          href="mailto:support@receptionmate.com"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-md transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          Contact Support
-        </a>
+      <div className="mt-8 rounded-2xl border border-brand-200 bg-brand-50/60 p-6">
+        <div className="flex items-start gap-4">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-brand-600 ring-1 ring-brand-200">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+            </svg>
+          </span>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-base font-semibold text-slate-900">Need a hand connecting these?</h3>
+            <p className="mt-1 text-sm text-slate-700">
+              Setting up social channels requires Meta Business verification. Our team will walk you through:
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
+              {[
+                'Creating or connecting your Meta Business Account',
+                'Verifying your WhatsApp Business number',
+                'Setting up the webhook configurations',
+                'Configuring message templates and permissions',
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2">
+                  <svg className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href="mailto:hello@receptionmate.co.uk?subject=Social%20media%20integration%20setup"
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-600/25 hover:bg-brand-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Email hello@receptionmate.co.uk
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -33,11 +33,11 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
   };
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
+    <div className="rounded-2xl border border-slate-200 bg-white p-6">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-slate-100">Direct Debit</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <h2 className="text-xl font-semibold text-slate-900">Direct Debit</h2>
+          <p className="mt-1 text-sm text-slate-500">
             Your payment method and billing schedule
           </p>
         </div>
@@ -73,8 +73,8 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
         {mandateStatus.hasMandate ? (
           <>
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10">
-                <svg className="h-5 w-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50">
+                <svg className="h-5 w-5 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -84,37 +84,37 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
                 </svg>
               </div>
               <div>
-                <div className="font-medium text-slate-200">Direct Debit Active</div>
-                <div className="text-sm text-slate-400">Your payment method is set up and active</div>
+                <div className="font-medium text-slate-700">Direct Debit Active</div>
+                <div className="text-sm text-slate-500">Your payment method is set up and active</div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
                   Status
                 </div>
                 <div className="mt-1 inline-flex items-center gap-2">
                   <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
-                  <span className="text-sm capitalize text-slate-300">{mandateStatus.status}</span>
+                  <span className="text-sm capitalize text-slate-600">{mandateStatus.status}</span>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
                   Next Billing Date
                 </div>
-                <div className="mt-1 text-sm text-slate-300">
+                <div className="mt-1 text-sm text-slate-600">
                   {formatDate(mandateStatus.nextBillingDate)}
                 </div>
               </div>
 
               {mandateStatus.mandateId && (
-                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 md:col-span-2">
+                <div className="rounded-lg border border-slate-200 bg-white p-4 md:col-span-2">
                   <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
                     Mandate Reference
                   </div>
-                  <div className="mt-1 font-mono text-xs text-slate-400">
+                  <div className="mt-1 font-mono text-xs text-slate-500">
                     {mandateStatus.mandateId}
                   </div>
                 </div>
@@ -146,9 +146,9 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
             </div>
           </>
         ) : (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-6 text-center">
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
             <svg
-              className="mx-auto h-12 w-12 text-amber-400"
+              className="mx-auto h-12 w-12 text-amber-700"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -161,7 +161,7 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
               />
             </svg>
             <h3 className="mt-4 text-lg font-medium text-amber-300">No Direct Debit Set Up</h3>
-            <p className="mt-2 text-sm text-amber-400">
+            <p className="mt-2 text-sm text-amber-700">
               You need to set up Direct Debit to enable automatic billing.
             </p>
             <a

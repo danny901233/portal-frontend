@@ -34,6 +34,25 @@ Edit `.env` and set:
 - **ONBOARDING_SECRET**: A random secret shared with your portal for authentication
 - **PORT**: Port to run on (default: 5000)
 
+#### LiveKit Cloud — Account 1 (default / required)
+
+- **LIVEKIT_URL**: `wss://<project>.livekit.cloud` for the primary project
+- **LIVEKIT_API_KEY**: API key for Account 1
+- **LIVEKIT_API_SECRET**: API secret for Account 1
+
+#### LiveKit Cloud — Account 2 (optional, for RMB-Assist routing)
+
+The service supports a second LiveKit Cloud project so the portal can route a
+garage to an agent running on a different account (e.g. `Assist-agent` on
+`receptionmate-9dznd24r`). To enable this, also set:
+
+- **LIVEKIT_URL_ACCOUNT2**: `wss://<account-2-project>.livekit.cloud`
+- **LIVEKIT_API_KEY_ACCOUNT2**: API key for Account 2
+- **LIVEKIT_API_SECRET_ACCOUNT2**: API secret for Account 2
+
+If these are not set, the service still boots and serves Account 1 normally,
+but any `/update-agent` request with `account: "account2"` returns HTTP 503.
+
 ### 3. Run Development Server
 
 ```bash
@@ -88,6 +107,38 @@ Provisions a garage with Twilio configuration.
   "twilioNumber": "+1987654321"
 }
 ```
+
+### POST `/update-agent`
+
+Updates the agent name on an existing LiveKit SIP dispatch rule for the given garage.
+Optionally targets a specific LiveKit account (defaults to Account 1).
+
+**Request Body:**
+```json
+{
+  "garageId": "uuid",
+  "agentName": "Assist-agent",
+  "account": "account2"
+}
+```
+
+`account` is optional and defaults to `"account1"`. Use `"account2"` to route the
+garage to an agent on the second LiveKit project (see env-var section above).
+
+**Response (success):**
+```json
+{
+  "success": true,
+  "message": "Agent updated successfully",
+  "garageId": "uuid",
+  "agentName": "Assist-agent",
+  "account": "account2",
+  "dispatchRuleId": "SDR_..."
+}
+```
+
+**Response (404):** No dispatch rule found for that garage on the requested account.
+**Response (503):** `account=account2` was requested but Account 2 env vars are not set.
 
 ### GET `/health`
 

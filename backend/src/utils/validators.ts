@@ -144,6 +144,20 @@ const garageHiveSettingsSchema = z
   })
   .optional();
 
+// One engine-size price bracket: "vehicles up to maxCC cc pay this price".
+const pricingBracketSchema = z.object({
+  maxCC: z.number().int().nonnegative().max(20000),
+  price: z.number().nonnegative().max(100000),
+});
+
+// One Tyresoft service entry. Engine-size services attach brackets via pricingRules[id].
+const tsServiceSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(200),
+  pricingType: z.enum(['fixed', 'engine-size']),
+  price: z.number().nonnegative().max(100000).optional(),
+});
+
 const tyresoftSettingsSchema = z
   .object({
     tsWorkspace: optionalBoundedString(100),
@@ -151,6 +165,13 @@ const tyresoftSettingsSchema = z
     tsPassword: optionalBoundedString(1000),
     tsApiKey: optionalBoundedString(1000),
     tsDepotId: z.union([z.string().max(20), z.number()]).optional(),
+    // Structured pricing data — service catalogue + engine-size price brackets keyed by service id.
+    tsServices: z.array(tsServiceSchema).max(200).optional(),
+    pricingRules: z.record(z.string().max(64), z.array(pricingBracketSchema).max(20)).optional(),
+    // Per-garage tyre markup. Stored as form-friendly { type, value } from the
+    // UI, normalised by config.ts to tyreMarkupFlat / tyreMarkupPercent on PUT.
+    tyreMarkupType: z.enum(['flat', 'percent']).optional(),
+    tyreMarkupValue: optionalBoundedString(20),
   })
   .optional();
 
@@ -226,6 +247,7 @@ export const weeklyOpeningHoursSchema = z.preprocess(
 
 export const upsertAgentConfigurationSchema = z.object({
   branchName: z.string().min(1).max(200),
+  agentName: z.union([z.string().max(60), z.literal(''), z.null()]).optional(),
   phoneNumber: z.union([z.string().max(100), z.literal('')]).optional(),
   emailAddress: optionalEmail,
   branchAddress: z.union([z.string().max(1000), z.literal('')]).optional(),
@@ -248,7 +270,7 @@ export const upsertAgentConfigurationSchema = z.object({
   agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'Assist-agent', 'GarageHive-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
-  transferNumber: z.union([z.string().max(50), z.literal('')]).optional(),
+  transferNumber: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
   allowBookings: z.boolean().optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
@@ -263,6 +285,10 @@ export const upsertAgentConfigurationSchema = z.object({
     required: z.boolean(),
     instruction: z.string().max(280).optional().nullable(),
   })).optional().nullable(),
+  // Stored answers the agent uses verbatim, and per-word pronunciation overrides.
+  // Kept permissive so the save never rejects regardless of the editor's exact shape.
+  faqs: z.array(z.any()).optional().nullable(),
+  pronunciations: z.array(z.any()).optional().nullable(),
   hubspotSettings: z.object({
     enabled: z.boolean(),
     apiToken: z.string(),

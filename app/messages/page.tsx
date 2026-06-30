@@ -39,12 +39,62 @@ interface Conversation {
   conversationIds?: string[];
 }
 
+interface ToolCall {
+  id: string;
+  toolName: string;
+  agentType: string;
+  args: unknown;
+  result: unknown;
+  success: boolean;
+  errorMessage?: string | null;
+  durationMs?: number | null;
+  createdAt: string;
+}
+
 interface ConversationDetail extends Conversation {
   garage: {
     id: string;
     name: string;
   };
+  toolCalls?: ToolCall[];
   withinMessagingWindow?: boolean;
+}
+
+// Inline AI tool-call marker shown in the thread — ✓/✗ + tool name, click to expand args/result.
+function ToolCallChip({ call }: { call: ToolCall }) {
+  const [open, setOpen] = useState(false);
+  const ok = call.success;
+  return (
+    <div className="flex justify-center my-1">
+      <div className="w-full max-w-md">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            'w-full flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-mono transition-colors',
+            ok
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+              : 'bg-red-50 border-red-200 text-red-800 hover:bg-red-100'
+          )}
+          title="AI tool call"
+        >
+          <span>{ok ? '✓' : '✗'}</span>
+          <span className="font-semibold">{call.toolName}</span>
+          <span className="opacity-60">{call.agentType}</span>
+          {typeof call.durationMs === 'number' && <span className="opacity-60">{call.durationMs}ms</span>}
+          <span className="ml-auto opacity-50">{open ? '▲' : '▼'}</span>
+        </button>
+        {open && (
+          <div className="mt-1 rounded-md border border-slate-200 bg-slate-900 text-slate-100 p-2 text-[11px] font-mono overflow-x-auto">
+            {!ok && call.errorMessage && <div className="text-red-300 mb-1">error: {call.errorMessage}</div>}
+            <div className="text-slate-400">args</div>
+            <pre className="whitespace-pre-wrap break-all mb-2">{JSON.stringify(call.args, null, 2)}</pre>
+            <div className="text-slate-400">result</div>
+            <pre className="whitespace-pre-wrap break-all">{JSON.stringify(call.result, null, 2)}</pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // Platform SVG Logo Components
@@ -488,7 +538,7 @@ export default function MessagesPage() {
   if (loading || hasMessagingAccess === null) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-slate-400">Loading conversations...</div>
+        <div className="text-slate-500">Loading conversations...</div>
       </div>
     );
   }
@@ -502,12 +552,12 @@ export default function MessagesPage() {
       {/* Header with Integrations Button */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Messages</h1>
-          <p className="text-sm text-slate-400 mt-1">Manage all customer conversations in one place</p>
+          <h1 className="text-2xl font-bold text-slate-900">Messages</h1>
+          <p className="text-sm text-slate-500 mt-1">Manage all customer conversations in one place</p>
         </div>
         <button
           onClick={() => router.push('/integrations')}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors border border-slate-700"
+          className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-700 text-slate-900 rounded-lg transition-colors border border-slate-300"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -518,9 +568,9 @@ export default function MessagesPage() {
 
       <div className="flex h-[calc(100vh-220px)] gap-0">
         {/* Left Sidebar - Conversations List */}
-        <div className="w-96 bg-slate-900/40 border border-slate-800 rounded-l-lg flex flex-col">
+        <div className="w-96 bg-white border border-slate-200 rounded-l-lg flex flex-col">
           {/* Search and Filters */}
-          <div className="p-4 border-b border-slate-800">
+          <div className="p-4 border-b border-slate-200">
           <div className="flex gap-2 mb-4">
             <div className="relative flex-1">
               <input
@@ -528,7 +578,7 @@ export default function MessagesPage() {
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-4 py-2 pl-10 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               <svg className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -539,7 +589,7 @@ export default function MessagesPage() {
             <div className="relative">
               <button
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                className="p-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-slate-100 transition-colors"
+                className="p-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-500 hover:text-slate-900 transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -552,7 +602,7 @@ export default function MessagesPage() {
                     className="fixed inset-0 z-10"
                     onClick={() => setShowFilterDropdown(false)}
                   />
-                  <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20">
+                  <div className="absolute right-0 mt-2 w-48 bg-slate-100 border border-slate-300 rounded-lg shadow-xl z-20">
                     <div className="p-2">
                       <button
                         onClick={() => {
@@ -563,7 +613,7 @@ export default function MessagesPage() {
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'all'
                             ? 'bg-purple-600 text-white'
-                            : 'text-slate-300 hover:bg-slate-700'
+                            : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
                         <span className="flex-1">All Platforms</span>
@@ -582,7 +632,7 @@ export default function MessagesPage() {
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'whatsapp'
                             ? 'bg-green-600 text-white'
-                            : 'text-slate-300 hover:bg-slate-700'
+                            : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
                         <WhatsAppIcon />
@@ -602,7 +652,7 @@ export default function MessagesPage() {
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'facebook'
                             ? 'bg-blue-600 text-white'
-                            : 'text-slate-300 hover:bg-slate-700'
+                            : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
                         <FacebookIcon />
@@ -622,7 +672,7 @@ export default function MessagesPage() {
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'instagram'
                             ? 'bg-purple-600 text-white'
-                            : 'text-slate-300 hover:bg-slate-700'
+                            : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
                         <InstagramIcon />
@@ -641,14 +691,14 @@ export default function MessagesPage() {
           </div>
 
           {/* Active / Needs Attention / Resolved Tabs */}
-          <div className="flex gap-4 border-b border-slate-700">
+          <div className="flex gap-4 border-b border-slate-300">
             <button
               onClick={() => setViewMode('active')}
               className={cn(
                 'pb-2 px-1 text-sm font-medium transition-colors relative',
                 viewMode === 'active'
                   ? 'text-green-400'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-500 hover:text-slate-600'
               )}
             >
               ACTIVE
@@ -662,7 +712,7 @@ export default function MessagesPage() {
                 'pb-2 px-1 text-sm font-medium transition-colors relative',
                 viewMode === 'needsAttention'
                   ? 'text-orange-400'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-500 hover:text-slate-600'
               )}
             >
               NEEDS ATTENTION
@@ -675,8 +725,8 @@ export default function MessagesPage() {
               className={cn(
                 'pb-2 px-1 text-sm font-medium transition-colors relative',
                 viewMode === 'resolved'
-                  ? 'text-slate-400'
-                  : 'text-slate-500 hover:text-slate-300'
+                  ? 'text-slate-500'
+                  : 'text-slate-500 hover:text-slate-600'
               )}
             >
               RESOLVED
@@ -699,8 +749,8 @@ export default function MessagesPage() {
                 key={conv.id}
                 onClick={() => fetchConversationDetail(conv.id)}
                 className={cn(
-                  'p-4 border-b border-slate-800 cursor-pointer transition-colors hover:bg-slate-800/40',
-                  selectedConversation?.id === conv.id && 'bg-slate-800/60',
+                  'p-4 border-b border-slate-200 cursor-pointer transition-colors hover:bg-slate-50',
+                  selectedConversation?.id === conv.id && 'bg-slate-50',
                   conv.needsAttention && 'border-l-4 border-l-orange-500'
                 )}
               >
@@ -713,12 +763,12 @@ export default function MessagesPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between mb-1">
-                      <h3 className="font-medium text-slate-100 text-sm truncate">
+                      <h3 className="font-medium text-slate-900 text-sm truncate">
                         {conv.customerName || conv.customerPhone || conv.customerId || 'Unknown'}
                       </h3>
                       <span className="text-xs text-slate-500 ml-2 flex-shrink-0">{formatTime(conv.lastMessageAt)}</span>
                     </div>
-                    <p className="text-xs text-slate-400 truncate mb-2">
+                    <p className="text-xs text-slate-500 truncate mb-2">
                       {conv.messages[0]?.content || 'No messages'}
                     </p>
                     <div className="flex items-center gap-2">
@@ -764,7 +814,7 @@ export default function MessagesPage() {
       </div>
 
       {/* Right Panel - Conversation Detail */}
-      <div className="flex-1 bg-slate-900/40 border border-l-0 border-slate-800 rounded-r-lg flex flex-col">
+      <div className="flex-1 bg-white border border-l-0 border-slate-200 rounded-r-lg flex flex-col">
         {!selectedConversation ? (
           <div className="flex-1 flex items-center justify-center text-slate-500">
             <div className="text-center">
@@ -775,7 +825,7 @@ export default function MessagesPage() {
         ) : (
           <>
             {/* Conversation Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className={cn(
                   'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium',
@@ -784,14 +834,14 @@ export default function MessagesPage() {
                   {getInitials(selectedConversation.customerName || selectedConversation.customerPhone || selectedConversation.customerId || 'UK')}
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-slate-100">
+                  <h2 className="text-base font-semibold text-slate-900">
                     {selectedConversation.customerName ||
                      selectedConversation.customerPhone ||
                      selectedConversation.customerId ||
                      'Unknown'}
                   </h2>
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1 text-xs text-slate-400">
+                    <div className="flex items-center gap-1 text-xs text-slate-500">
                       {(() => {
                         const IconComponent = PLATFORM_ICONS[selectedConversation.platform as keyof typeof PLATFORM_ICONS];
                         return IconComponent ? <IconComponent /> : null;
@@ -829,7 +879,7 @@ export default function MessagesPage() {
                     'px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5',
                     selectedConversation.needsAttention
                       ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                      : 'bg-slate-700 hover:bg-slate-600 text-slate-600'
                   )}
                   title={selectedConversation.needsAttention ? 'Remove flag' : 'Flag for attention'}
                 >
@@ -845,7 +895,7 @@ export default function MessagesPage() {
                     'px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5',
                     showTaggingPanel
                       ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                      : 'bg-slate-700 hover:bg-slate-600 text-slate-600'
                   )}
                   title="Toggle tags panel"
                 >
@@ -881,29 +931,29 @@ export default function MessagesPage() {
                           className="fixed inset-0 z-10"
                           onClick={() => setShowPauseDropdown(false)}
                         />
-                        <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20">
+                        <div className="absolute right-0 mt-2 w-48 bg-slate-100 border border-slate-300 rounded-lg shadow-xl z-20">
                           <div className="p-2">
                             <button
                               onClick={() => toggleAgent(2)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
                             >
                               Pause for 2 hours
                             </button>
                             <button
                               onClick={() => toggleAgent(4)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
                             >
                               Pause for 4 hours
                             </button>
                             <button
                               onClick={() => toggleAgent(8)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
                             >
                               Pause for 8 hours
                             </button>
                             <button
                               onClick={() => toggleAgent(24)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
                             >
                               Pause for 24 hours
                             </button>
@@ -932,8 +982,23 @@ export default function MessagesPage() {
             </div>
 
             {/* Messages */}
-            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-950/20">
-              {selectedConversation.messages?.filter((message) => !message.content?.startsWith('[Context:')).map((message) => (
+            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-50">
+              {(() => {
+                const msgItems = (selectedConversation.messages || [])
+                  .filter((message) => !message.content?.startsWith('[Context:'))
+                  .map((m) => ({ kind: 'message' as const, at: m.createdAt, m }));
+                const toolItems = (selectedConversation.toolCalls || [])
+                  .map((t) => ({ kind: 'tool' as const, at: t.createdAt, t }));
+                const timeline = [...msgItems, ...toolItems].sort(
+                  (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()
+                );
+                return timeline.map((item) =>
+                  item.kind === 'tool' ? (
+                    <ToolCallChip key={`tc-${item.t.id}`} call={item.t} />
+                  ) : (
+                    (() => {
+                      const message = item.m;
+                      return (
                 <div
                   key={message.id}
                   className={cn('flex flex-col', message.role === 'user' ? 'items-start' : 'items-end')}
@@ -952,7 +1017,7 @@ export default function MessagesPage() {
                     className={cn(
                       'max-w-md px-4 py-2 rounded-lg',
                       message.role === 'user'
-                        ? 'bg-slate-800 text-slate-100'
+                        ? 'bg-slate-100 text-slate-900'
                         : 'bg-purple-600 text-white'
                     )}
                   >
@@ -979,16 +1044,20 @@ export default function MessagesPage() {
                     </p>
                   </div>
                 </div>
-              ))}
+                      );
+                    })()
+                  )
+                );
+              })()}
             </div>
 
             {/* Message Input */}
             {selectedConversation.status === 'active' && (
-              <div className="p-4 border-t border-slate-800">
+              <div className="p-4 border-t border-slate-200">
                 {selectedConversation.withinMessagingWindow === false && ['whatsapp', 'facebook', 'instagram'].includes(selectedConversation.platform) ? (
                   <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3 text-center">
                     <p className="text-sm text-orange-400 font-medium">24-Hour Messaging Window Expired</p>
-                    <p className="text-xs text-slate-400 mt-1">
+                    <p className="text-xs text-slate-500 mt-1">
                       You can no longer send messages to this customer. They must initiate contact again.
                     </p>
                   </div>
@@ -996,7 +1065,7 @@ export default function MessagesPage() {
                   <>
                     {imagePreview && (
                       <div className="mb-3 relative inline-block">
-                        <img src={imagePreview} alt="Preview" className="max-h-32 rounded-lg border border-slate-700" />
+                        <img src={imagePreview} alt="Preview" className="max-h-32 rounded-lg border border-slate-300" />
                         <button
                           onClick={cancelImage}
                           className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs"
@@ -1016,7 +1085,7 @@ export default function MessagesPage() {
                       <button
                         onClick={() => imageInputRef.current?.click()}
                         disabled={sending || sendingImage}
-                        className="px-3 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors disabled:opacity-50"
+                        className="px-3 py-2 bg-slate-100 border border-slate-300 hover:bg-slate-700 text-slate-600 rounded-lg transition-colors disabled:opacity-50"
                         title="Attach image"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1030,7 +1099,7 @@ export default function MessagesPage() {
                         onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (selectedImage ? sendImage() : sendMessage())}
                         placeholder={selectedImage ? 'Add a caption (optional)' : 'Write a message'}
                         maxLength={1600}
-                        className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        className="flex-1 px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                         disabled={sending || sendingImage}
                       />
                       <button
@@ -1084,7 +1153,7 @@ export default function MessagesPage() {
           onClick={() => setLightboxUrl(null)}
         >
           <button
-            className="absolute top-4 right-4 text-white text-2xl hover:text-slate-300"
+            className="absolute top-4 right-4 text-white text-2xl hover:text-slate-600"
             onClick={() => setLightboxUrl(null)}
           >
             X

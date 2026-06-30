@@ -187,10 +187,16 @@ router.post('/meta-instagram', async (req: Request, res: Response) => {
             },
           });
 
-          // Send response via Facebook Graph API (Instagram DMs via Page)
+          // Send the reply. Instagram-login tokens (IGAA…) MUST go to graph.instagram.com —
+          // graph.facebook.com can't parse them ("Cannot parse access token", code 190). Legacy
+          // FB-page tokens (EAA…) use the Messenger Platform endpoint via the page id.
           try {
+            const igLogin = (connection.accessToken || '').startsWith('IGAA');
+            const sendUrl = igLogin
+              ? 'https://graph.instagram.com/v21.0/me/messages'
+              : `https://graph.facebook.com/v18.0/${connection.pageId}/messages`;
             await axios.post(
-              `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
+              sendUrl,
               {
                 recipient: { id: senderId },
                 message: { text: agentResponse.content },

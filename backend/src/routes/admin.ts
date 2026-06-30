@@ -57,7 +57,7 @@ const updateUserSchema = z.object({
   mustSetupPayment: z.boolean().optional(),
 });
 
-const ensureAdminAccessToGarage = async (garageId: string) => {
+export const ensureAdminAccessToGarage = async (garageId: string) => {
   // Only grant access to RECEPTIONMATE_STAFF — not all ADMIN users,
   // since each business has its own ADMIN users who should only see their own garages
   const admins = await prisma.user.findMany({
@@ -275,6 +275,28 @@ router.post('/admin/businesses/:businessId/branches', authenticateApiKey, requir
   });
 
   await ensureAdminAccessToGarage(garage.id);
+
+  // Also grant access to the requesting admin user so they can immediately see the branch
+  if (req.user?.userId) {
+    const admin = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+    });
+
+    if (admin) {
+      const currentIds = Array.isArray(admin.garageAccessIds) ? admin.garageAccessIds : [];
+      const currentBranchRoles = sanitizeBranchRoles(admin.branchRoles);
+      
+      if (!currentIds.includes(garage.id)) {
+        await prisma.user.update({
+          where: { id: admin.id },
+          data: {
+            garageAccessIds: [...currentIds, garage.id],
+            branchRoles: { ...currentBranchRoles, [garage.id]: 'MANAGER' },
+          },
+        });
+      }
+    }
+  }
 
   res.status(201).json({
     branch: formatBranch({
@@ -591,6 +613,20 @@ const completeOnboardingSchema = z.object({
   userEmail: z.string().email(),
   userPassword: z.string().min(8).optional(),
   userRole: z.enum(['USER', 'MANAGER']).optional().default('USER'),
+  subscriptionCostGbp: z.number().positive().max(10000),
+  includedMinutes: z.number().int().min(0).max(100000),
+  costPerMinuteGbp: z.number().min(0).max(100),
+  vatRate: z.number().min(0).max(1).optional().default(0.2),
+  // Optional routing pick from the quick-onboard modal — saves a trip into
+  // Agent Configurations -> Routing after onboarding. Defaults to Assist-agent
+  // (a.k.a. RMB-Assist on account 2) when omitted, matching self-serve.
+  agentScript: z.enum([
+    'Assist-agent',
+    'GarageHive-agent',
+    'tyresoft-agent',
+    'receptionmate-agent-v3',
+    'receptionmate-agent',
+  ]).optional().default('Assist-agent'),
 });
 
 const DEFAULT_PASSWORD = 'Nomoremissedcalls';
@@ -607,11 +643,17 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       data: { name: parsed.data.businessName },
     });
 
-    // 2. Create branch/garage
+    // 2. Create branch/garage with billing configuration so it's immediately billable.
+    // (Default subscriptionCostGbp is 0, which previously caused confirm-mandate to skip
+    //  setting billing dates because hasActiveGarages was false.)
     const garage = await prisma.garage.create({
       data: {
         name: parsed.data.branchName,
         businessId: business.id,
+        subscriptionCostGbp: parsed.data.subscriptionCostGbp,
+        includedMinutes: parsed.data.includedMinutes,
+        costPerMinuteGbp: parsed.data.costPerMinuteGbp,
+        vatRate: parsed.data.vatRate,
       },
     });
 
@@ -625,6 +667,8 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         interruptionSensitivity: 0.5,
         allowFastFitOnly: false,
         integrationProvider: 'none',
+        // Routing pick from the quick-onboard modal (defaults to Assist-agent).
+        agentScript: parsed.data.agentScript,
       },
     });
 

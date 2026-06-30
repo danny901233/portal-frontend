@@ -129,7 +129,22 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       },
     });
 
-    // Determine if billing should start now or wait for activation/trial end
+    // Belt-and-braces: set billing dates whenever the user has at least one garage
+    // that isn't gated by trial/booking-activation — regardless of whether the
+    // subscription cost is non-zero yet. Historically, gating on `subscriptionCostGbp > 0`
+    // here meant any customer who completed Direct Debit before the admin finished
+    // pricing-config (Speedy Spanners, VRS Midlands) ended up with billingCycleStartDate
+    // and nextBillingDate permanently null and invisible to the scheduler. Onboarding
+    // now requires pricing up-front, but this widened guard ensures any future edge case
+    // still gets a billing cycle assigned.
+    const hasBillableGarage = garages.some(g => {
+      const inTrial = g.trialEndDate && g.trialEndDate > now;
+      const needsActivation = g.requiresBookingActivation;
+      return !inTrial && !needsActivation;
+    });
+
+    // Separate flag for whether to actually charge the first month — only true when
+    // there's at least one garage with a real subscription cost.
     const hasActiveGarages = garages.some(g => {
       const inTrial = g.trialEndDate && g.trialEndDate > now;
       const needsActivation = g.requiresBookingActivation;
@@ -139,11 +154,13 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
     let billingCycleStartDate: Date | null = null;
     let nextBillingDate: Date | null = null;
 
-    // Only set billing dates if there are active garages (no trial, no activation needed)
-    if (hasActiveGarages) {
+    if (hasBillableGarage) {
       billingCycleStartDate = now;
       nextBillingDate = new Date(now);
       nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+    }
+
+    if (hasActiveGarages) {
 
       // Generate first invoices for active garages
       const activeGarages = garages.filter(g => {
@@ -168,6 +185,7 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
           data: {
             garageId: garage.id,
             businessId: garage.businessId,
+            userId: user.id,
             periodStart: now,
             periodEnd: nextBillingDate!,
             minutesUsed: 0,

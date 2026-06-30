@@ -1,6 +1,8 @@
 import { prisma } from '../db.js';
 import OpenAI from 'openai';
 import axios from 'axios';
+import { logChatToolCall } from './chatToolLog.js';
+import { imageMessageContent } from './chatMedia.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -1052,7 +1054,8 @@ export async function getChatAgentResponse(
         // No Say pattern — return the tool result directly so the customer gets feedback
         console.log(`[SLOT_REBOOK_FASTPATH] No Say pattern in tool result — returning raw: ${toolResult.slice(0, 100)}`);
         return { content: toolResult, needsHumanAssistance: false };
-// Side question mid-slot confirm — answer briefly then re-ask confirmation
+      }
+      // Side question mid-slot confirm — answer briefly then re-ask confirmation
       if (message.includes('?')) {
         const dateNatural2 = formatDateNaturally(session.pendingSlotDate);
         const timeNatural2 = formatTimeNaturally(session.pendingSlotTime);
@@ -1247,14 +1250,27 @@ export async function getChatAgentResponse(
       { role: 'system', content: systemPrompt },
     ];
 
-    for (const msg of previousMessages) {
-      messages.push({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content,
-      });
+    const _histTotal = previousMessages.length;
+    for (let _i = 0; _i < _histTotal; _i++) {
+      const msg = previousMessages[_i];
+      const role = msg.role === 'user' ? 'user' : 'assistant';
+      // Pass recent customer image attachments to the (vision-capable) model so it can read
+      // plates / logbooks / warning lights. Only the last few to avoid re-sending old images.
+      if (role === 'user' && _i >= _histTotal - 4) {
+        const imgContent = await imageMessageContent(msg);
+        if (imgContent) { messages.push({ role: 'user', content: imgContent }); continue; }
+      }
+      messages.push({ role, content: msg.content });
     }
 
-    messages.push({ role: 'user', content: message });
+    // Don't re-append the current turn as a bare image placeholder — the loop already attached the
+    // actual image when it's in the persisted history (WhatsApp persists before the agent runs).
+    const _lastPrev = previousMessages[previousMessages.length - 1];
+    const _curIsImgPlaceholder = ['[Customer sent an image]', '[Image]'].includes(message);
+    const _lastPrevIsImg = _lastPrev?.role === 'user' && !!_lastPrev?.mediaType?.startsWith('image/');
+    if (!(_curIsImgPlaceholder && _lastPrevIsImg)) {
+      messages.push({ role: 'user', content: message });
+    }
 
     // Side-question nudge: when customer asks a question mid-booking, inject a system hint
     // so the LLM answers it instead of repeating the current step's prompt.
@@ -1323,7 +1339,12 @@ export async function getChatAgentResponse(
 
     // At confirmed/done, strip booking tools — LLM should only answer questions, not restart flows
     const isPostBooking = session.step === Step.CONFIRMED || session.step === Step.DONE;
-    const toolsForCall = isPostBooking ? undefined : getConversationalTools();
+    let toolsForCall = isPostBooking ? undefined : getConversationalTools();
+    // Human escalation off → no message-taking; drop take_message so the model falls back to the
+    // "contact the garage directly" rule in the system prompt instead.
+    if (toolsForCall && config.humanEscalation === false) {
+      toolsForCall = toolsForCall.filter((t) => (t as any).function?.name !== 'take_message');
+    }
 
     let response = await openAIWithRetry(messages, temperature, toolsForCall);
 
@@ -1406,12 +1427,20 @@ export async function getChatAgentResponse(
         }
 
         // Execute tool and get INSTRUCTIONS for the agent
-        const instructions = await executeConversationalTool(
-          functionName,
-          functionArgs,
-          session,
-          conversationId
-        );
+        const _t0 = Date.now();
+        let instructions = '';
+        try {
+          instructions = await executeConversationalTool(
+            functionName,
+            functionArgs,
+            session,
+            conversationId
+          );
+          logChatToolCall({ conversationId, garageId, agentType: 'automate', toolName: functionName, args: functionArgs, result: instructions, durationMs: Date.now() - _t0 });
+        } catch (_e: any) {
+          logChatToolCall({ conversationId, garageId, agentType: 'automate', toolName: functionName, args: functionArgs, result: { error: _e?.message || 'tool threw' }, durationMs: Date.now() - _t0 });
+          throw _e;
+        }
 
         messages.push({
           role: 'tool',
@@ -3849,6 +3878,42 @@ TONE EXAMPLES:
     }
   }
 
+  // ── Per-garage config: custom rules, FAQs, smart questions ───────────────
+  // Parity with the voice agents so a garage configures once (Agent Setup) for chat + voice.
+  // Shape-safe: customRules may be an array of {text,active} OR an object (branch config) — only
+  // render the array form.
+  const _rules = Array.isArray(config.customRules)
+    ? config.customRules
+        .filter((r: any) => r && typeof r === 'object' && r.active === true && (r.text || '').trim())
+        .map((r: any) => `- ${String(r.text).trim()}`)
+    : [];
+  if (_rules.length > 0) {
+    prompt += `RULES YOU MUST FOLLOW (these override anything else in this prompt):\n${_rules.join('\n')}\n\n`;
+  }
+
+  const _faqs = Array.isArray(config.faqs)
+    ? config.faqs
+        .filter((f: any) => f && (f.question || f.q) && (f.answer || f.a))
+        .map((f: any) => `Q: ${String(f.question || f.q).trim()}\nA: ${String(f.answer || f.a).trim()}`)
+    : [];
+  if (_faqs.length > 0) {
+    prompt += `COMMON QUESTIONS — answer from these when a customer asks something similar; do NOT invent an answer:\n${_faqs.join('\n')}\n\n`;
+  }
+
+  const _fields = Array.isArray(config.dataCollectionFields)
+    ? config.dataCollectionFields
+        .filter((f: any) => f && f.active === true && (f.label || f.key))
+        .map((f: any) => {
+          const label = String(f.label || f.key).trim();
+          const tag = f.required ? '(required)' : '(only if relevant)';
+          const instr = (f.instruction || '').trim() ? ` — ${String(f.instruction).trim()}` : '';
+          return `- ${label} ${tag}${instr}`;
+        })
+    : [];
+  if (_fields.length > 0) {
+    prompt += `INFORMATION TO COLLECT during the chat (ask naturally, one at a time, don't interrogate):\n${_fields.join('\n')}\n\n`;
+  }
+
   // ── Key behaviour rules around opening hours ─────────────────────────────
   prompt += `OPENING HOURS BEHAVIOUR:
 - You can take bookings at ANY time of day — you are always available.
@@ -4099,6 +4164,11 @@ RECOGNISING AFFIRMATIVE RESPONSES:
 - Treat ALL of the following as "yes": yes, yeah, yep, yup, yh, ye, ya, sure, ok, okay, correct, right, perfect, great, fine, go ahead, do it, brill, brilliant, lovely, spot on, sounds good, that works, that's right, cheers
 - NEVER ask for a registration again if the customer says yes/yh/ya/ye/yep/yup to a question about their vehicle — call confirm_vehicle(confirmed=true) instead
 - If the customer has already confirmed their vehicle (CURRENT STATE shows Vehicle) and says any affirmative, proceed with the booking — do NOT restart the flow\n`;
+
+  if (config.humanEscalation === false) {
+    const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
+    prompt += `\nHUMAN ESCALATION IS OFF: You cannot take messages, pass details to the team, or arrange callbacks — the take_message tool is unavailable. Any time you would normally take a message or offer a callback (including when a booking can't be completed, a vehicle or price can't be found, or the customer asks to speak to a person), do NOT offer to take details or call back. Instead tell the customer to contact the garage directly${esc ? ` on ${esc}` : ''}, as no one is available over chat. You can still answer from your knowledge and complete bookings through the diary.\n`;
+  }
 
   return prompt;
 }

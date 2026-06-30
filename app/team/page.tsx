@@ -131,12 +131,12 @@ export default function TeamPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Team</h1>
-          <p className="text-sm text-slate-400 mt-1">Manage staff access to this branch</p>
+          <h1 className="text-2xl font-bold text-slate-900">Team</h1>
+          <p className="text-sm text-slate-500 mt-1">Manage staff access to this branch</p>
         </div>
         <button
           onClick={openAdd}
-          className="flex items-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg transition-colors text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-600 text-white rounded-lg transition-colors text-sm font-medium"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -146,9 +146,9 @@ export default function TeamPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-900/40 border border-slate-800 rounded-lg overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-slate-400 text-sm">Loading...</div>
+          <div className="flex items-center justify-center py-16 text-slate-500 text-sm">Loading...</div>
         ) : error ? (
           <div className="flex items-center justify-center py-16 text-red-400 text-sm">{error}</div>
         ) : members.length === 0 ? (
@@ -156,7 +156,7 @@ export default function TeamPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-800 text-left">
+              <tr className="border-b border-slate-200 text-left">
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Email</th>
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Role</th>
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
@@ -167,21 +167,21 @@ export default function TeamPage() {
               {members.map((member, i) => (
                 <tr
                   key={member.id}
-                  className={`border-b border-slate-800/60 last:border-0 ${i % 2 === 0 ? '' : 'bg-slate-800/10'}`}
+                  className={`border-b border-slate-200 last:border-0 ${i % 2 === 0 ? '' : 'bg-slate-50'}`}
                 >
-                  <td className="px-5 py-3 text-slate-200">{member.email}</td>
+                  <td className="px-5 py-3 text-slate-700">{member.email}</td>
                   <td className="px-5 py-3">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                       member.role === 'MANAGER'
-                        ? 'bg-sky-500/15 text-sky-400 border border-sky-500/20'
-                        : 'bg-slate-700/60 text-slate-400 border border-slate-600/40'
+                        ? 'bg-brand-100 text-brand-600 border border-brand-600/20'
+                        : 'bg-slate-700/60 text-slate-500 border border-slate-300/40'
                     }`}>
                       {member.role === 'MANAGER' ? 'Manager' : 'Staff'}
                     </span>
                   </td>
                   <td className="px-5 py-3">
                     <span className={`inline-flex items-center gap-1.5 text-xs ${
-                      member.status === 'Active' ? 'text-emerald-400' : 'text-amber-400'
+                      member.status === 'Active' ? 'text-emerald-700' : 'text-amber-700'
                     }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${
                         member.status === 'Active' ? 'bg-emerald-400' : 'bg-amber-400'
@@ -194,20 +194,20 @@ export default function TeamPage() {
                       {member.status === 'Invited' && (
                         <button
                           onClick={() => handleResendInvite(member)}
-                          className="text-xs text-slate-400 hover:text-sky-400 transition-colors"
+                          className="text-xs text-slate-500 hover:text-brand-600 transition-colors"
                         >
                           Resend invite
                         </button>
                       )}
                       <button
                         onClick={() => openEdit(member)}
-                        className="text-xs text-slate-400 hover:text-slate-100 transition-colors"
+                        className="text-xs text-slate-500 hover:text-slate-900 transition-colors"
                       >
                         Edit
                       </button>
                       <button
                         onClick={() => setConfirmDelete(member)}
-                        className="text-xs text-slate-400 hover:text-red-400 transition-colors"
+                        className="text-xs text-slate-500 hover:text-red-400 transition-colors"
                       >
                         Remove
                       </button>
@@ -223,30 +223,30 @@ export default function TeamPage() {
       {/* Add / Edit Modal */}
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-5">
+          <div className="w-full max-w-md bg-white border border-slate-300 rounded-xl shadow-2xl p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-5">
               {modalMode === 'add' ? 'Invite New User' : 'Edit Role'}
             </h2>
 
             {modalMode === 'add' && (
               <div className="mb-4">
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Email address</label>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">Email address</label>
                 <input
                   type="email"
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="staff@garage.com"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600"
                 />
               </div>
             )}
 
             {modalMode === 'edit' && (
-              <p className="text-sm text-slate-400 mb-4">{editTarget?.email}</p>
+              <p className="text-sm text-slate-500 mb-4">{editTarget?.email}</p>
             )}
 
             <div className="mb-5">
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Role</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Role</label>
               <div className="grid grid-cols-2 gap-3">
                 {(['MANAGER', 'USER'] as const).map((r) => (
                   <button
@@ -254,8 +254,8 @@ export default function TeamPage() {
                     onClick={() => setFormRole(r)}
                     className={`px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
                       formRole === r
-                        ? 'bg-sky-600/20 border-sky-500 text-sky-300'
-                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                        ? 'bg-brand-600/20 border-brand-600 text-brand-700'
+                        : 'bg-slate-100 border-slate-300 text-slate-500 hover:border-slate-300'
                     }`}
                   >
                     {r === 'MANAGER' ? 'Manager' : 'Staff'}
@@ -276,14 +276,14 @@ export default function TeamPage() {
             <div className="flex gap-3">
               <button
                 onClick={closeModal}
-                className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm transition-colors"
+                className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-700 text-slate-600 rounded-lg text-sm transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex-1 px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-2 bg-brand-600 hover:bg-brand-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 {saving ? 'Saving...' : modalMode === 'add' ? 'Send Invite' : 'Save'}
               </button>
@@ -295,15 +295,15 @@ export default function TeamPage() {
       {/* Delete Confirmation */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-2">Remove User</h2>
-            <p className="text-sm text-slate-400 mb-5">
-              Remove <span className="text-slate-200 font-medium">{confirmDelete.email}</span> from this branch? They will lose access immediately.
+          <div className="w-full max-w-sm bg-white border border-slate-300 rounded-xl shadow-2xl p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Remove User</h2>
+            <p className="text-sm text-slate-500 mb-5">
+              Remove <span className="text-slate-700 font-medium">{confirmDelete.email}</span> from this branch? They will lose access immediately.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm transition-colors"
+                className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-700 text-slate-600 rounded-lg text-sm transition-colors"
               >
                 Cancel
               </button>

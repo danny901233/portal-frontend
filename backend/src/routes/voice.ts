@@ -12,12 +12,13 @@ router.post('/voice', async (req: Request, res: Response) => {
     return res.status(400).send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Invalid request</Say></Response>');
   }
 
-  // Fetch garage configuration to log the current agent type (assist vs automate)
+  // Fetch garage configuration to determine routing (agent type + which LK account)
   let agentType = 'assist';
+  let agentScript: string | null = null;
   try {
     const agentConfig = await prisma.agentConfiguration.findUnique({
       where: { garageId },
-      select: { agentType: true },
+      select: { agentType: true, agentScript: true },
     });
 
     if (!agentConfig) {
@@ -29,6 +30,7 @@ router.post('/voice', async (req: Request, res: Response) => {
     if (agentConfig.agentType === 'automate') {
       agentType = 'automate';
     }
+    agentScript = agentConfig.agentScript;
   } catch (error) {
     console.error('[VOICE] Error loading agent type for garage', garageId, error);
     return res
@@ -36,11 +38,25 @@ router.post('/voice', async (req: Request, res: Response) => {
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Configuration error.</Say><Hangup/></Response>');
   }
 
-  // Always dial the unified LiveKit SIP domain; behaviour differences happen inside the agent codepath
+  // Route to LK Account 2 for garages assigned to the RMB Assist agent
+  // (deployed on receptionmate-9dznd24r). All other agentScripts continue to
+  // dial Account 1's hardcoded SIP host. Falls back to Account 1 if the
+  // Account 2 env var is not set — fail-safe so production stays unchanged.
+  // Test routing for the optimised-tyresoft agent on receptionmate-2-kiutenc8
+  // (sandbox project). Only RM Branch should use 'tyresoft-agent-test' as
+  // agentScript; production Elite stays on 'tyresoft-agent' → Account 1.
+  const isTyresoftTest = agentScript === 'tyresoft-agent-test';
+  const isAccount2 = agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent';
   const livekitSipDomain =
-    process.env.LIVEKIT_SIP_DOMAIN ||
-    process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
-    process.env.LIVEKIT_SIP_DOMAIN_ASSIST;
+    isTyresoftTest && process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
+      ? process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
+      : isAccount2 && process.env.LIVEKIT_SIP_DOMAIN_ACCOUNT2
+        ? process.env.LIVEKIT_SIP_DOMAIN_ACCOUNT2
+        : (
+            process.env.LIVEKIT_SIP_DOMAIN ||
+            process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
+            process.env.LIVEKIT_SIP_DOMAIN_ASSIST
+          );
 
   if (!livekitSipDomain) {
     return res
@@ -48,10 +64,11 @@ router.post('/voice', async (req: Request, res: Response) => {
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Call routing is not configured.</Say><Hangup/></Response>');
   }
 
-  console.log(`[VOICE] Routing garage ${garageId} (agentType=${agentType}) via ${livekitSipDomain}`);
+  const account = isTyresoftTest ? 'tyresoft-test' : isAccount2 ? 'account2' : 'account1';
+  console.log(`[VOICE] Routing garage ${garageId} (agentType=${agentType}, agentScript=${agentScript}, account=${account}) via ${livekitSipDomain}`);
 
   // Build recording status callback URL
-  const portalBaseUrl = process.env.PORTAL_BASE_URL || 'https://api.receptionmate.co.uk';
+  const portalBaseUrl = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';
   const recordingCallbackUrl = `${portalBaseUrl}/webhooks/recording-status`;
 
   // Return TwiML that dials the LiveKit SIP address with recording enabled

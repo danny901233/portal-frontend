@@ -39,6 +39,7 @@ export interface BillingCalculation {
   subscriptionAmount: number; // in pence
   minutesAmount: number;
   smsAmount: number;
+  messagingAmount: number;
   subtotal: number;
   vatAmount: number;
   total: number;
@@ -51,6 +52,10 @@ export interface BillingCalculation {
     smsCount: number;
     costPerSmsGbp: number;
     vatRate: number;
+    messagingSubscriptionCostGbp: number;
+    messagingMessagesCount: number;
+    includedMessages: number;
+    costPerMessageGbp: number;
   };
 }
 
@@ -110,6 +115,9 @@ export async function calculateBilling(
       includedMinutes: true,
       costPerMinuteGbp: true,
       vatRate: true,
+      messagingSubscriptionCostGbp: true,
+      includedMessages: true,
+      costPerMessageGbp: true,
     },
   });
 
@@ -120,12 +128,19 @@ export async function calculateBilling(
   // Calculate overage minutes
   const overageMinutes = Math.max(0, usage.minutesUsed - garage.includedMinutes);
 
+  // Calculate messaging overage
+  const messagingMessagesCount = (usage as any).messagingMessagesCount ?? 0;
+  const overageMessages = Math.max(0, messagingMessagesCount - (garage.includedMessages ?? 0));
+  const messagingSubscriptionAmount = Math.round((garage.messagingSubscriptionCostGbp ?? 0) * 100);
+  const messagingOverageAmount = Math.round(overageMessages * (garage.costPerMessageGbp ?? 0) * 100);
+  const messagingAmount = messagingSubscriptionAmount + messagingOverageAmount;
+
   // Calculate amounts in pence for precision
   const subscriptionAmount = Math.round(garage.subscriptionCostGbp * 100);
   const minutesAmount = Math.round(overageMinutes * garage.costPerMinuteGbp * 100);
   const smsAmount = Math.round(usage.smsCount * 0.99 * 100); // £0.99 per SMS
 
-  const subtotal = subscriptionAmount + minutesAmount + smsAmount;
+  const subtotal = subscriptionAmount + minutesAmount + smsAmount + messagingAmount;
   const vatAmount = Math.round(subtotal * garage.vatRate);
   const total = subtotal + vatAmount;
 
@@ -133,6 +148,7 @@ export async function calculateBilling(
     subscriptionAmount,
     minutesAmount,
     smsAmount,
+    messagingAmount,
     subtotal,
     vatAmount,
     total,
@@ -145,6 +161,10 @@ export async function calculateBilling(
       smsCount: usage.smsCount,
       costPerSmsGbp: 0.99,
       vatRate: garage.vatRate,
+      messagingSubscriptionCostGbp: garage.messagingSubscriptionCostGbp ?? 0,
+      messagingMessagesCount,
+      includedMessages: garage.includedMessages ?? 0,
+      costPerMessageGbp: garage.costPerMessageGbp ?? 0,
     },
   };
 }
@@ -456,16 +476,25 @@ export async function activateTrialEndedGarages() {
 }
 
 /**
- * Find users who are due for billing (nextBillingDate is today or in the past)
- * Anniversary billing - users are billed on the same day each month as signup
+ * Find users who are due for billing.
+ * Submits 3 working days early so GoCardless collects on the actual billing date.
  */
 export async function findUsersDueForBilling() {
   const now = new Date();
 
+  // Add 3 working days to today so payment lands on the billing date
+  const lookAhead = new Date(now);
+  let daysAdded = 0;
+  while (daysAdded < 3) {
+    lookAhead.setDate(lookAhead.getDate() + 1);
+    const day = lookAhead.getDay();
+    if (day !== 0 && day !== 6) daysAdded++; // skip weekends
+  }
+
   const users = await prisma.user.findMany({
     where: {
       nextBillingDate: {
-        lte: now,
+        lte: lookAhead,
       },
       gocardlessMandateId: {
         not: null,
@@ -498,6 +527,7 @@ export async function generateInvoicesForUser(userId: string) {
       billingCycleStartDate: true,
       nextBillingDate: true,
       garageAccessIds: true,
+      gocardlessMandateId: true,
     },
   });
 
@@ -644,28 +674,23 @@ export async function generateInvoicesForUser(userId: string) {
     try {
       const totalAmount = invoicesToCharge.reduce((sum, item) => sum + item.total, 0);
 
-      // Get user with mandate
-      const userWithMandate = await prisma.user.findFirst({
-        where: {
-          garageAccessIds: {
-            hasSome: user.garageAccessIds,
-          },
-          gocardlessMandateId: {
-            not: null,
-          },
-        },
-      });
-
-      if (!userWithMandate || !userWithMandate.gocardlessMandateId) {
+      // Charge the user being billed against their OWN mandate.
+      // Previously this did a findFirst across any user with overlapping garage access,
+      // which non-deterministically picked staff/admin mandates instead of the customer's.
+      if (!user.gocardlessMandateId) {
         throw new Error('No valid mandate found');
       }
 
       const client = getGocardlessClient();
 
+      // Format charge_date as YYYY-MM-DD (the actual billing date)
+      const chargeDateStr = periodEnd.toISOString().split('T')[0];
+
       // Create single combined payment
       const payment = await client.payments.create({
         amount: totalAmount,
         currency: 'GBP',
+        charge_date: chargeDateStr,
         description: `ReceptionMate - ${invoicesToCharge.length} branch${invoicesToCharge.length > 1 ? 'es' : ''}`,
         metadata: {
           user_id: user.id,
@@ -673,7 +698,7 @@ export async function generateInvoicesForUser(userId: string) {
           period_end: periodEnd.toISOString(),
         },
         links: {
-          mandate: userWithMandate.gocardlessMandateId,
+          mandate: user.gocardlessMandateId,
         },
       });
 

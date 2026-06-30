@@ -174,13 +174,44 @@ export default function WidgetCustomizePage() {
     setFeedback(null);
 
     try {
-      // Convert to base64 for preview and storage
+      // There's no object storage — the logo is stored inline (data URL) on the branding record.
+      // So downscale + recompress client-side to keep that string small (a full-size photo would
+      // bloat every widget-config payload). Cap the longest edge at 320px, plenty for a widget logo.
       const reader = new FileReader();
       reader.onloadend = () => {
-        const base64String = reader.result as string;
-        setImagePreview(base64String);
-        setLogoUrl(base64String);
-        setUploadingImage(false);
+        const src = reader.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const MAX = 320;
+          let { width, height } = img;
+          if (width > MAX || height > MAX) {
+            const scale = MAX / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          let out = src;
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              out = canvas.toDataURL('image/png'); // PNG keeps logo transparency
+            }
+          } catch {
+            /* fall back to the original data URL if canvas export fails */
+          }
+          setImagePreview(out);
+          setLogoUrl(out);
+          setUploadingImage(false);
+        };
+        img.onerror = () => {
+          setImagePreview(src);
+          setLogoUrl(src);
+          setUploadingImage(false);
+        };
+        img.src = src;
       };
       reader.onerror = () => {
         setFeedback('Failed to read image file');
@@ -188,7 +219,7 @@ export default function WidgetCustomizePage() {
       };
       reader.readAsDataURL(file);
     } catch (error) {
-      setFeedback('Failed to upload image');
+      setFeedback('Failed to process image');
       setUploadingImage(false);
     }
   };
@@ -319,7 +350,7 @@ export default function WidgetCustomizePage() {
                       />
                     </svg>
                     <p className="mt-2 text-sm text-slate-300">
-                      {uploadingImage ? 'Uploading...' : 'Click to upload logo'}
+                      {uploadingImage ? 'Processing…' : 'Click to upload logo'}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">PNG, JPG, SVG up to 2MB</p>
                   </label>

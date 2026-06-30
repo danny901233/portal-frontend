@@ -82,8 +82,8 @@ function SetupPaymentContent() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
-      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
+    <div className="flex min-h-screen items-center justify-center bg-white px-4 text-slate-900">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-6 flex justify-center">
             <img
@@ -93,36 +93,36 @@ function SetupPaymentContent() {
             />
           </div>
           <h1 className="text-2xl font-semibold">Set Up Direct Debit</h1>
-          <p className="mt-2 text-sm text-slate-400">
+          <p className="mt-2 text-sm text-slate-500">
             Complete your account setup by setting up your monthly subscription payment
           </p>
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-            <h2 className="text-sm font-semibold text-slate-200 mb-2">What you need to know:</h2>
-            <ul className="space-y-2 text-sm text-slate-400">
+          <div className="rounded-lg border border-slate-300 bg-slate-50 p-4">
+            <h2 className="text-sm font-semibold text-slate-700 mb-2">What you need to know:</h2>
+            <ul className="space-y-2 text-sm text-slate-500">
               <li className="flex items-start">
-                <span className="mr-2 text-sky-400">•</span>
+                <span className="mr-2 text-brand-600">•</span>
                 <span>Secure Direct Debit payment via GoCardless</span>
               </li>
               <li className="flex items-start">
-                <span className="mr-2 text-sky-400">•</span>
+                <span className="mr-2 text-brand-600">•</span>
                 <span>Protected by the Direct Debit Guarantee</span>
               </li>
               <li className="flex items-start">
-                <span className="mr-2 text-sky-400">•</span>
+                <span className="mr-2 text-brand-600">•</span>
                 <span>You'll be redirected to complete setup</span>
               </li>
               <li className="flex items-start">
-                <span className="mr-2 text-sky-400">•</span>
+                <span className="mr-2 text-brand-600">•</span>
                 <span>Takes less than 2 minutes</span>
               </li>
             </ul>
           </div>
 
           {error && (
-            <div className="rounded-lg border border-rose-500/60 bg-rose-500/15 px-4 py-3 text-sm text-rose-200">
+            <div className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
               {error}
             </div>
           )}
@@ -130,7 +130,7 @@ function SetupPaymentContent() {
           <button
             onClick={handleSetupPayment}
             disabled={createMandateMutation.isPending || isVerifyingToken}
-            className="w-full rounded-lg bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition-transform hover:bg-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
+            className="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
           >
             {isVerifyingToken ? 'Verifying link...' : createMandateMutation.isPending ? 'Setting up...' : 'Set Up Direct Debit'}
           </button>
@@ -147,10 +147,10 @@ function SetupPaymentContent() {
 export default function SetupPaymentPage() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
+      <div className="flex min-h-screen items-center justify-center bg-white px-4 text-slate-900">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-500 mx-auto"></div>
-          <p className="mt-4 text-slate-400">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
+          <p className="mt-4 text-slate-500">Loading...</p>
         </div>
       </div>
     }>

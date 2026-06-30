@@ -1,66 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { completeSetupWizard, fetchOnboardingInitialData, type OnboardingInitialData } from '../lib/onboarding';
-import WizardStep1Welcome from './SetupWizard/WizardStep1Welcome';
-import WizardStep2BranchDetails from './SetupWizard/WizardStep2BranchDetails';
-import WizardStep3OpeningHours from './SetupWizard/WizardStep3OpeningHours';
-import WizardStep4Voice from './SetupWizard/WizardStep4Voice';
-import WizardStep5Greeting from './SetupWizard/WizardStep5Greeting';
-import WizardStep6BookingPreferences from './SetupWizard/WizardStep6BookingPreferences';
-import WizardStep7SmsLinks from './SetupWizard/WizardStep7SmsLinks';
-import WizardStep8Notifications from './SetupWizard/WizardStep8Notifications';
-import WizardStep9Billing from './SetupWizard/WizardStep9Billing';
-import WizardStep10Complete from './SetupWizard/WizardStep10Complete';
+// The old multi-step wizard collected agent-config inline. Now that we have a
+// proper /agent-setup section with sectioned tabs and a progress widget, the
+// wizard's job is much simpler: greet the customer, point them at /agent-setup
+// (or let them skip for later), and mark the wizard dismissed so it doesn't
+// keep reappearing.
 
-export type WizardStep =
-  | 'welcome'
-  | 'branch-details'
-  | 'opening-hours'
-  | 'voice'
-  | 'greeting'
-  | 'booking-preferences'
-  | 'sms-links'
-  | 'notifications'
-  | 'billing'
-  | 'complete';
-
-export interface WizardData {
-  // Step 2: Branch Details
-  branchName: string;
-  phoneNumber: string;
-  emailAddress: string;
-  branchAddress: string;
-  websiteUrl: string;
-
-  // Step 3: Opening Hours
-  weeklyOpeningHours: any;
-  holidayClosures: string;
-
-  // Step 4: Voice
-  voice: string;
-
-  // Step 5: Greeting
-  greetingLine: string;
-
-  // Step 6: Booking Preferences
-  allowFastFitOnly: boolean;
-
-  // Step 7: SMS (conditional)
-  enableSmsBookingLinks: boolean;
-
-  // Step 8: Notifications
-  notificationEmails: string[];
-
-  // Step 9: Billing
-  billingAddress: string;
-  billingCity: string;
-  billingPostcode: string;
-  billingCountry: string;
-  vatNumber: string;
-  companyRegNumber: string;
-  billingEmail: string;
-}
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { completeSetupWizard } from '../lib/onboarding';
 
 interface SetupWizardProps {
   isOpen: boolean;
@@ -69,279 +17,111 @@ interface SetupWizardProps {
   onComplete: () => void;
 }
 
-export default function SetupWizard({ isOpen, garageId, agentType, onComplete }: SetupWizardProps) {
-  const [currentStep, setCurrentStep] = useState<WizardStep>('welcome');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isCompleting, setIsCompleting] = useState(false);
-  const [formData, setFormData] = useState<WizardData>({
-    branchName: '',
-    phoneNumber: '',
-    emailAddress: '',
-    branchAddress: '',
-    websiteUrl: '',
-    weeklyOpeningHours: {
-      monday: { open: null, close: null, closed: true },
-      tuesday: { open: null, close: null, closed: true },
-      wednesday: { open: null, close: null, closed: true },
-      thursday: { open: null, close: null, closed: true },
-      friday: { open: null, close: null, closed: true },
-      saturday: { open: null, close: null, closed: true },
-      sunday: { open: null, close: null, closed: true },
-    },
-    holidayClosures: '',
-    voice: 'leah',
-    greetingLine: '',
-    allowFastFitOnly: false,
-    enableSmsBookingLinks: true,
-    notificationEmails: [],
-    billingAddress: '',
-    billingCity: '',
-    billingPostcode: '',
-    billingCountry: 'United Kingdom',
-    vatNumber: '',
-    companyRegNumber: '',
-    billingEmail: '',
-  });
-  const [twilioNumber, setTwilioNumber] = useState<string | null>(null);
+export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWizardProps) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<'start' | 'skip' | null>(null);
 
-  // Fetch initial data for pre-population
-  useEffect(() => {
-    if (isOpen) {
-      fetchOnboardingInitialData()
-        .then((data: OnboardingInitialData) => {
-          // Pre-populate form data
-          if (data.agentConfiguration) {
-            // Check if weeklyOpeningHours is valid (has at least one day defined)
-            const hasValidHours = data.agentConfiguration?.weeklyOpeningHours &&
-              Object.keys(data.agentConfiguration.weeklyOpeningHours).length > 0;
+  if (!isOpen) return null;
 
-            setFormData((prev) => ({
-              ...prev,
-              branchName: data.agentConfiguration?.branchName || prev.branchName,
-              phoneNumber: data.agentConfiguration?.phoneNumber || prev.phoneNumber,
-              emailAddress: data.agentConfiguration?.emailAddress || prev.emailAddress,
-              branchAddress: data.agentConfiguration?.branchAddress || prev.branchAddress,
-              websiteUrl: data.agentConfiguration?.websiteUrl || prev.websiteUrl,
-              weeklyOpeningHours: hasValidHours ? data.agentConfiguration!.weeklyOpeningHours : prev.weeklyOpeningHours,
-              holidayClosures: data.agentConfiguration?.holidayClosures || prev.holidayClosures,
-              greetingLine: data.agentConfiguration?.greetingLine || prev.greetingLine,
-              voice: data.agentConfiguration?.voice || prev.voice,
-              allowFastFitOnly: data.agentConfiguration?.allowFastFitOnly ?? prev.allowFastFitOnly,
-              enableSmsBookingLinks: data.agentConfiguration?.enableSmsBookingLinks ?? prev.enableSmsBookingLinks,
-              notificationEmails: data.agentConfiguration?.notificationEmails || prev.notificationEmails,
-            }));
-          }
-
-          if (data.businessInfo) {
-            setFormData((prev) => ({
-              ...prev,
-              billingAddress: data.businessInfo?.billingAddress || prev.billingAddress,
-              billingCity: data.businessInfo?.billingCity || prev.billingCity,
-              billingPostcode: data.businessInfo?.billingPostcode || prev.billingPostcode,
-              billingCountry: data.businessInfo?.billingCountry || prev.billingCountry,
-              vatNumber: data.businessInfo?.vatNumber || prev.vatNumber,
-              companyRegNumber: data.businessInfo?.companyRegNumber || prev.companyRegNumber,
-              billingEmail: data.businessInfo?.billingEmail || prev.billingEmail,
-            }));
-          }
-
-          setTwilioNumber(data.twilioNumber || null);
-          setIsLoading(false);
-        })
-        .catch((error) => {
-          console.error('Failed to fetch initial data:', error);
-          setIsLoading(false);
-        });
-    }
-  }, [isOpen]);
-
-  const stepOrder: WizardStep[] = [
-    'welcome',
-    'branch-details',
-    'opening-hours',
-    'voice',
-    'greeting',
-    'booking-preferences',
-    ...(agentType === 'assist' ? ['sms-links' as WizardStep] : []),
-    'notifications',
-    'billing',
-    'complete',
-  ];
-
-  const currentStepIndex = stepOrder.indexOf(currentStep);
-  const totalSteps = stepOrder.length;
-
-  const handleNext = () => {
-    const nextIndex = currentStepIndex + 1;
-    if (nextIndex < stepOrder.length) {
-      setCurrentStep(stepOrder[nextIndex]);
-    }
-  };
-
-  const handlePrevious = () => {
-    const prevIndex = currentStepIndex - 1;
-    if (prevIndex >= 0) {
-      setCurrentStep(stepOrder[prevIndex]);
-    }
-  };
-
-  const handleComplete = async () => {
-    setIsCompleting(true);
+  const dismiss = async () => {
     try {
       await completeSetupWizard();
-      onComplete();
-    } catch (error) {
-      console.error('Failed to complete wizard:', error);
-      alert('Failed to complete setup. Please try again.');
-      setIsCompleting(false);
+    } catch (err) {
+      console.error('Failed to dismiss setup wizard:', err);
     }
+    onComplete();
   };
 
-  const updateFormData = (updates: Partial<WizardData>) => {
-    setFormData((prev) => ({ ...prev, ...updates }));
+  const handleStart = async () => {
+    setBusy('start');
+    await dismiss();
+    // Start at step 1 of the guided tour — TourBanner reads ?tour= and shows
+    // a friendly hint banner above each setup page.
+    router.push('/agent-setup/company-information?tour=1');
   };
 
-  if (!isOpen) {
-    return null;
-  }
+  const handleSkip = async () => {
+    setBusy('skip');
+    await dismiss();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
-        {/* Progress Bar */}
-        <div className="border-b border-slate-800 px-6 py-4">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="font-medium text-slate-300">
-              Step {currentStepIndex + 1} of {totalSteps}
+      <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        {/* Brand band */}
+        <div className="bg-brand-600 px-6 py-5 text-white">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/15">
+              <RocketIcon />
             </span>
-            <span className="text-slate-500">
-              {Math.round(((currentStepIndex + 1) / totalSteps) * 100)}% Complete
-            </span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-            <div
-              className="h-full bg-blue-600 transition-all duration-300"
-              style={{ width: `${((currentStepIndex + 1) / totalSteps) * 100}%` }}
-            />
+            <div>
+              <h2 className="text-lg font-semibold">Let&rsquo;s set up your AI agent</h2>
+              <p className="text-xs text-brand-100">A few minutes now → fewer missed calls later.</p>
+            </div>
           </div>
         </div>
 
-        {/* Content Area */}
-        <div className="max-h-[calc(100vh-16rem)] overflow-y-auto px-6 py-6">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <svg
-                  className="mx-auto h-12 w-12 animate-spin text-blue-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                <p className="mt-4 text-slate-400">Loading your setup...</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {currentStep === 'welcome' && <WizardStep1Welcome onNext={handleNext} />}
-              {currentStep === 'branch-details' && (
-                <WizardStep2BranchDetails
-                  data={formData}
-                  updateData={updateFormData}
-                  garageId={garageId}
-                  onNext={handleNext}
-                  onPrevious={handlePrevious}
-                />
-              )}
-              {currentStep === 'opening-hours' && (
-                <WizardStep3OpeningHours
-                  data={formData}
-                  updateData={updateFormData}
-                  garageId={garageId}
-                  onNext={handleNext}
-                  onPrevious={handlePrevious}
-                />
-              )}
-              {currentStep === 'voice' && (
-                <WizardStep4Voice
-                  data={formData}
-                  updateData={updateFormData}
-                  garageId={garageId}
-                  greetingText={formData.greetingLine}
-                  onNext={handleNext}
-                  onPrevious={handlePrevious}
-                />
-              )}
-              {currentStep === 'greeting' && (
-                <WizardStep5Greeting
-                  data={formData}
-                  updateData={updateFormData}
-                  garageId={garageId}
-                  branchName={formData.branchName}
-                  onNext={handleNext}
-                  onPrevious={handlePrevious}
-                />
-              )}
-              {currentStep === 'booking-preferences' && (
-                <WizardStep6BookingPreferences
-                  data={formData}
-                  updateData={updateFormData}
-                  garageId={garageId}
-                  onNext={handleNext}
-                  onPrevious={handlePrevious}
-                />
-              )}
-              {currentStep === 'sms-links' && agentType === 'assist' && (
-                <WizardStep7SmsLinks
-                  data={formData}
-                  updateData={updateFormData}
-                  garageId={garageId}
-                  onNext={handleNext}
-                  onPrevious={handlePrevious}
-                />
-              )}
-              {currentStep === 'notifications' && (
-                <WizardStep8Notifications
-                  data={formData}
-                  updateData={updateFormData}
-                  garageId={garageId}
-                  onNext={handleNext}
-                  onPrevious={handlePrevious}
-                />
-              )}
-              {currentStep === 'billing' && (
-                <WizardStep9Billing
-                  data={formData}
-                  updateData={updateFormData}
-                  branchName={formData.branchName}
-                  onNext={handleNext}
-                  onPrevious={handlePrevious}
-                />
-              )}
-              {currentStep === 'complete' && (
-                <WizardStep10Complete
-                  twilioNumber={twilioNumber}
-                  onComplete={handleComplete}
-                  onPrevious={handlePrevious}
-                  isCompleting={isCompleting}
-                />
-              )}
-            </>
-          )}
+        <div className="px-6 py-6">
+          <p className="text-sm text-slate-700">
+            Welcome aboard. You&rsquo;ve been provisioned with our <strong>{agentType === 'automate' ? 'Automate' : 'Assist'}</strong> tier.
+            From here you can configure how your agent introduces itself, answers FAQs, transfers calls and more.
+          </p>
+
+          <ul className="mt-4 space-y-2 text-sm text-slate-600">
+            <Bullet>Set your opening hours so the agent knows when you&rsquo;re available</Bullet>
+            <Bullet>Pick a voice and preview it before going live</Bullet>
+            <Bullet>Add the FAQs and rules that match how you run your business</Bullet>
+          </ul>
+
+          <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+            No rush — you can complete each section in any order, and skip the rest for now. The progress widget in the
+            sidebar tracks what&rsquo;s done.
+          </div>
+        </div>
+
+        <div className="flex gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <button
+            type="button"
+            onClick={handleSkip}
+            disabled={busy !== null}
+            className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          >
+            {busy === 'skip' ? 'Skipping…' : 'Skip for now'}
+          </button>
+          <button
+            type="button"
+            onClick={handleStart}
+            disabled={busy !== null}
+            className="flex-1 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-600/25 hover:bg-brand-700 disabled:opacity-50"
+          >
+            {busy === 'start' ? 'Opening…' : 'Set up my agent'}
+          </button>
         </div>
       </div>
     </div>
+  );
+}
+
+function Bullet({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-2.5">
+      <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-600">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </span>
+      <span>{children}</span>
+    </li>
+  );
+}
+
+function RocketIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
+      <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>
+      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>
+      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
+    </svg>
   );
 }

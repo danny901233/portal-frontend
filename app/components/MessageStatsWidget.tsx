@@ -46,7 +46,6 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
   const [stats, setStats] = useState<MessageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -69,9 +68,8 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
           const data = await response.json();
           setStats(data.stats);
         }
-      } catch (err) {
-        console.error('Error fetching message stats:', err);
-        setError('Failed to load message stats');
+      } catch (error) {
+        console.error('Error fetching message stats:', error);
       } finally {
         setLoading(false);
       }
@@ -116,12 +114,12 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
 
   if (loading) {
     return (
-      <div className="bg-slate-900/40 border border-slate-800 rounded-lg p-4">
+      <div className="bg-white/40 border border-slate-200 rounded-lg p-4">
         <div className="animate-pulse">
-          <div className="h-3 bg-slate-800 rounded w-24 mb-3"></div>
+          <div className="h-3 bg-slate-200 rounded w-24 mb-3"></div>
           <div className="space-y-2">
-            <div className="h-2 bg-slate-800 rounded"></div>
-            <div className="h-2 bg-slate-800 rounded w-4/5"></div>
+            <div className="h-2 bg-slate-200 rounded"></div>
+            <div className="h-2 bg-slate-200 rounded w-4/5"></div>
           </div>
         </div>
       </div>
@@ -139,14 +137,14 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
   ];
 
   return (
-    <div className="bg-slate-900/40 border border-slate-800 rounded-lg p-4">
+    <div className="bg-white/40 border border-slate-200 rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-slate-100">Message Statistics</h3>
+        <h3 className="text-sm font-semibold text-slate-900">Message Statistics</h3>
         <button
           onClick={handleDownloadCSV}
           disabled={downloading}
           className={cn(
-            'text-xs px-3 py-1 rounded-lg border border-emerald-500/60 bg-emerald-500/10 text-emerald-200 transition hover:border-emerald-400 hover:text-emerald-100',
+            'text-xs px-3 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 transition hover:border-emerald-400 hover:text-emerald-100',
             downloading && 'cursor-not-allowed opacity-60'
           )}
         >
@@ -156,9 +154,9 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
 
       {/* Overall Stats */}
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="bg-slate-800/40 rounded-lg p-2">
-          <p className="text-[10px] text-slate-400 mb-0.5">Active</p>
-          <p className="text-lg font-bold text-slate-100">{stats.totals.active}</p>
+        <div className="bg-slate-50 rounded-lg p-2">
+          <p className="text-[10px] text-slate-500 mb-0.5">Active</p>
+          <p className="text-lg font-bold text-slate-900">{stats.totals.active}</p>
         </div>
         <div className="bg-orange-500/10 rounded-lg p-2">
           <p className="text-[10px] text-orange-400 mb-0.5">Attention</p>
@@ -177,19 +175,19 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
           const Icon = platform.icon;
 
           return (
-            <div key={platform.id} className="flex items-center justify-between p-2 bg-slate-800/40 rounded text-xs">
+            <div key={platform.id} className="flex items-center justify-between p-2 bg-slate-50 rounded text-xs">
               <div className="flex items-center gap-2">
                 <div className={cn(platform.color)}>
                   <Icon />
                 </div>
-                <span className="text-slate-100 font-medium">{platform.name}</span>
+                <span className="text-slate-900 font-medium">{platform.name}</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-slate-400">{platformStats.active}</span>
+                <span className="text-slate-500">{platformStats.active}</span>
                 {platformStats.needsAttention > 0 && (
                   <span className="text-orange-400">{platformStats.needsAttention}</span>
                 )}
-                <span className="text-slate-300 font-semibold">{platformStats.total}</span>
+                <span className="text-slate-700 font-semibold">{platformStats.total}</span>
               </div>
             </div>
           );

@@ -1,331 +1,167 @@
+'use client';
+
 import Link from 'next/link';
-import HelpAssistant from '../components/HelpAssistant';
+import { useMemo, useState } from 'react';
+import { collections, searchArticles } from './_content/articles';
 
-type GuideSubsection = {
-  title: string;
-  points: string[];
+const collectionIconPaths: Record<string, string> = {
+  rocket:    'M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z',
+  sliders:   'M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75',
+  phone:     'M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z',
+  chat:      'M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z',
+  card:      'M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z',
+  lifebuoy:  'M16.712 4.33a9.027 9.027 0 011.652 1.306c.51.51.944 1.064 1.306 1.652M16.712 4.33l-3.448 4.138m3.448-4.138a9.014 9.014 0 00-9.424 0M19.67 7.288l-4.138 3.448m4.138-3.448a9.014 9.014 0 010 9.424m-4.138-5.976a3.736 3.736 0 00-.88-1.388 3.737 3.737 0 00-1.388-.88m2.268 2.268a3.765 3.765 0 010 2.528m-2.268-4.796L9.83 9.832m4.138-2.456a3.765 3.765 0 00-2.528 0m-1.61 7.564l4.138-3.448m-4.138 3.448a9.014 9.014 0 01-9.424 0m4.138-3.448a3.765 3.765 0 002.528 0m-1.61-4.116L4.33 7.288m4.138 3.448a3.736 3.736 0 00-.88 1.388 3.737 3.737 0 00-.88 1.388M4.33 7.288a9.014 9.014 0 000 9.424',
 };
 
-type GuideSection = {
-  id: string;
-  title: string;
-  description?: string;
-  points?: string[];
-  subsections?: GuideSubsection[];
-  examples?: Array<{ keyword: string; example: string; effect: string }>;
-};
+export default function HelpHomePage() {
+  const [query, setQuery] = useState('');
 
-const quickLinks = [
-  { label: 'Review Calls & Feedback', href: '/calls' },
-  { label: 'Boolean Search Tips', href: '/help#advanced-search' },
-  { label: 'Configure Agent & Knowledge', href: '/agent-configurations' },
-  { label: 'Portal Troubleshooting', href: '/help#troubleshooting' },
-  { label: 'Contact Support', href: 'mailto:hello@receptionmate.co.uk' },
-];
+  const results = useMemo(() => searchArticles(query), [query]);
+  const showingResults = query.trim().length >= 2;
 
-const guideSections: GuideSection[] = [
-  {
-    id: 'getting-started',
-    title: 'Getting Started',
-    description:
-      'Confirm your access, choose the right garage context, and make sure the portal stays in sync with your ReceptionMate deployment.',
-    points: [
-      'Log in with your ReceptionMate credentials. The portal stores a short-lived token in secure storage; log out if you’re sharing a device.',
-      'Immediately pick the garage you want to work on from the top bar. All calls, configuration, and metrics reflect the garage you select.',
-      'If the garage selector looks empty, refresh the page once. Still not there? Sign out, sign back in, and contact hello@receptionmate.co.uk if the issue persists.',
-      'Bookmark /calls for direct access—this is the primary workspace for day-to-day operations.',
-    ],
-  },
-  {
-    id: 'dashboard-overview',
-    title: 'Dashboard Overview',
-    description:
-      'High-level metrics help you spot trends before you dive into individual calls or configuration changes.',
-    points: [
-      'Volume indicators track total calls, resolved vs escalated interactions, and any spikes in unanswered calls.',
-      'Sentiment and feedback widgets aggregate thumbs up/down to highlight quality shifts in the AI assistant’s performance.',
-      'Each tile links directly to a filtered calls view; use these shortcuts when you need to investigate anomalies quickly.',
-      'Download or screenshot cards during team reviews so everyone sees the same numbers and trends.',
-    ],
-  },
-  {
-    id: 'calls-workspace',
-    title: 'Working Inside Calls',
-    description:
-      'The Calls page is the operational heart of the portal. Combine filters, Boolean search, and per-call actions to stay on top of customer conversations.',
-    subsections: [
-      {
-        title: 'Filters & Sorting',
-        points: [
-          'Call Tag filter narrows the list to business-critical outcomes such as bookings, cancellations, or voicemail drops.',
-          'Date range inputs accept partial ranges—set only a start date to view everything after that point.',
-          'Duration sort surfaces short calls first. Combine with tags to find quick hang-ups or missed opportunities.',
-          'Reset everything with Clear filters when your investigation is complete.',
-        ],
-      },
-      {
-        title: 'Boolean Search Moves',
-        points: [
-          'Search runs across summaries, transcripts, caller names, call IDs, tags, and feedback notes.',
-          'Implicit AND: typing multiple words without operators returns calls containing all of them.',
-          'Use parentheses to group logic when mixing AND/OR combinations. Quotes lock multi-word phrases.',
-          'Prefix NOT to exclude unwanted results, e.g. NOT "no show" to hide cancellations.',
-        ],
-      },
-      {
-        title: 'Call Details & Actions',
-        points: [
-          'Open a call to access the full transcript, audio recording link, and metadata such as caller number and call duration.',
-          'Copy the eight-digit Call ID from the detail page if you need to reference the conversation with ReceptionMate support.',
-          'Add feedback while reviewing a call. The portal saves your input immediately and confirms once it is stored.',
-          'Copy the call URL to share context with teammates. Anyone you share with must have access to the same garage.',
-        ],
-      },
-    ],
-  },
-  {
-    id: 'advanced-search',
-    title: 'Advanced Boolean Search Reference',
-    description:
-      'Use these examples as a quick crib sheet when you need to carve out very specific call sets. The engine is case-insensitive.',
-    examples: [
-      {
-        keyword: 'AND (default)',
-        example: 'service brakes',
-        effect: 'Returns calls mentioning both “service” and “brakes” anywhere in the searchable fields.',
-      },
-      {
-        keyword: 'OR',
-        example: '“tyre fitting” OR tyres',
-        effect: 'Matches calls containing either the exact phrase “tyre fitting” or the word “tyres”.',
-      },
-      {
-        keyword: 'NOT',
-        example: 'MOT NOT cancelled',
-        effect: 'Includes MOT calls while excluding any that reference cancellations.',
-      },
-      {
-        keyword: 'Parentheses',
-        example: 'service AND (booking OR estimate)',
-        effect: 'Finds service calls that mention either bookings or estimates.',
-      },
-      {
-        keyword: 'Quoted phrase',
-        example: '"request a callback"',
-        effect: 'Only returns calls where that precise phrase appears in the transcript or summary.',
-      },
-    ],
-    points: [
-      'Spacing around operators is optional. “serviceANDbrakes” will not work; keep words separated.',
-      'Fallback behaviour: if the parser detects an error, the portal performs a simple keyword search instead of failing.',
-      'Keep the query short and focused. Extremely long expressions may slow down filtering on older devices.',
-    ],
-  },
-  {
-    id: 'call-feedback',
-    title: 'Call Feedback Workflow',
-    description:
-      'Structured feedback ensures the training team can continuously improve call handling accuracy.',
-    points: [
-      'Thumbs up signals that the outcome met expectations. The system records it instantly without further prompts.',
-      'Thumbs down opens a modal that captures structured reasons (“Missed booking”, “Incorrect information”, etc.) and optional narrative notes.',
-      'All feedback timestamps and author details stay tied to the call. Reopen any call later to review the history of adjustments.',
-      'Use the feedback filters to build weekly QA loops—spot repeated issues and raise them with your ReceptionMate success manager.',
-    ],
-  },
-  {
-    id: 'agent-configuration',
-    title: 'Configuring Your Agent',
-    description:
-      'Keep your AI assistant aligned with real-world operations by maintaining accurate configuration data.',
-    subsections: [
-      {
-        title: 'Core Identity',
-        points: [
-          'Branch name, phone number, and address populate caller-facing scripts. Update them after any rebrand or relocation.',
-          'Tone preference and response speed fine-tune how formal or upbeat the voice agent sounds on calls.',
-        ],
-      },
-      {
-        title: 'Operating Hours',
-        points: [
-          'The weekly hours grid supports open/close times per day and closed toggles for days off.',
-          'Holiday closures accept free-form notes. Use them to block out seasonal shutdowns or bank holidays.',
-        ],
-      },
-      {
-        title: 'Escalation & Notifications',
-        points: [
-          'Set the call summary email address to deliver transcripts and highlights to the right inbox.',
-          'Use workflow notes to document custom booking flows (loan cars, diagnostic checks, etc.) so the AI can route correctly.',
-        ],
-      },
-    ],
-  },
-  {
-    id: 'knowledge-base',
-    title: 'Website Knowledge Base Management',
-    description:
-      'Teach the agent using curated pages from your public website. The portal separates discovery from ingestion so you stay in control.',
-    subsections: [
-      {
-        title: 'Discovery Run',
-        points: [
-          'Enter the public domain (e.g. https://examplegarage.co.uk). The crawler stays on-domain and maps internal links.',
-          'Monitor the page list as it populates. Titles, snippets, and detected contact details help you prioritise content.',
-        ],
-      },
-      {
-        title: 'Selection & Publishing',
-        points: [
-          'Tick only the pages that contain authoritative, up-to-date information.',
-          'Use the select-all toggle sparingly—exclude marketing landing pages or duplicate service descriptions.',
-          'Click Publish Selected to ingest the chosen pages. The backend chunks the content and stores it against your garage.',
-        ],
-      },
-      {
-        title: 'Ongoing Maintenance',
-        points: [
-          'Repeat discovery every time significant website content changes. The portal highlights how many new pages were processed.',
-          'Remove outdated knowledge by unpublishing the page in your CMS and running a fresh ingest with the updated selection.',
-          'Keep a checklist of mission-critical pages (services, pricing, FAQs, directions) and confirm they remain selected after each scan.',
-        ],
-      },
-    ],
-  },
-  {
-    id: 'monitoring',
-    title: 'Monitoring & Quality Assurance',
-    description:
-      'Establish regular review cadences so issues are caught quickly and improvements are documented.',
-    points: [
-      'Daily: skim new calls, especially those tagged “booking” or “urgent”, to verify the AI followed through.',
-      'Weekly: note any repeated feedback reasons and discuss them during team check-ins.',
-      'Monthly: revisit agent configuration and knowledge base selections with stakeholders to validate accuracy.',
-      'Document any process tweaks in the knowledge base so future staff understand why changes happened.',
-    ],
-  },
-  {
-    id: 'troubleshooting',
-    title: 'Troubleshooting & Maintenance',
-    description:
-      'If something feels off, try these quick fixes first. When you contact us, include call IDs, browser details, and screenshots so we can respond faster.',
-    points: [
-      'Refresh the page or sign out and back in to clear expired sessions. Use a private/incognito window if the issue persists.',
-      'If the Calls page looks empty, confirm the correct garage is selected and that filters are cleared.',
-      'For search surprises, re-check your Boolean expression (balanced brackets and quotation marks).',
-      'Still stuck? Email hello@receptionmate.co.uk with the page URL, time of the issue, and any call IDs affected.',
-    ],
-  },
-  {
-    id: 'security',
-    title: 'Security & Access Control',
-    description:
-      'Protect customer information by following simple access hygiene.',
-    points: [
-      'Restrict portal access to trusted team members. All actions are tied to the logged-in user account.',
-      'Sign out on shared devices and avoid browser autofill of credentials.',
-      'If team members leave, update your account list and notify hello@receptionmate.co.uk so old access can be removed.',
-    ],
-  },
-];
+  const totalArticles = collections.reduce((acc, c) => acc + c.articles.length, 0);
 
-export default function HelpPage() {
   return (
-    <div className="space-y-10 text-slate-200">
-      <header className="space-y-3">
-        <h1 className="text-3xl font-semibold text-slate-100">ReceptionMate Portal Guide</h1>
-        <p className="max-w-3xl text-sm text-slate-400">
-          Bookmark this page as your single source of truth for operating ReceptionMate. It combines workflow guidance, search tips, and troubleshooting steps so teams onboard quickly and stay efficient.
-        </p>
-      </header>
+    <div className="-m-6 min-h-screen">
+      {/* Hero with search */}
+      <section className="relative isolate overflow-hidden bg-gradient-to-br from-brand-600 via-brand-700 to-brand-800 px-6 py-16 sm:py-20">
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-brand-400/20 blur-3xl"></div>
+          <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-fuchsia-500/15 blur-3xl"></div>
+        </div>
 
-      <HelpAssistant />
+        <div className="mx-auto max-w-4xl text-center text-white">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-100">Help centre</p>
+          <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">How can we help?</h1>
+          <p className="mx-auto mt-3 max-w-xl text-base text-brand-100">
+            Guides for every feature in ReceptionMate. {totalArticles} articles across {collections.length} categories.
+          </p>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {quickLinks.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm font-medium text-slate-200 transition-colors hover:border-sky-500/60 hover:text-sky-200"
-          >
-            {item.label}
-          </Link>
-        ))}
-      </section>
-
-      <section className="space-y-6">
-        {guideSections.map((section) => (
-          <article
-            key={section.id}
-            id={section.id}
-            className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/20"
-          >
-            <h2 className="text-xl font-semibold text-slate-100">{section.title}</h2>
-            {section.description ? <p className="mt-2 text-sm text-slate-400">{section.description}</p> : null}
-            {section.points ? (
-              <ul className="mt-4 space-y-2 text-sm text-slate-300">
-                {section.points.map((point) => (
-                  <li key={point} className="flex items-start gap-2">
-                    <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-sky-500" aria-hidden="true" />
-                    <span>{point}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {section.subsections
-              ? section.subsections.map((subsection) => (
-                  <div key={subsection.title} className="mt-5 space-y-2">
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-                      {subsection.title}
-                    </h3>
-                    <ul className="space-y-2 text-sm text-slate-300">
-                      {subsection.points.map((point) => (
-                        <li key={point} className="flex items-start gap-2">
-                          <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-sky-500" aria-hidden="true" />
-                          <span>{point}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))
-              : null}
-            {section.examples ? (
-              <div className="mt-5 overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800 text-left text-sm text-slate-300">
-                  <thead className="bg-slate-900/80 text-xs uppercase tracking-wider text-slate-400">
-                    <tr>
-                      <th className="px-3 py-2">Operator</th>
-                      <th className="px-3 py-2">Example</th>
-                      <th className="px-3 py-2">What it does</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/80">
-                    {section.examples.map((entry) => (
-                      <tr key={`${entry.keyword}-${entry.example}`} className="hover:bg-slate-900/40">
-                        <td className="px-3 py-2 font-semibold text-slate-200">{entry.keyword}</td>
-                        <td className="px-3 py-2 text-slate-200">{entry.example}</td>
-                        <td className="px-3 py-2">{entry.effect}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          <div className="mx-auto mt-8 max-w-2xl">
+            <div className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/95 p-2 shadow-2xl shadow-brand-900/30">
+              <div className="flex flex-1 items-center pl-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search every guide — e.g. forwarding, WhatsApp, transfers"
+                  className="ml-3 flex-1 bg-transparent py-2 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                  autoFocus
+                />
               </div>
-            ) : null}
-          </article>
-        ))}
+            </div>
+          </div>
+        </div>
       </section>
 
-      <footer className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-300">
-        <h2 className="text-lg font-semibold text-slate-100">Need more help?</h2>
-        <p className="mt-2 max-w-3xl">
-          Reach out to the ReceptionMate success team at{' '}
-          <a href="mailto:hello@receptionmate.co.uk" className="text-sky-300 hover:text-sky-200">
-            hello@receptionmate.co.uk
-          </a>{' '}
-          or reply to your onboarding email. Include call IDs, timestamps, browser version, and screenshots so we can resolve things quickly.
-        </p>
-      </footer>
+      {/* Body */}
+      <section className="mx-auto max-w-7xl px-6 py-12 sm:py-16">
+        {showingResults ? (
+          <div>
+            <p className="text-sm text-slate-500">
+              {results.length === 0
+                ? `No matches for "${query}". Try a different phrase, or clear the search to browse.`
+                : `${results.length} result${results.length === 1 ? '' : 's'} for "${query}"`}
+            </p>
+            <div className="mt-6 divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {results.map(({ collection, article, matchedIn }) => (
+                <Link
+                  key={`${collection.slug}/${article.slug}`}
+                  href={`/help/${collection.slug}/${article.slug}`}
+                  className="flex items-center justify-between px-5 py-4 transition hover:bg-slate-50"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-semibold text-slate-900">{article.title}</p>
+                    <p className="mt-0.5 truncate text-sm text-slate-500">{article.excerpt}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600">{collection.title}</span>
+                      <span>{article.minutes} min read</span>
+                      <span>· matched in {matchedIn}</span>
+                    </div>
+                  </div>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="ml-4 h-5 w-5 shrink-0 text-slate-300" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" /></svg>
+                </Link>
+              ))}
+            </div>
+            {results.length === 0 && (
+              <button type="button" onClick={() => setQuery('')} className="mt-6 text-sm font-medium text-brand-600 hover:text-brand-700">
+                Clear search
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {collections.map((c) => (
+                <Link
+                  key={c.slug}
+                  href={`/help/${c.slug}`}
+                  className="group rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-brand-200 hover:shadow-lg hover:shadow-brand-900/5"
+                >
+                  <span className={`inline-flex h-12 w-12 items-center justify-center rounded-xl ${c.accent}`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d={collectionIconPaths[c.icon]} />
+                    </svg>
+                  </span>
+                  <h2 className="mt-4 text-lg font-semibold text-slate-900 transition-colors group-hover:text-brand-700">{c.title}</h2>
+                  <p className="mt-1 text-sm text-slate-600">{c.description}</p>
+                  <p className="mt-4 text-xs font-medium text-slate-400">{c.articles.length} article{c.articles.length === 1 ? '' : 's'}</p>
+                </Link>
+              ))}
+            </div>
+
+            {/* Popular guides */}
+            <div className="mt-16 rounded-2xl border border-slate-200 bg-slate-50/50 p-8">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Popular guides</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {[
+                  { c: 'getting-started', a: 'forward-your-calls' },
+                  { c: 'configuring-leah', a: 'faqs' },
+                  { c: 'calls-and-bookings', a: 'reading-the-calls-page' },
+                  { c: 'configuring-leah', a: 'integrations' },
+                  { c: 'troubleshooting', a: 'agent-missed-booking' },
+                  { c: 'billing-and-account', a: 'pricing-plans' },
+                ].map(({ c, a }) => {
+                  const collection = collections.find((col) => col.slug === c);
+                  const article = collection?.articles.find((art) => art.slug === a);
+                  if (!article || !collection) return null;
+                  return (
+                    <Link
+                      key={`${c}/${a}`}
+                      href={`/help/${c}/${a}`}
+                      className="group flex items-center justify-between rounded-xl bg-white p-4 transition hover:shadow-md hover:shadow-brand-900/5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900 group-hover:text-brand-700">{article.title}</p>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">{collection.title} · {article.minutes} min</p>
+                      </div>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="ml-3 h-4 w-4 shrink-0 text-slate-300 group-hover:text-brand-600" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" /></svg>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Contact */}
+            <div className="mt-10 flex flex-col items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-6 sm:flex-row sm:items-center">
+              <div>
+                <p className="text-base font-semibold text-slate-900">Still stuck?</p>
+                <p className="mt-1 text-sm text-slate-600">Email our team and we'll usually reply within an hour.</p>
+              </div>
+              <a
+                href="mailto:hello@receptionmate.co.uk"
+                className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/25 hover:bg-brand-700 transition"
+              >
+                Email hello@receptionmate.co.uk
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" /></svg>
+              </a>
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

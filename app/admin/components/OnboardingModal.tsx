@@ -29,6 +29,23 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [availableNumbers, setAvailableNumbers] = useState<TwilioNumber[]>([]);
   const [selectedNumber, setSelectedNumber] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [subscriptionCost, setSubscriptionCost] = useState('');
+  const [includedMinutes, setIncludedMinutes] = useState('400');
+  const [costPerMinute, setCostPerMinute] = useState('0.25');
+  const [vatRatePct, setVatRatePct] = useState('20');
+  // Which LiveKit dispatch agent the new garage should be routed to. Default
+  // matches the marketing site's self-serve default (RMB-Assist on account 2)
+  // so quick-onboard doesn't require a trip into Agent Configurations -> Routing.
+  const [agentScript, setAgentScript] = useState<
+    'Assist-agent' | 'GarageHive-agent' | 'tyresoft-agent' | 'receptionmate-agent-v3' | 'receptionmate-agent'
+  >('Assist-agent');
+
+  // Service agreement
+  const [sendAgreement, setSendAgreement] = useState(true);
+  const [agreementSetupFee, setAgreementSetupFee] = useState('0');
+  const [agreementCentres, setAgreementCentres] = useState('1');
+  const [agreementLicences, setAgreementLicences] = useState<('assist' | 'automate' | 'connect')[]>(['assist']);
+  const [agreementGoLive, setAgreementGoLive] = useState('');
 
   const searchNumbersMutation = useMutation({
     mutationFn: async () => {
@@ -70,7 +87,27 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
         twilioNumber: finalNumber || undefined,
         userEmail,
         userRole: 'USER',
+        subscriptionCostGbp: Number(subscriptionCost),
+        includedMinutes: Number(includedMinutes),
+        costPerMinuteGbp: Number(costPerMinute),
+        vatRate: Number(vatRatePct) / 100,
+        agentScript,
       });
+
+      if (sendAgreement) {
+        const draft = await api.post('/admin/agreements/draft', {
+          userId: data.user.id,
+          businessId: data.business.id,
+          clientName: businessName.trim(),
+          setupFeeGbp: Number(agreementSetupFee) || 0,
+          licenceFeeGbp: Number(subscriptionCost),
+          centresCount: Number(agreementCentres) || 1,
+          licences: agreementLicences,
+          goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
+        });
+        await api.post(`/admin/agreements/${draft.data.agreement.id}/send`);
+      }
+
       return data;
     },
     onSuccess: () => {
@@ -92,6 +129,15 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     setAvailableNumbers([]);
     setSelectedNumber(null);
     setError('');
+    setSubscriptionCost('');
+    setIncludedMinutes('400');
+    setCostPerMinute('0.25');
+    setVatRatePct('20');
+    setSendAgreement(true);
+    setAgreementSetupFee('0');
+    setAgreementCentres('1');
+    setAgreementLicences(['assist']);
+    setAgreementGoLive('');
     setStep('form');
   };
 
@@ -109,6 +155,32 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
       return;
     }
 
+    const sub = Number(subscriptionCost);
+    const mins = Number(includedMinutes);
+    const perMin = Number(costPerMinute);
+    const vat = Number(vatRatePct);
+    if (!Number.isFinite(sub) || sub <= 0) {
+      setError('Monthly subscription must be greater than £0 — billing won\'t start otherwise');
+      return;
+    }
+    if (!Number.isFinite(mins) || mins < 0 || !Number.isInteger(mins)) {
+      setError('Included minutes must be a whole number (0 or more)');
+      return;
+    }
+    if (!Number.isFinite(perMin) || perMin < 0) {
+      setError('Overage cost per minute must be 0 or more');
+      return;
+    }
+    if (!Number.isFinite(vat) || vat < 0 || vat > 100) {
+      setError('VAT rate must be between 0 and 100');
+      return;
+    }
+
+    if (sendAgreement && agreementLicences.length === 0) {
+      setError('Pick at least one licence to include on the agreement');
+      return;
+    }
+
     onboardMutation.mutate();
   };
 
@@ -116,15 +188,15 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-slate-900 p-6 shadow-xl">
+      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
         <button
           onClick={handleClose}
-          className="absolute right-4 top-4 text-slate-400 hover:text-slate-200"
+          className="absolute right-4 top-4 text-slate-500 hover:text-slate-700"
         >
           ✕
         </button>
 
-        <h2 className="mb-6 text-2xl font-bold text-slate-100">
+        <h2 className="mb-6 text-2xl font-bold text-slate-900">
           {step === 'form' && 'Onboard New Business'}
           {step === 'search' && 'Select Phone Number'}
           {step === 'purchase' && 'Purchase Number'}
@@ -139,33 +211,33 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
         {step === 'form' && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
+              <label className="block text-sm font-medium text-slate-600 mb-1">
                 Business Name *
               </label>
               <input
                 type="text"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
-                className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
+                className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
                 placeholder="Acme Garage Ltd"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
+              <label className="block text-sm font-medium text-slate-600 mb-1">
                 Branch Name *
               </label>
               <input
                 type="text"
                 value={branchName}
                 onChange={(e) => setBranchName(e.target.value)}
-                className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
+                className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
                 placeholder="Main Branch"
               />
             </div>
 
-            <div className="border-t border-slate-700 pt-4">
-              <h3 className="text-sm font-semibold text-slate-300 mb-3">Phone Number</h3>
+            <div className="border-t border-slate-300 pt-4">
+              <h3 className="text-sm font-semibold text-slate-600 mb-3">Phone Number</h3>
               
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -176,7 +248,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                     onChange={() => setUseManualEntry(false)}
                     className="text-violet-500"
                   />
-                  <label htmlFor="useTwilio" className="text-sm text-slate-300">
+                  <label htmlFor="useTwilio" className="text-sm text-slate-600">
                     Use Twilio (buy or existing)
                   </label>
                 </div>
@@ -189,13 +261,13 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                           type="text"
                           value={twilioNumber}
                           onChange={(e) => setTwilioNumber(e.target.value)}
-                          className="flex-1 rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
+                          className="flex-1 rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
                           placeholder="+447XXXXXXXXX"
                         />
                         <button
                           type="button"
                           onClick={() => setTwilioNumber('')}
-                          className="px-3 py-2 text-sm text-slate-400 hover:text-slate-200"
+                          className="px-3 py-2 text-sm text-slate-500 hover:text-slate-700"
                         >
                           Clear
                         </button>
@@ -206,7 +278,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                           type="text"
                           value={searchAreaCode}
                           onChange={(e) => setSearchAreaCode(e.target.value)}
-                          className="flex-1 rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
+                          className="flex-1 rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
                           placeholder="Area code (optional, e.g., 7392)"
                         />
                         <button
@@ -230,7 +302,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                     onChange={() => setUseManualEntry(true)}
                     className="text-violet-500"
                   />
-                  <label htmlFor="useManual" className="text-sm text-slate-300">
+                  <label htmlFor="useManual" className="text-sm text-slate-600">
                     Manual entry (for Infinity/SIP customers)
                   </label>
                 </div>
@@ -241,7 +313,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                       type="text"
                       value={manualNumber}
                       onChange={(e) => setManualNumber(e.target.value)}
-                      className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
+                      className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
                       placeholder="+447XXXXXXXXX or leave blank"
                     />
                     <p className="mt-1 text-xs text-slate-500">
@@ -252,19 +324,19 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
               </div>
             </div>
 
-            <div className="border-t border-slate-700 pt-4">
-              <h3 className="text-sm font-semibold text-slate-300 mb-3">User Account</h3>
+            <div className="border-t border-slate-300 pt-4">
+              <h3 className="text-sm font-semibold text-slate-600 mb-3">User Account</h3>
               
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
                     Email *
                   </label>
                   <input
                     type="email"
                     value={userEmail}
                     onChange={(e) => setUserEmail(e.target.value)}
-                    className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100 focus:border-violet-500 focus:outline-none"
+                    className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
                     placeholder="manager@business.com"
                     autoComplete="email"
                     required
@@ -276,11 +348,180 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
               </div>
             </div>
 
+            <div className="border-t border-slate-300 pt-4">
+              <h3 className="text-sm font-semibold text-slate-600 mb-1">Billing</h3>
+              <p className="mb-3 text-xs text-slate-500">
+                Required. Set the monthly subscription and call-minute pricing now — leaving them blank means the customer&apos;s first Direct Debit won&apos;t schedule a billing cycle.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    Monthly subscription (£) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={subscriptionCost}
+                    onChange={(e) => setSubscriptionCost(e.target.value)}
+                    className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                    placeholder="200.00"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    Included minutes / month *
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={includedMinutes}
+                    onChange={(e) => setIncludedMinutes(e.target.value)}
+                    className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                    placeholder="400"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    Cost per overage minute (£) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={costPerMinute}
+                    onChange={(e) => setCostPerMinute(e.target.value)}
+                    className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                    placeholder="0.25"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">
+                    VAT rate (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="100"
+                    value={vatRatePct}
+                    onChange={(e) => setVatRatePct(e.target.value)}
+                    className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                    placeholder="20"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  Routing — LiveKit agent
+                </label>
+                <select
+                  value={agentScript}
+                  onChange={(e) => setAgentScript(e.target.value as typeof agentScript)}
+                  className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                >
+                  <option value="Assist-agent">RMB-Assist (account 2) — default for Assist tier</option>
+                  <option value="GarageHive-agent">RMB-GarageHive (account 2) — Automate / GarageHive booking</option>
+                  <option value="tyresoft-agent">Tyresoft Agent — tyre centres</option>
+                  <option value="receptionmate-agent-v3">Legacy New Agent (account 1)</option>
+                  <option value="receptionmate-agent">Legacy Agent (account 1)</option>
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Sets the dispatch routing for this garage so you don&rsquo;t need to open Agent Configurations after onboarding.
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-300 pt-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-semibold text-slate-600">Service agreement</h3>
+                <label className="inline-flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={sendAgreement}
+                    onChange={(e) => setSendAgreement(e.target.checked)}
+                    className="rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                  />
+                  Email sign link to customer
+                </label>
+              </div>
+              <p className="mb-3 text-xs text-slate-500">
+                We&rsquo;ll generate a draft and email the customer a magic-link to sign. Monthly licence fee defaults to the subscription above.
+              </p>
+
+              {sendAgreement && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Setup fee (£)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={agreementSetupFee}
+                      onChange={(e) => setAgreementSetupFee(e.target.value)}
+                      className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Number of centres</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={agreementCentres}
+                      onChange={(e) => setAgreementCentres(e.target.value)}
+                      className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                      placeholder="1"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Licences included</label>
+                    <div className="flex flex-wrap gap-3">
+                      {(['assist', 'automate', 'connect'] as const).map((tier) => (
+                        <label key={tier} className="inline-flex items-center gap-2 text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={agreementLicences.includes(tier)}
+                            onChange={(e) => {
+                              setAgreementLicences((prev) =>
+                                e.target.checked ? [...prev, tier] : prev.filter((t) => t !== tier),
+                              );
+                            }}
+                            className="rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                          />
+                          <span className="capitalize">{tier}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Go-live date (optional)</label>
+                    <input
+                      type="date"
+                      value={agreementGoLive}
+                      onChange={(e) => setAgreementGoLive(e.target.value)}
+                      className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3 pt-4">
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-700 text-slate-600 rounded-md text-sm font-medium transition-colors"
               >
                 Cancel
               </button>
@@ -289,7 +530,13 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                 disabled={onboardMutation.isPending}
                 className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-md text-sm font-medium transition-colors"
               >
-                {onboardMutation.isPending ? 'Creating...' : 'Create Business'}
+                {onboardMutation.isPending
+                  ? sendAgreement
+                    ? 'Creating + sending agreement…'
+                    : 'Creating…'
+                  : sendAgreement
+                  ? 'Create + send agreement'
+                  : 'Create business'}
               </button>
             </div>
           </form>
@@ -297,7 +544,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
         {step === 'search' && (
           <div>
-            <p className="mb-4 text-sm text-slate-400">
+            <p className="mb-4 text-sm text-slate-500">
               {availableNumbers.length} available numbers found
             </p>
             
@@ -309,11 +556,11 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                   className={`w-full text-left rounded-md border p-3 transition-colors ${
                     selectedNumber === num.phoneNumber
                       ? 'border-violet-500 bg-violet-500/10'
-                      : 'border-slate-700 bg-slate-800 hover:border-slate-600'
+                      : 'border-slate-300 bg-slate-100 hover:border-slate-300'
                   }`}
                 >
-                  <div className="font-mono text-slate-100">{num.phoneNumber}</div>
-                  <div className="text-xs text-slate-400">
+                  <div className="font-mono text-slate-900">{num.phoneNumber}</div>
+                  <div className="text-xs text-slate-500">
                     {num.locality}, {num.region}
                   </div>
                 </button>
@@ -327,7 +574,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                   setAvailableNumbers([]);
                   setSelectedNumber(null);
                 }}
-                className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md text-sm font-medium transition-colors"
+                className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-700 text-slate-600 rounded-md text-sm font-medium transition-colors"
               >
                 Back
               </button>

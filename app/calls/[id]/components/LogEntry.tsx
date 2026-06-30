@@ -20,7 +20,7 @@ const LEVEL_CONFIG = {
   },
   WARN: {
     icon: AlertTriangle,
-    color: 'text-amber-400',
+    color: 'text-amber-700',
     bg: 'bg-amber-950/30',
     border: 'border-amber-500',
   },
@@ -32,8 +32,8 @@ const LEVEL_CONFIG = {
   },
   DEBUG: {
     icon: FileText,
-    color: 'text-slate-400',
-    bg: 'bg-slate-950/30',
+    color: 'text-slate-500',
+    bg: 'bg-slate-50',
     border: 'border-slate-500',
   },
 };
@@ -69,14 +69,14 @@ export function LogEntry({ level, logger, message, timestamp, attributes }: LogE
             <span className={`text-xs font-bold ${config.color} uppercase`}>{level}</span>
             <span className="text-xs text-slate-500 font-mono">{logger}</span>
           </div>
-          <div className="text-sm text-slate-200 break-words">{message}</div>
+          <div className="text-sm text-slate-700 break-words">{message}</div>
           <div className="text-xs text-slate-500 mt-1">
             {new Date(timestamp).toLocaleString()}
           </div>
         </div>
         {hasAttributes && (
           <ChevronDown
-            className={`w-4 h-4 text-slate-400 transition-transform flex-shrink-0 mt-1 ${
+            className={`w-4 h-4 text-slate-500 transition-transform flex-shrink-0 mt-1 ${
               expanded ? 'rotate-180' : ''
             }`}
           />
@@ -84,18 +84,18 @@ export function LogEntry({ level, logger, message, timestamp, attributes }: LogE
       </button>
 
       {expanded && hasAttributes && (
-        <div className="px-4 py-3 space-y-3 text-sm bg-slate-950/60 border-t border-slate-700">
+        <div className="px-4 py-3 space-y-3 text-sm bg-slate-50 border-t border-slate-300">
           <div>
-            <div className="text-slate-300 font-semibold mb-2 text-xs uppercase tracking-wide">
+            <div className="text-slate-600 font-semibold mb-2 text-xs uppercase tracking-wide">
               Attributes
             </div>
             <div className="space-y-2">
               {relevantAttributes.map(([key, value]) => (
                 <div key={key} className="flex gap-2">
-                  <span className="text-slate-400 font-mono text-xs min-w-[120px]">
+                  <span className="text-slate-500 font-mono text-xs min-w-[120px]">
                     {key}:
                   </span>
-                  <span className="text-slate-200 text-xs font-mono break-all">
+                  <span className="text-slate-700 text-xs font-mono break-all">
                     {typeof value === 'object'
                       ? JSON.stringify(value, null, 2)
                       : String(value)}

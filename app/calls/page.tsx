@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
-import { fetchCalls, submitCallFeedback, downloadNegativeFeedbackCsv } from '../lib/api';
+import { fetchCalls, submitCallFeedback, downloadConfirmedBookingsCsv } from '../lib/api';
 import { getGarageId } from '../lib/auth';
 import {
   TRACKED_TAGS,
@@ -513,6 +513,28 @@ export default function CallsPage() {
 
   const displayedCalls = filteredCalls;
 
+  // Lightweight summary stats for the KPI strip
+  const summaryStats = useMemo(() => {
+    const total = displayedCalls.length;
+    const confirmed = displayedCalls.filter((c) => Boolean(c.confirmedBooking)).length;
+    const totalSeconds = displayedCalls.reduce((acc, c) => acc + (c.durationSeconds || 0), 0);
+    const avgSeconds = total > 0 ? Math.round(totalSeconds / total) : 0;
+    const conversion = total > 0 ? Math.round((confirmed / total) * 100) : 0;
+    const formatDur = (s: number) => {
+      if (s < 60) return `${s}s`;
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return r > 0 ? `${m}m ${r}s` : `${m}m`;
+    };
+    return {
+      total,
+      confirmed,
+      avgDuration: formatDur(avgSeconds),
+      totalDuration: formatDur(totalSeconds),
+      conversion,
+    };
+  }, [displayedCalls]);
+
   const callTagOptions = useMemo(() => {
     const tagSet = new Set<string>(TRACKED_TAGS as readonly string[]);
     tagSet.add('other');
@@ -547,7 +569,7 @@ export default function CallsPage() {
 
   const handleExportNegativeFeedback = useCallback(async () => {
     try {
-      const blob = await downloadNegativeFeedbackCsv(garageId ?? undefined);
+      const blob = await downloadConfirmedBookingsCsv(garageId ?? undefined);
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -781,7 +803,7 @@ export default function CallsPage() {
 
   if (!garageId) {
     return (
-      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
         Garage not selected. Log out and sign in again to choose a garage.
       </div>
     );
@@ -790,23 +812,55 @@ export default function CallsPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold text-slate-100">Call Activity</h1>
-        <p className="text-sm text-slate-400">Monitor interactions from your ReceptionMate AI voice agent.</p>
+        <h1 className="text-2xl font-semibold text-slate-900">Call Activity</h1>
+        <p className="text-sm text-slate-500">Monitor interactions from your ReceptionMate AI voice agent.</p>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 shadow-lg shadow-slate-950/40">
-        <div className="border-b border-slate-800 px-5 py-3 text-xs uppercase tracking-wide text-slate-400">
-          Recent Calls
+      {/* KPI summary strip */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total calls</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.total}</div>
+          <p className="mt-1 text-xs text-slate-500">In the selected filter</p>
+        </div>
+        <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Confirmed bookings</div>
+          <div className="mt-3 text-3xl font-semibold text-emerald-700">{query.isLoading ? '—' : summaryStats.confirmed}</div>
+          <p className="mt-1 text-xs text-slate-500">Calls that captured a booking</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Avg duration</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.avgDuration}</div>
+          <p className="mt-1 text-xs text-slate-500">Per call</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total time</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.totalDuration}</div>
+          <p className="mt-1 text-xs text-slate-500">Combined call time</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Recent calls</h2>
+            <p className="text-xs text-slate-500">Search, filter and listen back — newest first.</p>
+          </div>
+          {!query.isLoading && summaryStats.total > 0 ? (
+            <span className="hidden rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-200 sm:inline-flex">
+              {summaryStats.total} call{summaryStats.total === 1 ? '' : 's'}
+            </span>
+          ) : null}
         </div>
 
-        <div className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900/50 px-5 py-4 text-sm text-slate-300 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-700 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2">
               <span className="text-xs uppercase tracking-wide text-slate-500">Call Tag</span>
               <select
                 value={callTagFilter}
                 onChange={(event) => setCallTagFilter(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
               >
                 {callTagOptions.map((type) => (
                   <option key={type} value={type}>
@@ -822,7 +876,7 @@ export default function CallsPage() {
                 type="date"
                 value={startDateInput}
                 onChange={(event) => setStartDateInput(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
               />
             </label>
 
@@ -832,7 +886,7 @@ export default function CallsPage() {
                 type="date"
                 value={endDateInput}
                 onChange={(event) => setEndDateInput(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
                 min={startDateInput || undefined}
               />
             </label>
@@ -847,14 +901,14 @@ export default function CallsPage() {
                 onChange={(event) => setSearchTerm(event.target.value)}
                 placeholder={'e.g. "MOT" AND (booking OR estimate)'}
                 title="Supports AND, OR, NOT and quoted phrases"
-                className="w-56 rounded-md border border-slate-700 bg-slate-900/80 px-3 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="w-56 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
               />
             </label>
             {filtersActive ? (
               <button
                 type="button"
                 onClick={resetFilters}
-                className="text-xs font-medium text-sky-400 hover:text-sky-300"
+                className="text-xs font-medium text-brand-600 hover:text-brand-700"
               >
                 Clear filters
               </button>
@@ -875,8 +929,8 @@ export default function CallsPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-800 text-sm">
-            <thead className="bg-slate-900/80 text-xs uppercase tracking-widest text-slate-400">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-white text-xs uppercase tracking-widest text-slate-500">
               <tr>
                 <th className="px-5 py-3 text-left font-medium">Caller</th>
                 <th className="px-5 py-3 text-left font-medium">From Number</th>
@@ -888,16 +942,16 @@ export default function CallsPage() {
                 <th className="px-5 py-3 text-left font-medium">Rating</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80">
+            <tbody className="divide-y divide-slate-200">
               {query.isLoading ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={8} className="px-5 py-10 text-center text-slate-500">
                     Loading calls…
                   </td>
                 </tr>
               ) : displayedCalls.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-10 text-center text-slate-400">
+                  <td colSpan={8} className="px-5 py-10 text-center text-slate-500">
                     No calls found. Adjust filters or widen your search query.
                   </td>
                 </tr>
@@ -912,20 +966,20 @@ export default function CallsPage() {
                   const downActive = rating === 'down';
                   const ratingDisabled = isSavingFeedback && pendingFeedbackCallId === call.id;
                   const thumbBaseClass =
-                    'inline-flex h-9 w-9 items-center justify-center rounded-full border bg-slate-900/60 text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900';
+                    'inline-flex h-9 w-9 items-center justify-center rounded-full border bg-white text-slate-500 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white';
                   return (
-                    <tr key={call.id} className="hover:bg-slate-900/40">
-                      <td className="px-5 py-3 align-top text-slate-100">
-                        <span className="font-semibold tracking-tight text-slate-100" title={callerName}>
+                    <tr key={call.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-3 align-top text-slate-900">
+                        <span className="font-semibold tracking-tight text-slate-900" title={callerName}>
                           {callerName}
                         </span>
                       </td>
-                      <td className="px-5 py-3 align-top text-slate-200" title={formattedNumber}>
+                      <td className="px-5 py-3 align-top text-slate-700" title={formattedNumber}>
                         {formattedNumber}
                       </td>
-                      <td className="px-5 py-3 align-top text-slate-200">{formatDate(call.createdAt)}</td>
-                      <td className="px-5 py-3 align-top text-slate-100">{callTag}</td>
-                      <td className="px-5 py-3 align-top text-slate-300">
+                      <td className="px-5 py-3 align-top text-slate-700">{formatDate(call.createdAt)}</td>
+                      <td className="px-5 py-3 align-top text-slate-900">{callTag}</td>
+                      <td className="px-5 py-3 align-top text-slate-700">
                         {call.recordingUrl ? (
                           <audio
                             src={
@@ -943,12 +997,12 @@ export default function CallsPage() {
                               type="button"
                               onClick={() => handleLoadRecording(call.id)}
                               disabled={loadingRecordings.has(call.id)}
-                              className="rounded-md border border-slate-700 px-2 py-1 text-xs text-sky-400 hover:border-slate-500 hover:text-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-md border border-slate-300 px-2 py-1 text-xs text-brand-600 hover:border-slate-500 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {loadingRecordings.has(call.id) ? 'Loading...' : 'Load Recording'}
                             </button>
                             {recordingErrors[call.id] && (
-                              <p className="text-xs text-rose-400">{recordingErrors[call.id]}</p>
+                              <p className="text-xs text-rose-600">{recordingErrors[call.id]}</p>
                             )}
                           </div>
                         ) : (
@@ -960,7 +1014,7 @@ export default function CallsPage() {
                           <button
                             type="button"
                             onClick={() => handleSummaryOpen(call.id)}
-                            className="inline-flex items-center rounded-md border border-slate-700 px-3 py-1 text-xs font-semibold text-sky-400 transition-colors hover:border-slate-500 hover:text-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+                            className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
                           >
                             View Summary
                           </button>
@@ -969,13 +1023,14 @@ export default function CallsPage() {
                         )}
                       </td>
                       <td className="px-5 py-3 align-top">
-                        <button
-                          type="button"
-                          onClick={() => handleViewDetails(call.id)}
-                          className="inline-flex items-center rounded-md border border-slate-700 px-3 py-1 text-xs font-semibold text-sky-400 transition-colors hover:border-slate-500 hover:text-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+                        <a
+                          href={`/calls/${call.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
                         >
                           View Details
-                        </button>
+                        </a>
                       </td>
                       <td className="px-5 py-3 align-top">
                         <div className="flex items-center gap-2">
@@ -988,7 +1043,7 @@ export default function CallsPage() {
                               ratingDisabled ? 'cursor-not-allowed opacity-60' : null,
                               upActive
                                 ? 'border-emerald-400 bg-emerald-500/10 text-emerald-300 shadow-inner shadow-emerald-500/40'
-                                : 'border-slate-700 hover:border-emerald-300/70 hover:text-emerald-200',
+                                : 'border-slate-300 hover:border-emerald-300/70 hover:text-emerald-200',
                             )}
                             aria-pressed={upActive}
                             aria-label="Rate call positively"
@@ -1003,8 +1058,8 @@ export default function CallsPage() {
                               thumbBaseClass,
                               ratingDisabled ? 'cursor-not-allowed opacity-60' : null,
                               downActive
-                                ? 'border-rose-400 bg-rose-500/10 text-rose-300 shadow-inner shadow-rose-500/40'
-                                : 'border-slate-700 hover:border-rose-300/70 hover:text-rose-200',
+                                ? 'border-rose-400 bg-rose-50 text-rose-300 shadow-inner shadow-rose-500/40'
+                                : 'border-slate-300 hover:border-rose-300/70 hover:text-rose-800',
                             )}
                             aria-pressed={downActive}
                             aria-label="Rate call negatively"
@@ -1023,8 +1078,8 @@ export default function CallsPage() {
 
         {/* Pagination Controls */}
         {pagination && pagination.totalPages > 1 && (
-          <div className="mt-6 flex items-center justify-between border-t border-slate-800 pt-6">
-            <div className="text-sm text-slate-400">
+          <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-6">
+            <div className="text-sm text-slate-500">
               Showing page {pagination.page} of {pagination.totalPages} ({pagination.total} total calls)
             </div>
             <div className="flex gap-2">
@@ -1034,8 +1089,8 @@ export default function CallsPage() {
                 className={cn(
                   'rounded-md border px-4 py-2 text-sm font-medium transition-colors',
                   currentPage === 1 || query.isLoading
-                    ? 'cursor-not-allowed border-slate-800 text-slate-600'
-                    : 'border-slate-700 text-slate-200 hover:border-sky-500 hover:text-sky-400',
+                    ? 'cursor-not-allowed border-slate-200 text-slate-600'
+                    : 'border-slate-300 text-slate-700 hover:border-brand-600 hover:text-brand-600',
                 )}
               >
                 Previous
@@ -1062,8 +1117,8 @@ export default function CallsPage() {
                       className={cn(
                         'h-10 w-10 rounded-md text-sm font-medium transition-colors',
                         currentPage === pageNum
-                          ? 'bg-sky-500 text-slate-950'
-                          : 'border border-slate-700 text-slate-300 hover:border-sky-500 hover:text-sky-400',
+                          ? 'bg-brand-600 text-white'
+                          : 'border border-slate-300 text-slate-700 hover:border-brand-600 hover:text-brand-600',
                         query.isLoading && 'cursor-not-allowed opacity-50',
                       )}
                     >
@@ -1078,8 +1133,8 @@ export default function CallsPage() {
                 className={cn(
                   'rounded-md border px-4 py-2 text-sm font-medium transition-colors',
                   currentPage === pagination.totalPages || query.isLoading
-                    ? 'cursor-not-allowed border-slate-800 text-slate-600'
-                    : 'border-slate-700 text-slate-200 hover:border-sky-500 hover:text-sky-400',
+                    ? 'cursor-not-allowed border-slate-200 text-slate-600'
+                    : 'border-slate-300 text-slate-700 hover:border-brand-600 hover:text-brand-600',
                 )}
               >
                 Next
@@ -1090,29 +1145,29 @@ export default function CallsPage() {
       </div>
 
       {query.isError ? (
-        <div className="rounded-lg border border-rose-500/50 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+        <div className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           Failed to load calls. {query.error instanceof Error ? query.error.message : 'Please try again later.'}
         </div>
       ) : null}
 
       {isModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-50 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="feedback-title"
-            className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl shadow-black/40"
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl shadow-black/40"
           >
             <div className="space-y-2">
-              <h3 id="feedback-title" className="text-lg font-semibold text-slate-100">
+              <h3 id="feedback-title" className="text-lg font-semibold text-slate-900">
                 Provide feedback
               </h3>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500">
                 Let us know what we can do to improve our AI.
               </p>
               {modalCallerName ? (
-                <p className="text-sm text-slate-300">
-                  Call: <span className="font-medium text-slate-100">{modalCallerName}</span>
+                <p className="text-sm text-slate-700">
+                  Call: <span className="font-medium text-slate-900">{modalCallerName}</span>
                 </p>
               ) : null}
               {modalSummary ? (
@@ -1126,10 +1181,10 @@ export default function CallsPage() {
               {FEEDBACK_OPTIONS.map((option) => {
                 const checked = feedbackReasons.includes(option.value);
                 return (
-                  <label key={option.value} className="flex items-start gap-3 text-sm text-slate-200">
+                  <label key={option.value} className="flex items-start gap-3 text-sm text-slate-700">
                     <input
                       type="checkbox"
-                      className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-400"
+                      className="mt-1 h-4 w-4 rounded border-slate-300 bg-white text-brand-600 focus:ring-brand-500"
                       checked={checked}
                       onChange={() => handleReasonToggle(option.value)}
                       disabled={isSavingFeedback}
@@ -1141,7 +1196,7 @@ export default function CallsPage() {
 
               {feedbackReasons.includes('other') ? (
                 <textarea
-                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-brand-600 focus:outline-none"
                   rows={3}
                   placeholder="Tell us more…"
                   value={feedbackNotes}
@@ -1155,7 +1210,7 @@ export default function CallsPage() {
               <button
                 type="button"
                 onClick={handleFeedbackCancel}
-                className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-500"
+                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-500"
               >
                 Cancel
               </button>
@@ -1164,10 +1219,10 @@ export default function CallsPage() {
                 onClick={handleFeedbackConfirm}
                 disabled={isSavingFeedback}
                 className={cn(
-                  'rounded-md px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900',
+                  'rounded-md px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white',
                   isSavingFeedback
-                    ? 'cursor-not-allowed bg-sky-500/40 text-slate-400'
-                    : 'bg-sky-500 text-slate-950 hover:bg-sky-400',
+                    ? 'cursor-not-allowed bg-brand-100 text-slate-500'
+                    : 'bg-brand-600 text-white hover:bg-brand-700',
                 )}
                 aria-busy={isSavingFeedback}
               >
@@ -1184,35 +1239,35 @@ export default function CallsPage() {
       ) : null}
 
       {isSummaryModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-50 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="summary-title"
-            className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl shadow-black/40"
+            className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl shadow-black/40"
           >
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
-                <h3 id="summary-title" className="text-lg font-semibold text-slate-100">
+                <h3 id="summary-title" className="text-lg font-semibold text-slate-900">
                   Call Summary
                 </h3>
                 {summaryModalCallerName ? (
-                  <p className="text-sm text-slate-300">
-                    Caller: <span className="font-medium text-slate-100">{summaryModalCallerName}</span>
+                  <p className="text-sm text-slate-700">
+                    Caller: <span className="font-medium text-slate-900">{summaryModalCallerName}</span>
                   </p>
                 ) : null}
               </div>
               <button
                 type="button"
                 onClick={closeSummaryModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 text-slate-300 transition-colors hover:border-slate-500 hover:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-slate-700 transition-colors hover:border-slate-500 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
                 aria-label="Close summary"
               >
                 X
               </button>
             </div>
 
-            <div className="mt-4 max-h-96 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900/80 p-4 text-sm text-slate-100">
+            <div className="mt-4 max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-900">
               {summaryModalContent ? (
                 <p className="whitespace-pre-line">{summaryModalContent}</p>
               ) : (

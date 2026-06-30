@@ -115,8 +115,8 @@ export default function BillingPage() {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
         <div className="space-y-2 text-center">
-          <div className="text-xl font-semibold text-slate-100">Loading billing information...</div>
-          <div className="text-sm text-slate-400">Please wait</div>
+          <div className="text-xl font-semibold text-slate-900">Loading billing information...</div>
+          <div className="text-sm text-slate-500">Please wait</div>
         </div>
       </div>
     );
@@ -126,8 +126,8 @@ export default function BillingPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-slate-100">Billing</h1>
-        <p className="mt-1 text-slate-400">
+        <h1 className="text-3xl font-bold text-slate-900">Billing</h1>
+        <p className="mt-1 text-slate-500">
           Manage your invoices, billing information, and payment method
         </p>
       </div>
@@ -135,11 +135,11 @@ export default function BillingPage() {
       {/* Branch Selector — only shown when on All Branches in navbar */}
       {managedGarages.length > 1 && selectedGarageId === 'all' && (
         <div className="flex items-center gap-4">
-          <label className="text-sm font-medium text-slate-300">View invoices for:</label>
+          <label className="text-sm font-medium text-slate-600">View invoices for:</label>
           <select
             value={selectedGarageId}
             onChange={(e) => setSelectedGarageId(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="all">All Branches</option>
             {managedGarages.map((garage) => (
@@ -153,7 +153,7 @@ export default function BillingPage() {
 
       {/* Invoices Section */}
       <div>
-        <h2 className="mb-4 text-xl font-semibold text-slate-100">Invoices</h2>
+        <h2 className="mb-4 text-xl font-semibold text-slate-900">Invoices</h2>
         <InvoiceTable invoices={invoicesQuery.data || []} />
       </div>
 

@@ -40,8 +40,8 @@ export default function UpdatePaymentCallback() {
   }, [searchParams, router]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6">
-      <div className="w-full max-w-md space-y-6 rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
+    <div className="flex min-h-screen items-center justify-center bg-white p-6">
+      <div className="w-full max-w-md space-y-6 rounded-2xl border border-slate-200 bg-white p-8 text-center">
         {status === 'processing' && (
           <>
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-blue-500/10">
@@ -61,14 +61,14 @@ export default function UpdatePaymentCallback() {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-slate-100">Processing</h1>
+            <h1 className="text-2xl font-bold text-slate-900">Processing</h1>
           </>
         )}
 
         {status === 'success' && (
           <>
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10">
-              <svg className="h-8 w-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
+              <svg className="h-8 w-8 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -77,7 +77,7 @@ export default function UpdatePaymentCallback() {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-slate-100">Success!</h1>
+            <h1 className="text-2xl font-bold text-slate-900">Success!</h1>
           </>
         )}
 
@@ -93,11 +93,11 @@ export default function UpdatePaymentCallback() {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-slate-100">Error</h1>
+            <h1 className="text-2xl font-bold text-slate-900">Error</h1>
           </>
         )}
 
-        <p className="text-slate-400">{message}</p>
+        <p className="text-slate-500">{message}</p>
 
         {status === 'error' && (
           <button

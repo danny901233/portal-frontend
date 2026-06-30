@@ -123,7 +123,13 @@ router.get('/conversations/:id/messages', authenticate, async (req: Request, res
       orderBy: { createdAt: 'asc' },
     });
 
-    res.json({ conversation, messages });
+    // Chat-agent tool calls for the observability timeline (UI interleaves by createdAt).
+    const toolCalls = await prisma.chatToolCall.findMany({
+      where: { conversationId: id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.json({ conversation, messages, toolCalls });
   } catch (error) {
     console.error('[CONVERSATIONS] GET /conversations/:id/messages error:', error);
     res.status(500).json({ error: 'Failed to fetch messages' });

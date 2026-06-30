@@ -1,9 +1,12 @@
 import { prisma } from '../db.js';
 import OpenAI from 'openai';
 import axios from 'axios';
+import { logChatToolCall } from './chatToolLog.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -13,6 +16,24 @@ function getOpenAI(): OpenAI {
     openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
   return openaiClient;
+}
+
+// Chat media (customer photos) lives in a PRIVATE S3 bucket, so gpt-4o can't fetch the raw URL.
+// Presign a short-lived GET URL it can read. Mirrors the /media/signed-url route in messages.ts.
+async function presignChatImage(url: string): Promise<string | null> {
+  try {
+    const accessKeyId = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+    if (!accessKeyId || !secretAccessKey) return null;
+    const bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
+    const region = process.env.AWS_REGION || 'eu-west-2';
+    const key = new URL(url).pathname.replace(/^\//, '');
+    const s3 = new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
+    return await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 600 });
+  } catch (e: any) {
+    console.error('[TS_AGENT] presignChatImage failed:', e?.message);
+    return null;
+  }
 }
 
 interface ChatAgentResponse {
@@ -104,6 +125,8 @@ interface TyresoftSession {
 // ---------------------------------------------------------------------------
 
 const TYRE_INVENTORY = new Map<number, TyreProduct[]>();
+
+export function invalidateTyreCache(_garageId?: string, _depotId?: string | number): void { TYRE_INVENTORY.clear(); }
 
 function parseCSV(filePath: string): TyreProduct[] {
   let content: string;
@@ -337,8 +360,10 @@ export async function getTyresoftChatResponse(
 
     const isOpen    = checkOpeningHours(config.weeklyOpeningHours);
     const session   = tsSessions.get(conversationId) || {};
-    const tools     = buildTools(tsConfig);
-    const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig, tsConfig);
+    const humanEscalation = config.humanEscalation !== false; // default ON
+    let tools       = buildTools(tsConfig);
+    if (!humanEscalation) tools = tools.filter((t) => !['ts_take_message', 'ts_request_callback'].includes((t as any).function?.name));
+    const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig, humanEscalation, tsConfig);
 
     // Build message history
     const previousMessages = (await prisma.chatMessage.findMany({
@@ -351,11 +376,27 @@ export async function getTyresoftChatResponse(
       { role: 'system', content: sysPrompt },
     ];
 
-    for (const msg of previousMessages) {
-      messages.push({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content,
-      });
+    const total = previousMessages.length;
+    for (let i = 0; i < total; i++) {
+      const msg = previousMessages[i];
+      const role = msg.role === 'user' ? 'user' : 'assistant';
+      // Pass recent customer image attachments to the (vision-capable gpt-4o) model so it can
+      // actually read plates / logbooks / warning lights. Only the last few to avoid re-sending
+      // old images every turn. Private S3 → presign a short-lived URL the model can fetch.
+      if (role === 'user' && i >= total - 4 && msg.mediaType?.startsWith('image/') && msg.mediaUrl) {
+        const signed = await presignChatImage(msg.mediaUrl);
+        if (signed) {
+          const caption = msg.content && !['[Image]', '[Customer sent an image]'].includes(msg.content)
+            ? msg.content
+            : 'The customer sent this image. Use it to help — e.g. read a registration plate, logbook/V5C, or dashboard warning light.';
+          messages.push({ role: 'user', content: [
+            { type: 'text', text: caption },
+            { type: 'image_url', image_url: { url: signed } },
+          ] } as OpenAI.Chat.ChatCompletionMessageParam);
+          continue;
+        }
+      }
+      messages.push({ role, content: msg.content });
     }
 
     // Inject seed contact context on first message
@@ -366,7 +407,14 @@ export async function getTyresoftChatResponse(
       if (seedContact.phone) hints.push(`[Customer phone: ${seedContact.phone}]`);
       if (hints.length) userContent = `${hints.join(' ')} ${message}`;
     }
-    messages.push({ role: 'user', content: userContent });
+    // Don't re-append the current turn as a bare image placeholder — the loop above already
+    // attached the actual image when it's in the persisted history (WhatsApp persists before us).
+    const lastPrev = previousMessages[previousMessages.length - 1];
+    const currentIsImagePlaceholder = ['[Customer sent an image]', '[Image]'].includes(message);
+    const lastPrevIsImage = lastPrev?.role === 'user' && !!lastPrev?.mediaType?.startsWith('image/');
+    if (!(currentIsImagePlaceholder && lastPrevIsImage)) {
+      messages.push({ role: 'user', content: userContent });
+    }
 
     const hasTyreBasket = (session.tyreBasket?.length ?? 0) > 0;
     const temperature   = (session.serviceIds?.length || hasTyreBasket) ? 0.5 : 0.9;
@@ -398,7 +446,9 @@ export async function getTyresoftChatResponse(
         }
         console.log(`[TS_AGENT] Tool call: ${call.function.name}`, args);
 
+        const _t0 = Date.now();
         const result = await executeTool(call.function.name, args, conversationId, tsConfig);
+        logChatToolCall({ conversationId, garageId, agentType: 'tyresoft', toolName: call.function.name, args, result, durationMs: Date.now() - _t0 });
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
@@ -445,11 +495,11 @@ function buildTools(tsConfig?: TyresoftConfig): OpenAI.Chat.ChatCompletionTool[]
       type: 'function',
       function: {
         name: 'ts_get_service_price',
-        description: 'Get the exact price for a service that has engine-size-based pricing (e.g. OIL, INTS, FS). MUST call ts_lookup_vehicle first to get engineCapacity. Never calculate or guess prices yourself — always use this tool for engine-size services.',
+        description: 'Get the exact price for an engine-size-priced service. You MUST have already called ts_get_services (for the exact service code) and ts_lookup_vehicle (for engineCapacity). Pass serviceCode EXACTLY as returned by ts_get_services — do not abbreviate or guess it. Never calculate prices yourself.',
         parameters: {
           type: 'object',
           properties: {
-            serviceCode: { type: 'string', description: 'Service code from ts_get_services, e.g. OIL, INTS, FS' },
+            serviceCode: { type: 'string', description: 'The EXACT service code from ts_get_services (e.g. FULL_SERVICE) — copy it verbatim, never abbreviate (not "FS").' },
             engineCC:    { type: 'number', description: 'Engine capacity in CC from the VRM lookup result' },
           },
           required: ['serviceCode', 'engineCC'],
@@ -1378,6 +1428,7 @@ function buildSystemPrompt(
   isOpen: boolean,
   session: TyresoftSession,
   hasCreds: boolean,
+  humanEscalation: boolean,
   tsConfig?: TyresoftConfig
 ): string {
   const branchName = config.branchName || 'our garage';
@@ -1411,6 +1462,39 @@ function buildSystemPrompt(
     }
   }
 
+  // ── Per-garage config: custom rules, FAQs, smart questions (parity with the voice agents) ──
+  const _rules = Array.isArray(config.customRules)
+    ? config.customRules
+        .filter((r: any) => r && typeof r === 'object' && r.active === true && (r.text || '').trim())
+        .map((r: any) => `- ${String(r.text).trim()}`)
+    : [];
+  if (_rules.length > 0) {
+    prompt += `RULES YOU MUST FOLLOW (these override anything else in this prompt):\n${_rules.join('\n')}\n\n`;
+  }
+
+  const _faqs = Array.isArray(config.faqs)
+    ? config.faqs
+        .filter((f: any) => f && (f.question || f.q) && (f.answer || f.a))
+        .map((f: any) => `Q: ${String(f.question || f.q).trim()}\nA: ${String(f.answer || f.a).trim()}`)
+    : [];
+  if (_faqs.length > 0) {
+    prompt += `COMMON QUESTIONS — answer from these when a customer asks something similar; do NOT invent an answer:\n${_faqs.join('\n')}\n\n`;
+  }
+
+  const _fields = Array.isArray(config.dataCollectionFields)
+    ? config.dataCollectionFields
+        .filter((f: any) => f && f.active === true && (f.label || f.key))
+        .map((f: any) => {
+          const label = String(f.label || f.key).trim();
+          const tag = f.required ? '(required)' : '(only if relevant)';
+          const instr = (f.instruction || '').trim() ? ` — ${String(f.instruction).trim()}` : '';
+          return `- ${label} ${tag}${instr}`;
+        })
+    : [];
+  if (_fields.length > 0) {
+    prompt += `INFORMATION TO COLLECT during the chat (ask naturally, one at a time, don't interrogate):\n${_fields.join('\n')}\n\n`;
+  }
+
   if (hasCreds) {
     prompt += `\nBOOKING FLOW:\n\n`;
 
@@ -1435,7 +1519,7 @@ function buildSystemPrompt(
     prompt += `2. After ts_lookup_vehicle, confirm the vehicle: "I can see that's a [year] [make] [model] — is that correct?"\n`;
     prompt += `   Only continue once they confirm. If they say no, ask them to re-check their plate.\n`;
     prompt += `3. Call ts_get_services to match the customer's request.\n`;
-    prompt += `   If the service shows "Varies by engine size", call ts_get_service_price with the service code and engineCapacity from the VRM lookup to get the exact price before quoting it.\n`;
+    prompt += `   If the service shows "Varies by engine size", call ts_get_service_price using the EXACT service code from ts_get_services (copy it verbatim — e.g. "FULL_SERVICE", never abbreviate to "FS") and engineCapacity from the VRM lookup, to get the exact price before quoting it.\n`;
     prompt += `   Never quote a price for engine-size services without calling ts_get_service_price first.\n`;
     prompt += `4. Call ts_get_timeslots with the correct service_id(s).\n`;
     prompt += `5. Offer 3-4 slots. If the customer states a time preference, call ts_check_preferred_time before listing slots.\n`;
@@ -1470,13 +1554,18 @@ function buildSystemPrompt(
     prompt += `  Example: "1. Radar RPX-800+ — £49.26 per tyre\\n2. Zeta Impero XL — £56.67 per tyre"\n`;
     prompt += `- When presenting available time slots, write them as a natural sentence, not a bullet list.\n`;
     prompt += `  Example: "I have 12:30 PM, 1:00 PM, 1:30 PM or 3:30 PM available on March 19th — which works best for you?"\n`;
-    prompt += `- If the customer wants to speak to a human or leave a message:\n`;
-    prompt += `  Ask what their message is and confirm you have their phone number.\n`;
-    prompt += `  Call ts_take_message, then tell them: "I've passed your message on to the team. Someone will get back to you shortly."\n`;
-    prompt += `  Do NOT continue trying to help after ts_take_message — the conversation is handed off.\n`;
-    prompt += `- If the customer explicitly asks to be called back (e.g. "can someone ring me?"):\n`;
-    prompt += `  Ask for their name and best number if not already known.\n`;
-    prompt += `  Call ts_request_callback, then tell them: "No problem — I've logged a callback request and someone will give you a ring shortly."\n\n`;
+    if (humanEscalation) {
+      prompt += `- If the customer wants to speak to a human or leave a message:\n`;
+      prompt += `  Ask what their message is and confirm you have their phone number.\n`;
+      prompt += `  Call ts_take_message, then tell them: "I've passed your message on to the team. Someone will get back to you shortly."\n`;
+      prompt += `  Do NOT continue trying to help after ts_take_message — the conversation is handed off.\n`;
+      prompt += `- If the customer explicitly asks to be called back (e.g. "can someone ring me?"):\n`;
+      prompt += `  Ask for their name and best number if not already known.\n`;
+      prompt += `  Call ts_request_callback, then tell them: "No problem — I've logged a callback request and someone will give you a ring shortly."\n\n`;
+    } else {
+      const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
+      prompt += `- You CANNOT take messages, pass details to the team, or arrange callbacks — no one is available over chat. If the customer wants to speak to a human, leave a message, or asks for a callback, do NOT offer to; instead tell them to contact us directly${esc ? ` on ${esc}` : ''}. You can still answer their questions and book them in.\n\n`;
+    }
 
     // Active session context — show whenever there is ANY booking state
     const hasSessionState = !!(session.vrm || session.serviceIds?.length || session.tyreBasket?.length || session.customerName || session.customerPhone || session.availableSlots?.length || session.selectedSlot || session.branchOverride);

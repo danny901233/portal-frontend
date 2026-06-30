@@ -15,7 +15,7 @@ import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTe
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-slate-500/20 text-slate-300',
+  draft: 'bg-slate-500/20 text-slate-600',
   sending: 'bg-yellow-500/20 text-yellow-300',
   sent: 'bg-green-500/20 text-green-300',
   processed: 'bg-green-500/20 text-green-300',
@@ -282,37 +282,37 @@ export default function OutboundPage() {
       )}
 
       <div>
-        <h1 className="text-2xl font-semibold text-slate-100">Outbound Messaging</h1>
-        <p className="mt-1 text-sm text-slate-400">
+        <h1 className="text-2xl font-semibold text-slate-900">Outbound Messaging</h1>
+        <p className="mt-1 text-sm text-slate-500">
           Upload a customer list and send personalised MOT or service reminders via SMS or WhatsApp.
           Customers who reply will be handled automatically by your AI agent.
         </p>
       </div>
 
       {/* New Campaign */}
-      <div className="rounded-xl border border-slate-700 bg-slate-900 p-6">
-        <h2 className="mb-4 text-base font-semibold text-slate-100">New Campaign</h2>
+      <div className="rounded-xl border border-slate-300 bg-white p-6">
+        <h2 className="mb-4 text-base font-semibold text-slate-900">New Campaign</h2>
 
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Campaign name */}
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-400">Campaign name</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Campaign name</label>
             <input
               type="text"
               value={campaignName}
               onChange={(e) => setCampaignName(e.target.value)}
               placeholder="e.g. March MOT Reminders"
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
             />
           </div>
 
           {/* Channel */}
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-400">Channel</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Channel</label>
             <select
               value={channel}
               onChange={(e) => setChannel(e.target.value as 'sms' | 'whatsapp')}
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
             >
               <option value="sms">SMS</option>
               <option value="whatsapp">WhatsApp</option>
@@ -323,7 +323,7 @@ export default function OutboundPage() {
         {/* Template selector (WhatsApp only) */}
         {channel === 'whatsapp' && (
           <div className="mt-4">
-            <label className="mb-1 block text-xs font-medium text-slate-400">
+            <label className="mb-1 block text-xs font-medium text-slate-500">
               Message template{' '}
               <span className="text-slate-500">(optional — uses default reminder if not selected)</span>
             </label>
@@ -333,7 +333,7 @@ export default function OutboundPage() {
                 setSelectedTemplateId(e.target.value);
                 setVariableMapping({});
               }}
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
             >
               <option value="">— Use default reminder message —</option>
               {approvedTemplates.map((t) => (
@@ -352,9 +352,9 @@ export default function OutboundPage() {
 
             {/* Variable mapping */}
             {selectedTemplate && templateVariables.length > 0 && (
-              <div className="mt-3 rounded-lg border border-slate-700 bg-slate-800/50 p-3">
-                <p className="mb-2 text-xs font-medium text-slate-300">Map template variables to CSV columns:</p>
-                <p className="mb-3 text-xs text-slate-500 font-mono bg-slate-800 rounded px-2 py-1">
+              <div className="mt-3 rounded-lg border border-slate-300 bg-slate-50 p-3">
+                <p className="mb-2 text-xs font-medium text-slate-600">Map template variables to CSV columns:</p>
+                <p className="mb-3 text-xs text-slate-500 font-mono bg-slate-100 rounded px-2 py-1">
                   {selectedTemplate.bodyText}
                 </p>
                 <div className="space-y-2">
@@ -364,7 +364,7 @@ export default function OutboundPage() {
                       <select
                         value={variableMapping[varNum] || ''}
                         onChange={(e) => setVariableMapping((prev) => ({ ...prev, [varNum]: e.target.value }))}
-                        className="flex-1 rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+                        className="flex-1 rounded border border-slate-300 bg-slate-100 px-2 py-1 text-xs text-slate-900 focus:border-blue-500 focus:outline-none"
                       >
                         <option value="">— select column —</option>
                         <option value="customer_name">customer_name (first name)</option>
@@ -386,7 +386,7 @@ export default function OutboundPage() {
         {/* CSV Upload */}
         <div className="mt-4">
           <div className="mb-1 flex items-center justify-between">
-            <label className="text-xs font-medium text-slate-400">
+            <label className="text-xs font-medium text-slate-500">
               Customer CSV{' '}
               <span className="text-slate-500">
                 (columns: customer_name, phone, registration, mot_due_date, service_due_date)
@@ -418,7 +418,7 @@ export default function OutboundPage() {
             type="file"
             accept=".csv,text/csv"
             onChange={handleFileChange}
-            className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-600 bg-slate-800/50 px-4 py-3 text-sm text-slate-400 file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1 file:text-xs file:text-slate-200 hover:border-slate-500"
+            className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1 file:text-xs file:text-slate-700 hover:border-slate-500"
           />
           {parseError && (
             <p className="mt-2 text-xs text-red-400">{parseError}</p>
@@ -428,10 +428,10 @@ export default function OutboundPage() {
         {/* Preview table */}
         {preview && preview.length > 0 && (
           <div className="mt-4">
-            <p className="mb-2 text-xs text-slate-400">{preview.length} contacts imported — preview:</p>
-            <div className="overflow-x-auto rounded-lg border border-slate-700">
+            <p className="mb-2 text-xs text-slate-500">{preview.length} contacts imported — preview:</p>
+            <div className="overflow-x-auto rounded-lg border border-slate-300">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-800 text-slate-400">
+                <thead className="bg-slate-100 text-slate-500">
                   <tr>
                     <th className="px-3 py-2">Name</th>
                     <th className="px-3 py-2">Phone</th>
@@ -440,9 +440,9 @@ export default function OutboundPage() {
                     <th className="px-3 py-2">Service Due</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-slate-200">
                   {preview.slice(0, 10).map((c, i) => (
-                    <tr key={i} className="text-slate-300">
+                    <tr key={i} className="text-slate-600">
                       <td className="px-3 py-2">{c.customerName}</td>
                       <td className="px-3 py-2">{c.phone}</td>
                       <td className="px-3 py-2">{c.registration || '—'}</td>
@@ -471,7 +471,7 @@ export default function OutboundPage() {
               </button>
               <button
                 onClick={resetForm}
-                className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:text-slate-200"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-500 hover:text-slate-700"
               >
                 Cancel
               </button>
@@ -482,16 +482,16 @@ export default function OutboundPage() {
 
       {/* Past campaigns */}
       <div>
-        <h2 className="mb-3 text-base font-semibold text-slate-100">Past Campaigns</h2>
+        <h2 className="mb-3 text-base font-semibold text-slate-900">Past Campaigns</h2>
 
         {isLoading ? (
           <p className="text-sm text-slate-500">Loading campaigns…</p>
         ) : campaigns.length === 0 ? (
           <p className="text-sm text-slate-500">No campaigns yet. Upload a CSV above to get started.</p>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-700">
+          <div className="overflow-hidden rounded-xl border border-slate-300">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-800 text-xs text-slate-400">
+              <thead className="bg-slate-100 text-xs text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Channel</th>
@@ -501,14 +501,14 @@ export default function OutboundPage() {
                   <th className="px-4 py-3">Date</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-slate-200">
                 {campaigns.map((c) => (
                   <tr
                     key={c.id}
                     onClick={() => handleViewResults(c)}
-                    className="cursor-pointer text-slate-300 hover:bg-slate-800/40"
+                    className="cursor-pointer text-slate-600 hover:bg-slate-50"
                   >
-                    <td className="px-4 py-3 font-medium text-slate-100">{c.name}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{c.name}</td>
                     <td className="px-4 py-3 capitalize">{c.channel}</td>
                     <td className="px-4 py-3">{c.totalContacts}</td>
                     <td className="px-4 py-3">
@@ -531,13 +531,13 @@ export default function OutboundPage() {
                       <span
                         className={cn(
                           'rounded-full px-2 py-0.5 text-xs font-medium',
-                          STATUS_COLORS[c.status] || 'bg-slate-500/20 text-slate-300',
+                          STATUS_COLORS[c.status] || 'bg-slate-500/20 text-slate-600',
                         )}
                       >
                         {STATUS_LABELS[c.status] ?? c.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-400">
+                    <td className="px-4 py-3 text-slate-500">
                       {new Date(c.createdAt).toLocaleDateString('en-GB')}
                     </td>
                   </tr>
@@ -555,17 +555,17 @@ export default function OutboundPage() {
           onClick={() => setSelectedCampaign(null)}
         >
           <div
-            className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+            className="w-full max-w-2xl rounded-xl border border-slate-300 bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal header */}
-            <div className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+            <div className="flex items-center justify-between border-b border-slate-300 px-6 py-4">
               <div>
-                <h2 className="text-base font-semibold text-slate-100">
+                <h2 className="text-base font-semibold text-slate-900">
                   {selectedCampaign?.name ?? 'Loading…'}
                 </h2>
                 {selectedCampaign && (
-                  <p className="mt-0.5 text-xs text-slate-400">
+                  <p className="mt-0.5 text-xs text-slate-500">
                     {selectedCampaign.sentCount} sent · {selectedCampaign.totalContacts} total ·{' '}
                     {new Date(selectedCampaign.createdAt).toLocaleDateString('en-GB')}
                   </p>
@@ -573,7 +573,7 @@ export default function OutboundPage() {
               </div>
               <button
                 onClick={() => setSelectedCampaign(null)}
-                className="rounded p-1 text-slate-400 hover:text-slate-200"
+                className="rounded p-1 text-slate-500 hover:text-slate-700"
               >
                 ✕
               </button>
@@ -587,7 +587,7 @@ export default function OutboundPage() {
                 <p className="px-6 py-8 text-center text-sm text-slate-500">No contacts found.</p>
               ) : (
                 <table className="w-full text-left text-sm">
-                  <thead className="sticky top-0 bg-slate-800 text-xs text-slate-400">
+                  <thead className="sticky top-0 bg-slate-100 text-xs text-slate-500">
                     <tr>
                       <th className="px-4 py-2">Name</th>
                       <th className="px-4 py-2">Phone</th>
@@ -595,7 +595,7 @@ export default function OutboundPage() {
                       <th className="px-4 py-2">Detail</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
+                  <tbody className="divide-y divide-slate-200">
                     {selectedCampaign.contacts!.map((contact) => {
                       const statusColor: Record<string, string> = {
                         pending: 'text-yellow-400',
@@ -616,10 +616,10 @@ export default function OutboundPage() {
                         opted_out: 'Opted Out',
                       };
                       return (
-                        <tr key={contact.id} className="text-slate-300">
+                        <tr key={contact.id} className="text-slate-600">
                           <td className="px-4 py-2">{contact.customerName}</td>
                           <td className="px-4 py-2 font-mono text-xs">{contact.phone}</td>
-                          <td className={`px-4 py-2 text-xs font-medium ${statusColor[contact.status] ?? 'text-slate-400'}`}>
+                          <td className={`px-4 py-2 text-xs font-medium ${statusColor[contact.status] ?? 'text-slate-500'}`}>
                             {statusLabel[contact.status] ?? contact.status}
                           </td>
                           <td className="px-4 py-2 text-xs text-slate-500">

@@ -78,19 +78,19 @@ export default function ConversationTaggingPanel({
   };
 
   return (
-    <div className="w-80 bg-slate-900/60 border-l border-slate-800 p-4 overflow-y-auto">
-      <h3 className="text-lg font-semibold text-slate-100 mb-4">Conversation Details</h3>
+    <div className="w-80 bg-white border-l border-slate-200 p-4 overflow-y-auto">
+      <h3 className="text-lg font-semibold text-slate-900 mb-4">Conversation Details</h3>
 
       <div className="space-y-4">
         {/* Message Type */}
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
+          <label className="block text-sm font-medium text-slate-600 mb-2">
             Message Type
           </label>
           <select
             value={tags.messageType || ''}
             onChange={(e) => setTags({ ...tags, messageType: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
           >
             <option value="">Select type...</option>
             <option value="inquiry">Inquiry</option>
@@ -109,16 +109,16 @@ export default function ConversationTaggingPanel({
               type="checkbox"
               checked={tags.confirmedBooking || false}
               onChange={(e) => setTags({ ...tags, confirmedBooking: e.target.checked })}
-              className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-purple-600 focus:ring-purple-500"
+              className="w-4 h-4 rounded border-slate-300 bg-slate-100 text-purple-600 focus:ring-purple-500"
             />
-            <span className="text-sm font-medium text-slate-300">Confirmed Booking</span>
+            <span className="text-sm font-medium text-slate-600">Confirmed Booking</span>
           </label>
         </div>
 
         {/* Booking Category */}
         {tags.confirmedBooking && (
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-slate-600 mb-2">
               Booking Category
             </label>
             <select
@@ -129,7 +129,7 @@ export default function ConversationTaggingPanel({
                   confirmedBookingCategory: e.target.value as any,
                 })
               }
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
               <option value="">Select category...</option>
               <option value="service">Service</option>
@@ -143,7 +143,7 @@ export default function ConversationTaggingPanel({
         {/* Captured Revenue */}
         {tags.confirmedBooking && (
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-slate-600 mb-2">
               Captured Revenue (£)
             </label>
             <input
@@ -158,7 +158,7 @@ export default function ConversationTaggingPanel({
                 })
               }
               placeholder="0.00"
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
           </div>
         )}
@@ -166,7 +166,7 @@ export default function ConversationTaggingPanel({
         {/* Booking Details */}
         {tags.confirmedBooking && (
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-slate-600 mb-2">
               Booking Details
             </label>
             <textarea
@@ -174,14 +174,14 @@ export default function ConversationTaggingPanel({
               onChange={(e) => setTags({ ...tags, bookingDetails: e.target.value })}
               placeholder="Add notes about the booking..."
               rows={3}
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+              className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
             />
           </div>
         )}
 
         {/* Custom Tags */}
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">Custom Tags</label>
+          <label className="block text-sm font-medium text-slate-600 mb-2">Custom Tags</label>
           <div className="flex gap-2 mb-2">
             <input
               type="text"
@@ -189,7 +189,7 @@ export default function ConversationTaggingPanel({
               onChange={(e) => setNewTag(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && addTag()}
               placeholder="Add a tag..."
-              className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="flex-1 px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
             <button
               onClick={addTag}
@@ -202,12 +202,12 @@ export default function ConversationTaggingPanel({
             {tags.tags?.map((tag) => (
               <span
                 key={tag}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-slate-800 text-slate-300 text-xs rounded-full"
+                className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-full"
               >
                 {tag}
                 <button
                   onClick={() => removeTag(tag)}
-                  className="hover:text-slate-100"
+                  className="hover:text-slate-900"
                 >
                   <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                     <path

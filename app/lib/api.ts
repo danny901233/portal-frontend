@@ -3,6 +3,7 @@ import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from "axio
 import type {
   AgentConfiguration,
   AgentConfigurationResponse,
+  AgentKnowledgeDocument,
   CallFeedbackResponse,
   CallResponse,
   CallsResponse,
@@ -83,18 +84,6 @@ export const downloadConfirmedBookingsCsv = async (
   const querySuffix = params.toString();
   const { data } = await api.get<Blob>(
     `/api/garages/${targetGarageId}/confirmed-bookings.csv${querySuffix ? `?${querySuffix}` : ""}`,
-    { responseType: "blob" }
-  );
-  return data;
-};
-
-export const downloadNegativeFeedbackCsv = async (garageId?: string): Promise<Blob> => {
-  const targetGarageId = garageId ?? getGarageId();
-  if (!targetGarageId) {
-    throw new Error("Missing garage id. Log in again or set a default garage id.");
-  }
-  const { data } = await api.get<Blob>(
-    `/api/garages/${targetGarageId}/calls/feedback/export`,
     { responseType: "blob" }
   );
   return data;
@@ -290,6 +279,91 @@ export const ingestWebsiteKnowledge = async (
   return data;
 };
 
+export interface KnowledgeUploadResponse {
+  knowledgeBase: AgentKnowledgeDocument[];
+  uploadId: string;
+  chunks: number;
+}
+
+// Upload a document (PDF / Word / CSV / Excel / text) into the garage's knowledge base.
+// kind 'price-list' is shown only for Assist garages and lets the agent quote from it.
+export const uploadKnowledgeDocument = async (
+  file: File,
+  kind: 'document' | 'price-list',
+  garageId?: string
+): Promise<KnowledgeUploadResponse> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+  const form = new FormData();
+  form.append('kind', kind);
+  form.append('file', file);
+  const { data } = await api.post<KnowledgeUploadResponse>(
+    `/api/garages/${targetGarageId}/knowledge-upload`,
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  );
+  return data;
+};
+
+export interface TyresoftServicesCsvResponse {
+  ok: true;
+  imported: { services: number; brackets: number };
+  warnings: string[];
+}
+
+// Upload a Tyresoft Services.csv export and replace the garage's tsServices +
+// pricingRules. Engine-size rows get grouped into bracketed services; rows with
+// no engine range become fixed-price services.
+export const uploadTyresoftServicesCsv = async (
+  file: File,
+  garageId?: string
+): Promise<TyresoftServicesCsvResponse> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await api.post<TyresoftServicesCsvResponse>(
+    `/api/garages/${targetGarageId}/tyresoft-services-csv`,
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  );
+  return data;
+};
+
+// Clears tsServices, pricingRules, and tsServicesUpload from the garage's
+// integrationProviderConfig. Used when the garage toggles "Give prices on
+// calls" off.
+export const deleteTyresoftServicesCsv = async (
+  garageId?: string
+): Promise<{ ok: true }> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+  const { data } = await api.delete<{ ok: true }>(
+    `/api/garages/${targetGarageId}/tyresoft-services-csv`
+  );
+  return data;
+};
+
+export const deleteKnowledgeDocument = async (
+  uploadId: string,
+  garageId?: string
+): Promise<{ knowledgeBase: AgentKnowledgeDocument[]; deleted: number }> => {
+  const targetGarageId = garageId ?? getGarageId();
+  if (!targetGarageId) {
+    throw new Error("Missing garage id. Log in again or set a default garage id.");
+  }
+  const { data } = await api.delete<{ knowledgeBase: AgentKnowledgeDocument[]; deleted: number }>(
+    `/api/garages/${targetGarageId}/knowledge/${uploadId}`
+  );
+  return data;
+};
+
 export default api;
 // Billing API Functions
 export const fetchBillingConfig = async (garageId: string): Promise<{ config: import('../types').BillingConfig }> => {
@@ -307,6 +381,9 @@ export const updateBillingConfig = async (
     trialDays?: number;
     requiresBookingActivation?: boolean;
     bookingsRequiredForActivation?: number;
+    messagingSubscriptionCostGbp?: number;
+    includedMessages?: number;
+    costPerMessageGbp?: number;
   }
 ): Promise<{ config: import('../types').BillingConfig }> => {
   const { data } = await api.put(`/api/billing/garages/${garageId}/config`, config);
@@ -402,6 +479,16 @@ export const deleteInvoice = async (invoiceId: string): Promise<{ success: boole
 
 export const creditInvoice = async (invoiceId: string, reason: string): Promise<{ invoice: import('../types').Invoice }> => {
   const { data } = await api.post(`/api/admin/invoices/${invoiceId}/credit`, { reason });
+  return data;
+};
+
+export const updateGarageBillingEmail = async (garageId: string, billingEmail: string): Promise<any> => {
+  const { data } = await api.put(`/api/customer/billing/garages/${garageId}/billing-email`, { billingEmail });
+  return data;
+};
+
+export const sendGarageInvoices = async (garageId: string): Promise<any> => {
+  const { data } = await api.post(`/api/customer/billing/garages/${garageId}/send-invoices`);
   return data;
 };
 
@@ -507,12 +594,144 @@ export const sendOutboundCampaign = async (id: string): Promise<{ success: boole
   return data;
 };
 
+// ---------------------------------------------------------------------------
+// Service agreement
+// ---------------------------------------------------------------------------
 
-export const uploadTyreFeed = async (
-  garageId: string,
-  depotId: number,
-  csvContent: string
-): Promise<{ imported: number; depotId: number; feedVersion: string }> => {
-  const { data } = await api.post(`/api/agent-config/tyre-feed/${garageId}/${depotId}`, { csv: csvContent });
+export type AgreementSummary = {
+  id: string;
+  clientName: string;
+  setupFeeGbp: number;
+  licenceFeeGbp: number;
+  centresCount: number;
+  licences: string[];
+  goLiveDate: string | null;
+  status: 'draft' | 'sent' | 'signed' | 'externally_signed' | 'voided';
+  version: string;
+};
+
+export type PendingAgreementResponse = {
+  agreement: AgreementSummary | null;
+  html?: string;
+  css?: string;
+};
+
+export const fetchPendingAgreement = async (): Promise<PendingAgreementResponse> => {
+  const { data } = await api.get<PendingAgreementResponse>('/api/agreements/me/pending');
   return data;
+};
+
+export const fetchAgreementByToken = async (
+  token: string
+): Promise<{ agreement: AgreementSummary; customerEmail: string; html: string; css: string }> => {
+  const { data } = await api.get(`/api/agreements/sign/${encodeURIComponent(token)}`);
+  return data;
+};
+
+export type SignAgreementResponse = {
+  success: boolean;
+  agreement: AgreementSummary;
+  nextStep?: 'payment' | 'dashboard';
+};
+
+export const signAgreement = async (
+  agreementId: string,
+  payload: { signedByName: string; signedByPosition: string; signatureDataUrl: string }
+): Promise<SignAgreementResponse> => {
+  const { data } = await api.post(`/api/agreements/${agreementId}/sign`, { ...payload, accepted: true });
+  return data;
+};
+
+export const signAgreementByToken = async (
+  token: string,
+  payload: { signedByName: string; signedByPosition: string; signatureDataUrl: string }
+): Promise<SignAgreementResponse> => {
+  const { data } = await api.post(`/api/agreements/sign/${encodeURIComponent(token)}`, {
+    ...payload,
+    accepted: true,
+  });
+  return data;
+};
+
+// ---------------------------------------------------------------------------
+// In-portal support chat
+// ---------------------------------------------------------------------------
+
+export type SupportMessage = {
+  id: string;
+  conversationId: string;
+  senderRole: 'customer' | 'ai' | 'staff' | 'system';
+  senderUserId: string | null;
+  channel: string;
+  body: string;
+  createdAt: string;
+  sender?: { email: string } | null;
+};
+
+export type SupportConversationStatus = 'ai' | 'awaiting_staff' | 'staff_handled' | 'closed';
+
+export type SupportConversationSummary = {
+  id: string;
+  lastMessageAt: string;
+  lastMessageText: string | null;
+  unreadForUser: number;
+  status?: SupportConversationStatus;
+};
+
+export type SupportSendResponse = {
+  messages: SupportMessage[];
+  status: SupportConversationStatus;
+};
+
+export type SupportThreadResponse = {
+  conversation: SupportConversationSummary;
+  messages: SupportMessage[];
+};
+
+export const fetchMySupportThread = async (): Promise<SupportThreadResponse> => {
+  const { data } = await api.get<SupportThreadResponse>('/api/support/me');
+  return data;
+};
+
+export const sendSupportMessage = async (body: string): Promise<SupportSendResponse> => {
+  // Include the currently-selected branch so the AI sees the right config.
+  const selectedGarageId = getGarageId() ?? undefined;
+  const { data } = await api.post<SupportSendResponse>('/api/support/me/messages', {
+    body,
+    selectedGarageId,
+  });
+  return data;
+};
+
+export const markSupportThreadRead = async (): Promise<void> => {
+  await api.post('/api/support/me/read');
+};
+
+// Admin
+export type AdminSupportConversation = SupportConversationSummary & {
+  userId: string;
+  unreadForStaff: number;
+  user: { email: string };
+  closedAt: string | null;
+};
+
+export const fetchAdminSupportConversations = async (): Promise<{ conversations: AdminSupportConversation[] }> => {
+  const { data } = await api.get('/api/admin/support');
+  return data;
+};
+
+export const fetchAdminSupportConversation = async (
+  id: string,
+): Promise<{ conversation: AdminSupportConversation; messages: SupportMessage[] }> => {
+  const { data } = await api.get(`/api/admin/support/${id}`);
+  return data;
+};
+
+export const sendAdminSupportReply = async (id: string, body: string): Promise<{ message: SupportMessage }> => {
+  const { data } = await api.post(`/api/admin/support/${id}/messages`, { body });
+  return data;
+};
+
+export const markAdminSupportRead = async (id: string): Promise<void> => {
+  await api.post(`/api/admin/support/${id}/read`);
 };

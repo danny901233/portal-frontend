@@ -451,38 +451,38 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-50">Dashboard</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
+          <p className="text-sm text-slate-500">
             Monitor call performance, booking conversion, and sentiment at a glance.
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="flex flex-wrap items-end gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col text-sm">
-            <label className="mb-1 text-xs uppercase tracking-wide text-slate-400">Start date</label>
+            <label className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Start date</label>
             <input
               type="date"
               value={startDate}
               max={endDate}
               onChange={(event) => handleStartChange(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/20"
             />
           </div>
           <div className="flex flex-col text-sm">
-            <label className="mb-1 text-xs uppercase tracking-wide text-slate-400">End date</label>
+            <label className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">End date</label>
             <input
               type="date"
               value={endDate}
               min={startDate}
               max={formatDateInput(new Date())}
               onChange={(event) => handleEndChange(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 shadow-sm focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/20"
             />
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={applyTodayRange}
-              className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
+              className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
             >
               Today
             </button>
@@ -491,7 +491,7 @@ export default function DashboardPage() {
                 key={range.label}
                 type="button"
                 onClick={() => applyQuickRange(range.days)}
-                className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
               >
                 Last {range.label}
               </button>
@@ -502,7 +502,7 @@ export default function DashboardPage() {
             onClick={handleDownloadConfirmedBookings}
             disabled={isDownloading || loading}
             className={cn(
-              'rounded-lg border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-200 transition hover:border-emerald-400 hover:text-emerald-100',
+              'rounded-lg border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-700',
               (isDownloading || loading) && 'cursor-not-allowed opacity-60'
             )}
           >
@@ -512,30 +512,30 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       )}
 
-      <div className="relative overflow-hidden rounded-3xl border border-emerald-500/40 bg-slate-950 px-8 py-10 shadow-[0_25px_60px_-20px_rgba(16,185,129,0.65)]">
-        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 via-sky-500/15 to-purple-500/20" aria-hidden />
-        <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-emerald-400/20 blur-3xl" aria-hidden />
+      <div className="relative overflow-hidden rounded-3xl bg-brand-600 px-8 py-10 shadow-lg shadow-brand-600/20">
+        <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-brand-400/30 blur-3xl" aria-hidden />
+        <div className="absolute -bottom-24 -left-24 h-48 w-48 rounded-full bg-fuchsia-500/20 blur-3xl" aria-hidden />
         <div className="relative grid gap-6 sm:grid-cols-2 sm:items-center">
           <div className="space-y-3">
-            <span className="text-sm uppercase tracking-[0.35em] text-emerald-200/80">Captured Revenue</span>
-            <div className="text-5xl font-semibold text-emerald-100">
+            <span className="text-xs font-semibold uppercase tracking-[0.35em] text-brand-100">Captured Revenue</span>
+            <div className="text-5xl font-semibold text-white">
               {loading ? '—' : formatCurrency(bookingRevenueTotal)}
             </div>
-            <p className="mt-2 max-w-lg text-sm text-emerald-100/80">
+            <p className="mt-2 max-w-lg text-sm text-brand-100">
               Total value of confirmed bookings within the selected window.
             </p>
           </div>
-          <div className="flex flex-col gap-4 rounded-3xl border border-emerald-400/50 bg-emerald-500/15 px-8 py-8 text-left shadow-inner shadow-emerald-900/40">
-            <div className="text-base uppercase tracking-[0.25em] text-emerald-200/80">Confirmed bookings</div>
-            <div className="text-4xl font-semibold text-emerald-100">
+          <div className="flex flex-col gap-3 rounded-2xl border border-white/15 bg-white/10 px-7 py-7 text-left backdrop-blur-sm">
+            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">Confirmed bookings</div>
+            <div className="text-4xl font-semibold text-white">
               {loading ? '—' : callTypeCounts['confirmed booking'] ?? 0}
             </div>
-            <p className="max-w-sm text-sm text-emerald-100/75">
+            <p className="max-w-sm text-sm text-brand-100/90">
               Count of calls tagged as confirmed bookings during this window, directly driving captured revenue.
             </p>
           </div>
@@ -543,28 +543,28 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl bg-gradient-to-br from-sky-500/10 via-sky-500/5 to-sky-500/0 p-5 shadow-sm ring-1 ring-sky-500/20">
-          <div className="text-xs uppercase tracking-wide text-slate-300">Total calls</div>
-          <div className="mt-3 text-3xl font-semibold text-sky-100">{loading ? '—' : totalCalls}</div>
-          <p className="mt-2 text-xs text-slate-400">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total calls</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{loading ? '—' : totalCalls}</div>
+          <p className="mt-2 text-xs text-slate-500">
             All calls captured within the selected date range.
           </p>
         </div>
-        <div className="rounded-2xl bg-gradient-to-br from-purple-500/10 via-purple-500/5 to-purple-500/0 p-5 shadow-sm ring-1 ring-purple-500/20">
-          <div className="text-xs uppercase tracking-wide text-slate-300">Total duration</div>
-          <div className="mt-3 text-3xl font-semibold text-purple-100">{loading ? '—' : formatDuration(totalDurationSeconds)}</div>
-          <p className="mt-2 text-xs text-slate-400">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total duration</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{loading ? '—' : formatDuration(totalDurationSeconds)}</div>
+          <p className="mt-2 text-xs text-slate-500">
             Combined call time for all calls in this period.
           </p>
         </div>
-        <div className="rounded-2xl bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-amber-500/0 p-5 shadow-sm ring-1 ring-amber-500/20">
-          <div className="text-xs uppercase tracking-wide text-slate-300">Top call tag</div>
-          <div className="mt-3 text-3xl font-semibold text-amber-100">{loading ? '—' : mostCommonTagLabel}</div>
-          <p className="mt-2 text-xs text-slate-400">Most frequent call classification in the selected window.</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Top call tag</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{loading ? '—' : mostCommonTagLabel}</div>
+          <p className="mt-2 text-xs text-slate-500">Most frequent call classification in the selected window.</p>
         </div>
       </div>
 
-      {hasMessagingAccess && selectedGarageId && (
+      {hasMessagingAccess && selectedGarageId && !shouldAggregateAllBranches && (
         <div className="grid gap-4 md:grid-cols-2">
           <MessageStatsWidget
             garageId={selectedGarageId}
@@ -580,27 +580,27 @@ export default function DashboardPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-100">Call type distribution</h2>
-            <span className="text-xs uppercase tracking-wide text-slate-400">By tag</span>
+            <h2 className="text-lg font-semibold text-slate-900">Call type distribution</h2>
+            <span className="text-xs uppercase tracking-wide text-slate-500">By tag</span>
           </div>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-slate-500">
             Tags show the purpose of each call and highlight where your team is spending time.
           </p>
           <div className="mt-6">
             {loading ? (
-              <div className="text-sm text-slate-400">Loading distribution…</div>
+              <div className="text-sm text-slate-500">Loading distribution…</div>
             ) : callTypeTotal ? (
               <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-stretch">
                 <div className="flex justify-center lg:w-1/2">
                   <div
-                    className="relative h-52 w-52 rounded-full border border-slate-800 bg-slate-950 shadow-lg shadow-slate-950/40"
+                    className="relative h-52 w-52 rounded-full border border-slate-200 bg-slate-50 shadow-sm"
                     style={{ backgroundImage: pieGradient }}
                   >
-                    <div className="absolute inset-8 flex flex-col items-center justify-center rounded-full border border-slate-800 bg-slate-950/90 text-slate-100 shadow-inner shadow-black/40">
-                      <span className="text-xs uppercase tracking-wide text-slate-400">Total calls</span>
-                      <span className="mt-1 text-3xl font-semibold text-slate-50">{totalCalls}</span>
+                    <div className="absolute inset-8 flex flex-col items-center justify-center rounded-full border border-slate-200 bg-white text-slate-900 shadow-inner shadow-black/40">
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Total calls</span>
+                      <span className="mt-1 text-3xl font-semibold text-slate-900">{totalCalls}</span>
                     </div>
                   </div>
                 </div>
@@ -613,8 +613,8 @@ export default function DashboardPage() {
                       <div
                         key={tag}
                         className={cn(
-                          'flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/50 px-4 py-3 text-sm transition',
-                          isZero ? 'opacity-60' : 'hover:border-slate-700 hover:bg-slate-900/80'
+                          'flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm transition',
+                          isZero ? 'opacity-60' : 'hover:border-slate-300 hover:bg-white'
                         )}
                       >
                         <div className="flex items-center gap-3">
@@ -623,31 +623,31 @@ export default function DashboardPage() {
                             style={{ backgroundColor: color }}
                             aria-hidden
                           />
-                          <span className="text-slate-100">{label}</span>
+                          <span className="text-slate-900">{label}</span>
                         </div>
-                        <span className="text-xs text-slate-300">{count} • {percent}%</span>
+                        <span className="text-xs text-slate-700">{count} • {percent}%</span>
                       </div>
                     );
                   })}
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-slate-400">No calls recorded for this range.</div>
+              <div className="text-sm text-slate-500">No calls recorded for this range.</div>
             )}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-100">Daily call volume</h2>
-            <span className="text-xs uppercase tracking-wide text-slate-400">Trend</span>
+            <h2 className="text-lg font-semibold text-slate-900">Daily call volume</h2>
+            <span className="text-xs uppercase tracking-wide text-slate-500">Trend</span>
           </div>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-slate-500">
             Track demand patterns to understand staffing needs and campaign impact.
           </p>
           <div className="mt-6 flex items-end gap-3 overflow-x-auto pb-2">
             {loading ? (
-              <div className="text-sm text-slate-400">Loading trend…</div>
+              <div className="text-sm text-slate-500">Loading trend…</div>
             ) : dailyBuckets.length ? (
               dailyBuckets.map((bucket) => {
                 const percentage = maxDailyCount ? (bucket.count / maxDailyCount) * 100 : 0;
@@ -658,8 +658,8 @@ export default function DashboardPage() {
                   day: 'numeric',
                 });
                 return (
-                  <div key={bucket.date} className="flex w-10 flex-col items-center text-xs text-slate-400">
-                    <div className="flex h-40 w-full items-end justify-center overflow-hidden rounded-full bg-slate-800/80">
+                  <div key={bucket.date} className="flex w-10 flex-col items-center text-xs text-slate-500">
+                    <div className="flex h-40 w-full items-end justify-center overflow-hidden rounded-full bg-slate-100">
                       <div
                         className="w-full rounded-full bg-gradient-to-t from-sky-500 via-sky-400 to-sky-200 shadow-lg shadow-sky-900/50"
                         style={{ height: `${height}%` }}
@@ -667,37 +667,37 @@ export default function DashboardPage() {
                       />
                     </div>
                     <span className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
-                    <span className="text-[11px] text-slate-300">{bucket.count}</span>
+                    <span className="text-[11px] text-slate-700">{bucket.count}</span>
                   </div>
                 );
               })
             ) : (
-              <div className="text-sm text-slate-400">No calls recorded for this range.</div>
+              <div className="text-sm text-slate-500">No calls recorded for this range.</div>
             )}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-100">Confirmed booking categories</h2>
-            <span className="text-xs uppercase tracking-wide text-slate-400">Set customer info</span>
+            <h2 className="text-lg font-semibold text-slate-900">Confirmed booking categories</h2>
+            <span className="text-xs uppercase tracking-wide text-slate-500">Set customer info</span>
           </div>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-slate-500">
             Breakdown of confirmed bookings that hit the customer info webhook, grouped by service type.
           </p>
           <div className="mt-6">
             {loading ? (
-              <div className="text-sm text-slate-400">Loading breakdown…</div>
+              <div className="text-sm text-slate-500">Loading breakdown…</div>
             ) : confirmedBookingTotal ? (
               <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
                 <div className="flex justify-center lg:w-1/2">
                   <div
-                    className="relative h-40 w-40 rounded-full border border-slate-800 bg-slate-950 shadow-lg shadow-slate-950/40"
+                    className="relative h-40 w-40 rounded-full border border-slate-200 bg-slate-50 shadow-sm"
                     style={{ backgroundImage: confirmedBookingPieGradient }}
                   >
-                    <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full border border-slate-800 bg-slate-950/90 text-slate-100 shadow-inner shadow-black/40">
-                      <span className="text-[10px] uppercase tracking-[0.35em] text-slate-400">Confirmed</span>
-                      <span className="mt-1 text-3xl font-semibold text-slate-50">{confirmedBookingTotal}</span>
+                    <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full border border-slate-200 bg-white text-slate-900 shadow-inner shadow-black/40">
+                      <span className="text-[10px] uppercase tracking-[0.35em] text-slate-500">Confirmed</span>
+                      <span className="mt-1 text-3xl font-semibold text-slate-900">{confirmedBookingTotal}</span>
                     </div>
                   </div>
                 </div>
@@ -711,8 +711,8 @@ export default function DashboardPage() {
                       <div
                         key={entry.category}
                         className={cn(
-                          'flex items-center justify-between rounded-xl border border-slate-800/60 bg-slate-900/50 px-4 py-2 text-sm transition',
-                          entry.count === 0 ? 'opacity-60' : 'hover:border-slate-700 hover:bg-slate-900/80',
+                          'flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm transition',
+                          entry.count === 0 ? 'opacity-60' : 'hover:border-slate-300 hover:bg-white',
                         )}
                       >
                         <div className="flex items-center gap-3">
@@ -721,9 +721,9 @@ export default function DashboardPage() {
                             style={{ backgroundColor: color }}
                             aria-hidden
                           />
-                          <span className="text-slate-100">{entry.label}</span>
+                          <span className="text-slate-900">{entry.label}</span>
                         </div>
-                        <span className="text-xs text-slate-300">
+                        <span className="text-xs text-slate-700">
                           {entry.count} • {percent}%
                         </span>
                       </div>
@@ -732,7 +732,7 @@ export default function DashboardPage() {
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-slate-400">
+              <div className="text-sm text-slate-500">
                 No confirmed bookings recorded for this range.
               </div>
             )}
@@ -740,9 +740,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <h2 className="text-lg font-semibold text-slate-100">Tag spotlight</h2>
-        <p className="mt-1 text-sm text-slate-400">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900">Tag spotlight</h2>
+        <p className="mt-1 text-sm text-slate-500">
           Quick overview of how often each tag is used. Use this to prioritise scripts and team training.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
@@ -752,7 +752,7 @@ export default function DashboardPage() {
               <span
                 key={tag}
                 className={cn(
-                  'inline-flex min-w-[140px] items-center justify-between gap-2 rounded-full px-4 py-2 text-sm font-medium text-slate-100 shadow shadow-black/20',
+                  'inline-flex min-w-[140px] items-center justify-between gap-2 rounded-full px-4 py-2 text-sm font-medium text-slate-900 shadow shadow-black/20',
                   TAG_STYLES[tag],
                 )}
               >
@@ -764,7 +764,7 @@ export default function DashboardPage() {
           {callTypeCounts.other ? (
             <span
               className={cn(
-                'inline-flex min-w-[140px] items-center justify-between gap-2 rounded-full px-4 py-2 text-sm font-medium text-slate-100 shadow shadow-black/20',
+                'inline-flex min-w-[140px] items-center justify-between gap-2 rounded-full px-4 py-2 text-sm font-medium text-slate-900 shadow shadow-black/20',
                 TAG_STYLES.other,
               )}
             >

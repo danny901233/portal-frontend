@@ -66,8 +66,8 @@ function ResetPasswordForm() {
 
   if (!token) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
-        <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
+      <div className="flex min-h-screen items-center justify-center bg-white px-4 text-slate-900">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10">
           <div className="text-center">
             <div className="mx-auto mb-6 flex justify-center">
               <img
@@ -77,12 +77,12 @@ function ResetPasswordForm() {
               />
             </div>
             <h1 className="text-2xl font-semibold">Invalid Reset Link</h1>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-slate-500">
               This password reset link is invalid or has expired. Please request a new password reset.
             </p>
             <button
               onClick={() => router.push('/login')}
-              className="mt-6 w-full rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              className="mt-6 w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
               Back to Login
             </button>
@@ -93,8 +93,8 @@ function ResetPasswordForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
-      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
+    <div className="flex min-h-screen items-center justify-center bg-white px-4 text-slate-900">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-6 flex justify-center">
             <img
@@ -104,12 +104,12 @@ function ResetPasswordForm() {
             />
           </div>
           <h1 className="text-2xl font-semibold">Reset Your Password</h1>
-          <p className="mt-2 text-sm text-slate-400">Enter your new password below</p>
+          <p className="mt-2 text-sm text-slate-500">Enter your new password below</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
-            <label htmlFor="password" className="block text-sm font-medium text-slate-300">
+            <label htmlFor="password" className="block text-sm font-medium text-slate-600">
               New Password
             </label>
             <input
@@ -117,7 +117,7 @@ function ResetPasswordForm() {
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 transition-colors focus:border-sky-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 transition-colors focus:border-brand-600 focus:outline-none"
               placeholder="Enter new password (min 8 characters)"
               required
               minLength={8}
@@ -126,7 +126,7 @@ function ResetPasswordForm() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-300">
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-600">
               Confirm Password
             </label>
             <input
@@ -134,7 +134,7 @@ function ResetPasswordForm() {
               id="confirmPassword"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 transition-colors focus:border-sky-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 transition-colors focus:border-brand-600 focus:outline-none"
               placeholder="Confirm new password"
               required
               minLength={8}
@@ -146,8 +146,8 @@ function ResetPasswordForm() {
             <div
               className={`rounded-lg border px-4 py-3 text-sm ${
                 message.type === 'success'
-                  ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-200'
-                  : 'border-rose-500/60 bg-rose-500/15 text-rose-200'
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                  : 'border-rose-300 bg-rose-50 text-rose-800'
               }`}
             >
               {message.text}
@@ -157,7 +157,7 @@ function ResetPasswordForm() {
           <button
             type="submit"
             disabled={resetPasswordMutation.isPending}
-            className="w-full rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
+            className="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
           >
             {resetPasswordMutation.isPending ? 'Resetting Password…' : 'Reset Password'}
           </button>
@@ -166,7 +166,7 @@ function ResetPasswordForm() {
             <button
               type="button"
               onClick={() => router.push('/login')}
-              className="text-sm text-sky-400 hover:text-sky-300 hover:underline"
+              className="text-sm text-brand-600 hover:text-brand-700 hover:underline"
             >
               Back to Login
             </button>
@@ -180,8 +180,8 @@ function ResetPasswordForm() {
 export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
-        <div className="text-slate-400">Loading...</div>
+      <div className="flex min-h-screen items-center justify-center bg-white text-slate-900">
+        <div className="text-slate-500">Loading...</div>
       </div>
     }>
       <ResetPasswordForm />

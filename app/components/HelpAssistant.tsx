@@ -233,17 +233,17 @@ export default function HelpAssistant() {
   }, []);
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-6 shadow-lg shadow-slate-950/30">
+    <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-lg shadow-slate-900/5">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">Need a hand?</h2>
-          <p className="text-sm text-slate-400">
+          <h2 className="text-lg font-semibold text-slate-900">Need a hand?</h2>
+          <p className="text-sm text-slate-500">
             Start a conversation with the ReceptionMate help bot. It points you to the right guide and lets you know when to reach out to a human.
           </p>
         </div>
         <Link
           href={`mailto:${SUPPORT_EMAIL}`}
-          className="rounded-md border border-slate-700 px-3 py-1 text-xs text-sky-400 transition-colors hover:border-slate-500 hover:text-sky-300"
+          className="rounded-md border border-slate-300 px-3 py-1 text-xs text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700"
         >
           Email support
         </Link>
@@ -255,7 +255,7 @@ export default function HelpAssistant() {
             key={topic.id}
             type="button"
             onClick={() => handleQuickPrompt(topic.prompt)}
-            className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium text-slate-200 transition-colors hover:border-sky-500/80 hover:text-sky-100"
+            className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition-colors hover:border-brand-400 hover:text-brand-700"
           >
             {topic.label}
           </button>
@@ -264,7 +264,7 @@ export default function HelpAssistant() {
 
       <div
         ref={scrollRef}
-        className="mt-4 max-h-72 space-y-3 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-200"
+        className="mt-4 max-h-72 space-y-3 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"
       >
         {messages.map((message) => {
           const topic =
@@ -278,17 +278,17 @@ export default function HelpAssistant() {
               key={message.id}
               className={
                 message.role === "assistant"
-                  ? "rounded-lg border border-slate-800 bg-slate-900/80 p-3"
-                  : "ml-auto w-fit rounded-lg border border-sky-600/40 bg-sky-500/20 p-3"
+                  ? "rounded-lg border border-slate-200 bg-white p-3"
+                  : "ml-auto w-fit rounded-lg border border-brand-300 bg-brand-100 p-3"
               }
             >
               <p>{message.content}</p>
               {topic ? (
-                <div className="mt-2 inline-flex items-center gap-2 text-xs text-slate-300">
+                <div className="mt-2 inline-flex items-center gap-2 text-xs text-slate-600">
                   <span>Need more?</span>
                   <Link
                     href={topic.linkHref}
-                    className="rounded border border-slate-700 px-2 py-0.5 text-sky-400 transition-colors hover:border-slate-500 hover:text-sky-300"
+                    className="rounded border border-slate-300 px-2 py-0.5 text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700"
                   >
                     {topic.linkLabel}
                   </Link>
@@ -312,7 +312,7 @@ export default function HelpAssistant() {
             }
           }}
           placeholder="Ask a question about the portal..."
-          className="w-full rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none"
           disabled={isSending}
         />
         <div className="flex items-center justify-between text-xs text-slate-500">
@@ -321,7 +321,7 @@ export default function HelpAssistant() {
             type="button"
             onClick={handleSubmit}
             disabled={isSending}
-            className="rounded-md border border-sky-500/60 bg-sky-500/20 px-4 py-1 text-xs font-semibold text-sky-200 transition-colors hover:bg-sky-500/30"
+            className="rounded-md border border-brand-300 bg-brand-100 px-4 py-1 text-xs font-semibold text-brand-700 transition-colors hover:bg-brand-100"
           >
             {isSending ? "Sending…" : "Send"}
           </button>

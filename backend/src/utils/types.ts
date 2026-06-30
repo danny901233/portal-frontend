@@ -52,12 +52,53 @@ export type AgentType = 'assist' | 'automate';
 
 export type VoiceOption = 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia';
 
+// Per-service price brackets keyed by service code (e.g. "FULL_SERVICE").
+// Each bracket = "vehicles with engine cc <= maxCC pay this price".
+export type PricingBracket = {
+  maxCC: number;
+  price: number;
+};
+
+// Tyresoft service catalogue entry. Engine-size services use `pricingRules`;
+// fixed-price services store the price directly on the entry.
+export type TsService = {
+  id: string;
+  name: string;
+  pricingType: 'fixed' | 'engine-size';
+  price?: number;
+};
+
 export type TyresoftSettings = {
   tsWorkspace: string;
   tsUsername: string;
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
+  // Optional structured fields — populated when a garage's Tyresoft
+  // services have been synced and per-bracket pricing has been set.
+  tsServices?: TsService[];
+  pricingRules?: Record<string, PricingBracket[]>;
+  // Metadata about the most recent Services.csv upload. Written by the CSV
+  // import endpoint and surfaced on GET so the Training tab can show
+  // "Currently using …".
+  tsServicesUpload?: {
+    fileName: string;
+    uploadedAt: string;
+    services: number;
+    brackets: number;
+  };
+  // Per-garage tyre markup. The deployed agent at optimised-tyresoft/agent.py
+  // reads tyreMarkupFlat / tyreMarkupPercent off integrationProviderConfig
+  // (top-level) and applies via _marked_price(). We persist both the
+  // form-friendly { type, value } AND the numeric tyreMarkupFlat/Percent so
+  // the form repopulates AND the agent sees the value it expects.
+  tyreMarkupType?: 'flat' | 'percent';
+  tyreMarkupValue?: string;
+  // Numeric mirrors of the form fields above. Surfaced on GET so the deployed
+  // agent (which reads tyresoftSettings.tyreMarkupFlat / tyreMarkupPercent as
+  // numbers) finds them in the DynamoDB-synced config.
+  tyreMarkupFlat?: number;
+  tyreMarkupPercent?: number;
 };
 
 export const createDefaultTyresoftSettings = (): TyresoftSettings => ({
@@ -74,6 +115,28 @@ export const cloneTyresoftSettings = (settings?: TyresoftSettings | null): Tyres
   tsPassword: typeof settings?.tsPassword === 'string' ? settings.tsPassword : '',
   tsApiKey: typeof settings?.tsApiKey === 'string' ? settings.tsApiKey : '',
   tsDepotId: typeof settings?.tsDepotId === 'string' ? settings.tsDepotId : (settings?.tsDepotId != null ? String(settings.tsDepotId) : ''),
+  ...(Array.isArray(settings?.tsServices) ? { tsServices: settings.tsServices } : {}),
+  ...(settings?.pricingRules && typeof settings.pricingRules === 'object' && !Array.isArray(settings.pricingRules)
+    ? { pricingRules: settings.pricingRules }
+    : {}),
+  ...(settings?.tsServicesUpload && typeof settings.tsServicesUpload === 'object'
+    ? { tsServicesUpload: settings.tsServicesUpload }
+    : {}),
+  ...(settings?.tyreMarkupType === 'flat' || settings?.tyreMarkupType === 'percent'
+    ? { tyreMarkupType: settings.tyreMarkupType }
+    : {}),
+  ...(typeof settings?.tyreMarkupValue === 'string'
+    ? { tyreMarkupValue: settings.tyreMarkupValue }
+    : {}),
+  // Numeric mirrors — must survive clone() so DynamoDB sync ships them to the
+  // agent (agent.py reads tyresoftSettings.tyreMarkupFlat / tyreMarkupPercent
+  // as numbers).
+  ...(typeof settings?.tyreMarkupFlat === 'number'
+    ? { tyreMarkupFlat: settings.tyreMarkupFlat }
+    : {}),
+  ...(typeof settings?.tyreMarkupPercent === 'number'
+    ? { tyreMarkupPercent: settings.tyreMarkupPercent }
+    : {}),
 });
 
 export type GarageHiveSettings = {

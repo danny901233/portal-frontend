@@ -1,73 +1,65 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
-import { Poppins } from 'next/font/google';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../lib/utils';
+import { fetchAgentConfiguration } from '../lib/api';
+import { AGENT_SETUP_NAV, type AgentSetupNavItem } from '../agent-setup/_nav';
+import { isReceptionMateStaff } from '../lib/auth';
 
-const poppins = Poppins({
-  subsets: ['latin'],
-  weight: ['600'],
-  display: 'swap',
-});
+interface NavItem {
+  name: string;
+  href: string;
+  icon: React.ReactNode;
+  requiresMessaging?: boolean;
+  requiresManager?: boolean;
+  requiresStaff?: boolean;
+}
 
-const baseNavigation = [
-  { name: 'Dashboard', href: '/dashboard' },
-  { name: 'Calls', href: '/calls' },
-  { name: 'Messages', href: '/messages' },
-  { name: 'Outbound', href: '/outbound', requiresMessaging: true },
-  { name: 'Templates', href: '/templates', requiresMessaging: true },
-  { name: 'Agent Configurations', href: '/agent-configurations', requiresManager: true },
-  { name: 'Team', href: '/team', requiresManager: true },
-  { name: 'Integrations', href: '/integrations', requiresStaff: true },
-  { name: 'Observability', href: '/observability', requiresStaff: true },
-  { name: 'Billing', href: '/billing' },
+const baseNavigation: NavItem[] = [
+  { name: 'Dashboard', href: '/dashboard', icon: <DashboardIcon /> },
+  { name: 'Calls', href: '/calls', icon: <PhoneIcon /> },
+  { name: 'Messages', href: '/messages', icon: <ChatIcon /> },
+  { name: 'Outbound', href: '/outbound', icon: <SendIcon />, requiresMessaging: true },
+  { name: 'Templates', href: '/templates', icon: <TemplateIcon />, requiresMessaging: true },
+  { name: 'Agent Configurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
+  { name: 'Team', href: '/team', icon: <UsersIcon />, requiresManager: true },
+  { name: 'Integrations', href: '/integrations', icon: <PuzzleIcon />, requiresStaff: true },
+  { name: 'Observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },
+  { name: 'Billing', href: '/billing', icon: <BillingIcon /> },
 ];
 
-const adminNavigation = { name: 'Admin', href: '/admin' } as const;
+const adminNavigation: NavItem = { name: 'Admin', href: '/admin', icon: <ShieldIcon /> };
 
-const supportLinks = [{ name: 'Help & Guides', href: '/help' }];
+const supportLinks: NavItem[] = [{ name: 'Help & Guides', href: '/help', icon: <HelpIcon /> }];
 
-export default function Sidebar({
-  activePath,
-  showAdminLink = false,
-  hasMessagingAccess = false,
-  hasManagerAccess = false,
-  isManagerUser = false,
-  messagesNeedingAttention = 0,
-  receptionMateNumber = null,
-}: {
+interface SidebarProps {
   activePath: string;
+  garageId?: string | null;
   showAdminLink?: boolean;
   hasMessagingAccess?: boolean;
   hasManagerAccess?: boolean;
   isManagerUser?: boolean;
   messagesNeedingAttention?: number;
-  receptionMateNumber?: string | null;
-}) {
+}
+
+export default function Sidebar({
+  activePath,
+  garageId,
+  showAdminLink = false,
+  hasMessagingAccess = false,
+  hasManagerAccess = false,
+  isManagerUser = false,
+  messagesNeedingAttention = 0,
+}: SidebarProps) {
   const items = useMemo(() => {
-    // Filter navigation based on permissions
-    const filteredBase = baseNavigation.filter(item => {
-      // Only show Messages link if garage has messaging access
-      if (item.href === '/messages') {
-        return hasMessagingAccess;
-      }
-      // Only show Billing link if user is a manager
-      if (item.href === '/billing') {
-        return hasManagerAccess;
-      }
-      // Agent Configurations only for managers and staff
-      if (item.requiresManager) {
-        return isManagerUser;
-      }
-      // Outbound and Templates visible to any garage with messaging access
-      if ((item as { requiresMessaging?: boolean }).requiresMessaging) {
-        return hasMessagingAccess;
-      }
-      // Integrations only for ReceptionMate staff
-      if (item.requiresStaff) {
-        return showAdminLink;
-      }
+    const filteredBase = baseNavigation.filter((item) => {
+      if (item.href === '/messages') return hasMessagingAccess;
+      if (item.href === '/billing') return hasManagerAccess;
+      if (item.requiresManager) return isManagerUser;
+      if (item.requiresMessaging) return hasMessagingAccess;
+      if (item.requiresStaff) return showAdminLink;
       return true;
     });
 
@@ -75,7 +67,7 @@ export default function Sidebar({
       ...item,
       isActive: activePath.startsWith(item.href),
     }));
-  }, [activePath, showAdminLink, hasMessagingAccess, hasManagerAccess]);
+  }, [activePath, showAdminLink, hasMessagingAccess, hasManagerAccess, isManagerUser]);
 
   const supportItems = useMemo(
     () =>
@@ -86,83 +78,392 @@ export default function Sidebar({
     [activePath],
   );
 
+  // Pull the current garage's Twilio number for the bottom "Your number" card.
+  const [twilioNumber, setTwilioNumber] = useState<string | null>(null);
+  useEffect(() => {
+    if (!garageId) {
+      setTwilioNumber(null);
+      return;
+    }
+    let cancelled = false;
+    fetchAgentConfiguration(garageId)
+      .then((res) => {
+        if (!cancelled) setTwilioNumber(res.twilioNumber ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setTwilioNumber(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [garageId]);
+
+  const formattedNumber = twilioNumber ? prettifyUKNumber(twilioNumber) : null;
+
   return (
-    <aside className="flex w-64 flex-col border-r border-slate-800 bg-slate-950/60">
-      <div className="flex flex-col items-center justify-center border-b border-slate-800 px-5 py-6 text-center">
+    <aside className="sticky top-0 flex h-screen w-64 flex-col border-r border-brand-700 bg-brand-600">
+      {/* Logo */}
+      <div className="flex items-center justify-center px-4 py-7">
         <img
           src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
           alt="ReceptionMate"
-          className="h-24 w-auto"
+          className="h-20 w-auto"
         />
-        <p
-          className={cn(
-            'mt-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-100',
-            poppins.className,
-          )}
-        >
-          <span className="block italic">“Turn Missed Calls Into</span>
-          <span className="block italic">New Opportunities”</span>
-        </p>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              'flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors',
-              item.isActive
-                ? 'bg-slate-800/60 text-slate-100'
-                : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-100',
-            )}
-          >
-            <span>{item.name}</span>
-            {item.href === '/messages' && messagesNeedingAttention > 0 && (
-              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-semibold text-white">
-                {messagesNeedingAttention > 99 ? '99+' : messagesNeedingAttention}
+
+      {/* Main nav — scrolls internally if it overflows so the bottom card
+          stays pinned to the viewport. */}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
+        {items.map((item) => {
+          // Special case: "Agent Configurations" gets a hover-flyout tray
+          // showing all /agent-setup sub-pages. Clicking the parent navigates
+          // to the first sub-page so users always land somewhere meaningful.
+          if (item.href === '/agent-configurations') {
+            return (
+              <AgentConfigSidebarItem
+                key={item.href}
+                icon={item.icon}
+                name={item.name}
+                activePath={activePath}
+              />
+            );
+          }
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                item.isActive
+                  ? 'bg-white text-brand-700 shadow-sm'
+                  : 'text-brand-50 hover:bg-white/10 hover:text-white',
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-flex h-5 w-5 shrink-0 items-center justify-center transition-colors',
+                  item.isActive ? 'text-brand-600' : 'text-brand-100 group-hover:text-white',
+                )}
+              >
+                {item.icon}
               </span>
-            )}
-          </Link>
-        ))}
+              <span className="flex-1 truncate">{item.name}</span>
+              {item.href === '/messages' && messagesNeedingAttention > 0 && (
+                <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-xs font-semibold text-white">
+                  {messagesNeedingAttention > 99 ? '99+' : messagesNeedingAttention}
+                </span>
+              )}
+            </Link>
+          );
+        })}
       </nav>
-      <div className="border-t border-slate-800 px-3 py-4">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-          Help
-        </div>
-        <div className="space-y-1">
+
+      {/* Help */}
+      <div className="border-t border-white/10 px-3 py-3">
+        <div className="space-y-0.5">
           {supportItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 item.isActive
-                  ? 'bg-slate-800/60 text-slate-100'
-                  : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-100',
+                  ? 'bg-white text-brand-700'
+                  : 'text-brand-50 hover:bg-white/10 hover:text-white',
               )}
             >
+              <span
+                className={cn(
+                  'inline-flex h-5 w-5 shrink-0 items-center justify-center transition-colors',
+                  item.isActive ? 'text-brand-600' : 'text-brand-100 group-hover:text-white',
+                )}
+              >
+                {item.icon}
+              </span>
               <span>{item.name}</span>
             </Link>
           ))}
         </div>
       </div>
-      {receptionMateNumber && (
-        <div className="border-t border-slate-800 px-5 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Your ReceptionMate number
-          </div>
-          <a
-            href={`tel:${receptionMateNumber}`}
-            className="mt-1 block font-mono text-sm font-semibold text-slate-100 hover:text-white"
-          >
-            {receptionMateNumber}
-          </a>
-        </div>
-      )}
 
-      <div className="border-t border-slate-800 px-5 py-4 text-xs text-slate-500">
-        © {new Date().getFullYear()} ReceptionMate
+      {/* Your agent's number card — always visible at the bottom of the
+          sidebar across every page, even if a number isn't yet assigned. */}
+      <div className="border-t border-white/10 px-3 py-3">
+        <div className="rounded-xl bg-white/10 p-3 ring-1 ring-white/15 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15 text-white">
+              <PhoneFilledIcon />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-brand-100">
+                Your ReceptionMate number
+              </p>
+              <p className="mt-0.5 truncate text-sm font-semibold text-white">
+                {formattedNumber ?? 'Not assigned yet'}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </aside>
+  );
+}
+
+function prettifyUKNumber(raw: string): string {
+  const digits = raw.replace(/[^\d+]/g, '');
+  if (digits.startsWith('+44') && digits.length === 13) {
+    const rest = digits.slice(3);
+    return `0${rest.slice(0, 3)} ${rest.slice(3, 6)} ${rest.slice(6)}`;
+  }
+  return raw;
+}
+
+/**
+ * "Agent Configuration" sidebar entry with a hover-flyout tray showing every
+ * /agent-setup sub-page. Uses position: fixed + JS-captured coordinates so
+ * the tray escapes the parent <nav>'s overflow-y-auto clip box. A small close
+ * delay lets the cursor traverse from trigger to tray without flickering shut.
+ */
+function AgentConfigSidebarItem({
+  icon,
+  name,
+  activePath,
+}: {
+  icon: React.ReactNode;
+  name: string;
+  activePath: string;
+}) {
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  const inAgentSetup = activePath.startsWith('/agent-setup');
+  const isActive = activePath.startsWith('/agent-configurations') || inAgentSetup;
+
+  const isStaff = isReceptionMateStaff();
+  const setupItems: AgentSetupNavItem[] = AGENT_SETUP_NAV.filter(
+    (n) => !n.staffOnly || isStaff,
+  );
+
+  const cancelClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+
+  const handleEnter = () => {
+    cancelClose();
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPos({ top: rect.top, left: rect.right });
+    }
+    setOpen(true);
+  };
+
+  const handleLeave = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setOpen(false), 120);
+  };
+
+  useEffect(() => () => cancelClose(), []);
+
+  return (
+    <div
+      ref={triggerRef}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      onFocus={handleEnter}
+      onBlur={handleLeave}
+      className="relative"
+    >
+      <Link
+        href="/agent-setup/company-information"
+        className={cn(
+          'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+          isActive
+            ? 'bg-white text-brand-700 shadow-sm'
+            : 'text-brand-50 hover:bg-white/10 hover:text-white',
+        )}
+      >
+        <span
+          className={cn(
+            'inline-flex h-5 w-5 shrink-0 items-center justify-center transition-colors',
+            isActive ? 'text-brand-600' : 'text-brand-100 group-hover:text-white',
+          )}
+        >
+          {icon}
+        </span>
+        <span className="flex-1 truncate">{name}</span>
+        <span aria-hidden className="text-brand-200 group-hover:text-white">›</span>
+      </Link>
+
+      {/* Portal the flyout straight into document.body so it escapes the
+          sidebar's stacking context (sticky positioning creates one and
+          traps fixed-positioned children regardless of z-index). */}
+      {open && pos && typeof window !== 'undefined' && createPortal(
+        <div
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999 }}
+          className="w-72 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-900/10"
+        >
+          <div className="mb-2 px-2 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            Agent Setup
+          </div>
+          <div className="space-y-0.5">
+            {setupItems.map((sub) => {
+              const subActive = activePath === sub.href;
+              return (
+                <Link
+                  key={sub.href}
+                  href={sub.href}
+                  className={cn(
+                    'block rounded-lg px-3 py-2 text-sm transition-colors',
+                    subActive
+                      ? 'bg-brand-50 text-brand-700'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+                  )}
+                >
+                  <div className="font-medium">{sub.label}</div>
+                  <div
+                    className={cn(
+                      'mt-0.5 text-xs',
+                      subActive ? 'text-brand-500' : 'text-slate-500',
+                    )}
+                  >
+                    {sub.description}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+// ---- icons ----
+
+function DashboardIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="9" rx="1.5" />
+      <rect x="14" y="3" width="7" height="5" rx="1.5" />
+      <rect x="14" y="12" width="7" height="9" rx="1.5" />
+      <rect x="3" y="16" width="7" height="5" rx="1.5" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+function PhoneFilledIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+function ChatIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 2L11 13" />
+      <path d="M22 2L15 22l-4-9-9-4 20-7z" />
+    </svg>
+  );
+}
+
+function TemplateIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="3" y1="9" x2="21" y2="9" />
+      <line x1="9" y1="21" x2="9" y2="9" />
+    </svg>
+  );
+}
+
+function CogIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
+function UsersIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function PuzzleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.03 7.03 0 0 0-1.69-.98l-.38-2.65A.488.488 0 0 0 14 2h-4a.488.488 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64L4.57 11c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.05.24.25.42.49.42h4c.24 0 .44-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.22.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65z" />
+    </svg>
+  );
+}
+
+function ChartIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="20" x2="12" y2="10" />
+      <line x1="18" y1="20" x2="18" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="16" />
+    </svg>
+  );
+}
+
+function BillingIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <line x1="2" y1="10" x2="22" y2="10" />
+    </svg>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
+function HelpIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
   );
 }

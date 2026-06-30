@@ -183,10 +183,8 @@ router.post('/agent-config', async (req: Request, res: Response) => {
           },
         }));
       } catch (dynamoError) {
-        if (process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.error('Failed to update DynamoDB (continuing anyway)', dynamoError);
-        }
+        // eslint-disable-next-line no-console
+        console.error('[AGENT_SYNC_FAILED] DynamoDB AgentConfig write failed (agent did NOT get the update):', dynamoError);
       }
     }
   } catch (error) {

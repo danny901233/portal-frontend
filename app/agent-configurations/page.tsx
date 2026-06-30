@@ -3,12 +3,15 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import type { ChangeEvent, FormEvent } from 'react';
 import { useEffect, useMemo, useState, useTransition } from 'react';
+import type { ChangeEvent } from 'react';
 import {
+  deleteKnowledgeDocument,
   discoverWebsitePages,
   fetchAgentConfiguration,
   generateVoicePreview,
   ingestWebsiteKnowledge,
   updateAgentConfiguration,
+  uploadKnowledgeDocument,
 } from '../lib/api';
 import { getGarageId, isReceptionMateStaff } from '../lib/auth';
 import { useToast } from '../components/Toast';
@@ -29,7 +32,6 @@ import type {
   DayOfWeek,
   HubspotSettings,
   IntegrationProvider,
-  ResponseSpeed,
   TonePreference,
   TyresoftSettings,
   VoiceOption,
@@ -127,6 +129,7 @@ const cloneHubspotSettings = (settings: HubspotSettings | undefined): HubspotSet
 
 const createEmptyConfiguration = (): AgentConfiguration => ({
   branchName: '',
+  agentName: '',
   phoneNumber: '',
   emailAddress: '',
   branchAddress: '',
@@ -159,6 +162,22 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
   ...config,
+  // Coerce nullable string fields to '' so React inputs stay controlled.
+  // The DB can return null for these (e.g. transferNumber for a never-set garage),
+  // but the AgentConfiguration type declares them as string. Without this, an input
+  // bound to `value={formState.X}` where X is null becomes uncontrolled - user types
+  // but React state does not reconcile, save sends the original null, value disappears
+  // on refresh. Fix surfaced 2026-06-18 from a transferNumber save bug on Norwich.
+  branchName: config.branchName ?? '',
+  agentName: config.agentName ?? '',
+  phoneNumber: config.phoneNumber ?? '',
+  emailAddress: config.emailAddress ?? '',
+  branchAddress: config.branchAddress ?? '',
+  websiteUrl: config.websiteUrl ?? '',
+  holidayClosures: config.holidayClosures ?? '',
+  greetingLine: config.greetingLine ?? '',
+  dropOffMessage: config.dropOffMessage ?? '',
+  transferNumber: config.transferNumber ?? '',
   weeklyOpeningHours: cloneWeeklyOpeningHours(config.weeklyOpeningHours),
   garageHiveSettings: cloneGarageHiveSettings(config.garageHiveSettings),
   tyresoftSettings: cloneTyresoftSettings(config.tyresoftSettings),
@@ -220,12 +239,6 @@ const maskSecretValue = (value: string) => {
   }
   return `${value.slice(0, 4)}****`;
 };
-
-const responseSpeedOptions: { value: ResponseSpeed; label: string; description: string }[] = [
-  { value: 'slow', label: 'Slow', description: 'Weight accuracy over speed' },
-  { value: 'normal', label: 'Normal', description: 'Balanced response cadence' },
-  { value: 'fast', label: 'Fast', description: 'Reply as soon as possible' },
-];
 
 const toneOptions: { value: TonePreference; label: string; description: string }[] = [
   { value: 'standard', label: 'Standard', description: 'Balanced default tone' },
@@ -330,6 +343,80 @@ export default function AgentConfigurationsPage() {
       setFeedback(message);
     },
   });
+
+  const uploadDocMutation = useMutation({
+    mutationFn: (payload: { file: File; kind: 'document' | 'price-list' }) =>
+      uploadKnowledgeDocument(payload.file, payload.kind, garageId ?? undefined),
+    onSuccess: (data, variables) => {
+      setKnowledgeBase(data.knowledgeBase ?? []);
+      setFeedback(
+        `${variables.kind === 'price-list' ? 'Price list' : 'Document'} added to the knowledge base.`,
+      );
+    },
+    onError: (error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : 'Failed to upload that file. Please try again.';
+      toast.error('Upload failed', message);
+    },
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: (uploadId: string) => deleteKnowledgeDocument(uploadId, garageId ?? undefined),
+    onSuccess: (data) => {
+      setKnowledgeBase(data.knowledgeBase ?? []);
+      setFeedback('Removed from the knowledge base.');
+    },
+    onError: (error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : 'Failed to remove that document. Please try again.';
+      toast.error('Remove failed', message);
+    },
+  });
+
+  // Group uploaded (non-website) knowledge docs by their uploadId so each file shows as one row.
+  const uploadedDocs = useMemo(() => {
+    const groups = new Map<string, { uploadId: string; fileName: string; kind: string; chunks: number }>();
+    for (const doc of knowledgeBase) {
+      if (doc.source !== 'document' && doc.source !== 'price-list') continue;
+      const meta = (doc.metadata ?? {}) as { uploadId?: string; fileName?: string; kind?: string };
+      const uploadId = meta.uploadId ?? doc.id;
+      const existing = groups.get(uploadId);
+      if (existing) {
+        existing.chunks += 1;
+      } else {
+        groups.set(uploadId, {
+          uploadId,
+          fileName: meta.fileName ?? doc.title ?? 'Document',
+          kind: meta.kind ?? doc.source,
+          chunks: 1,
+        });
+      }
+    }
+    return Array.from(groups.values());
+  }, [knowledgeBase]);
+
+  // "Give prices" toggle (Assist only): reveals the price-list upload. Its persisted state IS
+  // "a price list is uploaded" — the agent quotes only when a price-list doc exists, so turning
+  // the toggle off deletes the uploaded price lists (which stops the agent quoting). No DB column.
+  const hasPriceList = useMemo(() => uploadedDocs.some((d) => d.kind === 'price-list'), [uploadedDocs]);
+  const [pricesEnabled, setPricesEnabled] = useState(false);
+  const showPriceUpload = pricesEnabled || hasPriceList;
+  const handleTogglePrices = (next: boolean) => {
+    setPricesEnabled(next);
+    if (!next) {
+      uploadedDocs
+        .filter((d) => d.kind === 'price-list')
+        .forEach((d) => deleteDocMutation.mutate(d.uploadId));
+    }
+  };
+
+  const handleDocUpload = (kind: 'document' | 'price-list') => (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow re-uploading the same filename
+    if (!file) return;
+    setFeedback(null);
+    uploadDocMutation.mutate({ file, kind });
+  };
 
   const handleWebsiteScan = () => {
     if (!formState.websiteUrl || !formState.websiteUrl.trim()) {
@@ -691,14 +778,6 @@ export default function AgentConfigurationsPage() {
       setPlayingVoice(null);
       setFeedback('Failed to play voice preview. Please try again.');
     }
-  };
-
-  const handleResponseSpeedChange = (value: ResponseSpeed) => {
-    if (!isEditing || mutation.isPending) {
-      return;
-    }
-    setFormState((prev) => ({ ...prev, responseSpeed: value }));
-    setFeedback(null);
   };
 
   const handleIntegrationProviderChange = (value: IntegrationProvider) => {
@@ -1374,6 +1453,84 @@ export default function AgentConfigurationsPage() {
               Start a website scan to discover pages and choose which ones to publish to the agent&rsquo;s knowledge base.
             </p>
           ) : null}
+
+          {/* Document & price-list uploads — parsed, chunked, and retrieved per-call (no prompt bloat). */}
+          <div className="mt-6 border-t border-slate-800 pt-5">
+            <h3 className="text-sm font-semibold text-slate-100">Documents &amp; price lists</h3>
+            <p className="mt-1 text-xs text-slate-400">
+              Upload a PDF, Word, CSV, Excel, or text file. The agent reads only the relevant part during a call, so large files won&rsquo;t slow it down.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <label className="cursor-pointer rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:border-sky-500 hover:text-sky-100">
+                {uploadDocMutation.isPending ? 'Uploading…' : '+ Upload document'}
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.csv,.xls,.xlsx,.txt,.md"
+                  className="hidden"
+                  disabled={uploadDocMutation.isPending}
+                  onChange={handleDocUpload('document')}
+                />
+              </label>
+              {formState.agentType === 'assist' && showPriceUpload ? (
+                <label className="cursor-pointer rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/20">
+                  {uploadDocMutation.isPending ? 'Uploading…' : '+ Upload price list'}
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.csv,.xls,.xlsx,.txt,.md"
+                    className="hidden"
+                    disabled={uploadDocMutation.isPending}
+                    onChange={handleDocUpload('price-list')}
+                  />
+                </label>
+              ) : null}
+            </div>
+            {formState.agentType === 'assist' ? (
+              <div className="mt-3 rounded-lg border border-slate-800/70 bg-slate-950/40 p-3">
+                <label className="flex cursor-pointer items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={showPriceUpload}
+                    onChange={(event) => handleTogglePrices(event.target.checked)}
+                    disabled={deleteDocMutation.isPending}
+                    className="h-4 w-4 rounded border-slate-600 bg-slate-900 accent-emerald-500"
+                  />
+                  <span className="text-sm font-medium text-slate-200">Give prices on calls</span>
+                </label>
+                <p className="mt-1.5 pl-7 text-[11px] text-slate-500">
+                  {showPriceUpload
+                    ? 'Upload a price list above — the agent quotes ONLY the figures in it, never an invented price.'
+                    : 'Off by default. Turn this on to upload a price list the agent can quote from. Turning it off removes any uploaded price list.'}
+                </p>
+              </div>
+            ) : null}
+            {uploadedDocs.length ? (
+              <ul className="mt-4 space-y-2">
+                {uploadedDocs.map((doc) => (
+                  <li
+                    key={doc.uploadId}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-800/70 bg-slate-950/60 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-slate-200">{doc.fileName}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {doc.kind === 'price-list' ? 'Price list' : 'Document'} · {doc.chunks} section{doc.chunks === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => deleteDocMutation.mutate(doc.uploadId)}
+                      disabled={deleteDocMutation.isPending}
+                      className="shrink-0 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-300 transition hover:border-rose-500 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">No documents uploaded yet.</p>
+            )}
+          </div>
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
@@ -1577,31 +1734,6 @@ export default function AgentConfigurationsPage() {
                       if (!isEditing || mutation.isPending) return;
                       handleToneChange(option.value);
                     }}
-                    disabled={!isEditing || mutation.isPending}
-                  >
-                    <div className="text-sm font-semibold">{option.label}</div>
-                    <div className="mt-1 text-xs text-slate-400">{option.description}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mt-8">
-            <span className="text-xs uppercase tracking-wide text-slate-500">Response speed</span>
-            <div className="mt-3 grid gap-4 md:grid-cols-3">
-              {responseSpeedOptions.map((option) => {
-                const isSelected = formState.responseSpeed === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
-                      isSelected
-                        ? 'border-emerald-500 bg-emerald-500/15 text-slate-100'
-                        : 'border-slate-800 bg-slate-900/50 text-slate-300 hover:border-slate-700 hover:text-slate-200'
-                    } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
-                    onClick={() => handleResponseSpeedChange(option.value)}
                     disabled={!isEditing || mutation.isPending}
                   >
                     <div className="text-sm font-semibold">{option.label}</div>

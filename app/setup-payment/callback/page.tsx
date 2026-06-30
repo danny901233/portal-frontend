@@ -72,8 +72,8 @@ function CallbackContent() {
 
   if (status === 'processing') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
-        <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
+      <div className="flex min-h-screen items-center justify-center bg-white px-4 text-slate-900">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10">
           <div className="text-center">
             <div className="mx-auto mb-6 flex justify-center">
               <img
@@ -83,10 +83,10 @@ function CallbackContent() {
               />
             </div>
             <div className="mb-4 flex justify-center">
-              <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-700 border-t-sky-500"></div>
+              <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-300 border-t-sky-500"></div>
             </div>
             <h1 className="text-2xl font-semibold">Processing Payment Setup</h1>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-slate-500">
               Please wait while we confirm your Direct Debit mandate...
             </p>
           </div>
@@ -97,8 +97,8 @@ function CallbackContent() {
 
   if (status === 'success') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
-        <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
+      <div className="flex min-h-screen items-center justify-center bg-white px-4 text-slate-900">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10">
           <div className="text-center">
             <div className="mx-auto mb-6 flex justify-center">
               <img
@@ -108,9 +108,9 @@ function CallbackContent() {
               />
             </div>
             <div className="mb-4 flex justify-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
                 <svg
-                  className="h-8 w-8 text-emerald-400"
+                  className="h-8 w-8 text-emerald-700"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -125,7 +125,7 @@ function CallbackContent() {
               </div>
             </div>
             <h1 className="text-2xl font-semibold">Payment Setup Complete!</h1>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-slate-500">
               Your Direct Debit has been set up successfully. Redirecting to your dashboard...
             </p>
           </div>
@@ -136,8 +136,8 @@ function CallbackContent() {
 
   // Error state
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 text-slate-100">
-      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
+    <div className="flex min-h-screen items-center justify-center bg-white px-4 text-slate-900">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10">
         <div className="text-center">
           <div className="mx-auto mb-6 flex justify-center">
             <img
@@ -147,9 +147,9 @@ function CallbackContent() {
             />
           </div>
           <div className="mb-4 flex justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-rose-500/20">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-rose-50">
               <svg
-                className="h-8 w-8 text-rose-400"
+                className="h-8 w-8 text-rose-700"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -164,10 +164,10 @@ function CallbackContent() {
             </div>
           </div>
           <h1 className="text-2xl font-semibold">Payment Setup Failed</h1>
-          <p className="mt-2 text-sm text-slate-400">{errorMessage}</p>
+          <p className="mt-2 text-sm text-slate-500">{errorMessage}</p>
           <button
             onClick={() => router.push('/setup-payment')}
-            className="mt-6 w-full rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            className="mt-6 w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
             Try Again
           </button>
@@ -181,8 +181,8 @@ export default function CallbackPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
-          <div className="text-slate-400">Loading...</div>
+        <div className="flex min-h-screen items-center justify-center bg-white text-slate-900">
+          <div className="text-slate-500">Loading...</div>
         </div>
       }
     >

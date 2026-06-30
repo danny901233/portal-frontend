@@ -340,6 +340,10 @@ export interface BillingConfig {
   bookingsRequiredForActivation: number;
   activationBookingsCount: number;
   subscriptionActivatedAt: string | null;
+  hasMessagingAccess?: boolean;
+  messagingSubscriptionCostGbp?: number;
+  includedMessages?: number;
+  costPerMessageGbp?: number;
 }
 
 export interface UsageSummary {

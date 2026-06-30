@@ -31,6 +31,10 @@ export default function GarageBillingConfigPage() {
     trialDays: 0,
     requiresBookingActivation: false,
     bookingsRequiredForActivation: 4,
+    hasMessagingAccess: false,
+    messagingSubscriptionCostGbp: 0,
+    includedMessages: 0,
+    costPerMessageGbp: 0,
   });
 
   const [usageDates, setUsageDates] = useState({
@@ -86,6 +90,10 @@ export default function GarageBillingConfigPage() {
         trialDays: trialDays,
         requiresBookingActivation: cfg.requiresBookingActivation,
         bookingsRequiredForActivation: cfg.bookingsRequiredForActivation,
+        hasMessagingAccess: cfg.hasMessagingAccess ?? false,
+        messagingSubscriptionCostGbp: cfg.messagingSubscriptionCostGbp ?? 0,
+        includedMessages: cfg.includedMessages ?? 0,
+        costPerMessageGbp: cfg.costPerMessageGbp ?? 0,
       });
     }
   }, [configQuery.data]);
@@ -246,6 +254,82 @@ export default function GarageBillingConfigPage() {
                 <p className="text-xs text-slate-500 mt-1">
                   Enter as decimal (e.g., 0.20 for 20%)
                 </p>
+              </div>
+
+              <div className="pt-4 border-t border-slate-300 mt-6">
+                <h3 className="text-sm font-semibold text-slate-600 mb-4">Messaging (Webchat / WhatsApp)</h3>
+
+                <div className="space-y-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.hasMessagingAccess}
+                      onChange={(e) =>
+                        setConfig({ ...config, hasMessagingAccess: e.target.checked })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 bg-white text-brand-600"
+                    />
+                    <span className="text-xs text-slate-500">
+                      Messaging access enabled (Connect — webchat, WhatsApp, social)
+                    </span>
+                  </label>
+
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-2">
+                      Messaging Subscription Cost (£/mo)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={config.messagingSubscriptionCostGbp}
+                      onChange={(e) =>
+                        setConfig({ ...config, messagingSubscriptionCostGbp: parseFloat(e.target.value) || 0 })
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Fixed monthly messaging fee, billed alongside the voice subscription when access is enabled.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-2">
+                      Included Messages
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={config.includedMessages}
+                      onChange={(e) =>
+                        setConfig({ ...config, includedMessages: parseInt(e.target.value) || 0 })
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Free messages included in the messaging subscription
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-2">
+                      Cost Per Message (£)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={config.costPerMessageGbp}
+                      onChange={(e) =>
+                        setConfig({ ...config, costPerMessageGbp: parseFloat(e.target.value) || 0 })
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Charge per message after included messages
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div className="pt-4 border-t border-slate-300 mt-6">

@@ -561,6 +561,10 @@ export async function generateInvoicesForUser(userId: string) {
           bookingsRequiredForActivation: true,
           activationBookingsCount: true,
           subscriptionActivatedAt: true,
+          hasMessagingAccess: true,
+          messagingSubscriptionCostGbp: true,
+          includedMessages: true,
+          costPerMessageGbp: true,
         },
       });
 
@@ -615,7 +619,17 @@ export async function generateInvoicesForUser(userId: string) {
       const minutesAmount = Math.round(overageMinutes * garage.costPerMinuteGbp * 100);
       const smsAmount = Math.round(usage.smsCount * 0.99 * 100);
 
-      const subtotal = subscriptionAmount + minutesAmount + smsAmount;
+      // Messaging subscription (webchat / WhatsApp). Billed like the voice subscription: a flat
+      // monthly fee for garages with messaging access, suppressed while booking-activation is
+      // pending. Previously this was omitted entirely, so messaging garages (e.g. EAC Telford,
+      // Elite Landrover at £250/mo) were silently under-billed. Per-message overage stays 0 until
+      // message usage is metered in calculateUsage.
+      const messagingSubscriptionAmount =
+        !needsBookingActivation && garage.hasMessagingAccess
+          ? Math.round((garage.messagingSubscriptionCostGbp || 0) * 100)
+          : 0;
+
+      const subtotal = subscriptionAmount + minutesAmount + smsAmount + messagingSubscriptionAmount;
       const vatAmount = Math.round(subtotal * garage.vatRate);
       const total = subtotal + vatAmount;
 
@@ -632,6 +646,7 @@ export async function generateInvoicesForUser(userId: string) {
           subscriptionAmount,
           minutesAmount,
           smsAmount,
+          messagingSubscriptionAmount,
           subtotal,
           vatAmount,
           total,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChangeEvent, FormEvent } from 'react';
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import {
@@ -257,6 +257,7 @@ export default function AgentConfigurationsPage() {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [, startTransition] = useTransition();
   const canEditAgentType = isReceptionMateStaff();
+  const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: ['agent-config', garageId],
@@ -274,6 +275,7 @@ export default function AgentConfigurationsPage() {
     mutationFn: (payload: AgentConfiguration) =>
       updateAgentConfiguration(payload, garageId ?? undefined),
     onSuccess: (data) => {
+      queryClient.setQueryData(['agent-config', garageId], data);
       setFormState(cloneConfiguration(data.configuration));
       setKnowledgeBase(data.knowledgeBase ?? []);
       setIsEditing(false);

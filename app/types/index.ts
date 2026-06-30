@@ -172,6 +172,14 @@ export type AgentType = 'assist' | 'automate';
 
 export type VoiceOption = 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia';
 
+export interface DataCollectionField {
+  key: string;
+  label: string;
+  active: boolean;
+  required: boolean;
+  instruction?: string | null;
+}
+
 export interface GarageHiveSettings {
   instanceUrl: string;
   apiKey: string;

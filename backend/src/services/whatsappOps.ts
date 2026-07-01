@@ -74,6 +74,21 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'booking_stats',
+      description: 'DB-computed totals per garage for a date range: number of calls and confirmed bookings, sorted by bookings (desc). Use this for aggregate questions like "who has the most bookings in June", "bookings per garage", totals. Never answer aggregate questions by eyeballing call lists — always use this.',
+      parameters: {
+        type: 'object',
+        properties: {
+          month: { type: 'string', description: 'Calendar month as "YYYY-MM" (e.g. "2026-06" for June). Use today\'s date to resolve month names.' },
+          since_days_ago: { type: 'integer', description: 'Alternative to month: last N days.' },
+          garage: { type: 'string', description: 'Optional — restrict to one garage.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_call',
       description: 'Full detail for one call by id: summary, booking outcome, and the complete transcript including every tool call with its input params, result, success and duration_ms.',
       parameters: { type: 'object', properties: { call_id: { type: 'string' } }, required: ['call_id'] },
@@ -118,6 +133,43 @@ async function runTool(name: string, args: any): Promise<unknown> {
       id: c.id, garage: c.garage?.name, date: c.createdAt.toISOString(), type: c.callType,
       booked: c.confirmedBooking, duration_s: c.durationSeconds, summary: clip(c.summary, 240),
     }));
+  }
+  if (name === 'booking_stats') {
+    // Resolve the date window.
+    let gte: Date, lt: Date;
+    if (typeof args.month === 'string' && /^\d{4}-\d{2}$/.test(args.month)) {
+      const [y, m] = args.month.split('-').map(Number);
+      gte = new Date(Date.UTC(y, m - 1, 1));
+      lt = new Date(Date.UTC(y, m, 1));
+    } else if (args.since_days_ago) {
+      gte = new Date(Date.now() - args.since_days_ago * 86400000);
+      lt = new Date();
+    } else {
+      // default: current calendar month
+      const now = new Date();
+      gte = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      lt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    }
+    const g = await findGarage(args.garage);
+    const scope: any = { createdAt: { gte, lt } };
+    if (g) scope.garageId = g.id;
+    else if (args.garage) return { error: `No garage matched "${args.garage}"` };
+    const [totals, booked] = await Promise.all([
+      prisma.call.groupBy({ by: ['garageId'], where: scope, _count: { _all: true } }),
+      prisma.call.groupBy({ by: ['garageId'], where: { ...scope, confirmedBooking: true }, _count: { _all: true } }),
+    ]);
+    const bookedMap = new Map(booked.map((b) => [b.garageId, b._count._all]));
+    const gs = await prisma.garage.findMany({ where: { id: { in: totals.map((t) => t.garageId) } }, select: { id: true, name: true } });
+    const nameMap = new Map(gs.map((x) => [x.id, x.name]));
+    const rows = totals
+      .map((t) => ({ garage: nameMap.get(t.garageId) || t.garageId, calls: t._count._all, bookings: bookedMap.get(t.garageId) || 0 }))
+      .sort((a, b) => b.bookings - a.bookings);
+    return {
+      window: { from: gte.toISOString().slice(0, 10), to: lt.toISOString().slice(0, 10) },
+      note: '"bookings" = calls flagged confirmedBooking=true',
+      total_bookings: rows.reduce((s, r) => s + r.bookings, 0),
+      per_garage: rows,
+    };
   }
   if (name === 'get_call') {
     const c = await prisma.call.findUnique({ where: { id: String(args.call_id) }, include: { garage: { select: { name: true } } } });
@@ -168,7 +220,7 @@ export async function handleAdminOpsMessage(opts: {
   console.log(`[WhatsApp Ops] request from ${from}: ${text.slice(0, 120)}`);
   const prior = history.get(from) || [];
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: 'system', content: SYSTEM },
+    { role: 'system', content: `${SYSTEM}\nToday's date is ${new Date().toISOString().slice(0, 10)}. Resolve relative periods ("June", "this month", "last week") against it. For any "how many / who has the most / per garage" question, call booking_stats — never count from call lists.` },
     ...prior.map((t) => ({ role: t.role, content: t.content } as OpenAI.Chat.Completions.ChatCompletionMessageParam)),
     { role: 'user', content: text },
   ];

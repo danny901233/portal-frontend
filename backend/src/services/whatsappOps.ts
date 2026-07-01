@@ -44,6 +44,19 @@ const parseTranscript = (t: unknown): any[] => {
   return [];
 };
 
+// ms to add to UTC to get London wall-clock (+1h during BST, 0 during GMT) at a given instant.
+const londonOffsetMs = (d: Date): number =>
+  new Date(d.toLocaleString('en-US', { timeZone: 'Europe/London' })).getTime() -
+  new Date(d.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
+
+// The UTC instant of 00:00 UK-local on the given "YYYY-MM-DD" (+ addDays). Used so date
+// queries match the calendar day people mean, not the UTC day (they differ by ~1h in summer).
+const ukDayStart = (dateStr: string, addDays = 0): Date => {
+  const [y, mo, d] = String(dateStr).split('-').map(Number);
+  const guess = new Date(Date.UTC(y, (mo || 1) - 1, (d || 1) + addDays, 0, 0, 0));
+  return new Date(guess.getTime() - londonOffsetMs(guess));
+};
+
 async function findGarage(nameOrId?: string) {
   if (!nameOrId) return null;
   return (
@@ -59,14 +72,17 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'list_recent_calls',
-      description: 'Recent calls for a garage (or all), newest first. Returns id, date, type, whether a booking was confirmed, duration, and a summary snippet.',
+      description: 'List calls for a garage (or all), newest first. Returns a count plus id, date, type, whether a booking was confirmed, duration, and a summary snippet. To answer "were there any calls on <date>" use on_date (or date_from/date_to for a range) — dates are matched in UK local time and return EVERY call that day, so trust the count.',
       parameters: {
         type: 'object',
         properties: {
           garage: { type: 'string', description: 'Garage name or id (optional — omit for all garages)' },
-          limit: { type: 'integer', description: 'Max calls (default 10, max 40)' },
+          limit: { type: 'integer', description: 'Max calls (default 10, max 40). Ignored when a date filter is used — those return all matching calls.' },
           only_bookings: { type: 'boolean', description: 'Only calls where a booking was confirmed' },
           since_days_ago: { type: 'integer', description: 'Only calls in the last N days' },
+          on_date: { type: 'string', description: 'A single calendar day as "YYYY-MM-DD" (UK local time). Resolve day/month names ("the 29th", "June 29") against today\'s date before calling. Returns all calls that day.' },
+          date_from: { type: 'string', description: 'Range start "YYYY-MM-DD" (UK local, inclusive). Use with date_to.' },
+          date_to: { type: 'string', description: 'Range end "YYYY-MM-DD" (UK local, inclusive).' },
         },
       },
     },
@@ -90,7 +106,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_call',
-      description: 'Full detail for one call by id: summary, booking outcome, and the complete transcript including every tool call with its input params, result, success and duration_ms.',
+      description: 'Full detail for one call by id: summary, booking outcome, and the complete transcript including every tool call with its input params, result, success and duration_ms. For trace-enabled agents it also returns api_calls (raw external API request/response bodies + HTTP status + error, e.g. the exact createSale body the garage system rejected) and errors — use these to diagnose why a booking/API step failed.',
       parameters: { type: 'object', properties: { call_id: { type: 'string' } }, required: ['call_id'] },
     },
   },
@@ -124,15 +140,25 @@ async function runTool(name: string, args: any): Promise<unknown> {
     if (g) where.garageId = g.id;
     else if (args.garage) return { error: `No garage matched "${args.garage}"` };
     if (args.only_bookings) where.confirmedBooking = true;
-    if (args.since_days_ago) where.createdAt = { gte: new Date(Date.now() - args.since_days_ago * 86400000) };
+    // Date filters are matched in UK local time (calls are stored UTC). on_date = one day;
+    // date_from/date_to = an inclusive range. A date filter returns EVERY matching call.
+    const dated = Boolean(args.on_date || args.date_from || args.date_to);
+    if (dated) {
+      const from = ukDayStart(args.on_date || args.date_from || args.date_to);
+      const to = ukDayStart(args.on_date || args.date_to || args.date_from, 1); // exclusive next-day start
+      where.createdAt = { gte: from, lt: to };
+    } else if (args.since_days_ago) {
+      where.createdAt = { gte: new Date(Date.now() - args.since_days_ago * 86400000) };
+    }
     const calls = await prisma.call.findMany({
-      where, orderBy: { createdAt: 'desc' }, take: Math.min(args.limit || 10, 40),
+      where, orderBy: { createdAt: dated ? 'asc' : 'desc' }, take: dated ? 500 : Math.min(args.limit || 10, 40),
       select: { id: true, createdAt: true, callType: true, confirmedBooking: true, durationSeconds: true, summary: true, garage: { select: { name: true } } },
     });
-    return calls.map((c) => ({
+    const rows = calls.map((c) => ({
       id: c.id, garage: c.garage?.name, date: c.createdAt.toISOString(), type: c.callType,
       booked: c.confirmedBooking, duration_s: c.durationSeconds, summary: clip(c.summary, 240),
     }));
+    return { count: rows.length, ...(dated ? { window_uk_local: args.on_date || `${args.date_from || ''}..${args.date_to || ''}` } : {}), calls: rows };
   }
   if (name === 'booking_stats') {
     // Resolve the date window.
@@ -179,10 +205,26 @@ async function runTool(name: string, args: any): Promise<unknown> {
       if (e?.type === 'message' || e?.role) return { t: e.timestamp ?? e.ts, [e.speaker || e.role]: clip(e.text, 400) };
       return e;
     });
+    // Phase-2 fault trace (agents on AGENT_TRACE ship it in metrics.trace): raw external
+    // API request/response bodies, per-turn pipeline metrics and errors. Only present for
+    // trace-enabled agents; older/other calls simply won't have it.
+    const m = c.metrics as any;
+    // Two trace shapes: metrics.trace (Tyresoft/new agents, via call_trace, gated by AGENT_TRACE)
+    // and metrics.gh_trace (GarageHive agent, always-on) — normalise both into one api_calls list.
+    const rawTrace: any[] = Array.isArray(m?.trace) ? m.trace : [];
+    const traceApiCalls = rawTrace
+      .filter((e) => e?.type === 'api_call')
+      .map((e) => ({ t: e.ts, name: e.name, status: e.status, duration_ms: e.duration_ms, error: e.error, request: clip(e.request, 1500), response: clip(e.response, 2000) }));
+    const ghTrace: any[] = Array.isArray(m?.gh_trace) ? m.gh_trace : [];
+    const ghApiCalls = ghTrace.map((e) => ({ name: e.path, method: e.method, status: e.status, request: clip(e.payload, 1500), response: clip(e.response, 2000) }));
+    const apiCalls = [...traceApiCalls, ...ghApiCalls];
+    const traceErrors = rawTrace.filter((e) => e?.type === 'error').map((e) => ({ t: e.ts, where: e.where, detail: clip(e.detail, 600) }));
     return {
       id: c.id, garage: c.garage?.name, date: c.createdAt.toISOString(), type: c.callType,
       booked: c.confirmedBooking, booking_details: c.bookingDetails, duration_s: c.durationSeconds,
       summary: c.summary, transcript: events,
+      ...(apiCalls.length ? { api_calls: apiCalls } : {}),
+      ...(traceErrors.length ? { errors: traceErrors } : {}),
     };
   }
   if (name === 'search_calls') {
@@ -202,8 +244,9 @@ async function runTool(name: string, args: any): Promise<unknown> {
 const SYSTEM = `You are ReceptionMate's internal Ops & Diagnostics assistant, reached over WhatsApp by the ReceptionMate team (not customers). Help them diagnose calls, bookings and agent behaviour.
 - Use the read-only tools to fetch REAL data. Never invent call IDs, transcripts or results.
 - Be concise and mobile-friendly: short paragraphs, plain text (WhatsApp has no markdown tables). Lead with the answer.
-- When diagnosing a failure, cite the concrete evidence from the transcript/tool calls (e.g. the exact tool that failed and its error/result).
-- If a request is ambiguous (which garage? which call?), make a sensible default (most recent) and say so, rather than asking a question every time.`;
+- When diagnosing a failure, cite the concrete evidence from the transcript/tool calls (e.g. the exact tool that failed and its error/result). get_call also returns api_calls (raw external API request/response bodies + status) when available — use them to name the exact rejection (e.g. what the booking API returned).
+- For a broad "why" question (e.g. "why isn't <garage> getting many bookings?"), don't guess: first call booking_stats for the period, then list_recent_calls scoped to that garage, then get_call on several recent NON-booked calls, and identify the common drop-off point — no availability, price objection, registration/vehicle lookup failing, caller hangs up, or the booking API rejecting the sale. Summarise the pattern with counts (e.g. "4 of the last 8 dropped at the price step") and cite an example call id.
+- If a request is ambiguous (which garage? which call?), make a sensible default (most recent) and say so, rather than asking a question. "check the traces"/"the last call" with no id = pull the single most recent call via list_recent_calls and analyse it.`;
 
 async function sendWhatsApp(phoneNumberId: string, accessToken: string, to: string, body: string): Promise<void> {
   await axios.post(
@@ -220,7 +263,7 @@ export async function handleAdminOpsMessage(opts: {
   console.log(`[WhatsApp Ops] request from ${from}: ${text.slice(0, 120)}`);
   const prior = history.get(from) || [];
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: 'system', content: `${SYSTEM}\nToday's date is ${new Date().toISOString().slice(0, 10)}. Resolve relative periods ("June", "this month", "last week") against it. For any "how many / who has the most / per garage" question, call booking_stats — never count from call lists.` },
+    { role: 'system', content: `${SYSTEM}\nToday's date is ${new Date().toISOString().slice(0, 10)}. Resolve relative periods ("June", "this month", "last week", "the 29th") against it, in UK local time. For any "how many / who has the most / per garage" question, call booking_stats — never count from call lists. For "were there any calls on <date>" / calls on a specific day, call list_recent_calls with on_date (UK local) and report its count field — never infer a specific date by eyeballing a recency list.` },
     ...prior.map((t) => ({ role: t.role, content: t.content } as OpenAI.Chat.Completions.ChatCompletionMessageParam)),
     { role: 'user', content: text },
   ];

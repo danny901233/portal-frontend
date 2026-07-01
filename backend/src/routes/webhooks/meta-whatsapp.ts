@@ -145,11 +145,13 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
           }
 
           // ── OPS ASSISTANT (internal) ─────────────────────────────────────────
-          // A message from an allow-listed ReceptionMate admin number is handled by
-          // the internal diagnostics agent, NOT the customer receptionist. Isolated:
-          // guarded by the admin check + try/catch, and `continue` so it can never
-          // fall through into the customer flow below. A failure here is swallowed.
-          if (messageText && isWhatsappAdmin(customerPhone)) {
+          // A message from an allow-listed ReceptionMate admin number, sent TO the
+          // dedicated ops/diagnostics line, is handled by the internal diagnostics agent,
+          // NOT the customer receptionist. Scoped to the ops number so that an admin can
+          // still message a *customer* garage's WhatsApp (e.g. to test it) and reach that
+          // garage's agent. Isolated: guarded + try/catch + `continue`; failures swallowed.
+          const OPS_PHONE_ID = process.env.OPS_WHATSAPP_PHONE_NUMBER_ID || '565650793296121';
+          if (messageText && phoneNumberId === OPS_PHONE_ID && isWhatsappAdmin(customerPhone)) {
             try {
               await handleAdminOpsMessage({
                 from: customerPhone,

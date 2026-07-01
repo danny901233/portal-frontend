@@ -15,6 +15,10 @@ import axios from 'axios';
 const MMH_API = process.env.MMH_API_URL || 'http://127.0.0.1:8788';
 const PHONE = '07488 879204';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// Weekday of a YYYY-MM-DD, computed deterministically at noon UTC so it can't drift by
+// server timezone or DST. (LLMs guess weekdays badly, so we always compute them in code.)
+const weekdayOf = (iso: string) => WEEKDAYS[new Date(iso + 'T12:00:00Z').getUTCDay()];
 
 let openaiClient: OpenAI | null = null;
 function getOpenAI(): OpenAI {
@@ -26,7 +30,7 @@ interface ChatAgentResponse { content: string; needsHumanAssistance?: boolean; }
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const prettyDay = (iso: string) => { const [, m, d] = iso.split('-'); return `${+d} ${MONTHS[+m - 1]}`; };
+const prettyDay = (iso: string) => { const [, m, d] = iso.split('-'); return `${weekdayOf(iso)} ${+d} ${MONTHS[+m - 1]}`; };
 
 function buildSystemPrompt(
   config: any,
@@ -40,8 +44,19 @@ function buildSystemPrompt(
     .map(k => `- ${k.title ? k.title + ': ' : ''}${(k.content || '').slice(0, 400)}`).join('\n');
   const today = new Date();
   const todayIso = isoOf(today);
+  // Weekly Monday anchors for the next ~10 weeks so the model can read off the correct
+  // weekday for any near-term date by counting from the nearest Monday — never guessing.
+  const anchors: string[] = [];
+  const mon = new Date(todayIso + 'T12:00:00Z');
+  mon.setUTCDate(mon.getUTCDate() + ((8 - mon.getUTCDay()) % 7 || 7)); // next Monday
+  for (let i = 0; i < 10; i++) { const a = isoOf(mon); anchors.push(`${a} = Monday`); mon.setUTCDate(mon.getUTCDate() + 7); }
 
-  return `You are ${name}, the friendly booking assistant for ${branch} — a family motorhome-hire business between Leamington Spa and Rugby, Warwickshire. Today's date is ${todayIso}.
+  return `You are ${name}, the friendly booking assistant for ${branch} — a family motorhome-hire business between Leamington Spa and Rugby, Warwickshire. Today is ${weekdayOf(todayIso)}, ${+todayIso.slice(8)} ${MONTHS[+todayIso.slice(5, 7) - 1]} ${today.getFullYear()} (${todayIso}).
+
+DATES & WEEKDAYS — always get the day of the week right:
+- When you mention or confirm any date, state its correct weekday (e.g. "Friday 3 July"). Do NOT guess the weekday.
+- Work it out by counting from these reference Mondays: ${anchors.join(', ')}.
+- Availability results already tell you each date's weekday — use exactly what they say.
 
 You help people check availability and book one of our modern Roller Team Zefiro 675 motorhomes (6-berth, automatic, from £135 a night).
 ${customerName ? `\nThe customer's name is ${customerName} — use their first name naturally.` : ''}
@@ -66,7 +81,17 @@ BOOKING:
 RULES:
 - A minimum hire length applies (varies by season). Under it, they can still book but pay the minimum — explain kindly.
 - Never take card details yourself — the checkout link handles payment.
-- Answer from the info below. If you genuinely can't help or they want a person, offer to take a message or give ${PHONE}.
+- Answer ONLY from the KEY HIRE FACTS and the info below. If you're not certain of a detail, say you'll check with the team — NEVER guess or invent terms (e.g. do NOT say mileage is "unlimited"). If they want a person, offer to take a message or give ${PHONE}.
+
+KEY HIRE FACTS (authoritative — state these exactly, never guess):
+- Motorhome: Roller Team Zefiro 675 — sleeps 6 (3 doubles), automatic, reversing camera, heating, full kitchen (fridge/freezer, gas hob, oven), bathroom with toilet & hot shower. From £135 a night.
+- Mileage: 150 miles per night included — NOT unlimited. Extra mileage can be arranged for longer trips.
+- Insurance: comprehensive cover included for drivers aged 21–79 with a full UK/EU licence; optional excess-reduction available.
+- Breakdown: nationwide breakdown cover included.
+- Security deposit: £1,500 refundable — held during the hire, returned after the motorhome comes back undamaged.
+- Europe: European travel can be arranged — ask them to mention it when booking.
+- Collection: our base between Leamington Spa and Rugby, Warwickshire. Closed Sundays for pick-ups/drop-offs (a hire can still run over a Sunday).
+- Extras (gas, BBQ, bike rack, pets, etc.), insurance options and payment are all handled on the secure checkout link.
 
 WHAT'S INCLUDED / FAQs:
 ${faqs || '150 miles a night, comprehensive insurance, nationwide breakdown cover, a full kitchen, hot shower & toilet, heating and a full handover with video guides.'}`;

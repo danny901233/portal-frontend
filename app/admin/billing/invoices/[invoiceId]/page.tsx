@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { isReceptionMateStaff } from '../../../../lib/auth';
-import { fetchInvoice, chargeInvoice, deleteInvoice, creditInvoice } from '../../../../lib/api';
+import { fetchInvoice, chargeInvoice, deleteInvoice, creditInvoice, markInvoicePaid } from '../../../../lib/api';
 
 export default function InvoiceDetailPage() {
   const params = useParams();
@@ -61,6 +61,17 @@ export default function InvoiceDetailPage() {
     },
   });
 
+  const markPaidMutation = useMutation({
+    mutationFn: () => markInvoicePaid(invoiceId),
+    onSuccess: (res) => {
+      setFeedback(res.marked > 1 ? `Marked as paid (${res.marked} branches in this invoice)` : 'Invoice marked as paid');
+      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] });
+    },
+    onError: (error: any) => {
+      setFeedback(`Failed to mark as paid: ${error.message}`);
+    },
+  });
+
   if (!isStaff) {
     return (
       <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
@@ -85,6 +96,12 @@ export default function InvoiceDetailPage() {
     const reason = prompt('Enter reason for crediting this invoice:');
     if (reason && reason.trim()) {
       creditMutation.mutate(reason.trim());
+    }
+  };
+
+  const handleMarkPaid = () => {
+    if (confirm('Mark this invoice as paid? Use this for customers who pay by their own Direct Debit / bank transfer (e.g. In\'n\'out).')) {
+      markPaidMutation.mutate();
     }
   };
 
@@ -388,6 +405,21 @@ export default function InvoiceDetailPage() {
               {invoice.status !== 'credited' && (
                 <div className="mt-6 pt-6 border-t border-slate-300 space-y-2">
                   <p className="text-xs text-slate-500 mb-3">Staff Actions</p>
+
+                  {invoice.status !== 'paid' && (
+                    <>
+                      <button
+                        onClick={handleMarkPaid}
+                        disabled={markPaidMutation.isPending}
+                        className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                      >
+                        {markPaidMutation.isPending ? 'Marking...' : 'Mark as Paid'}
+                      </button>
+                      <p className="text-xs text-slate-500 mb-1 text-center">
+                        For customers paying by their own DD / bank transfer (e.g. In&apos;n&apos;out)
+                      </p>
+                    </>
+                  )}
 
                   <button
                     onClick={handleCredit}

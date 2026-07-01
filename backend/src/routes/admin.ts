@@ -891,6 +891,35 @@ router.post('/admin/invoices/:invoiceId/credit', authenticate, requireAdmin, asy
   }
 });
 
+// POST /api/admin/invoices/:invoiceId/mark-paid - Manually mark an invoice paid. For invoice-and-email
+// customers who pay by their own Direct Debit / bank transfer (e.g. In'n'out) there is no payment
+// webhook to flip the status, so this lets staff mark it when the money lands. If the invoice is part
+// of a combined invoice (same business + billing period, e.g. In'n'out's 4 branches) the whole batch is
+// marked in one click; otherwise just the single invoice.
+router.post('/admin/invoices/:invoiceId/mark-paid', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    if (invoice.status === 'paid') {
+      return res.status(400).json({ error: 'Invoice is already marked paid' });
+    }
+
+    const where: Prisma.InvoiceWhereInput = invoice.businessId
+      ? { businessId: invoice.businessId, periodStart: invoice.periodStart, status: { in: ['pending', 'failed', 'draft'] } }
+      : { id: invoice.id };
+    const result = await prisma.invoice.updateMany({ where, data: { status: 'paid', paidAt: new Date() } });
+
+    console.log(`✓ Invoice ${invoiceId} marked paid by admin (${result.count} record(s) in the combined invoice)`);
+    res.json({ success: true, marked: result.count });
+  } catch (error) {
+    console.error('Failed to mark invoice paid:', error);
+    res.status(500).json({ error: 'Failed to mark invoice as paid' });
+  }
+});
+
 // POST /admin/billing/trigger-invoice-generation
 // Manually trigger invoice generation for a garage/user
 router.post('/billing/trigger-invoice-generation', authenticate, requireAdmin, async (req, res) => {

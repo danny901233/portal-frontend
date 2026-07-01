@@ -482,6 +482,11 @@ export const creditInvoice = async (invoiceId: string, reason: string): Promise<
   return data;
 };
 
+export const markInvoicePaid = async (invoiceId: string): Promise<{ success: boolean; marked: number }> => {
+  const { data } = await api.post(`/api/admin/invoices/${invoiceId}/mark-paid`);
+  return data;
+};
+
 export const updateGarageBillingEmail = async (garageId: string, billingEmail: string): Promise<any> => {
   const { data } = await api.put(`/api/customer/billing/garages/${garageId}/billing-email`, { billingEmail });
   return data;

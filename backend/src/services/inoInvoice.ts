@@ -34,10 +34,10 @@ const gbp = (pence: number) => `£${(pence / 100).toLocaleString('en-GB', { mini
 const fmtDate = (d: Date) => `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 const shortBranch = (name: string) => name.replace(/In'n'out Autocentres\s*/i, '').trim() || name;
 
-interface InoLine { branch: string; subPence: number; minutes: number; ratePence: number; minutesPence: number; }
+interface InoLine { branch: string; garageId: string; businessId: string | null; subPence: number; minutes: number; ratePence: number; minutesPence: number; }
 interface InoInvoiceData {
   lines: InoLine[]; subtotal: number; vat: number; total: number;
-  invoiceNo: string; issued: Date; due: Date; subMonthLabel: string; usageMonthLabel: string;
+  invoiceNo: string; issued: Date; periodEnd: Date; due: Date; subMonthLabel: string; usageMonthLabel: string;
 }
 
 /** Compute the invoice for the month that `now` falls in (subscription = this month, usage = last month). */
@@ -47,11 +47,12 @@ export async function buildInoInvoiceData(now: Date = new Date()): Promise<InoIn
   const usageStart = new Date(Date.UTC(y, m - 1, 1));
   const usageEnd = new Date(Date.UTC(y, m, 1)); // exclusive
   const issued = new Date(Date.UTC(y, m, 1));
+  const periodEnd = new Date(Date.UTC(y, m + 1, 1));
   const due = new Date(issued.getTime() + 14 * 86400000);
 
   const branches = await prisma.garage.findMany({
     where: { name: { contains: 'autocentres', mode: 'insensitive' } },
-    select: { id: true, name: true, subscriptionCostGbp: true, costPerMinuteGbp: true },
+    select: { id: true, name: true, businessId: true, subscriptionCostGbp: true, costPerMinuteGbp: true },
     orderBy: { name: 'asc' },
   });
 
@@ -64,6 +65,8 @@ export async function buildInoInvoiceData(now: Date = new Date()): Promise<InoIn
     const minutes = Math.ceil(calls.reduce((s, c) => s + c.durationSeconds, 0) / 60);
     lines.push({
       branch: shortBranch(b.name),
+      garageId: b.id,
+      businessId: b.businessId,
       subPence: Math.round(b.subscriptionCostGbp * 100),
       minutes,
       ratePence: Math.round(b.costPerMinuteGbp * 100),
@@ -77,10 +80,48 @@ export async function buildInoInvoiceData(now: Date = new Date()): Promise<InoIn
   const invoiceNo = `INV-INO-${String(y).slice(2)}${String(m + 1).padStart(2, '0')}`;
 
   return {
-    lines, subtotal, vat, total, invoiceNo, issued, due,
+    lines, subtotal, vat, total, invoiceNo, issued, periodEnd, due,
     subMonthLabel: `${MONTHS[m]} ${y}`,
     usageMonthLabel: `${MONTHS[usageStart.getUTCMonth()]} ${usageStart.getUTCFullYear()}`,
   };
+}
+
+/**
+ * Persist one Invoice record per branch (status 'pending') so the invoice is tracked in the
+ * portal and can be marked paid when In'n'out's Direct Debit lands. Idempotent — skips a branch
+ * that already has an invoice for this month. Returns the created invoice ids.
+ */
+export async function createInoInvoiceRecords(data: InoInvoiceData): Promise<string[]> {
+  const ids: string[] = [];
+  for (const line of data.lines) {
+    const existing = await prisma.invoice.findFirst({ where: { garageId: line.garageId, periodStart: data.issued } });
+    if (existing) { ids.push(existing.id); continue; }
+    const subtotal = line.subPence + line.minutesPence;
+    const vat = Math.round(subtotal * VAT_RATE);
+    const inv = await prisma.invoice.create({
+      data: {
+        garageId: line.garageId,
+        businessId: line.businessId,
+        periodStart: data.issued,
+        periodEnd: data.periodEnd,
+        minutesUsed: line.minutes,
+        minutesIncluded: 0,
+        subscriptionAmount: line.subPence,
+        minutesAmount: line.minutesPence,
+        smsAmount: 0,
+        messagingSubscriptionAmount: 0,
+        subtotal,
+        vatAmount: vat,
+        total: subtotal + vat,
+        subscriptionCostGbp: line.subPence / 100,
+        costPerMinuteGbp: line.ratePence / 100,
+        vatRate: VAT_RATE,
+        status: 'pending', // awaiting In'n'out's manual Direct Debit; mark paid in the portal when it lands
+      },
+    });
+    ids.push(inv.id);
+  }
+  return ids;
 }
 
 async function fetchLogo(): Promise<Buffer | null> {
@@ -211,8 +252,12 @@ export async function renderInoInvoicePdf(data: InoInvoiceData): Promise<Buffer>
 }
 
 /** Build + render + email the In'n'out invoice. Returns true on success. */
-export async function sendInoInvoice(opts: { to?: string[]; now?: Date } = {}): Promise<boolean> {
+export async function sendInoInvoice(opts: { to?: string[]; now?: Date; record?: boolean } = {}): Promise<boolean> {
   const data = await buildInoInvoiceData(opts.now);
+  if (opts.record !== false) {
+    const ids = await createInoInvoiceRecords(data);
+    console.log(`[INO-INVOICE] recorded ${ids.length} branch invoice(s) for ${data.invoiceNo}`);
+  }
   const pdf = await renderInoInvoicePdf(data);
   const to = opts.to ?? RECIPIENTS;
 

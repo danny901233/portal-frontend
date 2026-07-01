@@ -66,6 +66,10 @@ export type TsService = {
   name: string;
   pricingType: 'fixed' | 'engine-size';
   price?: number;
+  // Numeric Tyresoft API serviceID — the agent needs this to book the service
+  // (without it the service falls back to MISC or is unbookable). Edited on the
+  // portal price list. Stored as string|number since the UI edits it as text.
+  tsServiceId?: string | number;
 };
 
 export type TyresoftSettings = {
@@ -74,6 +78,9 @@ export type TyresoftSettings = {
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
+  // Per-garage Tyresoft client channel id. Sent on createSale; a wrong/unset
+  // value makes Tyresoft reject the booking ("Invalid client channel id").
+  tsChannelId?: string;
   // Optional structured fields — populated when a garage's Tyresoft
   // services have been synced and per-bracket pricing has been set.
   tsServices?: TsService[];
@@ -115,6 +122,9 @@ export const cloneTyresoftSettings = (settings?: TyresoftSettings | null): Tyres
   tsPassword: typeof settings?.tsPassword === 'string' ? settings.tsPassword : '',
   tsApiKey: typeof settings?.tsApiKey === 'string' ? settings.tsApiKey : '',
   tsDepotId: typeof settings?.tsDepotId === 'string' ? settings.tsDepotId : (settings?.tsDepotId != null ? String(settings.tsDepotId) : ''),
+  ...(settings?.tsChannelId != null && String(settings.tsChannelId) !== ''
+    ? { tsChannelId: String(settings.tsChannelId) }
+    : {}),
   ...(Array.isArray(settings?.tsServices) ? { tsServices: settings.tsServices } : {}),
   ...(settings?.pricingRules && typeof settings.pricingRules === 'object' && !Array.isArray(settings.pricingRules)
     ? { pricingRules: settings.pricingRules }

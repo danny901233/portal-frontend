@@ -197,6 +197,8 @@ export interface TsService {
   name: string;
   pricingType: 'fixed' | 'engine-size';
   price?: number;
+  // Numeric Tyresoft API serviceID — needed for the agent to book this service.
+  tsServiceId?: string | number;
 }
 
 export interface TyresoftSettings {

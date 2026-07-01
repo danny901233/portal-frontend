@@ -300,6 +300,22 @@ export default function AdminTab({ config, save, isSaving }: Props) {
             />
           </Field>
           <Field
+            label="Channel ID"
+            hint="Tyresoft 'client channel id' for this garage — bookings are rejected with 'Invalid client channel id' if this is wrong or unset"
+          >
+            <input
+              type="text"
+              inputMode="numeric"
+              value={ts.tsChannelId ?? ''}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                setTs({ ...ts, tsChannelId: v === '' ? undefined : Number(v) });
+              }}
+              placeholder="e.g. 31"
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            />
+          </Field>
+          <Field
             label="Tyre markup"
             hint="Added to the raw Tyresoft supplier price before the agent quotes. Leave value blank for no markup."
           >

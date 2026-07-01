@@ -156,6 +156,11 @@ const tsServiceSchema = z.object({
   name: z.string().min(1).max(200),
   pricingType: z.enum(['fixed', 'engine-size']),
   price: z.number().nonnegative().max(100000).optional(),
+  // Numeric Tyresoft API serviceID for this service (from the garage's Tyresoft
+  // account). The agent needs this to book the service — without it the service
+  // falls back to the MISC line, or is unbookable. Kept as string|number since the
+  // UI edits it as text.
+  tsServiceId: z.union([z.string().max(20), z.number()]).optional(),
 });
 
 const tyresoftSettingsSchema = z
@@ -165,6 +170,10 @@ const tyresoftSettingsSchema = z
     tsPassword: optionalBoundedString(1000),
     tsApiKey: optionalBoundedString(1000),
     tsDepotId: z.union([z.string().max(20), z.number()]).optional(),
+    // Per-garage Tyresoft "client channel id". The agent sends this on createSale;
+    // if it's wrong/unset Tyresoft rejects the booking with "Invalid client channel id".
+    // Elite Autocare = 31. Must be set per garage (there is no safe shared default).
+    tsChannelId: z.union([z.string().max(20), z.number()]).optional(),
     // Structured pricing data — service catalogue + engine-size price brackets keyed by service id.
     tsServices: z.array(tsServiceSchema).max(200).optional(),
     pricingRules: z.record(z.string().max(64), z.array(pricingBracketSchema).max(20)).optional(),

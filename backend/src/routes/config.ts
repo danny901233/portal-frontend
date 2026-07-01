@@ -126,6 +126,10 @@ const parseIntegrationSettings = (
           tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
           tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
           tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
+          // Per-garage Tyresoft client channel id — the agent reads this off the
+          // DynamoDB tyresoftSettings (this object IS what's synced there) and sends
+          // it on createSale. Also surfaced so the portal editor can show/edit it.
+          tsChannelId: raw.tsChannelId != null ? String(raw.tsChannelId) : '',
           // Structured pricing data (per-service catalogue + engine-size brackets) lives in the same
           // integrationProviderConfig JSON. Forward to the frontend so the Tyresoft pricing editor
           // can read + edit it.
@@ -918,12 +922,28 @@ router.put(
           : {}),
       };
     }
+    // Per-garage Tyresoft client channel id. The agent sends it on createSale;
+    // an unset/wrong value makes Tyresoft reject the booking ("Invalid client
+    // channel id"). Use the incoming value if the form sent one, else preserve
+    // whatever's already stored (so unrelated saves don't wipe it).
+    const incomingChannelId =
+      rawTyresoft.tsChannelId != null && String(rawTyresoft.tsChannelId).trim() !== ''
+        ? Number(rawTyresoft.tsChannelId)
+        : undefined;
+    const tsChannelPayload: Record<string, unknown> =
+      incomingChannelId !== undefined && !Number.isNaN(incomingChannelId)
+        ? { tsChannelId: incomingChannelId }
+        : existingTsConfig?.tsChannelId !== undefined
+        ? { tsChannelId: existingTsConfig.tsChannelId }
+        : {};
+
     const tsStructuredPayload: Record<string, unknown> = {
       ...(tsServicesToSave !== undefined ? { tsServices: tsServicesToSave } : {}),
       ...(pricingRulesToSave !== undefined ? { pricingRules: pricingRulesToSave } : {}),
       ...(existingTsServicesUpload !== undefined
         ? { tsServicesUpload: existingTsServicesUpload }
         : {}),
+      ...tsChannelPayload,
       ...tyreMarkupPayload,
     };
 

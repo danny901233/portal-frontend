@@ -5,6 +5,7 @@ import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
 import { refreshTemplateToken } from '../services/metaTemplateToken.js';
 import { syncGocardlessPayments } from '../services/gocardlessSync.js';
 import { syncNegativeFeedbackToExcel } from '../services/feedbackExcelSync.js';
+import { sendInoInvoice } from '../services/inoInvoice.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 
@@ -68,6 +69,23 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ Automatic monthly billing scheduled: Daily at 9:00 AM (UK time)');
+
+  // In'n'out Autocentres invoice: 1st of each month at 9:00 AM. They pay by their own Direct
+  // Debit against an emailed invoice (not GoCardless), so we raise + email the combined 4-branch
+  // invoice (subscription + previous month's minutes + VAT) to their accounts team.
+  cron.schedule('0 9 1 * *', async () => {
+    console.log("Running In'n'out monthly invoice job...");
+    try {
+      const ok = await sendInoInvoice();
+      console.log(`✓ In'n'out invoice job completed (sent=${ok})`);
+    } catch (error) {
+      console.error("❌ In'n'out invoice job failed:", error);
+    }
+  }, {
+    timezone: 'Europe/London', // UK timezone
+  });
+
+  console.log("✓ In'n'out invoice scheduled: 1st of month at 9:00 AM (UK time)");
 
   // Invoice preview emails: Every day at 10:00 AM (10 days before billing)
   cron.schedule('0 10 * * *', async () => {

@@ -121,6 +121,9 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
   // null = no explicit user choice → fall back to derived (on if data exists).
   // true/false = user has clicked the toggle and that wins until they click again.
   const [userPricesPref, setUserPricesPref] = useState<boolean | null>(null);
+  // Show/hide the read-only view of what the uploaded Tyresoft price list actually
+  // contains (so staff can check it without re-downloading/replacing the CSV).
+  const [showPriceList, setShowPriceList] = useState(false);
   const hasAnyPriceData = hasPriceList || (isTyresoftAgent && hasTyresoftRules);
   const showPriceUpload = userPricesPref !== null ? userPricesPref : hasAnyPriceData;
 
@@ -215,10 +218,19 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                             Imported {uploadedAt} · {upload.services} service{upload.services === 1 ? '' : 's'} · {upload.brackets} bracket{upload.brackets === 1 ? '' : 's'}
                           </p>
                         </div>
-                        <label className="shrink-0 inline-flex cursor-pointer items-center rounded-md border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100">
-                          {servicesCsvMut.isPending ? 'Replacing…' : 'Replace CSV'}
-                          <input type="file" accept=".csv,text/csv" className="hidden" disabled={servicesCsvMut.isPending} onChange={handleFile} />
-                        </label>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowPriceList((v) => !v)}
+                            className="inline-flex items-center rounded-md border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100"
+                          >
+                            {showPriceList ? 'Hide' : 'View'}
+                          </button>
+                          <label className="inline-flex cursor-pointer items-center rounded-md border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100">
+                            {servicesCsvMut.isPending ? 'Replacing…' : 'Replace CSV'}
+                            <input type="file" accept=".csv,text/csv" className="hidden" disabled={servicesCsvMut.isPending} onChange={handleFile} />
+                          </label>
+                        </div>
                       </div>
                     ) : (
                       <div>
@@ -232,6 +244,43 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                         </label>
                       </div>
                     )}
+                    {upload && showPriceList ? (
+                      <div className="mt-3 border-t border-brand-200 pt-3">
+                        <table className="w-full text-left text-[11px]">
+                          <thead>
+                            <tr className="text-slate-500">
+                              <th className="pb-1 pr-2 font-medium">Service</th>
+                              <th className="pb-1 pr-2 font-medium">Price</th>
+                              <th className="pb-1 font-medium">API ID</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(config.tyresoftSettings?.tsServices ?? []).map((svc) => {
+                              const brackets = config.tyresoftSettings?.pricingRules?.[svc.id] ?? [];
+                              return (
+                                <tr key={svc.id} className="border-t border-brand-100 align-top">
+                                  <td className="py-1 pr-2 text-slate-800">{svc.name}</td>
+                                  <td className="py-1 pr-2 text-slate-700">
+                                    {svc.pricingType === 'engine-size' && brackets.length ? (
+                                      brackets.map((b, i) => (
+                                        <div key={i}>up to {b.maxCC}cc — £{b.price}</div>
+                                      ))
+                                    ) : typeof svc.price === 'number' ? (
+                                      `£${svc.price}`
+                                    ) : (
+                                      <span className="text-slate-400">no set price</span>
+                                    )}
+                                  </td>
+                                  <td className="py-1 text-slate-500">
+                                    {svc.tsServiceId ?? <span className="text-slate-300">—</span>}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })()

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { AgentConfiguration, ResponseSpeed } from '../../types';
+import type { AgentConfiguration } from '../../types';
 import { generateVoicePreview } from '../../lib/api';
 import { getGarageId } from '../../lib/auth';
 import TabShell from './TabShell';
@@ -43,21 +43,12 @@ const TONE_OPTIONS: { value: 'standard' | 'upbeat' | 'professional'; label: stri
   { value: 'professional', label: 'Professional', description: 'Polished, formal British receptionist register' },
 ];
 
-const RESPONSE_SPEED_OPTIONS: { value: ResponseSpeed; label: string; description: string }[] = [
-  { value: 'slow',   label: 'Slow',   description: 'Weight accuracy over speed' },
-  { value: 'normal', label: 'Normal', description: 'Balanced response cadence' },
-  { value: 'fast',   label: 'Fast',   description: 'Reply as soon as possible' },
-];
-
 export default function VoiceTab({ config, save, isSaving }: Props) {
   const [voice, setVoice] = useState<VoiceOption>(
     (config.voice as VoiceOption) ?? 'leah'
   );
   const [tonePreference, setTonePreference] = useState<'standard' | 'upbeat' | 'professional'>(
     (config.tonePreference as 'standard' | 'upbeat' | 'professional') ?? 'standard'
-  );
-  const [responseSpeed, setResponseSpeed] = useState<ResponseSpeed>(
-    (config.responseSpeed as ResponseSpeed) ?? 'normal'
   );
   const [interruptionSensitivity, setInterruptionSensitivity] = useState<number>(
     typeof config.interruptionSensitivity === 'number' ? config.interruptionSensitivity : 0.5
@@ -76,11 +67,10 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
     setTonePreference(
       (config.tonePreference as 'standard' | 'upbeat' | 'professional') ?? 'standard'
     );
-    setResponseSpeed((config.responseSpeed as ResponseSpeed) ?? 'normal');
     setInterruptionSensitivity(
       typeof config.interruptionSensitivity === 'number' ? config.interruptionSensitivity : 0.5
     );
-  }, [config.voice, config.tonePreference, config.responseSpeed, config.interruptionSensitivity]);
+  }, [config.voice, config.tonePreference, config.interruptionSensitivity]);
 
   // Stop any playing audio when the component unmounts so a stale clip doesn't
   // keep playing after the user navigates away.
@@ -138,7 +128,10 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
   };
 
   const handleSave = () => {
-    void save({ voice, tonePreference, responseSpeed, interruptionSensitivity });
+    // Response speed is no longer a portal setting — every agent uses fixed dynamic
+    // endpointing (0.5s floor, max 6.0s). We keep the stored field pinned to 'normal'
+    // so the agent config carries a valid, consistent value.
+    void save({ voice, tonePreference, responseSpeed: 'normal', interruptionSensitivity });
   };
 
   return (
@@ -223,30 +216,6 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
         {previewError ? (
           <p className="mt-2 text-xs text-rose-600">{previewError}</p>
         ) : null}
-      </div>
-
-      <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700">Response speed</label>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          {RESPONSE_SPEED_OPTIONS.map((opt) => {
-            const isActive = responseSpeed === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setResponseSpeed(opt.value)}
-                className={`rounded-xl border p-3 text-left transition ${
-                  isActive
-                    ? 'border-brand-600 bg-brand-100'
-                    : 'border-slate-300 bg-slate-50 hover:border-slate-500'
-                }`}
-              >
-                <div className="text-sm font-semibold text-slate-900">{opt.label}</div>
-                <div className="mt-0.5 text-xs text-slate-500">{opt.description}</div>
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       <div>

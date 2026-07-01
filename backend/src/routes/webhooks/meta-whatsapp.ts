@@ -4,6 +4,7 @@ import axios from 'axios';
 import { prisma } from '../../db.js';
 import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
+import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 
@@ -140,6 +141,25 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
 
           if (messageType !== 'text' && messageType !== 'image') {
             console.log(`Unsupported WhatsApp message type: ${messageType}`);
+            continue;
+          }
+
+          // ── OPS ASSISTANT (internal) ─────────────────────────────────────────
+          // A message from an allow-listed ReceptionMate admin number is handled by
+          // the internal diagnostics agent, NOT the customer receptionist. Isolated:
+          // guarded by the admin check + try/catch, and `continue` so it can never
+          // fall through into the customer flow below. A failure here is swallowed.
+          if (messageText && isWhatsappAdmin(customerPhone)) {
+            try {
+              await handleAdminOpsMessage({
+                from: customerPhone,
+                text: messageText,
+                phoneNumberId,
+                accessToken: connection.accessToken,
+              });
+            } catch (err) {
+              console.error('[WhatsApp Ops] handler error:', err);
+            }
             continue;
           }
 

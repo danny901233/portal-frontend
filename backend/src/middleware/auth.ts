@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type { BranchRole } from '../utils/branchRoles.js';
+import { prisma } from '../db.js';
 
 interface JwtPayload {
   userId: string;
@@ -90,4 +91,39 @@ export const requireManager = (req: Request, res: Response, next: NextFunction) 
     return next();
   }
   return res.status(403).json({ error: 'Manager access required' });
+};
+
+// Same rule as requireManager, but re-reads the user's CURRENT role + branchRoles
+// from the DB instead of trusting the JWT (which is stateless and lives up to 7
+// days). Use on sensitive routes where a revoked access must take effect
+// immediately — e.g. demoting a branch MANAGER should lock them out on their very
+// next request, not whenever their old token happens to expire.
+export const requireManagerLive = async (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(403).json({ error: 'Manager access required' });
+  }
+  // Staff token (incl. the synthetic API-key user, which has no DB row) — trust it.
+  if (req.user.role === 'RECEPTIONMATE_STAFF') {
+    return next();
+  }
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: { role: true, branchRoles: true },
+    });
+    if (!dbUser) {
+      return res.status(403).json({ error: 'Manager access required' });
+    }
+    if (dbUser.role === 'RECEPTIONMATE_STAFF' || dbUser.role === 'MANAGER') {
+      return next();
+    }
+    const garageId = req.params.garageId;
+    const branchRoles = (dbUser.branchRoles as Record<string, BranchRole> | null) || {};
+    if (garageId && branchRoles[garageId] === 'MANAGER') {
+      return next();
+    }
+    return res.status(403).json({ error: 'Manager access required' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Authorization check failed' });
+  }
 };

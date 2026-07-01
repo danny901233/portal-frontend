@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
-import { requireManager } from '../middleware/auth.js';
+import { requireManagerLive } from '../middleware/auth.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import multer from 'multer';
@@ -537,7 +537,7 @@ const persistWebsiteKnowledge = async (
 router.get(
   '/garages/:garageId/agent-config',
   authenticate,
-  requireManager,
+  requireManagerLive,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
     const allowedGarages = resolveAllowedGarages(req.user);
@@ -742,7 +742,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
 router.put(
   '/garages/:garageId/agent-config',
   authenticate,
-  requireManager,
+  requireManagerLive,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
     const allowedGarages = resolveAllowedGarages(req.user);
@@ -1117,7 +1117,7 @@ const handleKnowledgeUpload = (req: Request, res: Response, next: () => void) =>
 router.post(
   '/garages/:garageId/knowledge-upload',
   authenticate,
-  requireManager,
+  requireManagerLive,
   handleKnowledgeUpload,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
@@ -1188,7 +1188,7 @@ router.post(
 router.delete(
   '/garages/:garageId/knowledge/:uploadId',
   authenticate,
-  requireManager,
+  requireManagerLive,
   async (req: Request, res: Response) => {
     const { garageId, uploadId } = req.params;
     const allowedGarages = resolveAllowedGarages(req.user);
@@ -1308,7 +1308,7 @@ function parseServicesCsv(csv: string): {
 router.post(
   '/garages/:garageId/tyresoft-services-csv',
   authenticate,
-  requireManager,
+  requireManagerLive,
   servicesCsvUpload.single('file'),
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
@@ -1372,7 +1372,7 @@ router.post(
 router.delete(
   '/garages/:garageId/tyresoft-services-csv',
   authenticate,
-  requireManager,
+  requireManagerLive,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
     const allowedGarages = resolveAllowedGarages(req.user);

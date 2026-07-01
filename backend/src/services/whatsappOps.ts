@@ -165,6 +165,7 @@ export async function handleAdminOpsMessage(opts: {
   from: string; text: string; phoneNumberId: string; accessToken: string;
 }): Promise<void> {
   const { from, text, phoneNumberId, accessToken } = opts;
+  console.log(`[WhatsApp Ops] request from ${from}: ${text.slice(0, 120)}`);
   const prior = history.get(from) || [];
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: SYSTEM },
@@ -192,5 +193,11 @@ export async function handleAdminOpsMessage(opts: {
   if (!final) final = "Sorry — I couldn't work that out. Try naming the garage or a call id.";
 
   history.set(from, [...prior, { role: 'user', content: text }, { role: 'assistant', content: final }].slice(-HIST_MAX));
-  await sendWhatsApp(phoneNumberId, accessToken, from, final);
+  console.log(`[WhatsApp Ops] replying to ${from} (${final.length} chars)`);
+  try {
+    await sendWhatsApp(phoneNumberId, accessToken, from, final);
+    console.log(`[WhatsApp Ops] reply sent OK to ${from}`);
+  } catch (e: any) {
+    console.error('[WhatsApp Ops] SEND FAILED:', JSON.stringify(e?.response?.data?.error || e?.message || e));
+  }
 }

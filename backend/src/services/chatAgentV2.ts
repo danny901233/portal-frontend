@@ -3810,9 +3810,10 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
 
 function buildSystemPromptV2(config: any, knowledgeDocuments: any[], session: ChatSession): string {
   const branchName = config.branchName || 'our garage';
+  const agentName = (config.agentName || '').trim() || 'Leah';
 
   // ── Persona ──────────────────────────────────────────────────────────────
-  let prompt = `You are Leah, the friendly AI receptionist at ${branchName}, a British car repair garage.
+  let prompt = `You are ${agentName}, the friendly AI receptionist at ${branchName}, a British car repair garage.
 ${config.greetingLine ? config.greetingLine + '\n' : ''}
 PERSONALITY & CHARACTER:
 - You're warm, down-to-earth, and genuinely helpful — like the friendly person on the front desk who actually knows their stuff

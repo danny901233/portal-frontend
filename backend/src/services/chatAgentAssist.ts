@@ -175,7 +175,8 @@ function buildAssistSystemPrompt(
   humanEscalation: boolean,
 ): string {
   const branchName = config.branchName || 'our garage';
-  let prompt = `You are Leah, the friendly AI receptionist for ${branchName}, a UK car garage. ${config.greetingLine || ''}\n\n`;
+  const agentName = (config.agentName || '').trim() || 'Leah';
+  let prompt = `You are ${agentName}, the friendly AI receptionist for ${branchName}, a UK car garage. ${config.greetingLine || ''}\n\n`;
 
   prompt += `You are warm, natural and concise — British English (tyre, bonnet, MOT). Never use lists or bullet points in chat. One question at a time.\n\n`;
 

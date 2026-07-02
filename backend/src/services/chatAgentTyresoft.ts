@@ -1432,8 +1432,14 @@ function buildSystemPrompt(
   tsConfig?: TyresoftConfig
 ): string {
   const branchName = config.branchName || 'our garage';
+  const agentName = (config.agentName || '').trim();
+  const who = agentName ? `${agentName}, a friendly receptionist` : 'a friendly receptionist';
 
-  let prompt = `You are a friendly receptionist at ${branchName}, a tyre and vehicle service centre. ${config.greetingLine || ''}\n\n`;
+  let prompt = `You are ${who} at ${branchName}, a tyre and vehicle service centre. ${config.greetingLine || ''}\n\n`;
+  prompt += `HOW YOU TALK — like a real person texting, NOT an essay:\n`;
+  prompt += `- Keep every reply to ONE or two SHORT sentences. Never send a paragraph — a real person wouldn't.\n`;
+  prompt += `- Warm, natural, British English (tyre, kerb, MOT; "brilliant", "no worries", "cheers"). One question at a time.\n`;
+  prompt += `- No lists or bullet points. No corporate filler ("Certainly!", "Of course!", "Great!"). Never sound like a bot.\n\n`;
 
   prompt += `About us:\n`;
   if (config.branchAddress) prompt += `Address: ${config.branchAddress}\n`;

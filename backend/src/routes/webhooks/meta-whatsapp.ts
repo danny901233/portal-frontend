@@ -105,25 +105,13 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
         });
 
         if (!connection) {
-          // Self-heal: OAuth flow sometimes stores the wrong phone number ID (e.g. WABA ID or
-          // first number on account instead of the correct one). If there's exactly one active
-          // WhatsApp connection whose stored ID doesn't match, update it automatically.
-          const fallback = await prisma.socialMediaConnection.findFirst({
-            where: { platform: 'whatsapp', isActive: true },
-            include,
-          });
-
-          if (!fallback) {
-            console.log(`No garage found for WhatsApp phone_number_id: ${phoneNumberId}`);
-            continue;
-          }
-
-          console.log(`[WhatsApp] Auto-correcting phone_number_id: ${fallback.whatsappPhoneNumberId} → ${phoneNumberId}`);
-          await prisma.socialMediaConnection.update({
-            where: { id: fallback.id },
-            data: { whatsappPhoneNumberId: phoneNumberId },
-          });
-          connection = { ...fallback, whatsappPhoneNumberId: phoneNumberId };
+          // No active connection matches this phone number ID — ignore the message.
+          // NOTE: this used to "self-heal" by hijacking the first active WhatsApp connection
+          // and overwriting its whatsappPhoneNumberId to the incoming one. That was safe with a
+          // single connection, but with multiple it CORRUPTS a random garage's number — it
+          // scrambled MMH / ops / ReceptionMate on 2026-07-02. Never auto-rewrite; just skip.
+          console.log(`No active WhatsApp connection for phone_number_id: ${phoneNumberId} — ignoring.`);
+          continue;
         }
 
         // Process each message

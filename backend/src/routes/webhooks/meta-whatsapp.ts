@@ -3,6 +3,7 @@ import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
 import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
+import { scheduleHumanReply } from '../../services/chatDelay.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
 import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
@@ -408,44 +409,18 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
           // Note: We always respond to incoming messages as they're within the 24-hour window
           const agentText = messageText || (mediaUrl ? '[Customer sent an image]' : null);
           if (!isAgentPaused && agentText) {
-            // Get AI response — router selects the correct agent based on agentScript
-            const agentResponse = await routeChatMessage(
-              connection.garageId,
+            // Human-like delayed reply: acks the webhook instantly, shows "seen"/"typing…",
+            // then sends after a weighted-random delay — batching any messages that arrive
+            // during the wait into one reply. (Kill switch: env CHAT_HUMAN_DELAY=off.)
+            scheduleHumanReply({
+              garageId: connection.garageId,
+              conversationId: conversation.id,
+              phoneNumberId,
+              customerPhone,
+              accessToken: connection.accessToken,
               agentText,
-              conversation.id
-            );
-
-            // Save AI response
-            await prisma.chatMessage.create({
-              data: {
-                conversationId: conversation.id,
-                role: 'assistant',
-                content: agentResponse.content,
-              },
+              metaMid,
             });
-
-            // Send response via WhatsApp
-            try {
-              await axios.post(
-                `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
-                {
-                  messaging_product: 'whatsapp',
-                  to: customerPhone,
-                  type: 'text',
-                  text: { body: agentResponse.content },
-                },
-                {
-                  headers: {
-                    Authorization: `Bearer ${connection.accessToken}`,
-                    'Content-Type': 'application/json',
-                  },
-                }
-              );
-              console.log(`WhatsApp message sent to ${customerPhone}`);
-            } catch (sendError: any) {
-              const metaError = sendError?.response?.data;
-              console.error(`[WhatsApp] SEND FAILED to ${customerPhone}:`, JSON.stringify(metaError ?? sendError?.message));
-            }
           } else {
             console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
           }

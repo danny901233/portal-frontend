@@ -50,10 +50,6 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
   const [tonePreference, setTonePreference] = useState<'standard' | 'upbeat' | 'professional'>(
     (config.tonePreference as 'standard' | 'upbeat' | 'professional') ?? 'standard'
   );
-  const [interruptionSensitivity, setInterruptionSensitivity] = useState<number>(
-    typeof config.interruptionSensitivity === 'number' ? config.interruptionSensitivity : 0.5
-  );
-
   // Cache of last-fetched preview audio per voice — lets the user replay
   // without re-hitting the backend (each generation costs an ElevenLabs call).
   const audioCache = useRef<Map<VoiceOption, string>>(new Map());
@@ -67,10 +63,7 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
     setTonePreference(
       (config.tonePreference as 'standard' | 'upbeat' | 'professional') ?? 'standard'
     );
-    setInterruptionSensitivity(
-      typeof config.interruptionSensitivity === 'number' ? config.interruptionSensitivity : 0.5
-    );
-  }, [config.voice, config.tonePreference, config.interruptionSensitivity]);
+  }, [config.voice, config.tonePreference]);
 
   // Stop any playing audio when the component unmounts so a stale clip doesn't
   // keep playing after the user navigates away.
@@ -128,10 +121,10 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
   };
 
   const handleSave = () => {
-    // Response speed is no longer a portal setting — every agent uses fixed dynamic
-    // endpointing (0.5s floor, max 6.0s). We keep the stored field pinned to 'normal'
-    // so the agent config carries a valid, consistent value.
-    void save({ voice, tonePreference, responseSpeed: 'normal', interruptionSensitivity });
+    // Response speed + interruption sensitivity are no longer portal settings — every agent
+    // uses hardcoded dynamic endpointing + adaptive interruption. We keep the stored fields
+    // pinned to sensible constants so the agent config carries valid, consistent values.
+    void save({ voice, tonePreference, responseSpeed: 'normal', interruptionSensitivity: 0.5 });
   };
 
   return (
@@ -218,41 +211,8 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
         ) : null}
       </div>
 
-      <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700">
-          Interruption sensitivity
-        </label>
-        <p className="mb-3 text-xs text-slate-500">
-          How easily a caller can interrupt the agent. Lower = the agent finishes speaking
-          before listening; higher = it stops the moment you start talking.
-        </p>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-medium text-slate-500">Hard to interrupt</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.1}
-              value={interruptionSensitivity}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (!Number.isNaN(v)) {
-                  setInterruptionSensitivity(Math.min(1, Math.max(0, v)));
-                }
-              }}
-              aria-valuemin={0}
-              aria-valuemax={1}
-              aria-valuenow={interruptionSensitivity}
-              className="flex-1 accent-brand-600"
-            />
-            <span className="text-xs font-medium text-slate-500">Easy to interrupt</span>
-          </div>
-          <div className="mt-2 text-center text-sm font-medium text-slate-900">
-            {interruptionSensitivity.toFixed(1)}
-          </div>
-        </div>
-      </div>
+      {/* Interruption sensitivity removed from the UI — it (and endpointing) are now
+          hardcoded in every agent and no longer configurable per garage. */}
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
         <p className="text-slate-600">

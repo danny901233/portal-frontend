@@ -11,7 +11,7 @@ interface Props {
 }
 
 type AgentType = 'assist' | 'automate';
-type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent';
+type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
 
 const AGENT_TYPE_OPTIONS: { value: AgentType; label: string; description: string }[] = [
   { value: 'assist', label: 'Assist (message-only)', description: 'Agent takes messages, never tries to book' },

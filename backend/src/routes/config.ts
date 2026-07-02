@@ -265,6 +265,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       config.agentScript === 'Assist-agent' ? 'Assist-agent' :
       config.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
+      config.agentScript === 'MMH-agent' ? 'MMH-agent' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
@@ -327,6 +328,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       configuration.agentScript === 'Assist-agent' ? 'Assist-agent' :
       configuration.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
+      configuration.agentScript === 'MMH-agent' ? 'MMH-agent' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent'
@@ -712,7 +714,7 @@ export const autoIngestWebsiteKnowledge = async (garageId: string, url: string):
   }
 };
 
-const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent') => {
+const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent') => {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
   if (!onboardingUrl) {
     console.log('[UPDATE_SIP] No onboarding service URL configured');
@@ -781,7 +783,7 @@ router.put(
 
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : 'receptionmate-agent';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : 'receptionmate-agent';
 
     // Only staff can change which agent serves the garage; everyone else keeps the saved script.
     if (!canEditAgentType) {
@@ -789,7 +791,7 @@ router.put(
         where: { garageId },
         select: { agentScript: true },
       });
-      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : 'receptionmate-agent';
+      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : 'receptionmate-agent';
     }
 
     // agentType is DERIVED from the agent script — the script is the single source of truth.
@@ -1039,7 +1041,13 @@ router.put(
       twilioNumber: garageRecord?.twilioNumber
     });
     
-    if (existingConfig && existingConfig.agentScript !== resolvedAgentScript && garageRecord?.twilioNumber) {
+    if (resolvedAgentScript === 'MMH-agent') {
+      // MMH's SIP trunk + dispatch rule live in the dedicated 'new-gh-agent' LiveKit project,
+      // which the onboarding service does NOT manage. Routing is handled entirely by voice.ts
+      // (agentScript='MMH-agent' -> LIVEKIT_SIP_DOMAIN_MMH). Re-provisioning here would create a
+      // stray/incorrect rule in the fleet project, so skip it.
+      console.log('[UPDATE_AGENT] Skipping dispatch rule update for MMH-agent (routing via voice.ts to new-gh-agent project)');
+    } else if (existingConfig && existingConfig.agentScript !== resolvedAgentScript && garageRecord?.twilioNumber) {
       console.log('[UPDATE_AGENT] Updating SIP dispatch rule for garage', garageId, 'to agent:', resolvedAgentScript);
       void updateSipDispatchRule(garageId, resolvedAgentScript);
     } else {

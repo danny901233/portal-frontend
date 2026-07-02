@@ -60,7 +60,7 @@ export default function BookingTab({ config, save, isSaving }: Props) {
   // The GarageHive (Automate) agent always books against the live diary and ignores this
   // toggle — it only applies to Assist garages. Flag that clearly so it isn't mistaken for
   // an off switch on Automate.
-  const isAutomate = ['receptionmate-agent', 'receptionmate-agent-v3', 'GarageHive-agent'].includes(
+  const isAutomate = ['receptionmate-agent', 'receptionmate-agent-v3', 'GarageHive-agent', 'MMH-agent'].includes(
     config.agentScript
   );
 

@@ -37,7 +37,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   // matches the marketing site's self-serve default (RMB-Assist on account 2)
   // so quick-onboard doesn't require a trip into Agent Configurations -> Routing.
   const [agentScript, setAgentScript] = useState<
-    'Assist-agent' | 'GarageHive-agent' | 'tyresoft-agent' | 'receptionmate-agent-v3' | 'receptionmate-agent'
+    'Assist-agent' | 'GarageHive-agent' | 'tyresoft-agent' | 'receptionmate-agent-v3' | 'receptionmate-agent' | 'MMH-agent'
   >('Assist-agent');
 
   // Service agreement

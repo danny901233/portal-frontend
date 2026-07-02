@@ -223,12 +223,13 @@ const agentTypeOptions: { value: AgentType; label: string; description: string }
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
-const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent'; label: string; description: string }[] = [
+const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent'; label: string; description: string }[] = [
   { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
   { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture' },
   { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre centre integration with inventory management' },
   { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on the second LiveKit Cloud account — message-taking only, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
   { value: 'GarageHive-agent', label: 'RMB-GarageHive', description: 'New GarageHive booking + take-message agent on the second LiveKit Cloud account — full booking flow, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
+  { value: 'MMH-agent', label: 'MMH Agent (Midlands Motorhome Hire)', description: 'Dedicated motorhome-hire booking agent (Outdoorsy/Wheelbase) on the new-gh-agent LiveKit project. Routes via LIVEKIT_SIP_DOMAIN_MMH — do not use the standard SIP provisioning for this garage.' },
 ];
 const maskSecretValue = (value: string) => {
   if (!value) {
@@ -838,19 +839,6 @@ export default function AgentConfigurationsPage() {
     setFeedback(null);
   };
 
-  const handleInterruptionSensitivityChange = (event: ChangeEvent<HTMLInputElement>) => {
-    if (!isEditing || mutation.isPending) {
-      return;
-    }
-    const rawValue = Number.parseFloat(event.target.value);
-    setFormState((prev) => ({
-      ...prev,
-      interruptionSensitivity: Number.isNaN(rawValue)
-        ? prev.interruptionSensitivity
-        : Math.min(1, Math.max(0, rawValue)),
-    }));
-    setFeedback(null);
-  };
 
   const handleHoursChange = (day: DayOfWeek, field: 'open' | 'close') =>
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -1746,30 +1734,8 @@ export default function AgentConfigurationsPage() {
             </div>
           </div>
 
-          <div className="mt-8 flex flex-col gap-3 text-sm text-slate-300">
-            <span className="text-xs uppercase tracking-wide text-slate-500">Response timing</span>
-            {isEditing ? (
-              <label className="flex flex-col gap-2">
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={formState.interruptionSensitivity}
-                  onChange={handleInterruptionSensitivityChange}
-                  disabled={!isEditing || mutation.isPending}
-                  aria-valuemin={0}
-                  aria-valuemax={1}
-                  aria-valuenow={Number(formState.interruptionSensitivity.toFixed(1))}
-                  aria-valuetext={`${formState.interruptionSensitivity.toFixed(1)} timing`}
-                  className="h-2 w-full cursor-pointer rounded-full bg-slate-800 accent-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
-                />
-                <span className="text-xs text-slate-400">{formState.interruptionSensitivity.toFixed(1)} (0 = longer pause, 1 = faster response)</span>
-              </label>
-            ) : (
-              <span className="text-sm text-slate-200">{formState.interruptionSensitivity.toFixed(1)}</span>
-            )}
-          </div>
+          {/* Response timing / interruption sensitivity removed from the UI — endpointing
+              (dynamic) and interruption sensitivity are now hardcoded in every agent. */}
 
           <div className="mt-6 flex flex-col gap-3 text-sm text-slate-300">
             <span className="text-xs uppercase tracking-wide text-slate-500">
@@ -1988,7 +1954,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}

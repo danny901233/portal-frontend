@@ -395,6 +395,13 @@ export default function CallDetailPage() {
 
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  // Track whether the transcript box is scrolled to (near) the bottom, so the
+  // "scroll to read more" fade/pill hides once there's nothing left to read.
+  const [transcriptAtBottom, setTranscriptAtBottom] = useState(false);
+  const handleTranscriptScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    setTranscriptAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+  }, []);
   const runDeepAnalysis = useCallback(async () => {
     if (!callId || analyzing) {
       return;
@@ -486,7 +493,7 @@ export default function CallDetailPage() {
       });
   
   const firstTimestamp = transcript[0]?.timestamp ?? 0;
-  const showTranscriptHint = transcript.length > 3;
+  const showTranscriptHint = transcript.length > 3 && !transcriptAtBottom;
   const metricEntries = Object.entries(call.metrics ?? {})
     .filter(([key, value]) => {
       const normalised = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
@@ -637,7 +644,10 @@ export default function CallDetailPage() {
             <h2 className="text-lg font-semibold text-slate-900">Transcript</h2>
             <p className="text-xs uppercase tracking-wide text-slate-500">Scroll to explore the full conversation.</p>
             <div className="relative">
-              <div className="max-h-[48rem] space-y-3 overflow-y-auto pr-2 pb-2">
+              <div
+                className="max-h-[48rem] space-y-3 overflow-y-auto pr-2 pb-16"
+                onScroll={handleTranscriptScroll}
+              >
                 {transcript.map((entry: CallRecord['transcript'][number], index) => (
                   <TranscriptEntry
                     key={`${entry.speaker}-${entry.timestamp}-${index}`}

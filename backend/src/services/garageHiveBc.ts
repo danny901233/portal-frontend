@@ -337,6 +337,10 @@ export async function lookupPhonebookByPhone(
  * with MOT/service due dates. Read-only. Returns { matched:false } when unknown.
  */
 export async function getCallerProfile(garageId: string, phone: string): Promise<CallerProfile> {
+  // Off unless the garage has opted in — keeps the agent inert by default.
+  const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
+  if (!conn?.callerRecognitionEnabled) return { matched: false, vehicles: [] };
+
   const creds = await resolveCreds(garageId);
   if (!creds) return { matched: false, vehicles: [] };
 

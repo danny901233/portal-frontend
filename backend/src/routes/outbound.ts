@@ -223,6 +223,7 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
       reminderDaysAhead: conn.reminderDaysAhead,
       reminderTemplateId: conn.reminderTemplateId,
       reminderChannel: conn.reminderChannel,
+      callerRecognitionEnabled: conn.callerRecognitionEnabled,
       advisoryUpsellsEnabled: conn.advisoryUpsellsEnabled,
       lastRunAt: conn.lastRunAt,
       lastRunError: conn.lastRunError,
@@ -244,12 +245,14 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       reminderDaysAhead,
       reminderTemplateId,
       advisoryUpsellsEnabled,
+      callerRecognitionEnabled,
     } = (req.body || {}) as {
       garageId?: string;
       remindersEnabled?: boolean;
       reminderDaysAhead?: number;
       reminderTemplateId?: string | null;
       advisoryUpsellsEnabled?: boolean;
+      callerRecognitionEnabled?: boolean;
     };
     if (!garageId) return res.status(400).json({ error: 'garageId required' });
 
@@ -268,8 +271,8 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
     if (remindersEnabled && !reminderTemplateId) {
       return res.status(400).json({ error: 'Select an approved WhatsApp template before enabling automatic reminders.' });
     }
-    // Advisory upsells are only for garages on the Garage Hive agent.
-    if (advisoryUpsellsEnabled) {
+    // Caller recognition + advisory upsells are only for garages on the Garage Hive agent.
+    if (advisoryUpsellsEnabled || callerRecognitionEnabled) {
       const agentCfg = await prisma.agentConfiguration.findUnique({
         where: { garageId },
         select: { agentType: true, agentScript: true },
@@ -277,7 +280,9 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       const isGarageHiveAgent =
         agentCfg?.agentType === 'automate' || agentCfg?.agentScript === 'GarageHive-agent';
       if (!isGarageHiveAgent) {
-        return res.status(400).json({ error: 'Advisory upsells are only available on the Garage Hive agent.' });
+        return res.status(400).json({
+          error: 'Caller recognition and advisory upsells are only available on the Garage Hive agent.',
+        });
       }
     }
 
@@ -288,6 +293,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
         ...(typeof reminderDaysAhead === 'number' && { reminderDaysAhead }),
         ...(reminderTemplateId !== undefined && { reminderTemplateId }),
         ...(typeof advisoryUpsellsEnabled === 'boolean' && { advisoryUpsellsEnabled }),
+        ...(typeof callerRecognitionEnabled === 'boolean' && { callerRecognitionEnabled }),
       },
     });
     res.json({
@@ -296,6 +302,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       reminderDaysAhead: updated.reminderDaysAhead,
       reminderTemplateId: updated.reminderTemplateId,
       reminderChannel: updated.reminderChannel,
+      callerRecognitionEnabled: updated.callerRecognitionEnabled,
       advisoryUpsellsEnabled: updated.advisoryUpsellsEnabled,
       lastRunAt: updated.lastRunAt,
       lastRunError: updated.lastRunError,

@@ -127,6 +127,7 @@ export default function OutboundPage() {
   const [autoDays, setAutoDays] = useState(30);
   const [autoTemplateId, setAutoTemplateId] = useState('');
   const [advisoryEnabled, setAdvisoryEnabled] = useState(false);
+  const [callerRecEnabled, setCallerRecEnabled] = useState(false);
   const [preview, setPreview] = useState<OutboundContactInput[] | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null); // used for new campaign send only
@@ -166,6 +167,7 @@ export default function OutboundPage() {
     setAutoDays(ghSettings.reminderDaysAhead ?? 30);
     setAutoTemplateId(ghSettings.reminderTemplateId ?? '');
     setAdvisoryEnabled(!!ghSettings.advisoryUpsellsEnabled);
+    setCallerRecEnabled(!!ghSettings.callerRecognitionEnabled);
   }, [ghSettings]);
 
   const saveSettingsMutation = useMutation({
@@ -571,6 +573,57 @@ export default function OutboundPage() {
               </div>
             </div>
           )
+        )}
+
+        {/* Caller recognition — VOICE AGENT behaviour, Garage Hive agent only */}
+        {source === 'garagehive' && ghSettings?.connected && ghSettings?.isGarageHiveAgent && (
+          <div className="mt-4 rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  Caller recognition{' '}
+                  <span className="ml-1 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
+                    Voice agent · Garage Hive
+                  </span>
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  On an inbound call, the agent looks the caller&rsquo;s number up in Garage Hive and
+                  confirms the vehicle on file — &ldquo;is it still the Focus?&rdquo; — instead of asking
+                  them to read out their registration.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={callerRecEnabled}
+                disabled={saveSettingsMutation.isPending}
+                onClick={() => {
+                  const next = !callerRecEnabled;
+                  setCallerRecEnabled(next);
+                  saveSettingsMutation.mutate({ garageId, callerRecognitionEnabled: next });
+                }}
+                className={cn(
+                  'relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50',
+                  callerRecEnabled ? 'bg-green-500' : 'bg-slate-300',
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
+                    callerRecEnabled ? 'translate-x-5' : 'translate-x-0.5',
+                  )}
+                />
+              </button>
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-xs">
+              <span className={cn('inline-block h-2 w-2 rounded-full', callerRecEnabled ? 'bg-green-500' : 'bg-slate-400')} />
+              <span className="text-slate-500">
+                {callerRecEnabled
+                  ? 'On — the agent greets known callers with their vehicle.'
+                  : 'Off — the agent asks every caller for their reg.'}
+              </span>
+            </div>
+          </div>
         )}
 
         {/* Advisory upsells — VOICE AGENT booking behaviour, Garage Hive agent only */}

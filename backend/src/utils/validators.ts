@@ -268,6 +268,8 @@ export const upsertAgentConfigurationSchema = z.object({
   responseSpeed: z.enum(['slow', 'normal', 'fast']).optional(),
   interruptionSensitivity: z.number().min(0).max(1).optional(),
   allowFastFitOnly: z.boolean(),
+  callerRecognitionEnabled: z.boolean().optional(),
+  advisoryUpsellsEnabled: z.boolean().optional(),
   enableDropOffBookings: z.boolean().optional(),
   dropOffMessage: z.string().max(500).optional(),
   dropOffExcludeServices: z.array(z.string().max(100)).max(20).optional(),

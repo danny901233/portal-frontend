@@ -337,9 +337,13 @@ export async function lookupPhonebookByPhone(
  * with MOT/service due dates. Read-only. Returns { matched:false } when unknown.
  */
 export async function getCallerProfile(garageId: string, phone: string): Promise<CallerProfile> {
-  // Off unless the garage has opted in — keeps the agent inert by default.
-  const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
-  if (!conn?.callerRecognitionEnabled) return { matched: false, vehicles: [] };
+  // Off unless the garage has opted in (toggle lives on the agent config, in
+  // Booking & Transfers) — keeps the agent inert by default.
+  const cfg = await prisma.agentConfiguration.findUnique({
+    where: { garageId },
+    select: { callerRecognitionEnabled: true },
+  });
+  if (!cfg?.callerRecognitionEnabled) return { matched: false, vehicles: [] };
 
   const creds = await resolveCreds(garageId);
   if (!creds) return { matched: false, vehicles: [] };
@@ -420,8 +424,11 @@ export async function getVehicleAdvisories(
   garageId: string,
   registration: string,
 ): Promise<{ enabled: boolean; advisories: AdvisoryItem[] }> {
-  const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
-  if (!conn?.advisoryUpsellsEnabled) return { enabled: false, advisories: [] };
+  const cfg = await prisma.agentConfiguration.findUnique({
+    where: { garageId },
+    select: { advisoryUpsellsEnabled: true },
+  });
+  if (!cfg?.advisoryUpsellsEnabled) return { enabled: false, advisories: [] };
 
   const creds = await resolveCreds(garageId);
   if (!creds || !registration) return { enabled: true, advisories: [] };

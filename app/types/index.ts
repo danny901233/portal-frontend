@@ -251,6 +251,8 @@ export interface AgentConfiguration {
   responseSpeed: ResponseSpeed;
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
+  callerRecognitionEnabled?: boolean;
+  advisoryUpsellsEnabled?: boolean;
   enableDropOffBookings: boolean;
   dropOffMessage: string;
   dropOffExcludeServices: string[];

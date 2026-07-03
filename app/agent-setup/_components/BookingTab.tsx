@@ -30,6 +30,12 @@ export default function BookingTab({ config, save, isSaving }: Props) {
   const [allowFastFitOnly, setAllowFastFitOnly] = useState(
     config.allowFastFitOnly ?? false
   );
+  const [callerRecognitionEnabled, setCallerRecognitionEnabled] = useState(
+    config.callerRecognitionEnabled ?? false
+  );
+  const [advisoryUpsellsEnabled, setAdvisoryUpsellsEnabled] = useState(
+    config.advisoryUpsellsEnabled ?? false
+  );
 
   useEffect(() => {
     setAllowBookings(config.allowBookings ?? false);
@@ -39,6 +45,8 @@ export default function BookingTab({ config, save, isSaving }: Props) {
     setDropOffMessage(config.dropOffMessage ?? 'drop your vehicle off between 8am and half ten in the morning');
     setDropOffExcludeServices((config.dropOffExcludeServices ?? ['MOT']).join(', '));
     setAllowFastFitOnly(config.allowFastFitOnly ?? false);
+    setCallerRecognitionEnabled(config.callerRecognitionEnabled ?? false);
+    setAdvisoryUpsellsEnabled(config.advisoryUpsellsEnabled ?? false);
   }, [config]);
 
   const handleSave = () => {
@@ -54,8 +62,15 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       dropOffMessage,
       dropOffExcludeServices: excludeList,
       allowFastFitOnly,
+      callerRecognitionEnabled,
+      advisoryUpsellsEnabled,
     });
   };
+
+  // Caller recognition + advisory upsells only apply to the Garage Hive agent.
+  const isGarageHiveAgent = ['receptionmate-agent-v3', 'GarageHive-agent'].includes(
+    config.agentScript,
+  );
 
   // The GarageHive (Automate) agent always books against the live diary and ignores this
   // toggle — it only applies to Assist garages. Flag that clearly so it isn't mistaken for
@@ -160,6 +175,26 @@ export default function BookingTab({ config, save, isSaving }: Props) {
         checked={allowFastFitOnly}
         onChange={setAllowFastFitOnly}
       />
+
+      {isGarageHiveAgent && (
+        <>
+          <div className="mt-6 border-t border-slate-200 pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Garage Hive</p>
+          </div>
+          <Toggle
+            label="Caller recognition"
+            hint="On an inbound call, look the caller's number up in Garage Hive and confirm the vehicle on file (“is it still the Focus?”) instead of asking for the reg. Needs Garage Hive connected."
+            checked={callerRecognitionEnabled}
+            onChange={setCallerRecognitionEnabled}
+          />
+          <Toggle
+            label="Advisory upsells"
+            hint="When a customer books, the agent checks Garage Hive for outstanding health-check advisories on their vehicle and offers to add them. Needs Garage Hive connected."
+            checked={advisoryUpsellsEnabled}
+            onChange={setAdvisoryUpsellsEnabled}
+          />
+        </>
+      )}
     </TabShell>
   );
 }

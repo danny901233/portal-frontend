@@ -253,6 +253,8 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
         ? Math.min(1, Math.max(0, config.interruptionSensitivity))
         : 0.5,
     allowFastFitOnly: config.allowFastFitOnly ?? false,
+    callerRecognitionEnabled: config.callerRecognitionEnabled ?? false,
+    advisoryUpsellsEnabled: config.advisoryUpsellsEnabled ?? false,
     enableDropOffBookings: config.enableDropOffBookings ?? false,
     dropOffMessage: config.dropOffMessage ?? 'drop your vehicle off between 8am and half ten in the morning',
     dropOffExcludeServices: config.dropOffExcludeServices ?? ['MOT'],
@@ -313,6 +315,8 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
         ? Math.min(1, Math.max(0, configuration.interruptionSensitivity))
         : 0.5,
     allowFastFitOnly: configuration.allowFastFitOnly,
+    callerRecognitionEnabled: configuration.callerRecognitionEnabled ?? false,
+    advisoryUpsellsEnabled: configuration.advisoryUpsellsEnabled ?? false,
     enableDropOffBookings: configuration.enableDropOffBookings || false,
     dropOffMessage: configuration.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
     dropOffExcludeServices: configuration.dropOffExcludeServices || ['MOT'],
@@ -993,6 +997,8 @@ router.put(
           ? Math.min(1, Math.max(0, data.interruptionSensitivity))
           : 0.5,
       allowFastFitOnly: data.allowFastFitOnly,
+      callerRecognitionEnabled: data.callerRecognitionEnabled ?? false,
+      advisoryUpsellsEnabled: data.advisoryUpsellsEnabled ?? false,
       enableDropOffBookings: data.enableDropOffBookings || false,
       dropOffMessage: data.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
       dropOffExcludeServices: data.dropOffExcludeServices || ['MOT'],

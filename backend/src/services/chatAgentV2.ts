@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
+import { getVehicleAdvisories } from './garageHiveBc.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -111,6 +112,10 @@ interface ChatSession {
   outboundServiceType?: string;
   outboundDueDate?: string;
   outboundUpsellOffered?: boolean;
+  // Advisory upsells (VHC) — outstanding health-check advisories on this vehicle,
+  // offered as an add-on during a reminder booking. Server-side toggle gates the data.
+  advisoryText?: string;
+  advisoryOffered?: boolean;
   upsellServiceId?: string;     // service ID saved during upsell, prepended when adding a 2nd service
   upsellServiceName?: string;   // display name of upsell service (for UPSELL_FOLLOW_UP prompt)
   upsellServicePrice?: string;  // price of upsell service — carried through so combined total can be shown
@@ -594,7 +599,30 @@ export async function getChatAgentResponse(
         await handleConfirmVehicle({ confirmed: true }, session, conversationId);
       }
       const serviceResult = await handleSelectService({ service_name: serviceName }, session, conversationId);
-      const serviceMsg = instructionToCustomerReply(serviceResult);
+      let serviceMsg = instructionToCustomerReply(serviceResult);
+
+      // Advisory upsell: if the garage has it enabled and this vehicle has outstanding
+      // health-check advisories, offer them as an add-on to the reminder booking.
+      // getVehicleAdvisories returns nothing unless the toggle is on, so this is inert
+      // until a garage opts in.
+      try {
+        if (!session.advisoryOffered) {
+          const { advisories } = await getVehicleAdvisories(garageId, session.vrn);
+          if (advisories.length > 0) {
+            const items = advisories.slice(0, 4).map((a) =>
+              a.price ? `${a.description} (about £${Math.round(a.price)})` : a.description,
+            );
+            session.advisoryText = items.join('; ');
+            session.advisoryOffered = true;
+            serviceMsg +=
+              `\n\nBy the way — when we last had your vehicle in we advised ${items.join(', ')}. ` +
+              `Would you like that sorted at the same time? Just say yes and I'll add it to the booking.`;
+          }
+        }
+      } catch (e) {
+        console.error('[ADVISORY] chat advisory lookup failed:', e);
+      }
+
       await saveSession(conversationId, session);
       console.log(`[OUTBOUND_SERVICE_FASTPATH] ${serviceName} selected, step now: ${session.step}`);
       return { content: serviceMsg, needsHumanAssistance: false };
@@ -4169,6 +4197,12 @@ RECOGNISING AFFIRMATIVE RESPONSES:
   if (config.humanEscalation === false) {
     const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
     prompt += `\nHUMAN ESCALATION IS OFF: You cannot take messages, pass details to the team, or arrange callbacks — the take_message tool is unavailable. Any time you would normally take a message or offer a callback (including when a booking can't be completed, a vehicle or price can't be found, or the customer asks to speak to a person), do NOT offer to take details or call back. Instead tell the customer to contact the garage directly${esc ? ` on ${esc}` : ''}, as no one is available over chat. You can still answer from your knowledge and complete bookings through the diary.\n`;
+  }
+
+  // Advisory upsell context — set when an outstanding health-check advisory was
+  // offered during a reminder booking. Lets later turns handle acceptance coherently.
+  if (session.advisoryText) {
+    prompt += `\nADVISORY UPSELL: This customer was offered outstanding health-check advisories on their vehicle: ${session.advisoryText}. If they agree to any of them, briefly confirm and add it to the booking notes (via confirm_booking's notes) so the garage sorts it while the car's in. If they decline, drop it gracefully and don't offer again. Never invent advisories beyond the ones listed here.\n`;
   }
 
   return prompt;

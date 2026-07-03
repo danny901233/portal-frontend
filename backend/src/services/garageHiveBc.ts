@@ -252,6 +252,119 @@ export async function optOutFromReminders(garageId: string, registration?: strin
   return disableRemindersForRegistration(creds, registration);
 }
 
+// ---------------------------------------------------------------------------
+// Caller recognition — resolve an inbound phone number to a customer + vehicles
+// ---------------------------------------------------------------------------
+
+export interface CallerVehicle {
+  registration: string;
+  make?: string;
+  model?: string;
+  motDueDate?: string;
+  serviceDueDate?: string;
+}
+
+export interface CallerProfile {
+  matched: boolean;
+  customerNo?: string;
+  name?: string;
+  contactNo?: string;
+  matchedField?: string;
+  vehicles: CallerVehicle[];
+}
+
+interface RawPhonebook {
+  contactNo?: string;
+  customerNo?: string;
+  name?: string;
+  phoneNo?: string;
+  phoneNo2?: string;
+  mobilePhoneNo?: string;
+  mobilePhoneNo2?: string;
+}
+
+/**
+ * Generate the formats a UK number might be stored as in Garage Hive. The
+ * phonebook matches exact strings and a garage may have typed the number any
+ * number of ways, so we try E.164 (+44…), country-code (44…) and national (0…).
+ */
+export function phoneVariants(raw: string): string[] {
+  const cleaned = raw.replace(/^whatsapp:/i, '').replace(/[\s\-().]/g, '');
+  let nsn = ''; // national significant number, no country code, no leading 0
+  if (cleaned.startsWith('+44')) nsn = cleaned.slice(3);
+  else if (cleaned.startsWith('0044')) nsn = cleaned.slice(4);
+  else if (cleaned.startsWith('44') && cleaned.length >= 12) nsn = cleaned.slice(2);
+  else if (cleaned.startsWith('0')) nsn = cleaned.slice(1);
+  else nsn = cleaned;
+
+  const variants = new Set<string>();
+  if (nsn) {
+    variants.add(`+44${nsn}`);
+    variants.add(`44${nsn}`);
+    variants.add(`0${nsn}`);
+  }
+  if (cleaned) variants.add(cleaned);
+  return [...variants];
+}
+
+/**
+ * Look up a phone number in the Garage Hive CTI phonebook. Queries each of the
+ * four phone fields (OR is allowed within one field, not across fields), trying
+ * all likely stored formats. Returns the first match, or null.
+ */
+export async function lookupPhonebookByPhone(
+  creds: GarageHiveCreds,
+  phone: string,
+): Promise<RawPhonebook | null> {
+  const variants = phoneVariants(phone);
+  if (variants.length === 0) return null;
+
+  const base = apiBase(creds);
+  const company = `companies(${creds.companyId})`;
+  const select = 'contactNo,customerNo,name,phoneNo,phoneNo2,mobilePhoneNo,mobilePhoneNo2';
+
+  for (const field of ['mobilePhoneNo', 'phoneNo', 'mobilePhoneNo2', 'phoneNo2']) {
+    const clause = variants.map((v) => `${field} eq '${v.replace(/'/g, "''")}'`).join(' or ');
+    const url = `${base}/phoneIntegration/v2.0/${company}/gH1PhonebookList?$select=${select}&$filter=${encodeURIComponent(clause)}`;
+    const rows = await get<RawPhonebook>(creds, url);
+    if (rows.length > 0) return { ...rows[0], phoneNo: rows[0].phoneNo }; // matched
+  }
+  return null;
+}
+
+/**
+ * Resolve an inbound number to a caller profile: who they are + their vehicles
+ * with MOT/service due dates. Read-only. Returns { matched:false } when unknown.
+ */
+export async function getCallerProfile(garageId: string, phone: string): Promise<CallerProfile> {
+  const creds = await resolveCreds(garageId);
+  if (!creds) return { matched: false, vehicles: [] };
+
+  const match = await lookupPhonebookByPhone(creds, phone);
+  if (!match?.customerNo) return { matched: false, vehicles: [] };
+
+  const vehicles = await vehiclesByFilter(
+    creds,
+    `customerNo eq '${match.customerNo.replace(/'/g, "''")}'`,
+    'registrationNo,makeCode,modelDescription,motDueDate,serviceDueDate',
+  );
+
+  const clean = (d?: string) => (d && d !== EMPTY_DATE ? d : undefined);
+  return {
+    matched: true,
+    customerNo: match.customerNo,
+    name: match.name,
+    contactNo: match.contactNo,
+    vehicles: vehicles.map((v) => ({
+      registration: v.registrationNo,
+      make: v.makeCode || undefined,
+      model: v.modelDescription || undefined,
+      motDueDate: clean(v.motDueDate),
+      serviceDueDate: clean(v.serviceDueDate),
+    })),
+  };
+}
+
 /** Look up a single customer by their Garage Hive customer number. */
 async function getCustomer(creds: GarageHiveCreds, customerNo: string): Promise<RawCustomer | null> {
   const base = apiBase(creds);

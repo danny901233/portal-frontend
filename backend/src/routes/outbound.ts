@@ -4,7 +4,7 @@ import twilio from 'twilio';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
-import { resolveCreds, getReminderContacts } from '../services/garageHiveBc.js';
+import { resolveCreds, getReminderContacts, getCallerProfile } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
@@ -121,6 +121,27 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
     const detail = (error as { response?: { data?: unknown } })?.response?.data;
     console.error('[OUTBOUND] Garage Hive preview error:', detail ?? error);
     res.status(502).json({ error: 'Failed to fetch reminders from Garage Hive' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/garagehive/caller?garageId=...&phone=... — caller recognition.
+// Resolve an inbound number to the Garage Hive customer + their vehicles (with
+// MOT/service due dates) so the agent can greet them by name with context.
+// Read-only.
+// ---------------------------------------------------------------------------
+router.get('/garagehive/caller', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { garageId, phone } = req.query as { garageId: string; phone: string };
+    if (!garageId || !phone) {
+      return res.status(400).json({ error: 'garageId and phone are required' });
+    }
+    const profile = await getCallerProfile(garageId, phone);
+    res.json(profile);
+  } catch (error: unknown) {
+    const detail = (error as { response?: { data?: unknown } })?.response?.data;
+    console.error('[OUTBOUND] Garage Hive caller lookup error:', detail ?? error);
+    res.status(502).json({ error: 'Failed to look up caller in Garage Hive' });
   }
 });
 

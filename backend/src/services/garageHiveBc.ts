@@ -40,6 +40,7 @@ export interface ReminderContact {
 }
 
 interface RawVehicle {
+  id?: string;
   registrationNo: string;
   customerNo: string;
   makeCode?: string;
@@ -174,6 +175,81 @@ async function vehiclesDueOn(
   const filter = encodeURIComponent(`${field} eq ${date} and disableReminders eq false`);
   const url = `${base}/general/v2.0/${company}/vehicles?$select=${select}&$filter=${filter}`;
   return get<RawVehicle>(creds, url);
+}
+
+function vehiclesUrl(creds: GarageHiveCreds): string {
+  return `${apiBase(creds)}/general/v2.0/companies(${creds.companyId})/vehicles`;
+}
+
+/** Query vehicles by an OData filter. */
+async function vehiclesByFilter(
+  creds: GarageHiveCreds,
+  filter: string,
+  select: string,
+): Promise<RawVehicle[]> {
+  const url = `${vehiclesUrl(creds)}?$select=${select}&$filter=${encodeURIComponent(filter)}`;
+  return get<RawVehicle>(creds, url);
+}
+
+/** Set fields on a single vehicle (PATCH). If-Match:* skips the etag check. */
+async function patchVehicle(
+  creds: GarageHiveCreds,
+  vehicleId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const token = await getToken(creds);
+  await axios.patch(`${vehiclesUrl(creds)}(${vehicleId})`, data, {
+    headers: { Authorization: `Bearer ${token}`, 'If-Match': '*', 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Opt a customer out of reminders in Garage Hive: set disableReminders=true on
+ * every vehicle belonging to the owner of `registration`. Returns how many
+ * vehicles were changed. Keeps Garage Hive as the source of truth so future
+ * daily pulls exclude them at source.
+ */
+export async function disableRemindersForRegistration(
+  creds: GarageHiveCreds,
+  registration: string,
+): Promise<number> {
+  const reg = registration.trim().replace(/'/g, "''");
+  const found = await vehiclesByFilter(
+    creds,
+    `registrationNo eq '${reg}'`,
+    'id,registrationNo,customerNo,disableReminders',
+  );
+  if (found.length === 0) return 0;
+
+  const target = found[0];
+  const vehicles = target.customerNo
+    ? await vehiclesByFilter(
+        creds,
+        `customerNo eq '${target.customerNo.replace(/'/g, "''")}'`,
+        'id,registrationNo,disableReminders',
+      )
+    : found;
+
+  let changed = 0;
+  for (const v of vehicles) {
+    if (v.id && !v.disableReminders) {
+      await patchVehicle(creds, v.id, { disableReminders: true });
+      changed++;
+    }
+  }
+  return changed;
+}
+
+/**
+ * Resolve a garage's creds and opt the customer out in Garage Hive. Safe to
+ * call fire-and-forget — returns 0 (rather than throwing) when Garage Hive
+ * isn't connected or no registration is known.
+ */
+export async function optOutFromReminders(garageId: string, registration?: string | null): Promise<number> {
+  if (!registration) return 0;
+  const creds = await resolveCreds(garageId);
+  if (!creds) return 0;
+  return disableRemindersForRegistration(creds, registration);
 }
 
 /** Look up a single customer by their Garage Hive customer number. */

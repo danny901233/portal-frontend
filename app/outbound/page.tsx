@@ -10,6 +10,9 @@ import {
   fetchOutboundCampaign,
   fetchGarageTemplates,
   sendOutboundCampaign,
+  fetchGarageHiveReminders,
+  fetchGarageHiveSettings,
+  updateGarageHiveSettings,
 } from '../lib/api';
 import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTemplate } from '../lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -115,6 +118,14 @@ export default function OutboundPage() {
 
   const [campaignName, setCampaignName] = useState('');
   const [channel, setChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
+  const [source, setSource] = useState<'csv' | 'garagehive'>('csv');
+  const [ghDays, setGhDays] = useState(30);
+  const [ghLoading, setGhLoading] = useState(false);
+  const [ghSkipped, setGhSkipped] = useState<{ reg: string; reason: string }[]>([]);
+  // Automatic daily reminder settings (mirrors GarageHiveConnection)
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoDays, setAutoDays] = useState(30);
+  const [autoTemplateId, setAutoTemplateId] = useState('');
   const [preview, setPreview] = useState<OutboundContactInput[] | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null); // used for new campaign send only
@@ -138,7 +149,33 @@ export default function OutboundPage() {
   const { data: templatesData } = useQuery({
     queryKey: ['templates', garageId],
     queryFn: () => fetchGarageTemplates(garageId),
-    enabled: !!garageId && channel === 'whatsapp',
+    enabled: !!garageId && (channel === 'whatsapp' || source === 'garagehive'),
+  });
+
+  // Automatic daily reminder settings (Garage Hive connection)
+  const { data: ghSettings } = useQuery({
+    queryKey: ['gh-settings', garageId],
+    queryFn: () => fetchGarageHiveSettings(garageId),
+    enabled: !!garageId && source === 'garagehive',
+  });
+
+  useEffect(() => {
+    if (!ghSettings?.connected) return;
+    setAutoEnabled(!!ghSettings.remindersEnabled);
+    setAutoDays(ghSettings.reminderDaysAhead ?? 30);
+    setAutoTemplateId(ghSettings.reminderTemplateId ?? '');
+  }, [ghSettings]);
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: updateGarageHiveSettings,
+    onSuccess: (s) => {
+      queryClient.invalidateQueries({ queryKey: ['gh-settings', garageId] });
+      showToast('success', s.remindersEnabled ? 'Automatic daily reminders are ON.' : 'Automatic reminders turned off.');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      showToast('error', msg || 'Failed to save reminder settings.');
+    },
   });
 
   const approvedTemplates: MessageTemplate[] = (templatesData?.templates || []).filter(
@@ -211,9 +248,37 @@ export default function OutboundPage() {
     reader.readAsText(file);
   };
 
+  const handlePullFromGarageHive = async () => {
+    setParseError(null);
+    setPreview(null);
+    setGhSkipped([]);
+    setGhLoading(true);
+    try {
+      const { contacts, skipped } = await fetchGarageHiveReminders(garageId, ghDays);
+      setGhSkipped(skipped);
+      if (contacts.length === 0) {
+        setParseError(`No vehicles due in ${ghDays} days found in Garage Hive.`);
+      } else {
+        setPreview(contacts);
+      }
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: { error?: string; code?: string } } })?.response?.data;
+      setParseError(
+        data?.code === 'GARAGEHIVE_NOT_CONNECTED'
+          ? 'Garage Hive is not connected for this garage yet.'
+          : data?.error || 'Failed to fetch reminders from Garage Hive.',
+      );
+    } finally {
+      setGhLoading(false);
+    }
+  };
+
   const resetForm = () => {
     setCampaignName('');
     setChannel('whatsapp');
+    setSource('csv');
+    setGhDays(30);
+    setGhSkipped([]);
     setPreview(null);
     setParseError(null);
     setSelectedTemplateId('');
@@ -383,8 +448,168 @@ export default function OutboundPage() {
           </div>
         )}
 
-        {/* CSV Upload */}
+        {/* Source toggle: CSV upload or pull live from Garage Hive */}
         <div className="mt-4">
+          <label className="mb-1 block text-xs font-medium text-slate-500">Contact source</label>
+          <div className="inline-flex rounded-lg border border-slate-300 p-0.5">
+            {(['csv', 'garagehive'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  setSource(s);
+                  setPreview(null);
+                  setParseError(null);
+                  setGhSkipped([]);
+                }}
+                className={cn(
+                  'rounded-md px-4 py-1.5 text-xs font-medium transition-colors',
+                  source === s ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-700',
+                )}
+              >
+                {s === 'csv' ? 'CSV upload' : 'Garage Hive'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Automatic daily reminders */}
+        {source === 'garagehive' && (
+          ghSettings && !ghSettings.connected ? (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4">
+              <p className="text-sm font-medium text-amber-800">Garage Hive isn&rsquo;t connected for this garage yet.</p>
+              <p className="mt-1 text-xs text-amber-700">
+                Once the Garage Hive connection is set up, you can turn on automatic daily reminders here.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Automatic daily reminders</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Every morning at 9am we pull vehicles due in Garage Hive and message the customer
+                    automatically. Delivery, read and reply status is tracked for each one.
+                  </p>
+                </div>
+                {/* Toggle */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoEnabled}
+                  onClick={() => setAutoEnabled((v) => !v)}
+                  className={cn(
+                    'relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
+                    autoEnabled ? 'bg-green-500' : 'bg-slate-300',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform',
+                      autoEnabled ? 'translate-x-5' : 'translate-x-0.5',
+                    )}
+                  />
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-end gap-4">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">Remind when due within (days)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={autoDays}
+                    onChange={(e) => setAutoDays(Number(e.target.value))}
+                    className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                  />
+                </div>
+                <div className="min-w-[220px] flex-1">
+                  <label className="mb-1 block text-xs font-medium text-slate-500">WhatsApp template</label>
+                  <select
+                    value={autoTemplateId}
+                    onChange={(e) => setAutoTemplateId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                  >
+                    <option value="">Select an approved template…</option>
+                    {approvedTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    saveSettingsMutation.mutate({
+                      garageId,
+                      remindersEnabled: autoEnabled,
+                      reminderDaysAhead: autoDays,
+                      reminderTemplateId: autoTemplateId || null,
+                    })
+                  }
+                  disabled={saveSettingsMutation.isPending}
+                  className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {saveSettingsMutation.isPending ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+
+              {approvedTemplates.length === 0 && (
+                <p className="mt-3 text-xs text-amber-600">
+                  No approved WhatsApp templates yet — you&rsquo;ll need one before reminders can be sent automatically.
+                </p>
+              )}
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                <span className={cn('inline-block h-2 w-2 rounded-full', autoEnabled ? 'bg-green-500' : 'bg-slate-400')} />
+                <span className="text-slate-500">
+                  {ghSettings?.remindersEnabled ? 'Automatic reminders are ON — runs daily at 9am.' : 'Automatic reminders are off.'}
+                  {ghSettings?.lastRunAt && ` Last run: ${new Date(ghSettings.lastRunAt).toLocaleString('en-GB')}.`}
+                  {ghSettings?.lastRunError && ` Last error: ${ghSettings.lastRunError}`}
+                </span>
+              </div>
+            </div>
+          )
+        )}
+
+        {/* Manual one-off pull (ad-hoc / preview) */}
+        {source === 'garagehive' && (
+          <div className="mt-4 rounded-lg border border-slate-300 bg-slate-50 p-4">
+            <p className="mb-3 text-xs text-slate-500">
+              <span className="font-medium text-slate-600">Or send a one-off now.</span> Pull customers whose MOT or
+              service falls due in Garage Hive. Vehicles marked &ldquo;disable reminders&rdquo; are automatically excluded.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">Due within (days)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={ghDays}
+                  onChange={(e) => setGhDays(Number(e.target.value))}
+                  className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handlePullFromGarageHive}
+                disabled={ghLoading}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                {ghLoading ? 'Fetching…' : 'Pull from Garage Hive'}
+              </button>
+            </div>
+            {ghSkipped.length > 0 && (
+              <p className="mt-3 text-xs text-amber-600">
+                {ghSkipped.length} vehicle{ghSkipped.length > 1 ? 's' : ''} skipped (no contact number or
+                unlinked customer).
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* CSV Upload */}
+        <div className={cn('mt-4', source !== 'csv' && 'hidden')}>
           <div className="mb-1 flex items-center justify-between">
             <label className="text-xs font-medium text-slate-500">
               Customer CSV{' '}
@@ -428,7 +653,10 @@ export default function OutboundPage() {
         {/* Preview table */}
         {preview && preview.length > 0 && (
           <div className="mt-4">
-            <p className="mb-2 text-xs text-slate-500">{preview.length} contacts imported — preview:</p>
+            <p className="mb-2 text-xs text-slate-500">
+              {preview.length} contact{preview.length !== 1 ? 's' : ''}{' '}
+              {source === 'garagehive' ? 'from Garage Hive' : 'imported'} — preview:
+            </p>
             <div className="overflow-x-auto rounded-lg border border-slate-300">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-100 text-slate-500">
@@ -578,6 +806,39 @@ export default function OutboundPage() {
                 ✕
               </button>
             </div>
+
+            {/* Delivery / open / reply report */}
+            {selectedCampaign?.contacts?.length ? (
+              (() => {
+                const contacts = selectedCampaign.contacts!;
+                const count = (fn: (s: string) => boolean) => contacts.filter((c) => fn(c.status)).length;
+                // Statuses are progressive (read implies delivered) — count cumulatively.
+                const sent = count((s) => ['sent', 'delivered', 'read', 'replied'].includes(s));
+                const delivered = count((s) => ['delivered', 'read', 'replied'].includes(s));
+                const read = count((s) => ['read', 'replied'].includes(s));
+                const replied = count((s) => s === 'replied');
+                const failed = count((s) => s === 'failed');
+                const pct = (n: number) => (sent ? Math.round((n / sent) * 100) : 0);
+                const stat = (label: string, n: number, showPct = true) => (
+                  <div className="flex-1 text-center">
+                    <p className="text-lg font-semibold text-slate-900">{n}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {label}
+                      {showPct && sent ? ` · ${pct(n)}%` : ''}
+                    </p>
+                  </div>
+                );
+                return (
+                  <div className="flex items-stretch gap-1 border-b border-slate-200 bg-slate-50 px-6 py-3">
+                    {stat('Sent', sent, false)}
+                    {stat('Delivered', delivered)}
+                    {stat('Read', read)}
+                    {stat('Replied', replied)}
+                    {failed > 0 && stat('Failed', failed)}
+                  </div>
+                );
+              })()
+            ) : null}
 
             {/* Modal body */}
             <div className="max-h-[60vh] overflow-y-auto">

@@ -1,41 +1,14 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
-import axios from 'axios';
 import twilio from 'twilio';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
+import { resolveCreds, getReminderContacts } from '../services/garageHiveBc.js';
+import { normalisePhone, getCampaignSendContext, runCampaignSend } from '../services/outboundSend.js';
+import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
 const router = Router();
-
-/** Normalise phone to E.164 format for Twilio and matching */
-function normalisePhone(raw: string): string {
-  // Strip whatsapp: prefix and all whitespace/dashes/parens
-  let n = raw.replace(/^whatsapp:/i, '').replace(/[\s\-().]/g, '');
-  // 07xxxxxxxxx → +447xxxxxxxxx
-  if (/^07\d{9}$/.test(n)) n = `+44${n.slice(1)}`;
-  // 447xxxxxxxxx (no +) → +447xxxxxxxxx
-  else if (/^44\d{10}$/.test(n)) n = `+${n}`;
-  // Already E.164
-  return n;
-}
-
-/** Build the outbound message text for a contact */
-function buildMessage(
-  customerName: string,
-  messageType: string,
-  dueDate: string,
-  registration: string | null | undefined,
-  garageName: string,
-): string {
-  const firstName = customerName.trim().split(/\s+/)[0];
-  const reg = registration ? ` for your ${registration.toUpperCase()}` : '';
-
-  if (messageType === 'service') {
-    return `Hi ${firstName}, this is Leah from ${garageName}. Your${reg} is due a service on ${dueDate}. Would you like to book that in with me? Reply STOP to opt out.`;
-  }
-  return `Hi ${firstName}, this is Leah from ${garageName}. Your${reg} MOT is due on ${dueDate}. Would you like to book that in with me? Reply STOP to opt out.`;
-}
 
 // ---------------------------------------------------------------------------
 // POST /api/outbound/campaigns — create campaign + bulk import contacts
@@ -116,6 +89,147 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/outbound/garagehive/preview?garageId=...&days=30
+// Pull reminder contacts from Garage Hive (vehicles due MOT/service in N days),
+// resolve each owner's number, and return them in the SAME shape the CSV upload
+// produces — the frontend previews them, then POSTs to /outbound/campaigns like
+// any other source. Garage Hive is just an alternative source to the CSV.
+// ---------------------------------------------------------------------------
+router.get('/outbound/garagehive/preview', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { garageId } = req.query as { garageId: string };
+    const days = Number.parseInt((req.query.days as string) || '30', 10);
+
+    if (!garageId) {
+      return res.status(400).json({ error: 'garageId required' });
+    }
+    if (Number.isNaN(days) || days < 0 || days > 365) {
+      return res.status(400).json({ error: 'days must be between 0 and 365' });
+    }
+
+    const creds = await resolveCreds(garageId);
+    if (!creds) {
+      return res.status(400).json({
+        error: 'Garage Hive is not connected for this garage.',
+        code: 'GARAGEHIVE_NOT_CONNECTED',
+      });
+    }
+
+    const { contacts, skipped } = await getReminderContacts(creds, days);
+    res.json({ source: 'garagehive', days, contacts, skipped });
+  } catch (error: unknown) {
+    const detail = (error as { response?: { data?: unknown } })?.response?.data;
+    console.error('[OUTBOUND] Garage Hive preview error:', detail ?? error);
+    res.status(502).json({ error: 'Failed to fetch reminders from Garage Hive' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/outbound/garagehive/settings?garageId=... — daily reminder settings
+// ---------------------------------------------------------------------------
+router.get('/outbound/garagehive/settings', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { garageId } = req.query as { garageId: string };
+    if (!garageId) return res.status(400).json({ error: 'garageId required' });
+
+    const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
+    if (!conn) {
+      return res.json({ connected: false });
+    }
+    res.json({
+      connected: true,
+      remindersEnabled: conn.remindersEnabled,
+      reminderDaysAhead: conn.reminderDaysAhead,
+      reminderTemplateId: conn.reminderTemplateId,
+      reminderChannel: conn.reminderChannel,
+      lastRunAt: conn.lastRunAt,
+      lastRunError: conn.lastRunError,
+    });
+  } catch (error) {
+    console.error('[OUTBOUND] Garage Hive settings get error:', error);
+    res.status(500).json({ error: 'Failed to load settings' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/outbound/garagehive/settings — update daily reminder settings
+// ---------------------------------------------------------------------------
+router.put('/outbound/garagehive/settings', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { garageId, remindersEnabled, reminderDaysAhead, reminderTemplateId } = (req.body || {}) as {
+      garageId?: string;
+      remindersEnabled?: boolean;
+      reminderDaysAhead?: number;
+      reminderTemplateId?: string | null;
+    };
+    if (!garageId) return res.status(400).json({ error: 'garageId required' });
+
+    const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
+    if (!conn) {
+      return res.status(400).json({
+        error: 'Garage Hive is not connected for this garage yet. Connection must be set up first.',
+        code: 'GARAGEHIVE_NOT_CONNECTED',
+      });
+    }
+
+    if (typeof reminderDaysAhead === 'number' && (reminderDaysAhead < 0 || reminderDaysAhead > 365)) {
+      return res.status(400).json({ error: 'reminderDaysAhead must be between 0 and 365' });
+    }
+    // Auto-send over WhatsApp needs an approved template.
+    if (remindersEnabled && !reminderTemplateId) {
+      return res.status(400).json({ error: 'Select an approved WhatsApp template before enabling automatic reminders.' });
+    }
+
+    const updated = await prisma.garageHiveConnection.update({
+      where: { garageId },
+      data: {
+        ...(typeof remindersEnabled === 'boolean' && { remindersEnabled }),
+        ...(typeof reminderDaysAhead === 'number' && { reminderDaysAhead }),
+        ...(reminderTemplateId !== undefined && { reminderTemplateId }),
+      },
+    });
+    res.json({
+      connected: true,
+      remindersEnabled: updated.remindersEnabled,
+      reminderDaysAhead: updated.reminderDaysAhead,
+      reminderTemplateId: updated.reminderTemplateId,
+      reminderChannel: updated.reminderChannel,
+      lastRunAt: updated.lastRunAt,
+      lastRunError: updated.lastRunError,
+    });
+  } catch (error) {
+    console.error('[OUTBOUND] Garage Hive settings update error:', error);
+    res.status(500).json({ error: 'Failed to save settings' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/outbound/garagehive/run-now — manually trigger the reminder run
+// (the same job the daily cron runs). Body: { garageId? } — run one garage, or
+// all enabled connections when omitted. For testing + on-demand sends.
+// ---------------------------------------------------------------------------
+router.post('/outbound/garagehive/run-now', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { garageId } = (req.body || {}) as { garageId?: string };
+
+    if (garageId) {
+      const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
+      if (!conn) {
+        return res.status(400).json({ error: 'No Garage Hive connection configured for this garage.' });
+      }
+      const result = await runGarageReminders(conn);
+      return res.json({ results: [result] });
+    }
+
+    const results = await runDailyGarageHiveReminders();
+    res.json({ results });
+  } catch (error) {
+    console.error('[OUTBOUND] Garage Hive run-now error:', error);
+    res.status(500).json({ error: 'Failed to run Garage Hive reminders' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/outbound/campaigns?garageId=... — list campaigns
 // ---------------------------------------------------------------------------
 router.get('/outbound/campaigns', authenticate, async (req: Request, res: Response) => {
@@ -167,177 +281,24 @@ router.get('/outbound/campaigns/:id', authenticate, async (req: Request, res: Re
 // ---------------------------------------------------------------------------
 router.post('/outbound/campaigns/:id/send', authenticate, async (req: Request, res: Response) => {
   try {
-    const campaign = await prisma.outboundCampaign.findUnique({
-      where: { id: req.params.id },
-      include: { contacts: { where: { status: 'pending' } } },
-    });
-
-    if (!campaign) {
-      return res.status(404).json({ error: 'Campaign not found' });
+    const prepared = await getCampaignSendContext(req.params.id);
+    if (!prepared.ok) {
+      return res.status(prepared.code).json({ error: prepared.error });
     }
 
-    if (campaign.status === 'sent') {
-      return res.status(400).json({ error: 'Campaign already sent' });
-    }
-
-    if (campaign.contacts.length === 0) {
-      return res.status(400).json({ error: 'No pending contacts to send to' });
-    }
-
-    // Get garage name, Meta WhatsApp connection, and optional template from DB
-    const [agentConfig, waConnection, template] = await Promise.all([
-      prisma.agentConfiguration.findUnique({
-        where: { garageId: campaign.garageId },
-        select: { branchName: true },
-      }),
-      prisma.socialMediaConnection.findFirst({
-        where: { garageId: campaign.garageId, platform: 'whatsapp', isActive: true },
-        select: { whatsappPhoneNumberId: true, accessToken: true },
-      }),
-      campaign.messageTemplateId
-        ? prisma.messageTemplate.findUnique({
-            where: { id: campaign.messageTemplateId },
-            select: { name: true, language: true, bodyText: true },
-          })
-        : Promise.resolve(null),
-    ]);
-    const garageName = agentConfig?.branchName || 'our garage';
-    const variableMapping = (campaign.variableMapping as Record<string, string> | null) || {};
-
-    if (!waConnection?.whatsappPhoneNumberId || waConnection.whatsappPhoneNumberId === 'pending_setup') {
-      console.error(`[OUTBOUND] No WhatsApp sender configured for garage ${campaign.garageId}`);
-      await prisma.outboundCampaign.update({ where: { id: campaign.id }, data: { status: 'draft' } });
-      return res.status(400).json({ error: 'No WhatsApp sender configured for this garage' });
-    }
-
-    // WhatsApp requires an approved template for outbound campaigns (no 24-hour window)
-    if (campaign.channel === 'whatsapp' && !template) {
-      console.error(`[OUTBOUND] WhatsApp campaign ${campaign.id} has no template — refusing to send plain text`);
-      await prisma.outboundCampaign.update({ where: { id: campaign.id }, data: { status: 'draft' } });
-      return res.status(400).json({ error: 'WhatsApp campaigns require an approved template. Please select a template and try again.' });
-    }
-
-    const { whatsappPhoneNumberId, accessToken } = waConnection;
-
-    // Mark campaign as sending
+    // Mark as sending, respond immediately, then send in the background.
     await prisma.outboundCampaign.update({
-      where: { id: campaign.id },
+      where: { id: prepared.ctx.campaign.id },
       data: { status: 'sending' },
     });
+    res.json({ success: true, message: `Sending to ${prepared.ctx.campaign.contacts.length} contacts` });
 
-    // Respond immediately — send in background
-    res.json({ success: true, message: `Sending to ${campaign.contacts.length} contacts` });
-
-    // Build DNC set — phones that have ever opted out for this garage
-    const optedOutContacts = await prisma.outboundContact.findMany({
-      where: { garageId: campaign.garageId, status: 'opted_out' },
-      select: { phone: true },
+    runCampaignSend(prepared.ctx).catch((error) => {
+      console.error('[OUTBOUND] Send campaign error:', error);
     });
-    const dncSet = new Set(optedOutContacts.map((c) => c.phone));
-
-    let sentCount = 0;
-
-    for (const contact of campaign.contacts) {
-      // Cross-campaign DNC check
-      if (dncSet.has(contact.phone)) {
-        console.log(`[OUTBOUND] Skipping DNC number ${contact.phone}`);
-        await prisma.outboundContact.update({
-          where: { id: contact.id },
-          data: { status: 'opted_out' },
-        });
-        continue;
-      }
-
-      try {
-        const e164 = normalisePhone(contact.phone);
-
-        // Build contact field lookup for variable substitution
-        const contactFields: Record<string, string> = {
-          customer_name: contact.customerName?.trim().split(/\s+/)[0] || contact.customerName,
-          full_name: contact.customerName,
-          phone: contact.phone,
-          registration: contact.registration?.toUpperCase() || '',
-          mot_due_date: contact.motDueDate || '',
-          service_due_date: contact.serviceDueDate || '',
-          garage_name: garageName,
-        };
-
-        let payload: Record<string, unknown>;
-
-        if (template && campaign.messageTemplateId) {
-          // Use approved Meta template with variable substitution
-          const parameters = Object.keys(variableMapping)
-            .sort((a, b) => Number(a) - Number(b))
-            .map((varNum) => ({
-              type: 'text',
-              text: contactFields[variableMapping[varNum]] || '',
-            }));
-
-          payload = {
-            messaging_product: 'whatsapp',
-            to: e164,
-            type: 'template',
-            template: {
-              name: template.name,
-              language: { code: template.language || 'en_GB' },
-              ...(parameters.length > 0 && {
-                components: [{ type: 'body', parameters }],
-              }),
-            },
-          };
-        } else {
-          // Fall back to hardcoded plain text message
-          const dueDate = contact.motDueDate || contact.serviceDueDate || 'soon';
-          const body = buildMessage(
-            contact.customerName,
-            contact.messageType,
-            dueDate,
-            contact.registration,
-            garageName,
-          );
-          payload = {
-            messaging_product: 'whatsapp',
-            to: e164,
-            type: 'text',
-            text: { body },
-          };
-        }
-
-        // Send via Meta WhatsApp Cloud API
-        const metaRes = await axios.post(
-          `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}/messages`,
-          payload,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        const messageSid = metaRes.data?.messages?.[0]?.id || null;
-
-        await prisma.outboundContact.update({
-          where: { id: contact.id },
-          data: { status: 'sent', messageSid },
-        });
-
-        sentCount++;
-      } catch (err: unknown) {
-        const metaError = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data;
-        console.error(`[OUTBOUND] Failed to send to ${contact.phone}:`, metaError ?? err);
-        const errorReason = metaError?.error?.message || 'Send failed';
-        await prisma.outboundContact.update({
-          where: { id: contact.id },
-          data: { status: 'failed', errorReason },
-        });
-      }
-    }
-
-    const finalStatus = sentCount === 0 ? 'failed' : 'processed';
-    await prisma.outboundCampaign.update({
-      where: { id: campaign.id },
-      data: { status: finalStatus, sentAt: new Date(), sentCount },
-    });
-
-    console.log(`[OUTBOUND] Campaign ${campaign.id} ${finalStatus}: ${sentCount}/${campaign.contacts.length}`);
   } catch (error) {
     console.error('[OUTBOUND] Send campaign error:', error);
-    // Response may already be sent — just log
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to send campaign' });
   }
 });
 

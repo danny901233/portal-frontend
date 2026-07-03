@@ -57,6 +57,31 @@ model Garage {
   invoices               Invoice[]
   messageTemplates       MessageTemplate[]
   outboundCampaigns      OutboundCampaign[]
+  garageHiveConnection   GarageHiveConnection?
+}
+
+// Per-garage Garage Hive (Business Central) integration + daily reminder config.
+// Each Garage Hive account is its own BC environment (tenantId + environmentName);
+// branches are companies (companyId). The Azure AD app clientId/secret are shared
+// across accounts via env once each account grants the app access, but can be
+// overridden here per garage if needed.
+model GarageHiveConnection {
+  id                 String    @id @default(cuid())
+  garageId           String    @unique
+  garage             Garage    @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  tenantId           String
+  environmentName    String
+  companyId          String
+  clientId           String? // optional per-garage app creds; else shared env app
+  clientSecret       String?
+  remindersEnabled   Boolean   @default(false)
+  reminderDaysAhead  Int       @default(30)
+  reminderTemplateId String? // approved WhatsApp MessageTemplate id used for auto-sends
+  reminderChannel    String    @default("whatsapp") // "whatsapp" | "sms"
+  lastRunAt          DateTime?
+  lastRunError       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 model Call {

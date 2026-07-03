@@ -599,6 +599,49 @@ export const sendOutboundCampaign = async (id: string): Promise<{ success: boole
   return data;
 };
 
+/**
+ * Pull reminder contacts from Garage Hive (vehicles due MOT/service in `days`
+ * days), resolving each owner's number. Returns the same contact shape a CSV
+ * upload produces, so the caller can preview + create a campaign identically.
+ */
+export const fetchGarageHiveReminders = async (
+  garageId: string,
+  days = 30,
+): Promise<{
+  source: 'garagehive';
+  days: number;
+  contacts: OutboundContactInput[];
+  skipped: { reg: string; reason: string }[];
+}> => {
+  const { data } = await api.get('/api/outbound/garagehive/preview', { params: { garageId, days } });
+  return data;
+};
+
+export interface GarageHiveSettings {
+  connected: boolean;
+  remindersEnabled?: boolean;
+  reminderDaysAhead?: number;
+  reminderTemplateId?: string | null;
+  reminderChannel?: string;
+  lastRunAt?: string | null;
+  lastRunError?: string | null;
+}
+
+export const fetchGarageHiveSettings = async (garageId: string): Promise<GarageHiveSettings> => {
+  const { data } = await api.get('/api/outbound/garagehive/settings', { params: { garageId } });
+  return data;
+};
+
+export const updateGarageHiveSettings = async (payload: {
+  garageId: string;
+  remindersEnabled?: boolean;
+  reminderDaysAhead?: number;
+  reminderTemplateId?: string | null;
+}): Promise<GarageHiveSettings> => {
+  const { data } = await api.put('/api/outbound/garagehive/settings', payload);
+  return data;
+};
+
 // ---------------------------------------------------------------------------
 // Service agreement
 // ---------------------------------------------------------------------------

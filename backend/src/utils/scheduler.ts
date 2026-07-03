@@ -6,6 +6,7 @@ import { refreshTemplateToken } from '../services/metaTemplateToken.js';
 import { syncGocardlessPayments } from '../services/gocardlessSync.js';
 import { syncNegativeFeedbackToExcel } from '../services/feedbackExcelSync.js';
 import { sendInoInvoice } from '../services/inoInvoice.js';
+import { runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 
@@ -86,6 +87,25 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log("✓ In'n'out invoice scheduled: 1st of month at 9:00 AM (UK time)");
+
+  // Garage Hive service/MOT reminders: every day at 9:00 AM. For each garage with
+  // an enabled Garage Hive connection, pull vehicles due in N days and send the
+  // reminder campaign. Delivery/read/reply tracking then flows via the WhatsApp
+  // webhook. Runs once daily so each vehicle is caught as it crosses the N-day mark.
+  cron.schedule('0 9 * * *', async () => {
+    console.log('Running daily Garage Hive reminder job...');
+    try {
+      const results = await runDailyGarageHiveReminders();
+      const totalSent = results.reduce((n, r) => n + (r.sent ?? 0), 0);
+      console.log(`✓ Garage Hive reminders completed: ${results.length} garage(s), ${totalSent} message(s) sent`);
+    } catch (error) {
+      console.error('❌ Garage Hive reminder job failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London', // UK timezone
+  });
+
+  console.log('✓ Garage Hive reminders scheduled: Daily at 9:00 AM (UK time)');
 
   // Invoice preview emails: Every day at 10:00 AM (10 days before billing)
   cron.schedule('0 10 * * *', async () => {

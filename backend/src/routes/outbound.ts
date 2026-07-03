@@ -4,7 +4,7 @@ import twilio from 'twilio';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
-import { resolveCreds, getReminderContacts, getCallerProfile } from '../services/garageHiveBc.js';
+import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
@@ -125,6 +125,57 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/agent/garagehive/caller?garageId=...&phone=... — caller recognition
+// for the voice/chat agent. Auth via the shared agent webhook secret (same as
+// call-log posts), NOT a user JWT, since the agent has no user session.
+// ---------------------------------------------------------------------------
+router.get('/agent/garagehive/caller', async (req: Request, res: Response) => {
+  const configured = process.env.WEBHOOK_SECRET;
+  const provided = req.headers['x-webhook-secret'] ?? req.headers['webhook-secret'];
+  if (configured && provided !== configured) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const { garageId, phone } = req.query as { garageId: string; phone: string };
+    if (!garageId || !phone) {
+      return res.status(400).json({ error: 'garageId and phone are required' });
+    }
+    const profile = await getCallerProfile(garageId, phone);
+    res.json(profile);
+  } catch (error: unknown) {
+    const detail = (error as { response?: { data?: unknown } })?.response?.data;
+    console.error('[AGENT] Garage Hive caller lookup error:', detail ?? error);
+    res.status(502).json({ error: 'Failed to look up caller in Garage Hive' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/agent/garagehive/advisories?garageId=...&registration=... — the
+// vehicle's outstanding health-check advisories, for the voice agent to offer
+// at booking time. Agent-secret auth. Returns nothing when the garage toggle is
+// off (enforced server-side).
+// ---------------------------------------------------------------------------
+router.get('/agent/garagehive/advisories', async (req: Request, res: Response) => {
+  const configured = process.env.WEBHOOK_SECRET;
+  const provided = req.headers['x-webhook-secret'] ?? req.headers['webhook-secret'];
+  if (configured && provided !== configured) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const { garageId, registration } = req.query as { garageId: string; registration: string };
+    if (!garageId || !registration) {
+      return res.status(400).json({ error: 'garageId and registration are required' });
+    }
+    const result = await getVehicleAdvisories(garageId, registration);
+    res.json(result);
+  } catch (error: unknown) {
+    const detail = (error as { response?: { data?: unknown } })?.response?.data;
+    console.error('[AGENT] Garage Hive advisories error:', detail ?? error);
+    res.status(502).json({ error: 'Failed to look up advisories in Garage Hive' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/garagehive/caller?garageId=...&phone=... — caller recognition.
 // Resolve an inbound number to the Garage Hive customer + their vehicles (with
 // MOT/service due dates) so the agent can greet them by name with context.
@@ -153,16 +204,26 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
     const { garageId } = req.query as { garageId: string };
     if (!garageId) return res.status(400).json({ error: 'garageId required' });
 
+    // Is this garage on the Garage Hive agent? (gates the advisory-upsell option)
+    const agentCfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { agentType: true, agentScript: true },
+    });
+    const isGarageHiveAgent =
+      agentCfg?.agentType === 'automate' || agentCfg?.agentScript === 'GarageHive-agent';
+
     const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
     if (!conn) {
-      return res.json({ connected: false });
+      return res.json({ connected: false, isGarageHiveAgent });
     }
     res.json({
       connected: true,
+      isGarageHiveAgent,
       remindersEnabled: conn.remindersEnabled,
       reminderDaysAhead: conn.reminderDaysAhead,
       reminderTemplateId: conn.reminderTemplateId,
       reminderChannel: conn.reminderChannel,
+      advisoryUpsellsEnabled: conn.advisoryUpsellsEnabled,
       lastRunAt: conn.lastRunAt,
       lastRunError: conn.lastRunError,
     });
@@ -177,11 +238,18 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
 // ---------------------------------------------------------------------------
 router.put('/outbound/garagehive/settings', authenticate, async (req: Request, res: Response) => {
   try {
-    const { garageId, remindersEnabled, reminderDaysAhead, reminderTemplateId } = (req.body || {}) as {
+    const {
+      garageId,
+      remindersEnabled,
+      reminderDaysAhead,
+      reminderTemplateId,
+      advisoryUpsellsEnabled,
+    } = (req.body || {}) as {
       garageId?: string;
       remindersEnabled?: boolean;
       reminderDaysAhead?: number;
       reminderTemplateId?: string | null;
+      advisoryUpsellsEnabled?: boolean;
     };
     if (!garageId) return res.status(400).json({ error: 'garageId required' });
 
@@ -200,6 +268,18 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
     if (remindersEnabled && !reminderTemplateId) {
       return res.status(400).json({ error: 'Select an approved WhatsApp template before enabling automatic reminders.' });
     }
+    // Advisory upsells are only for garages on the Garage Hive agent.
+    if (advisoryUpsellsEnabled) {
+      const agentCfg = await prisma.agentConfiguration.findUnique({
+        where: { garageId },
+        select: { agentType: true, agentScript: true },
+      });
+      const isGarageHiveAgent =
+        agentCfg?.agentType === 'automate' || agentCfg?.agentScript === 'GarageHive-agent';
+      if (!isGarageHiveAgent) {
+        return res.status(400).json({ error: 'Advisory upsells are only available on the Garage Hive agent.' });
+      }
+    }
 
     const updated = await prisma.garageHiveConnection.update({
       where: { garageId },
@@ -207,6 +287,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
         ...(typeof remindersEnabled === 'boolean' && { remindersEnabled }),
         ...(typeof reminderDaysAhead === 'number' && { reminderDaysAhead }),
         ...(reminderTemplateId !== undefined && { reminderTemplateId }),
+        ...(typeof advisoryUpsellsEnabled === 'boolean' && { advisoryUpsellsEnabled }),
       },
     });
     res.json({
@@ -215,6 +296,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       reminderDaysAhead: updated.reminderDaysAhead,
       reminderTemplateId: updated.reminderTemplateId,
       reminderChannel: updated.reminderChannel,
+      advisoryUpsellsEnabled: updated.advisoryUpsellsEnabled,
       lastRunAt: updated.lastRunAt,
       lastRunError: updated.lastRunError,
     });

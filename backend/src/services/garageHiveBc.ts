@@ -365,6 +365,101 @@ export async function getCallerProfile(garageId: string, phone: string): Promise
   };
 }
 
+// ---------------------------------------------------------------------------
+// Advisory upsells — outstanding vehicle-health-check advisories for a vehicle
+// ---------------------------------------------------------------------------
+
+export interface AdvisoryItem {
+  description: string;
+  price?: number;
+  estimateNo?: string;
+  date?: string;
+  status?: string;
+}
+
+interface RawVIE {
+  number?: string;
+  vehicleRegistrationNo?: string;
+  status?: string;
+  vieStatus?: string;
+  documentDate?: string;
+  amountIncludingVAT?: number;
+}
+
+interface RawVIELine {
+  documentNo?: string;
+  lineType?: string;
+  description?: string;
+  quantity?: number;
+  unitPrice?: number;
+  lineAmount?: number;
+  amountIncludingVAT?: number;
+}
+
+// NOTE: the exact status values Garage Hive uses for "advised but not yet booked"
+// vs "converted to a job / done" must be validated against a real garage's data
+// (the sandbox has no VHC records). Until then keep the garage toggle OFF. We
+// conservatively DROP anything that looks already-actioned.
+const CLOSED_VIE_STATUS = /(convert|complete|closed|done|invoiced|cancel)/i;
+
+async function serviceQuery<T>(creds: GarageHiveCreds, entity: string, query: string): Promise<T[]> {
+  const url = `${apiBase(creds)}/service/v2.0/companies(${creds.companyId})/${entity}?${query}`;
+  return get<T>(creds, url);
+}
+
+/**
+ * Outstanding advisory line-items for a vehicle, for the voice agent to offer at
+ * booking time. Returns { enabled:false } when the garage toggle is off (so the
+ * switch is enforced server-side and the agent simply gets nothing).
+ */
+export async function getVehicleAdvisories(
+  garageId: string,
+  registration: string,
+): Promise<{ enabled: boolean; advisories: AdvisoryItem[] }> {
+  const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
+  if (!conn?.advisoryUpsellsEnabled) return { enabled: false, advisories: [] };
+
+  const creds = await resolveCreds(garageId);
+  if (!creds || !registration) return { enabled: true, advisories: [] };
+
+  const reg = registration.trim().replace(/'/g, "''");
+  const estimates = await serviceQuery<RawVIE>(
+    creds,
+    'vehicleInspectionEstimates',
+    `$select=number,vehicleRegistrationNo,status,vieStatus,documentDate,amountIncludingVAT` +
+      `&$filter=${encodeURIComponent(`vehicleRegistrationNo eq '${reg}'`)}&$orderby=documentDate desc&$top=20`,
+  );
+
+  const open = estimates.filter(
+    (e) => !CLOSED_VIE_STATUS.test(`${e.status || ''} ${e.vieStatus || ''}`),
+  );
+
+  const advisories: AdvisoryItem[] = [];
+  for (const est of open) {
+    if (!est.number) continue;
+    const lines = await serviceQuery<RawVIELine>(
+      creds,
+      'vehicleInspectionEstimateLines',
+      `$select=documentNo,lineType,description,quantity,unitPrice,lineAmount,amountIncludingVAT` +
+        `&$filter=${encodeURIComponent(`documentNo eq '${est.number.replace(/'/g, "''")}'`)}`,
+    );
+    for (const ln of lines) {
+      const desc = (ln.description || '').trim();
+      // Skip heading/comment lines (no description or no chargeable amount).
+      const amount = ln.amountIncludingVAT ?? ln.lineAmount;
+      if (!desc || !amount) continue;
+      advisories.push({
+        description: desc,
+        price: typeof amount === 'number' ? amount : undefined,
+        estimateNo: est.number,
+        date: est.documentDate && est.documentDate !== EMPTY_DATE ? est.documentDate : undefined,
+        status: est.status || est.vieStatus || undefined,
+      });
+    }
+  }
+  return { enabled: true, advisories };
+}
+
 /** Look up a single customer by their Garage Hive customer number. */
 async function getCustomer(creds: GarageHiveCreds, customerNo: string): Promise<RawCustomer | null> {
   const base = apiBase(creds);

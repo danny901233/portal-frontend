@@ -619,10 +619,12 @@ export const fetchGarageHiveReminders = async (
 
 export interface GarageHiveSettings {
   connected: boolean;
+  isGarageHiveAgent?: boolean;
   remindersEnabled?: boolean;
   reminderDaysAhead?: number;
   reminderTemplateId?: string | null;
   reminderChannel?: string;
+  advisoryUpsellsEnabled?: boolean;
   lastRunAt?: string | null;
   lastRunError?: string | null;
 }
@@ -637,6 +639,7 @@ export const updateGarageHiveSettings = async (payload: {
   remindersEnabled?: boolean;
   reminderDaysAhead?: number;
   reminderTemplateId?: string | null;
+  advisoryUpsellsEnabled?: boolean;
 }): Promise<GarageHiveSettings> => {
   const { data } = await api.put('/api/outbound/garagehive/settings', payload);
   return data;

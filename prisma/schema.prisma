@@ -78,6 +78,10 @@ model GarageHiveConnection {
   reminderDaysAhead  Int       @default(30)
   reminderTemplateId String? // approved WhatsApp MessageTemplate id used for auto-sends
   reminderChannel    String    @default("whatsapp") // "whatsapp" | "sms"
+  // Advisory upsells — when a customer books over the phone, the voice agent
+  // checks their vehicle for outstanding health-check advisories (recommended
+  // work not yet booked) and offers to add them. GarageHive-agent only.
+  advisoryUpsellsEnabled Boolean @default(false)
   lastRunAt          DateTime?
   lastRunError       String?
   createdAt          DateTime  @default(now())

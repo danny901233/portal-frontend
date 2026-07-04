@@ -21,7 +21,9 @@ const c = {
     h1: 'Connects to the tools your garage already runs on.',
     heroSub: `ReceptionMate isn't a replacement for your garage management system — it works with it. Live integrations with Garage Hive, Tyresoft, HubSpot and the rest mean every booking the AI captures lands in your diary, without a CSV import in sight.`,
     ctaH2: `Don't see your system?`,
-    ctaLead: `We add new integrations regularly. If you run a modern DMS or CRM and you'd like ReceptionMate to talk to it, email`,
+    ctaLead: `We add new integrations regularly. If you run a modern DMS or CRM and you'd like ReceptionMate to talk to it,`,
+    contactCta: `get in touch`,
+    contactTier: `an integration`,
     ctaLead2: `and we'll tell you straight whether it's on the roadmap.`,
     getStarted: 'Get started',
     // Display labels for category headings (filter keys stay in English).
@@ -113,7 +115,9 @@ const c = {
     h1: 'Se connecte aux outils que votre garage utilise déjà.',
     heroSub: `ReceptionMate ne remplace pas votre système de gestion de garage — il fonctionne avec lui. Des intégrations en direct avec Garage Hive, Tyresoft, HubSpot et les autres font que chaque réservation captée par l’IA atterrit dans votre agenda, sans le moindre import CSV.`,
     ctaH2: `Vous ne voyez pas votre système ?`,
-    ctaLead: `Nous ajoutons régulièrement de nouvelles intégrations. Si vous utilisez un DMS ou un CRM moderne et souhaitez que ReceptionMate communique avec, écrivez à`,
+    ctaLead: `Nous ajoutons régulièrement de nouvelles intégrations. Si vous utilisez un DMS ou un CRM moderne et souhaitez que ReceptionMate communique avec,`,
+    contactCta: `contactez-nous`,
+    contactTier: `une intégration`,
     ctaLead2: `et nous vous dirons franchement s’il figure sur la feuille de route.`,
     getStarted: 'Commencer',
     categoryLabels: {
@@ -270,8 +274,8 @@ const statusStyles: Record<Integration['status'], string> = {
         {c.ctaH2}
       </h2>
       <p class="mt-4 text-lg leading-relaxed text-ink-700">
-        {c.ctaLead}
-        <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>
+        {c.ctaLead}{' '}
+        <button type="button" data-lead-cta="website-integrations-contact" data-lead-tier={c.contactTier} class="text-brand-600 underline">{c.contactCta}</button>{' '}
         {c.ctaLead2}
       </p>
       <a

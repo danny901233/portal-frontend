@@ -79,6 +79,9 @@ const {
             <a href={L('/faqs', lang)} class="text-sm font-medium text-ink-600 hover:text-ink-900">{t.nav.faqs}</a>
             <a href={L('/about', lang)} class="text-sm font-medium text-ink-600 hover:text-ink-900">{t.nav.about}</a>
             <a href="https://portal.receptionmate.co.uk/login" class="text-sm font-medium text-ink-600 hover:text-ink-900">{t.nav.signin}</a>
+            <button type="button" data-lead-cta="website-nav-demo" data-lead-tier={t.nav.demoTier} class="rounded-md border border-brand-600 px-4 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition">
+              {t.nav.bookDemo}
+            </button>
             <a href={L('/get-started', lang)} class="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
               {t.nav.getStarted}
             </a>
@@ -131,6 +134,12 @@ const {
           </ul>
         </nav>
         <div class="space-y-3 border-t border-ink-200 px-6 py-5 pb-8">
+          <button
+            type="button"
+            data-lead-cta="website-nav-demo"
+            data-lead-tier={t.nav.demoTier}
+            class="block w-full rounded-xl border border-brand-600 bg-white py-3.5 text-center text-base font-semibold text-brand-700 hover:bg-brand-50"
+          >{t.nav.bookDemo}</button>
           <a
             href="https://portal.receptionmate.co.uk/login"
             class="block w-full rounded-xl border border-ink-300 bg-white py-3.5 text-center text-base font-semibold text-ink-900 hover:bg-ink-50"
@@ -180,7 +189,7 @@ const {
         });
 
         // Close when any link inside the overlay is tapped.
-        menu?.querySelectorAll('a').forEach((a) => a.addEventListener('click', closeMenu));
+        menu?.querySelectorAll('a, button[data-lead-cta]').forEach((el) => el.addEventListener('click', closeMenu));
       </script>
     </slot>
 

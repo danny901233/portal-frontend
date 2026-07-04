@@ -11,6 +11,9 @@ const c = {
     seeHow: 'See how it works',
     billing: 'Simple monthly billing · keep your number',
     trusted: 'trusted by 23+ UK garages',
+    demoPrompt: 'Not ready to sign up?',
+    demoCta: 'Book a free demo',
+    demoTier: 'a demo',
   },
   fr: {
     badge: 'Conçu pour les garages',
@@ -20,6 +23,9 @@ const c = {
     seeHow: 'Voir comment ça marche',
     billing: 'Facturation mensuelle simple · gardez votre numéro',
     trusted: 'adopté par plus de 23 garages',
+    demoPrompt: 'Pas encore prêt à vous inscrire ?',
+    demoCta: 'Réservez une démo gratuite',
+    demoTier: 'votre démo',
   },
 }[lang];
 ---
@@ -66,6 +72,13 @@ const c = {
 
       <p class="mt-5 text-sm text-ink-500">
         {c.billing}
+      </p>
+
+      <p class="mt-3 text-sm text-ink-600">
+        {c.demoPrompt}{' '}
+        <button type="button" data-lead-cta="website-hero-demo" data-lead-tier={c.demoTier} class="font-semibold text-brand-700 underline underline-offset-2 hover:text-brand-800">
+          {c.demoCta}
+        </button>
       </p>
 
       <!-- Avatar / rating row — hidden on mobile to reduce hero clutter -->

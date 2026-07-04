@@ -1269,7 +1269,7 @@ export default function AgentConfigurationsPage() {
       setPlayingVoice(voiceId);
       setFeedback(null);
 
-      const audioBlob = await generateVoicePreview(voiceId, garageId ?? undefined);
+      const audioBlob = await generateVoicePreview(voiceId, garageId ?? undefined, lang);
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
 

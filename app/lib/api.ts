@@ -243,7 +243,8 @@ export const discoverWebsitePages = async (
 
 export const generateVoicePreview = async (
   voiceId: string,
-  garageId?: string
+  garageId?: string,
+  lang?: string
 ): Promise<Blob> => {
   const targetGarageId = garageId ?? getGarageId();
   if (!targetGarageId) {
@@ -252,7 +253,7 @@ export const generateVoicePreview = async (
 
   const { data } = await api.post(
     `/api/garages/${targetGarageId}/voice-preview`,
-    { voiceId },
+    { voiceId, lang },
     { responseType: 'blob' }
   );
   return data;

@@ -158,7 +158,7 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
       try {
         setLoadingVoice(target);
         const garageId = getGarageId() ?? undefined;
-        const blob = await generateVoicePreview(target, garageId);
+        const blob = await generateVoicePreview(target, garageId, lang);
         url = URL.createObjectURL(blob);
         audioCache.current.set(target, url);
       } catch (err) {

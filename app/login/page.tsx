@@ -8,6 +8,7 @@ import { login } from '../lib/api';
 import { persistSession, TOKEN_STORAGE_KEY } from '../lib/auth';
 import type { LoginResponse } from '../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import LanguageToggle from '@/app/components/LanguageToggle';
 
 export default function LoginPage() {
   const lang = useLang();
@@ -211,14 +212,19 @@ export default function LoginPage() {
         <div className="absolute top-20 -left-32 h-72 w-72 rounded-full bg-brand-200/30 blur-3xl"></div>
       </div>
 
+      {/* Language toggle — available before sign-in */}
+      <div className="absolute top-4 right-4 z-10">
+        <LanguageToggle />
+      </div>
+
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-brand-900/5">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-6 flex justify-center">
-            <span className="inline-flex h-16 items-center justify-center rounded-xl bg-brand-600 px-5 py-2.5">
+            <span className="inline-flex h-32 items-center justify-center rounded-2xl bg-brand-600 px-10 py-5">
               <img
                 src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
                 alt="ReceptionMate Logo"
-                className="h-10 w-auto"
+                className="h-20 w-auto"
               />
             </span>
           </div>

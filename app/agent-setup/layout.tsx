@@ -5,14 +5,69 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { cn } from '../lib/utils';
 import { isReceptionMateStaff } from '../lib/auth';
+import { useLang } from '@/app/i18n/LocaleProvider';
 import SetupProgress from './SetupProgress';
 import TourBanner from './TourBanner';
 import { AGENT_SETUP_NAV } from './_nav';
+
+const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }> = {
+  '/agent-setup/company-information': {
+    label: 'Informations sur l’entreprise',
+    description: 'Nom, contact, adresse de l’établissement',
+  },
+  '/agent-setup/opening-hours': {
+    label: 'Horaires d’ouverture',
+    description: 'Quand l’agent répond',
+  },
+  '/agent-setup/voice': {
+    label: 'Identité, voix et accueil',
+    description: 'Voix de l’agent + première phrase + prononciations',
+  },
+  '/agent-setup/questions': {
+    label: 'Questions intelligentes et FAQ',
+    description: 'Quoi demander + questions/réponses courantes',
+  },
+  '/agent-setup/rules': {
+    label: 'Règles',
+    description: 'Règles personnalisées que l’agent doit suivre',
+  },
+  '/agent-setup/bookings-transfers': {
+    label: 'Réservations et transferts',
+    description: 'Comportement de réservation + où diriger les appels',
+  },
+  '/agent-setup/training': {
+    label: 'Formation',
+    description: 'Apprenez-en à l’agent sur vous',
+  },
+  '/agent-setup/notifications': {
+    label: 'Notifications',
+    description: 'Qui reçoit un e-mail après un appel',
+  },
+  '/agent-setup/integrations': {
+    label: 'Intégrations',
+    description: 'HubSpot',
+  },
+  '/agent-setup/routing': {
+    label: 'Routage',
+    description: 'Attribution de l’agent',
+  },
+};
 
 export default function AgentSetupLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isStaff = isReceptionMateStaff();
   const visible = AGENT_SETUP_NAV.filter((n) => !n.staffOnly || isStaff);
+  const lang = useLang();
+  const c = {
+    en: {
+      heading: 'Agent Setup',
+      blurb: 'Configure this garage’s AI agent. Changes apply on next call.',
+    },
+    fr: {
+      heading: "Configuration de l'agent",
+      blurb: "Configurez l'agent IA de cette agence. Les changements s'appliquent au prochain appel.",
+    },
+  }[lang];
 
   return (
     <div className="flex min-h-screen bg-white text-slate-900">
@@ -20,15 +75,18 @@ export default function AgentSetupLayout({ children }: { children: ReactNode }) 
         <SetupProgress />
         <div className="px-3 pb-4">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Agent Setup
+            {c.heading}
           </h2>
           <p className="mt-1 text-xs text-slate-600">
-            Configure this garage&rsquo;s AI agent. Changes apply on next call.
+            {c.blurb}
           </p>
         </div>
         <nav className="space-y-1">
           {visible.map((item) => {
             const isActive = pathname === item.href;
+            const fr = lang === 'fr' ? AGENT_SETUP_NAV_FR[item.href] : undefined;
+            const label = fr?.label ?? item.label;
+            const description = fr?.description ?? item.description;
             return (
               <Link
                 key={item.href}
@@ -40,14 +98,14 @@ export default function AgentSetupLayout({ children }: { children: ReactNode }) 
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                 )}
               >
-                <div className="font-medium">{item.label}</div>
+                <div className="font-medium">{label}</div>
                 <div
                   className={cn(
                     'mt-0.5 text-xs',
                     isActive ? 'text-brand-700' : 'text-slate-500',
                   )}
                 >
-                  {item.description}
+                  {description}
                 </div>
               </Link>
             );

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AgentConfiguration } from '../../types';
+import { useLang } from '@/app/i18n/LocaleProvider';
 import TabShell from './TabShell';
 
 interface Props {
@@ -13,6 +14,50 @@ interface Props {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function NotificationsTab({ config, save, isSaving }: Props) {
+  const lang = useLang();
+  const c = {
+    en: {
+      title: 'Notifications',
+      description:
+        'Decide who hears about each call. After every call ends, a summary email is sent to the addresses below.',
+      errTypeFirst: 'Type an email address first.',
+      errInvalid: 'That doesn’t look like a valid email address.',
+      errDuplicate: 'That email is already on the list.',
+      addLabel: 'Add a notification email',
+      addButton: 'Add',
+      addHint:
+        'Press Enter or comma to add. Add as many addresses as you like — everyone gets the same summary.',
+      recipients: 'Recipients',
+      noneNotified: 'No-one will be notified',
+      addressCount: (n: number) => `${n} address${n === 1 ? '' : 'es'}`,
+      emptyRecipients: 'No recipients yet. Add at least one address above to receive call summaries.',
+      removeAria: (email: string) => `Remove ${email}`,
+      whatTitle: 'What does a notification look like?',
+      whatBody:
+        'Each email includes the caller’s number, the call summary, whether a booking was captured, and a link to the full transcript. Sent within a minute of the call ending.',
+    },
+    fr: {
+      title: 'Notifications',
+      description:
+        'Décidez qui est informé de chaque appel. Après chaque fin d’appel, un email de récapitulatif est envoyé aux adresses ci-dessous.',
+      errTypeFirst: 'Saisissez d’abord une adresse email.',
+      errInvalid: 'Cela ne ressemble pas à une adresse email valide.',
+      errDuplicate: 'Cet email figure déjà dans la liste.',
+      addLabel: 'Ajouter un email de notification',
+      addButton: 'Ajouter',
+      addHint:
+        'Appuyez sur Entrée ou virgule pour ajouter. Ajoutez autant d’adresses que vous le souhaitez — tout le monde reçoit le même récapitulatif.',
+      recipients: 'Destinataires',
+      noneNotified: 'Personne ne sera notifié',
+      addressCount: (n: number) => `${n} adresse${n === 1 ? '' : 's'}`,
+      emptyRecipients:
+        'Aucun destinataire pour l’instant. Ajoutez au moins une adresse ci-dessus pour recevoir les récapitulatifs d’appel.',
+      removeAria: (email: string) => `Supprimer ${email}`,
+      whatTitle: 'À quoi ressemble une notification ?',
+      whatBody:
+        'Chaque email inclut le numéro de l’appelant, le récapitulatif de l’appel, si une réservation a été enregistrée, et un lien vers la transcription complète. Envoyé dans la minute suivant la fin de l’appel.',
+    },
+  }[lang];
   const [emails, setEmails] = useState<string[]>(config.notificationEmails ?? []);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -24,15 +69,15 @@ export default function NotificationsTab({ config, save, isSaving }: Props) {
   const addEmail = () => {
     const trimmed = draft.trim().toLowerCase();
     if (!trimmed) {
-      setError('Type an email address first.');
+      setError(c.errTypeFirst);
       return;
     }
     if (!EMAIL_RE.test(trimmed)) {
-      setError('That doesn’t look like a valid email address.');
+      setError(c.errInvalid);
       return;
     }
     if (emails.includes(trimmed)) {
-      setError('That email is already on the list.');
+      setError(c.errDuplicate);
       return;
     }
     setEmails((prev) => [...prev, trimmed]);
@@ -58,13 +103,13 @@ export default function NotificationsTab({ config, save, isSaving }: Props) {
 
   return (
     <TabShell
-      title="Notifications"
-      description="Decide who hears about each call. After every call ends, a summary email is sent to the addresses below."
+      title={c.title}
+      description={c.description}
       onSave={handleSave}
       isSaving={isSaving}
     >
       <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700">Add a notification email</label>
+        <label className="mb-1 block text-sm font-medium text-slate-700">{c.addLabel}</label>
         <div className="flex gap-2">
           <input
             type="email"
@@ -79,30 +124,30 @@ export default function NotificationsTab({ config, save, isSaving }: Props) {
             onClick={addEmail}
             className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700"
           >
-            Add
+            {c.addButton}
           </button>
         </div>
         {error ? (
           <p className="mt-2 text-xs text-rose-600">{error}</p>
         ) : (
           <p className="mt-2 text-xs text-slate-500">
-            Press Enter or comma to add. Add as many addresses as you like — everyone gets the same summary.
+            {c.addHint}
           </p>
         )}
       </div>
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-medium text-slate-700">Recipients</span>
+          <span className="text-sm font-medium text-slate-700">{c.recipients}</span>
           <span className="text-xs text-slate-500">
             {emails.length === 0
-              ? 'No-one will be notified'
-              : `${emails.length} address${emails.length === 1 ? '' : 'es'}`}
+              ? c.noneNotified
+              : c.addressCount(emails.length)}
           </span>
         </div>
         {emails.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-xs text-slate-500">
-            No recipients yet. Add at least one address above to receive call summaries.
+            {c.emptyRecipients}
           </div>
         ) : (
           <ul className="space-y-2">
@@ -115,7 +160,7 @@ export default function NotificationsTab({ config, save, isSaving }: Props) {
                 <button
                   type="button"
                   onClick={() => removeEmail(email)}
-                  aria-label={`Remove ${email}`}
+                  aria-label={c.removeAria(email)}
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -129,10 +174,9 @@ export default function NotificationsTab({ config, save, isSaving }: Props) {
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
-        <p className="font-semibold text-slate-800">What does a notification look like?</p>
+        <p className="font-semibold text-slate-800">{c.whatTitle}</p>
         <p className="mt-1">
-          Each email includes the caller&rsquo;s number, the call summary, whether a booking was captured, and a link
-          to the full transcript. Sent within a minute of the call ending.
+          {c.whatBody}
         </p>
       </div>
     </TabShell>

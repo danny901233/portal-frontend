@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentConfiguration } from '../../types';
 import { generateVoicePreview } from '../../lib/api';
 import { getGarageId } from '../../lib/auth';
+import { useLang } from '@/app/i18n/LocaleProvider';
 import TabShell from './TabShell';
 
 interface Props {
@@ -27,23 +28,87 @@ interface VoiceCardDef {
   description: string;
 }
 
-const VOICE_OPTIONS: VoiceCardDef[] = [
-  { value: 'tom', label: 'Tom', description: 'Friendly mid-thirties male voice' },
-  { value: 'leah', label: 'Leah', description: 'Pleasantly clear British female voice' },
-  { value: 'sophie', label: 'Sophie', description: 'Clear and conversational female voice' },
-  { value: 'gemma', label: 'Gemma', description: 'Modern Northern English friendly female voice' },
-  { value: 'isobel', label: 'Isobel', description: 'Scottish female voice, youthful and warm' },
-  { value: 'fraser', label: 'Fraser', description: 'Soft male Scottish Glaswegian voice' },
-  { value: 'amelia', label: 'Amelia', description: 'Standard British female voice' },
-];
-
-const TONE_OPTIONS: { value: 'standard' | 'upbeat' | 'professional'; label: string; description: string }[] = [
-  { value: 'standard', label: 'Standard', description: 'Balanced, warm — feels like a real person' },
-  { value: 'upbeat', label: 'Upbeat', description: 'Energetic and enthusiastic — smiles through the phone' },
-  { value: 'professional', label: 'Professional', description: 'Polished, formal British receptionist register' },
-];
-
 export default function VoiceTab({ config, save, isSaving }: Props) {
+  const lang = useLang();
+  const c = {
+    en: {
+      title: 'Identity & voice',
+      description:
+        'Pick the voice and tone the agent uses on every call. Tap Play to hear a sample. Changes apply to the next call.',
+      toneLabel: 'Tone',
+      voiceLabel: 'Voice',
+      selected: 'Selected',
+      stopPreview: (name: string) => `Stop ${name} preview`,
+      playPreview: (name: string) => `Play ${name} preview`,
+      previewFailedRetry: "Couldn't play preview — try again in a moment.",
+      previewFailed: "Couldn't play preview.",
+      currentVoice: 'Current voice:',
+      advancedNote:
+        'Advanced voice tuning (stability, similarity boost, style) is set globally for now — same for all garages. Contact RM staff if you need per-garage fine-tuning.',
+      tones: {
+        standard: 'Balanced, warm — feels like a real person',
+        upbeat: 'Energetic and enthusiastic — smiles through the phone',
+        professional: 'Polished, formal British receptionist register',
+      },
+      toneLabels: { standard: 'Standard', upbeat: 'Upbeat', professional: 'Professional' },
+      voices: {
+        tom: 'Friendly mid-thirties male voice',
+        leah: 'Pleasantly clear British female voice',
+        sophie: 'Clear and conversational female voice',
+        gemma: 'Modern Northern English friendly female voice',
+        isobel: 'Scottish female voice, youthful and warm',
+        fraser: 'Soft male Scottish Glaswegian voice',
+        amelia: 'Standard British female voice',
+      } as Record<VoiceOption, string>,
+    },
+    fr: {
+      title: 'Identité et voix',
+      description:
+        "Choisissez la voix et le ton que l'agent utilise à chaque appel. Appuyez sur Lecture pour écouter un échantillon. Les changements s'appliquent au prochain appel.",
+      toneLabel: 'Ton',
+      voiceLabel: 'Voix',
+      selected: 'Sélectionnée',
+      stopPreview: (name: string) => `Arrêter l’aperçu de ${name}`,
+      playPreview: (name: string) => `Écouter l’aperçu de ${name}`,
+      previewFailedRetry: "Impossible de lire l'aperçu — réessayez dans un instant.",
+      previewFailed: "Impossible de lire l'aperçu.",
+      currentVoice: 'Voix actuelle :',
+      advancedNote:
+        "Le réglage avancé de la voix (stabilité, similarité, style) est défini globalement pour l'instant — identique pour toutes les agences. Contactez l'équipe RM si vous avez besoin d'un réglage fin par agence.",
+      tones: {
+        standard: 'Équilibré, chaleureux — donne l’impression d’une vraie personne',
+        upbeat: 'Énergique et enthousiaste — le sourire s’entend au téléphone',
+        professional: 'Registre de réceptionniste soigné et formel',
+      },
+      toneLabels: { standard: 'Standard', upbeat: 'Enjoué', professional: 'Professionnel' },
+      voices: {
+        tom: 'Voix masculine amicale, la trentaine',
+        leah: 'Voix féminine britannique agréablement claire',
+        sophie: 'Voix féminine claire et conversationnelle',
+        gemma: 'Voix féminine amicale, anglais moderne du Nord',
+        isobel: 'Voix féminine écossaise, jeune et chaleureuse',
+        fraser: 'Voix masculine écossaise douce, accent de Glasgow',
+        amelia: 'Voix féminine britannique standard',
+      } as Record<VoiceOption, string>,
+    },
+  }[lang];
+
+  const VOICE_OPTIONS: VoiceCardDef[] = [
+    { value: 'tom', label: 'Tom', description: c.voices.tom },
+    { value: 'leah', label: 'Leah', description: c.voices.leah },
+    { value: 'sophie', label: 'Sophie', description: c.voices.sophie },
+    { value: 'gemma', label: 'Gemma', description: c.voices.gemma },
+    { value: 'isobel', label: 'Isobel', description: c.voices.isobel },
+    { value: 'fraser', label: 'Fraser', description: c.voices.fraser },
+    { value: 'amelia', label: 'Amelia', description: c.voices.amelia },
+  ];
+
+  const TONE_OPTIONS: { value: 'standard' | 'upbeat' | 'professional'; label: string; description: string }[] = [
+    { value: 'standard', label: c.toneLabels.standard, description: c.tones.standard },
+    { value: 'upbeat', label: c.toneLabels.upbeat, description: c.tones.upbeat },
+    { value: 'professional', label: c.toneLabels.professional, description: c.tones.professional },
+  ];
+
   const [voice, setVoice] = useState<VoiceOption>(
     (config.voice as VoiceOption) ?? 'leah'
   );
@@ -98,7 +163,7 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
         audioCache.current.set(target, url);
       } catch (err) {
         console.error('Voice preview failed:', err);
-        setPreviewError('Couldn\'t play preview — try again in a moment.');
+        setPreviewError(c.previewFailedRetry);
         setLoadingVoice(null);
         return;
       } finally {
@@ -111,12 +176,12 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
     audio.onended = () => setPlayingVoice((cur) => (cur === target ? null : cur));
     audio.onerror = () => {
       setPlayingVoice(null);
-      setPreviewError('Couldn\'t play preview.');
+      setPreviewError(c.previewFailed);
     };
     setPlayingVoice(target);
     await audio.play().catch(() => {
       setPlayingVoice(null);
-      setPreviewError('Couldn\'t play preview.');
+      setPreviewError(c.previewFailed);
     });
   };
 
@@ -129,13 +194,13 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
 
   return (
     <TabShell
-      title="Identity & voice"
-      description="Pick the voice and tone the agent uses on every call. Tap Play to hear a sample. Changes apply to the next call."
+      title={c.title}
+      description={c.description}
       onSave={handleSave}
       isSaving={isSaving}
     >
       <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700">Tone</label>
+        <label className="mb-2 block text-sm font-medium text-slate-700">{c.toneLabel}</label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {TONE_OPTIONS.map((opt) => {
             const isActive = tonePreference === opt.value;
@@ -159,7 +224,7 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
       </div>
 
       <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700">Voice</label>
+        <label className="mb-2 block text-sm font-medium text-slate-700">{c.voiceLabel}</label>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {VOICE_OPTIONS.map((opt) => {
             const isActive = voice === opt.value;
@@ -180,7 +245,7 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
                   <div className="flex items-center gap-1.5">
                     {isActive && (
                       <span className="rounded-full bg-brand-600 px-2 py-0.5 text-xs font-medium text-white">
-                        Selected
+                        {c.selected}
                       </span>
                     )}
                     <button
@@ -190,7 +255,7 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
                         void handlePreview(opt.value);
                       }}
                       disabled={isLoading}
-                      aria-label={isPlaying ? `Stop ${opt.label} preview` : `Play ${opt.label} preview`}
+                      aria-label={isPlaying ? c.stopPreview(opt.label) : c.playPreview(opt.label)}
                       className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${
                         isPlaying
                           ? 'border-brand-600 bg-brand-600 text-white'
@@ -216,13 +281,11 @@ export default function VoiceTab({ config, save, isSaving }: Props) {
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
         <p className="text-slate-600">
-          <strong className="text-slate-900">Current voice:</strong>{' '}
+          <strong className="text-slate-900">{c.currentVoice}</strong>{' '}
           {VOICE_OPTIONS.find((o) => o.value === voice)?.label ?? voice}
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          Advanced voice tuning (stability, similarity boost, style) is set
-          globally for now — same for all garages. Contact RM staff if you need
-          per-garage fine-tuning.
+          {c.advancedNote}
         </p>
       </div>
     </TabShell>

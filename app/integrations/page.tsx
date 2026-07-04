@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 // Meta WhatsApp Embedded Signup (public values — the app id is exposed in every OAuth URL anyway).
 const META_APP_ID = '1600229954436428';
@@ -46,6 +47,92 @@ export default function IntegrationsPage() {
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
+  const lang = useLang();
+  const c = {
+    en: {
+      connectedPlatform: (platform: string) => `Successfully connected ${platform}! You can now receive messages.`,
+      failedToConnect: (error: string) => `Failed to connect: ${error}. Please try again or contact support.`,
+      waStillLoading: 'WhatsApp connect is still loading — please try again in a moment.',
+      waCancelled: 'WhatsApp sign-up was cancelled before it finished.',
+      waConnected: (name?: string) => `WhatsApp connected${name ? ` (${name})` : ''}! You can now receive messages.`,
+      waConnectFailed: (detail: string) => `WhatsApp connect failed: ${detail}`,
+      waConnectFailedRetry: 'WhatsApp connect failed. Please try again or contact support.',
+      unknownError: 'unknown error',
+      metaSetupSuffix: '\n\nPlease contact hello@receptionmate.co.uk to complete your Meta app setup.',
+      failedConnectRetry: 'Failed to connect. Please try again or contact support.',
+      confirmDisconnect: 'Are you sure you want to disconnect this platform?',
+      failedDisconnect: 'Failed to disconnect platform',
+      failedConnectShort: 'Failed to connect. Please try again.',
+      loading: 'Loading integrations...',
+      backToMessages: 'Back to Messages',
+      title: 'Integrations',
+      subtitle: 'Connect your social media accounts to manage all customer conversations in one place',
+      tabSocial: 'Social media',
+      tabWidget: 'Website widget',
+      connected: 'Connected',
+      since: (date: string) => `since ${date}`,
+      disconnect: 'Disconnect',
+      setUpNew: 'Set up new',
+      connectExisting: 'Connect existing',
+      connect: 'Connect',
+      needHand: 'Need a hand connecting these?',
+      needHandBody: 'Setting up social channels requires Meta Business verification. Our team will walk you through:',
+      emailUs: 'Email hello@receptionmate.co.uk',
+      platforms: {
+        whatsapp: { name: 'WhatsApp Business', description: 'Connect your WhatsApp Business account to send and receive messages' },
+        facebook: { name: 'Facebook Messenger', description: 'Connect your Facebook Page to respond to Messenger conversations' },
+        instagram: { name: 'Instagram', description: 'Connect your Instagram Business account to manage DMs' },
+      } as Record<string, { name: string; description: string }>,
+      steps: [
+        'Creating or connecting your Meta Business Account',
+        'Verifying your WhatsApp Business number',
+        'Setting up the webhook configurations',
+        'Configuring message templates and permissions',
+      ],
+    },
+    fr: {
+      connectedPlatform: (platform: string) => `${platform} connecté avec succès ! Vous pouvez désormais recevoir des messages.`,
+      failedToConnect: (error: string) => `Échec de la connexion : ${error}. Veuillez réessayer ou contacter le support.`,
+      waStillLoading: 'La connexion WhatsApp est en cours de chargement — veuillez réessayer dans un instant.',
+      waCancelled: "L'inscription WhatsApp a été annulée avant la fin.",
+      waConnected: (name?: string) => `WhatsApp connecté${name ? ` (${name})` : ''} ! Vous pouvez désormais recevoir des messages.`,
+      waConnectFailed: (detail: string) => `Échec de la connexion WhatsApp : ${detail}`,
+      waConnectFailedRetry: 'Échec de la connexion WhatsApp. Veuillez réessayer ou contacter le support.',
+      unknownError: 'erreur inconnue',
+      metaSetupSuffix: '\n\nVeuillez contacter hello@receptionmate.co.uk pour finaliser la configuration de votre application Meta.',
+      failedConnectRetry: 'Échec de la connexion. Veuillez réessayer ou contacter le support.',
+      confirmDisconnect: 'Voulez-vous vraiment déconnecter cette plateforme ?',
+      failedDisconnect: 'Échec de la déconnexion de la plateforme',
+      failedConnectShort: 'Échec de la connexion. Veuillez réessayer.',
+      loading: 'Chargement des intégrations...',
+      backToMessages: 'Retour aux messages',
+      title: 'Intégrations',
+      subtitle: 'Connectez vos comptes de réseaux sociaux pour gérer toutes les conversations clients au même endroit',
+      tabSocial: 'Réseaux sociaux',
+      tabWidget: 'Widget de site web',
+      connected: 'Connecté',
+      since: (date: string) => `depuis le ${date}`,
+      disconnect: 'Déconnecter',
+      setUpNew: 'Configurer un nouveau',
+      connectExisting: 'Connecter un compte existant',
+      connect: 'Connecter',
+      needHand: "Besoin d'aide pour les connecter ?",
+      needHandBody: "La configuration des canaux sociaux nécessite la vérification Meta Business. Notre équipe vous guidera à travers :",
+      emailUs: 'Écrire à hello@receptionmate.co.uk',
+      platforms: {
+        whatsapp: { name: 'WhatsApp Business', description: 'Connectez votre compte WhatsApp Business pour envoyer et recevoir des messages' },
+        facebook: { name: 'Facebook Messenger', description: 'Connectez votre Page Facebook pour répondre aux conversations Messenger' },
+        instagram: { name: 'Instagram', description: 'Connectez votre compte Instagram Business pour gérer les messages privés' },
+      } as Record<string, { name: string; description: string }>,
+      steps: [
+        'La création ou la connexion de votre compte Meta Business',
+        'La vérification de votre numéro WhatsApp Business',
+        'La configuration des webhooks',
+        'La configuration des modèles de messages et des autorisations',
+      ],
+    },
+  }[lang];
+
 
   useEffect(() => {
     const garageId = getGarageId();
@@ -65,14 +152,14 @@ export default function IntegrationsPage() {
     if (success === 'true' && platform) {
       setStatusMessage({
         type: 'success',
-        text: `Successfully connected ${platform}! You can now receive messages.`
+        text: c.connectedPlatform(platform)
       });
       // Clean URL
       window.history.replaceState({}, '', '/integrations');
     } else if (error) {
       setStatusMessage({
         type: 'error',
-        text: `Failed to connect: ${error}. Please try again or contact support.`
+        text: c.failedToConnect(error)
       });
       // Clean URL
       window.history.replaceState({}, '', '/integrations');
@@ -132,7 +219,7 @@ export default function IntegrationsPage() {
     if (!selectedGarageId) return;
     const FB = (window as any).FB;
     if (!FB) {
-      setStatusMessage({ type: 'error', text: 'WhatsApp connect is still loading — please try again in a moment.' });
+      setStatusMessage({ type: 'error', text: c.waStillLoading });
       return;
     }
 
@@ -154,7 +241,7 @@ export default function IntegrationsPage() {
         window.removeEventListener('message', onMessage);
         const code = response?.authResponse?.code;
         if (!code) {
-          setStatusMessage({ type: 'error', text: 'WhatsApp sign-up was cancelled before it finished.' });
+          setStatusMessage({ type: 'error', text: c.waCancelled });
           return;
         }
         finishWhatsAppSignup(code, signup.wabaId, signup.phoneNumberId);
@@ -179,13 +266,13 @@ export default function IntegrationsPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setStatusMessage({ type: 'success', text: `WhatsApp connected${data.accountName ? ` (${data.accountName})` : ''}! You can now receive messages.` });
+        setStatusMessage({ type: 'success', text: c.waConnected(data.accountName) });
         fetchConnections();
       } else {
-        setStatusMessage({ type: 'error', text: `WhatsApp connect failed: ${data.error || data.detail || 'unknown error'}` });
+        setStatusMessage({ type: 'error', text: c.waConnectFailed(data.error || data.detail || c.unknownError) });
       }
     } catch {
-      setStatusMessage({ type: 'error', text: 'WhatsApp connect failed. Please try again or contact support.' });
+      setStatusMessage({ type: 'error', text: c.waConnectFailedRetry });
     }
   };
 
@@ -222,17 +309,17 @@ export default function IntegrationsPage() {
         window.location.href = data.authUrl;
       } else if (data.message) {
         // Show setup message if Meta app not configured yet
-        alert(data.message + '\n\nPlease contact hello@receptionmate.co.uk to complete your Meta app setup.');
+        alert(data.message + c.metaSetupSuffix);
       }
     } catch (error) {
       console.error('Error initiating OAuth:', error);
-      alert('Failed to connect. Please try again or contact support.');
+      alert(c.failedConnectRetry);
     }
   };
 
 
   const disconnectPlatform = async (connectionId: string) => {
-    if (!confirm('Are you sure you want to disconnect this platform?')) return;
+    if (!confirm(c.confirmDisconnect)) return;
 
     try {
       const token = getSessionToken();
@@ -251,7 +338,7 @@ export default function IntegrationsPage() {
       await fetchConnections();
     } catch (error) {
       console.error('Error disconnecting:', error);
-      alert('Failed to disconnect platform');
+      alert(c.failedDisconnect);
     }
   };
 
@@ -282,7 +369,7 @@ export default function IntegrationsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-slate-500">Loading integrations...</div>
+        <div className="text-slate-500">{c.loading}</div>
       </div>
     );
   }
@@ -297,11 +384,11 @@ export default function IntegrationsPage() {
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-          <span className="text-sm">Back to Messages</span>
+          <span className="text-sm">{c.backToMessages}</span>
         </button>
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Integrations</h1>
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">{c.title}</h1>
         <p className="text-slate-500">
-          Connect your social media accounts to manage all customer conversations in one place
+          {c.subtitle}
         </p>
 
         {/* Tab switcher */}
@@ -310,13 +397,13 @@ export default function IntegrationsPage() {
             className="px-4 py-1.5 text-sm font-semibold rounded-md bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
             aria-current="page"
           >
-            Social media
+            {c.tabSocial}
           </button>
           <button
             onClick={() => router.push('/integrations/widget')}
             className="px-4 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:text-slate-900 transition-colors"
           >
-            Website widget
+            {c.tabWidget}
           </button>
         </div>
 
@@ -346,8 +433,9 @@ export default function IntegrationsPage() {
 
       <div className="space-y-4">
         {platforms.map((platform) => {
-          const connection = connections.find((c) => c.platform === platform.id);
+          const connection = connections.find((conn) => conn.platform === platform.id);
           const Icon = platform.icon;
+          const pt = c.platforms[platform.id];
 
           return (
             <div
@@ -361,22 +449,22 @@ export default function IntegrationsPage() {
                   </div>
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-slate-900 mb-1">
-                      {platform.name}
+                      {pt?.name ?? platform.name}
                     </h3>
-                    <p className="text-sm text-slate-500 mb-3">{platform.description}</p>
+                    <p className="text-sm text-slate-500 mb-3">{pt?.description ?? platform.description}</p>
 
                     {connection && (
                       <div className="flex items-center gap-2 text-sm flex-wrap">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                          Connected
+                          {c.connected}
                         </span>
                         {connection.accountName && (
                           <span className="text-slate-700 font-medium">{connection.accountName}</span>
                         )}
                         <span className="text-slate-300">·</span>
                         <span className="text-slate-500">
-                          since {new Date(connection.createdAt).toLocaleDateString()}
+                          {c.since(new Date(connection.createdAt).toLocaleDateString())}
                         </span>
                       </div>
                     )}
@@ -389,7 +477,7 @@ export default function IntegrationsPage() {
                       onClick={() => disconnectPlatform(connection.id)}
                       className="px-4 py-2 text-sm border border-slate-300 bg-white hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 text-slate-700 rounded-md transition-colors"
                     >
-                      Disconnect
+                      {c.disconnect}
                     </button>
                   ) : platform.id === 'whatsapp' ? (
                     <div className="flex gap-2">
@@ -401,7 +489,7 @@ export default function IntegrationsPage() {
                           'hover:opacity-90'
                         )}
                       >
-                        Set up new
+                        {c.setUpNew}
                       </button>
                       <button
                         onClick={() => {
@@ -413,11 +501,11 @@ export default function IntegrationsPage() {
                           })
                             .then(r => r.json())
                             .then(data => { if (data.authUrl) window.location.href = data.authUrl; })
-                            .catch(() => alert('Failed to connect. Please try again.'));
+                            .catch(() => alert(c.failedConnectShort));
                         }}
                         className="px-3 py-2 text-sm text-slate-700 bg-white hover:bg-slate-50 rounded-md transition-colors border border-slate-300 shadow-sm"
                       >
-                        Connect existing
+                        {c.connectExisting}
                       </button>
                     </div>
                   ) : (
@@ -429,7 +517,7 @@ export default function IntegrationsPage() {
                         'hover:opacity-90'
                       )}
                     >
-                      Connect
+                      {c.connect}
                     </button>
                   )}
                 </div>
@@ -447,17 +535,12 @@ export default function IntegrationsPage() {
             </svg>
           </span>
           <div className="flex-1 min-w-0">
-            <h3 className="text-base font-semibold text-slate-900">Need a hand connecting these?</h3>
+            <h3 className="text-base font-semibold text-slate-900">{c.needHand}</h3>
             <p className="mt-1 text-sm text-slate-700">
-              Setting up social channels requires Meta Business verification. Our team will walk you through:
+              {c.needHandBody}
             </p>
             <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
-              {[
-                'Creating or connecting your Meta Business Account',
-                'Verifying your WhatsApp Business number',
-                'Setting up the webhook configurations',
-                'Configuring message templates and permissions',
-              ].map((item) => (
+              {c.steps.map((item) => (
                 <li key={item} className="flex items-start gap-2">
                   <svg className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -473,7 +556,7 @@ export default function IntegrationsPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
-              Email hello@receptionmate.co.uk
+              {c.emailUs}
             </a>
           </div>
         </div>

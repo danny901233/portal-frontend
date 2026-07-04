@@ -7,9 +7,56 @@ import { cn } from '../lib/utils';
 import { fetchAgentConfiguration } from '../lib/api';
 import { AGENT_SETUP_NAV, type AgentSetupNavItem } from '../agent-setup/_nav';
 import { isReceptionMateStaff } from '../lib/auth';
+import { useT, useLang } from '../i18n/LocaleProvider';
+import LanguageToggle from './LanguageToggle';
+
+const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }> = {
+  '/agent-setup/company-information': {
+    label: 'Informations sur l’entreprise',
+    description: 'Nom, contact, adresse de l’établissement',
+  },
+  '/agent-setup/opening-hours': {
+    label: 'Horaires d’ouverture',
+    description: 'Quand l’agent répond',
+  },
+  '/agent-setup/voice': {
+    label: 'Identité, voix et accueil',
+    description: 'Voix de l’agent + première phrase + prononciations',
+  },
+  '/agent-setup/questions': {
+    label: 'Questions intelligentes et FAQ',
+    description: 'Quoi demander + questions/réponses courantes',
+  },
+  '/agent-setup/rules': {
+    label: 'Règles',
+    description: 'Règles personnalisées que l’agent doit suivre',
+  },
+  '/agent-setup/bookings-transfers': {
+    label: 'Réservations et transferts',
+    description: 'Comportement de réservation + où diriger les appels',
+  },
+  '/agent-setup/training': {
+    label: 'Formation',
+    description: 'Apprenez-en à l’agent sur vous',
+  },
+  '/agent-setup/notifications': {
+    label: 'Notifications',
+    description: 'Qui reçoit un e-mail après un appel',
+  },
+  '/agent-setup/integrations': {
+    label: 'Intégrations',
+    description: 'HubSpot',
+  },
+  '/agent-setup/routing': {
+    label: 'Routage',
+    description: 'Attribution de l’agent',
+  },
+};
 
 interface NavItem {
   name: string;
+  /** i18n key resolved via useT(); falls back to `name` if missing. */
+  tKey?: string;
   href: string;
   icon: React.ReactNode;
   requiresMessaging?: boolean;
@@ -18,21 +65,21 @@ interface NavItem {
 }
 
 const baseNavigation: NavItem[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: <DashboardIcon /> },
-  { name: 'Calls', href: '/calls', icon: <PhoneIcon /> },
-  { name: 'Messages', href: '/messages', icon: <ChatIcon /> },
-  { name: 'Outbound', href: '/outbound', icon: <SendIcon />, requiresMessaging: true },
-  { name: 'Templates', href: '/templates', icon: <TemplateIcon />, requiresMessaging: true },
-  { name: 'Agent Configurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
-  { name: 'Team', href: '/team', icon: <UsersIcon />, requiresManager: true },
-  { name: 'Integrations', href: '/integrations', icon: <PuzzleIcon />, requiresStaff: true },
-  { name: 'Observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },
-  { name: 'Billing', href: '/billing', icon: <BillingIcon /> },
+  { name: 'Dashboard', tKey: 'nav.dashboard', href: '/dashboard', icon: <DashboardIcon /> },
+  { name: 'Calls', tKey: 'nav.calls', href: '/calls', icon: <PhoneIcon /> },
+  { name: 'Messages', tKey: 'nav.messages', href: '/messages', icon: <ChatIcon /> },
+  { name: 'Outbound', tKey: 'nav.outbound', href: '/outbound', icon: <SendIcon />, requiresMessaging: true },
+  { name: 'Templates', tKey: 'nav.templates', href: '/templates', icon: <TemplateIcon />, requiresMessaging: true },
+  { name: 'Agent Configurations', tKey: 'nav.agentConfigurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
+  { name: 'Team', tKey: 'nav.team', href: '/team', icon: <UsersIcon />, requiresManager: true },
+  { name: 'Integrations', tKey: 'nav.integrations', href: '/integrations', icon: <PuzzleIcon />, requiresStaff: true },
+  { name: 'Observability', tKey: 'nav.observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },
+  { name: 'Billing', tKey: 'nav.billing', href: '/billing', icon: <BillingIcon /> },
 ];
 
-const adminNavigation: NavItem = { name: 'Admin', href: '/admin', icon: <ShieldIcon /> };
+const adminNavigation: NavItem = { name: 'Admin', tKey: 'nav.admin', href: '/admin', icon: <ShieldIcon /> };
 
-const supportLinks: NavItem[] = [{ name: 'Help & Guides', href: '/help', icon: <HelpIcon /> }];
+const supportLinks: NavItem[] = [{ name: 'Help & Guides', tKey: 'nav.helpGuides', href: '/help', icon: <HelpIcon /> }];
 
 interface SidebarProps {
   activePath: string;
@@ -53,6 +100,7 @@ export default function Sidebar({
   isManagerUser = false,
   messagesNeedingAttention = 0,
 }: SidebarProps) {
+  const t = useT();
   const items = useMemo(() => {
     const filteredBase = baseNavigation.filter((item) => {
       if (item.href === '/messages') return hasMessagingAccess;
@@ -123,7 +171,7 @@ export default function Sidebar({
               <AgentConfigSidebarItem
                 key={item.href}
                 icon={item.icon}
-                name={item.name}
+                name={item.tKey ? t(item.tKey) : item.name}
                 activePath={activePath}
               />
             );
@@ -148,7 +196,7 @@ export default function Sidebar({
               >
                 {item.icon}
               </span>
-              <span className="flex-1 truncate">{item.name}</span>
+              <span className="flex-1 truncate">{item.tKey ? t(item.tKey) : item.name}</span>
               {item.href === '/messages' && messagesNeedingAttention > 0 && (
                 <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-xs font-semibold text-white">
                   {messagesNeedingAttention > 99 ? '99+' : messagesNeedingAttention}
@@ -181,10 +229,16 @@ export default function Sidebar({
               >
                 {item.icon}
               </span>
-              <span>{item.name}</span>
+              <span>{item.tKey ? t(item.tKey) : item.name}</span>
             </Link>
           ))}
         </div>
+      </div>
+
+      {/* Language toggle */}
+      <div className="flex items-center justify-between border-t border-white/10 px-4 py-2.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-brand-100">{t('common.language')}</span>
+        <LanguageToggle />
       </div>
 
       {/* Your agent's number card — always visible at the bottom of the
@@ -197,10 +251,10 @@ export default function Sidebar({
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-brand-100">
-                Your ReceptionMate number
+                {t('sidebar.yourNumber')}
               </p>
               <p className="mt-0.5 truncate text-sm font-semibold text-white">
-                {formattedNumber ?? 'Not assigned yet'}
+                {formattedNumber ?? t('sidebar.notAssigned')}
               </p>
             </div>
           </div>
@@ -234,6 +288,7 @@ function AgentConfigSidebarItem({
   name: string;
   activePath: string;
 }) {
+  const lang = useLang();
   const triggerRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
@@ -316,6 +371,9 @@ function AgentConfigSidebarItem({
           <div className="space-y-0.5">
             {setupItems.map((sub) => {
               const subActive = activePath === sub.href;
+              const fr = lang === 'fr' ? AGENT_SETUP_NAV_FR[sub.href] : undefined;
+              const subLabel = fr?.label ?? sub.label;
+              const subDescription = fr?.description ?? sub.description;
               return (
                 <Link
                   key={sub.href}
@@ -327,14 +385,14 @@ function AgentConfigSidebarItem({
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                   )}
                 >
-                  <div className="font-medium">{sub.label}</div>
+                  <div className="font-medium">{subLabel}</div>
                   <div
                     className={cn(
                       'mt-0.5 text-xs',
                       subActive ? 'text-brand-500' : 'text-slate-500',
                     )}
                   >
-                    {sub.description}
+                    {subDescription}
                   </div>
                 </Link>
               );

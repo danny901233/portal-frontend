@@ -7,6 +7,7 @@ import type {
   IntegrationProvider,
   TyresoftSettings,
 } from '../../types';
+import { useLang } from '@/app/i18n/LocaleProvider';
 import TabShell from './TabShell';
 
 interface Props {
@@ -17,18 +18,6 @@ interface Props {
 
 type AgentType = 'assist' | 'automate';
 type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
-
-const AGENT_TYPE_OPTIONS: { value: AgentType; label: string; description: string }[] = [
-  { value: 'assist', label: 'Assist (message-only)', description: 'Agent takes messages, never tries to book' },
-  { value: 'automate', label: 'Automate (full booking)', description: 'Agent can book + check diary' },
-];
-
-const AGENT_SCRIPT_OPTIONS: { value: AgentScript; label: string; description: string }[] = [
-  { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture (Account 1)' },
-  { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture (Account 1)' },
-  { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre-centre integration (Account 1)' },
-  { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on LiveKit Account 2 — ElevenLabs voice + per-garage rules' },
-];
 
 const EMPTY_GH: GarageHiveSettings = {
   instanceUrl: '',
@@ -48,6 +37,125 @@ const EMPTY_TS: TyresoftSettings = {
 };
 
 export default function AdminTab({ config, save, isSaving }: Props) {
+  const lang = useLang();
+  const c = {
+    en: {
+      title: 'Routing (staff only)',
+      description:
+        'Which LiveKit agent serves this garage + diary provider credentials. Changing routing updates the SIP dispatch rule immediately.',
+      staffWarning:
+        '⚠️ Staff-only tab. Changes here re-route live calls to a different agent. Verify with a test call after saving.',
+      configWarning: 'Configuration warning: ',
+      ghMissing: {
+        instanceUrl: 'Instance URL',
+        apiKey: 'API key',
+        customerId: 'Customer ID',
+        locationId: 'Location ID',
+      },
+      ghWarn: (fields: string, isPlural: boolean) =>
+        `Garage Hive is selected as the diary provider but ${fields} ${isPlural ? 'are' : 'is'} missing. Bookings will fail until this is set.`,
+      agentTypeLabel: 'Agent type',
+      agentTypeOptions: [
+        { value: 'assist', label: 'Assist (message-only)', description: 'Agent takes messages, never tries to book' },
+        { value: 'automate', label: 'Automate (full booking)', description: 'Agent can book + check diary' },
+      ],
+      agentScriptLabel: 'Agent script (LiveKit dispatch target)',
+      agentScriptOptions: [
+        { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture (Account 1)' },
+        { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture (Account 1)' },
+        { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre-centre integration (Account 1)' },
+        { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on LiveKit Account 2 — ElevenLabs voice + per-garage rules' },
+      ],
+      agentScriptHint:
+        'Saving with a different agent script triggers the onboarding service to update the SIP dispatch rule. Assist-agent routes to LiveKit Account 2; the others stay on Account 1.',
+      diaryLabel: 'Diary integration',
+      notConnected: 'Not connected',
+      garageHive: 'Garage Hive',
+      notConnectedDesc: 'Agent takes messages; bookings sent via SMS or email.',
+      garageHiveDesc: 'Agent books + checks availability via Garage Hive.',
+      ghCredsTitle: 'Garage Hive credentials',
+      customerId: 'Customer ID',
+      instanceUrl: 'Instance URL',
+      apiKey: 'API key',
+      locationId: 'Location ID',
+      locationIdHint: 'Numeric location identifier in Garage Hive',
+      apiKeyPlaceholder: 'Bearer token from Garage Hive',
+      tsCredsTitle: 'Tyresoft credentials',
+      workspace: 'Workspace',
+      username: 'Username',
+      password: 'Password',
+      tsApiKeyPlaceholder: 'Tyresoft 3rd-party API key',
+      depotId: 'Depot ID',
+      depotIdHint: 'Numeric depot identifier in Tyresoft',
+      channelId: 'Channel ID',
+      channelIdHint:
+        "Tyresoft 'client channel id' for this garage — bookings are rejected with 'Invalid client channel id' if this is wrong or unset",
+      tyreMarkup: 'Tyre markup',
+      tyreMarkupHint:
+        'Added to the raw Tyresoft supplier price before the agent quotes. Leave value blank for no markup.',
+      flatPerTyre: 'Flat £ per tyre',
+      percentage: 'Percentage %',
+    },
+    fr: {
+      title: 'Routage (personnel uniquement)',
+      description:
+        'Quel agent LiveKit dessert cette agence + les identifiants du fournisseur d’agenda. Modifier le routage met à jour immédiatement la règle de dispatch SIP.',
+      staffWarning:
+        "⚠️ Onglet réservé au personnel. Les changements ici redirigent les appels en direct vers un autre agent. Vérifiez avec un appel test après l'enregistrement.",
+      configWarning: 'Avertissement de configuration : ',
+      ghMissing: {
+        instanceUrl: "URL de l'instance",
+        apiKey: 'Clé API',
+        customerId: 'ID client',
+        locationId: 'ID d’emplacement',
+      },
+      ghWarn: (fields: string, isPlural: boolean) =>
+        `Garage Hive est sélectionné comme fournisseur d’agenda mais ${fields} ${isPlural ? 'sont manquants' : 'est manquant'}. Les réservations échoueront tant que ce n’est pas renseigné.`,
+      agentTypeLabel: "Type d'agent",
+      agentTypeOptions: [
+        { value: 'assist', label: 'Assist (message uniquement)', description: 'L’agent prend des messages, ne tente jamais de réserver' },
+        { value: 'automate', label: 'Automate (réservation complète)', description: 'L’agent peut réserver + consulter l’agenda' },
+      ],
+      agentScriptLabel: 'Script d’agent (cible de dispatch LiveKit)',
+      agentScriptOptions: [
+        { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Agent amélioré avec architecture superviseur (Account 1)' },
+        { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Architecture d’agent d’origine (Account 1)' },
+        { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Intégration centre pneus Tyresoft (Account 1)' },
+        { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'Nouvel agent en mode assist sur LiveKit Account 2 — voix ElevenLabs + règles par agence' },
+      ],
+      agentScriptHint:
+        'Enregistrer avec un script d’agent différent déclenche la mise à jour de la règle de dispatch SIP par le service de mise en service. Assist-agent est routé vers LiveKit Account 2 ; les autres restent sur Account 1.',
+      diaryLabel: 'Intégration d’agenda',
+      notConnected: 'Non connecté',
+      garageHive: 'Garage Hive',
+      notConnectedDesc: 'L’agent prend des messages ; les réservations sont envoyées par SMS ou email.',
+      garageHiveDesc: 'L’agent réserve + vérifie les disponibilités via Garage Hive.',
+      ghCredsTitle: 'Identifiants Garage Hive',
+      customerId: 'ID client',
+      instanceUrl: "URL de l'instance",
+      apiKey: 'Clé API',
+      locationId: 'ID d’emplacement',
+      locationIdHint: 'Identifiant numérique d’emplacement dans Garage Hive',
+      apiKeyPlaceholder: 'Jeton Bearer de Garage Hive',
+      tsCredsTitle: 'Identifiants Tyresoft',
+      workspace: 'Espace de travail',
+      username: 'Nom d’utilisateur',
+      password: 'Mot de passe',
+      tsApiKeyPlaceholder: 'Clé API tierce Tyresoft',
+      depotId: 'ID de dépôt',
+      depotIdHint: 'Identifiant numérique de dépôt dans Tyresoft',
+      channelId: 'ID de canal',
+      channelIdHint:
+        "'client channel id' Tyresoft pour cette agence — les réservations sont rejetées avec 'Invalid client channel id' si celui-ci est incorrect ou non défini",
+      tyreMarkup: 'Marge sur pneus',
+      tyreMarkupHint:
+        'Ajoutée au prix fournisseur brut de Tyresoft avant que l’agent ne donne le devis. Laissez la valeur vide pour aucune marge.',
+      flatPerTyre: 'Forfait £ par pneu',
+      percentage: 'Pourcentage %',
+    },
+  }[lang];
+  const AGENT_TYPE_OPTIONS = c.agentTypeOptions as { value: AgentType; label: string; description: string }[];
+  const AGENT_SCRIPT_OPTIONS = c.agentScriptOptions as { value: AgentScript; label: string; description: string }[];
   const [agentType, setAgentType] = useState<AgentType>(
     (config.agentType as AgentType) ?? 'assist'
   );
@@ -79,13 +187,13 @@ export default function AdminTab({ config, save, isSaving }: Props) {
   const ghMisconfigWarning = useMemo(() => {
     if (integrationProvider !== 'garage_hive') return null;
     const missing: string[] = [];
-    if (!gh.instanceUrl.trim()) missing.push('Instance URL');
-    if (!gh.apiKey.trim()) missing.push('API key');
-    if (!gh.customerId.trim()) missing.push('Customer ID');
-    if (!gh.locationId.trim()) missing.push('Location ID');
+    if (!gh.instanceUrl.trim()) missing.push(c.ghMissing.instanceUrl);
+    if (!gh.apiKey.trim()) missing.push(c.ghMissing.apiKey);
+    if (!gh.customerId.trim()) missing.push(c.ghMissing.customerId);
+    if (!gh.locationId.trim()) missing.push(c.ghMissing.locationId);
     if (missing.length === 0) return null;
-    return `Garage Hive is selected as the diary provider but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing. Bookings will fail until this is set.`;
-  }, [integrationProvider, gh]);
+    return c.ghWarn(missing.join(', '), missing.length !== 1);
+  }, [integrationProvider, gh, c]);
 
   const handleSave = () => {
     void save({
@@ -99,26 +207,25 @@ export default function AdminTab({ config, save, isSaving }: Props) {
 
   return (
     <TabShell
-      title="Routing (staff only)"
-      description="Which LiveKit agent serves this garage + diary provider credentials. Changing routing updates the SIP dispatch rule immediately."
+      title={c.title}
+      description={c.description}
       onSave={handleSave}
       isSaving={isSaving}
     >
       <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-        ⚠️ Staff-only tab. Changes here re-route live calls to a different agent.
-        Verify with a test call after saving.
+        {c.staffWarning}
       </div>
 
       {ghMisconfigWarning && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <span className="font-semibold">Configuration warning:&nbsp;</span>
+          <span className="font-semibold">{c.configWarning}&nbsp;</span>
           {ghMisconfigWarning}
         </div>
       )}
 
       <div>
         <label className="mb-2 block text-sm font-medium text-slate-700">
-          Agent type
+          {c.agentTypeLabel}
         </label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {AGENT_TYPE_OPTIONS.map((opt) => {
@@ -144,7 +251,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
 
       <div>
         <label className="mb-2 block text-sm font-medium text-slate-700">
-          Agent script (LiveKit dispatch target)
+          {c.agentScriptLabel}
         </label>
         <div className="grid grid-cols-1 gap-2">
           {AGENT_SCRIPT_OPTIONS.map((opt) => {
@@ -172,24 +279,22 @@ export default function AdminTab({ config, save, isSaving }: Props) {
           })}
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          Saving with a different agent script triggers the onboarding service to update
-          the SIP dispatch rule. Assist-agent routes to LiveKit Account 2; the others stay
-          on Account 1.
+          {c.agentScriptHint}
         </p>
       </div>
 
       <div>
         <label className="mb-2 block text-sm font-medium text-slate-700">
-          Diary integration
+          {c.diaryLabel}
         </label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {(['none', 'garage_hive'] as IntegrationProvider[]).map((opt) => {
             const isActive = integrationProvider === opt;
-            const label = opt === 'none' ? 'Not connected' : 'Garage Hive';
+            const label = opt === 'none' ? c.notConnected : c.garageHive;
             const description =
               opt === 'none'
-                ? 'Agent takes messages; bookings sent via SMS or email.'
-                : 'Agent books + checks availability via Garage Hive.';
+                ? c.notConnectedDesc
+                : c.garageHiveDesc;
             return (
               <button
                 key={opt}
@@ -211,8 +316,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
 
       {integrationProvider === 'garage_hive' && (
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <h3 className="text-sm font-semibold text-slate-900">Garage Hive credentials</h3>
-          <Field label="Customer ID">
+          <h3 className="text-sm font-semibold text-slate-900">{c.ghCredsTitle}</h3>
+          <Field label={c.customerId}>
             <input
               type="text"
               value={gh.customerId}
@@ -221,7 +326,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
-          <Field label="Instance URL">
+          <Field label={c.instanceUrl}>
             <input
               type="url"
               value={gh.instanceUrl}
@@ -230,16 +335,16 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
-          <Field label="API key">
+          <Field label={c.apiKey}>
             <input
               type="password"
               value={gh.apiKey}
               onChange={(e) => setGh({ ...gh, apiKey: e.target.value })}
-              placeholder="Bearer token from Garage Hive"
+              placeholder={c.apiKeyPlaceholder}
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
-          <Field label="Location ID" hint="Numeric location identifier in Garage Hive">
+          <Field label={c.locationId} hint={c.locationIdHint}>
             <input
               type="text"
               value={gh.locationId}
@@ -253,8 +358,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
 
       {agentScript === 'tyresoft-agent' && (
         <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <h3 className="text-sm font-semibold text-slate-900">Tyresoft credentials</h3>
-          <Field label="Workspace">
+          <h3 className="text-sm font-semibold text-slate-900">{c.tsCredsTitle}</h3>
+          <Field label={c.workspace}>
             <input
               type="text"
               value={ts.tsWorkspace}
@@ -263,7 +368,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
-          <Field label="Username">
+          <Field label={c.username}>
             <input
               type="text"
               value={ts.tsUsername}
@@ -272,7 +377,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
-          <Field label="Password">
+          <Field label={c.password}>
             <input
               type="password"
               value={ts.tsPassword}
@@ -281,16 +386,16 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
-          <Field label="API key">
+          <Field label={c.apiKey}>
             <input
               type="password"
               value={ts.tsApiKey}
               onChange={(e) => setTs({ ...ts, tsApiKey: e.target.value })}
-              placeholder="Tyresoft 3rd-party API key"
+              placeholder={c.tsApiKeyPlaceholder}
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
-          <Field label="Depot ID" hint="Numeric depot identifier in Tyresoft">
+          <Field label={c.depotId} hint={c.depotIdHint}>
             <input
               type="text"
               value={ts.tsDepotId}
@@ -300,8 +405,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
             />
           </Field>
           <Field
-            label="Channel ID"
-            hint="Tyresoft 'client channel id' for this garage — bookings are rejected with 'Invalid client channel id' if this is wrong or unset"
+            label={c.channelId}
+            hint={c.channelIdHint}
           >
             <input
               type="text"
@@ -316,8 +421,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
             />
           </Field>
           <Field
-            label="Tyre markup"
-            hint="Added to the raw Tyresoft supplier price before the agent quotes. Leave value blank for no markup."
+            label={c.tyreMarkup}
+            hint={c.tyreMarkupHint}
           >
             <div className="flex gap-2">
               <select
@@ -327,8 +432,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
                 }
                 className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
               >
-                <option value="flat">Flat £ per tyre</option>
-                <option value="percent">Percentage %</option>
+                <option value="flat">{c.flatPerTyre}</option>
+                <option value="percent">{c.percentage}</option>
               </select>
               <input
                 type="number"

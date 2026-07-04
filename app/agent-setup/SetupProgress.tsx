@@ -2,17 +2,18 @@
 
 import Link from 'next/link';
 import type { AgentConfiguration } from '../types';
+import { useLang } from '@/app/i18n/LocaleProvider';
 import { useAgentSetup } from './useAgentSetup';
 
 // Loose completion checks — any meaningful signal in the group counts.
 // We want the widget to encourage completion, not police perfection.
 type GroupKey = 'basics' | 'voice' | 'bookings' | 'knowledge';
 
-const GROUPS: Array<{ key: GroupKey; label: string; href: string }> = [
-  { key: 'basics',    label: 'Basics',                href: '/agent-setup/company-information' },
-  { key: 'voice',     label: 'Voice & personality',   href: '/agent-setup/voice' },
-  { key: 'bookings',  label: 'Bookings & transfers',  href: '/agent-setup/bookings-transfers' },
-  { key: 'knowledge', label: 'Knowledge',             href: '/agent-setup/questions' },
+const GROUPS: Array<{ key: GroupKey; href: string }> = [
+  { key: 'basics',    href: '/agent-setup/company-information' },
+  { key: 'voice',     href: '/agent-setup/voice' },
+  { key: 'bookings',  href: '/agent-setup/bookings-transfers' },
+  { key: 'knowledge', href: '/agent-setup/questions' },
 ];
 
 function isComplete(config: AgentConfiguration, group: GroupKey): boolean {
@@ -46,9 +47,32 @@ function isComplete(config: AgentConfiguration, group: GroupKey): boolean {
 
 export default function SetupProgress() {
   const { config, isLoading } = useAgentSetup();
+  const lang = useLang();
+  const c = {
+    en: {
+      complete: 'Setup complete',
+      setup: 'Setup',
+      labels: {
+        basics: 'Basics',
+        voice: 'Voice & personality',
+        bookings: 'Bookings & transfers',
+        knowledge: 'Knowledge',
+      } as Record<GroupKey, string>,
+    },
+    fr: {
+      complete: 'Configuration terminée',
+      setup: 'Configuration',
+      labels: {
+        basics: 'Bases',
+        voice: 'Voix et personnalité',
+        bookings: 'Réservations et transferts',
+        knowledge: 'Connaissances',
+      } as Record<GroupKey, string>,
+    },
+  }[lang];
   if (isLoading || !config) return null;
 
-  const statuses = GROUPS.map((g) => ({ ...g, done: isComplete(config, g.key) }));
+  const statuses = GROUPS.map((g) => ({ ...g, label: c.labels[g.key], done: isComplete(config, g.key) }));
   const completed = statuses.filter((s) => s.done).length;
   const total = GROUPS.length;
   const pct = Math.round((completed / total) * 100);
@@ -63,7 +87,7 @@ export default function SetupProgress() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-slate-900">
-              {allDone ? 'Setup complete' : 'Setup'}
+              {allDone ? c.complete : c.setup}
             </span>
             <span className="text-xs font-medium tabular-nums text-slate-500">
               {completed}/{total}

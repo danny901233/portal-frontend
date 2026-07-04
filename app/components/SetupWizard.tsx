@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { completeSetupWizard } from '../lib/onboarding';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface SetupWizardProps {
   isOpen: boolean;
@@ -19,6 +20,45 @@ interface SetupWizardProps {
 
 export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWizardProps) {
   const router = useRouter();
+  const lang = useLang();
+  const c = {
+    en: {
+      heading: 'Let’s set up your AI agent',
+      subheading: 'A few minutes now → fewer missed calls later.',
+      welcome: (tier: string) => (
+        <>
+          Welcome aboard. You&rsquo;ve been provisioned with our <strong>{tier}</strong> tier.
+          From here you can configure how your agent introduces itself, answers FAQs, transfers calls and more.
+        </>
+      ),
+      bullet1: 'Set your opening hours so the agent knows when you’re available',
+      bullet2: 'Pick a voice and preview it before going live',
+      bullet3: 'Add the FAQs and rules that match how you run your business',
+      note: 'No rush — you can complete each section in any order, and skip the rest for now. The progress widget in the sidebar tracks what’s done.',
+      skipping: 'Skipping…',
+      skip: 'Skip for now',
+      opening: 'Opening…',
+      setup: 'Set up my agent',
+    },
+    fr: {
+      heading: 'Configurons votre agent IA',
+      subheading: 'Quelques minutes maintenant → moins d’appels manqués plus tard.',
+      welcome: (tier: string) => (
+        <>
+          Bienvenue à bord. Vous avez été provisionné avec notre offre <strong>{tier}</strong>.
+          À partir d&rsquo;ici, vous pouvez configurer la façon dont votre agent se présente, répond aux FAQ, transfère les appels et bien plus.
+        </>
+      ),
+      bullet1: 'Définissez vos heures d’ouverture pour que l’agent sache quand vous êtes disponible',
+      bullet2: 'Choisissez une voix et écoutez-la avant la mise en service',
+      bullet3: 'Ajoutez les FAQ et les règles correspondant à votre façon de gérer votre entreprise',
+      note: 'Rien ne presse — vous pouvez compléter chaque section dans l’ordre que vous voulez et laisser le reste pour plus tard. Le widget de progression dans la barre latérale suit ce qui est fait.',
+      skipping: 'Ignorer…',
+      skip: 'Ignorer pour l’instant',
+      opening: 'Ouverture…',
+      setup: 'Configurer mon agent',
+    },
+  }[lang];
   const [busy, setBusy] = useState<'start' | 'skip' | null>(null);
 
   if (!isOpen) return null;
@@ -55,27 +95,25 @@ export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWiza
               <RocketIcon />
             </span>
             <div>
-              <h2 className="text-lg font-semibold">Let&rsquo;s set up your AI agent</h2>
-              <p className="text-xs text-brand-100">A few minutes now → fewer missed calls later.</p>
+              <h2 className="text-lg font-semibold">{c.heading}</h2>
+              <p className="text-xs text-brand-100">{c.subheading}</p>
             </div>
           </div>
         </div>
 
         <div className="px-6 py-6">
           <p className="text-sm text-slate-700">
-            Welcome aboard. You&rsquo;ve been provisioned with our <strong>{agentType === 'automate' ? 'Automate' : 'Assist'}</strong> tier.
-            From here you can configure how your agent introduces itself, answers FAQs, transfers calls and more.
+            {c.welcome(agentType === 'automate' ? 'Automate' : 'Assist')}
           </p>
 
           <ul className="mt-4 space-y-2 text-sm text-slate-600">
-            <Bullet>Set your opening hours so the agent knows when you&rsquo;re available</Bullet>
-            <Bullet>Pick a voice and preview it before going live</Bullet>
-            <Bullet>Add the FAQs and rules that match how you run your business</Bullet>
+            <Bullet>{c.bullet1}</Bullet>
+            <Bullet>{c.bullet2}</Bullet>
+            <Bullet>{c.bullet3}</Bullet>
           </ul>
 
           <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-            No rush — you can complete each section in any order, and skip the rest for now. The progress widget in the
-            sidebar tracks what&rsquo;s done.
+            {c.note}
           </div>
         </div>
 
@@ -86,7 +124,7 @@ export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWiza
             disabled={busy !== null}
             className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
           >
-            {busy === 'skip' ? 'Skipping…' : 'Skip for now'}
+            {busy === 'skip' ? c.skipping : c.skip}
           </button>
           <button
             type="button"
@@ -94,7 +132,7 @@ export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWiza
             disabled={busy !== null}
             className="flex-1 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-600/25 hover:bg-brand-700 disabled:opacity-50"
           >
-            {busy === 'start' ? 'Opening…' : 'Set up my agent'}
+            {busy === 'start' ? c.opening : c.setup}
           </button>
         </div>
       </div>

@@ -4,10 +4,38 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, Suspense } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { TOKEN_STORAGE_KEY, getGarageId } from '../../lib/auth';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 function CallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const lang = useLang();
+  const c = {
+    en: {
+      confirmFailed: 'Failed to confirm payment setup',
+      cancelled: 'Payment setup was cancelled. Please try again.',
+      missingFlowId: 'Invalid callback - missing redirect flow ID',
+      logoAlt: 'ReceptionMate Logo',
+      processingTitle: 'Processing Payment Setup',
+      processingBody: 'Please wait while we confirm your Direct Debit mandate...',
+      completeTitle: 'Payment Setup Complete!',
+      completeBody: 'Your Direct Debit has been set up successfully. Redirecting to your dashboard...',
+      failedTitle: 'Payment Setup Failed',
+      tryAgain: 'Try Again',
+    },
+    fr: {
+      confirmFailed: 'Échec de la confirmation de la configuration du paiement',
+      cancelled: 'La configuration du paiement a été annulée. Veuillez réessayer.',
+      missingFlowId: "Rappel invalide - identifiant de flux de redirection manquant",
+      logoAlt: 'ReceptionMate Logo',
+      processingTitle: 'Traitement de la configuration du paiement',
+      processingBody: 'Veuillez patienter pendant que nous confirmons votre mandat de prélèvement automatique...',
+      completeTitle: 'Configuration du paiement terminée !',
+      completeBody: 'Votre prélèvement automatique a été configuré avec succès. Redirection vers votre tableau de bord...',
+      failedTitle: 'Échec de la configuration du paiement',
+      tryAgain: 'Réessayer',
+    },
+  }[lang];
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
@@ -29,7 +57,7 @@ function CallbackContent() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to confirm payment setup');
+        throw new Error(error.error || c.confirmFailed);
       }
 
       return response.json();
@@ -44,7 +72,7 @@ function CallbackContent() {
     },
     onError: (error: Error) => {
       setStatus('error');
-      setErrorMessage(error.message || 'Failed to confirm payment setup');
+      setErrorMessage(error.message || c.confirmFailed);
     },
   });
 
@@ -55,14 +83,14 @@ function CallbackContent() {
     // Check if user cancelled
     if (searchParams.get('cancelled') === 'true') {
       setStatus('error');
-      setErrorMessage('Payment setup was cancelled. Please try again.');
+      setErrorMessage(c.cancelled);
       return;
     }
 
     // Validate we have a redirect flow ID
     if (!redirectFlowId) {
       setStatus('error');
-      setErrorMessage('Invalid callback - missing redirect flow ID');
+      setErrorMessage(c.missingFlowId);
       return;
     }
 
@@ -78,16 +106,16 @@ function CallbackContent() {
             <div className="mx-auto mb-6 flex justify-center">
               <img
                 src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
-                alt="ReceptionMate Logo"
+                alt={c.logoAlt}
                 className="h-24 w-auto"
               />
             </div>
             <div className="mb-4 flex justify-center">
               <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-300 border-t-sky-500"></div>
             </div>
-            <h1 className="text-2xl font-semibold">Processing Payment Setup</h1>
+            <h1 className="text-2xl font-semibold">{c.processingTitle}</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Please wait while we confirm your Direct Debit mandate...
+              {c.processingBody}
             </p>
           </div>
         </div>
@@ -103,7 +131,7 @@ function CallbackContent() {
             <div className="mx-auto mb-6 flex justify-center">
               <img
                 src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
-                alt="ReceptionMate Logo"
+                alt={c.logoAlt}
                 className="h-24 w-auto"
               />
             </div>
@@ -124,9 +152,9 @@ function CallbackContent() {
                 </svg>
               </div>
             </div>
-            <h1 className="text-2xl font-semibold">Payment Setup Complete!</h1>
+            <h1 className="text-2xl font-semibold">{c.completeTitle}</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Your Direct Debit has been set up successfully. Redirecting to your dashboard...
+              {c.completeBody}
             </p>
           </div>
         </div>
@@ -163,13 +191,13 @@ function CallbackContent() {
               </svg>
             </div>
           </div>
-          <h1 className="text-2xl font-semibold">Payment Setup Failed</h1>
+          <h1 className="text-2xl font-semibold">{c.failedTitle}</h1>
           <p className="mt-2 text-sm text-slate-500">{errorMessage}</p>
           <button
             onClick={() => router.push('/setup-payment')}
             className="mt-6 w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
-            Try Again
+            {c.tryAgain}
           </button>
         </div>
       </div>
@@ -178,11 +206,13 @@ function CallbackContent() {
 }
 
 export default function CallbackPage() {
+  const lang = useLang();
+  const c = { en: { loading: 'Loading...' }, fr: { loading: 'Chargement...' } }[lang];
   return (
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-white text-slate-900">
-          <div className="text-slate-500">Loading...</div>
+          <div className="text-slate-500">{c.loading}</div>
         </div>
       }
     >

@@ -3,8 +3,48 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, Suspense } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 function ResetPasswordForm() {
+  const lang = useLang();
+  const c = {
+    en: {
+      failedReset: 'Failed to reset password',
+      resetSuccess: 'Password reset successfully! Redirecting to login...',
+      invalidToken: 'Invalid or missing reset token',
+      minChars: 'Password must be at least 8 characters',
+      noMatch: 'Passwords do not match',
+      invalidLinkTitle: 'Invalid Reset Link',
+      invalidLinkBody: 'This password reset link is invalid or has expired. Please request a new password reset.',
+      backToLogin: 'Back to Login',
+      resetTitle: 'Reset Your Password',
+      resetSubtitle: 'Enter your new password below',
+      newPassword: 'New Password',
+      newPasswordPlaceholder: 'Enter new password (min 8 characters)',
+      confirmPassword: 'Confirm Password',
+      confirmPasswordPlaceholder: 'Confirm new password',
+      resetting: 'Resetting Password…',
+      resetButton: 'Reset Password',
+    },
+    fr: {
+      failedReset: 'Échec de la réinitialisation du mot de passe',
+      resetSuccess: 'Mot de passe réinitialisé avec succès ! Redirection vers la connexion...',
+      invalidToken: 'Jeton de réinitialisation invalide ou manquant',
+      minChars: 'Le mot de passe doit comporter au moins 8 caractères',
+      noMatch: 'Les mots de passe ne correspondent pas',
+      invalidLinkTitle: 'Lien de réinitialisation invalide',
+      invalidLinkBody: 'Ce lien de réinitialisation du mot de passe est invalide ou a expiré. Veuillez demander une nouvelle réinitialisation.',
+      backToLogin: 'Retour à la connexion',
+      resetTitle: 'Réinitialisez votre mot de passe',
+      resetSubtitle: 'Saisissez votre nouveau mot de passe ci-dessous',
+      newPassword: 'Nouveau mot de passe',
+      newPasswordPlaceholder: 'Saisissez le nouveau mot de passe (8 caractères min.)',
+      confirmPassword: 'Confirmer le mot de passe',
+      confirmPasswordPlaceholder: 'Confirmez le nouveau mot de passe',
+      resetting: 'Réinitialisation en cours…',
+      resetButton: 'Réinitialiser le mot de passe',
+    },
+  }[lang];
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
@@ -26,13 +66,13 @@ function ResetPasswordForm() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || data.message || 'Failed to reset password');
+        throw new Error(data.error || data.message || c.failedReset);
       }
 
       return data;
     },
     onSuccess: () => {
-      setMessage({ type: 'success', text: 'Password reset successfully! Redirecting to login...' });
+      setMessage({ type: 'success', text: c.resetSuccess });
       setTimeout(() => {
         router.push('/login');
       }, 2000);
@@ -47,17 +87,17 @@ function ResetPasswordForm() {
     setMessage(null);
 
     if (!token) {
-      setMessage({ type: 'error', text: 'Invalid or missing reset token' });
+      setMessage({ type: 'error', text: c.invalidToken });
       return;
     }
 
     if (password.length < 8) {
-      setMessage({ type: 'error', text: 'Password must be at least 8 characters' });
+      setMessage({ type: 'error', text: c.minChars });
       return;
     }
 
     if (password !== confirmPassword) {
-      setMessage({ type: 'error', text: 'Passwords do not match' });
+      setMessage({ type: 'error', text: c.noMatch });
       return;
     }
 
@@ -76,15 +116,15 @@ function ResetPasswordForm() {
                 className="h-24 w-auto"
               />
             </div>
-            <h1 className="text-2xl font-semibold">Invalid Reset Link</h1>
+            <h1 className="text-2xl font-semibold">{c.invalidLinkTitle}</h1>
             <p className="mt-2 text-sm text-slate-500">
-              This password reset link is invalid or has expired. Please request a new password reset.
+              {c.invalidLinkBody}
             </p>
             <button
               onClick={() => router.push('/login')}
               className="mt-6 w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
-              Back to Login
+              {c.backToLogin}
             </button>
           </div>
         </div>
@@ -103,14 +143,14 @@ function ResetPasswordForm() {
               className="h-24 w-auto"
             />
           </div>
-          <h1 className="text-2xl font-semibold">Reset Your Password</h1>
-          <p className="mt-2 text-sm text-slate-500">Enter your new password below</p>
+          <h1 className="text-2xl font-semibold">{c.resetTitle}</h1>
+          <p className="mt-2 text-sm text-slate-500">{c.resetSubtitle}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
             <label htmlFor="password" className="block text-sm font-medium text-slate-600">
-              New Password
+              {c.newPassword}
             </label>
             <input
               type="password"
@@ -118,7 +158,7 @@ function ResetPasswordForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 transition-colors focus:border-brand-600 focus:outline-none"
-              placeholder="Enter new password (min 8 characters)"
+              placeholder={c.newPasswordPlaceholder}
               required
               minLength={8}
               autoComplete="new-password"
@@ -127,7 +167,7 @@ function ResetPasswordForm() {
 
           <div className="space-y-2">
             <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-600">
-              Confirm Password
+              {c.confirmPassword}
             </label>
             <input
               type="password"
@@ -135,7 +175,7 @@ function ResetPasswordForm() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 transition-colors focus:border-brand-600 focus:outline-none"
-              placeholder="Confirm new password"
+              placeholder={c.confirmPasswordPlaceholder}
               required
               minLength={8}
               autoComplete="new-password"
@@ -159,7 +199,7 @@ function ResetPasswordForm() {
             disabled={resetPasswordMutation.isPending}
             className="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
           >
-            {resetPasswordMutation.isPending ? 'Resetting Password…' : 'Reset Password'}
+            {resetPasswordMutation.isPending ? c.resetting : c.resetButton}
           </button>
 
           <div className="text-center">
@@ -168,7 +208,7 @@ function ResetPasswordForm() {
               onClick={() => router.push('/login')}
               className="text-sm text-brand-600 hover:text-brand-700 hover:underline"
             >
-              Back to Login
+              {c.backToLogin}
             </button>
           </div>
         </form>
@@ -178,10 +218,12 @@ function ResetPasswordForm() {
 }
 
 export default function ResetPasswordPage() {
+  const lang = useLang();
+  const c = { en: { loading: 'Loading...' }, fr: { loading: 'Chargement...' } }[lang];
   return (
     <Suspense fallback={
       <div className="flex min-h-screen items-center justify-center bg-white text-slate-900">
-        <div className="text-slate-500">Loading...</div>
+        <div className="text-slate-500">{c.loading}</div>
       </div>
     }>
       <ResetPasswordForm />

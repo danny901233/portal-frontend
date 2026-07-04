@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getGarageId, getSessionToken } from '../lib/auth';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface TeamMember {
   id: string;
@@ -24,6 +25,90 @@ export default function TeamPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<TeamMember | null>(null);
 
+  const lang = useLang();
+  const c = {
+    en: {
+      title: 'Team',
+      subtitle: 'Manage staff access to this branch',
+      inviteUser: 'Invite User',
+      loading: 'Loading...',
+      noMembers: 'No team members yet.',
+      colEmail: 'Email',
+      colRole: 'Role',
+      colStatus: 'Status',
+      colActions: 'Actions',
+      manager: 'Manager',
+      staff: 'Staff',
+      statusActive: 'Active',
+      statusInvited: 'Invited',
+      resendInvite: 'Resend invite',
+      edit: 'Edit',
+      remove: 'Remove',
+      inviteNewUser: 'Invite New User',
+      editRole: 'Edit Role',
+      emailAddress: 'Email address',
+      role: 'Role',
+      roleManagerHint: 'Can manage agent config, billing, and team members.',
+      roleStaffHint: 'Can view calls and conversations.',
+      cancel: 'Cancel',
+      saving: 'Saving...',
+      sendInvite: 'Send Invite',
+      save: 'Save',
+      removeUser: 'Remove User',
+      loseAccess: 'They will lose access immediately.',
+      errLoad: 'Could not load team members.',
+      errValidEmail: 'Enter a valid email address.',
+      errInvite: 'Failed to invite user',
+      errUpdateRole: 'Failed to update role',
+      errGeneric: 'Something went wrong.',
+      errRemove: 'Failed to remove user',
+      inviteResent: (email: string) => `Invite resent to ${email}`,
+      failResend: 'Failed to resend invite.',
+      removePrompt: (email: string) => <>Remove <span className="text-slate-700 font-medium">{email}</span> from this branch? </>,
+      statusLabel: (s: 'Active' | 'Invited') => (s === 'Active' ? 'Active' : 'Invited'),
+    },
+    fr: {
+      title: 'Équipe',
+      subtitle: 'Gérez les accès du personnel à cette agence',
+      inviteUser: 'Inviter un utilisateur',
+      loading: 'Chargement...',
+      noMembers: 'Aucun membre pour le moment.',
+      colEmail: 'E-mail',
+      colRole: 'Rôle',
+      colStatus: 'Statut',
+      colActions: 'Actions',
+      manager: 'Responsable',
+      staff: 'Personnel',
+      statusActive: 'Actif',
+      statusInvited: 'Invité',
+      resendInvite: "Renvoyer l'invitation",
+      edit: 'Modifier',
+      remove: 'Retirer',
+      inviteNewUser: 'Inviter un nouvel utilisateur',
+      editRole: 'Modifier le rôle',
+      emailAddress: 'Adresse e-mail',
+      role: 'Rôle',
+      roleManagerHint: "Peut gérer la configuration de l'agent, la facturation et les membres de l'équipe.",
+      roleStaffHint: 'Peut consulter les appels et les conversations.',
+      cancel: 'Annuler',
+      saving: 'Enregistrement...',
+      sendInvite: "Envoyer l'invitation",
+      save: 'Enregistrer',
+      removeUser: 'Retirer un utilisateur',
+      loseAccess: "Il perdra l'accès immédiatement.",
+      errLoad: "Impossible de charger les membres de l'équipe.",
+      errValidEmail: 'Saisissez une adresse e-mail valide.',
+      errInvite: "Échec de l'invitation de l'utilisateur",
+      errUpdateRole: 'Échec de la mise à jour du rôle',
+      errGeneric: "Une erreur s'est produite.",
+      errRemove: "Échec du retrait de l'utilisateur",
+      inviteResent: (email: string) => `Invitation renvoyée à ${email}`,
+      failResend: "Échec du renvoi de l'invitation.",
+      removePrompt: (email: string) => <>Retirer <span className="text-slate-700 font-medium">{email}</span> de cette agence ? </>,
+      statusLabel: (s: 'Active' | 'Invited') => (s === 'Active' ? 'Actif' : 'Invité'),
+    },
+  }[lang];
+
   const garageId = getGarageId();
   const token = getSessionToken();
 
@@ -39,7 +124,7 @@ export default function TeamPage() {
       const data = await res.json();
       setMembers(data.users);
     } catch {
-      setError('Could not load team members.');
+      setError(c.errLoad);
     } finally {
       setLoading(false);
     }
@@ -70,14 +155,14 @@ export default function TeamPage() {
     setActionError(null);
     try {
       if (modalMode === 'add') {
-        if (!formEmail.includes('@')) { setActionError('Enter a valid email address.'); setSaving(false); return; }
+        if (!formEmail.includes('@')) { setActionError(c.errValidEmail); setSaving(false); return; }
         const res = await fetch(`/api/garage/${garageId}/users`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: formEmail.trim().toLowerCase(), role: formRole }),
         });
         const data = await res.json();
-        if (!res.ok) { setActionError(data.error ?? 'Failed to invite user'); setSaving(false); return; }
+        if (!res.ok) { setActionError(data.error ?? c.errInvite); setSaving(false); return; }
       } else if (modalMode === 'edit' && editTarget) {
         const res = await fetch(`/api/garage/${garageId}/users/${editTarget.id}`, {
           method: 'PUT',
@@ -85,12 +170,12 @@ export default function TeamPage() {
           body: JSON.stringify({ role: formRole }),
         });
         const data = await res.json();
-        if (!res.ok) { setActionError(data.error ?? 'Failed to update role'); setSaving(false); return; }
+        if (!res.ok) { setActionError(data.error ?? c.errUpdateRole); setSaving(false); return; }
       }
       closeModal();
       await fetchMembers();
     } catch {
-      setActionError('Something went wrong.');
+      setActionError(c.errGeneric);
     } finally {
       setSaving(false);
     }
@@ -104,9 +189,9 @@ export default function TeamPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Failed');
-      alert(`Invite resent to ${member.email}`);
+      alert(c.inviteResent(member.email));
     } catch {
-      alert('Failed to resend invite.');
+      alert(c.failResend);
     }
   };
 
@@ -118,11 +203,11 @@ export default function TeamPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) { alert(data.error ?? 'Failed to remove user'); return; }
+      if (!res.ok) { alert(data.error ?? c.errRemove); return; }
       setConfirmDelete(null);
       await fetchMembers();
     } catch {
-      alert('Something went wrong.');
+      alert(c.errGeneric);
     }
   };
 
@@ -131,8 +216,8 @@ export default function TeamPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Team</h1>
-          <p className="text-sm text-slate-500 mt-1">Manage staff access to this branch</p>
+          <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
+          <p className="text-sm text-slate-500 mt-1">{c.subtitle}</p>
         </div>
         <button
           onClick={openAdd}
@@ -141,26 +226,26 @@ export default function TeamPage() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Invite User
+          {c.inviteUser}
         </button>
       </div>
 
       {/* Table */}
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-slate-500 text-sm">Loading...</div>
+          <div className="flex items-center justify-center py-16 text-slate-500 text-sm">{c.loading}</div>
         ) : error ? (
           <div className="flex items-center justify-center py-16 text-red-400 text-sm">{error}</div>
         ) : members.length === 0 ? (
-          <div className="flex items-center justify-center py-16 text-slate-500 text-sm">No team members yet.</div>
+          <div className="flex items-center justify-center py-16 text-slate-500 text-sm">{c.noMembers}</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left">
-                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Email</th>
-                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Role</th>
-                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Actions</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{c.colEmail}</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{c.colRole}</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{c.colStatus}</th>
+                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">{c.colActions}</th>
               </tr>
             </thead>
             <tbody>
@@ -176,7 +261,7 @@ export default function TeamPage() {
                         ? 'bg-brand-100 text-brand-600 border border-brand-600/20'
                         : 'bg-slate-700/60 text-slate-500 border border-slate-300/40'
                     }`}>
-                      {member.role === 'MANAGER' ? 'Manager' : 'Staff'}
+                      {member.role === 'MANAGER' ? c.manager : c.staff}
                     </span>
                   </td>
                   <td className="px-5 py-3">
@@ -186,7 +271,7 @@ export default function TeamPage() {
                       <span className={`w-1.5 h-1.5 rounded-full ${
                         member.status === 'Active' ? 'bg-emerald-400' : 'bg-amber-400'
                       }`} />
-                      {member.status}
+                      {c.statusLabel(member.status)}
                     </span>
                   </td>
                   <td className="px-5 py-3">
@@ -196,20 +281,20 @@ export default function TeamPage() {
                           onClick={() => handleResendInvite(member)}
                           className="text-xs text-slate-500 hover:text-brand-600 transition-colors"
                         >
-                          Resend invite
+                          {c.resendInvite}
                         </button>
                       )}
                       <button
                         onClick={() => openEdit(member)}
                         className="text-xs text-slate-500 hover:text-slate-900 transition-colors"
                       >
-                        Edit
+                        {c.edit}
                       </button>
                       <button
                         onClick={() => setConfirmDelete(member)}
                         className="text-xs text-slate-500 hover:text-red-400 transition-colors"
                       >
-                        Remove
+                        {c.remove}
                       </button>
                     </div>
                   </td>
@@ -225,12 +310,12 @@ export default function TeamPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white border border-slate-300 rounded-xl shadow-2xl p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-5">
-              {modalMode === 'add' ? 'Invite New User' : 'Edit Role'}
+              {modalMode === 'add' ? c.inviteNewUser : c.editRole}
             </h2>
 
             {modalMode === 'add' && (
               <div className="mb-4">
-                <label className="block text-xs font-medium text-slate-500 mb-1.5">Email address</label>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">{c.emailAddress}</label>
                 <input
                   type="email"
                   value={formEmail}
@@ -246,7 +331,7 @@ export default function TeamPage() {
             )}
 
             <div className="mb-5">
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Role</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">{c.role}</label>
               <div className="grid grid-cols-2 gap-3">
                 {(['MANAGER', 'USER'] as const).map((r) => (
                   <button
@@ -258,14 +343,14 @@ export default function TeamPage() {
                         : 'bg-slate-100 border-slate-300 text-slate-500 hover:border-slate-300'
                     }`}
                   >
-                    {r === 'MANAGER' ? 'Manager' : 'Staff'}
+                    {r === 'MANAGER' ? c.manager : c.staff}
                   </button>
                 ))}
               </div>
               <p className="text-xs text-slate-500 mt-2">
                 {formRole === 'MANAGER'
-                  ? 'Can manage agent config, billing, and team members.'
-                  : 'Can view calls and conversations.'}
+                  ? c.roleManagerHint
+                  : c.roleStaffHint}
               </p>
             </div>
 
@@ -278,14 +363,14 @@ export default function TeamPage() {
                 onClick={closeModal}
                 className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-700 text-slate-600 rounded-lg text-sm transition-colors"
               >
-                Cancel
+                {c.cancel}
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="flex-1 px-4 py-2 bg-brand-600 hover:bg-brand-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
               >
-                {saving ? 'Saving...' : modalMode === 'add' ? 'Send Invite' : 'Save'}
+                {saving ? c.saving : modalMode === 'add' ? c.sendInvite : c.save}
               </button>
             </div>
           </div>
@@ -296,22 +381,22 @@ export default function TeamPage() {
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-white border border-slate-300 rounded-xl shadow-2xl p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Remove User</h2>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">{c.removeUser}</h2>
             <p className="text-sm text-slate-500 mb-5">
-              Remove <span className="text-slate-700 font-medium">{confirmDelete.email}</span> from this branch? They will lose access immediately.
+              {c.removePrompt(confirmDelete.email)}{c.loseAccess}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDelete(null)}
                 className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-700 text-slate-600 rounded-lg text-sm transition-colors"
               >
-                Cancel
+                {c.cancel}
               </button>
               <button
                 onClick={() => handleDelete(confirmDelete)}
                 className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition-colors"
               >
-                Remove
+                {c.remove}
               </button>
             </div>
           </div>

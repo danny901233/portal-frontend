@@ -15,6 +15,7 @@ import {
 import MessageStatsWidget from '../components/MessageStatsWidget';
 import SmsStatsWidget from '../components/SmsStatsWidget';
 import { getSessionToken } from '../lib/auth';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 type CallTypeTag = (typeof TRACKED_TAGS)[number] | 'other';
 type CallTypeChartEntry = {
@@ -42,6 +43,12 @@ const CONFIRMED_BOOKING_CATEGORY_LABELS: Record<ConfirmedBookingCategory, string
   diagnostic: 'Diagnostic',
   mot: 'MOT',
   other: 'Other',
+};
+const CONFIRMED_BOOKING_CATEGORY_LABELS_FR: Record<ConfirmedBookingCategory, string> = {
+  service: 'Entretien',
+  diagnostic: 'Diagnostic',
+  mot: 'Contrôle technique',
+  other: 'Autre',
 };
 const CONFIRMED_BOOKING_CATEGORY_COLORS: Record<ConfirmedBookingCategory, string> = {
   service: '#38bdf8',
@@ -102,6 +109,103 @@ const buildDateRange = ({ start, end }: DateRange): DailyBucket[] => {
 };
 
 export default function DashboardPage() {
+  const lang = useLang();
+  const c = {
+    en: {
+      title: 'Dashboard',
+      subtitle: 'Monitor call performance, booking conversion, and sentiment at a glance.',
+      startDate: 'Start date',
+      endDate: 'End date',
+      today: 'Today',
+      last: (label: string) => `Last ${label}`,
+      range7: '7 days',
+      range14: '14 days',
+      range30: '30 days',
+      preparingCsv: 'Preparing CSV…',
+      downloadCsv: 'Download confirmed bookings CSV',
+      capturedRevenue: 'Captured Revenue',
+      capturedRevenueHint: 'Total value of confirmed bookings within the selected window.',
+      confirmedBookings: 'Confirmed bookings',
+      confirmedBookingsHint:
+        'Count of calls tagged as confirmed bookings during this window, directly driving captured revenue.',
+      totalCalls: 'Total calls',
+      totalCallsHint: 'All calls captured within the selected date range.',
+      totalDuration: 'Total duration',
+      totalDurationHint: 'Combined call time for all calls in this period.',
+      topCallTag: 'Top call tag',
+      topCallTagHint: 'Most frequent call classification in the selected window.',
+      callTypeDistribution: 'Call type distribution',
+      byTag: 'By tag',
+      callTypeDistributionHint:
+        'Tags show the purpose of each call and highlight where your team is spending time.',
+      loadingDistribution: 'Loading distribution…',
+      totalCallsCenter: 'Total calls',
+      noCallsRange: 'No calls recorded for this range.',
+      dailyCallVolume: 'Daily call volume',
+      trend: 'Trend',
+      dailyCallVolumeHint: 'Track demand patterns to understand staffing needs and campaign impact.',
+      loadingTrend: 'Loading trend…',
+      callsOn: (count: number, label: string) => `${count} calls on ${label}`,
+      confirmedBookingCategories: 'Confirmed booking categories',
+      setCustomerInfo: 'Set customer info',
+      confirmedBookingCategoriesHint:
+        'Breakdown of confirmed bookings that hit the customer info webhook, grouped by service type.',
+      loadingBreakdown: 'Loading breakdown…',
+      confirmed: 'Confirmed',
+      noConfirmedRange: 'No confirmed bookings recorded for this range.',
+      tagSpotlight: 'Tag spotlight',
+      tagSpotlightHint:
+        'Quick overview of how often each tag is used. Use this to prioritise scripts and team training.',
+    },
+    fr: {
+      title: 'Tableau de bord',
+      subtitle:
+        'Suivez en un coup d’œil la performance des appels, la conversion des réservations et le ressenti.',
+      startDate: 'Date de début',
+      endDate: 'Date de fin',
+      today: 'Aujourd’hui',
+      last: (label: string) => `${label} derniers`,
+      range7: '7 jours',
+      range14: '14 jours',
+      range30: '30 jours',
+      preparingCsv: 'Préparation du CSV…',
+      downloadCsv: 'Télécharger le CSV des réservations confirmées',
+      capturedRevenue: 'Chiffre d’affaires capté',
+      capturedRevenueHint: 'Valeur totale des réservations confirmées sur la période sélectionnée.',
+      confirmedBookings: 'Réservations confirmées',
+      confirmedBookingsHint:
+        'Nombre d’appels marqués comme réservations confirmées sur cette période, générant directement le chiffre d’affaires capté.',
+      totalCalls: 'Total des appels',
+      totalCallsHint: 'Tous les appels enregistrés sur la plage de dates sélectionnée.',
+      totalDuration: 'Durée totale',
+      totalDurationHint: 'Temps d’appel cumulé pour tous les appels de cette période.',
+      topCallTag: 'Étiquette d’appel principale',
+      topCallTagHint: 'Classification d’appel la plus fréquente sur la période sélectionnée.',
+      callTypeDistribution: 'Répartition des types d’appel',
+      byTag: 'Par étiquette',
+      callTypeDistributionHint:
+        'Les étiquettes indiquent l’objet de chaque appel et montrent où votre équipe passe son temps.',
+      loadingDistribution: 'Chargement de la répartition…',
+      totalCallsCenter: 'Total des appels',
+      noCallsRange: 'Aucun appel enregistré pour cette période.',
+      dailyCallVolume: 'Volume d’appels quotidien',
+      trend: 'Tendance',
+      dailyCallVolumeHint:
+        'Suivez les tendances de la demande pour comprendre les besoins en personnel et l’impact des campagnes.',
+      loadingTrend: 'Chargement de la tendance…',
+      callsOn: (count: number, label: string) => `${count} appels le ${label}`,
+      confirmedBookingCategories: 'Catégories de réservations confirmées',
+      setCustomerInfo: 'Infos client définies',
+      confirmedBookingCategoriesHint:
+        'Détail des réservations confirmées ayant déclenché le webhook d’informations client, regroupées par type de service.',
+      loadingBreakdown: 'Chargement du détail…',
+      confirmed: 'Confirmées',
+      noConfirmedRange: 'Aucune réservation confirmée enregistrée pour cette période.',
+      tagSpotlight: 'Focus sur les étiquettes',
+      tagSpotlightHint:
+        'Aperçu rapide de la fréquence d’utilisation de chaque étiquette. Utilisez-le pour prioriser les scripts et la formation de l’équipe.',
+    },
+  }[lang];
   const today = useMemo(() => new Date(), []);
   const defaultEnd = useMemo(() => formatDateInput(today), [today]);
   const defaultStart = useMemo(() => {
@@ -240,10 +344,12 @@ export default function DashboardPage() {
     () =>
       CONFIRMED_BOOKING_CATEGORIES.map((category) => ({
         category,
-        label: CONFIRMED_BOOKING_CATEGORY_LABELS[category],
+        label: (lang === 'fr'
+          ? CONFIRMED_BOOKING_CATEGORY_LABELS_FR
+          : CONFIRMED_BOOKING_CATEGORY_LABELS)[category],
         count: confirmedBookingCategoryCounts[category] ?? 0,
       })),
-    [confirmedBookingCategoryCounts],
+    [confirmedBookingCategoryCounts, lang],
   );
   const confirmedBookingTotal = confirmedBookingCalls.length;
   const confirmedBookingPieGradient = useMemo(() => {
@@ -451,14 +557,14 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">{c.title}</h1>
           <p className="text-sm text-slate-500">
-            Monitor call performance, booking conversion, and sentiment at a glance.
+            {c.subtitle}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col text-sm">
-            <label className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Start date</label>
+            <label className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">{c.startDate}</label>
             <input
               type="date"
               value={startDate}
@@ -468,7 +574,7 @@ export default function DashboardPage() {
             />
           </div>
           <div className="flex flex-col text-sm">
-            <label className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">End date</label>
+            <label className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">{c.endDate}</label>
             <input
               type="date"
               value={endDate}
@@ -484,18 +590,22 @@ export default function DashboardPage() {
               onClick={applyTodayRange}
               className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
             >
-              Today
+              {c.today}
             </button>
-            {QUICK_RANGES.map((range) => (
-              <button
-                key={range.label}
-                type="button"
-                onClick={() => applyQuickRange(range.days)}
-                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
-              >
-                Last {range.label}
-              </button>
-            ))}
+            {QUICK_RANGES.map((range) => {
+              const rangeLabel =
+                range.days === 7 ? c.range7 : range.days === 14 ? c.range14 : c.range30;
+              return (
+                <button
+                  key={range.label}
+                  type="button"
+                  onClick={() => applyQuickRange(range.days)}
+                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+                >
+                  {c.last(rangeLabel)}
+                </button>
+              );
+            })}
           </div>
           <button
             type="button"
@@ -506,7 +616,7 @@ export default function DashboardPage() {
               (isDownloading || loading) && 'cursor-not-allowed opacity-60'
             )}
           >
-            {isDownloading ? 'Preparing CSV…' : 'Download confirmed bookings CSV'}
+            {isDownloading ? c.preparingCsv : c.downloadCsv}
           </button>
         </div>
       </div>
@@ -522,21 +632,21 @@ export default function DashboardPage() {
         <div className="absolute -bottom-24 -left-24 h-48 w-48 rounded-full bg-fuchsia-500/20 blur-3xl" aria-hidden />
         <div className="relative grid gap-6 sm:grid-cols-2 sm:items-center">
           <div className="space-y-3">
-            <span className="text-xs font-semibold uppercase tracking-[0.35em] text-brand-100">Captured Revenue</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.35em] text-brand-100">{c.capturedRevenue}</span>
             <div className="text-5xl font-semibold text-white">
               {loading ? '—' : formatCurrency(bookingRevenueTotal)}
             </div>
             <p className="mt-2 max-w-lg text-sm text-brand-100">
-              Total value of confirmed bookings within the selected window.
+              {c.capturedRevenueHint}
             </p>
           </div>
           <div className="flex flex-col gap-3 rounded-2xl border border-white/15 bg-white/10 px-7 py-7 text-left backdrop-blur-sm">
-            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">Confirmed bookings</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">{c.confirmedBookings}</div>
             <div className="text-4xl font-semibold text-white">
               {loading ? '—' : callTypeCounts['confirmed booking'] ?? 0}
             </div>
             <p className="max-w-sm text-sm text-brand-100/90">
-              Count of calls tagged as confirmed bookings during this window, directly driving captured revenue.
+              {c.confirmedBookingsHint}
             </p>
           </div>
         </div>
@@ -544,23 +654,23 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total calls</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.totalCalls}</div>
           <div className="mt-3 text-3xl font-semibold text-slate-900">{loading ? '—' : totalCalls}</div>
           <p className="mt-2 text-xs text-slate-500">
-            All calls captured within the selected date range.
+            {c.totalCallsHint}
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total duration</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.totalDuration}</div>
           <div className="mt-3 text-3xl font-semibold text-slate-900">{loading ? '—' : formatDuration(totalDurationSeconds)}</div>
           <p className="mt-2 text-xs text-slate-500">
-            Combined call time for all calls in this period.
+            {c.totalDurationHint}
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Top call tag</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.topCallTag}</div>
           <div className="mt-3 text-3xl font-semibold text-slate-900">{loading ? '—' : mostCommonTagLabel}</div>
-          <p className="mt-2 text-xs text-slate-500">Most frequent call classification in the selected window.</p>
+          <p className="mt-2 text-xs text-slate-500">{c.topCallTagHint}</p>
         </div>
       </div>
 
@@ -582,15 +692,15 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Call type distribution</h2>
-            <span className="text-xs uppercase tracking-wide text-slate-500">By tag</span>
+            <h2 className="text-lg font-semibold text-slate-900">{c.callTypeDistribution}</h2>
+            <span className="text-xs uppercase tracking-wide text-slate-500">{c.byTag}</span>
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Tags show the purpose of each call and highlight where your team is spending time.
+            {c.callTypeDistributionHint}
           </p>
           <div className="mt-6">
             {loading ? (
-              <div className="text-sm text-slate-500">Loading distribution…</div>
+              <div className="text-sm text-slate-500">{c.loadingDistribution}</div>
             ) : callTypeTotal ? (
               <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-stretch">
                 <div className="flex justify-center lg:w-1/2">
@@ -599,7 +709,7 @@ export default function DashboardPage() {
                     style={{ backgroundImage: pieGradient }}
                   >
                     <div className="absolute inset-8 flex flex-col items-center justify-center rounded-full border border-slate-200 bg-white text-slate-900 shadow-inner shadow-black/40">
-                      <span className="text-xs uppercase tracking-wide text-slate-500">Total calls</span>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">{c.totalCallsCenter}</span>
                       <span className="mt-1 text-3xl font-semibold text-slate-900">{totalCalls}</span>
                     </div>
                   </div>
@@ -632,28 +742,28 @@ export default function DashboardPage() {
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-slate-500">No calls recorded for this range.</div>
+              <div className="text-sm text-slate-500">{c.noCallsRange}</div>
             )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Daily call volume</h2>
-            <span className="text-xs uppercase tracking-wide text-slate-500">Trend</span>
+            <h2 className="text-lg font-semibold text-slate-900">{c.dailyCallVolume}</h2>
+            <span className="text-xs uppercase tracking-wide text-slate-500">{c.trend}</span>
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Track demand patterns to understand staffing needs and campaign impact.
+            {c.dailyCallVolumeHint}
           </p>
           <div className="mt-6 flex items-end gap-3 overflow-x-auto pb-2">
             {loading ? (
-              <div className="text-sm text-slate-500">Loading trend…</div>
+              <div className="text-sm text-slate-500">{c.loadingTrend}</div>
             ) : dailyBuckets.length ? (
               dailyBuckets.map((bucket) => {
                 const percentage = maxDailyCount ? (bucket.count / maxDailyCount) * 100 : 0;
                 const height = maxDailyCount ? Math.max(6, percentage) : 6;
                 const date = new Date(`${bucket.date}T00:00:00`);
-                const label = date.toLocaleDateString(undefined, {
+                const label = date.toLocaleDateString(lang === 'fr' ? 'fr-FR' : undefined, {
                   month: 'short',
                   day: 'numeric',
                 });
@@ -663,7 +773,7 @@ export default function DashboardPage() {
                       <div
                         className="w-full rounded-full bg-gradient-to-t from-sky-500 via-sky-400 to-sky-200 shadow-lg shadow-sky-900/50"
                         style={{ height: `${height}%` }}
-                        title={`${bucket.count} calls on ${label}`}
+                        title={c.callsOn(bucket.count, label)}
                       />
                     </div>
                     <span className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
@@ -672,22 +782,22 @@ export default function DashboardPage() {
                 );
               })
             ) : (
-              <div className="text-sm text-slate-500">No calls recorded for this range.</div>
+              <div className="text-sm text-slate-500">{c.noCallsRange}</div>
             )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Confirmed booking categories</h2>
-            <span className="text-xs uppercase tracking-wide text-slate-500">Set customer info</span>
+            <h2 className="text-lg font-semibold text-slate-900">{c.confirmedBookingCategories}</h2>
+            <span className="text-xs uppercase tracking-wide text-slate-500">{c.setCustomerInfo}</span>
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Breakdown of confirmed bookings that hit the customer info webhook, grouped by service type.
+            {c.confirmedBookingCategoriesHint}
           </p>
           <div className="mt-6">
             {loading ? (
-              <div className="text-sm text-slate-500">Loading breakdown…</div>
+              <div className="text-sm text-slate-500">{c.loadingBreakdown}</div>
             ) : confirmedBookingTotal ? (
               <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
                 <div className="flex justify-center lg:w-1/2">
@@ -696,7 +806,7 @@ export default function DashboardPage() {
                     style={{ backgroundImage: confirmedBookingPieGradient }}
                   >
                     <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full border border-slate-200 bg-white text-slate-900 shadow-inner shadow-black/40">
-                      <span className="text-[10px] uppercase tracking-[0.35em] text-slate-500">Confirmed</span>
+                      <span className="text-[10px] uppercase tracking-[0.35em] text-slate-500">{c.confirmed}</span>
                       <span className="mt-1 text-3xl font-semibold text-slate-900">{confirmedBookingTotal}</span>
                     </div>
                   </div>
@@ -733,7 +843,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="text-sm text-slate-500">
-                No confirmed bookings recorded for this range.
+                {c.noConfirmedRange}
               </div>
             )}
           </div>
@@ -741,9 +851,9 @@ export default function DashboardPage() {
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Tag spotlight</h2>
+        <h2 className="text-lg font-semibold text-slate-900">{c.tagSpotlight}</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Quick overview of how often each tag is used. Use this to prioritise scripts and team training.
+          {c.tagSpotlightHint}
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           {(TRACKED_TAGS as readonly string[]).map((tag) => {

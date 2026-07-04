@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { collections, searchArticles } from './_content/articles';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 const collectionIconPaths: Record<string, string> = {
   rocket:    'M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z',
@@ -15,6 +16,43 @@ const collectionIconPaths: Record<string, string> = {
 
 export default function HelpHomePage() {
   const [query, setQuery] = useState('');
+  const lang = useLang();
+  const c = {
+    en: {
+      eyebrow: 'Help centre',
+      heading: 'How can we help?',
+      intro: (articles: number, categories: number) => `Guides for every feature in ReceptionMate. ${articles} articles across ${categories} categories.`,
+      searchPlaceholder: 'Search every guide — e.g. forwarding, WhatsApp, transfers',
+      noMatches: (q: string) => `No matches for "${q}". Try a different phrase, or clear the search to browse.`,
+      resultCount: (n: number, q: string) => `${n} result${n === 1 ? '' : 's'} for "${q}"`,
+      minRead: (m: number) => `${m} min read`,
+      matchedIn: (where: string) => `· matched in ${where}`,
+      clearSearch: 'Clear search',
+      articleCount: (n: number) => `${n} article${n === 1 ? '' : 's'}`,
+      popularGuides: 'Popular guides',
+      minShort: (m: number) => `${m} min`,
+      stillStuck: 'Still stuck?',
+      stillStuckBody: "Email our team and we'll usually reply within an hour.",
+      emailUs: 'Email hello@receptionmate.co.uk',
+    },
+    fr: {
+      eyebrow: "Centre d'aide",
+      heading: 'Comment pouvons-nous vous aider ?',
+      intro: (articles: number, categories: number) => `Des guides pour chaque fonctionnalité de ReceptionMate. ${articles} articles répartis en ${categories} catégories.`,
+      searchPlaceholder: 'Rechercher dans tous les guides — ex. transfert, WhatsApp, renvois',
+      noMatches: (q: string) => `Aucun résultat pour « ${q} ». Essayez une autre expression ou effacez la recherche pour parcourir.`,
+      resultCount: (n: number, q: string) => `${n} résultat${n === 1 ? '' : 's'} pour « ${q} »`,
+      minRead: (m: number) => `${m} min de lecture`,
+      matchedIn: (where: string) => `· trouvé dans ${where}`,
+      clearSearch: 'Effacer la recherche',
+      articleCount: (n: number) => `${n} article${n === 1 ? '' : 's'}`,
+      popularGuides: 'Guides populaires',
+      minShort: (m: number) => `${m} min`,
+      stillStuck: 'Toujours bloqué ?',
+      stillStuckBody: "Écrivez à notre équipe et nous répondons généralement dans l'heure.",
+      emailUs: 'Écrire à hello@receptionmate.co.uk',
+    },
+  }[lang];
 
   const results = useMemo(() => searchArticles(query), [query]);
   const showingResults = query.trim().length >= 2;
@@ -31,10 +69,10 @@ export default function HelpHomePage() {
         </div>
 
         <div className="mx-auto max-w-4xl text-center text-white">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-100">Help centre</p>
-          <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">How can we help?</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-100">{c.eyebrow}</p>
+          <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">{c.heading}</h1>
           <p className="mx-auto mt-3 max-w-xl text-base text-brand-100">
-            Guides for every feature in ReceptionMate. {totalArticles} articles across {collections.length} categories.
+            {c.intro(totalArticles, collections.length)}
           </p>
 
           <div className="mx-auto mt-8 max-w-2xl">
@@ -47,7 +85,7 @@ export default function HelpHomePage() {
                   type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search every guide — e.g. forwarding, WhatsApp, transfers"
+                  placeholder={c.searchPlaceholder}
                   className="ml-3 flex-1 bg-transparent py-2 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none"
                   autoFocus
                 />
@@ -63,8 +101,8 @@ export default function HelpHomePage() {
           <div>
             <p className="text-sm text-slate-500">
               {results.length === 0
-                ? `No matches for "${query}". Try a different phrase, or clear the search to browse.`
-                : `${results.length} result${results.length === 1 ? '' : 's'} for "${query}"`}
+                ? c.noMatches(query)
+                : c.resultCount(results.length, query)}
             </p>
             <div className="mt-6 divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white">
               {results.map(({ collection, article, matchedIn }) => (
@@ -78,8 +116,8 @@ export default function HelpHomePage() {
                     <p className="mt-0.5 truncate text-sm text-slate-500">{article.excerpt}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600">{collection.title}</span>
-                      <span>{article.minutes} min read</span>
-                      <span>· matched in {matchedIn}</span>
+                      <span>{c.minRead(article.minutes)}</span>
+                      <span>{c.matchedIn(matchedIn)}</span>
                     </div>
                   </div>
                   <svg xmlns="http://www.w3.org/2000/svg" className="ml-4 h-5 w-5 shrink-0 text-slate-300" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" /></svg>
@@ -88,55 +126,55 @@ export default function HelpHomePage() {
             </div>
             {results.length === 0 && (
               <button type="button" onClick={() => setQuery('')} className="mt-6 text-sm font-medium text-brand-600 hover:text-brand-700">
-                Clear search
+                {c.clearSearch}
               </button>
             )}
           </div>
         ) : (
           <>
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {collections.map((c) => (
+              {collections.map((col) => (
                 <Link
-                  key={c.slug}
-                  href={`/help/${c.slug}`}
+                  key={col.slug}
+                  href={`/help/${col.slug}`}
                   className="group rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-brand-200 hover:shadow-lg hover:shadow-brand-900/5"
                 >
-                  <span className={`inline-flex h-12 w-12 items-center justify-center rounded-xl ${c.accent}`}>
+                  <span className={`inline-flex h-12 w-12 items-center justify-center rounded-xl ${col.accent}`}>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d={collectionIconPaths[c.icon]} />
+                      <path strokeLinecap="round" strokeLinejoin="round" d={collectionIconPaths[col.icon]} />
                     </svg>
                   </span>
-                  <h2 className="mt-4 text-lg font-semibold text-slate-900 transition-colors group-hover:text-brand-700">{c.title}</h2>
-                  <p className="mt-1 text-sm text-slate-600">{c.description}</p>
-                  <p className="mt-4 text-xs font-medium text-slate-400">{c.articles.length} article{c.articles.length === 1 ? '' : 's'}</p>
+                  <h2 className="mt-4 text-lg font-semibold text-slate-900 transition-colors group-hover:text-brand-700">{col.title}</h2>
+                  <p className="mt-1 text-sm text-slate-600">{col.description}</p>
+                  <p className="mt-4 text-xs font-medium text-slate-400">{c.articleCount(col.articles.length)}</p>
                 </Link>
               ))}
             </div>
 
             {/* Popular guides */}
             <div className="mt-16 rounded-2xl border border-slate-200 bg-slate-50/50 p-8">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Popular guides</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{c.popularGuides}</h2>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {[
-                  { c: 'getting-started', a: 'forward-your-calls' },
-                  { c: 'configuring-leah', a: 'faqs' },
-                  { c: 'calls-and-bookings', a: 'reading-the-calls-page' },
-                  { c: 'configuring-leah', a: 'integrations' },
-                  { c: 'troubleshooting', a: 'agent-missed-booking' },
-                  { c: 'billing-and-account', a: 'pricing-plans' },
-                ].map(({ c, a }) => {
-                  const collection = collections.find((col) => col.slug === c);
-                  const article = collection?.articles.find((art) => art.slug === a);
+                  { col: 'getting-started', art: 'forward-your-calls' },
+                  { col: 'configuring-leah', art: 'faqs' },
+                  { col: 'calls-and-bookings', art: 'reading-the-calls-page' },
+                  { col: 'configuring-leah', art: 'integrations' },
+                  { col: 'troubleshooting', art: 'agent-missed-booking' },
+                  { col: 'billing-and-account', art: 'pricing-plans' },
+                ].map(({ col, art }) => {
+                  const collection = collections.find((x) => x.slug === col);
+                  const article = collection?.articles.find((x) => x.slug === art);
                   if (!article || !collection) return null;
                   return (
                     <Link
-                      key={`${c}/${a}`}
-                      href={`/help/${c}/${a}`}
+                      key={`${col}/${art}`}
+                      href={`/help/${col}/${art}`}
                       className="group flex items-center justify-between rounded-xl bg-white p-4 transition hover:shadow-md hover:shadow-brand-900/5"
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-900 group-hover:text-brand-700">{article.title}</p>
-                        <p className="mt-0.5 truncate text-xs text-slate-500">{collection.title} · {article.minutes} min</p>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">{collection.title} · {c.minShort(article.minutes)}</p>
                       </div>
                       <svg xmlns="http://www.w3.org/2000/svg" className="ml-3 h-4 w-4 shrink-0 text-slate-300 group-hover:text-brand-600" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" /></svg>
                     </Link>
@@ -148,14 +186,14 @@ export default function HelpHomePage() {
             {/* Contact */}
             <div className="mt-10 flex flex-col items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-6 sm:flex-row sm:items-center">
               <div>
-                <p className="text-base font-semibold text-slate-900">Still stuck?</p>
-                <p className="mt-1 text-sm text-slate-600">Email our team and we'll usually reply within an hour.</p>
+                <p className="text-base font-semibold text-slate-900">{c.stillStuck}</p>
+                <p className="mt-1 text-sm text-slate-600">{c.stillStuckBody}</p>
               </div>
               <a
                 href="mailto:hello@receptionmate.co.uk"
                 className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/25 hover:bg-brand-700 transition"
               >
-                Email hello@receptionmate.co.uk
+                {c.emailUs}
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" /></svg>
               </a>
             </div>

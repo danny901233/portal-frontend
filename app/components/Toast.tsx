@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 type ToastVariant = 'success' | 'error' | 'info' | 'warning';
 
@@ -50,6 +51,11 @@ const newId = () =>
     : `toast-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const lang = useLang();
+  const c = {
+    en: { dismiss: 'Dismiss notification' },
+    fr: { dismiss: 'Fermer la notification' },
+  }[lang];
   const [toasts, setToasts] = useState<Toast[]>([]);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -128,7 +134,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   type="button"
                   onClick={() => dismiss(toast.id)}
                   className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200"
-                  aria-label="Dismiss notification"
+                  aria-label={c.dismiss}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>

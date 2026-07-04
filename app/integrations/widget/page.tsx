@@ -3,9 +3,43 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getGarageId, getGarages } from '../../lib/auth';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 export default function WidgetEmbedPage() {
   const router = useRouter();
+  const lang = useLang();
+  const c = {
+    en: {
+      loading: 'Loading...',
+      title: 'Integrations',
+      subtitle: 'Embed ReceptionMate widgets on your website to let customers reach you instantly.',
+      tabSocial: 'Social media',
+      tabWidget: 'Website widget',
+      garageIdLabel: 'Garage ID',
+      fallbackGarageName: 'Your Garage',
+      chatTitle: 'Chat widget',
+      chatSubtitle: 'WhatsApp, web chat and messaging in one floating button.',
+      voiceTitle: 'Voice widget',
+      voiceSubtitle: 'Let customers speak directly to Leah from your website.',
+      preview: 'Preview',
+      customise: 'Customise',
+    },
+    fr: {
+      loading: 'Chargement...',
+      title: 'Intégrations',
+      subtitle: 'Intégrez les widgets ReceptionMate sur votre site web pour que vos clients vous joignent instantanément.',
+      tabSocial: 'Réseaux sociaux',
+      tabWidget: 'Widget de site web',
+      garageIdLabel: 'ID du garage',
+      fallbackGarageName: 'Votre garage',
+      chatTitle: 'Widget de chat',
+      chatSubtitle: 'WhatsApp, chat web et messagerie dans un seul bouton flottant.',
+      voiceTitle: 'Widget vocal',
+      voiceSubtitle: 'Laissez vos clients parler directement à Leah depuis votre site web.',
+      preview: 'Aperçu',
+      customise: 'Personnaliser',
+    },
+  }[lang];
   const [copiedChat, setCopiedChat] = useState(false);
   const [copiedVoice, setCopiedVoice] = useState(false);
   const [garageId, setGarageId] = useState<string>('');
@@ -15,7 +49,7 @@ export default function WidgetEmbedPage() {
     const storedGarageId = getGarageId();
     const garages = getGarages();
     const garage = garages.find(g => g.id === storedGarageId);
-    const name = garage?.name || 'Your Garage';
+    const name = garage?.name || c.fallbackGarageName;
     if (storedGarageId) {
       setGarageId(storedGarageId);
       setGarageName(name);
@@ -62,24 +96,30 @@ export default function WidgetEmbedPage() {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
-          <p className="mt-4 text-slate-500">Loading...</p>
+          <p className="mt-4 text-slate-500">{c.loading}</p>
         </div>
       </div>
     );
   }
 
-  const installSteps: React.ReactNode[] = [
-    'Copy the embed code above by clicking "Copy Code".',
-    <>Paste the code into your website&apos;s HTML, just before the closing <code className="rounded bg-slate-200 px-1.5 py-0.5 text-xs font-mono text-slate-800">&lt;/body&gt;</code> tag.</>,
-    'Save and publish your website — the widget will appear in the bottom-right corner.',
-  ];
+  const installSteps: React.ReactNode[] = lang === 'fr'
+    ? [
+        'Copiez le code d\'intégration ci-dessus en cliquant sur « Copier le code ».',
+        <>Collez le code dans le code HTML de votre site web, juste avant la balise de fermeture <code className="rounded bg-slate-200 px-1.5 py-0.5 text-xs font-mono text-slate-800">&lt;/body&gt;</code>.</>,
+        'Enregistrez et publiez votre site web — le widget apparaîtra dans le coin inférieur droit.',
+      ]
+    : [
+        'Copy the embed code above by clicking "Copy Code".',
+        <>Paste the code into your website&apos;s HTML, just before the closing <code className="rounded bg-slate-200 px-1.5 py-0.5 text-xs font-mono text-slate-800">&lt;/body&gt;</code> tag.</>,
+        'Save and publish your website — the widget will appear in the bottom-right corner.',
+      ];
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Integrations</h1>
+        <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Embed ReceptionMate widgets on your website to let customers reach you instantly.
+          {c.subtitle}
         </p>
 
         {/* Tab switcher */}
@@ -88,19 +128,19 @@ export default function WidgetEmbedPage() {
             onClick={() => router.push('/integrations')}
             className="px-4 py-1.5 text-sm font-medium rounded-md text-slate-600 hover:text-slate-900 transition-colors"
           >
-            Social media
+            {c.tabSocial}
           </button>
           <button
             className="px-4 py-1.5 text-sm font-semibold rounded-md bg-white text-slate-900 shadow-sm ring-1 ring-slate-200"
             aria-current="page"
           >
-            Website widget
+            {c.tabWidget}
           </button>
         </div>
 
         {/* Garage ID indicator */}
         <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs">
-          <span className="font-medium text-slate-500">Garage ID</span>
+          <span className="font-medium text-slate-500">{c.garageIdLabel}</span>
           <code className="font-mono text-slate-900">{garageId}</code>
           <span className="text-slate-300">·</span>
           <span className="font-medium text-slate-700">{garageName}</span>
@@ -110,8 +150,8 @@ export default function WidgetEmbedPage() {
       {/* Chat Widget */}
       <WidgetCard
         accent="brand"
-        title="Chat widget"
-        subtitle="WhatsApp, web chat and messaging in one floating button."
+        title={c.chatTitle}
+        subtitle={c.chatSubtitle}
         icon={(
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -120,10 +160,10 @@ export default function WidgetEmbedPage() {
         headerActions={(
           <>
             <SecondaryBtn onClick={() => window.open(`/widget/${garageId}`, '_blank')} icon="external">
-              Preview
+              {c.preview}
             </SecondaryBtn>
             <PrimaryBtn onClick={() => router.push('/integrations/widget/customize')} icon="customise">
-              Customise
+              {c.customise}
             </PrimaryBtn>
           </>
         )}
@@ -137,8 +177,8 @@ export default function WidgetEmbedPage() {
       {/* Voice Widget */}
       <WidgetCard
         accent="violet"
-        title="Voice widget"
-        subtitle="Let customers speak directly to Leah from your website."
+        title={c.voiceTitle}
+        subtitle={c.voiceSubtitle}
         icon={(
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -146,7 +186,7 @@ export default function WidgetEmbedPage() {
         )}
         headerActions={(
           <SecondaryBtn onClick={() => window.open('https://portal.receptionmate.co.uk/voice-widget/', '_blank')} icon="external">
-            Preview
+            {c.preview}
           </SecondaryBtn>
         )}
         embedCode={voiceEmbedCode}
@@ -174,6 +214,11 @@ function WidgetCard(props: {
   stepAccentClass: string;
 }) {
   const accentBgClass = props.accent === 'brand' ? 'bg-brand-50 text-brand-600' : 'bg-violet-50 text-violet-600';
+  const lang = useLang();
+  const c = {
+    en: { embedCode: 'Embed code', copied: 'Copied!', copyCode: 'Copy code' },
+    fr: { embedCode: "Code d'intégration", copied: 'Copié !', copyCode: 'Copier le code' },
+  }[lang];
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -192,7 +237,7 @@ function WidgetCard(props: {
 
       <div className="p-6">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-medium text-slate-700">Embed code</span>
+          <span className="text-sm font-medium text-slate-700">{c.embedCode}</span>
           <button
             onClick={props.onCopy}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
@@ -200,12 +245,12 @@ function WidgetCard(props: {
             {props.copied ? (
               <>
                 <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                <span className="text-emerald-700">Copied!</span>
+                <span className="text-emerald-700">{c.copied}</span>
               </>
             ) : (
               <>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
-                Copy code
+                {c.copyCode}
               </>
             )}
           </button>

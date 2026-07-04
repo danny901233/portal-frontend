@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import type { GarageSummary } from '../types';
 import { ALL_ASSIGNED_BRANCHES_IDENTIFIER } from '../lib/branchScope';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface NavbarProps {
   email: string;
@@ -27,19 +28,48 @@ export default function Navbar({
   onLogout,
 }: NavbarProps) {
   const router = useRouter();
+  const lang = useLang();
+  const c = {
+    en: {
+      branch: 'Branch',
+      allBranches: 'All branches',
+      allAssignedBranches: 'All assigned branches',
+      selectBranch: 'Select a branch',
+      searchPlaceholder: 'Search branches by name or ID...',
+      noBranchesFound: 'No branches found',
+      noBranchesAvailable: 'No branches available',
+      garageId: 'Garage ID:',
+      signedIn: 'Signed in',
+      userId: 'User ID:',
+      logout: 'Log out',
+    },
+    fr: {
+      branch: 'Agence',
+      allBranches: 'Toutes les agences',
+      allAssignedBranches: 'Toutes les agences attribuées',
+      selectBranch: 'Sélectionnez une agence',
+      searchPlaceholder: 'Rechercher des agences par nom ou identifiant...',
+      noBranchesFound: 'Aucune agence trouvée',
+      noBranchesAvailable: 'Aucune agence disponible',
+      garageId: 'Identifiant du garage :',
+      signedIn: 'Connecté',
+      userId: 'Identifiant utilisateur :',
+      logout: 'Se déconnecter',
+    },
+  }[lang];
   const showGarageId = Boolean(selectedGarageId) && selectedGarageId !== ALL_ASSIGNED_BRANCHES_IDENTIFIER;
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Staff aggregate across every garage; managers across only their assigned branches.
-  const allBranchesLabel = isStaff ? 'All branches' : 'All assigned branches';
+  const allBranchesLabel = isStaff ? c.allBranches : c.allAssignedBranches;
 
   // Get the selected garage name
   const selectedGarage = garages.find((g) => g.id === selectedGarageId);
   const displayName = selectedGarageId === ALL_ASSIGNED_BRANCHES_IDENTIFIER
     ? allBranchesLabel
-    : selectedGarage?.name || 'Select a branch';
+    : selectedGarage?.name || c.selectBranch;
 
   // Filter garages based on search query (searches both name and ID)
   const filteredGarages = garages.filter((garage) =>
@@ -69,7 +99,7 @@ export default function Navbar({
   return (
     <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6">
       <div className="flex flex-col">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Branch</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.branch}</span>
         {garages.length > 0 || allowAllAssignedBranches ? (
           <div ref={dropdownRef} className="relative mt-1 w-64">
             <button
@@ -93,7 +123,7 @@ export default function Navbar({
                 <div className="p-2">
                   <input
                     type="text"
-                    placeholder="Search branches by name or ID..."
+                    placeholder={c.searchPlaceholder}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/20"
@@ -131,7 +161,7 @@ export default function Navbar({
                     ))
                   ) : (
                     <div className="px-3 py-2 text-sm text-slate-500">
-                      No branches found
+                      {c.noBranchesFound}
                     </div>
                   )}
                 </div>
@@ -140,20 +170,20 @@ export default function Navbar({
           </div>
         ) : (
           <div className="mt-1 w-64 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-            {selectedGarageId || 'No branches available'}
+            {selectedGarageId || c.noBranchesAvailable}
           </div>
         )}
         {showGarageId ? (
-          <span className="mt-1 text-[11px] text-slate-500">Garage ID: <span className="font-mono break-all">{selectedGarageId}</span></span>
+          <span className="mt-1 text-[11px] text-slate-500">{c.garageId} <span className="font-mono break-all">{selectedGarageId}</span></span>
         ) : null}
       </div>
       <div className="flex items-center gap-4">
         <div className="text-right">
-          <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-slate-500">Signed in</p>
+          <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-slate-500">{c.signedIn}</p>
           <p className="text-sm font-semibold text-slate-900">{email}</p>
           {userId ? (
             <p className="text-[11px] text-slate-500">
-              User ID: <span className="font-mono break-all">{userId}</span>
+              {c.userId} <span className="font-mono break-all">{userId}</span>
             </p>
           ) : null}
         </div>
@@ -168,7 +198,7 @@ export default function Navbar({
             }
           }}
         >
-          Log out
+          {c.logout}
         </button>
       </div>
     </header>

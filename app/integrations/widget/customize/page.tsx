@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { getGarageId, TOKEN_STORAGE_KEY } from '@/app/lib/auth';
 import { useRouter } from 'next/navigation';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface WidgetBranding {
   widgetLogoUrl: string | null;
@@ -41,6 +42,103 @@ const BUTTON_ICONS = [
 
 export default function WidgetCustomizePage() {
   const router = useRouter();
+  const lang = useLang();
+  const c = {
+    en: {
+      notAuthed: 'Not authenticated',
+      updateSuccess: 'Widget branding updated successfully!',
+      saveFailed: 'Failed to save branding',
+      uploadImage: 'Please upload an image file',
+      imageTooLarge: 'Image must be less than 2MB',
+      readFailed: 'Failed to read image file',
+      processFailed: 'Failed to process image',
+      garageNotSelected: 'Garage not selected. Please log in again.',
+      loadingBranding: 'Loading widget branding...',
+      pageTitle: 'Widget Customization',
+      pageSubtitle: 'Customize your chat widget with your brand colors and logo',
+      logo: 'Logo',
+      logoHint: 'Upload your logo to display at the top of the widget menu',
+      removeLogo: 'Remove Logo',
+      processing: 'Processing…',
+      clickToUpload: 'Click to upload logo',
+      fileHint: 'PNG, JPG, SVG up to 2MB',
+      logoWidth: (px: number) => `Logo Width: ${px}px`,
+      logoHeight: (px: number) => `Logo Height: ${px}px`,
+      buttonShape: 'Button Shape',
+      buttonShapeHint: 'Choose the shape of the chat button',
+      buttonIcon: 'Button Icon',
+      buttonIconHint: 'Select the icon displayed on the chat button',
+      widgetColor: 'Widget Color',
+      widgetColorHint: 'Choose the main color for your widget interface',
+      buttonColor: 'Button Color',
+      buttonColorHint: 'Choose a separate color for the chat button (optional, defaults to widget color)',
+      buttonColorPlaceholder: 'Leave empty to use widget color',
+      clearUseWidget: 'Clear (use widget color)',
+      savingChanges: 'Saving...',
+      saveChanges: 'Save Changes',
+      reset: 'Reset',
+      preview: 'Preview',
+      previewHint: 'See how your widget will look with your customizations',
+      logoPreviewAlt: 'Logo preview',
+      logoAlt: 'Logo',
+      chatButton: 'Chat Button',
+      chatNow: 'Chat now!',
+      widgetMenu: 'Widget Menu',
+      messageUsOn: 'Message us on...',
+      liveChat: 'Live Chat',
+      phone: 'Phone',
+      poweredBy: 'Powered by',
+      shapeNames: { circle: 'Circle', pill: 'Pill', rounded: 'Rounded', square: 'Square' } as Record<string, string>,
+      iconNames: { chat: 'Chat Bubble', whatsapp: 'WhatsApp', phone: 'Phone' } as Record<string, string>,
+    },
+    fr: {
+      notAuthed: 'Non authentifié',
+      updateSuccess: 'Personnalisation du widget mise à jour avec succès !',
+      saveFailed: "Échec de l'enregistrement de la personnalisation",
+      uploadImage: 'Veuillez importer un fichier image',
+      imageTooLarge: "L'image doit faire moins de 2 Mo",
+      readFailed: "Échec de la lecture du fichier image",
+      processFailed: "Échec du traitement de l'image",
+      garageNotSelected: 'Aucun garage sélectionné. Veuillez vous reconnecter.',
+      loadingBranding: 'Chargement de la personnalisation du widget...',
+      pageTitle: 'Personnalisation du widget',
+      pageSubtitle: 'Personnalisez votre widget de chat avec les couleurs et le logo de votre marque',
+      logo: 'Logo',
+      logoHint: 'Importez votre logo pour l\'afficher en haut du menu du widget',
+      removeLogo: 'Retirer le logo',
+      processing: 'Traitement…',
+      clickToUpload: 'Cliquez pour importer un logo',
+      fileHint: "PNG, JPG, SVG jusqu'à 2 Mo",
+      logoWidth: (px: number) => `Largeur du logo : ${px}px`,
+      logoHeight: (px: number) => `Hauteur du logo : ${px}px`,
+      buttonShape: 'Forme du bouton',
+      buttonShapeHint: 'Choisissez la forme du bouton de chat',
+      buttonIcon: 'Icône du bouton',
+      buttonIconHint: "Sélectionnez l'icône affichée sur le bouton de chat",
+      widgetColor: 'Couleur du widget',
+      widgetColorHint: "Choisissez la couleur principale de l'interface de votre widget",
+      buttonColor: 'Couleur du bouton',
+      buttonColorHint: 'Choisissez une couleur distincte pour le bouton de chat (facultatif, la couleur du widget est utilisée par défaut)',
+      buttonColorPlaceholder: 'Laissez vide pour utiliser la couleur du widget',
+      clearUseWidget: 'Effacer (utiliser la couleur du widget)',
+      savingChanges: 'Enregistrement...',
+      saveChanges: 'Enregistrer les modifications',
+      reset: 'Réinitialiser',
+      preview: 'Aperçu',
+      previewHint: 'Découvrez à quoi ressemblera votre widget avec vos personnalisations',
+      logoPreviewAlt: 'Aperçu du logo',
+      logoAlt: 'Logo',
+      chatButton: 'Bouton de chat',
+      chatNow: 'Discutez maintenant !',
+      widgetMenu: 'Menu du widget',
+      messageUsOn: 'Écrivez-nous sur...',
+      liveChat: 'Chat en direct',
+      phone: 'Téléphone',
+      poweredBy: 'Propulsé par',
+      shapeNames: { circle: 'Cercle', pill: 'Pilule', rounded: 'Arrondi', square: 'Carré' } as Record<string, string>,
+      iconNames: { chat: 'Bulle de chat', whatsapp: 'WhatsApp', phone: 'Téléphone' } as Record<string, string>,
+    },
+  }[lang];
   const garageId = getGarageId();
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean | null>(null);
   const [logoUrl, setLogoUrl] = useState<string>('');
@@ -51,6 +149,7 @@ export default function WidgetCustomizePage() {
   const [buttonShape, setButtonShape] = useState<string>('circle');
   const [buttonIcon, setButtonIcon] = useState<string>('chat');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackIsError, setFeedbackIsError] = useState<boolean>(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,7 +227,7 @@ export default function WidgetCustomizePage() {
     mutationFn: async (data: WidgetBranding) => {
       const token = localStorage.getItem(TOKEN_STORAGE_KEY);
       if (!token) {
-        throw new Error('Not authenticated');
+        throw new Error(c.notAuthed);
       }
 
       const response = await fetch(`/api/widget/${garageId}/branding`, {
@@ -141,16 +240,18 @@ export default function WidgetCustomizePage() {
       });
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to save branding');
+        throw new Error(error.error || c.saveFailed);
       }
       return response.json();
     },
     onSuccess: () => {
-      setFeedback('Widget branding updated successfully!');
+      setFeedbackIsError(false);
+      setFeedback(c.updateSuccess);
       setTimeout(() => setFeedback(null), 3000);
     },
     onError: (error: any) => {
-      setFeedback(error.message || 'Failed to save branding');
+      setFeedbackIsError(true);
+      setFeedback(error.message || c.saveFailed);
     },
   });
 
@@ -160,13 +261,15 @@ export default function WidgetCustomizePage() {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      setFeedback('Please upload an image file');
+      setFeedbackIsError(true);
+      setFeedback(c.uploadImage);
       return;
     }
 
     // Validate file size (max 2MB)
     if (file.size > 2 * 1024 * 1024) {
-      setFeedback('Image must be less than 2MB');
+      setFeedbackIsError(true);
+      setFeedback(c.imageTooLarge);
       return;
     }
 
@@ -214,12 +317,14 @@ export default function WidgetCustomizePage() {
         img.src = src;
       };
       reader.onerror = () => {
-        setFeedback('Failed to read image file');
+        setFeedbackIsError(true);
+        setFeedback(c.readFailed);
         setUploadingImage(false);
       };
       reader.readAsDataURL(file);
     } catch (error) {
-      setFeedback('Failed to process image');
+      setFeedbackIsError(true);
+      setFeedback(c.processFailed);
       setUploadingImage(false);
     }
   };
@@ -261,7 +366,7 @@ export default function WidgetCustomizePage() {
   if (!garageId) {
     return (
       <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
-        Garage not selected. Please log in again.
+        {c.garageNotSelected}
       </div>
     );
   }
@@ -269,7 +374,7 @@ export default function WidgetCustomizePage() {
   if (isLoading || hasMessagingAccess === null) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-300">
-        Loading widget branding...
+        {c.loadingBranding}
       </div>
     );
   }
@@ -277,16 +382,16 @@ export default function WidgetCustomizePage() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100">Widget Customization</h1>
+        <h1 className="text-2xl font-bold text-slate-100">{c.pageTitle}</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Customize your chat widget with your brand colors and logo
+          {c.pageSubtitle}
         </p>
       </div>
 
       {feedback && (
         <div
           className={`rounded-lg border px-4 py-3 text-sm ${
-            feedback.includes('success')
+            !feedbackIsError
               ? 'border-green-500/30 bg-green-500/10 text-green-100'
               : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
           }`}
@@ -300,9 +405,9 @@ export default function WidgetCustomizePage() {
         <div className="space-y-6">
           {/* Logo Upload */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">Logo</h2>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">{c.logo}</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Upload your logo to display at the top of the widget menu
+              {c.logoHint}
             </p>
 
             <div className="space-y-4">
@@ -311,7 +416,7 @@ export default function WidgetCustomizePage() {
                   <div className="flex items-center justify-center p-6 rounded-lg border border-slate-700 bg-slate-950">
                     <img
                       src={imagePreview}
-                      alt="Logo preview"
+                      alt={c.logoPreviewAlt}
                       className="max-h-24 max-w-full object-contain"
                     />
                   </div>
@@ -319,7 +424,7 @@ export default function WidgetCustomizePage() {
                     onClick={handleRemoveLogo}
                     className="mt-3 w-full rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300 transition hover:bg-red-500/20"
                   >
-                    Remove Logo
+                    {c.removeLogo}
                   </button>
                 </div>
               ) : (
@@ -350,9 +455,9 @@ export default function WidgetCustomizePage() {
                       />
                     </svg>
                     <p className="mt-2 text-sm text-slate-300">
-                      {uploadingImage ? 'Processing…' : 'Click to upload logo'}
+                      {uploadingImage ? c.processing : c.clickToUpload}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">PNG, JPG, SVG up to 2MB</p>
+                    <p className="mt-1 text-xs text-slate-500">{c.fileHint}</p>
                   </label>
                 </div>
               )}
@@ -363,7 +468,7 @@ export default function WidgetCustomizePage() {
               <div className="mt-4 pt-4 border-t border-slate-700 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-3">
-                    Logo Width: {logoWidth}px
+                    {c.logoWidth(logoWidth)}
                   </label>
                   <input
                     type="range"
@@ -382,7 +487,7 @@ export default function WidgetCustomizePage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-3">
-                    Logo Height: {logoHeight}px
+                    {c.logoHeight(logoHeight)}
                   </label>
                   <input
                     type="range"
@@ -404,9 +509,9 @@ export default function WidgetCustomizePage() {
 
           {/* Button Shape */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">Button Shape</h2>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">{c.buttonShape}</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Choose the shape of the chat button
+              {c.buttonShapeHint}
             </p>
 
             <div className="grid grid-cols-3 gap-3">
@@ -433,7 +538,7 @@ export default function WidgetCustomizePage() {
                       </svg>
                     </div>
                   </div>
-                  <span className="text-sm font-medium text-slate-300">{shape.name}</span>
+                  <span className="text-sm font-medium text-slate-300">{c.shapeNames[shape.value] ?? shape.name}</span>
                 </button>
               ))}
             </div>
@@ -441,9 +546,9 @@ export default function WidgetCustomizePage() {
 
           {/* Button Icon */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">Button Icon</h2>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">{c.buttonIcon}</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Select the icon displayed on the chat button
+              {c.buttonIconHint}
             </p>
 
             <div className="grid grid-cols-3 gap-3">
@@ -479,7 +584,7 @@ export default function WidgetCustomizePage() {
                       )}
                     </div>
                   </div>
-                  <span className="text-sm font-medium text-slate-300">{icon.name}</span>
+                  <span className="text-sm font-medium text-slate-300">{c.iconNames[icon.value] ?? icon.name}</span>
                 </button>
               ))}
             </div>
@@ -487,9 +592,9 @@ export default function WidgetCustomizePage() {
 
           {/* Widget Color Picker */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">Widget Color</h2>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">{c.widgetColor}</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Choose the main color for your widget interface
+              {c.widgetColorHint}
             </p>
 
             <div className="space-y-4">
@@ -527,9 +632,9 @@ export default function WidgetCustomizePage() {
 
           {/* Button Color Picker */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">Button Color</h2>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">{c.buttonColor}</h2>
             <p className="text-sm text-slate-400 mb-4">
-              Choose a separate color for the chat button (optional, defaults to widget color)
+              {c.buttonColorHint}
             </p>
 
             <div className="space-y-4">
@@ -544,7 +649,7 @@ export default function WidgetCustomizePage() {
                   type="text"
                   value={buttonColor}
                   onChange={(e) => setButtonColor(e.target.value)}
-                  placeholder="Leave empty to use widget color"
+                  placeholder={c.buttonColorPlaceholder}
                   className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
                 />
               </div>
@@ -568,7 +673,7 @@ export default function WidgetCustomizePage() {
                   onClick={() => setButtonColor('')}
                   className="w-full text-sm text-slate-400 hover:text-slate-300 transition"
                 >
-                  Clear (use widget color)
+                  {c.clearUseWidget}
                 </button>
               )}
             </div>
@@ -581,14 +686,14 @@ export default function WidgetCustomizePage() {
               disabled={saveMutation.isPending}
               className="flex-1 rounded-lg bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
+              {saveMutation.isPending ? c.savingChanges : c.saveChanges}
             </button>
             <button
               onClick={handleReset}
               disabled={saveMutation.isPending}
               className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Reset
+              {c.reset}
             </button>
           </div>
         </div>
@@ -596,9 +701,9 @@ export default function WidgetCustomizePage() {
         {/* Preview Panel */}
         <div className="lg:sticky lg:top-6">
           <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">Preview</h2>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">{c.preview}</h2>
             <p className="text-sm text-slate-400 mb-6">
-              See how your widget will look with your customizations
+              {c.previewHint}
             </p>
 
             {/* Widget Preview */}
@@ -606,7 +711,7 @@ export default function WidgetCustomizePage() {
               {/* Floating Button Preview */}
               <div className="flex items-center justify-center">
                 <div className="relative">
-                  <p className="text-xs text-slate-400 text-center mb-3">Chat Button</p>
+                  <p className="text-xs text-slate-400 text-center mb-3">{c.chatButton}</p>
                   {buttonShape === 'pill' ? (
                     <button
                       className="shadow-2xl transition hover:scale-105 flex items-center justify-center text-white gap-2 px-6"
@@ -622,7 +727,7 @@ export default function WidgetCustomizePage() {
                           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                           </svg>
-                          <span className="font-medium">Chat now!</span>
+                          <span className="font-medium">{c.chatNow}</span>
                         </>
                       )}
                       {buttonIcon === 'whatsapp' && (
@@ -630,7 +735,7 @@ export default function WidgetCustomizePage() {
                           <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
                           </svg>
-                          <span className="font-medium">Chat now!</span>
+                          <span className="font-medium">{c.chatNow}</span>
                         </>
                       )}
                       {buttonIcon === 'phone' && (
@@ -638,7 +743,7 @@ export default function WidgetCustomizePage() {
                           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                           </svg>
-                          <span className="font-medium">Chat now!</span>
+                          <span className="font-medium">{c.chatNow}</span>
                         </>
                       )}
                     </button>
@@ -674,7 +779,7 @@ export default function WidgetCustomizePage() {
 
               {/* Widget Menu Preview */}
               <div>
-                <p className="text-xs text-slate-400 text-center mb-3">Widget Menu</p>
+                <p className="text-xs text-slate-400 text-center mb-3">{c.widgetMenu}</p>
                 <div
                   className="relative mx-auto rounded-3xl p-8 shadow-2xl"
                   style={{
@@ -687,7 +792,7 @@ export default function WidgetCustomizePage() {
                     {imagePreview ? (
                       <img
                         src={imagePreview}
-                        alt="Logo"
+                        alt={c.logoAlt}
                         style={{
                           width: `${logoWidth}px`,
                           height: `${logoHeight}px`,
@@ -710,7 +815,7 @@ export default function WidgetCustomizePage() {
 
                   {/* Menu Content */}
                   <div className="space-y-3 rounded-2xl bg-white p-5">
-                    <h4 className="mb-4 text-center text-lg font-medium text-gray-900">Message us on...</h4>
+                    <h4 className="mb-4 text-center text-lg font-medium text-gray-900">{c.messageUsOn}</h4>
                 
                     {/* WhatsApp Button */}
                     <div className="flex items-center gap-3 rounded-2xl border-2 border-green-400 bg-white p-4">
@@ -729,7 +834,7 @@ export default function WidgetCustomizePage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                       </div>
-                      <span className="font-medium text-gray-900">Live Chat</span>
+                      <span className="font-medium text-gray-900">{c.liveChat}</span>
                     </div>
 
                     {/* Phone Button */}
@@ -739,11 +844,11 @@ export default function WidgetCustomizePage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                         </svg>
                       </div>
-                      <span className="font-medium text-gray-900">Phone</span>
+                      <span className="font-medium text-gray-900">{c.phone}</span>
                     </div>
 
                     <p className="mt-4 text-center text-xs text-gray-400">
-                      Powered by <span className="font-medium text-gray-600">ReceptionMate</span>
+                      {c.poweredBy} <span className="font-medium text-gray-600">ReceptionMate</span>
                     </p>
                   </div>
                 </div>

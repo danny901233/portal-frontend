@@ -29,6 +29,7 @@ import {
 import { fetchGarages, fetchPendingAgreement } from '../lib/api';
 import { fetchOnboardingStatus } from '../lib/onboarding';
 import type { GarageSummary } from '../types';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
@@ -36,6 +37,19 @@ const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const lang = useLang();
+  const c = {
+    en: {
+      loading: 'Loading ReceptionMate…',
+      preparing: 'Preparing your dashboard',
+      unknownUser: 'Unknown user',
+    },
+    fr: {
+      loading: 'Chargement de ReceptionMate…',
+      preparing: 'Préparation de votre tableau de bord',
+      unknownUser: 'Utilisateur inconnu',
+    },
+  }[lang];
   const [isReady, setIsReady] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserIdState] = useState<string | null>(null);
@@ -351,8 +365,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   ) : !isReady ? (
     <div className="flex min-h-screen items-center justify-center bg-white text-slate-900">
       <div className="space-y-2 text-center">
-        <div className="text-xl font-semibold">Loading ReceptionMate…</div>
-        <div className="text-sm text-slate-500">Preparing your dashboard</div>
+        <div className="text-xl font-semibold">{c.loading}</div>
+        <div className="text-sm text-slate-500">{c.preparing}</div>
       </div>
     </div>
   ) : (
@@ -368,7 +382,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       />
       <div className="flex flex-1 flex-col">
         <Navbar
-          email={userEmail ?? 'Unknown user'}
+          email={userEmail ?? c.unknownUser}
           userId={userId}
           garages={visibleGarages}
           selectedGarageId={selectedGarageValue}

@@ -13,6 +13,7 @@ import {
 } from '../../lib/api';
 import { getGarageId } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
+import { useLang } from '@/app/i18n/LocaleProvider';
 import TabShell from './TabShell';
 
 interface Props {
@@ -27,6 +28,124 @@ interface Props {
 // bloat). The "Give prices on calls" toggle reveals either a price-list file upload (Assist) or the
 // structured per-service bracket editor (Tyresoft).
 export default function TrainingTab({ config, save, isSaving }: Props) {
+  const lang = useLang();
+  const c = {
+    en: {
+      title: 'Training',
+      description:
+        'Upload your price list, service menu or brochures so the agent can answer detailed questions about what you offer.',
+      priceListAdded: 'Price list added',
+      documentAdded: 'Document added',
+      canUseOnCalls: 'The agent can use it on calls.',
+      uploadFailed: 'Upload failed',
+      tryAgain: 'Please try again.',
+      removeFailed: 'Remove failed',
+      priceListImported: 'Price list imported',
+      importSummary: (services: number, brackets: number, warnSuffix: string) =>
+        `${services} services, ${brackets} brackets${warnSuffix}.`,
+      rowsSkipped: (n: number) => ` (${n} row${n === 1 ? '' : 's'} skipped)`,
+      importFailed: 'Import failed',
+      checkCsv: 'Please check the CSV format.',
+      couldNotRemovePriceList: 'Could not remove price list',
+      documentsHeading: 'Documents',
+      documentsBlurb:
+        'PDF, Word, CSV, Excel or text. The agent reads only the relevant part during a call, so large files won’t slow it down.',
+      uploading: 'Uploading…',
+      uploadDocument: '+ Upload document',
+      givePrices: 'Give prices on calls',
+      priceOnTyresoft:
+        'Upload your Tyresoft Services CSV. The agent quotes ONLY these figures, never an invented price. Replace the CSV any time prices change.',
+      priceOnAssist:
+        'Upload a price list — the agent quotes ONLY the figures in it, never an invented price.',
+      priceOffTyresoft: 'Off by default. Turn on to upload your Tyresoft price list as a CSV.',
+      priceOffAssist:
+        'Off by default. Turn on to upload a price list the agent can quote from. Turning it off removes any uploaded price list.',
+      currentPriceList: 'Current price list: ',
+      importedLine: (uploadedAt: string, services: number, brackets: number) =>
+        `Imported ${uploadedAt} · ${services} service${services === 1 ? '' : 's'} · ${brackets} bracket${brackets === 1 ? '' : 's'}`,
+      hide: 'Hide',
+      view: 'View',
+      replacing: 'Replacing…',
+      replaceCsv: 'Replace CSV',
+      noPriceList: 'No price list yet',
+      uploadStandardCsv:
+        'Upload the standard Tyresoft Services CSV. Engine-size rows are auto-grouped into brackets.',
+      importing: 'Importing…',
+      uploadServicesCsv: '+ Upload Services CSV',
+      colService: 'Service',
+      colPrice: 'Price',
+      colApiId: 'API ID',
+      upToCc: (maxCC: number, price: number | string) => `up to ${maxCC}cc — £${price}`,
+      noSetPrice: 'no set price',
+      uploadPriceList: '+ Upload price list',
+      inKbHeading: 'In the knowledge base',
+      docKindPriceList: 'Price list',
+      docKindDocument: 'Document',
+      sectionsLine: (chunks: number) => `${chunks} section${chunks === 1 ? '' : 's'}`,
+      remove: 'Remove',
+      noDocsYet: 'No documents uploaded yet.',
+      websiteLine: (pages: number) =>
+        `Plus ${pages} page${pages === 1 ? '' : 's'} learned automatically from your website.`,
+    },
+    fr: {
+      title: 'Formation',
+      description:
+        "Téléversez votre liste de prix, votre menu de prestations ou vos brochures pour que l'agent puisse répondre aux questions détaillées sur ce que vous proposez.",
+      priceListAdded: 'Liste de prix ajoutée',
+      documentAdded: 'Document ajouté',
+      canUseOnCalls: "L'agent peut l'utiliser lors des appels.",
+      uploadFailed: 'Échec du téléversement',
+      tryAgain: 'Veuillez réessayer.',
+      removeFailed: 'Échec de la suppression',
+      priceListImported: 'Liste de prix importée',
+      importSummary: (services: number, brackets: number, warnSuffix: string) =>
+        `${services} prestations, ${brackets} tranches${warnSuffix}.`,
+      rowsSkipped: (n: number) => ` (${n} ligne${n === 1 ? '' : 's'} ignorée${n === 1 ? '' : 's'})`,
+      importFailed: 'Échec de l’import',
+      checkCsv: 'Veuillez vérifier le format du CSV.',
+      couldNotRemovePriceList: 'Impossible de supprimer la liste de prix',
+      documentsHeading: 'Documents',
+      documentsBlurb:
+        "PDF, Word, CSV, Excel ou texte. L'agent ne lit que la partie pertinente pendant un appel, les gros fichiers ne le ralentiront donc pas.",
+      uploading: 'Téléversement…',
+      uploadDocument: '+ Téléverser un document',
+      givePrices: 'Donner les prix lors des appels',
+      priceOnTyresoft:
+        "Téléversez votre CSV Services Tyresoft. L'agent ne cite QUE ces chiffres, jamais un prix inventé. Remplacez le CSV chaque fois que les prix changent.",
+      priceOnAssist:
+        "Téléversez une liste de prix — l'agent ne cite QUE les chiffres qui s'y trouvent, jamais un prix inventé.",
+      priceOffTyresoft:
+        'Désactivé par défaut. Activez pour téléverser votre liste de prix Tyresoft au format CSV.',
+      priceOffAssist:
+        "Désactivé par défaut. Activez pour téléverser une liste de prix que l'agent peut citer. Le désactiver supprime toute liste de prix téléversée.",
+      currentPriceList: 'Liste de prix actuelle : ',
+      importedLine: (uploadedAt: string, services: number, brackets: number) =>
+        `Importée ${uploadedAt} · ${services} prestation${services === 1 ? '' : 's'} · ${brackets} tranche${brackets === 1 ? '' : 's'}`,
+      hide: 'Masquer',
+      view: 'Voir',
+      replacing: 'Remplacement…',
+      replaceCsv: 'Remplacer le CSV',
+      noPriceList: 'Pas encore de liste de prix',
+      uploadStandardCsv:
+        'Téléversez le CSV Services Tyresoft standard. Les lignes par cylindrée sont automatiquement regroupées en tranches.',
+      importing: 'Import…',
+      uploadServicesCsv: '+ Téléverser le CSV Services',
+      colService: 'Prestation',
+      colPrice: 'Prix',
+      colApiId: 'ID API',
+      upToCc: (maxCC: number, price: number | string) => `jusqu’à ${maxCC}cc — £${price}`,
+      noSetPrice: 'pas de prix défini',
+      uploadPriceList: '+ Téléverser une liste de prix',
+      inKbHeading: 'Dans la base de connaissances',
+      docKindPriceList: 'Liste de prix',
+      docKindDocument: 'Document',
+      sectionsLine: (chunks: number) => `${chunks} section${chunks === 1 ? '' : 's'}`,
+      remove: 'Supprimer',
+      noDocsYet: 'Aucun document téléversé pour l’instant.',
+      websiteLine: (pages: number) =>
+        `Plus ${pages} page${pages === 1 ? '' : 's'} apprise${pages === 1 ? '' : 's'} automatiquement depuis votre site web.`,
+    },
+  }[lang];
   const garageId = getGarageId();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -50,19 +169,19 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
     onSuccess: (d, v) => {
       applyKb(d.knowledgeBase);
       toast.success(
-        v.kind === 'price-list' ? 'Price list added' : 'Document added',
-        'The agent can use it on calls.',
+        v.kind === 'price-list' ? c.priceListAdded : c.documentAdded,
+        c.canUseOnCalls,
       );
     },
     onError: (e: unknown) =>
-      toast.error('Upload failed', e instanceof Error ? e.message : 'Please try again.'),
+      toast.error(c.uploadFailed, e instanceof Error ? e.message : c.tryAgain),
   });
 
   const deleteMut = useMutation({
     mutationFn: (uploadId: string) => deleteKnowledgeDocument(uploadId, garageId ?? undefined),
     onSuccess: (d) => applyKb(d.knowledgeBase),
     onError: (e: unknown) =>
-      toast.error('Remove failed', e instanceof Error ? e.message : 'Please try again.'),
+      toast.error(c.removeFailed, e instanceof Error ? e.message : c.tryAgain),
   });
 
   // Tyresoft Services.csv upload — parses the standard Tyresoft services export
@@ -71,14 +190,14 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
     mutationFn: (file: File) => uploadTyresoftServicesCsv(file, garageId ?? undefined),
     onSuccess: (d) => {
       void queryClient.invalidateQueries({ queryKey: ['agent-config', garageId] });
-      const warnSuffix = d.warnings.length ? ` (${d.warnings.length} row${d.warnings.length === 1 ? '' : 's'} skipped)` : '';
+      const warnSuffix = d.warnings.length ? c.rowsSkipped(d.warnings.length) : '';
       toast.success(
-        'Price list imported',
-        `${d.imported.services} services, ${d.imported.brackets} brackets${warnSuffix}.`,
+        c.priceListImported,
+        c.importSummary(d.imported.services, d.imported.brackets, warnSuffix),
       );
     },
     onError: (e: unknown) =>
-      toast.error('Import failed', e instanceof Error ? e.message : 'Please check the CSV format.'),
+      toast.error(c.importFailed, e instanceof Error ? e.message : c.checkCsv),
   });
   // Toggle-off path: clear the uploaded CSV so the agent stops quoting old prices.
   const deleteCsvMut = useMutation({
@@ -87,7 +206,7 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
       void queryClient.invalidateQueries({ queryKey: ['agent-config', garageId] });
     },
     onError: (e: unknown) =>
-      toast.error('Could not remove price list', e instanceof Error ? e.message : 'Please try again.'),
+      toast.error(c.couldNotRemovePriceList, e instanceof Error ? e.message : c.tryAgain),
   });
 
   // One row per uploaded file (chunks share an uploadId).
@@ -103,7 +222,7 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
       } else {
         groups.set(uploadId, {
           uploadId,
-          fileName: meta.fileName ?? doc.title ?? 'Document',
+          fileName: meta.fileName ?? doc.title ?? c.docKindDocument,
           kind: meta.kind ?? doc.source,
           chunks: 1,
         });
@@ -145,20 +264,20 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
 
   return (
     <TabShell
-      title="Training"
-      description="Upload your price list, service menu or brochures so the agent can answer detailed questions about what you offer."
+      title={c.title}
+      description={c.description}
       onSave={() => {}}
       isSaving={false}
       saveDisabled
     >
       {/* Documents */}
       <div>
-        <h3 className="text-sm font-semibold text-slate-900">Documents</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{c.documentsHeading}</h3>
         <p className="mt-1 text-xs text-slate-500">
-          PDF, Word, CSV, Excel or text. The agent reads only the relevant part during a call, so large files won&rsquo;t slow it down.
+          {c.documentsBlurb}
         </p>
         <label className="mt-3 inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-brand-500 hover:text-brand-700">
-          {uploadMut.isPending ? 'Uploading…' : '+ Upload document'}
+          {uploadMut.isPending ? c.uploading : c.uploadDocument}
           <input
             type="file"
             accept=".pdf,.doc,.docx,.csv,.xls,.xlsx,.txt,.md"
@@ -180,23 +299,23 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
               onChange={(e) => togglePrices(e.target.checked)}
               className="h-4 w-4 rounded border-slate-300 accent-brand-600"
             />
-            <span className="text-sm font-medium text-slate-900">Give prices on calls</span>
+            <span className="text-sm font-medium text-slate-900">{c.givePrices}</span>
           </label>
           <p className="mt-1.5 pl-7 text-xs text-slate-500">
             {showPriceUpload
               ? isTyresoftAgent
-                ? 'Upload your Tyresoft Services CSV. The agent quotes ONLY these figures, never an invented price. Replace the CSV any time prices change.'
-                : 'Upload a price list — the agent quotes ONLY the figures in it, never an invented price.'
+                ? c.priceOnTyresoft
+                : c.priceOnAssist
               : isTyresoftAgent
-                ? 'Off by default. Turn on to upload your Tyresoft price list as a CSV.'
-                : 'Off by default. Turn on to upload a price list the agent can quote from. Turning it off removes any uploaded price list.'}
+                ? c.priceOffTyresoft
+                : c.priceOffAssist}
           </p>
           {showPriceUpload ? (
             isTyresoftAgent ? (
               (() => {
                 const upload = config.tyresoftSettings?.tsServicesUpload;
                 const uploadedAt = upload
-                  ? new Date(upload.uploadedAt).toLocaleString('en-GB', {
+                  ? new Date(upload.uploadedAt).toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB', {
                       day: 'numeric', month: 'short', year: 'numeric',
                       hour: '2-digit', minute: '2-digit',
                     })
@@ -212,10 +331,10 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-medium text-brand-800">
-                            Current price list: <span className="font-semibold">{upload.fileName}</span>
+                            {c.currentPriceList}<span className="font-semibold">{upload.fileName}</span>
                           </p>
                           <p className="mt-0.5 text-[11px] text-slate-600">
-                            Imported {uploadedAt} · {upload.services} service{upload.services === 1 ? '' : 's'} · {upload.brackets} bracket{upload.brackets === 1 ? '' : 's'}
+                            {c.importedLine(uploadedAt ?? '', upload.services, upload.brackets)}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
@@ -224,22 +343,22 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                             onClick={() => setShowPriceList((v) => !v)}
                             className="inline-flex items-center rounded-md border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100"
                           >
-                            {showPriceList ? 'Hide' : 'View'}
+                            {showPriceList ? c.hide : c.view}
                           </button>
                           <label className="inline-flex cursor-pointer items-center rounded-md border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100">
-                            {servicesCsvMut.isPending ? 'Replacing…' : 'Replace CSV'}
+                            {servicesCsvMut.isPending ? c.replacing : c.replaceCsv}
                             <input type="file" accept=".csv,text/csv" className="hidden" disabled={servicesCsvMut.isPending} onChange={handleFile} />
                           </label>
                         </div>
                       </div>
                     ) : (
                       <div>
-                        <p className="text-xs font-medium text-brand-800">No price list yet</p>
+                        <p className="text-xs font-medium text-brand-800">{c.noPriceList}</p>
                         <p className="mt-0.5 text-[11px] text-slate-600">
-                          Upload the standard Tyresoft Services CSV. Engine-size rows are auto-grouped into brackets.
+                          {c.uploadStandardCsv}
                         </p>
                         <label className="mt-2 inline-flex cursor-pointer items-center rounded-md border border-brand-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100">
-                          {servicesCsvMut.isPending ? 'Importing…' : '+ Upload Services CSV'}
+                          {servicesCsvMut.isPending ? c.importing : c.uploadServicesCsv}
                           <input type="file" accept=".csv,text/csv" className="hidden" disabled={servicesCsvMut.isPending} onChange={handleFile} />
                         </label>
                       </div>
@@ -249,9 +368,9 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                         <table className="w-full text-left text-[11px]">
                           <thead>
                             <tr className="text-slate-500">
-                              <th className="pb-1 pr-2 font-medium">Service</th>
-                              <th className="pb-1 pr-2 font-medium">Price</th>
-                              <th className="pb-1 font-medium">API ID</th>
+                              <th className="pb-1 pr-2 font-medium">{c.colService}</th>
+                              <th className="pb-1 pr-2 font-medium">{c.colPrice}</th>
+                              <th className="pb-1 font-medium">{c.colApiId}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -263,12 +382,12 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                                   <td className="py-1 pr-2 text-slate-700">
                                     {svc.pricingType === 'engine-size' && brackets.length ? (
                                       brackets.map((b, i) => (
-                                        <div key={i}>up to {b.maxCC}cc — £{b.price}</div>
+                                        <div key={i}>{c.upToCc(b.maxCC, b.price)}</div>
                                       ))
                                     ) : typeof svc.price === 'number' ? (
                                       `£${svc.price}`
                                     ) : (
-                                      <span className="text-slate-400">no set price</span>
+                                      <span className="text-slate-400">{c.noSetPrice}</span>
                                     )}
                                   </td>
                                   <td className="py-1 text-slate-500">
@@ -286,7 +405,7 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
               })()
             ) : (
               <label className="mt-3 inline-flex cursor-pointer items-center rounded-md border border-brand-300 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 transition hover:bg-brand-100">
-                {uploadMut.isPending ? 'Uploading…' : '+ Upload price list'}
+                {uploadMut.isPending ? c.uploading : c.uploadPriceList}
                 <input
                   type="file"
                   accept=".pdf,.doc,.docx,.csv,.xls,.xlsx,.txt,.md"
@@ -302,7 +421,7 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
 
       {/* What's in the knowledge base */}
       <div>
-        <h3 className="text-sm font-semibold text-slate-900">In the knowledge base</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{c.inKbHeading}</h3>
         {uploadedDocs.length ? (
           <ul className="mt-2 space-y-2">
             {uploadedDocs.map((doc) => (
@@ -313,7 +432,7 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                 <div className="min-w-0">
                   <p className="truncate text-sm text-slate-800">{doc.fileName}</p>
                   <p className="text-[11px] text-slate-400">
-                    {doc.kind === 'price-list' ? 'Price list' : 'Document'} · {doc.chunks} section{doc.chunks === 1 ? '' : 's'}
+                    {doc.kind === 'price-list' ? c.docKindPriceList : c.docKindDocument} · {c.sectionsLine(doc.chunks)}
                   </p>
                 </div>
                 <button
@@ -322,17 +441,17 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                   disabled={deleteMut.isPending}
                   className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 transition hover:border-rose-400 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Remove
+                  {c.remove}
                 </button>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-xs text-slate-500">No documents uploaded yet.</p>
+          <p className="mt-2 text-xs text-slate-500">{c.noDocsYet}</p>
         )}
         {websitePages > 0 ? (
           <p className="mt-3 text-xs text-slate-500">
-            Plus {websitePages} page{websitePages === 1 ? '' : 's'} learned automatically from your website.
+            {c.websiteLine(websitePages)}
           </p>
         ) : null}
       </div>

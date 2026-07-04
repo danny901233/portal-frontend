@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface Props {
   title: string;
@@ -23,6 +24,11 @@ export default function TabShell({
   saveDisabled,
   children,
 }: Props) {
+  const lang = useLang();
+  const c = {
+    en: { saving: 'Saving…', save: 'Save changes' },
+    fr: { saving: 'Enregistrement…', save: 'Enregistrer les modifications' },
+  }[lang];
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <header className="mb-6">
@@ -39,7 +45,7 @@ export default function TabShell({
           disabled={isSaving || saveDisabled}
           className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isSaving ? 'Saving…' : 'Save changes'}
+          {isSaving ? c.saving : c.save}
         </button>
       </footer>
     </section>

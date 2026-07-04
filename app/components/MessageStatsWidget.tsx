@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface PlatformStats {
   active: number;
@@ -43,6 +44,27 @@ const InstagramIcon = () => (
 );
 
 export default function MessageStatsWidget({ garageId, startDate, endDate }: MessageStatsWidgetProps) {
+  const lang = useLang();
+  const c = {
+    en: {
+      csvFailed: 'Failed to download CSV',
+      title: 'Message Statistics',
+      downloading: 'Downloading…',
+      downloadCsv: 'Download CSV',
+      active: 'Active',
+      attention: 'Attention',
+      resolved: 'Resolved',
+    },
+    fr: {
+      csvFailed: 'Échec du téléchargement du CSV',
+      title: 'Statistiques des messages',
+      downloading: 'Téléchargement…',
+      downloadCsv: 'Télécharger le CSV',
+      active: 'Actifs',
+      attention: 'Attention',
+      resolved: 'Résolus',
+    },
+  }[lang];
   const [stats, setStats] = useState<MessageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
@@ -106,7 +128,7 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
       }
     } catch (error) {
       console.error('Error downloading CSV:', error);
-      alert('Failed to download CSV');
+      alert(c.csvFailed);
     } finally {
       setDownloading(false);
     }
@@ -139,7 +161,7 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
   return (
     <div className="bg-white/40 border border-slate-200 rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-slate-900">Message Statistics</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{c.title}</h3>
         <button
           onClick={handleDownloadCSV}
           disabled={downloading}
@@ -148,22 +170,22 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
             downloading && 'cursor-not-allowed opacity-60'
           )}
         >
-          {downloading ? 'Downloading…' : 'Download CSV'}
+          {downloading ? c.downloading : c.downloadCsv}
         </button>
       </div>
 
       {/* Overall Stats */}
       <div className="grid grid-cols-3 gap-2 mb-3">
         <div className="bg-slate-50 rounded-lg p-2">
-          <p className="text-[10px] text-slate-500 mb-0.5">Active</p>
+          <p className="text-[10px] text-slate-500 mb-0.5">{c.active}</p>
           <p className="text-lg font-bold text-slate-900">{stats.totals.active}</p>
         </div>
         <div className="bg-orange-500/10 rounded-lg p-2">
-          <p className="text-[10px] text-orange-400 mb-0.5">Attention</p>
+          <p className="text-[10px] text-orange-400 mb-0.5">{c.attention}</p>
           <p className="text-lg font-bold text-orange-400">{stats.totals.needsAttention}</p>
         </div>
         <div className="bg-green-500/10 rounded-lg p-2">
-          <p className="text-[10px] text-green-400 mb-0.5">Resolved</p>
+          <p className="text-[10px] text-green-400 mb-0.5">{c.resolved}</p>
           <p className="text-lg font-bold text-green-400">{stats.totals.resolved}</p>
         </div>
       </div>

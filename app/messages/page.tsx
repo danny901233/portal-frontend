@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
 import ConversationTaggingPanel from '../components/ConversationTaggingPanel';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface Message {
   id: string;
@@ -64,6 +65,11 @@ interface ConversationDetail extends Conversation {
 function ToolCallChip({ call }: { call: ToolCall }) {
   const [open, setOpen] = useState(false);
   const ok = call.success;
+  const lang = useLang();
+  const c = {
+    en: { toolCall: 'AI tool call', error: 'error', args: 'args', result: 'result' },
+    fr: { toolCall: 'Appel outil IA', error: 'erreur', args: 'args', result: 'résultat' },
+  }[lang];
   return (
     <div className="flex justify-center my-1">
       <div className="w-full max-w-md">
@@ -75,7 +81,7 @@ function ToolCallChip({ call }: { call: ToolCall }) {
               ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
               : 'bg-red-50 border-red-200 text-red-800 hover:bg-red-100'
           )}
-          title="AI tool call"
+          title={c.toolCall}
         >
           <span>{ok ? '✓' : '✗'}</span>
           <span className="font-semibold">{call.toolName}</span>
@@ -85,10 +91,10 @@ function ToolCallChip({ call }: { call: ToolCall }) {
         </button>
         {open && (
           <div className="mt-1 rounded-md border border-slate-200 bg-slate-900 text-slate-100 p-2 text-[11px] font-mono overflow-x-auto">
-            {!ok && call.errorMessage && <div className="text-red-300 mb-1">error: {call.errorMessage}</div>}
-            <div className="text-slate-400">args</div>
+            {!ok && call.errorMessage && <div className="text-red-300 mb-1">{c.error}: {call.errorMessage}</div>}
+            <div className="text-slate-400">{c.args}</div>
             <pre className="whitespace-pre-wrap break-all mb-2">{JSON.stringify(call.args, null, 2)}</pre>
-            <div className="text-slate-400">result</div>
+            <div className="text-slate-400">{c.result}</div>
             <pre className="whitespace-pre-wrap break-all">{JSON.stringify(call.result, null, 2)}</pre>
           </div>
         )}
@@ -129,6 +135,131 @@ const PLATFORM_COLORS = {
 };
 
 export default function MessagesPage() {
+  const lang = useLang();
+  const c = {
+    en: {
+      loadingConversations: 'Loading conversations...',
+      failedSendMessage: 'Failed to send message',
+      selectImageType: 'Please select a JPEG, PNG, or WebP image.',
+      imageTooLarge: 'Image must be under 16MB.',
+      failedSendImage: 'Failed to send image',
+      failedToggleAgent: 'Failed to toggle agent',
+      failedToggleFlag: 'Failed to toggle flag',
+      justNow: 'Just now',
+      minsAgo: (n: number) => `${n}m ago`,
+      hoursAgo: (n: number) => `${n}h ago`,
+      daysAgo: (n: number) => `${n}d ago`,
+      pausedIndefinitely: 'Paused indefinitely',
+      resumingSoon: 'Resuming soon',
+      resumesInHour: 'Resumes in 1 hour',
+      resumesInHours: (n: number) => `Resumes in ${n} hours`,
+      resumesInDay: 'Resumes in 1 day',
+      resumesInDays: (n: number) => `Resumes in ${n} days`,
+      title: 'Messages',
+      subtitle: 'Manage all customer conversations in one place',
+      connectPlatforms: 'Connect Platforms',
+      searchPlaceholder: 'Search conversations...',
+      allPlatforms: 'All Platforms',
+      tabActive: 'ACTIVE',
+      tabNeedsAttention: 'NEEDS ATTENTION',
+      tabResolved: 'RESOLVED',
+      noNeedAttention: 'No conversations need attention',
+      noActiveConversations: 'No active conversations',
+      noResolvedConversations: 'No resolved conversations',
+      noMessages: 'No messages',
+      unknown: 'Unknown',
+      lead: 'Lead',
+      selectConversation: 'Select a conversation to view messages',
+      agentPaused: 'Agent Paused',
+      agentPausedUntil: (until: string) => `Agent Paused • ${until}`,
+      agentActive: 'Agent Active',
+      removeFlag: 'Remove flag',
+      flagForAttention: 'Flag for attention',
+      flagged: 'Flagged',
+      flag: 'Flag',
+      toggleTagsPanel: 'Toggle tags panel',
+      tags: 'Tags',
+      resumeAgent: 'Resume Agent',
+      pauseAgent: 'Pause Agent',
+      pause2h: 'Pause for 2 hours',
+      pause4h: 'Pause for 4 hours',
+      pause8h: 'Pause for 8 hours',
+      pause24h: 'Pause for 24 hours',
+      resolve: 'Resolve',
+      reopen: 'Reopen',
+      windowExpiredTitle: '24-Hour Messaging Window Expired',
+      windowExpiredBody: 'You can no longer send messages to this customer. They must initiate contact again.',
+      previewAlt: 'Preview',
+      attachImage: 'Attach image',
+      addCaption: 'Add a caption (optional)',
+      writeMessage: 'Write a message',
+      sending: 'Sending...',
+      send: 'Send',
+      sharedImageAlt: 'Shared image',
+      fullSizeAlt: 'Full size',
+    },
+    fr: {
+      loadingConversations: 'Chargement des conversations...',
+      failedSendMessage: "Échec de l'envoi du message",
+      selectImageType: 'Veuillez sélectionner une image JPEG, PNG ou WebP.',
+      imageTooLarge: "L'image doit faire moins de 16 Mo.",
+      failedSendImage: "Échec de l'envoi de l'image",
+      failedToggleAgent: "Échec de la modification de l'agent",
+      failedToggleFlag: 'Échec de la modification du signalement',
+      justNow: "À l'instant",
+      minsAgo: (n: number) => `il y a ${n} min`,
+      hoursAgo: (n: number) => `il y a ${n} h`,
+      daysAgo: (n: number) => `il y a ${n} j`,
+      pausedIndefinitely: 'En pause indéfiniment',
+      resumingSoon: 'Reprise imminente',
+      resumesInHour: 'Reprise dans 1 heure',
+      resumesInHours: (n: number) => `Reprise dans ${n} heures`,
+      resumesInDay: 'Reprise dans 1 jour',
+      resumesInDays: (n: number) => `Reprise dans ${n} jours`,
+      title: 'Messages',
+      subtitle: 'Gérez toutes les conversations clients au même endroit',
+      connectPlatforms: 'Connecter des plateformes',
+      searchPlaceholder: 'Rechercher des conversations...',
+      allPlatforms: 'Toutes les plateformes',
+      tabActive: 'ACTIVES',
+      tabNeedsAttention: 'À TRAITER',
+      tabResolved: 'RÉSOLUES',
+      noNeedAttention: 'Aucune conversation à traiter',
+      noActiveConversations: 'Aucune conversation active',
+      noResolvedConversations: 'Aucune conversation résolue',
+      noMessages: 'Aucun message',
+      unknown: 'Inconnu',
+      lead: 'Prospect',
+      selectConversation: 'Sélectionnez une conversation pour voir les messages',
+      agentPaused: 'Agent en pause',
+      agentPausedUntil: (until: string) => `Agent en pause • ${until}`,
+      agentActive: 'Agent actif',
+      removeFlag: 'Retirer le signalement',
+      flagForAttention: 'Signaler pour attention',
+      flagged: 'Signalée',
+      flag: 'Signaler',
+      toggleTagsPanel: 'Afficher/masquer le panneau des étiquettes',
+      tags: 'Étiquettes',
+      resumeAgent: "Reprendre l'agent",
+      pauseAgent: "Mettre l'agent en pause",
+      pause2h: 'Pause de 2 heures',
+      pause4h: 'Pause de 4 heures',
+      pause8h: 'Pause de 8 heures',
+      pause24h: 'Pause de 24 heures',
+      resolve: 'Résoudre',
+      reopen: 'Rouvrir',
+      windowExpiredTitle: 'Fenêtre de messagerie de 24 heures expirée',
+      windowExpiredBody: "Vous ne pouvez plus envoyer de messages à ce client. Il doit reprendre contact.",
+      previewAlt: 'Aperçu',
+      attachImage: 'Joindre une image',
+      addCaption: 'Ajouter une légende (facultatif)',
+      writeMessage: 'Écrire un message',
+      sending: 'Envoi...',
+      send: 'Envoyer',
+      sharedImageAlt: 'Image partagée',
+      fullSizeAlt: 'Plein écran',
+    },
+  }[lang];
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<ConversationDetail | null>(null);
@@ -288,7 +419,7 @@ export default function MessagesPage() {
       await fetchConversations();
     } catch (error) {
       console.error('Error sending message:', error);
-      alert('Failed to send message');
+      alert(c.failedSendMessage);
     } finally {
       setSending(false);
     }
@@ -298,11 +429,11 @@ export default function MessagesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      alert('Please select a JPEG, PNG, or WebP image.');
+      alert(c.selectImageType);
       return;
     }
     if (file.size > 16 * 1024 * 1024) {
-      alert('Image must be under 16MB.');
+      alert(c.imageTooLarge);
       return;
     }
     setSelectedImage(file);
@@ -341,7 +472,7 @@ export default function MessagesPage() {
       await fetchConversations();
     } catch (error) {
       console.error('Error sending image:', error);
-      alert('Failed to send image');
+      alert(c.failedSendImage);
     } finally {
       setSendingImage(false);
     }
@@ -427,7 +558,7 @@ export default function MessagesPage() {
       await fetchConversations();
     } catch (error) {
       console.error('Error toggling agent:', error);
-      alert('Failed to toggle agent');
+      alert(c.failedToggleAgent);
     }
   };
 
@@ -464,7 +595,7 @@ export default function MessagesPage() {
       await fetchConversations();
     } catch (error) {
       console.error('Error toggling flag:', error);
-      alert('Failed to toggle flag');
+      alert(c.failedToggleFlag);
     }
   };
 
@@ -493,11 +624,11 @@ export default function MessagesPage() {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    if (diffMins < 1) return c.justNow;
+    if (diffMins < 60) return c.minsAgo(diffMins);
+    if (diffHours < 24) return c.hoursAgo(diffHours);
+    if (diffDays < 7) return c.daysAgo(diffDays);
+    return date.toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB');
   };
 
   const getInitials = (name: string) => {
@@ -515,14 +646,14 @@ export default function MessagesPage() {
     const diffHours = Math.ceil(diffMs / (60 * 60 * 1000));
 
     // Check if it's an indefinite pause (very far in the future)
-    if (diffHours > 8760) return 'Paused indefinitely'; // More than 1 year
+    if (diffHours > 8760) return c.pausedIndefinitely; // More than 1 year
 
-    if (diffHours < 1) return 'Resuming soon';
-    if (diffHours === 1) return 'Resumes in 1 hour';
-    if (diffHours < 24) return `Resumes in ${diffHours} hours`;
+    if (diffHours < 1) return c.resumingSoon;
+    if (diffHours === 1) return c.resumesInHour;
+    if (diffHours < 24) return c.resumesInHours(diffHours);
     const diffDays = Math.ceil(diffHours / 24);
-    if (diffDays === 1) return 'Resumes in 1 day';
-    return `Resumes in ${diffDays} days`;
+    if (diffDays === 1) return c.resumesInDay;
+    return c.resumesInDays(diffDays);
   };
 
   const filteredConversations = conversations.filter(conv => {
@@ -538,7 +669,7 @@ export default function MessagesPage() {
   if (loading || hasMessagingAccess === null) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-slate-500">Loading conversations...</div>
+        <div className="text-slate-500">{c.loadingConversations}</div>
       </div>
     );
   }
@@ -552,8 +683,8 @@ export default function MessagesPage() {
       {/* Header with Integrations Button */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Messages</h1>
-          <p className="text-sm text-slate-500 mt-1">Manage all customer conversations in one place</p>
+          <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
+          <p className="text-sm text-slate-500 mt-1">{c.subtitle}</p>
         </div>
         <button
           onClick={() => router.push('/integrations')}
@@ -562,7 +693,7 @@ export default function MessagesPage() {
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
           </svg>
-          <span className="text-sm font-medium">Connect Platforms</span>
+          <span className="text-sm font-medium">{c.connectPlatforms}</span>
         </button>
       </div>
 
@@ -575,7 +706,7 @@ export default function MessagesPage() {
             <div className="relative flex-1">
               <input
                 type="text"
-                placeholder="Search conversations..."
+                placeholder={c.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full px-4 py-2 pl-10 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -616,7 +747,7 @@ export default function MessagesPage() {
                             : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
-                        <span className="flex-1">All Platforms</span>
+                        <span className="flex-1">{c.allPlatforms}</span>
                         {platformFilter === 'all' && (
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -701,7 +832,7 @@ export default function MessagesPage() {
                   : 'text-slate-500 hover:text-slate-600'
               )}
             >
-              ACTIVE
+              {c.tabActive}
               {viewMode === 'active' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-400" />
               )}
@@ -715,7 +846,7 @@ export default function MessagesPage() {
                   : 'text-slate-500 hover:text-slate-600'
               )}
             >
-              NEEDS ATTENTION
+              {c.tabNeedsAttention}
               {viewMode === 'needsAttention' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-400" />
               )}
@@ -729,7 +860,7 @@ export default function MessagesPage() {
                   : 'text-slate-500 hover:text-slate-600'
               )}
             >
-              RESOLVED
+              {c.tabResolved}
               {viewMode === 'resolved' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-400" />
               )}
@@ -741,7 +872,11 @@ export default function MessagesPage() {
         <div className="flex-1 overflow-y-auto">
           {filteredConversations.length === 0 ? (
             <div className="p-4 text-center text-slate-500 text-sm">
-              No {viewMode === 'needsAttention' ? 'conversations need attention' : `${viewMode} conversations`}
+              {viewMode === 'needsAttention'
+                ? c.noNeedAttention
+                : viewMode === 'resolved'
+                ? c.noResolvedConversations
+                : c.noActiveConversations}
             </div>
           ) : (
             filteredConversations.map((conv) => (
@@ -764,12 +899,12 @@ export default function MessagesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between mb-1">
                       <h3 className="font-medium text-slate-900 text-sm truncate">
-                        {conv.customerName || conv.customerPhone || conv.customerId || 'Unknown'}
+                        {conv.customerName || conv.customerPhone || conv.customerId || c.unknown}
                       </h3>
                       <span className="text-xs text-slate-500 ml-2 flex-shrink-0">{formatTime(conv.lastMessageAt)}</span>
                     </div>
                     <p className="text-xs text-slate-500 truncate mb-2">
-                      {conv.messages[0]?.content || 'No messages'}
+                      {conv.messages[0]?.content || c.noMessages}
                     </p>
                     <div className="flex items-center gap-2">
                       {/* Show all platforms if merged */}
@@ -796,7 +931,7 @@ export default function MessagesPage() {
                           conv.platform === 'facebook' && 'bg-blue-500/20 text-blue-300',
                           conv.platform === 'instagram' && 'bg-purple-500/20 text-purple-300'
                         )}>
-                          Lead
+                          {c.lead}
                         </span>
                       )}
                       {conv.unreadCount > 0 && (
@@ -819,7 +954,7 @@ export default function MessagesPage() {
           <div className="flex-1 flex items-center justify-center text-slate-500">
             <div className="text-center">
               <div className="text-4xl mb-4">💬</div>
-              <div>Select a conversation to view messages</div>
+              <div>{c.selectConversation}</div>
             </div>
           </div>
         ) : (
@@ -838,7 +973,7 @@ export default function MessagesPage() {
                     {selectedConversation.customerName ||
                      selectedConversation.customerPhone ||
                      selectedConversation.customerId ||
-                     'Unknown'}
+                     c.unknown}
                   </h2>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1 text-xs text-slate-500">
@@ -860,12 +995,12 @@ export default function MessagesPage() {
                       <span>
                         {selectedConversation.agentPaused ? (
                           selectedConversation.agentPausedUntil ? (
-                            `Agent Paused • ${formatPauseTime(selectedConversation.agentPausedUntil)}`
+                            c.agentPausedUntil(formatPauseTime(selectedConversation.agentPausedUntil))
                           ) : (
-                            'Agent Paused'
+                            c.agentPaused
                           )
                         ) : (
-                          'Agent Active'
+                          c.agentActive
                         )}
                       </span>
                     </div>
@@ -881,12 +1016,12 @@ export default function MessagesPage() {
                       ? 'bg-orange-600 hover:bg-orange-700 text-white'
                       : 'bg-slate-700 hover:bg-slate-600 text-slate-600'
                   )}
-                  title={selectedConversation.needsAttention ? 'Remove flag' : 'Flag for attention'}
+                  title={selectedConversation.needsAttention ? c.removeFlag : c.flagForAttention}
                 >
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clipRule="evenodd" />
                   </svg>
-                  {selectedConversation.needsAttention ? 'Flagged' : 'Flag'}
+                  {selectedConversation.needsAttention ? c.flagged : c.flag}
                 </button>
 
                 <button
@@ -897,12 +1032,12 @@ export default function MessagesPage() {
                       ? 'bg-purple-600 hover:bg-purple-700 text-white'
                       : 'bg-slate-700 hover:bg-slate-600 text-slate-600'
                   )}
-                  title="Toggle tags panel"
+                  title={c.toggleTagsPanel}
                 >
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                   </svg>
-                  Tags
+                  {c.tags}
                 </button>
 
                 {/* Pause Agent Button with Dropdown */}
@@ -911,7 +1046,7 @@ export default function MessagesPage() {
                     onClick={() => toggleAgent()}
                     className="px-3 py-1.5 text-sm rounded-md transition-colors bg-green-600 hover:bg-green-700 text-white"
                   >
-                    Resume Agent
+                    {c.resumeAgent}
                   </button>
                 ) : (
                   <div className="relative">
@@ -919,7 +1054,7 @@ export default function MessagesPage() {
                       onClick={() => setShowPauseDropdown(!showPauseDropdown)}
                       className="px-3 py-1.5 text-sm rounded-md transition-colors bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-1"
                     >
-                      Pause Agent
+                      {c.pauseAgent}
                       <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                       </svg>
@@ -937,25 +1072,25 @@ export default function MessagesPage() {
                               onClick={() => toggleAgent(2)}
                               className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
                             >
-                              Pause for 2 hours
+                              {c.pause2h}
                             </button>
                             <button
                               onClick={() => toggleAgent(4)}
                               className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
                             >
-                              Pause for 4 hours
+                              {c.pause4h}
                             </button>
                             <button
                               onClick={() => toggleAgent(8)}
                               className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
                             >
-                              Pause for 8 hours
+                              {c.pause8h}
                             </button>
                             <button
                               onClick={() => toggleAgent(24)}
                               className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
                             >
-                              Pause for 24 hours
+                              {c.pause24h}
                             </button>
                           </div>
                         </div>
@@ -968,14 +1103,14 @@ export default function MessagesPage() {
                     onClick={() => updateConversationStatus('resolved')}
                     className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors"
                   >
-                    Resolve
+                    {c.resolve}
                   </button>
                 ) : (
                   <button
                     onClick={() => updateConversationStatus('active')}
                     className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors"
                   >
-                    Reopen
+                    {c.reopen}
                   </button>
                 )}
               </div>
@@ -1024,7 +1159,7 @@ export default function MessagesPage() {
                     {message.mediaUrl && message.mediaType?.startsWith('image/') && (
                       <img
                         src={message.mediaUrl}
-                        alt="Shared image"
+                        alt={c.sharedImageAlt}
                         className="max-w-full max-h-64 rounded-md mb-2 cursor-pointer hover:opacity-90 transition-opacity"
                         onClick={() => openLightbox(message.mediaUrl!)}
                         onError={(e) => {
@@ -1056,16 +1191,16 @@ export default function MessagesPage() {
               <div className="p-4 border-t border-slate-200">
                 {selectedConversation.withinMessagingWindow === false && ['whatsapp', 'facebook', 'instagram'].includes(selectedConversation.platform) ? (
                   <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3 text-center">
-                    <p className="text-sm text-orange-400 font-medium">24-Hour Messaging Window Expired</p>
+                    <p className="text-sm text-orange-400 font-medium">{c.windowExpiredTitle}</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      You can no longer send messages to this customer. They must initiate contact again.
+                      {c.windowExpiredBody}
                     </p>
                   </div>
                 ) : (
                   <>
                     {imagePreview && (
                       <div className="mb-3 relative inline-block">
-                        <img src={imagePreview} alt="Preview" className="max-h-32 rounded-lg border border-slate-300" />
+                        <img src={imagePreview} alt={c.previewAlt} className="max-h-32 rounded-lg border border-slate-300" />
                         <button
                           onClick={cancelImage}
                           className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs"
@@ -1086,7 +1221,7 @@ export default function MessagesPage() {
                         onClick={() => imageInputRef.current?.click()}
                         disabled={sending || sendingImage}
                         className="px-3 py-2 bg-slate-100 border border-slate-300 hover:bg-slate-700 text-slate-600 rounded-lg transition-colors disabled:opacity-50"
-                        title="Attach image"
+                        title={c.attachImage}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -1097,7 +1232,7 @@ export default function MessagesPage() {
                         value={messageInput}
                         onChange={(e) => setMessageInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (selectedImage ? sendImage() : sendMessage())}
-                        placeholder={selectedImage ? 'Add a caption (optional)' : 'Write a message'}
+                        placeholder={selectedImage ? c.addCaption : c.writeMessage}
                         maxLength={1600}
                         className="flex-1 px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                         disabled={sending || sendingImage}
@@ -1107,7 +1242,7 @@ export default function MessagesPage() {
                         disabled={(sending || sendingImage) || (!selectedImage && !messageInput.trim())}
                         className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {sendingImage ? 'Sending...' : sending ? 'Sending...' : 'Send'}
+                        {sendingImage ? c.sending : sending ? c.sending : c.send}
                       </button>
                     </div>
                     <div className="text-right text-xs text-slate-500 mt-1">
@@ -1160,7 +1295,7 @@ export default function MessagesPage() {
           </button>
           <img
             src={lightboxUrl}
-            alt="Full size"
+            alt={c.fullSizeAlt}
             className="max-w-full max-h-full object-contain rounded-lg"
             onClick={(e) => e.stopPropagation()}
           />

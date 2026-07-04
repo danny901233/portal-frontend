@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface ConversationTags {
   messageType?: string;
@@ -24,6 +25,61 @@ export default function ConversationTaggingPanel({
   initialTags,
   onUpdate,
 }: ConversationTaggingPanelProps) {
+  const lang = useLang();
+  const c = {
+    en: {
+      saveFailed: 'Failed to save tags',
+      conversationDetails: 'Conversation Details',
+      messageType: 'Message Type',
+      selectType: 'Select type...',
+      inquiry: 'Inquiry',
+      booking: 'Booking',
+      complaint: 'Complaint',
+      followup: 'Follow-up',
+      quote: 'Quote Request',
+      other: 'Other',
+      confirmedBooking: 'Confirmed Booking',
+      bookingCategory: 'Booking Category',
+      selectCategory: 'Select category...',
+      service: 'Service',
+      diagnostic: 'Diagnostic',
+      mot: 'MOT',
+      capturedRevenue: 'Captured Revenue (£)',
+      bookingDetails: 'Booking Details',
+      bookingDetailsPlaceholder: 'Add notes about the booking...',
+      customTags: 'Custom Tags',
+      addTagPlaceholder: 'Add a tag...',
+      add: 'Add',
+      saving: 'Saving...',
+      saveTags: 'Save Tags',
+    },
+    fr: {
+      saveFailed: 'Échec de l’enregistrement des étiquettes',
+      conversationDetails: 'Détails de la conversation',
+      messageType: 'Type de message',
+      selectType: 'Sélectionnez un type...',
+      inquiry: 'Demande de renseignements',
+      booking: 'Réservation',
+      complaint: 'Réclamation',
+      followup: 'Suivi',
+      quote: 'Demande de devis',
+      other: 'Autre',
+      confirmedBooking: 'Réservation confirmée',
+      bookingCategory: 'Catégorie de réservation',
+      selectCategory: 'Sélectionnez une catégorie...',
+      service: 'Entretien',
+      diagnostic: 'Diagnostic',
+      mot: 'Contrôle technique',
+      capturedRevenue: 'Chiffre d’affaires capté (£)',
+      bookingDetails: 'Détails de la réservation',
+      bookingDetailsPlaceholder: 'Ajoutez des notes sur la réservation...',
+      customTags: 'Étiquettes personnalisées',
+      addTagPlaceholder: 'Ajouter une étiquette...',
+      add: 'Ajouter',
+      saving: 'Enregistrement...',
+      saveTags: 'Enregistrer les étiquettes',
+    },
+  }[lang];
   const [tags, setTags] = useState<ConversationTags>(initialTags);
   const [saving, setSaving] = useState(false);
   const [newTag, setNewTag] = useState('');
@@ -54,7 +110,7 @@ export default function ConversationTaggingPanel({
       onUpdate(data.conversation);
     } catch (error) {
       console.error('Error saving tags:', error);
-      alert('Failed to save tags');
+      alert(c.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -79,26 +135,26 @@ export default function ConversationTaggingPanel({
 
   return (
     <div className="w-80 bg-white border-l border-slate-200 p-4 overflow-y-auto">
-      <h3 className="text-lg font-semibold text-slate-900 mb-4">Conversation Details</h3>
+      <h3 className="text-lg font-semibold text-slate-900 mb-4">{c.conversationDetails}</h3>
 
       <div className="space-y-4">
         {/* Message Type */}
         <div>
           <label className="block text-sm font-medium text-slate-600 mb-2">
-            Message Type
+            {c.messageType}
           </label>
           <select
             value={tags.messageType || ''}
             onChange={(e) => setTags({ ...tags, messageType: e.target.value })}
             className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
           >
-            <option value="">Select type...</option>
-            <option value="inquiry">Inquiry</option>
-            <option value="booking">Booking</option>
-            <option value="complaint">Complaint</option>
-            <option value="followup">Follow-up</option>
-            <option value="quote">Quote Request</option>
-            <option value="other">Other</option>
+            <option value="">{c.selectType}</option>
+            <option value="inquiry">{c.inquiry}</option>
+            <option value="booking">{c.booking}</option>
+            <option value="complaint">{c.complaint}</option>
+            <option value="followup">{c.followup}</option>
+            <option value="quote">{c.quote}</option>
+            <option value="other">{c.other}</option>
           </select>
         </div>
 
@@ -111,7 +167,7 @@ export default function ConversationTaggingPanel({
               onChange={(e) => setTags({ ...tags, confirmedBooking: e.target.checked })}
               className="w-4 h-4 rounded border-slate-300 bg-slate-100 text-purple-600 focus:ring-purple-500"
             />
-            <span className="text-sm font-medium text-slate-600">Confirmed Booking</span>
+            <span className="text-sm font-medium text-slate-600">{c.confirmedBooking}</span>
           </label>
         </div>
 
@@ -119,7 +175,7 @@ export default function ConversationTaggingPanel({
         {tags.confirmedBooking && (
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-2">
-              Booking Category
+              {c.bookingCategory}
             </label>
             <select
               value={tags.confirmedBookingCategory || ''}
@@ -131,11 +187,11 @@ export default function ConversationTaggingPanel({
               }
               className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
-              <option value="">Select category...</option>
-              <option value="service">Service</option>
-              <option value="diagnostic">Diagnostic</option>
-              <option value="mot">MOT</option>
-              <option value="other">Other</option>
+              <option value="">{c.selectCategory}</option>
+              <option value="service">{c.service}</option>
+              <option value="diagnostic">{c.diagnostic}</option>
+              <option value="mot">{c.mot}</option>
+              <option value="other">{c.other}</option>
             </select>
           </div>
         )}
@@ -144,7 +200,7 @@ export default function ConversationTaggingPanel({
         {tags.confirmedBooking && (
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-2">
-              Captured Revenue (£)
+              {c.capturedRevenue}
             </label>
             <input
               type="number"
@@ -167,12 +223,12 @@ export default function ConversationTaggingPanel({
         {tags.confirmedBooking && (
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-2">
-              Booking Details
+              {c.bookingDetails}
             </label>
             <textarea
               value={tags.bookingDetails || ''}
               onChange={(e) => setTags({ ...tags, bookingDetails: e.target.value })}
-              placeholder="Add notes about the booking..."
+              placeholder={c.bookingDetailsPlaceholder}
               rows={3}
               className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
             />
@@ -181,21 +237,21 @@ export default function ConversationTaggingPanel({
 
         {/* Custom Tags */}
         <div>
-          <label className="block text-sm font-medium text-slate-600 mb-2">Custom Tags</label>
+          <label className="block text-sm font-medium text-slate-600 mb-2">{c.customTags}</label>
           <div className="flex gap-2 mb-2">
             <input
               type="text"
               value={newTag}
               onChange={(e) => setNewTag(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && addTag()}
-              placeholder="Add a tag..."
+              placeholder={c.addTagPlaceholder}
               className="flex-1 px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
             <button
               onClick={addTag}
               className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors"
             >
-              Add
+              {c.add}
             </button>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -228,7 +284,7 @@ export default function ConversationTaggingPanel({
           disabled={saving}
           className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {saving ? 'Saving...' : 'Save Tags'}
+          {saving ? c.saving : c.saveTags}
         </button>
       </div>
     </div>

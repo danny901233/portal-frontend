@@ -13,6 +13,7 @@ import {
   type SupportMessage,
 } from '../lib/api';
 import { getSessionToken } from '../lib/auth';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 const POLL_MS_OPEN = 20_000;
 const POLL_MS_CLOSED = 60_000;
@@ -50,6 +51,21 @@ function relativeStatus(): string {
 }
 
 export default function SupportChatWidget() {
+  const lang = useLang();
+  const c = {
+    en: {
+      closeHelp: 'Close help',
+      openHelp: 'Open help',
+      sendError: 'Couldn’t send that — try again in a moment.',
+      whatsAppSoon: 'WhatsApp support is coming soon — for now please use Live Chat or call.',
+    },
+    fr: {
+      closeHelp: 'Fermer l’aide',
+      openHelp: 'Ouvrir l’aide',
+      sendError: 'Impossible d’envoyer ce message — réessayez dans un instant.',
+      whatsAppSoon: 'Le support WhatsApp arrive bientôt — pour l’instant, utilisez le chat en direct ou appelez.',
+    },
+  }[lang];
   const [authed, setAuthed] = useState(false);
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>('menu');
@@ -120,7 +136,7 @@ export default function SupportChatWidget() {
       setMessages((prev) => [...prev, ...res.messages]);
       setDraft('');
     } catch {
-      setError('Couldn’t send that — try again in a moment.');
+      setError(c.sendError);
     } finally {
       setSending(false);
     }
@@ -129,7 +145,7 @@ export default function SupportChatWidget() {
   const openWhatsApp = () => {
     // Placeholder — number to be supplied. For now we show a "coming soon"
     // toast and don't attempt to open wa.me.
-    setError('WhatsApp support is coming soon — for now please use Live Chat or call.');
+    setError(c.whatsAppSoon);
     setTimeout(() => setError(null), 4000);
   };
 
@@ -139,7 +155,7 @@ export default function SupportChatWidget() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label={open ? 'Close help' : 'Open help'}
+        aria-label={open ? c.closeHelp : c.openHelp}
         className="fixed bottom-5 right-5 z-[60] inline-flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-xl shadow-brand-600/30 transition hover:bg-brand-700"
       >
         {open ? <CloseIcon /> : <ChatIcon />}
@@ -195,13 +211,40 @@ function MenuView({
   onPickWhatsApp: () => void;
   error: string | null;
 }) {
+  const lang = useLang();
+  const c = {
+    en: {
+      eyebrow: 'ReceptionMate support',
+      title: 'How can we help today?',
+      subtitle: 'Most questions get answered instantly by our AI assistant. For anything more, you can reach the team.',
+      chatTitle: 'Speak to support',
+      chatSubtitle: 'Quickest way to get help — usually answered within seconds.',
+      whatsAppTitle: 'Message us on WhatsApp',
+      whatsAppSubtitle: 'Chat to the team from your phone. (Coming soon.)',
+      callTitle: 'Call us',
+      officeHours: 'UK office hours',
+      dial: 'Dial →',
+    },
+    fr: {
+      eyebrow: 'Support ReceptionMate',
+      title: 'Comment pouvons-nous vous aider aujourd’hui ?',
+      subtitle: 'La plupart des questions reçoivent une réponse instantanée de notre assistant IA. Pour le reste, vous pouvez joindre l’équipe.',
+      chatTitle: 'Parler au support',
+      chatSubtitle: 'Le moyen le plus rapide d’obtenir de l’aide — réponse généralement en quelques secondes.',
+      whatsAppTitle: 'Écrivez-nous sur WhatsApp',
+      whatsAppSubtitle: 'Discutez avec l’équipe depuis votre téléphone. (Bientôt disponible.)',
+      callTitle: 'Appelez-nous',
+      officeHours: 'Heures d’ouverture (Royaume-Uni)',
+      dial: 'Appeler →',
+    },
+  }[lang];
   return (
     <div className="flex h-full flex-col">
       <header className="bg-brand-600 px-5 py-5 text-white">
-        <p className="text-xs font-semibold uppercase tracking-wider text-brand-100">ReceptionMate support</p>
-        <h2 className="mt-1 text-lg font-semibold">How can we help today?</h2>
+        <p className="text-xs font-semibold uppercase tracking-wider text-brand-100">{c.eyebrow}</p>
+        <h2 className="mt-1 text-lg font-semibold">{c.title}</h2>
         <p className="mt-0.5 text-xs text-brand-100">
-          Most questions get answered instantly by our AI assistant. For anything more, you can reach the team.
+          {c.subtitle}
         </p>
       </header>
 
@@ -210,15 +253,15 @@ function MenuView({
           onClick={onPickChat}
           accent="brand"
           icon={<SparkleIcon />}
-          title="Speak to support"
-          subtitle="Quickest way to get help — usually answered within seconds."
+          title={c.chatTitle}
+          subtitle={c.chatSubtitle}
         />
         <TileButton
           onClick={onPickWhatsApp}
           accent="emerald"
           icon={<WhatsAppIcon />}
-          title="Message us on WhatsApp"
-          subtitle="Chat to the team from your phone. (Coming soon.)"
+          title={c.whatsAppTitle}
+          subtitle={c.whatsAppSubtitle}
           dimmed
         />
         <a
@@ -230,12 +273,12 @@ function MenuView({
               <PhoneIcon />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-900">Call us</p>
+              <p className="text-sm font-semibold text-slate-900">{c.callTitle}</p>
               <p className="mt-0.5 text-xs text-slate-500">
-                <span className="font-mono text-slate-700">{SUPPORT_PHONE_DISPLAY}</span> — UK office hours
+                <span className="font-mono text-slate-700">{SUPPORT_PHONE_DISPLAY}</span> — {c.officeHours}
               </p>
             </div>
-            <span className="text-xs font-medium text-brand-600">Dial →</span>
+            <span className="text-xs font-medium text-brand-600">{c.dial}</span>
           </div>
         </a>
         {error ? (
@@ -261,6 +304,8 @@ function TileButton({
   accent: 'brand' | 'emerald';
   dimmed?: boolean;
 }) {
+  const lang = useLang();
+  const c = { en: { start: 'Start →' }, fr: { start: 'Démarrer →' } }[lang];
   const accentBg = accent === 'brand' ? 'bg-brand-100 text-brand-600' : 'bg-emerald-100 text-emerald-700';
   return (
     <button
@@ -278,20 +323,35 @@ function TileButton({
           <p className="text-sm font-semibold text-slate-900">{title}</p>
           <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
         </div>
-        <span className="text-xs font-medium text-brand-600">Start →</span>
+        <span className="text-xs font-medium text-brand-600">{c.start}</span>
       </div>
     </button>
   );
 }
 
 function ConnectingView() {
+  const lang = useLang();
+  const c = {
+    en: {
+      support: 'Support',
+      finding: 'Finding someone to help…',
+      connecting: 'Connecting you to an agent…',
+      under: 'Usually under a second.',
+    },
+    fr: {
+      support: 'Support',
+      finding: 'Recherche d’un interlocuteur…',
+      connecting: 'Mise en relation avec un agent…',
+      under: 'Généralement en moins d’une seconde.',
+    },
+  }[lang];
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 bg-brand-600 px-4 py-3 text-white">
         <div className="h-8 w-8" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">Support</p>
-          <p className="text-xs text-brand-100">Finding someone to help…</p>
+          <p className="text-sm font-semibold">{c.support}</p>
+          <p className="text-xs text-brand-100">{c.finding}</p>
         </div>
       </header>
       <div className="flex flex-1 items-center justify-center bg-slate-50">
@@ -299,8 +359,8 @@ function ConnectingView() {
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200">
             <Spinner />
           </div>
-          <p className="text-sm font-medium text-slate-700">Connecting you to an agent…</p>
-          <p className="text-xs text-slate-500">Usually under a second.</p>
+          <p className="text-sm font-medium text-slate-700">{c.connecting}</p>
+          <p className="text-xs text-slate-500">{c.under}</p>
         </div>
       </div>
     </div>
@@ -330,13 +390,30 @@ function ChatView({
   listEndRef: React.RefObject<HTMLDivElement | null>;
   aiJoinedAt: Date | null;
 }) {
+  const lang = useLang();
+  const c = {
+    en: {
+      repliesInstantly: 'replies instantly',
+      backToMenu: 'Back to menu',
+      loading: 'Loading…',
+      placeholder: 'Type your question…',
+      send: 'Send',
+    },
+    fr: {
+      repliesInstantly: 'répond instantanément',
+      backToMenu: 'Retour au menu',
+      loading: 'Chargement…',
+      placeholder: 'Saisissez votre question…',
+      send: 'Envoyer',
+    },
+  }[lang];
   return (
     <>
       <header className="flex items-center gap-3 bg-brand-600 px-4 py-3 text-white">
         <button
           type="button"
           onClick={onBack}
-          aria-label="Back to menu"
+          aria-label={c.backToMenu}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
         >
           <BackIcon />
@@ -344,13 +421,13 @@ function ChatView({
         <AiAvatar size={32} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">{AI_PERSONA.name}</p>
-          <p className="text-xs text-brand-100">{AI_PERSONA.title} · replies instantly</p>
+          <p className="text-xs text-brand-100">{AI_PERSONA.title} · {c.repliesInstantly}</p>
         </div>
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 px-4 py-4">
         {!loaded ? (
-          <p className="text-center text-xs text-slate-500">Loading…</p>
+          <p className="text-center text-xs text-slate-500">{c.loading}</p>
         ) : (
           <>
             {aiJoinedAt ? <JoinedNotice when={aiJoinedAt} /> : null}
@@ -372,7 +449,7 @@ function ChatView({
               void onSend(e);
             }
           }}
-          placeholder="Type your question…"
+          placeholder={c.placeholder}
           rows={2}
           className="flex-1 resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
         />
@@ -380,7 +457,7 @@ function ChatView({
           type="submit"
           disabled={sending || draft.trim().length === 0}
           className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white shadow-sm hover:bg-brand-700 disabled:bg-slate-300"
-          aria-label="Send"
+          aria-label={c.send}
         >
           {sending ? <Spinner /> : <SendIcon />}
         </button>
@@ -390,13 +467,18 @@ function ChatView({
 }
 
 function JoinedNotice({ when }: { when: Date }) {
+  const lang = useLang();
+  const c = {
+    en: { joined: (name: string) => `${name} joined the chat` },
+    fr: { joined: (name: string) => `${name} a rejoint la conversation` },
+  }[lang];
   const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(when);
   return (
     <div className="my-2 flex items-center gap-2">
       <span className="h-px flex-1 bg-slate-200" />
       <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-500">
         <AiAvatar size={16} />
-        {AI_PERSONA.name} joined the chat · {time}
+        {c.joined(AI_PERSONA.name)} · {time}
       </span>
       <span className="h-px flex-1 bg-slate-200" />
     </div>
@@ -404,13 +486,32 @@ function JoinedNotice({ when }: { when: Date }) {
 }
 
 function AiEmptyState() {
+  const lang = useLang();
+  const c = {
+    en: {
+      greeting: (name: string) => `Hi 👋 I'm ${name}.`,
+      body: (
+        <>
+          Ask me about your account, agent setup, billing — anything portal-related. If I can&rsquo;t help I&rsquo;ll raise a support ticket for the team.
+        </>
+      ),
+    },
+    fr: {
+      greeting: (name: string) => `Bonjour 👋 je suis ${name}.`,
+      body: (
+        <>
+          Posez-moi vos questions sur votre compte, la configuration de l&rsquo;agent, la facturation — tout ce qui concerne le portail. Si je ne peux pas vous aider, j&rsquo;ouvrirai un ticket de support pour l&rsquo;équipe.
+        </>
+      ),
+    },
+  }[lang];
   return (
     <div className="flex items-start gap-2.5">
       <AiAvatar size={32} />
       <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-white px-3 py-2.5 text-sm shadow-sm ring-1 ring-slate-200">
-        <p className="font-semibold text-slate-900">Hi 👋 I'm {AI_PERSONA.name}.</p>
+        <p className="font-semibold text-slate-900">{c.greeting(AI_PERSONA.name)}</p>
         <p className="mt-1 text-sm text-slate-700">
-          Ask me about your account, agent setup, billing — anything portal-related. If I can&rsquo;t help I&rsquo;ll raise a support ticket for the team.
+          {c.body}
         </p>
         <p className="mt-2 text-[10px] uppercase tracking-wider text-slate-400">{AI_PERSONA.title}</p>
       </div>
@@ -493,9 +594,11 @@ function RepAvatar({ size = 28, ring = false }: { size?: number; ring?: boolean 
 }
 
 function AiAvatar({ size = 28 }: { size?: number }) {
+  const lang = useLang();
+  const c = { en: { label: 'AI assistant' }, fr: { label: 'Assistant IA' } }[lang];
   return (
     <span
-      aria-label="AI assistant"
+      aria-label={c.label}
       style={{ width: size, height: size }}
       className="inline-flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 via-fuchsia-500 to-amber-400 text-white shadow-sm"
     >

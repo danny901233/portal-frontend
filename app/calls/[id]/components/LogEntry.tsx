@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ChevronDown, FileText, Info, AlertTriangle, XCircle } from 'lucide-react';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface LogEntryProps {
   level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
@@ -40,6 +41,8 @@ const LEVEL_CONFIG = {
 
 export function LogEntry({ level, logger, message, timestamp, attributes }: LogEntryProps) {
   const [expanded, setExpanded] = useState(false);
+  const lang = useLang();
+  const c = { en: { attributes: 'Attributes' }, fr: { attributes: 'Attributs' } }[lang];
   const config = LEVEL_CONFIG[level] || LEVEL_CONFIG.INFO;
   const Icon = config.icon;
 
@@ -87,7 +90,7 @@ export function LogEntry({ level, logger, message, timestamp, attributes }: LogE
         <div className="px-4 py-3 space-y-3 text-sm bg-slate-50 border-t border-slate-300">
           <div>
             <div className="text-slate-600 font-semibold mb-2 text-xs uppercase tracking-wide">
-              Attributes
+              {c.attributes}
             </div>
             <div className="space-y-2">
               {relevantAttributes.map(([key, value]) => (

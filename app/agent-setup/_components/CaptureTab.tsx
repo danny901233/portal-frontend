@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AgentConfiguration, DataCollectionField } from '../../types';
+import { useLang } from '@/app/i18n/LocaleProvider';
 import TabShell from './TabShell';
 
 interface Props {
@@ -22,6 +23,37 @@ const DEFAULT_FIELDS: DataCollectionField[] = [
 ];
 
 export default function CaptureTab({ config, save, isSaving }: Props) {
+  const lang = useLang();
+  const c = {
+    en: {
+      title: 'Information capture',
+      description:
+        'What the agent should collect from every caller. Active fields are required by the agent; inactive ones are skipped.',
+      active: 'Active',
+      required: 'Required',
+      remove: 'Remove',
+      labelField: 'Label',
+      labelPlaceholder: "e.g. Caller's full name",
+      instruction: 'Instruction to the agent (optional)',
+      instructionPlaceholder: 'e.g. read back digit-by-digit',
+      addField: '+ Add field',
+      reset: 'Reset to defaults',
+    },
+    fr: {
+      title: 'Collecte d’informations',
+      description:
+        "Ce que l'agent doit recueillir auprès de chaque appelant. Les champs actifs sont exigés par l'agent ; les champs inactifs sont ignorés.",
+      active: 'Actif',
+      required: 'Obligatoire',
+      remove: 'Supprimer',
+      labelField: 'Libellé',
+      labelPlaceholder: "p. ex. Nom complet de l'appelant",
+      instruction: "Instruction à l'agent (facultatif)",
+      instructionPlaceholder: 'p. ex. répéter chiffre par chiffre',
+      addField: '+ Ajouter un champ',
+      reset: 'Réinitialiser aux valeurs par défaut',
+    },
+  }[lang];
   const [fields, setFields] = useState<DataCollectionField[]>(
     config.dataCollectionFields && config.dataCollectionFields.length > 0
       ? config.dataCollectionFields
@@ -61,8 +93,8 @@ export default function CaptureTab({ config, save, isSaving }: Props) {
 
   return (
     <TabShell
-      title="Information capture"
-      description="What the agent should collect from every caller. Active fields are required by the agent; inactive ones are skipped."
+      title={c.title}
+      description={c.description}
       onSave={handleSave}
       isSaving={isSaving}
     >
@@ -80,7 +112,7 @@ export default function CaptureTab({ config, save, isSaving }: Props) {
                   onChange={(e) => updateField(idx, { active: e.target.checked })}
                   className="h-4 w-4 rounded border-slate-300 bg-slate-100 text-brand-600 focus:ring-brand-600"
                 />
-                <span className="text-xs font-medium text-slate-500">Active</span>
+                <span className="text-xs font-medium text-slate-500">{c.active}</span>
               </label>
               <label className="flex shrink-0 cursor-pointer items-center gap-2">
                 <input
@@ -90,7 +122,7 @@ export default function CaptureTab({ config, save, isSaving }: Props) {
                   onChange={(e) => updateField(idx, { required: e.target.checked })}
                   className="h-4 w-4 rounded border-slate-300 bg-slate-100 text-brand-600 focus:ring-brand-600 disabled:opacity-30"
                 />
-                <span className="text-xs font-medium text-slate-500">Required</span>
+                <span className="text-xs font-medium text-slate-500">{c.required}</span>
               </label>
               <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-500">
                 {field.key}
@@ -100,23 +132,23 @@ export default function CaptureTab({ config, save, isSaving }: Props) {
                 onClick={() => removeField(idx)}
                 className="ml-auto rounded-md border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-100 hover:text-rose-600"
               >
-                Remove
+                {c.remove}
               </button>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">Label</label>
+                <label className="mb-1 block text-xs text-slate-500">{c.labelField}</label>
                 <input
                   type="text"
                   value={field.label}
                   onChange={(e) => updateField(idx, { label: e.target.value })}
-                  placeholder="e.g. Caller's full name"
+                  placeholder={c.labelPlaceholder}
                   className="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
                 />
               </div>
               <div>
                 <label className="mb-1 block text-xs text-slate-500">
-                  Instruction to the agent (optional)
+                  {c.instruction}
                 </label>
                 <input
                   type="text"
@@ -124,7 +156,7 @@ export default function CaptureTab({ config, save, isSaving }: Props) {
                   onChange={(e) =>
                     updateField(idx, { instruction: e.target.value })
                   }
-                  placeholder="e.g. read back digit-by-digit"
+                  placeholder={c.instructionPlaceholder}
                   className="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
                 />
               </div>
@@ -139,14 +171,14 @@ export default function CaptureTab({ config, save, isSaving }: Props) {
           onClick={addField}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
         >
-          + Add field
+          {c.addField}
         </button>
         <button
           type="button"
           onClick={resetToDefaults}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
         >
-          Reset to defaults
+          {c.reset}
         </button>
       </div>
     </TabShell>

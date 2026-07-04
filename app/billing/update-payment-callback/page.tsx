@@ -3,19 +3,45 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { confirmMandateUpdate } from '../../lib/billing';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 export default function UpdatePaymentCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const lang = useLang();
+  const c = {
+    en: {
+      confirming: 'Confirming payment method update...',
+      missingFlow: 'Missing flow information. Please try again.',
+      success: 'Payment method updated successfully!',
+      failed: 'Failed to update payment method. Please try again or contact support.',
+      processing: 'Processing',
+      successTitle: 'Success!',
+      errorTitle: 'Error',
+      returnToBilling: 'Return to Billing',
+      redirecting: 'Redirecting to billing page...',
+    },
+    fr: {
+      confirming: 'Confirmation de la mise à jour du moyen de paiement...',
+      missingFlow: 'Informations de flux manquantes. Veuillez réessayer.',
+      success: 'Moyen de paiement mis à jour avec succès !',
+      failed: 'Échec de la mise à jour du moyen de paiement. Veuillez réessayer ou contacter le support.',
+      processing: 'Traitement en cours',
+      successTitle: 'Réussi !',
+      errorTitle: 'Erreur',
+      returnToBilling: 'Retour à la facturation',
+      redirecting: 'Redirection vers la page de facturation...',
+    },
+  }[lang];
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
-  const [message, setMessage] = useState('Confirming payment method update...');
+  const [message, setMessage] = useState(c.confirming);
 
   useEffect(() => {
     const redirectFlowId = searchParams?.get('redirect_flow_id');
 
     if (!redirectFlowId) {
       setStatus('error');
-      setMessage('Missing flow information. Please try again.');
+      setMessage(c.missingFlow);
       return;
     }
 
@@ -23,7 +49,7 @@ export default function UpdatePaymentCallback() {
       try {
         await confirmMandateUpdate(redirectFlowId!);
         setStatus('success');
-        setMessage('Payment method updated successfully!');
+        setMessage(c.success);
 
         // Redirect to billing page after 2 seconds
         setTimeout(() => {
@@ -32,7 +58,7 @@ export default function UpdatePaymentCallback() {
       } catch (error) {
         console.error('Failed to confirm mandate update:', error);
         setStatus('error');
-        setMessage('Failed to update payment method. Please try again or contact support.');
+        setMessage(c.failed);
       }
     }
 
@@ -61,7 +87,7 @@ export default function UpdatePaymentCallback() {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">Processing</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{c.processing}</h1>
           </>
         )}
 
@@ -77,7 +103,7 @@ export default function UpdatePaymentCallback() {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">Success!</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{c.successTitle}</h1>
           </>
         )}
 
@@ -93,7 +119,7 @@ export default function UpdatePaymentCallback() {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">Error</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{c.errorTitle}</h1>
           </>
         )}
 
@@ -104,12 +130,12 @@ export default function UpdatePaymentCallback() {
             onClick={() => router.push('/billing')}
             className="w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition-colors hover:bg-blue-700"
           >
-            Return to Billing
+            {c.returnToBilling}
           </button>
         )}
 
         {status === 'success' && (
-          <p className="text-sm text-slate-500">Redirecting to billing page...</p>
+          <p className="text-sm text-slate-500">{c.redirecting}</p>
         )}
       </div>
     </div>

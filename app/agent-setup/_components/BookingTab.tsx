@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AgentConfiguration } from '../../types';
+import { useLang } from '@/app/i18n/LocaleProvider';
 import TabShell from './TabShell';
 
 interface Props {
@@ -11,6 +12,66 @@ interface Props {
 }
 
 export default function BookingTab({ config, save, isSaving }: Props) {
+  const lang = useLang();
+  const c = {
+    en: {
+      title: 'Booking behavior',
+      description: 'How the agent handles booking requests.',
+      allowLabel: 'Allow the agent to offer bookings',
+      allowHint: 'If off, the agent always takes a message instead of attempting to book.',
+      automateNote:
+        'This setting only applies to Assist agents. This garage uses the GarageHive (Automate) agent, which always books against your live diary — so this toggle has no effect here.',
+      leadTimeLabel: 'Booking lead time (days)',
+      leadTimeHint: 'Earliest the agent will offer to book a slot. Minimum 1 day.',
+      smsLabel: 'Send SMS booking confirmation links',
+      smsHint: 'If on, an SMS link is sent to the caller after the agent books or takes a message.',
+      dropOffLabel: 'Enable drop-off bookings',
+      dropOffHint:
+        'If on, the agent can offer drop-off appointments instead of timed bookings for certain services.',
+      dropOffMsgLabel: 'Drop-off message',
+      dropOffMsgHint: 'What the agent tells callers about drop-offs.',
+      excludeLabel: 'Services that can’t be drop-offs',
+      excludeHintBefore: 'Comma-separated list. The agent will always book these at a timed slot, never as drop-off. Default: ',
+      fastFitLabel: 'Fast-fit services only',
+      fastFitHint:
+        'If on, the agent only offers quick services (tyres, oil, basics) — full diagnostic / engine work is escalated.',
+      callerRecLabel: 'Caller recognition',
+      callerRecHint:
+        'On an inbound call, look the caller’s number up in Garage Hive and confirm the vehicle on file (“is it still the Focus?”) instead of asking for the reg. Needs Garage Hive connected.',
+      advisoryLabel: 'Advisory upsells',
+      advisoryHint:
+        'When a customer books, the agent checks Garage Hive for outstanding health-check advisories on their vehicle and offers to add them. Needs Garage Hive connected.',
+    },
+    fr: {
+      title: 'Comportement de réservation',
+      description: "Comment l'agent gère les demandes de réservation.",
+      allowLabel: "Autoriser l'agent à proposer des réservations",
+      allowHint: "Si désactivé, l'agent prend toujours un message au lieu de tenter de réserver.",
+      automateNote:
+        "Ce paramètre ne s'applique qu'aux agents Assist. Cette agence utilise l'agent GarageHive (Automate), qui réserve toujours sur votre agenda en temps réel — ce bouton n'a donc aucun effet ici.",
+      leadTimeLabel: 'Délai de réservation (jours)',
+      leadTimeHint: "Le plus tôt où l'agent proposera de réserver un créneau. Minimum 1 jour.",
+      smsLabel: 'Envoyer des liens de confirmation de réservation par SMS',
+      smsHint:
+        "Si activé, un lien SMS est envoyé à l'appelant après que l'agent a réservé ou pris un message.",
+      dropOffLabel: 'Activer les réservations en dépôt',
+      dropOffHint:
+        "Si activé, l'agent peut proposer des rendez-vous en dépôt au lieu de réservations à horaire fixe pour certaines prestations.",
+      dropOffMsgLabel: 'Message de dépôt',
+      dropOffMsgHint: "Ce que l'agent indique aux appelants au sujet des dépôts.",
+      excludeLabel: 'Prestations qui ne peuvent pas être en dépôt',
+      excludeHintBefore: "Liste séparée par des virgules. L'agent réservera toujours ces prestations à un créneau horaire fixe, jamais en dépôt. Par défaut : ",
+      fastFitLabel: 'Prestations rapides uniquement',
+      fastFitHint:
+        "Si activé, l'agent ne propose que des prestations rapides (pneus, vidange, entretien de base) — les diagnostics complets / travaux moteur sont escaladés.",
+      callerRecLabel: "Reconnaissance de l'appelant",
+      callerRecHint:
+        "Lors d'un appel entrant, rechercher le numéro de l'appelant dans Garage Hive et confirmer le véhicule au dossier (« est-ce toujours la Focus ? ») au lieu de demander l'immatriculation. Nécessite Garage Hive connecté.",
+      advisoryLabel: 'Ventes additionnelles de recommandations',
+      advisoryHint:
+        "Lorsqu'un client réserve, l'agent vérifie dans Garage Hive les recommandations de contrôle en attente sur son véhicule et propose de les ajouter. Nécessite Garage Hive connecté.",
+    },
+  }[lang];
   const [allowBookings, setAllowBookings] = useState(config.allowBookings ?? false);
   const [bookingLeadTimeDays, setBookingLeadTimeDays] = useState(
     config.bookingLeadTimeDays ?? 1
@@ -81,29 +142,28 @@ export default function BookingTab({ config, save, isSaving }: Props) {
 
   return (
     <TabShell
-      title="Booking behavior"
-      description="How the agent handles booking requests."
+      title={c.title}
+      description={c.description}
       onSave={handleSave}
       isSaving={isSaving}
     >
       <Toggle
-        label="Allow the agent to offer bookings"
-        hint="If off, the agent always takes a message instead of attempting to book."
+        label={c.allowLabel}
+        hint={c.allowHint}
         checked={allowBookings}
         onChange={setAllowBookings}
       />
 
       {isAutomate && (
         <p className="-mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          This setting only applies to Assist agents. This garage uses the GarageHive (Automate)
-          agent, which always books against your live diary — so this toggle has no effect here.
+          {c.automateNote}
         </p>
       )}
 
       {allowBookings && (
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">
-            Booking lead time (days)
+            {c.leadTimeLabel}
           </label>
           <input
             type="number"
@@ -114,21 +174,21 @@ export default function BookingTab({ config, save, isSaving }: Props) {
             className="w-24 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
           />
           <p className="mt-1 text-xs text-slate-500">
-            Earliest the agent will offer to book a slot. Minimum 1 day.
+            {c.leadTimeHint}
           </p>
         </div>
       )}
 
       <Toggle
-        label="Send SMS booking confirmation links"
-        hint="If on, an SMS link is sent to the caller after the agent books or takes a message."
+        label={c.smsLabel}
+        hint={c.smsHint}
         checked={enableSmsBookingLinks}
         onChange={setEnableSmsBookingLinks}
       />
 
       <Toggle
-        label="Enable drop-off bookings"
-        hint="If on, the agent can offer drop-off appointments instead of timed bookings for certain services."
+        label={c.dropOffLabel}
+        hint={c.dropOffHint}
         checked={enableDropOffBookings}
         onChange={setEnableDropOffBookings}
       />
@@ -137,7 +197,7 @@ export default function BookingTab({ config, save, isSaving }: Props) {
         <>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">
-              Drop-off message
+              {c.dropOffMsgLabel}
             </label>
             <textarea
               value={dropOffMessage}
@@ -146,13 +206,13 @@ export default function BookingTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
             <p className="mt-1 text-xs text-slate-500">
-              What the agent tells callers about drop-offs.
+              {c.dropOffMsgHint}
             </p>
           </div>
 
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">
-              Services that can&rsquo;t be drop-offs
+              {c.excludeLabel}
             </label>
             <input
               type="text"
@@ -162,16 +222,15 @@ export default function BookingTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
             <p className="mt-1 text-xs text-slate-500">
-              Comma-separated list. The agent will always book these at a timed slot, never as drop-off.
-              Default: <code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-700">MOT</code>.
+              {c.excludeHintBefore}<code className="rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-700">MOT</code>.
             </p>
           </div>
         </>
       )}
 
       <Toggle
-        label="Fast-fit services only"
-        hint="If on, the agent only offers quick services (tyres, oil, basics) — full diagnostic / engine work is escalated."
+        label={c.fastFitLabel}
+        hint={c.fastFitHint}
         checked={allowFastFitOnly}
         onChange={setAllowFastFitOnly}
       />
@@ -182,14 +241,14 @@ export default function BookingTab({ config, save, isSaving }: Props) {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Garage Hive</p>
           </div>
           <Toggle
-            label="Caller recognition"
-            hint="On an inbound call, look the caller's number up in Garage Hive and confirm the vehicle on file (“is it still the Focus?”) instead of asking for the reg. Needs Garage Hive connected."
+            label={c.callerRecLabel}
+            hint={c.callerRecHint}
             checked={callerRecognitionEnabled}
             onChange={setCallerRecognitionEnabled}
           />
           <Toggle
-            label="Advisory upsells"
-            hint="When a customer books, the agent checks Garage Hive for outstanding health-check advisories on their vehicle and offers to add them. Needs Garage Hive connected."
+            label={c.advisoryLabel}
+            hint={c.advisoryHint}
             checked={advisoryUpsellsEnabled}
             onChange={setAdvisoryUpsellsEnabled}
           />

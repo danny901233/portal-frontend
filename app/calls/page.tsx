@@ -10,9 +10,10 @@ import {
   getCallTagLabel,
   getCallTagStyle,
 } from '../lib/callTags';
-import { FEEDBACK_OPTIONS } from '../lib/callFeedback';
+import { getFeedbackOptions } from '../lib/callFeedback';
 import { cn } from '../lib/utils';
 import type { CallRecord, CallsResponse } from '../types';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
@@ -43,10 +44,10 @@ const toIsoDate = (value: string, endOfDay = false): string | undefined => {
   return date.toISOString();
 };
 
-const formatCallTag = (raw?: string | null) => getCallTagLabel(raw);
+const formatCallTag = (raw?: string | null, lang: 'en' | 'fr' = 'en') => getCallTagLabel(raw, lang);
 
-const renderCallTag = (raw?: string | null) => {
-  const label = getCallTagLabel(raw);
+const renderCallTag = (raw?: string | null, lang: 'en' | 'fr' = 'en') => {
+  const label = getCallTagLabel(raw, lang);
   const style = getCallTagStyle(raw);
   return (
     <span
@@ -396,6 +397,133 @@ const buildCallSearchText = (call: CallRecord): string => {
 export default function CallsPage() {
   const garageId = getGarageId();
   const router = useRouter();
+  const lang = useLang();
+  const c = {
+    en: {
+      garageNotSelected: 'Garage not selected. Log out and sign in again to choose a garage.',
+      callActivity: 'Call Activity',
+      monitorInteractions: 'Monitor interactions from your ReceptionMate AI voice agent.',
+      totalCalls: 'Total calls',
+      inSelectedFilter: 'In the selected filter',
+      confirmedBookings: 'Confirmed bookings',
+      callsCapturedBooking: 'Calls that captured a booking',
+      avgDuration: 'Avg duration',
+      perCall: 'Per call',
+      totalTime: 'Total time',
+      combinedCallTime: 'Combined call time',
+      recentCalls: 'Recent calls',
+      searchFilterListen: 'Search, filter and listen back — newest first.',
+      callsBadge: (n: number) => `${n} call${n === 1 ? '' : 's'}`,
+      callTag: 'Call Tag',
+      allCalls: 'All Calls',
+      from: 'From',
+      to: 'To',
+      search: 'Search',
+      searchPlaceholder: 'e.g. "MOT" AND (booking OR estimate)',
+      searchTitle: 'Supports AND, OR, NOT and quoted phrases',
+      clearFilters: 'Clear filters',
+      loading: 'Loading…',
+      resultsCount: (n: number) => `${n} result${n === 1 ? '' : 's'}`,
+      exportNegativeFeedback: 'Export negative feedback',
+      exportFailed: 'Failed to export negative feedback',
+      colCaller: 'Caller',
+      colFromNumber: 'From Number',
+      colDateTime: 'Date & Time',
+      colTag: 'Tag',
+      colRecording: 'Recording',
+      colSummary: 'Summary',
+      colDetails: 'Details',
+      colRating: 'Rating',
+      loadingCalls: 'Loading calls…',
+      noCallsFound: 'No calls found. Adjust filters or widen your search query.',
+      loadingRecording: 'Loading...',
+      loadRecording: 'Load Recording',
+      viewSummary: 'View Summary',
+      viewDetails: 'View Details',
+      ratePositively: 'Rate call positively',
+      rateNegatively: 'Rate call negatively',
+      showingPage: (page: number, totalPages: number, total: number) =>
+        `Showing page ${page} of ${totalPages} (${total} total calls)`,
+      previous: 'Previous',
+      next: 'Next',
+      failedToLoad: 'Failed to load calls.',
+      tryAgainLater: 'Please try again later.',
+      provideFeedback: 'Provide feedback',
+      improveAI: 'Let us know what we can do to improve our AI.',
+      callLabel: 'Call:',
+      tellUsMore: 'Tell us more…',
+      cancel: 'Cancel',
+      saving: 'Saving…',
+      confirm: 'Confirm',
+      feedbackSubmitError: 'Failed to submit feedback. Please try again.',
+      callSummary: 'Call Summary',
+      caller: 'Caller:',
+      closeSummary: 'Close summary',
+      summaryUnavailable: 'Summary unavailable for this call.',
+    },
+    fr: {
+      garageNotSelected: 'Aucun garage sélectionné. Déconnectez-vous et reconnectez-vous pour choisir un garage.',
+      callActivity: 'Activité des appels',
+      monitorInteractions: 'Suivez les interactions de votre agent vocal IA ReceptionMate.',
+      totalCalls: 'Total des appels',
+      inSelectedFilter: 'Dans le filtre sélectionné',
+      confirmedBookings: 'Réservations confirmées',
+      callsCapturedBooking: 'Appels ayant abouti à une réservation',
+      avgDuration: 'Durée moyenne',
+      perCall: 'Par appel',
+      totalTime: 'Temps total',
+      combinedCallTime: 'Temps d’appel cumulé',
+      recentCalls: 'Appels récents',
+      searchFilterListen: 'Recherchez, filtrez et réécoutez — les plus récents en premier.',
+      callsBadge: (n: number) => `${n} appel${n === 1 ? '' : 's'}`,
+      callTag: 'Catégorie d’appel',
+      allCalls: 'Tous les appels',
+      from: 'Du',
+      to: 'Au',
+      search: 'Recherche',
+      searchPlaceholder: 'ex. « contrôle technique » AND (réservation OR devis)',
+      searchTitle: 'Prend en charge AND, OR, NOT et les expressions entre guillemets',
+      clearFilters: 'Effacer les filtres',
+      loading: 'Chargement…',
+      resultsCount: (n: number) => `${n} résultat${n === 1 ? '' : 's'}`,
+      exportNegativeFeedback: 'Exporter les avis négatifs',
+      exportFailed: 'Échec de l’export des avis négatifs',
+      colCaller: 'Appelant',
+      colFromNumber: 'Numéro appelant',
+      colDateTime: 'Date et heure',
+      colTag: 'Catégorie',
+      colRecording: 'Enregistrement',
+      colSummary: 'Résumé',
+      colDetails: 'Détails',
+      colRating: 'Évaluation',
+      loadingCalls: 'Chargement des appels…',
+      noCallsFound: 'Aucun appel trouvé. Ajustez les filtres ou élargissez votre recherche.',
+      loadingRecording: 'Chargement...',
+      loadRecording: 'Charger l’enregistrement',
+      viewSummary: 'Voir le résumé',
+      viewDetails: 'Voir les détails',
+      ratePositively: 'Évaluer l’appel positivement',
+      rateNegatively: 'Évaluer l’appel négativement',
+      showingPage: (page: number, totalPages: number, total: number) =>
+        `Page ${page} sur ${totalPages} (${total} appels au total)`,
+      previous: 'Précédent',
+      next: 'Suivant',
+      failedToLoad: 'Échec du chargement des appels.',
+      tryAgainLater: 'Veuillez réessayer plus tard.',
+      provideFeedback: 'Donner un avis',
+      improveAI: 'Dites-nous ce que nous pouvons faire pour améliorer notre IA.',
+      callLabel: 'Appel :',
+      tellUsMore: 'Dites-nous en plus…',
+      cancel: 'Annuler',
+      saving: 'Enregistrement…',
+      confirm: 'Confirmer',
+      feedbackSubmitError: 'Échec de l’envoi de l’avis. Veuillez réessayer.',
+      callSummary: 'Résumé de l’appel',
+      caller: 'Appelant :',
+      closeSummary: 'Fermer le résumé',
+      summaryUnavailable: 'Résumé indisponible pour cet appel.',
+    },
+  }[lang];
   const [callTagFilter, setCallTagFilter] = useState('all');
   const [startDateInput, setStartDateInput] = useState('');
   const [endDateInput, setEndDateInput] = useState('');
@@ -577,9 +705,9 @@ export default function CallsPage() {
       anchor.click();
       window.URL.revokeObjectURL(url);
     } catch {
-      alert('Failed to export negative feedback');
+      alert(c.exportFailed);
     }
-  }, [garageId]);
+  }, [garageId, c]);
 
   const handleReasonToggle = useCallback((value: string) => {
     setFeedbackReasons((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
@@ -732,7 +860,7 @@ export default function CallsPage() {
   const feedbackErrorMessage = feedbackMutation.isError
     ? feedbackMutation.error instanceof Error
       ? feedbackMutation.error.message
-      : 'Failed to submit feedback. Please try again.'
+      : c.feedbackSubmitError
     : null;
 
   const handleSummaryOpen = useCallback((callId: string) => {
@@ -804,7 +932,7 @@ export default function CallsPage() {
   if (!garageId) {
     return (
       <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
-        Garage not selected. Log out and sign in again to choose a garage.
+        {c.garageNotSelected}
       </div>
     );
   }
@@ -812,43 +940,43 @@ export default function CallsPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold text-slate-900">Call Activity</h1>
-        <p className="text-sm text-slate-500">Monitor interactions from your ReceptionMate AI voice agent.</p>
+        <h1 className="text-2xl font-semibold text-slate-900">{c.callActivity}</h1>
+        <p className="text-sm text-slate-500">{c.monitorInteractions}</p>
       </div>
 
       {/* KPI summary strip */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total calls</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.totalCalls}</div>
           <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.total}</div>
-          <p className="mt-1 text-xs text-slate-500">In the selected filter</p>
+          <p className="mt-1 text-xs text-slate-500">{c.inSelectedFilter}</p>
         </div>
         <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
-          <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Confirmed bookings</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">{c.confirmedBookings}</div>
           <div className="mt-3 text-3xl font-semibold text-emerald-700">{query.isLoading ? '—' : summaryStats.confirmed}</div>
-          <p className="mt-1 text-xs text-slate-500">Calls that captured a booking</p>
+          <p className="mt-1 text-xs text-slate-500">{c.callsCapturedBooking}</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Avg duration</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.avgDuration}</div>
           <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.avgDuration}</div>
-          <p className="mt-1 text-xs text-slate-500">Per call</p>
+          <p className="mt-1 text-xs text-slate-500">{c.perCall}</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total time</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.totalTime}</div>
           <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.totalDuration}</div>
-          <p className="mt-1 text-xs text-slate-500">Combined call time</p>
+          <p className="mt-1 text-xs text-slate-500">{c.combinedCallTime}</p>
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Recent calls</h2>
-            <p className="text-xs text-slate-500">Search, filter and listen back — newest first.</p>
+            <h2 className="text-base font-semibold text-slate-900">{c.recentCalls}</h2>
+            <p className="text-xs text-slate-500">{c.searchFilterListen}</p>
           </div>
           {!query.isLoading && summaryStats.total > 0 ? (
             <span className="hidden rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-200 sm:inline-flex">
-              {summaryStats.total} call{summaryStats.total === 1 ? '' : 's'}
+              {c.callsBadge(summaryStats.total)}
             </span>
           ) : null}
         </div>
@@ -856,7 +984,7 @@ export default function CallsPage() {
         <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-700 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">Call Tag</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500">{c.callTag}</span>
               <select
                 value={callTagFilter}
                 onChange={(event) => setCallTagFilter(event.target.value)}
@@ -864,14 +992,14 @@ export default function CallsPage() {
               >
                 {callTagOptions.map((type) => (
                   <option key={type} value={type}>
-                    {type === 'all' ? 'All Calls' : formatCallTag(type)}
+                    {type === 'all' ? c.allCalls : formatCallTag(type, lang)}
                   </option>
                 ))}
               </select>
             </label>
 
             <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">From</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500">{c.from}</span>
               <input
                 type="date"
                 value={startDateInput}
@@ -881,7 +1009,7 @@ export default function CallsPage() {
             </label>
 
             <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">To</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500">{c.to}</span>
               <input
                 type="date"
                 value={endDateInput}
@@ -894,13 +1022,13 @@ export default function CallsPage() {
 
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">Search</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500">{c.search}</span>
               <input
                 type="search"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder={'e.g. "MOT" AND (booking OR estimate)'}
-                title="Supports AND, OR, NOT and quoted phrases"
+                placeholder={c.searchPlaceholder}
+                title={c.searchTitle}
                 className="w-56 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
               />
             </label>
@@ -910,20 +1038,20 @@ export default function CallsPage() {
                 onClick={resetFilters}
                 className="text-xs font-medium text-brand-600 hover:text-brand-700"
               >
-                Clear filters
+                {c.clearFilters}
               </button>
             ) : null}
             <span className="text-xs uppercase tracking-wide text-slate-500">
               {query.isLoading
-                ? 'Loading…'
-                : `${displayedCalls.length} result${displayedCalls.length === 1 ? '' : 's'}`}
+                ? c.loading
+                : c.resultsCount(displayedCalls.length)}
             </span>
             <button
               type="button"
               onClick={handleExportNegativeFeedback}
               className="rounded-md border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300 hover:border-slate-500 hover:text-slate-100"
             >
-              Export negative feedback
+              {c.exportNegativeFeedback}
             </button>
           </div>
         </div>
@@ -932,27 +1060,27 @@ export default function CallsPage() {
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-white text-xs uppercase tracking-widest text-slate-500">
               <tr>
-                <th className="px-5 py-3 text-left font-medium">Caller</th>
-                <th className="px-5 py-3 text-left font-medium">From Number</th>
-                <th className="px-5 py-3 text-left font-medium">Date &amp; Time</th>
-                <th className="px-5 py-3 text-left font-medium">Tag</th>
-                <th className="px-5 py-3 text-left font-medium">Recording</th>
-                <th className="px-5 py-3 text-left font-medium">Summary</th>
-                <th className="px-5 py-3 text-left font-medium">Details</th>
-                <th className="px-5 py-3 text-left font-medium">Rating</th>
+                <th className="px-5 py-3 text-left font-medium">{c.colCaller}</th>
+                <th className="px-5 py-3 text-left font-medium">{c.colFromNumber}</th>
+                <th className="px-5 py-3 text-left font-medium">{c.colDateTime}</th>
+                <th className="px-5 py-3 text-left font-medium">{c.colTag}</th>
+                <th className="px-5 py-3 text-left font-medium">{c.colRecording}</th>
+                <th className="px-5 py-3 text-left font-medium">{c.colSummary}</th>
+                <th className="px-5 py-3 text-left font-medium">{c.colDetails}</th>
+                <th className="px-5 py-3 text-left font-medium">{c.colRating}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {query.isLoading ? (
                 <tr>
                   <td colSpan={8} className="px-5 py-10 text-center text-slate-500">
-                    Loading calls…
+                    {c.loadingCalls}
                   </td>
                 </tr>
               ) : displayedCalls.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-5 py-10 text-center text-slate-500">
-                    No calls found. Adjust filters or widen your search query.
+                    {c.noCallsFound}
                   </td>
                 </tr>
               ) : (
@@ -960,7 +1088,7 @@ export default function CallsPage() {
                   const callerName = deriveCallerName(call);
                   const callerNumberRaw = deriveCallerNumber(call);
                   const formattedNumber = formatPhoneNumber(callerNumberRaw);
-                  const callTag = renderCallTag(call.callType);
+                  const callTag = renderCallTag(call.callType, lang);
                   const rating = ratings[call.id] ?? null;
                   const upActive = rating === 'up';
                   const downActive = rating === 'down';
@@ -999,7 +1127,7 @@ export default function CallsPage() {
                               disabled={loadingRecordings.has(call.id)}
                               className="rounded-md border border-slate-300 px-2 py-1 text-xs text-brand-600 hover:border-slate-500 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {loadingRecordings.has(call.id) ? 'Loading...' : 'Load Recording'}
+                              {loadingRecordings.has(call.id) ? c.loadingRecording : c.loadRecording}
                             </button>
                             {recordingErrors[call.id] && (
                               <p className="text-xs text-rose-600">{recordingErrors[call.id]}</p>
@@ -1016,7 +1144,7 @@ export default function CallsPage() {
                             onClick={() => handleSummaryOpen(call.id)}
                             className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
                           >
-                            View Summary
+                            {c.viewSummary}
                           </button>
                         ) : (
                           <span className="text-slate-500">—</span>
@@ -1029,7 +1157,7 @@ export default function CallsPage() {
                           rel="noopener noreferrer"
                           className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
                         >
-                          View Details
+                          {c.viewDetails}
                         </a>
                       </td>
                       <td className="px-5 py-3 align-top">
@@ -1046,7 +1174,7 @@ export default function CallsPage() {
                                 : 'border-slate-300 hover:border-emerald-300/70 hover:text-emerald-200',
                             )}
                             aria-pressed={upActive}
-                            aria-label="Rate call positively"
+                            aria-label={c.ratePositively}
                           >
                             <ThumbIcon direction="up" active={upActive} />
                           </button>
@@ -1062,7 +1190,7 @@ export default function CallsPage() {
                                 : 'border-slate-300 hover:border-rose-300/70 hover:text-rose-800',
                             )}
                             aria-pressed={downActive}
-                            aria-label="Rate call negatively"
+                            aria-label={c.rateNegatively}
                           >
                             <ThumbIcon direction="down" active={downActive} />
                           </button>
@@ -1080,7 +1208,7 @@ export default function CallsPage() {
         {pagination && pagination.totalPages > 1 && (
           <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-6">
             <div className="text-sm text-slate-500">
-              Showing page {pagination.page} of {pagination.totalPages} ({pagination.total} total calls)
+              {c.showingPage(pagination.page, pagination.totalPages, pagination.total)}
             </div>
             <div className="flex gap-2">
               <button
@@ -1093,7 +1221,7 @@ export default function CallsPage() {
                     : 'border-slate-300 text-slate-700 hover:border-brand-600 hover:text-brand-600',
                 )}
               >
-                Previous
+                {c.previous}
               </button>
               <div className="flex items-center gap-1">
                 {/* Show page numbers */}
@@ -1137,7 +1265,7 @@ export default function CallsPage() {
                     : 'border-slate-300 text-slate-700 hover:border-brand-600 hover:text-brand-600',
                 )}
               >
-                Next
+                {c.next}
               </button>
             </div>
           </div>
@@ -1146,7 +1274,7 @@ export default function CallsPage() {
 
       {query.isError ? (
         <div className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          Failed to load calls. {query.error instanceof Error ? query.error.message : 'Please try again later.'}
+          {c.failedToLoad} {query.error instanceof Error ? query.error.message : c.tryAgainLater}
         </div>
       ) : null}
 
@@ -1160,14 +1288,14 @@ export default function CallsPage() {
           >
             <div className="space-y-2">
               <h3 id="feedback-title" className="text-lg font-semibold text-slate-900">
-                Provide feedback
+                {c.provideFeedback}
               </h3>
               <p className="text-sm text-slate-500">
-                Let us know what we can do to improve our AI.
+                {c.improveAI}
               </p>
               {modalCallerName ? (
                 <p className="text-sm text-slate-700">
-                  Call: <span className="font-medium text-slate-900">{modalCallerName}</span>
+                  {c.callLabel} <span className="font-medium text-slate-900">{modalCallerName}</span>
                 </p>
               ) : null}
               {modalSummary ? (
@@ -1178,7 +1306,7 @@ export default function CallsPage() {
             </div>
 
             <div className="mt-5 space-y-3">
-              {FEEDBACK_OPTIONS.map((option) => {
+              {getFeedbackOptions(lang).map((option) => {
                 const checked = feedbackReasons.includes(option.value);
                 return (
                   <label key={option.value} className="flex items-start gap-3 text-sm text-slate-700">
@@ -1198,7 +1326,7 @@ export default function CallsPage() {
                 <textarea
                   className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-brand-600 focus:outline-none"
                   rows={3}
-                  placeholder="Tell us more…"
+                  placeholder={c.tellUsMore}
                   value={feedbackNotes}
                   onChange={(event) => setFeedbackNotes(event.target.value)}
                   disabled={isSavingFeedback}
@@ -1212,7 +1340,7 @@ export default function CallsPage() {
                 onClick={handleFeedbackCancel}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-500"
               >
-                Cancel
+                {c.cancel}
               </button>
               <button
                 type="button"
@@ -1226,7 +1354,7 @@ export default function CallsPage() {
                 )}
                 aria-busy={isSavingFeedback}
               >
-                {isSavingFeedback ? 'Saving…' : 'Confirm'}
+                {isSavingFeedback ? c.saving : c.confirm}
               </button>
             </div>
             {feedbackErrorMessage ? (
@@ -1249,11 +1377,11 @@ export default function CallsPage() {
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
                 <h3 id="summary-title" className="text-lg font-semibold text-slate-900">
-                  Call Summary
+                  {c.callSummary}
                 </h3>
                 {summaryModalCallerName ? (
                   <p className="text-sm text-slate-700">
-                    Caller: <span className="font-medium text-slate-900">{summaryModalCallerName}</span>
+                    {c.caller} <span className="font-medium text-slate-900">{summaryModalCallerName}</span>
                   </p>
                 ) : null}
               </div>
@@ -1261,7 +1389,7 @@ export default function CallsPage() {
                 type="button"
                 onClick={closeSummaryModal}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-slate-700 transition-colors hover:border-slate-500 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
-                aria-label="Close summary"
+                aria-label={c.closeSummary}
               >
                 X
               </button>
@@ -1271,7 +1399,7 @@ export default function CallsPage() {
               {summaryModalContent ? (
                 <p className="whitespace-pre-line">{summaryModalContent}</p>
               ) : (
-                <p>Summary unavailable for this call.</p>
+                <p>{c.summaryUnavailable}</p>
               )}
             </div>
           </div>

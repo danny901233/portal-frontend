@@ -11,6 +11,7 @@ import { getCallTagLabel, getCallTagStyle } from '../../lib/callTags';
 import type { CallRecord } from '../../types';
 import { ToolCallEntry } from './components/ToolCallEntry';
 import { LogEntry } from './components/LogEntry';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 // Define transcript entry types
 type MessageEntry = {
@@ -85,11 +86,13 @@ const METRIC_EXCLUDE_KEYS = new Set([
 ]);
 
 const MetricCard = ({ label, value }: { label: string; value: number | string | boolean | null | object }) => {
+  const lang = useLang();
+  const c = { en: { yes: 'Yes', no: 'No' }, fr: { yes: 'Oui', no: 'Non' } }[lang];
   let displayValue: string;
   if (typeof value === 'number') {
     displayValue = numberFormatter.format(value);
   } else if (typeof value === 'boolean') {
-    displayValue = value ? 'Yes' : 'No';
+    displayValue = value ? c.yes : c.no;
   } else if (value === null) {
     displayValue = '—';
   } else if (typeof value === 'object' && value !== null) {
@@ -114,6 +117,21 @@ const TranscriptEntry = ({
   offsetSeconds: number;
   allEntries?: TranscriptEntry_Union[];
 }) => {
+  const lang = useLang();
+  const c = {
+    en: {
+      error: 'Error',
+      result: 'Result',
+      agentHandoff: 'Agent handoff',
+      confidence: 'confidence',
+    },
+    fr: {
+      error: 'Erreur',
+      result: 'Résultat',
+      agentHandoff: 'Transfert d’agent',
+      confidence: 'confiance',
+    },
+  }[lang];
   // Handle function_call (new agent format) — merge with its matching function_call_output (by
   // call_id) so we show the REAL result, success and duration, not a hardcoded green tick / 0ms.
   if ('type' in entry && entry.type === 'function_call') {
@@ -157,7 +175,7 @@ const TranscriptEntry = ({
       <div className={`rounded-lg border p-4 ${isError ? 'border-red-800/40 bg-red-950/30' : 'border-emerald-800/40 bg-emerald-950/30'}`}>
         <div className="flex items-center gap-2">
           <div className={`text-xs font-semibold uppercase tracking-wide ${isError ? 'text-red-700' : 'text-emerald-700'}`}>
-            {funcEntry.name} {isError ? 'Error' : 'Result'}
+            {funcEntry.name} {isError ? c.error : c.result}
           </div>
         </div>
         <div className="mt-2 whitespace-pre-line text-sm text-slate-600">
@@ -200,7 +218,7 @@ const TranscriptEntry = ({
   if ('type' in entry && entry.type === 'agent_handoff') {
     return (
       <div className="rounded-lg border border-purple-800/40 bg-purple-950/30 p-3">
-        <div className="text-xs text-purple-400">Agent handoff: {entry.new_agent_id || 'unknown'}</div>
+        <div className="text-xs text-purple-400">{c.agentHandoff}: {entry.new_agent_id || 'unknown'}</div>
       </div>
     );
   }
@@ -222,7 +240,7 @@ const TranscriptEntry = ({
           <div className="flex items-center gap-3 text-[10px] text-slate-500">
             {confidence !== undefined && (
               <span className={confidence > 0.9 ? 'text-emerald-500' : confidence > 0.7 ? 'text-amber-500' : 'text-rose-500'}>
-                {(confidence * 100).toFixed(0)}% confidence
+                {(confidence * 100).toFixed(0)}% {c.confidence}
               </span>
             )}
             {latency !== undefined && (
@@ -326,6 +344,97 @@ export default function CallDetailPage() {
   const callId = Array.isArray(rawId) ? rawId[0] : rawId;
   const garageId = getGarageId();
   const isStaff = isReceptionMateStaff();
+  const lang = useLang();
+  const c = {
+    en: {
+      backToCalls: '← Back to calls',
+      loadingDetails: 'Loading call details…',
+      unableToLoad: 'Unable to load this call.',
+      tryAgainLater: 'Please try again later.',
+      callDetails: 'Call Details',
+      recordedOn: (date: string) => `Recorded on ${date}`,
+      callId: 'Call ID',
+      copy: 'Copy',
+      copied: 'Copied!',
+      shareCallId: 'Share this call ID with ReceptionMate support if you need help investigating the conversation.',
+      aiDiagnosis: 'AI call diagnosis',
+      issue: '⚠ Issue',
+      ok: '✓ OK',
+      analysing: 'Analysing…',
+      analyseInDepth: 'Analyse in depth',
+      analyseThisCall: 'Analyse this call',
+      suggested: 'Suggested:',
+      deepDive: 'Deep-dive',
+      rootCause: 'Root cause:',
+      suggestedFix: 'Suggested fix:',
+      noDiagnosis: 'No diagnosis yet — click to analyse this call.',
+      analysisFailed: 'Analysis failed',
+      callTag: 'Call Tag',
+      callerName: 'Caller Name',
+      callerNumber: 'Caller Number',
+      conversationSummary: 'Conversation Summary',
+      transcript: 'Transcript',
+      scrollToExplore: 'Scroll to explore the full conversation.',
+      scrollToReadMore: 'Scroll to read more',
+      callFeedback: 'Call Feedback',
+      rating: 'Rating:',
+      positive: 'Positive',
+      negative: 'Negative',
+      reasons: 'Reasons',
+      notes: 'Notes',
+      updated: (date: string) => `Updated ${date}`,
+      callRecording: 'Call Recording',
+      downloadRecording: 'Download Recording',
+      recordingFromTwilio: (caller: string) => `Recording available from Twilio (caller: ${caller})`,
+      fetchingRecording: 'Fetching recording...',
+      loadRecording: 'Load Recording',
+      noRecording: 'No recording available for this call (no customer phone number stored).',
+    },
+    fr: {
+      backToCalls: '← Retour aux appels',
+      loadingDetails: 'Chargement des détails de l’appel…',
+      unableToLoad: 'Impossible de charger cet appel.',
+      tryAgainLater: 'Veuillez réessayer plus tard.',
+      callDetails: 'Détails de l’appel',
+      recordedOn: (date: string) => `Enregistré le ${date}`,
+      callId: 'ID d’appel',
+      copy: 'Copier',
+      copied: 'Copié !',
+      shareCallId: 'Communiquez cet ID d’appel au support ReceptionMate si vous avez besoin d’aide pour analyser la conversation.',
+      aiDiagnosis: 'Diagnostic d’appel par IA',
+      issue: '⚠ Problème',
+      ok: '✓ OK',
+      analysing: 'Analyse en cours…',
+      analyseInDepth: 'Analyser en profondeur',
+      analyseThisCall: 'Analyser cet appel',
+      suggested: 'Suggestion :',
+      deepDive: 'Analyse approfondie',
+      rootCause: 'Cause principale :',
+      suggestedFix: 'Correction suggérée :',
+      noDiagnosis: 'Pas encore de diagnostic — cliquez pour analyser cet appel.',
+      analysisFailed: 'Échec de l’analyse',
+      callTag: 'Catégorie d’appel',
+      callerName: 'Nom de l’appelant',
+      callerNumber: 'Numéro de l’appelant',
+      conversationSummary: 'Résumé de la conversation',
+      transcript: 'Transcription',
+      scrollToExplore: 'Faites défiler pour explorer toute la conversation.',
+      scrollToReadMore: 'Faites défiler pour en lire plus',
+      callFeedback: 'Avis sur l’appel',
+      rating: 'Évaluation :',
+      positive: 'Positive',
+      negative: 'Négative',
+      reasons: 'Raisons',
+      notes: 'Remarques',
+      updated: (date: string) => `Mis à jour le ${date}`,
+      callRecording: 'Enregistrement de l’appel',
+      downloadRecording: 'Télécharger l’enregistrement',
+      recordingFromTwilio: (caller: string) => `Enregistrement disponible depuis Twilio (appelant : ${caller})`,
+      fetchingRecording: 'Récupération de l’enregistrement...',
+      loadRecording: 'Charger l’enregistrement',
+      noRecording: 'Aucun enregistrement disponible pour cet appel (aucun numéro de téléphone client enregistré).',
+    },
+  }[lang];
   const [copied, setCopied] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [fetchingRecording, setFetchingRecording] = useState(false);
@@ -416,15 +525,15 @@ export default function CallDetailPage() {
         body: JSON.stringify({ model: 'gpt-4o' }),
       });
       if (!res.ok) {
-        throw new Error('Analysis failed');
+        throw new Error(c.analysisFailed);
       }
       await query.refetch();
     } catch (e) {
-      setAnalyzeError(e instanceof Error ? e.message : 'Analysis failed');
+      setAnalyzeError(e instanceof Error ? e.message : c.analysisFailed);
     } finally {
       setAnalyzing(false);
     }
-  }, [callId, analyzing, query]);
+  }, [callId, analyzing, query, c.analysisFailed]);
 
   if (!callId) {
     notFound();
@@ -434,10 +543,10 @@ export default function CallDetailPage() {
     return (
       <div className="space-y-4">
         <Link href="/calls" className="text-sm text-brand-600 hover:text-brand-700">
-          ← Back to calls
+          {c.backToCalls}
         </Link>
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-slate-600">
-          Loading call details…
+          {c.loadingDetails}
         </div>
       </div>
     );
@@ -447,10 +556,10 @@ export default function CallDetailPage() {
     return (
       <div className="space-y-4">
         <Link href="/calls" className="text-sm text-brand-600 hover:text-brand-700">
-          ← Back to calls
+          {c.backToCalls}
         </Link>
         <div className="rounded-lg border border-rose-300 bg-rose-50 p-6 text-sm text-rose-800">
-          Unable to load this call. {query.error instanceof Error ? query.error.message : 'Please try again later.'}
+          {c.unableToLoad} {query.error instanceof Error ? query.error.message : c.tryAgainLater}
         </div>
       </div>
     );
@@ -519,31 +628,31 @@ export default function CallDetailPage() {
   return (
     <div className="space-y-6">
       <Link href="/calls" className="inline-flex items-center text-sm text-brand-600 hover:text-brand-700">
-        ← Back to calls
+        {c.backToCalls}
       </Link>
 
       <div className="space-y-2">
-        <h1 className="text-2xl font-semibold text-slate-900">Call Details</h1>
+        <h1 className="text-2xl font-semibold text-slate-900">{c.callDetails}</h1>
         <span
           className={`${getCallTagStyle(call.callType)} inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold shadow-sm shadow-slate-900/30`}
         >
-          {getCallTagLabel(call.callType)}
+          {getCallTagLabel(call.callType, lang)}
         </span>
-        <p className="text-sm text-slate-500">Recorded on {new Date(call.createdAt).toLocaleString()}</p>
+        <p className="text-sm text-slate-500">{c.recordedOn(new Date(call.createdAt).toLocaleString())}</p>
         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
-          <span>Call ID</span>
+          <span>{c.callId}</span>
           <code className="rounded bg-white px-2 py-1 text-[11px] text-slate-700">{call.id}</code>
           <button
             type="button"
             onClick={copyCallId}
             className="rounded border border-slate-300 px-2 py-1 text-[11px] text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700"
           >
-            Copy
+            {c.copy}
           </button>
-          {copied ? <span className="text-[11px] text-emerald-300">Copied!</span> : null}
+          {copied ? <span className="text-[11px] text-emerald-300">{c.copied}</span> : null}
         </div>
         <p className="text-[11px] text-slate-500">
-          Share this call ID with ReceptionMate support if you need help investigating the conversation.
+          {c.shareCallId}
         </p>
       </div>
 
@@ -559,14 +668,14 @@ export default function CallDetailPage() {
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">AI call diagnosis</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{c.aiDiagnosis}</span>
               {diagnosis ? (
                 <span
                   className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                     diagnosis.status === 'issue' ? 'bg-amber-200 text-amber-900' : 'bg-emerald-200 text-emerald-900'
                   }`}
                 >
-                  {diagnosis.status === 'issue' ? '⚠ Issue' : '✓ OK'}
+                  {diagnosis.status === 'issue' ? c.issue : c.ok}
                 </span>
               ) : null}
             </div>
@@ -576,7 +685,7 @@ export default function CallDetailPage() {
               disabled={analyzing}
               className="shrink-0 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700 disabled:opacity-50"
             >
-              {analyzing ? 'Analysing…' : diagnosis ? 'Analyse in depth' : 'Analyse this call'}
+              {analyzing ? c.analysing : diagnosis ? c.analyseInDepth : c.analyseThisCall}
             </button>
           </div>
           {diagnosis ? (
@@ -585,13 +694,13 @@ export default function CallDetailPage() {
               <p className="text-sm text-slate-700">{diagnosis.detail}</p>
               {diagnosis.suggestedAction && !diagnosis.fix ? (
                 <p className="text-sm text-slate-600">
-                  <span className="font-medium">Suggested:</span> {diagnosis.suggestedAction}
+                  <span className="font-medium">{c.suggested}</span> {diagnosis.suggestedAction}
                 </p>
               ) : null}
               {diagnosis.rootCause || diagnosis.fix ? (
                 <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white/70 p-3">
                   <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Deep-dive
+                    {c.deepDive}
                     {diagnosis.severity ? (
                       <span className={`rounded px-1.5 py-0.5 text-[10px] ${
                         diagnosis.severity === 'high' ? 'bg-rose-200 text-rose-900'
@@ -600,10 +709,10 @@ export default function CallDetailPage() {
                     ) : null}
                   </p>
                   {diagnosis.rootCause ? (
-                    <p className="text-sm text-slate-700"><span className="font-medium">Root cause:</span> {diagnosis.rootCause}</p>
+                    <p className="text-sm text-slate-700"><span className="font-medium">{c.rootCause}</span> {diagnosis.rootCause}</p>
                   ) : null}
                   {diagnosis.fix ? (
-                    <p className="text-sm text-slate-700"><span className="font-medium">Suggested fix:</span> {diagnosis.fix}</p>
+                    <p className="text-sm text-slate-700"><span className="font-medium">{c.suggestedFix}</span> {diagnosis.fix}</p>
                   ) : null}
                 </div>
               ) : null}
@@ -613,16 +722,16 @@ export default function CallDetailPage() {
               </p>
             </div>
           ) : (
-            <p className="mt-3 text-sm text-slate-500">No diagnosis yet — click to analyse this call.</p>
+            <p className="mt-3 text-sm text-slate-500">{c.noDiagnosis}</p>
           )}
           {analyzeError ? <p className="mt-2 text-xs text-rose-600">{analyzeError}</p> : null}
         </section>
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <MetricCard label="Call Tag" value={getCallTagLabel(call.callType)} />
-        <MetricCard label="Caller Name" value={callerName} />
-        <MetricCard label="Caller Number" value={callerNumber} />
+        <MetricCard label={c.callTag} value={getCallTagLabel(call.callType, lang)} />
+        <MetricCard label={c.callerName} value={callerName} />
+        <MetricCard label={c.callerNumber} value={callerNumber} />
       </section>
 
       {isStaff && metricEntries.length > 0 ? (
@@ -636,13 +745,13 @@ export default function CallDetailPage() {
       <section className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-6">
-            <h2 className="text-lg font-semibold text-slate-900">Conversation Summary</h2>
+            <h2 className="text-lg font-semibold text-slate-900">{c.conversationSummary}</h2>
             <p className="mt-2 text-sm text-slate-600">{call.summary}</p>
           </div>
 
           <div className="space-y-3">
-            <h2 className="text-lg font-semibold text-slate-900">Transcript</h2>
-            <p className="text-xs uppercase tracking-wide text-slate-500">Scroll to explore the full conversation.</p>
+            <h2 className="text-lg font-semibold text-slate-900">{c.transcript}</h2>
+            <p className="text-xs uppercase tracking-wide text-slate-500">{c.scrollToExplore}</p>
             <div className="relative">
               <div
                 className="max-h-[48rem] space-y-3 overflow-y-auto pr-2 pb-16"
@@ -669,7 +778,7 @@ export default function CallDetailPage() {
                   />
                   <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center z-20">
                     <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-600 shadow-lg shadow-slate-900/60">
-                      Scroll to read more
+                      {c.scrollToReadMore}
                     </span>
                   </div>
                 </>
@@ -681,23 +790,23 @@ export default function CallDetailPage() {
         <div className="space-y-4">
           {call.feedback ? (
             <div className="rounded-xl border border-slate-200 bg-white p-6">
-              <h2 className="text-lg font-semibold text-slate-900">Call Feedback</h2>
+              <h2 className="text-lg font-semibold text-slate-900">{c.callFeedback}</h2>
               <div className="mt-3 text-sm">
-                <span className="text-slate-500">Rating:</span>{' '}
+                <span className="text-slate-500">{c.rating}</span>{' '}
                 <span className={call.feedback.rating === 'up' ? 'font-semibold text-emerald-300' : 'font-semibold text-rose-300'}>
-                  {call.feedback.rating === 'up' ? 'Positive' : 'Negative'}
+                  {call.feedback.rating === 'up' ? c.positive : c.negative}
                 </span>
               </div>
               {call.feedback.reasons.length > 0 ? (
                 <div className="mt-4">
-                  <div className="text-xs uppercase tracking-wide text-slate-500">Reasons</div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">{c.reasons}</div>
                   <ul className="mt-2 space-y-1">
                     {call.feedback.reasons.filter(Boolean).map((reason) => (
                       <li
                         key={reason}
                         className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
                       >
-                        {getFeedbackReasonLabel(reason)}
+                        {getFeedbackReasonLabel(reason, lang)}
                       </li>
                     ))}
                   </ul>
@@ -705,19 +814,19 @@ export default function CallDetailPage() {
               ) : null}
               {call.feedback.notes ? (
                 <div className="mt-4">
-                  <div className="text-xs uppercase tracking-wide text-slate-500">Notes</div>
+                  <div className="text-xs uppercase tracking-wide text-slate-500">{c.notes}</div>
                   <p className="mt-2 whitespace-pre-line text-sm text-slate-700">
                     {call.feedback.notes}
                   </p>
                 </div>
               ) : null}
               <div className="mt-4 text-xs text-slate-500">
-                Updated {new Date(call.feedback.updatedAt).toLocaleString()}
+                {c.updated(new Date(call.feedback.updatedAt).toLocaleString())}
               </div>
             </div>
           ) : null}
           <div className="rounded-xl border border-slate-200 bg-white p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Call Recording</h2>
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">{c.callRecording}</h2>
             
             {call.recordingUrl || recordingUrl ? (
               <div className="space-y-3">
@@ -739,20 +848,20 @@ export default function CallDetailPage() {
                   download={`call-${call.id}-recording.mp3`}
                   className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs text-brand-600 hover:border-slate-500 hover:text-brand-700"
                 >
-                  Download Recording
+                  {c.downloadRecording}
                 </a>
               </div>
             ) : call.customerPhone ? (
               <div className="space-y-3">
                 <p className="text-sm text-slate-500">
-                  Recording available from Twilio (caller: {formatPhoneNumber(call.customerPhone)})
+                  {c.recordingFromTwilio(formatPhoneNumber(call.customerPhone))}
                 </p>
                 <button
                   onClick={fetchRecording}
                   disabled={fetchingRecording}
                   className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {fetchingRecording ? 'Fetching recording...' : 'Load Recording'}
+                  {fetchingRecording ? c.fetchingRecording : c.loadRecording}
                 </button>
                 {recordingError && (
                   <p className="text-sm text-rose-700">{recordingError}</p>
@@ -760,7 +869,7 @@ export default function CallDetailPage() {
               </div>
             ) : (
               <p className="text-sm text-slate-500">
-                No recording available for this call (no customer phone number stored).
+                {c.noRecording}
               </p>
             )}
           </div>

@@ -17,8 +17,30 @@ import {
 import InvoiceTable from './components/InvoiceTable';
 import BillingInfoForm from './components/BillingInfoForm';
 import MandateStatusCard from './components/MandateStatusCard';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 export default function BillingPage() {
+  const lang = useLang();
+  const c = {
+    en: {
+      loading: 'Loading billing information...',
+      pleaseWait: 'Please wait',
+      title: 'Billing',
+      subtitle: 'Manage your invoices, billing information, and payment method',
+      viewInvoicesFor: 'View invoices for:',
+      allBranches: 'All Branches',
+      invoices: 'Invoices',
+    },
+    fr: {
+      loading: 'Chargement des informations de facturation...',
+      pleaseWait: 'Veuillez patienter',
+      title: 'Facturation',
+      subtitle: 'Gérez vos factures, vos informations de facturation et votre moyen de paiement',
+      viewInvoicesFor: 'Afficher les factures pour :',
+      allBranches: 'Toutes les agences',
+      invoices: 'Factures',
+    },
+  }[lang];
   const [selectedGarageId, setSelectedGarageId] = useState<string>(() => {
     const navGarage = getGarageId();
     if (!navGarage || navGarage === ALL_ASSIGNED_BRANCHES_IDENTIFIER) return 'all';
@@ -115,8 +137,8 @@ export default function BillingPage() {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
         <div className="space-y-2 text-center">
-          <div className="text-xl font-semibold text-slate-900">Loading billing information...</div>
-          <div className="text-sm text-slate-500">Please wait</div>
+          <div className="text-xl font-semibold text-slate-900">{c.loading}</div>
+          <div className="text-sm text-slate-500">{c.pleaseWait}</div>
         </div>
       </div>
     );
@@ -126,22 +148,22 @@ export default function BillingPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">Billing</h1>
+        <h1 className="text-3xl font-bold text-slate-900">{c.title}</h1>
         <p className="mt-1 text-slate-500">
-          Manage your invoices, billing information, and payment method
+          {c.subtitle}
         </p>
       </div>
 
       {/* Branch Selector — only shown when on All Branches in navbar */}
       {managedGarages.length > 1 && selectedGarageId === 'all' && (
         <div className="flex items-center gap-4">
-          <label className="text-sm font-medium text-slate-600">View invoices for:</label>
+          <label className="text-sm font-medium text-slate-600">{c.viewInvoicesFor}</label>
           <select
             value={selectedGarageId}
             onChange={(e) => setSelectedGarageId(e.target.value)}
             className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
-            <option value="all">All Branches</option>
+            <option value="all">{c.allBranches}</option>
             {managedGarages.map((garage) => (
               <option key={garage.id} value={garage.id}>
                 {garage.name}
@@ -153,7 +175,7 @@ export default function BillingPage() {
 
       {/* Invoices Section */}
       <div>
-        <h2 className="mb-4 text-xl font-semibold text-slate-900">Invoices</h2>
+        <h2 className="mb-4 text-xl font-semibold text-slate-900">{c.invoices}</h2>
         <InvoiceTable invoices={invoicesQuery.data || []} />
       </div>
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface SmsStats {
   totalSent: number;
@@ -17,6 +18,29 @@ interface SmsStatsWidgetProps {
 }
 
 export default function SmsStatsWidget({ garageId, startDate, endDate }: SmsStatsWidgetProps) {
+  const lang = useLang();
+  const c = {
+    en: {
+      csvFailed: 'Failed to download CSV',
+      title: 'SMS Booking Links',
+      downloading: 'Downloading…',
+      downloadCsv: 'Download CSV',
+      smsSent: 'SMS Sent',
+      billingNote: 'Billing Note:',
+      billingDetail: (price: string) =>
+        `SMS messages are charged at £${price} each for customers requesting online booking links.`,
+    },
+    fr: {
+      csvFailed: 'Échec du téléchargement du CSV',
+      title: 'Liens de réservation SMS',
+      downloading: 'Téléchargement…',
+      downloadCsv: 'Télécharger le CSV',
+      smsSent: 'SMS envoyés',
+      billingNote: 'Note de facturation :',
+      billingDetail: (price: string) =>
+        `Les messages SMS sont facturés £${price} chacun pour les clients demandant des liens de réservation en ligne.`,
+    },
+  }[lang];
   const [stats, setStats] = useState<SmsStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
@@ -80,7 +104,7 @@ export default function SmsStatsWidget({ garageId, startDate, endDate }: SmsStat
       }
     } catch (error) {
       console.error('Error downloading CSV:', error);
-      alert('Failed to download CSV');
+      alert(c.csvFailed);
     } finally {
       setDownloading(false);
     }
@@ -115,7 +139,7 @@ export default function SmsStatsWidget({ garageId, startDate, endDate }: SmsStat
   return (
     <div className="bg-white/40 border border-slate-200 rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-slate-900">SMS Booking Links</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{c.title}</h3>
         <button
           onClick={handleDownloadCSV}
           disabled={downloading}
@@ -124,19 +148,19 @@ export default function SmsStatsWidget({ garageId, startDate, endDate }: SmsStat
             downloading && 'cursor-not-allowed opacity-60'
           )}
         >
-          {downloading ? 'Downloading…' : 'Download CSV'}
+          {downloading ? c.downloading : c.downloadCsv}
         </button>
       </div>
 
       <div className="space-y-3">
         {/* Total SMS Sent */}
         <div className="bg-slate-50 rounded-lg p-3">
-          <p className="text-xs text-slate-500 mb-1">SMS Sent</p>
+          <p className="text-xs text-slate-500 mb-1">{c.smsSent}</p>
           <p className="text-2xl font-bold text-slate-900">{stats.totalSent}</p>
         </div>
 
         <div className="text-xs text-slate-500 bg-slate-50 rounded p-2">
-          <strong>Billing Note:</strong> SMS messages are charged at £{(stats.costPerSms ?? 0.99).toFixed(2)} each for customers requesting online booking links.
+          <strong>{c.billingNote}</strong> {c.billingDetail((stats.costPerSms ?? 0.99).toFixed(2))}
         </div>
       </div>
     </div>

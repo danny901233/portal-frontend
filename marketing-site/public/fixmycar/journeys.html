@@ -115,27 +115,6 @@
   .hublink:hover{border-color:var(--acc);}
   .hublink.menu{left:24px;}
   .hublink.go{right:24px;background:var(--acc);color:#fff;border-color:var(--acc);}
-  @keyframes hintbob{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
-  @media(max-width:600px){
-    .wm{top:12px;left:13px;gap:7px;}
-    .wm .badge{padding:6px 9px;border-radius:9px;}
-    .wm .badge img{height:32px;}
-    .wm .x{font-size:11px;}
-    .count{top:15px;right:13px;font-size:11px;}
-    .slide{align-items:flex-start;justify-content:flex-start;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:80px 16px 156px;}
-    .inner{margin:auto 0;}
-    h1{font-size:42px;}
-    h2{font-size:26px;}
-    .lede,.sub{font-size:16px;}
-    .jrow{gap:20px;margin-top:18px;}
-    .nav{bottom:74px;}
-    .nav .arrow{display:none;}
-    .dots{gap:7px;}
-    .hublink{bottom:16px;font-size:13px;padding:10px 15px;}
-    .hublink.menu{left:13px;}
-    .hublink.go{right:13px;}
-    .hint{bottom:120px;font-size:15px;font-weight:700;color:var(--acc);animation:hintbob 1.3s ease-in-out infinite;}
-  }
 </style>
 </head>
 <body>
@@ -262,7 +241,7 @@
 
 </div>
 
-<div class="hint" id="hint">Tap to continue →</div>
+<div class="hint" id="hint">Click, or press → to walk through</div>
 <div class="nav">
   <button class="arrow" id="prev" aria-label="Previous">‹</button>
   <div class="dots" id="dots"></div>
@@ -345,7 +324,7 @@
     dots.forEach((d,n)=>d.classList.toggle('on',n===i));
     document.getElementById('count').textContent=(i+1)+' / '+slides.length;
     document.getElementById('prev').disabled=i===0;document.getElementById('next').disabled=i===slides.length-1;
-    document.getElementById('hint').style.opacity=i<3?'1':'0';
+    document.getElementById('hint').style.opacity=i===0?'.8':'0';
     cur=i;token++;
     const s=slides[i];
     if(s.dataset.seq)playChat(s);

@@ -1,5 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
 
 // /connect is the messaging-side companion to the voice receptionist.
 // Two halves: inbound (chat across channels) and outbound (WhatsApp
@@ -12,31 +14,18 @@ interface Channel {
   icon: string;   // inline SVG path used inside a 24x24 viewBox
 }
 
-const channels: Channel[] = [
-  {
-    name: 'Web chat',
-    blurb: 'A chat widget on your garage website that books the job 24/7 — same logic as the voice agent, just typed.',
-    swatch: 'bg-brand-600',
-    icon: 'M12 2C6.48 2 2 5.92 2 10.75c0 2.4 1.13 4.56 2.95 6.11L4 22l5.4-2.86A11 11 0 0 0 12 19.5c5.52 0 10-3.92 10-8.75S17.52 2 12 2Z',
-  },
-  {
-    name: 'WhatsApp Business',
-    blurb: "Customers message the garage's WhatsApp Business number — ReceptionMate replies, captures details, and books the job.",
-    swatch: 'bg-emerald-500',
-    icon: 'M17.5 14.4c-.3-.15-1.7-.85-2-1s-.5-.15-.7.15-.8 1-1 1.2-.4.2-.7.05a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.65-2.05c-.2-.3 0-.5.13-.65.13-.15.3-.4.45-.6s.2-.3.3-.5a.55.55 0 0 0 0-.5c0-.15-.6-1.5-.85-2.05-.2-.5-.4-.45-.6-.45h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.95 2.2 5.2 5.2 0 0 0 1.1 2.8 12 12 0 0 0 4.5 4 5.4 5.4 0 0 0 1.5.5 3.6 3.6 0 0 0 1.65.1c.5-.1 1.55-.65 1.75-1.25s.2-1.1.15-1.2-.25-.2-.55-.35Z M20.5 3.5A10 10 0 0 0 12 1a10.5 10.5 0 0 0-9 16l-1.5 5.5 5.6-1.5A10.5 10.5 0 0 0 12 22.5 10.5 10.5 0 0 0 22.5 12a10.5 10.5 0 0 0-2-8.5Z',
-  },
-  {
-    name: 'Instagram DM',
-    blurb: 'DMs sent to the garage account are picked up and replied to in real time, with the same booking logic.',
-    swatch: 'bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400',
-    icon: 'M12 2.16c3.21 0 3.58.01 4.85.07a6.6 6.6 0 0 1 2.23.41 3.7 3.7 0 0 1 1.38.9c.4.4.71.86.9 1.38a6.6 6.6 0 0 1 .41 2.23c.06 1.27.07 1.64.07 4.85s-.01 3.58-.07 4.85a6.6 6.6 0 0 1-.41 2.23 4 4 0 0 1-2.28 2.28 6.6 6.6 0 0 1-2.23.41c-1.27.06-1.64.07-4.85.07s-3.58-.01-4.85-.07a6.6 6.6 0 0 1-2.23-.41 4 4 0 0 1-2.28-2.28 6.6 6.6 0 0 1-.41-2.23C2.17 15.58 2.16 15.21 2.16 12s.01-3.58.07-4.85a6.6 6.6 0 0 1 .41-2.23 4 4 0 0 1 2.28-2.28A6.6 6.6 0 0 1 7.15 2.23C8.42 2.17 8.79 2.16 12 2.16ZM12 0C8.74 0 8.33.01 7.05.07a8.8 8.8 0 0 0-2.92.56 6.15 6.15 0 0 0-3.5 3.5 8.8 8.8 0 0 0-.56 2.92C0 8.33 0 8.74 0 12s.01 3.67.07 4.95a8.8 8.8 0 0 0 .56 2.92 6.15 6.15 0 0 0 3.5 3.5 8.8 8.8 0 0 0 2.92.56C8.33 24 8.74 24 12 24s3.67-.01 4.95-.07a8.8 8.8 0 0 0 2.92-.56 6.15 6.15 0 0 0 3.5-3.5 8.8 8.8 0 0 0 .56-2.92C24 15.67 24 15.26 24 12s-.01-3.67-.07-4.95a8.8 8.8 0 0 0-.56-2.92 6.15 6.15 0 0 0-3.5-3.5A8.8 8.8 0 0 0 16.95.07C15.67 0 15.26 0 12 0Zm0 5.84A6.16 6.16 0 1 0 18.16 12 6.16 6.16 0 0 0 12 5.84Zm0 10.16A4 4 0 1 1 16 12a4 4 0 0 1-4 4Zm6.41-10.4a1.44 1.44 0 1 1-1.44-1.44 1.44 1.44 0 0 1 1.44 1.44Z',
-  },
-  {
-    name: 'Facebook Messenger',
-    blurb: 'Messages sent via the garage Facebook page get answered automatically — bookings flow into the diary.',
-    swatch: 'bg-sky-500',
-    icon: 'M12 2C6.48 2 2 6.07 2 11.13c0 2.83 1.4 5.35 3.6 7.03V22l3.3-1.81a11.16 11.16 0 0 0 3.1.44c5.52 0 10-4.07 10-9.5S17.52 2 12 2Zm.98 12.78-2.53-2.7-4.95 2.7 5.45-5.78 2.6 2.7 4.88-2.7-5.45 5.78Z',
-  },
+// Locale-independent visual data (swatch + icon) kept separate from copy.
+const channelSwatches = [
+  'bg-brand-600',
+  'bg-emerald-500',
+  'bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400',
+  'bg-sky-500',
+];
+const channelIcons = [
+  'M12 2C6.48 2 2 5.92 2 10.75c0 2.4 1.13 4.56 2.95 6.11L4 22l5.4-2.86A11 11 0 0 0 12 19.5c5.52 0 10-3.92 10-8.75S17.52 2 12 2Z',
+  'M17.5 14.4c-.3-.15-1.7-.85-2-1s-.5-.15-.7.15-.8 1-1 1.2-.4.2-.7.05a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.65-2.05c-.2-.3 0-.5.13-.65.13-.15.3-.4.45-.6s.2-.3.3-.5a.55.55 0 0 0 0-.5c0-.15-.6-1.5-.85-2.05-.2-.5-.4-.45-.6-.45h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.95 2.2 5.2 5.2 0 0 0 1.1 2.8 12 12 0 0 0 4.5 4 5.4 5.4 0 0 0 1.5.5 3.6 3.6 0 0 0 1.65.1c.5-.1 1.55-.65 1.75-1.25s.2-1.1.15-1.2-.25-.2-.55-.35Z M20.5 3.5A10 10 0 0 0 12 1a10.5 10.5 0 0 0-9 16l-1.5 5.5 5.6-1.5A10.5 10.5 0 0 0 12 22.5 10.5 10.5 0 0 0 22.5 12a10.5 10.5 0 0 0-2-8.5Z',
+  'M12 2.16c3.21 0 3.58.01 4.85.07a6.6 6.6 0 0 1 2.23.41 3.7 3.7 0 0 1 1.38.9c.4.4.71.86.9 1.38a6.6 6.6 0 0 1 .41 2.23c.06 1.27.07 1.64.07 4.85s-.01 3.58-.07 4.85a6.6 6.6 0 0 1-.41 2.23 4 4 0 0 1-2.28 2.28 6.6 6.6 0 0 1-2.23.41c-1.27.06-1.64.07-4.85.07s-3.58-.01-4.85-.07a6.6 6.6 0 0 1-2.23-.41 4 4 0 0 1-2.28-2.28 6.6 6.6 0 0 1-.41-2.23C2.17 15.58 2.16 15.21 2.16 12s.01-3.58.07-4.85a6.6 6.6 0 0 1 .41-2.23 4 4 0 0 1 2.28-2.28A6.6 6.6 0 0 1 7.15 2.23C8.42 2.17 8.79 2.16 12 2.16ZM12 0C8.74 0 8.33.01 7.05.07a8.8 8.8 0 0 0-2.92.56 6.15 6.15 0 0 0-3.5 3.5 8.8 8.8 0 0 0-.56 2.92C0 8.33 0 8.74 0 12s.01 3.67.07 4.95a8.8 8.8 0 0 0 .56 2.92 6.15 6.15 0 0 0 3.5 3.5 8.8 8.8 0 0 0 2.92.56C8.33 24 8.74 24 12 24s3.67-.01 4.95-.07a8.8 8.8 0 0 0 2.92-.56 6.15 6.15 0 0 0 3.5-3.5 8.8 8.8 0 0 0 .56-2.92C24 15.67 24 15.26 24 12s-.01-3.67-.07-4.95a8.8 8.8 0 0 0-.56-2.92 6.15 6.15 0 0 0-3.5-3.5A8.8 8.8 0 0 0 16.95.07C15.67 0 15.26 0 12 0Zm0 5.84A6.16 6.16 0 1 0 18.16 12 6.16 6.16 0 0 0 12 5.84Zm0 10.16A4 4 0 1 1 16 12a4 4 0 0 1-4 4Zm6.41-10.4a1.44 1.44 0 1 1-1.44-1.44 1.44 1.44 0 0 1 1.44 1.44Z',
+  'M12 2C6.48 2 2 6.07 2 11.13c0 2.83 1.4 5.35 3.6 7.03V22l3.3-1.81a11.16 11.16 0 0 0 3.1.44c5.52 0 10-4.07 10-9.5S17.52 2 12 2Zm.98 12.78-2.53-2.7-4.95 2.7 5.45-5.78 2.6 2.7 4.88-2.7-5.45 5.78Z',
 ];
 
 // A scripted WhatsApp thread that gets rendered as a chat bubble visual.
@@ -44,25 +33,173 @@ const channels: Channel[] = [
 const GARAGE_NAME = 'Hillside Garage';
 const GARAGE_INITIAL = 'H';
 
-const threadMOT = [
-  { from: 'rm', text: `Hi Sarah, it's Tom from ${GARAGE_NAME} 👋 Your VB07 CJZ is due for its MOT on 15 March. Want me to book it in?` },
-  { from: 'customer', text: 'Yes please — Thursday afternoon if you have it?' },
-  { from: 'rm', text: 'Got Thursday 15th at 14:00 free — I\'ll hold it for you. Want me to add an interim service while it\'s in?' },
-  { from: 'customer', text: 'Yeah go on, sounds good 👍' },
-  { from: 'rm', text: "Booked: 15 March, 14:00 — MOT + interim service. We'll text the day before. See you Thursday, Sarah." },
-];
+const c = {
+  en: {
+    title: 'Connect — AI webchat, WhatsApp, Instagram and Facebook for UK garages',
+    description: 'ReceptionMate Connect answers messages from web chat, WhatsApp, Instagram and Facebook — and sends opted-in MOT and service reminders that book themselves.',
+    heroEyebrow: 'Connect',
+    heroH1a: 'Inbound from every channel.',
+    heroH1b: 'Outbound that books itself.',
+    heroSub: "ReceptionMate Connect handles the messaging side of your garage — replying to web-chat enquiries, WhatsApp, Instagram and Facebook in real time, and sending opted-in MOT and service reminders that turn into bookings without anyone in the workshop lifting a finger.",
+    getStarted: 'Get started',
+    voiceInstead: 'Voice receptionist instead?',
+    inboundEyebrow: 'Inbound',
+    inboundH2: 'Four channels, one inbox.',
+    inboundSub: 'Customers reach out where it suits them. Every message lands in your ReceptionMate inbox alongside the calls — replied to instantly, booked when the intent is there.',
+    channels: [
+      {
+        name: 'Web chat',
+        blurb: 'A chat widget on your garage website that books the job 24/7 — same logic as the voice agent, just typed.',
+      },
+      {
+        name: 'WhatsApp Business',
+        blurb: "Customers message the garage's WhatsApp Business number — ReceptionMate replies, captures details, and books the job.",
+      },
+      {
+        name: 'Instagram DM',
+        blurb: 'DMs sent to the garage account are picked up and replied to in real time, with the same booking logic.',
+      },
+      {
+        name: 'Facebook Messenger',
+        blurb: 'Messages sent via the garage Facebook page get answered automatically — bookings flow into the diary.',
+      },
+    ],
+    widgetEyebrow: 'Webchat widget',
+    widgetH2: 'One line of code, live on your website.',
+    widgetSub: "Drop a single snippet onto your garage's website and the ReceptionMate widget appears in the corner. Visitors pick how they want to talk — WhatsApp, live chat or phone — and ReceptionMate picks up immediately on whichever channel they chose.",
+    widgetPoints: [
+      { strong: 'Branded to your garage', rest: ' — your colours, your logo, your phone number.' },
+      { strong: 'Customer picks the channel', rest: ' — WhatsApp, live chat or phone all in one widget.' },
+      { strong: 'Books in the conversation', rest: ' — chat captures vehicle, service and timeslot, just like the voice agent.' },
+      { strong: 'Works on any site', rest: ' — Wix, WordPress, Squarespace, custom builds, all the same install.' },
+    ],
+    widgetUrl: 'yourgarage.co.uk',
+    widgetMessageUs: 'Message us on…',
+    widgetLiveChat: 'Live Chat',
+    widgetPhone: 'Phone',
+    widgetCaption: "The widget as it appears on a garage's website.",
+    outboundEyebrow: 'Outbound',
+    outboundH2: 'MOT and service reminders that book themselves.',
+    outboundSub: 'ReceptionMate Connect sends WhatsApp reminders to your existing opted-in customers when their MOT or service is due. When they reply, it books the slot, confirms the appointment, and adds it to your diary — without anyone in the workshop typing a thing.',
+    outboundPoints: [
+      { strong: 'Opt-in only.', rest: ' Campaigns go to your existing customers who agreed to be contacted — never cold lists.' },
+      { strong: 'In your voice.', rest: " Messages come from your garage's branded WhatsApp Business number — not a generic shortcode." },
+      { strong: 'Books in the conversation.', rest: ' Customer says yes, ReceptionMate offers slots, confirms the appointment, all in one thread.' },
+      { strong: 'Hands off.', rest: " Your team only sees the booking when it's confirmed — no replying, no chasing, no calendar work." },
+    ],
+    threadStatus: 'online · via WhatsApp',
+    thread: [
+      { from: 'rm', text: `Hi Sarah, it's Tom from ${GARAGE_NAME} 👋 Your VB07 CJZ is due for its MOT on 15 March. Want me to book it in?` },
+      { from: 'customer', text: 'Yes please — Thursday afternoon if you have it?' },
+      { from: 'rm', text: 'Got Thursday 15th at 14:00 free — I\'ll hold it for you. Want me to add an interim service while it\'s in?' },
+      { from: 'customer', text: 'Yeah go on, sounds good 👍' },
+      { from: 'rm', text: "Booked: 15 March, 14:00 — MOT + interim service. We'll text the day before. See you Thursday, Sarah." },
+    ],
+    threadCaption: 'An MOT reminder thread — entirely automated.',
+    useCasesEyebrow: 'Use cases',
+    useCasesH2: 'What Connect runs for your garage.',
+    useCases: [
+      { h3: 'MOT reminders', body: 'Customers whose MOT is due get a reminder a fortnight out — and book the slot in the same conversation.' },
+      { h3: 'Service reminders', body: 'Anniversary servicing reminders go out automatically. Customer replies, ReceptionMate books.' },
+      { h3: 'Missed-call follow-up', body: 'When a call goes unanswered, ReceptionMate sends the caller a WhatsApp to pick the conversation back up — and books from there.' },
+      { h3: 'Quote follow-up', body: 'Customers who got a quote but didn\'t book get a gentle nudge a few days later — captured as a fresh booking opportunity.' },
+    ],
+    portalH2: 'Lives in the same portal as your calls.',
+    portalSub: 'Every message, every reply, every booking — across web chat, WhatsApp, Instagram and Facebook — sits alongside your voice calls in the ReceptionMate dashboard. One inbox, one source of truth, one place to review what the AI did.',
+    ctaH2: 'Turn your customer list into a booking pipeline.',
+    ctaSub: 'Already running web chat or WhatsApp? We layer in — without changing your number or your existing channels.',
+  },
+  fr: {
+    title: 'Connect — chat web IA, WhatsApp, Instagram et Facebook pour les garages',
+    description: 'ReceptionMate Connect répond aux messages du chat web, de WhatsApp, d’Instagram et de Facebook — et envoie des rappels de contrôle technique et d’entretien acceptés qui se réservent tout seuls.',
+    heroEyebrow: 'Connect',
+    heroH1a: 'Entrant depuis chaque canal.',
+    heroH1b: 'Sortant qui se réserve tout seul.',
+    heroSub: "ReceptionMate Connect gère le volet messagerie de votre garage — en répondant en temps réel aux demandes par chat web, WhatsApp, Instagram et Facebook, et en envoyant des rappels de contrôle technique et d’entretien acceptés qui se transforment en réservations sans que personne à l’atelier ne lève le petit doigt.",
+    getStarted: 'Commencer',
+    voiceInstead: 'Plutôt une réceptionniste vocale ?',
+    inboundEyebrow: 'Entrant',
+    inboundH2: 'Quatre canaux, une seule boîte de réception.',
+    inboundSub: 'Vos clients vous contactent où bon leur semble. Chaque message arrive dans votre boîte de réception ReceptionMate, aux côtés des appels — traité instantanément, réservé dès que l’intention est là.',
+    channels: [
+      {
+        name: 'Chat web',
+        blurb: 'Un widget de chat sur le site de votre garage qui réserve l’intervention 24h/24, 7j/7 — la même logique que l’agent vocal, mais à l’écrit.',
+      },
+      {
+        name: 'WhatsApp Business',
+        blurb: 'Les clients écrivent au numéro WhatsApp Business du garage — ReceptionMate répond, recueille les informations et réserve l’intervention.',
+      },
+      {
+        name: 'Message privé Instagram',
+        blurb: 'Les messages privés envoyés au compte du garage sont pris en charge et traités en temps réel, avec la même logique de réservation.',
+      },
+      {
+        name: 'Facebook Messenger',
+        blurb: 'Les messages envoyés via la page Facebook du garage reçoivent une réponse automatique — les réservations arrivent dans l’agenda.',
+      },
+    ],
+    widgetEyebrow: 'Widget de chat web',
+    widgetH2: 'Une ligne de code, en ligne sur votre site.',
+    widgetSub: 'Ajoutez un simple extrait de code sur le site de votre garage et le widget ReceptionMate apparaît dans le coin. Les visiteurs choisissent comment ils veulent échanger — WhatsApp, chat en direct ou téléphone — et ReceptionMate prend le relais immédiatement sur le canal choisi.',
+    widgetPoints: [
+      { strong: 'À l’image de votre garage', rest: ' — vos couleurs, votre logo, votre numéro de téléphone.' },
+      { strong: 'Le client choisit le canal', rest: ' — WhatsApp, chat en direct ou téléphone, le tout dans un seul widget.' },
+      { strong: 'Réserve dans la conversation', rest: ' — le chat recueille le véhicule, l’intervention et le créneau, tout comme l’agent vocal.' },
+      { strong: 'Fonctionne sur tout site', rest: ' — Wix, WordPress, Squarespace, sites sur mesure, la même installation partout.' },
+    ],
+    widgetUrl: 'votregarage.fr',
+    widgetMessageUs: 'Écrivez-nous sur…',
+    widgetLiveChat: 'Chat en direct',
+    widgetPhone: 'Téléphone',
+    widgetCaption: 'Le widget tel qu’il apparaît sur le site d’un garage.',
+    outboundEyebrow: 'Sortant',
+    outboundH2: 'Des rappels de contrôle technique et d’entretien qui se réservent tout seuls.',
+    outboundSub: 'ReceptionMate Connect envoie des rappels WhatsApp à vos clients existants ayant donné leur accord lorsque leur contrôle technique ou leur entretien arrive à échéance. Lorsqu’ils répondent, il réserve le créneau, confirme le rendez-vous et l’ajoute à votre agenda — sans que personne à l’atelier ne tape la moindre ligne.',
+    outboundPoints: [
+      { strong: 'Sur accord uniquement.', rest: ' Les campagnes s’adressent à vos clients existants ayant accepté d’être contactés — jamais de listes froides.' },
+      { strong: 'À votre image.', rest: ' Les messages proviennent du numéro WhatsApp Business à l’image de votre garage — pas d’un numéro court générique.' },
+      { strong: 'Réserve dans la conversation.', rest: ' Le client dit oui, ReceptionMate propose des créneaux, confirme le rendez-vous, le tout dans un seul fil.' },
+      { strong: 'Sans intervention.', rest: ' Votre équipe ne voit la réservation qu’une fois confirmée — aucune réponse, aucune relance, aucune gestion d’agenda.' },
+    ],
+    threadStatus: 'en ligne · via WhatsApp',
+    thread: [
+      { from: 'rm', text: `Bonjour Sarah, c’est Tom de ${GARAGE_NAME} 👋 Votre VB07 CJZ doit passer son contrôle technique le 15 mars. Voulez-vous que je le réserve ?` },
+      { from: 'customer', text: 'Oui, avec plaisir — jeudi après-midi si c’est possible ?' },
+      { from: 'rm', text: 'J’ai jeudi 15 à 14h00 de libre — je vous le réserve. Voulez-vous que j’ajoute un entretien intermédiaire pendant qu’il est à l’atelier ?' },
+      { from: 'customer', text: 'Oui, allez-y, ça me va 👍' },
+      { from: 'rm', text: 'Réservé : 15 mars, 14h00 — contrôle technique + entretien intermédiaire. Nous vous enverrons un message la veille. À jeudi, Sarah.' },
+    ],
+    threadCaption: 'Un fil de rappel de contrôle technique — entièrement automatisé.',
+    useCasesEyebrow: 'Cas d’usage',
+    useCasesH2: 'Ce que Connect gère pour votre garage.',
+    useCases: [
+      { h3: 'Rappels de contrôle technique', body: 'Les clients dont le contrôle technique arrive à échéance reçoivent un rappel quinze jours avant — et réservent le créneau dans la même conversation.' },
+      { h3: 'Rappels d’entretien', body: 'Les rappels d’entretien annuel partent automatiquement. Le client répond, ReceptionMate réserve.' },
+      { h3: 'Relance des appels manqués', body: 'Lorsqu’un appel reste sans réponse, ReceptionMate envoie un WhatsApp à l’appelant pour reprendre la conversation — et réserve dans la foulée.' },
+      { h3: 'Relance des devis', body: 'Les clients ayant reçu un devis sans réserver reçoivent un petit rappel quelques jours plus tard — capté comme une nouvelle occasion de réservation.' },
+    ],
+    portalH2: 'Vit dans le même portail que vos appels.',
+    portalSub: 'Chaque message, chaque réponse, chaque réservation — sur le chat web, WhatsApp, Instagram et Facebook — se trouve aux côtés de vos appels vocaux dans le tableau de bord ReceptionMate. Une seule boîte de réception, une seule source de vérité, un seul endroit pour vérifier ce qu’a fait l’IA.',
+    ctaH2: 'Transformez votre fichier clients en flux de réservations.',
+    ctaSub: 'Vous utilisez déjà le chat web ou WhatsApp ? Nous nous intégrons — sans changer votre numéro ni vos canaux existants.',
+  },
+}[lang];
 
-const useCases = [
-  { h3: 'MOT reminders', body: 'Customers whose MOT is due get a reminder a fortnight out — and book the slot in the same conversation.' },
-  { h3: 'Service reminders', body: 'Anniversary servicing reminders go out automatically. Customer replies, ReceptionMate books.' },
-  { h3: 'Missed-call follow-up', body: 'When a call goes unanswered, ReceptionMate sends the caller a WhatsApp to pick the conversation back up — and books from there.' },
-  { h3: 'Quote follow-up', body: 'Customers who got a quote but didn\'t book get a gentle nudge a few days later — captured as a fresh booking opportunity.' },
-];
+const channels: Channel[] = c.channels.map((ch, i) => ({
+  name: ch.name,
+  blurb: ch.blurb,
+  swatch: channelSwatches[i],
+  icon: channelIcons[i],
+}));
+
+const threadMOT = c.thread;
+const useCases = c.useCases;
 ---
 
 <BaseLayout
-  title="Connect — AI webchat, WhatsApp, Instagram and Facebook for UK garages"
-  description="ReceptionMate Connect answers messages from web chat, WhatsApp, Instagram and Facebook — and sends opted-in MOT and service reminders that book themselves."
+  title={c.title}
+  description={c.description}
 >
   <!-- Hero -->
   <section class="relative isolate overflow-hidden bg-white">
@@ -71,24 +208,21 @@ const useCases = [
     </div>
 
     <div class="mx-auto max-w-5xl px-4 pt-16 pb-12 sm:px-6 lg:px-8 lg:pt-20">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Connect</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.heroEyebrow}</p>
       <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl lg:text-6xl">
-        Inbound from every channel.<br/>
-        <span class="text-brand-600">Outbound that books itself.</span>
+        {c.heroH1a}<br/>
+        <span class="text-brand-600">{c.heroH1b}</span>
       </h1>
       <p class="mt-6 max-w-3xl text-lg leading-relaxed text-ink-700">
-        ReceptionMate Connect handles the messaging side of your garage —
-        replying to web-chat enquiries, WhatsApp, Instagram and Facebook in
-        real time, and sending opted-in MOT and service reminders that turn
-        into bookings without anyone in the workshop lifting a finger.
+        {c.heroSub}
       </p>
 
       <div class="mt-8 flex flex-wrap items-center gap-3">
-        <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
-          Get started
+        <a href={L('/get-started', lang)} class="inline-flex items-center justify-center rounded-md bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
+          {c.getStarted}
         </a>
-        <a href="/how-it-works" class="inline-flex items-center justify-center rounded-md border border-ink-300 px-5 py-3 text-sm font-semibold text-ink-700 hover:border-ink-400 transition">
-          Voice receptionist instead?
+        <a href={L('/how-it-works', lang)} class="inline-flex items-center justify-center rounded-md border border-ink-300 px-5 py-3 text-sm font-semibold text-ink-700 hover:border-ink-400 transition">
+          {c.voiceInstead}
         </a>
       </div>
     </div>
@@ -98,26 +232,24 @@ const useCases = [
   <section class="bg-ink-50 py-16 sm:py-20">
     <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
       <div class="mx-auto max-w-3xl text-center">
-        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Inbound</p>
+        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.inboundEyebrow}</p>
         <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Four channels, one inbox.
+          {c.inboundH2}
         </h2>
         <p class="mt-4 text-lg text-ink-700">
-          Customers reach out where it suits them. Every message lands in your
-          ReceptionMate inbox alongside the calls — replied to instantly,
-          booked when the intent is there.
+          {c.inboundSub}
         </p>
       </div>
 
       <div class="mt-12 grid gap-5 sm:grid-cols-2">
-        {channels.map((c) => (
+        {channels.map((ch) => (
           <article class="flex gap-4 rounded-2xl border border-ink-200 bg-white p-6">
-            <span class={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${c.swatch} text-white`}>
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d={c.icon}/></svg>
+            <span class={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${ch.swatch} text-white`}>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d={ch.icon}/></svg>
             </span>
             <div>
-              <h3 class="text-lg font-semibold text-ink-900">{c.name}</h3>
-              <p class="mt-1 text-sm leading-relaxed text-ink-700">{c.blurb}</p>
+              <h3 class="text-lg font-semibold text-ink-900">{ch.name}</h3>
+              <p class="mt-1 text-sm leading-relaxed text-ink-700">{ch.blurb}</p>
             </div>
           </article>
         ))}
@@ -134,33 +266,20 @@ const useCases = [
 
         <!-- Left: copy -->
         <div>
-          <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Webchat widget</p>
+          <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.widgetEyebrow}</p>
           <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-            One line of code, live on your website.
+            {c.widgetH2}
           </h2>
           <p class="mt-4 text-lg leading-relaxed text-ink-700">
-            Drop a single snippet onto your garage's website and the
-            ReceptionMate widget appears in the corner. Visitors pick how they
-            want to talk — WhatsApp, live chat or phone — and ReceptionMate
-            picks up immediately on whichever channel they chose.
+            {c.widgetSub}
           </p>
           <ul class="mt-6 space-y-3">
-            <li class="flex items-start gap-3 text-base text-ink-700">
-              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-              <span><strong class="text-ink-900">Branded to your garage</strong> — your colours, your logo, your phone number.</span>
-            </li>
-            <li class="flex items-start gap-3 text-base text-ink-700">
-              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-              <span><strong class="text-ink-900">Customer picks the channel</strong> — WhatsApp, live chat or phone all in one widget.</span>
-            </li>
-            <li class="flex items-start gap-3 text-base text-ink-700">
-              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-              <span><strong class="text-ink-900">Books in the conversation</strong> — chat captures vehicle, service and timeslot, just like the voice agent.</span>
-            </li>
-            <li class="flex items-start gap-3 text-base text-ink-700">
-              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-              <span><strong class="text-ink-900">Works on any site</strong> — Wix, WordPress, Squarespace, custom builds, all the same install.</span>
-            </li>
+            {c.widgetPoints.map((p) => (
+              <li class="flex items-start gap-3 text-base text-ink-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                <span><strong class="text-ink-900">{p.strong}</strong>{p.rest}</span>
+              </li>
+            ))}
           </ul>
         </div>
 
@@ -178,7 +297,7 @@ const useCases = [
               <span class="inline-block h-2.5 w-2.5 rounded-full bg-rose-400"></span>
               <span class="inline-block h-2.5 w-2.5 rounded-full bg-amber-400"></span>
               <span class="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
-              <span class="ml-3 truncate rounded-md bg-white px-3 py-0.5 text-[10px] font-medium text-ink-500">yourgarage.co.uk</span>
+              <span class="ml-3 truncate rounded-md bg-white px-3 py-0.5 text-[10px] font-medium text-ink-500">{c.widgetUrl}</span>
             </div>
 
             <!-- Faux page content behind the widget -->
@@ -219,7 +338,7 @@ const useCases = [
 
                 <!-- White inner card -->
                 <div class="mx-3 mb-3 rounded-2xl bg-white p-3" style="box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
-                  <h4 class="mb-2.5 text-xs font-semibold text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">Message us on…</h4>
+                  <h4 class="mb-2.5 text-xs font-semibold text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">{c.widgetMessageUs}</h4>
 
                   <div class="space-y-1.5">
                     <!-- WhatsApp -->
@@ -234,14 +353,14 @@ const useCases = [
                       <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white" style="background: #3426cf;">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                       </span>
-                      <span class="text-xs font-medium text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">Live Chat</span>
+                      <span class="text-xs font-medium text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">{c.widgetLiveChat}</span>
                     </div>
                     <!-- Phone -->
                     <div class="flex items-center gap-2 rounded-xl border bg-white px-2 py-1.5" style="border-color: #5DDCC2; border-width: 1.5px;">
                       <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ink-800 text-white">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.05-.24c1.16.39 2.41.6 3.69.6a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.28.21 2.53.6 3.69a1 1 0 0 1-.24 1.05l-2.24 2.05Z"/></svg>
                       </span>
-                      <span class="text-xs font-medium text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">Phone</span>
+                      <span class="text-xs font-medium text-ink-900" style="font-family: 'Poppins', system-ui, sans-serif;">{c.widgetPhone}</span>
                     </div>
                   </div>
                 </div>
@@ -253,7 +372,7 @@ const useCases = [
               </span>
             </div>
           </div>
-          <p class="mt-4 text-center text-xs text-ink-500">The widget as it appears on a garage's website.</p>
+          <p class="mt-4 text-center text-xs text-ink-500">{c.widgetCaption}</p>
         </div>
 
       </div>
@@ -266,33 +385,20 @@ const useCases = [
       <div class="grid gap-10 lg:grid-cols-2 lg:items-center">
         <!-- Left: copy -->
         <div>
-          <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Outbound</p>
+          <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.outboundEyebrow}</p>
           <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-            MOT and service reminders that book themselves.
+            {c.outboundH2}
           </h2>
           <p class="mt-4 text-lg leading-relaxed text-ink-700">
-            ReceptionMate Connect sends WhatsApp reminders to your existing
-            opted-in customers when their MOT or service is due. When they
-            reply, it books the slot, confirms the appointment, and adds it to
-            your diary — without anyone in the workshop typing a thing.
+            {c.outboundSub}
           </p>
           <ul class="mt-6 space-y-3">
-            <li class="flex items-start gap-3 text-base text-ink-700">
-              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-              <span><strong class="text-ink-900">Opt-in only.</strong> Campaigns go to your existing customers who agreed to be contacted — never cold lists.</span>
-            </li>
-            <li class="flex items-start gap-3 text-base text-ink-700">
-              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-              <span><strong class="text-ink-900">In your voice.</strong> Messages come from your garage's branded WhatsApp Business number — not a generic shortcode.</span>
-            </li>
-            <li class="flex items-start gap-3 text-base text-ink-700">
-              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-              <span><strong class="text-ink-900">Books in the conversation.</strong> Customer says yes, ReceptionMate offers slots, confirms the appointment, all in one thread.</span>
-            </li>
-            <li class="flex items-start gap-3 text-base text-ink-700">
-              <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-              <span><strong class="text-ink-900">Hands off.</strong> Your team only sees the booking when it's confirmed — no replying, no chasing, no calendar work.</span>
-            </li>
+            {c.outboundPoints.map((p) => (
+              <li class="flex items-start gap-3 text-base text-ink-700">
+                <svg xmlns="http://www.w3.org/2000/svg" class="mt-1 h-5 w-5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                <span><strong class="text-ink-900">{p.strong}</strong>{p.rest}</span>
+              </li>
+            ))}
           </ul>
         </div>
 
@@ -304,7 +410,7 @@ const useCases = [
               <span class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-emerald-600 font-bold">{GARAGE_INITIAL}</span>
               <div class="min-w-0 flex-1 text-white">
                 <p class="text-sm font-semibold leading-tight">{GARAGE_NAME}</p>
-                <p class="text-xs text-emerald-100">online · via WhatsApp</p>
+                <p class="text-xs text-emerald-100">{c.threadStatus}</p>
               </div>
             </header>
             <!-- Thread -->
@@ -318,7 +424,7 @@ const useCases = [
               ))}
             </ol>
           </div>
-          <p class="mt-3 text-center text-xs text-ink-500">An MOT reminder thread — entirely automated.</p>
+          <p class="mt-3 text-center text-xs text-ink-500">{c.threadCaption}</p>
         </div>
       </div>
     </div>
@@ -328,9 +434,9 @@ const useCases = [
   <section class="bg-ink-50 py-16 sm:py-20">
     <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
       <div class="mx-auto max-w-3xl text-center">
-        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Use cases</p>
+        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.useCasesEyebrow}</p>
         <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          What Connect runs for your garage.
+          {c.useCasesH2}
         </h2>
       </div>
 
@@ -349,13 +455,10 @@ const useCases = [
   <section class="bg-white py-16 sm:py-20">
     <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
       <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        Lives in the same portal as your calls.
+        {c.portalH2}
       </h2>
       <p class="mt-4 text-lg leading-relaxed text-ink-700">
-        Every message, every reply, every booking — across web chat, WhatsApp,
-        Instagram and Facebook — sits alongside your voice calls in the
-        ReceptionMate dashboard. One inbox, one source of truth, one place to
-        review what the AI did.
+        {c.portalSub}
       </p>
     </div>
   </section>
@@ -365,15 +468,14 @@ const useCases = [
     <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
       <div class="relative overflow-hidden rounded-3xl bg-brand-600 p-10 text-center sm:p-14">
         <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-          Turn your customer list into a booking pipeline.
+          {c.ctaH2}
         </h2>
         <p class="mx-auto mt-4 max-w-2xl text-lg text-brand-100">
-          Already running web chat or WhatsApp? We layer in — without changing
-          your number or your existing channels.
+          {c.ctaSub}
         </p>
         <div class="mt-8">
-          <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition">
-            Get started
+          <a href={L('/get-started', lang)} class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition">
+            {c.getStarted}
           </a>
         </div>
       </div>

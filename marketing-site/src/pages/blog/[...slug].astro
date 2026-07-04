@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import { getCollection, render } from 'astro:content';
+import BlogPost from '../../components/BlogPost.astro';
+import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
   const posts = await getCollection('blog', ({ data }) => !data.draft);
@@ -11,55 +12,8 @@ export async function getStaticPaths() {
 }
 
 const { post } = Astro.props;
-const { Content } = await render(post);
-
-const formatDate = (d: Date) =>
-  d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 ---
 
 <BaseLayout title={`${post.data.title} — ReceptionMate`} description={post.data.description}>
-  <article class="bg-white pt-16 pb-20 sm:pt-20">
-    <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
-      <div class="flex flex-wrap items-center gap-2 text-xs">
-        <span class="text-ink-500">{formatDate(post.data.publishedAt)}</span>
-        {post.data.tags.slice(0, 3).map((t) => (
-          <span class="rounded-full bg-brand-50 px-2.5 py-1 font-semibold text-brand-700">{t}</span>
-        ))}
-      </div>
-
-      <h1 class="mt-4 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
-        {post.data.title}
-      </h1>
-
-      <p class="mt-4 text-lg text-ink-700">{post.data.description}</p>
-
-      {post.data.heroImage && (
-        <img
-          src={post.data.heroImage}
-          alt={post.data.heroImageAlt ?? ''}
-          class="mt-8 aspect-[16/9] w-full rounded-2xl object-cover shadow-md shadow-brand-900/5"
-          loading="eager"
-          decoding="async"
-        />
-      )}
-
-      <div class="prose prose-lg mt-10 max-w-none prose-headings:font-bold prose-headings:text-ink-900 prose-h2:text-2xl prose-h2:mt-10 prose-h3:text-xl prose-p:text-ink-700 prose-p:leading-relaxed prose-a:text-brand-600 prose-a:underline prose-strong:text-ink-900 prose-li:text-ink-700">
-        <Content />
-      </div>
-
-      <div class="mt-16 rounded-2xl bg-brand-600 p-8 text-center sm:p-10">
-        <h2 class="text-2xl font-bold text-white">See ReceptionMate handle your calls</h2>
-        <p class="mx-auto mt-3 max-w-xl text-base text-brand-100">
-          AI receptionist built for UK garages — books straight into your diary,
-          24/7, with no contract.
-        </p>
-        <a
-          href="/get-started"
-          class="mt-6 inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition"
-        >
-          Get started
-        </a>
-      </div>
-    </div>
-  </article>
+  <BlogPost post={post} />
 </BaseLayout>

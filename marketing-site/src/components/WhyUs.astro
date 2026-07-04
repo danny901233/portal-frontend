@@ -3,6 +3,8 @@
 // answering services. Named competitors (Jodie, Smith.ai) appear in column
 // headers rather than per-row so we keep the table readable and the
 // claims are about category capability, not specific feature digs.
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
 
 interface Row {
   label: string;
@@ -12,88 +14,149 @@ interface Row {
   humanService: boolean;
 }
 
-const rows: Row[] = [
-  {
-    label: 'Built specifically for UK garages',
-    detail: 'Designed around how MOT bays, service drops, and parts orders actually flow.',
-    receptionmate: true,
-    genericAI: false,
-    humanService: false,
+const copy = {
+  en: {
+    eyebrow: 'Why ReceptionMate',
+    heading: 'Built for garages, not nail salons.',
+    introShort: 'ReceptionMate is the only AI receptionist built from the ground up for UK automotive.',
+    introLong: 'Most AI receptionists — Smith.ai, Synthflow, Jodie and dozens like them — are general-purpose tools sold to dentists, law firms, salons and garages with the same script. Traditional answering services (Moneypenny, AnswerConnect, Ruby, AllDayPA) put humans on the phone reading from a checklist. ReceptionMate is the only one built from the ground up for UK automotive.',
+    colCapability: 'Capability',
+    colRmSub: 'Built for garages',
+    colGenericTitle: 'Generic AI receptionists',
+    colGenericSub: 'Smith.ai, Synthflow, Jodie',
+    colHumanTitle: 'Human answering service',
+    colHumanSub: 'Moneypenny, AnswerConnect, Ruby',
+    yes: 'Yes',
+    no: 'No',
+    mobileNote: 'Generic AI receptionists and human answering services miss most of these.',
+    mobileNoteRest: 'See full comparison on desktop.',
+    footnote: 'Comparisons based on publicly available product documentation as of June 2026.',
+    rows: [
+      {
+        label: 'Built specifically for UK garages',
+        detail: 'Designed around how MOT bays, service drops, and parts orders actually flow.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'Understands automotive vocabulary',
+        detail: 'MOT, interim, full service, cambelt, DPF, EGR, brake pads, alignment, diagnostics.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'Live DVLA vehicle lookup during the call',
+        detail: 'Caller gives the reg, agent instantly pulls make, model, year, fuel type, tax and MOT status — and uses it to quote the right service.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'MOT history checker built in',
+        detail: 'Reads recent pass/fail history and advisories so the agent can flag what is due and pre-warn the workshop.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'Answers every call, even at peaks',
+        detail: 'Infinite concurrency — Monday morning rush, lunchtime queue, Saturday spike. No ringing out, no voicemail, no queue music.',
+        receptionmate: true, genericAI: true, humanService: false,
+      },
+      {
+        label: 'Books directly into Garage Hive, Tyresoft & more',
+        detail: 'Slots reserved in real time during the call — no double-bookings.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: '24/7 — including evenings, weekends and bank holidays',
+        receptionmate: true, genericAI: true, humanService: false,
+      },
+      {
+        label: 'Trained on real UK garage calls',
+        detail: 'Not retrofitted from an American product or a generic SaaS template.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'No scripts — natural, on-brand conversation',
+        receptionmate: true, genericAI: true, humanService: false,
+      },
+    ] as Row[],
   },
-  {
-    label: 'Understands automotive vocabulary',
-    detail: 'MOT, interim, full service, cambelt, DPF, EGR, brake pads, alignment, diagnostics.',
-    receptionmate: true,
-    genericAI: false,
-    humanService: false,
+  fr: {
+    eyebrow: 'Pourquoi ReceptionMate',
+    heading: 'Conçu pour les garages, pas pour les salons de manucure.',
+    introShort: "ReceptionMate est la seule réceptionniste IA conçue dès le départ pour l'automobile.",
+    introLong: "La plupart des réceptionnistes IA — Smith.ai, Synthflow, Jodie et des dizaines d'autres — sont des outils polyvalents vendus aux dentistes, aux cabinets d'avocats, aux salons et aux garages avec le même script. Les services de permanence téléphonique classiques (Moneypenny, AnswerConnect, Ruby, AllDayPA) placent des humains au téléphone qui lisent une liste de contrôle. ReceptionMate est la seule solution conçue dès le départ pour l'automobile.",
+    colCapability: 'Capacité',
+    colRmSub: 'Conçu pour les garages',
+    colGenericTitle: 'Réceptionnistes IA génériques',
+    colGenericSub: 'Smith.ai, Synthflow, Jodie',
+    colHumanTitle: 'Service de permanence humaine',
+    colHumanSub: 'Moneypenny, AnswerConnect, Ruby',
+    yes: 'Oui',
+    no: 'Non',
+    mobileNote: 'Les réceptionnistes IA génériques et les services de permanence humaine passent à côté de la plupart de ces points.',
+    mobileNoteRest: 'Voir la comparaison complète sur ordinateur.',
+    footnote: 'Comparaisons basées sur la documentation produit publiquement disponible en juin 2026.',
+    rows: [
+      {
+        label: 'Conçu spécifiquement pour les garages',
+        detail: 'Pensé autour du fonctionnement réel des lignes de contrôle technique, des dépôts de véhicules pour révision et des commandes de pièces.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'Comprend le vocabulaire automobile',
+        detail: 'Contrôle technique, révision intermédiaire, révision complète, courroie de distribution, FAP, vanne EGR, plaquettes de frein, géométrie, diagnostics.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'Recherche véhicule DVLA en direct pendant l’appel',
+        detail: "L'appelant donne l'immatriculation, l'agent récupère instantanément la marque, le modèle, l'année, le type de carburant, la vignette fiscale et le statut du contrôle technique — et s'en sert pour proposer la bonne prestation.",
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: "Vérificateur d'historique de contrôle technique intégré",
+        detail: "Lit l'historique récent des réussites/échecs et les points de surveillance pour que l'agent signale ce qui est à prévoir et prévienne l'atelier à l'avance.",
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'Répond à chaque appel, même aux heures de pointe',
+        detail: "Concurrence illimitée — affluence du lundi matin, file de midi, pic du samedi. Aucune sonnerie dans le vide, aucune messagerie vocale, aucune musique d'attente.",
+        receptionmate: true, genericAI: true, humanService: false,
+      },
+      {
+        label: 'Réserve directement dans Garage Hive, Tyresoft et plus encore',
+        detail: 'Créneaux bloqués en temps réel pendant l’appel — plus de double réservation.',
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: '24h/24 et 7j/7 — y compris soirs, week-ends et jours fériés',
+        receptionmate: true, genericAI: true, humanService: false,
+      },
+      {
+        label: 'Formé sur de vrais appels de garages',
+        detail: "Pas un produit américain remanié ni un modèle SaaS générique.",
+        receptionmate: true, genericAI: false, humanService: false,
+      },
+      {
+        label: 'Aucun script — une conversation naturelle et fidèle à votre marque',
+        receptionmate: true, genericAI: true, humanService: false,
+      },
+    ] as Row[],
   },
-  {
-    label: 'Live DVLA vehicle lookup during the call',
-    detail: 'Caller gives the reg, agent instantly pulls make, model, year, fuel type, tax and MOT status — and uses it to quote the right service.',
-    receptionmate: true,
-    genericAI: false,
-    humanService: false,
-  },
-  {
-    label: 'MOT history checker built in',
-    detail: 'Reads recent pass/fail history and advisories so the agent can flag what is due and pre-warn the workshop.',
-    receptionmate: true,
-    genericAI: false,
-    humanService: false,
-  },
-  {
-    label: 'Answers every call, even at peaks',
-    detail: 'Infinite concurrency — Monday morning rush, lunchtime queue, Saturday spike. No ringing out, no voicemail, no queue music.',
-    receptionmate: true,
-    genericAI: true,
-    humanService: false,
-  },
-  {
-    label: 'Books directly into Garage Hive, Tyresoft & more',
-    detail: 'Slots reserved in real time during the call — no double-bookings.',
-    receptionmate: true,
-    genericAI: false,
-    humanService: false,
-  },
-  {
-    label: '24/7 — including evenings, weekends and bank holidays',
-    receptionmate: true,
-    genericAI: true,
-    humanService: false,
-  },
-  {
-    label: 'Trained on real UK garage calls',
-    detail: 'Not retrofitted from an American product or a generic SaaS template.',
-    receptionmate: true,
-    genericAI: false,
-    humanService: false,
-  },
-  {
-    label: 'No scripts — natural, on-brand conversation',
-    receptionmate: true,
-    genericAI: true,
-    humanService: false,
-  },
-];
+}[lang];
+
+const rows = copy.rows;
 ---
 
 <section class="bg-white py-20 sm:py-24">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-3xl text-center">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Why ReceptionMate</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{copy.eyebrow}</p>
       <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        Built for garages, not nail salons.
+        {copy.heading}
       </h2>
       <!-- Short version on mobile, full pitch on desktop. -->
       <p class="mt-5 text-lg text-ink-600 md:hidden">
-        ReceptionMate is the only AI receptionist built from the ground up for UK automotive.
+        {copy.introShort}
       </p>
       <p class="mt-5 hidden text-lg text-ink-600 md:block">
-        Most AI receptionists — Smith.ai, Synthflow, Jodie and dozens like them — are
-        general-purpose tools sold to dentists, law firms, salons and garages with the same
-        script. Traditional answering services (Moneypenny, AnswerConnect, Ruby, AllDayPA) put
-        humans on the phone reading from a checklist. ReceptionMate is the only one built from
-        the ground up for UK automotive.
+        {copy.introLong}
       </p>
     </div>
 
@@ -104,26 +167,26 @@ const rows: Row[] = [
           <thead>
             <tr class="border-b border-ink-200 bg-ink-50">
               <th scope="col" class="px-6 py-5 text-sm font-semibold text-ink-900">
-                Capability
+                {copy.colCapability}
               </th>
               <th scope="col" class="px-6 py-5 text-center">
                 <div class="inline-flex flex-col items-center">
                   <span class="rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white">
                     ReceptionMate
                   </span>
-                  <span class="mt-1 text-xs text-ink-500">Built for garages</span>
+                  <span class="mt-1 text-xs text-ink-500">{copy.colRmSub}</span>
                 </div>
               </th>
               <th scope="col" class="px-6 py-5 text-center">
                 <div class="inline-flex flex-col items-center">
-                  <span class="text-sm font-semibold text-ink-700">Generic AI receptionists</span>
-                  <span class="mt-1 text-xs text-ink-500">Smith.ai, Synthflow, Jodie</span>
+                  <span class="text-sm font-semibold text-ink-700">{copy.colGenericTitle}</span>
+                  <span class="mt-1 text-xs text-ink-500">{copy.colGenericSub}</span>
                 </div>
               </th>
               <th scope="col" class="px-6 py-5 text-center">
                 <div class="inline-flex flex-col items-center">
-                  <span class="text-sm font-semibold text-ink-700">Human answering service</span>
-                  <span class="mt-1 text-xs text-ink-500">Moneypenny, AnswerConnect, Ruby</span>
+                  <span class="text-sm font-semibold text-ink-700">{copy.colHumanTitle}</span>
+                  <span class="mt-1 text-xs text-ink-500">{copy.colHumanSub}</span>
                 </div>
               </th>
             </tr>
@@ -139,13 +202,13 @@ const rows: Row[] = [
                 </td>
                 <td class="px-6 py-5 text-center align-top">
                   {row.receptionmate ? (
-                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-brand-600" aria-label="Yes">
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-brand-600" aria-label={copy.yes}>
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
                     </span>
                   ) : (
-                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label="No">
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label={copy.no}>
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                       </svg>
@@ -154,13 +217,13 @@ const rows: Row[] = [
                 </td>
                 <td class="px-6 py-5 text-center align-top">
                   {row.genericAI ? (
-                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-500" aria-label="Yes">
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-500" aria-label={copy.yes}>
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
                     </span>
                   ) : (
-                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label="No">
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label={copy.no}>
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                       </svg>
@@ -169,13 +232,13 @@ const rows: Row[] = [
                 </td>
                 <td class="px-6 py-5 text-center align-top">
                   {row.humanService ? (
-                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-500" aria-label="Yes">
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-500" aria-label={copy.yes}>
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
                     </span>
                   ) : (
-                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label="No">
+                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-ink-100 text-ink-400" aria-label={copy.no}>
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                       </svg>
@@ -205,14 +268,14 @@ const rows: Row[] = [
         ))}
       </ul>
       <div class="mt-4 rounded-xl border border-ink-200 bg-ink-50 px-4 py-3 text-xs leading-relaxed text-ink-600">
-        <span class="font-semibold text-ink-900">Generic AI receptionists and human answering services miss most of these.</span>
-        See full comparison on desktop.
+        <span class="font-semibold text-ink-900">{copy.mobileNote}</span>
+        {' '}{copy.mobileNoteRest}
       </div>
     </div>
 
     <div class="mt-10 text-center">
       <p class="text-sm text-ink-500">
-        Comparisons based on publicly available product documentation as of June 2026.
+        {copy.footnote}
       </p>
     </div>
   </div>

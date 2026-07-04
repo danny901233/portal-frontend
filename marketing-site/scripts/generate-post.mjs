@@ -164,28 +164,14 @@ Remember: frontmatter then body. No H1 in the body. UK English. End with a soft 
 
   const response = await client.chat.completions.create({
     model: 'gpt-5',
-    // gpt-5 is a reasoning model: reasoning tokens are billed against max_completion_tokens.
-    // At 4000 the reasoning step ate the whole budget and left nothing for the post, so the
-    // model returned empty content and the job aborted. Give it real headroom and keep the
-    // reasoning light — this is creative writing, not a hard reasoning task.
-    max_completion_tokens: 16000,
-    reasoning_effort: 'low',
+    max_completion_tokens: 4000,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userPrompt },
     ],
   });
 
-  let text = (response.choices?.[0]?.message?.content ?? '').trim();
-
-  // Models sometimes wrap the post in a ```markdown fence or add a "Here's your post:"
-  // preamble, so it doesn't literally start with the frontmatter. Normalise: strip a
-  // surrounding code fence, then drop anything before the first '---' line.
-  text = text.replace(/^```[a-z]*\s*\n/i, '').replace(/\n```\s*$/i, '').trim();
-  if (!text.startsWith('---')) {
-    const m = text.match(/^---[ \t]*$/m);
-    if (m && m.index !== undefined && m.index > 0) text = text.slice(m.index).trim();
-  }
+  const text = (response.choices?.[0]?.message?.content ?? '').trim();
 
   // Validate basic shape: needs frontmatter and a body.
   if (!text.startsWith('---')) {

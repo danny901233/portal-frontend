@@ -1,56 +1,81 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { COMPETITORS } from '../../data/competitors';
+import { getLang, L } from '../../i18n/ui';
 
-const human = COMPETITORS.filter((c) => c.category === 'human-service');
-const ai = COMPETITORS.filter((c) => c.category === 'generic-ai');
+const lang = getLang(Astro.url);
+
+const human = COMPETITORS.filter((comp) => comp.category === 'human-service');
+const ai = COMPETITORS.filter((comp) => comp.category === 'generic-ai');
+
+const c = {
+  en: {
+    metaTitle: 'Compare ReceptionMate to alternatives — for UK garages',
+    metaDesc: 'Comparing ReceptionMate to Moneypenny, AnswerConnect, Ruby, AllDayPA, Jodie, Smith.ai and other answering services for UK garages.',
+    eyebrow: 'Compare',
+    h1: 'How ReceptionMate compares.',
+    intro: 'Looking at an answering service for your garage? See how ReceptionMate stacks up against the main alternatives.',
+    humanHeading: 'Human answering services',
+    aiHeading: 'Generic AI receptionists',
+    alternativeSuffix: 'alternative',
+  },
+  fr: {
+    metaTitle: 'Comparez ReceptionMate aux alternatives — pour les garages',
+    metaDesc: 'Comparaison de ReceptionMate avec Moneypenny, AnswerConnect, Ruby, AllDayPA, Jodie, Smith.ai et d’autres services de permanence téléphonique pour les garages.',
+    eyebrow: 'Comparer',
+    h1: 'Comment ReceptionMate se compare.',
+    intro: 'Vous envisagez un service de permanence téléphonique pour votre garage ? Découvrez comment ReceptionMate se positionne face aux principales alternatives.',
+    humanHeading: 'Services de permanence téléphonique humains',
+    aiHeading: 'Réceptionnistes IA génériques',
+    alternativeSuffix: 'alternative',
+  },
+}[lang];
 ---
 
 <BaseLayout
-  title="Compare ReceptionMate to alternatives — for UK garages"
-  description="Comparing ReceptionMate to Moneypenny, AnswerConnect, Ruby, AllDayPA, Jodie, Smith.ai and other answering services for UK garages."
+  title={c.metaTitle}
+  description={c.metaDesc}
 >
   <section class="bg-white py-16 sm:py-20">
     <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Compare</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.eyebrow}</p>
       <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
-        How ReceptionMate compares.
+        {c.h1}
       </h1>
       <p class="mt-4 max-w-3xl text-lg text-ink-700">
-        Looking at an answering service for your garage? See how ReceptionMate
-        stacks up against the main alternatives.
+        {c.intro}
       </p>
 
       <div class="mt-12 space-y-12">
         <div>
-          <h2 class="text-2xl font-bold text-ink-900">Human answering services</h2>
+          <h2 class="text-2xl font-bold text-ink-900">{c.humanHeading}</h2>
           <div class="mt-5 grid gap-4 sm:grid-cols-2">
-            {human.map((c) => (
+            {human.map((comp) => (
               <a
-                href={`/alternatives/${c.slug}`}
+                href={L(`/alternatives/${comp.slug}`, lang)}
                 class="group block rounded-2xl border border-ink-200 bg-white p-5 transition hover:border-brand-300 hover:shadow-md"
               >
                 <h3 class="text-lg font-semibold text-ink-900 group-hover:text-brand-700">
-                  {c.displayName} alternative
+                  {comp.displayName} {c.alternativeSuffix}
                 </h3>
-                <p class="mt-2 text-sm text-ink-600">{c.oneLiner}</p>
+                <p class="mt-2 text-sm text-ink-600">{comp.oneLiner}</p>
               </a>
             ))}
           </div>
         </div>
 
         <div>
-          <h2 class="text-2xl font-bold text-ink-900">Generic AI receptionists</h2>
+          <h2 class="text-2xl font-bold text-ink-900">{c.aiHeading}</h2>
           <div class="mt-5 grid gap-4 sm:grid-cols-2">
-            {ai.map((c) => (
+            {ai.map((comp) => (
               <a
-                href={`/alternatives/${c.slug}`}
+                href={L(`/alternatives/${comp.slug}`, lang)}
                 class="group block rounded-2xl border border-ink-200 bg-white p-5 transition hover:border-brand-300 hover:shadow-md"
               >
                 <h3 class="text-lg font-semibold text-ink-900 group-hover:text-brand-700">
-                  {c.displayName} alternative
+                  {comp.displayName} {c.alternativeSuffix}
                 </h3>
-                <p class="mt-2 text-sm text-ink-600">{c.oneLiner}</p>
+                <p class="mt-2 text-sm text-ink-600">{comp.oneLiner}</p>
               </a>
             ))}
           </div>

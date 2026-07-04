@@ -3,6 +3,16 @@
 // To add real logos: drop the files into marketing-site/public/garages/.
 // Per-logo size class so quieter / paler logos can hold their own next to
 // the bold ones. Default is h-12; bump specific entries to h-16.
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+const c = {
+  en: {
+    trusted: 'Trusted by garages across the UK',
+  },
+  fr: {
+    trusted: 'Adopté par des garages partout au Royaume-Uni',
+  },
+}[lang];
 const garages = [
   { name: 'EAC Telford',            logo: '/garages/EAC-logo.png',          sizeClass: 'h-12 max-w-[160px]' },
   { name: 'In and Out Autocentres', logo: '/garages/ino-autocentres.png',   sizeClass: 'h-12 max-w-[160px]' },
@@ -18,7 +28,7 @@ const garages = [
 <section class="border-y border-ink-200 bg-ink-50 py-10">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <p class="text-center text-xs uppercase tracking-wider text-ink-500 font-semibold">
-      Trusted by garages across the UK
+      {c.trusted}
     </p>
 
     <!-- Scroll container: clip overflow, soft fade on each edge so the loop

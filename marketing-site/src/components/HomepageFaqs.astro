@@ -4,32 +4,69 @@
 // navigate to the dedicated FAQ page. Verbatim from /faqs.astro so when one
 // answer changes there, mirror it here.
 
-const items = [
-  {
-    q: 'Do I need to change my phone number?',
-    a: "No. You keep your existing number. We provision a ReceptionMate number, and you set call forwarding on your existing landline or mobile: if a call rings 5–7 times without anyone picking up, it forwards to ReceptionMate. Out of hours, every call forwards automatically. Your team still answers first when they can.",
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+const c = {
+  en: {
+    eyebrow: 'Frequently asked',
+    h2: 'The questions garage owners ask first.',
+    moreLead: 'More questions covered on the',
+    moreLink: 'full FAQ page',
+    moreTail: '.',
+    items: [
+      {
+        q: 'Do I need to change my phone number?',
+        a: "No. You keep your existing number. We provision a ReceptionMate number, and you set call forwarding on your existing landline or mobile: if a call rings 5–7 times without anyone picking up, it forwards to ReceptionMate. Out of hours, every call forwards automatically. Your team still answers first when they can.",
+      },
+      {
+        q: 'How long does setup take?',
+        a: "Assist is live in minutes. Automate and Connect take 3–5 days because we configure your integrations (Garage Hive, Tyresoft, WhatsApp Business etc.) before going live.",
+      },
+      {
+        q: 'Can ReceptionMate actually book a job, or does it just take a message?',
+        a: "It books the job live during the call. It reads your diary, offers free slots, reserves the chosen one in real time, and confirms by SMS before the call ends.",
+      },
+      {
+        q: 'Is there a contract?',
+        a: "No long-term contract. You can stop using ReceptionMate at any time — just disable the call-forwarding rule.",
+      },
+    ],
   },
-  {
-    q: 'How long does setup take?',
-    a: "Assist is live in minutes. Automate and Connect take 3–5 days because we configure your integrations (Garage Hive, Tyresoft, WhatsApp Business etc.) before going live.",
+  fr: {
+    eyebrow: 'Questions fréquentes',
+    h2: 'Les questions que les gérants de garage posent en premier.',
+    moreLead: "Plus de questions traitées sur la",
+    moreLink: 'page FAQ complète',
+    moreTail: '.',
+    items: [
+      {
+        q: 'Dois-je changer de numéro de téléphone ?',
+        a: "Non. Vous gardez votre numéro actuel. Nous provisionnons un numéro ReceptionMate, et vous configurez le renvoi d'appel sur votre ligne fixe ou mobile existante : si un appel sonne 5 à 7 fois sans que personne ne décroche, il est transféré vers ReceptionMate. En dehors des heures d'ouverture, chaque appel est transféré automatiquement. Votre équipe répond toujours en premier lorsqu'elle le peut.",
+      },
+      {
+        q: "Combien de temps prend la mise en place ?",
+        a: "Assist est opérationnel en quelques minutes. Automate et Connect prennent 3 à 5 jours, car nous configurons vos intégrations (Garage Hive, Tyresoft, WhatsApp Business, etc.) avant la mise en service.",
+      },
+      {
+        q: "ReceptionMate peut-il vraiment prendre une réservation, ou se contente-t-il de prendre un message ?",
+        a: "Il enregistre la réservation en direct pendant l'appel. Il consulte votre agenda, propose les créneaux libres, réserve le créneau choisi en temps réel et confirme par SMS avant la fin de l'appel.",
+      },
+      {
+        q: "Y a-t-il un contrat ?",
+        a: "Pas de contrat à long terme. Vous pouvez cesser d'utiliser ReceptionMate à tout moment — il suffit de désactiver la règle de renvoi d'appel.",
+      },
+    ],
   },
-  {
-    q: 'Can ReceptionMate actually book a job, or does it just take a message?',
-    a: "It books the job live during the call. It reads your diary, offers free slots, reserves the chosen one in real time, and confirms by SMS before the call ends.",
-  },
-  {
-    q: 'Is there a contract?',
-    a: "No long-term contract. You can stop using ReceptionMate at any time — just disable the call-forwarding rule.",
-  },
-];
+}[lang];
+const items = c.items;
 ---
 
 <section class="bg-white py-16 sm:py-20">
   <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-3xl text-center">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Frequently asked</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.eyebrow}</p>
       <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        The questions garage owners ask first.
+        {c.h2}
       </h2>
     </div>
 
@@ -48,7 +85,7 @@ const items = [
     </div>
 
     <p class="mt-6 text-center text-sm text-ink-500">
-      More questions covered on the <a href="/faqs" class="font-medium text-brand-700 underline hover:text-brand-800">full FAQ page</a>.
+      {c.moreLead} <a href={L('/faqs', lang)} class="font-medium text-brand-700 underline hover:text-brand-800">{c.moreLink}</a>{c.moreTail}
     </p>
   </div>
 </section>

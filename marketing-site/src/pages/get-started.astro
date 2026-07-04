@@ -11,6 +11,8 @@
 //                                integration interest so we can follow up.
 
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
 
 const LEAD_ENDPOINT    = import.meta.env.PUBLIC_LEAD_ENDPOINT    || 'https://portal.receptionmate.co.uk/api/public/lead';
 const SIGNUP_ENDPOINT  = import.meta.env.PUBLIC_SIGNUP_ENDPOINT  || 'https://portal.receptionmate.co.uk/api/public-signup';
@@ -18,18 +20,277 @@ const PORTAL_LOGIN_URL = import.meta.env.PUBLIC_PORTAL_LOGIN_URL || 'https://por
 const GOOGLE_API_KEY   = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
 const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
+
+const c = {
+  en: {
+    metaTitle: 'Get started — ReceptionMate',
+    metaDesc: 'Set up your ReceptionMate AI receptionist in a few quick steps.',
+    homeAria: 'ReceptionMate home',
+    alreadyCustomer: 'Already a customer? Sign in',
+    back: 'Back',
+    stepLabelInit: 'Step 1 of 3',
+
+    // Step: business
+    businessH1: 'What’s your garage called?',
+    businessSub: 'Start typing and pick from the list — we’ll pull your details from Google.',
+    searchPlaceholder: 'e.g. Acme Auto Centre',
+    cantFind: 'Can’t find your garage?',
+    manualNameLabel: 'Business name',
+    manualNamePlaceholder: 'Acme Auto Centre',
+    manualAddrLabel: 'Town or city',
+    manualAddrPlaceholder: 'Telford',
+    continue: 'Continue',
+
+    // Step: package
+    settingUp: 'Setting up',
+    yourGarage: 'your garage',
+    packageH1: 'Which option suits you best?',
+    packageSub: 'Most garages start with Assist and upgrade later — but it’s your call.',
+    instantSignup: 'Instant sign-up',
+    assistDesc: 'Catches every call and books jobs using the lead time you set — bookings land in your portal inbox, not your diary.',
+    assistF1: 'Live in minutes — no integration needed',
+    assistF2: 'Takes bookings using your set lead time',
+    assistF3: 'Simple monthly billing',
+    mostPopular: 'Most popular',
+    automateDesc: 'Books the job in your diary on the call — no callbacks.',
+    automateF1: 'Plugs into Garage Hive, Tyresoft + more',
+    automateF2: 'Quotes from your service menu',
+    automateF3: 'SMS confirmations + reminders',
+    connectDesc: 'AI chat widget for your website — books from page visitors.',
+    connectF1: 'One-line install on any website',
+    connectF2: 'Books MOTs + services 24/7',
+    connectF3: 'Conversations in your portal inbox',
+    bespoke: 'Bespoke',
+    multibranchTitle: 'Multi-branch or custom',
+    multibranchDesc: 'Running multiple locations, or need a bespoke build? We’ll scope it with you.',
+    multibranchF1: 'Central portal, separate inboxes per branch',
+    multibranchF2: 'Custom integrations + custom workflows',
+    multibranchF3: 'Dedicated onboarding + volume pricing',
+
+    // Step: gms
+    youPicked: 'You picked',
+    gmsH1: 'Which booking system do you use?',
+    gmsSub: 'This tells us whether we can plug straight in — or whether we’d recommend a different starting point.',
+    supported: 'Supported',
+    canIntegrateNow: 'We can integrate now.',
+    somethingElse: 'Something else / not sure',
+    somethingElseDesc: 'We’ll suggest the best way to get started today.',
+
+    // Step: recommend
+    recommendH1: 'Start with Assist while we build the integration.',
+    recommendSub: 'Assist catches every call from day one. As soon as your system is supported, we’ll switch you over to Automate.',
+    gmsNameLabel: 'Which system do you use today?',
+    gmsNamePlaceholder: 'e.g. ProtechMS, MAM Autowork, paper diary…',
+    recommendNote: 'You can switch bookings on and set a lead time inside the portal once your account’s live.',
+
+    // Step: account-assist
+    assistAccountH1: 'One last thing — your details.',
+    assistAccountSub: 'We’ll email your login and you can go live in the portal.',
+    creatingFor: 'Creating an account for',
+    assistTierBadge: 'Assist · £200/mo',
+    whatsIncluded: 'What’s included',
+    incl1: 'AI receptionist answering 24/7 — no missed calls',
+    incl2: 'Takes bookings using a lead time you control',
+    incl3: 'Job details + transcripts in your portal inbox',
+    incl4: 'SMS confirmations sent to the customer',
+    incl5: '400 minutes included, then £0.25 per minute',
+    incl6: 'Simple monthly billing',
+    yourName: 'Your name',
+    namePlaceholder: 'Jane Smith',
+    emailLabel: 'Email address',
+    emailPlaceholder: 'you@yourgarage.co.uk',
+    createAccount: 'Create my account',
+    creatingAccount: 'Creating your account…',
+    termsIntro: 'By creating an account you agree to our',
+    termsWord: 'Terms',
+    andWord: 'and',
+    privacyWord: 'Privacy Policy',
+    orWord: 'or',
+    enquireInstead: 'Prefer to chat first? Send us an enquiry instead →',
+
+    // Step: account-lead
+    leadHeadline: 'Let’s scope the integration.',
+    leadSub: 'Drop your details and someone from the team will be in touch within one working day.',
+    forWord: 'For',
+    phoneLabel: 'Phone number',
+    phonePlaceholder: '07700 000000',
+    sendIt: 'Send it',
+    sending: 'Sending…',
+
+    // Step: success-lead
+    successH2: 'Thanks — we’ve got your details.',
+    successBody: 'Someone from the team will be in touch within one working day.',
+    backHome: 'Back to homepage',
+
+    // Step: redirecting
+    accountReady: 'Account ready.',
+    redirectingBody: 'Taking you to your service agreement now — sign it in your browser and we’ll email your portal login details.',
+
+    // Script-internal (passed via define:vars)
+    js: {
+      step1of3: 'Step 1 of 3',
+      step2of3: 'Step 2 of 3',
+      step3of4: 'Step 3 of 4',
+      step4of5: 'Step 4 of 5',
+      finalStep: 'Final step',
+      done: 'Done',
+      tierAssist: 'Assist',
+      tierAutomate: 'Automate',
+      tierConnect: 'Connect',
+      tierMultibranch: 'Multi-branch',
+      gmsGaragehive: 'Garage Hive',
+      gmsTyresoft: 'Tyresoft',
+      gmsOther: 'Other system',
+      headlineBranches: 'Let’s get your branches set up.',
+      headlineScope: 'Let’s scope the integration.',
+      headlineTellUs: 'Tell us a bit about your garage.',
+      assistEnquiry: 'Assist enquiry',
+      errEmailInUse: 'That email already has a ReceptionMate account — sign in instead.',
+      errSignup: "Couldn't create your account — try again, or email hello@receptionmate.co.uk.",
+      errLead: "Couldn't send that — try again, or email hello@receptionmate.co.uk.",
+    },
+  },
+  fr: {
+    metaTitle: 'Commencer — ReceptionMate',
+    metaDesc: 'Configurez votre réceptionniste IA ReceptionMate en quelques étapes rapides.',
+    homeAria: 'Accueil ReceptionMate',
+    alreadyCustomer: 'Déjà client ? Se connecter',
+    back: 'Retour',
+    stepLabelInit: 'Étape 1 sur 3',
+
+    // Step: business
+    businessH1: 'Comment s’appelle votre garage ?',
+    businessSub: 'Commencez à saisir et choisissez dans la liste — nous récupérerons vos informations depuis Google.',
+    searchPlaceholder: 'par ex. Acme Auto Centre',
+    cantFind: 'Vous ne trouvez pas votre garage ?',
+    manualNameLabel: 'Nom de l’entreprise',
+    manualNamePlaceholder: 'Acme Auto Centre',
+    manualAddrLabel: 'Ville',
+    manualAddrPlaceholder: 'Telford',
+    continue: 'Continuer',
+
+    // Step: package
+    settingUp: 'Configuration de',
+    yourGarage: 'votre garage',
+    packageH1: 'Quelle option vous convient le mieux ?',
+    packageSub: 'La plupart des garages commencent avec Assist et évoluent plus tard — mais c’est vous qui décidez.',
+    instantSignup: 'Inscription instantanée',
+    assistDesc: 'Répond à chaque appel et enregistre les réservations selon le délai que vous définissez — les réservations arrivent dans votre boîte de réception du portail, pas dans votre agenda.',
+    assistF1: 'Opérationnel en quelques minutes — aucune intégration nécessaire',
+    assistF2: 'Prend les réservations selon le délai que vous définissez',
+    assistF3: 'Facturation mensuelle simple',
+    mostPopular: 'Le plus populaire',
+    automateDesc: 'Enregistre l’intervention dans votre agenda pendant l’appel — sans rappel.',
+    automateF1: 'Se connecte à Garage Hive, Tyresoft et plus encore',
+    automateF2: 'Devis à partir de votre catalogue de services',
+    automateF3: 'Confirmations et rappels par SMS',
+    connectDesc: 'Widget de chat IA pour votre site web — réserve auprès des visiteurs.',
+    connectF1: 'Installation en une ligne sur n’importe quel site web',
+    connectF2: 'Réserve les contrôles techniques et entretiens 24h/24, 7j/7',
+    connectF3: 'Conversations dans votre boîte de réception du portail',
+    bespoke: 'Sur mesure',
+    multibranchTitle: 'Multi-agences ou sur mesure',
+    multibranchDesc: 'Vous gérez plusieurs sites ou avez besoin d’une solution sur mesure ? Nous la définissons avec vous.',
+    multibranchF1: 'Portail central, boîtes de réception distinctes par agence',
+    multibranchF2: 'Intégrations et flux de travail personnalisés',
+    multibranchF3: 'Accompagnement dédié et tarifs dégressifs',
+
+    // Step: gms
+    youPicked: 'Vous avez choisi',
+    gmsH1: 'Quel système de réservation utilisez-vous ?',
+    gmsSub: 'Cela nous indique si nous pouvons nous connecter directement — ou si nous recommanderions un autre point de départ.',
+    supported: 'Pris en charge',
+    canIntegrateNow: 'Nous pouvons l’intégrer dès maintenant.',
+    somethingElse: 'Autre chose / je ne sais pas',
+    somethingElseDesc: 'Nous vous suggérerons la meilleure façon de commencer dès aujourd’hui.',
+
+    // Step: recommend
+    recommendH1: 'Commencez avec Assist pendant que nous construisons l’intégration.',
+    recommendSub: 'Assist répond à chaque appel dès le premier jour. Dès que votre système est pris en charge, nous vous basculons vers Automate.',
+    gmsNameLabel: 'Quel système utilisez-vous aujourd’hui ?',
+    gmsNamePlaceholder: 'par ex. ProtechMS, MAM Autowork, agenda papier…',
+    recommendNote: 'Vous pourrez activer les réservations et définir un délai dans le portail une fois votre compte actif.',
+
+    // Step: account-assist
+    assistAccountH1: 'Une dernière chose — vos coordonnées.',
+    assistAccountSub: 'Nous vous enverrons vos identifiants par e-mail et vous pourrez passer en ligne dans le portail.',
+    creatingFor: 'Création d’un compte pour',
+    assistTierBadge: 'Assist · £200/mois',
+    whatsIncluded: 'Ce qui est inclus',
+    incl1: 'Réceptionniste IA répondant 24h/24, 7j/7 — aucun appel manqué',
+    incl2: 'Prend les réservations selon un délai que vous contrôlez',
+    incl3: 'Détails des interventions et transcriptions dans votre boîte de réception du portail',
+    incl4: 'Confirmations par SMS envoyées au client',
+    incl5: '400 minutes incluses, puis £0,25 par minute',
+    incl6: 'Facturation mensuelle simple',
+    yourName: 'Votre nom',
+    namePlaceholder: 'Jean Dupont',
+    emailLabel: 'Adresse e-mail',
+    emailPlaceholder: 'vous@votregarage.fr',
+    createAccount: 'Créer mon compte',
+    creatingAccount: 'Création de votre compte…',
+    termsIntro: 'En créant un compte, vous acceptez nos',
+    termsWord: 'Conditions',
+    andWord: 'et notre',
+    privacyWord: 'Politique de confidentialité',
+    orWord: 'ou',
+    enquireInstead: 'Vous préférez en discuter d’abord ? Envoyez-nous plutôt une demande →',
+
+    // Step: account-lead
+    leadHeadline: 'Définissons l’intégration.',
+    leadSub: 'Laissez-nous vos coordonnées et un membre de l’équipe vous recontactera sous un jour ouvré.',
+    forWord: 'Pour',
+    phoneLabel: 'Numéro de téléphone',
+    phonePlaceholder: '06 12 34 56 78',
+    sendIt: 'Envoyer',
+    sending: 'Envoi…',
+
+    // Step: success-lead
+    successH2: 'Merci — nous avons bien reçu vos coordonnées.',
+    successBody: 'Un membre de l’équipe vous recontactera sous un jour ouvré.',
+    backHome: 'Retour à l’accueil',
+
+    // Step: redirecting
+    accountReady: 'Compte prêt.',
+    redirectingBody: 'Nous vous dirigeons vers votre contrat de service — signez-le dans votre navigateur et nous vous enverrons vos identifiants du portail par e-mail.',
+
+    // Script-internal (passed via define:vars)
+    js: {
+      step1of3: 'Étape 1 sur 3',
+      step2of3: 'Étape 2 sur 3',
+      step3of4: 'Étape 3 sur 4',
+      step4of5: 'Étape 4 sur 5',
+      finalStep: 'Dernière étape',
+      done: 'Terminé',
+      tierAssist: 'Assist',
+      tierAutomate: 'Automate',
+      tierConnect: 'Connect',
+      tierMultibranch: 'Multi-agences',
+      gmsGaragehive: 'Garage Hive',
+      gmsTyresoft: 'Tyresoft',
+      gmsOther: 'Autre système',
+      headlineBranches: 'Configurons vos agences.',
+      headlineScope: 'Définissons l’intégration.',
+      headlineTellUs: 'Parlez-nous un peu de votre garage.',
+      assistEnquiry: 'Demande Assist',
+      errEmailInUse: 'Cette adresse e-mail est déjà associée à un compte ReceptionMate — connectez-vous plutôt.',
+      errSignup: "Impossible de créer votre compte — réessayez, ou écrivez à hello@receptionmate.co.uk.",
+      errLead: "Impossible d'envoyer — réessayez, ou écrivez à hello@receptionmate.co.uk.",
+    },
+  },
+}[lang];
 ---
 
-<BaseLayout title="Get started — ReceptionMate" description="Set up your ReceptionMate AI receptionist in a few quick steps.">
+<BaseLayout title={c.metaTitle} description={c.metaDesc}>
   <Fragment slot="nav">
     <header class="border-b border-ink-200/60 bg-white/90 backdrop-blur">
       <div class="mx-auto flex max-w-3xl items-center justify-between px-4 py-4 sm:px-6">
-        <a href="/" class="flex items-center" aria-label="ReceptionMate home">
+        <a href={L('/', lang)} class="flex items-center" aria-label={c.homeAria}>
           <span class="inline-flex h-28 items-center justify-center rounded-2xl bg-brand-600 px-7 py-4">
             <img src={LOGO_URL} alt="ReceptionMate" class="h-20 w-auto" />
           </span>
         </a>
-        <a href="https://portal.receptionmate.co.uk/login" class="text-sm font-medium text-ink-500 hover:text-ink-900">Already a customer? Sign in</a>
+        <a href="https://portal.receptionmate.co.uk/login" class="text-sm font-medium text-ink-500 hover:text-ink-900">{c.alreadyCustomer}</a>
       </div>
     </header>
   </Fragment>
@@ -46,7 +307,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
       <div class="mb-8 flex items-center justify-between gap-3">
         <button id="gs-back-top" type="button" class="invisible inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-700 shadow-sm hover:bg-ink-50">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          Back
+          {c.back}
         </button>
         <div class="flex items-center gap-1.5" id="gs-step-dots" data-current="1" data-total="3">
           <span class="gs-dot" data-i="1"></span>
@@ -54,56 +315,56 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
           <span class="gs-dot" data-i="3"></span>
         </div>
       </div>
-      <p id="gs-step-label" class="sr-only">Step 1 of 3</p>
+      <p id="gs-step-label" class="sr-only">{c.stepLabelInit}</p>
 
       <!-- ===== STEP: BUSINESS ===== -->
       <section id="step-business" class="gs-step">
         <h1 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          What&rsquo;s your garage called?
+          {c.businessH1}
         </h1>
         <p class="mt-3 text-base text-ink-600">
-          Start typing and pick from the list — we&rsquo;ll pull your details from Google.
+          {c.businessSub}
         </p>
 
         <div class="mt-8">
           <div class="gs-input-wrap">
             <svg class="gs-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-            <input type="text" id="gs-search" autocomplete="off" placeholder="e.g. Acme Auto Centre" class="gs-input gs-input-lg" />
+            <input type="text" id="gs-search" autocomplete="off" placeholder={c.searchPlaceholder} class="gs-input gs-input-lg" />
           </div>
           <ul id="gs-search-results" class="mt-3 hidden max-h-72 overflow-y-auto rounded-2xl border border-ink-200 bg-white shadow-sm"></ul>
 
           <button type="button" id="gs-manual-toggle" class="mt-4 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
-            Can&rsquo;t find your garage?
+            {c.cantFind}
           </button>
 
           <div id="gs-manual" class="mt-4 hidden space-y-3 rounded-2xl border border-ink-200 bg-white p-5">
             <div>
-              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-manual-name">Business name</label>
-              <input type="text" id="gs-manual-name" class="gs-input gs-input-plain" placeholder="Acme Auto Centre" />
+              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-manual-name">{c.manualNameLabel}</label>
+              <input type="text" id="gs-manual-name" class="gs-input gs-input-plain" placeholder={c.manualNamePlaceholder} />
             </div>
             <div>
-              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-manual-addr">Town or city</label>
-              <input type="text" id="gs-manual-addr" class="gs-input gs-input-plain" placeholder="Telford" />
+              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-manual-addr">{c.manualAddrLabel}</label>
+              <input type="text" id="gs-manual-addr" class="gs-input gs-input-plain" placeholder={c.manualAddrPlaceholder} />
             </div>
-            <button type="button" id="gs-manual-confirm" class="gs-primary-btn w-full">Continue</button>
+            <button type="button" id="gs-manual-confirm" class="gs-primary-btn w-full">{c.continue}</button>
           </div>
         </div>
       </section>
 
       <!-- ===== STEP: PACKAGE ===== -->
       <section id="step-package" class="gs-step hidden">
-        <p class="text-sm text-ink-500">Setting up <span id="gs-business-readback" class="font-semibold text-ink-900">your garage</span></p>
+        <p class="text-sm text-ink-500">{c.settingUp} <span id="gs-business-readback" class="font-semibold text-ink-900">{c.yourGarage}</span></p>
         <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Which option suits you best?
+          {c.packageH1}
         </h1>
         <p class="mt-3 text-base text-ink-600">
-          Most garages start with Assist and upgrade later — but it&rsquo;s your call.
+          {c.packageSub}
         </p>
 
         <div class="mt-8 space-y-3">
           <!-- Assist -->
           <button type="button" class="gs-choice gs-choice-rich gs-choice-instant" data-tier="assist">
-            <span class="gs-choice-badge gs-choice-badge-instant">Instant sign-up</span>
+            <span class="gs-choice-badge gs-choice-badge-instant">{c.instantSignup}</span>
             <div class="flex items-start gap-4">
               <span class="gs-choice-icon bg-emerald-100 text-emerald-700">
                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
@@ -113,11 +374,11 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
                   <span class="text-base font-semibold text-ink-900">Assist</span>
                   <span class="text-sm font-medium text-ink-700">£200<span class="text-ink-400">/mo</span></span>
                 </div>
-                <p class="mt-1 text-sm text-ink-600">Catches every call and books jobs using the lead time you set — bookings land in your portal inbox, not your diary.</p>
+                <p class="mt-1 text-sm text-ink-600">{c.assistDesc}</p>
                 <ul class="mt-3 space-y-1.5 text-xs text-ink-600">
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Live in minutes — no integration needed</li>
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Takes bookings using your set lead time</li>
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Simple monthly billing</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.assistF1}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.assistF2}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.assistF3}</li>
                 </ul>
               </div>
             </div>
@@ -125,7 +386,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
 
           <!-- Automate (recommended) -->
           <button type="button" class="gs-choice gs-choice-rich gs-choice-recommended" data-tier="automate">
-            <span class="gs-choice-badge">Most popular</span>
+            <span class="gs-choice-badge">{c.mostPopular}</span>
             <div class="flex items-start gap-4">
               <span class="gs-choice-icon bg-brand-100 text-brand-600">
                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
@@ -135,11 +396,11 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
                   <span class="text-base font-semibold text-ink-900">Automate</span>
                   <span class="text-sm font-medium text-ink-700">POA</span>
                 </div>
-                <p class="mt-1 text-sm text-ink-600">Books the job in your diary on the call — no callbacks.</p>
+                <p class="mt-1 text-sm text-ink-600">{c.automateDesc}</p>
                 <ul class="mt-3 space-y-1.5 text-xs text-ink-600">
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Plugs into Garage Hive, Tyresoft + more</li>
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Quotes from your service menu</li>
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>SMS confirmations + reminders</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.automateF1}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.automateF2}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.automateF3}</li>
                 </ul>
               </div>
             </div>
@@ -156,11 +417,11 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
                   <span class="text-base font-semibold text-ink-900">Connect</span>
                   <span class="text-sm font-medium text-ink-700">POA</span>
                 </div>
-                <p class="mt-1 text-sm text-ink-600">AI chat widget for your website — books from page visitors.</p>
+                <p class="mt-1 text-sm text-ink-600">{c.connectDesc}</p>
                 <ul class="mt-3 space-y-1.5 text-xs text-ink-600">
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>One-line install on any website</li>
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Books MOTs + services 24/7</li>
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Conversations in your portal inbox</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.connectF1}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.connectF2}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.connectF3}</li>
                 </ul>
               </div>
             </div>
@@ -168,21 +429,21 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
 
           <!-- Multi-branch / custom -->
           <button type="button" class="gs-choice gs-choice-rich gs-choice-multibranch" data-tier="multibranch">
-            <span class="gs-choice-badge gs-choice-badge-multibranch">Bespoke</span>
+            <span class="gs-choice-badge gs-choice-badge-multibranch">{c.bespoke}</span>
             <div class="flex items-start gap-4">
               <span class="gs-choice-icon bg-violet-100 text-violet-700">
                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="6" height="14" rx="1"/><rect x="15" y="3" width="6" height="18" rx="1"/><path d="M9 11h6M9 15h6"/></svg>
               </span>
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
-                  <span class="text-base font-semibold text-ink-900">Multi-branch or custom</span>
+                  <span class="text-base font-semibold text-ink-900">{c.multibranchTitle}</span>
                   <span class="text-sm font-medium text-ink-700">POA</span>
                 </div>
-                <p class="mt-1 text-sm text-ink-600">Running multiple locations, or need a bespoke build? We&rsquo;ll scope it with you.</p>
+                <p class="mt-1 text-sm text-ink-600">{c.multibranchDesc}</p>
                 <ul class="mt-3 space-y-1.5 text-xs text-ink-600">
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Central portal, separate inboxes per branch</li>
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Custom integrations + custom workflows</li>
-                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Dedicated onboarding + volume pricing</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.multibranchF1}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.multibranchF2}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.multibranchF3}</li>
                 </ul>
               </div>
             </div>
@@ -193,12 +454,12 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
 
       <!-- ===== STEP: GMS ===== -->
       <section id="step-gms" class="gs-step hidden">
-        <p class="text-sm text-ink-500">You picked <span id="gs-tier-readback" class="font-semibold text-ink-900">Automate</span></p>
+        <p class="text-sm text-ink-500">{c.youPicked} <span id="gs-tier-readback" class="font-semibold text-ink-900">Automate</span></p>
         <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Which booking system do you use?
+          {c.gmsH1}
         </h1>
         <p class="mt-3 text-base text-ink-600">
-          This tells us whether we can plug straight in — or whether we&rsquo;d recommend a different starting point.
+          {c.gmsSub}
         </p>
 
         <div class="mt-8 space-y-3">
@@ -210,9 +471,9 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
               <div class="min-w-0 flex-1">
                 <div class="flex items-center justify-between gap-3">
                   <span class="text-base font-semibold text-ink-900">Garage Hive</span>
-                  <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Supported</span>
+                  <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{c.supported}</span>
                 </div>
-                <p class="mt-1 text-sm text-ink-600">We can integrate now.</p>
+                <p class="mt-1 text-sm text-ink-600">{c.canIntegrateNow}</p>
               </div>
             </div>
           </button>
@@ -225,9 +486,9 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
               <div class="min-w-0 flex-1">
                 <div class="flex items-center justify-between gap-3">
                   <span class="text-base font-semibold text-ink-900">Tyresoft</span>
-                  <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Supported</span>
+                  <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{c.supported}</span>
                 </div>
-                <p class="mt-1 text-sm text-ink-600">We can integrate now.</p>
+                <p class="mt-1 text-sm text-ink-600">{c.canIntegrateNow}</p>
               </div>
             </div>
           </button>
@@ -238,8 +499,8 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
               </span>
               <div class="min-w-0 flex-1">
-                <span class="text-base font-semibold text-ink-900">Something else / not sure</span>
-                <p class="mt-1 text-sm text-ink-600">We&rsquo;ll suggest the best way to get started today.</p>
+                <span class="text-base font-semibold text-ink-900">{c.somethingElse}</span>
+                <p class="mt-1 text-sm text-ink-600">{c.somethingElseDesc}</p>
               </div>
             </div>
           </button>
@@ -249,23 +510,22 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
       <!-- ===== STEP: RECOMMEND ASSIST ===== -->
       <section id="step-recommend" class="gs-step hidden">
         <h1 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Start with Assist while we build the integration.
+          {c.recommendH1}
         </h1>
         <p class="mt-3 text-base text-ink-600">
-          Assist catches every call from day one. As soon as your system is supported,
-          we&rsquo;ll switch you over to Automate.
+          {c.recommendSub}
         </p>
 
         <div class="mt-8 space-y-5">
           <div>
-            <label for="gs-gms-name" class="mb-1.5 block text-sm font-medium text-ink-800">Which system do you use today?</label>
-            <input type="text" id="gs-gms-name" class="gs-input gs-input-plain" placeholder="e.g. ProtechMS, MAM Autowork, paper diary…" />
+            <label for="gs-gms-name" class="mb-1.5 block text-sm font-medium text-ink-800">{c.gmsNameLabel}</label>
+            <input type="text" id="gs-gms-name" class="gs-input gs-input-plain" placeholder={c.gmsNamePlaceholder} />
           </div>
 
-          <p class="text-xs text-ink-500">You can switch bookings on and set a lead time inside the portal once your account&rsquo;s live.</p>
+          <p class="text-xs text-ink-500">{c.recommendNote}</p>
 
           <button type="button" id="gs-recommend-continue" class="gs-primary-btn w-full">
-            Continue
+            {c.continue}
           </button>
         </div>
       </section>
@@ -273,110 +533,110 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
       <!-- ===== STEP: ASSIST ACCOUNT ===== -->
       <section id="step-account-assist" class="gs-step hidden">
         <h1 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          One last thing — your details.
+          {c.assistAccountH1}
         </h1>
         <p class="mt-3 text-base text-ink-600">
-          We&rsquo;ll email your login and you can go live in the portal.
+          {c.assistAccountSub}
         </p>
 
         <div class="mt-6 rounded-2xl bg-white p-5 ring-1 ring-ink-200">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="text-xs font-medium text-ink-500">Creating an account for</p>
+              <p class="text-xs font-medium text-ink-500">{c.creatingFor}</p>
               <p class="mt-0.5 text-sm font-semibold text-ink-900" id="gs-account-business">—</p>
             </div>
-            <span class="shrink-0 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">Assist · £200/mo</span>
+            <span class="shrink-0 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">{c.assistTierBadge}</span>
           </div>
           <hr class="my-4 border-ink-100"/>
-          <p class="text-xs font-semibold uppercase tracking-wider text-ink-500">What&rsquo;s included</p>
+          <p class="text-xs font-semibold uppercase tracking-wider text-ink-500">{c.whatsIncluded}</p>
           <ul class="mt-2.5 space-y-2 text-sm text-ink-700">
-            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>AI receptionist answering 24/7 — no missed calls</li>
-            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Takes bookings using a lead time you control</li>
-            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Job details + transcripts in your portal inbox</li>
-            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>SMS confirmations sent to the customer</li>
-            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>400 minutes included, then £0.25 per minute</li>
-            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Simple monthly billing</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl1}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl2}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl3}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl4}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl5}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl6}</li>
           </ul>
         </div>
 
         <form id="gs-form-assist" class="mt-6 space-y-4">
           <div>
-            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-assist-name">Your name</label>
-            <input type="text" id="gs-assist-name" name="name" required minlength="2" autocomplete="name" placeholder="Jane Smith" class="gs-input gs-input-plain" />
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-assist-name">{c.yourName}</label>
+            <input type="text" id="gs-assist-name" name="name" required minlength="2" autocomplete="name" placeholder={c.namePlaceholder} class="gs-input gs-input-plain" />
           </div>
           <div>
-            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-assist-email">Email address</label>
-            <input type="email" id="gs-assist-email" name="email" required autocomplete="email" placeholder="you@yourgarage.co.uk" class="gs-input gs-input-plain" />
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-assist-email">{c.emailLabel}</label>
+            <input type="email" id="gs-assist-email" name="email" required autocomplete="email" placeholder={c.emailPlaceholder} class="gs-input gs-input-plain" />
           </div>
 
           <div id="gs-assist-error" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200"></div>
 
           <button type="submit" class="gs-primary-btn w-full">
-            <span data-state="idle">Create my account</span>
+            <span data-state="idle">{c.createAccount}</span>
             <span data-state="loading" style="display:none" class="items-center gap-2">
               <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-30"/>
                 <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
               </svg>
-              Creating your account…
+              {c.creatingAccount}
             </span>
           </button>
 
           <p class="text-center text-xs text-ink-500">
-            By creating an account you agree to our <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy Policy</a>.
+            {c.termsIntro} <a href={L('/terms', lang)} class="underline">{c.termsWord}</a> {c.andWord} <a href={L('/privacy', lang)} class="underline">{c.privacyWord}</a>.
           </p>
         </form>
 
         <div class="my-6 flex items-center gap-3 text-xs text-ink-400">
           <span class="h-px flex-1 bg-ink-200"></span>
-          <span>or</span>
+          <span>{c.orWord}</span>
           <span class="h-px flex-1 bg-ink-200"></span>
         </div>
 
         <button type="button" id="gs-enquire-instead" class="block w-full rounded-2xl border border-ink-200 bg-white px-5 py-3.5 text-sm font-medium text-ink-700 hover:border-brand-300 hover:bg-brand-50/40 hover:text-brand-700 transition">
-          Prefer to chat first? Send us an enquiry instead →
+          {c.enquireInstead}
         </button>
       </section>
 
       <!-- ===== STEP: LEAD ACCOUNT (GH/TS + Multi-branch) ===== -->
       <section id="step-account-lead" class="gs-step hidden">
         <h1 id="gs-lead-headline" class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Let&rsquo;s scope the integration.
+          {c.leadHeadline}
         </h1>
         <p class="mt-3 text-base text-ink-600">
-          Drop your details and someone from the team will be in touch within one working day.
+          {c.leadSub}
         </p>
 
         <div class="mt-6 rounded-2xl bg-white p-4 ring-1 ring-ink-200">
-          <p class="text-xs font-medium text-ink-500">For</p>
+          <p class="text-xs font-medium text-ink-500">{c.forWord}</p>
           <p class="mt-0.5 text-sm font-semibold text-ink-900" id="gs-lead-business">—</p>
           <p class="mt-0.5 text-xs text-brand-700"><span id="gs-lead-tier">Automate</span><span id="gs-lead-gms-wrap"> · <span id="gs-lead-gms">Garage Hive</span></span></p>
         </div>
 
         <form id="gs-form-lead" class="mt-6 space-y-4">
           <div>
-            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-name">Your name</label>
-            <input type="text" id="gs-lead-name" name="name" required minlength="2" autocomplete="name" placeholder="Jane Smith" class="gs-input gs-input-plain" />
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-name">{c.yourName}</label>
+            <input type="text" id="gs-lead-name" name="name" required minlength="2" autocomplete="name" placeholder={c.namePlaceholder} class="gs-input gs-input-plain" />
           </div>
           <div>
-            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-email">Email address</label>
-            <input type="email" id="gs-lead-email" name="email" required autocomplete="email" placeholder="you@yourgarage.co.uk" class="gs-input gs-input-plain" />
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-email">{c.emailLabel}</label>
+            <input type="email" id="gs-lead-email" name="email" required autocomplete="email" placeholder={c.emailPlaceholder} class="gs-input gs-input-plain" />
           </div>
           <div>
-            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-phone">Phone number</label>
-            <input type="tel" id="gs-lead-phone" name="phone" required autocomplete="tel" placeholder="07700 000000" class="gs-input gs-input-plain" />
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-phone">{c.phoneLabel}</label>
+            <input type="tel" id="gs-lead-phone" name="phone" required autocomplete="tel" placeholder={c.phonePlaceholder} class="gs-input gs-input-plain" />
           </div>
 
           <div id="gs-lead-error" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200"></div>
 
           <button type="submit" class="gs-primary-btn w-full">
-            <span data-state="idle">Send it</span>
+            <span data-state="idle">{c.sendIt}</span>
             <span data-state="loading" style="display:none" class="items-center gap-2">
               <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-30"/>
                 <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
               </svg>
-              Sending…
+              {c.sending}
             </span>
           </button>
         </form>
@@ -387,12 +647,12 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
         <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
           <svg class="h-6 w-6 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
-        <h2 class="mt-5 text-2xl font-bold text-ink-900">Thanks — we&rsquo;ve got your details.</h2>
+        <h2 class="mt-5 text-2xl font-bold text-ink-900">{c.successH2}</h2>
         <p class="mx-auto mt-2 max-w-md text-ink-600">
-          Someone from the team will be in touch within one working day.
+          {c.successBody}
         </p>
-        <a href="/" class="mt-6 inline-flex items-center justify-center rounded-xl border border-ink-300 bg-white px-5 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-50">
-          Back to homepage
+        <a href={L('/', lang)} class="mt-6 inline-flex items-center justify-center rounded-xl border border-ink-300 bg-white px-5 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-50">
+          {c.backHome}
         </a>
       </section>
 
@@ -404,9 +664,9 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
             <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
           </svg>
         </div>
-        <h2 class="mt-5 text-2xl font-bold text-ink-900">Account ready.</h2>
+        <h2 class="mt-5 text-2xl font-bold text-ink-900">{c.accountReady}</h2>
         <p class="mx-auto mt-2 max-w-md text-ink-600">
-          Taking you to your service agreement now — sign it in your browser and we&rsquo;ll email your portal login details.
+          {c.redirectingBody}
         </p>
       </section>
 
@@ -461,7 +721,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
   .gs-primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 
-<script is:inline define:vars={{ LEAD_ENDPOINT, SIGNUP_ENDPOINT, PORTAL_LOGIN_URL, GOOGLE_API_KEY }}>
+<script is:inline define:vars={{ LEAD_ENDPOINT, SIGNUP_ENDPOINT, PORTAL_LOGIN_URL, GOOGLE_API_KEY, T: c.js }}>
   const state = {
     businessName: '',
     address: '',
@@ -475,14 +735,14 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
   // For each step: { label, dot index, total dots }. Total grows as the user
   // takes longer paths so the trail always reflects where they really are.
   const STEP_META = {
-    'business':       { label: 'Step 1 of 3', dot: 1, total: 3 },
-    'package':        { label: 'Step 2 of 3', dot: 2, total: 3 },
-    'gms':            { label: 'Step 3 of 4', dot: 3, total: 4 },
-    'recommend':      { label: 'Step 4 of 5', dot: 4, total: 5 },
-    'account-assist': { label: 'Final step',  dot: 3, total: 3 }, // assist direct
-    'account-lead':   { label: 'Final step',  dot: 4, total: 4 }, // GH/TS path
-    'success-lead':   { label: 'Done',        dot: 4, total: 4 },
-    'redirecting':    { label: '',            dot: 3, total: 3 },
+    'business':       { label: T.step1of3, dot: 1, total: 3 },
+    'package':        { label: T.step2of3, dot: 2, total: 3 },
+    'gms':            { label: T.step3of4, dot: 3, total: 4 },
+    'recommend':      { label: T.step4of5, dot: 4, total: 5 },
+    'account-assist': { label: T.finalStep, dot: 3, total: 3 }, // assist direct
+    'account-lead':   { label: T.finalStep, dot: 4, total: 4 }, // GH/TS path
+    'success-lead':   { label: T.done,     dot: 4, total: 4 },
+    'redirecting':    { label: '',         dot: 3, total: 3 },
   };
 
   function renderDots(dot, total) {
@@ -659,10 +919,10 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
   });
 
   const TIER_LABEL = {
-    assist:      'Assist',
-    automate:    'Automate',
-    connect:     'Connect',
-    multibranch: 'Multi-branch',
+    assist:      T.tierAssist,
+    automate:    T.tierAutomate,
+    connect:     T.tierConnect,
+    multibranch: T.tierMultibranch,
   };
 
   function proceedFromPackage() {
@@ -680,18 +940,18 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
       // go straight to capturing contact details for the team to follow up.
       state.gms = '';
       document.getElementById('gs-lead-gms-wrap')?.classList.add('hidden');
-      document.getElementById('gs-lead-headline').textContent = "Let's get your branches set up.";
+      document.getElementById('gs-lead-headline').textContent = T.headlineBranches;
       setStep('account-lead', true);
     } else {
       document.getElementById('gs-lead-gms-wrap')?.classList.remove('hidden');
-      document.getElementById('gs-lead-headline').textContent = "Let's scope the integration.";
+      document.getElementById('gs-lead-headline').textContent = T.headlineScope;
       setStep('gms', true);
     }
   }
 
 
   // ====== GMS ======
-  const GMS_LABEL = { garagehive: 'Garage Hive', tyresoft: 'Tyresoft', other: 'Other system' };
+  const GMS_LABEL = { garagehive: T.gmsGaragehive, tyresoft: T.gmsTyresoft, other: T.gmsOther };
   document.querySelectorAll('#step-gms [data-gms]').forEach((card) => {
     card.addEventListener('click', () => {
       state.gms = card.getAttribute('data-gms') || '';
@@ -716,9 +976,9 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
   document.getElementById('gs-enquire-instead').addEventListener('click', () => {
     // Treat this as an Assist tier enquiry. We route to the lead form (which
     // pushes the contact into HighLevel) instead of creating an account.
-    document.getElementById('gs-lead-tier').textContent = 'Assist enquiry';
+    document.getElementById('gs-lead-tier').textContent = T.assistEnquiry;
     document.getElementById('gs-lead-gms-wrap')?.classList.add('hidden');
-    document.getElementById('gs-lead-headline').textContent = 'Tell us a bit about your garage.';
+    document.getElementById('gs-lead-headline').textContent = T.headlineTellUs;
     state.gms = '';
     setStep('account-lead', true);
   });
@@ -762,13 +1022,13 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
         return;
       }
       if (res.status === 409) {
-        err.textContent = 'That email already has a ReceptionMate account — sign in instead.';
+        err.textContent = T.errEmailInUse;
         err.classList.remove('hidden');
         throw new Error('email_in_use');
       }
       throw new Error('signup_failed');
     } catch (e2) {
-      if (!err.textContent) err.textContent = "Couldn't create your account — try again, or email hello@receptionmate.co.uk.";
+      if (!err.textContent) err.textContent = T.errSignup;
       err.classList.remove('hidden');
       submitBtn.disabled = false; idleEls.forEach((el) => el.classList.remove('hidden')); loadEl.style.display = 'none';
     }
@@ -819,7 +1079,7 @@ const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/me
       if (res.ok && data.ok) { setStep('success-lead', false); return; }
       throw new Error('lead_failed');
     } catch (e2) {
-      err.textContent = "Couldn't send that — try again, or email hello@receptionmate.co.uk.";
+      err.textContent = T.errLead;
       err.classList.remove('hidden');
       submitBtn.disabled = false; idleEls.forEach((el) => el.classList.remove('hidden')); loadEl.style.display = 'none';
     }

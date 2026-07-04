@@ -1,71 +1,157 @@
 ---
-const tiers = [
-  {
-    name: 'Assist',
-    icon: 'phone',
-    badge: 'Live in minutes',
-    badgeStyle: 'bg-emerald-100 text-emerald-700',
-    price: '£200',
-    priceUnit: '/month',
-    priceFootnote: '400 minutes included · £0.25 / overage minute',
-    headline: 'Catch every call, capture every job.',
-    body: "Leah answers your unanswered calls, takes the customer's name, vehicle, service and number, and sends the job to your team. No integration required.",
-    bullets: [
-      'Live in minutes — no integration needed',
-      'Calls, transcripts and job details in the portal',
-      'SMS confirmations to the customer',
-      'Perfect for small workshops and single-receptionist garages',
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+const c = {
+  en: {
+    eyebrow: 'Three ways to start',
+    h2: 'Pick the tier that fits your garage.',
+    sub: 'All three are billed monthly. Most garages move quickly to Automate once they see the volume — you can switch any time.',
+    mostPopular: 'Most popular',
+    footer: "Not sure which? Start with Assist — we'll help you graduate to Automate when you're ready.",
+    tiers: [
+      {
+        name: 'Assist',
+        icon: 'phone',
+        badge: 'Live in minutes',
+        badgeStyle: 'bg-emerald-100 text-emerald-700',
+        price: '£200',
+        priceUnit: '/month',
+        priceFootnote: '400 minutes included · £0.25 / overage minute',
+        headline: 'Catch every call, capture every job.',
+        body: "Leah answers your unanswered calls, takes the customer's name, vehicle, service and number, and sends the job to your team. No integration required.",
+        bullets: [
+          'Live in minutes — no integration needed',
+          'Calls, transcripts and job details in the portal',
+          'SMS confirmations to the customer',
+          'Perfect for small workshops and single-receptionist garages',
+        ],
+        cta: 'Start with Assist',
+        href: '/get-started?tier=assist',
+        accent: 'border-ink-200 bg-white',
+        recommended: false,
+      },
+      {
+        name: 'Automate',
+        icon: 'spark',
+        badge: '3–5 day setup',
+        badgeStyle: 'bg-brand-100 text-brand-700',
+        price: 'Custom',
+        priceUnit: '',
+        priceFootnote: 'Based on branches & integration',
+        headline: 'Books the job, in your diary.',
+        body: "Everything in Assist, plus Leah integrates directly with your booking system — picks the slot, books the job, holds the bay. Customer hangs up with a confirmed appointment.",
+        bullets: [
+          'Integrates with Garage Hive, HubSpot and others',
+          'Reserves real slots in real time — no double-bookings',
+          'Quotes prices on the call from your service menu',
+          'Automatic SMS reminders + same-day confirmations',
+          'Built for busy multi-bay and multi-branch operations',
+        ],
+        cta: 'Talk to us about Automate',
+        href: '/get-started?tier=automate',
+        accent: 'border-brand-200 bg-gradient-to-br from-brand-50/60 to-white ring-2 ring-brand-600',
+        recommended: true,
+      },
+      {
+        name: 'Connect',
+        icon: 'chat',
+        badge: '3–5 day setup',
+        badgeStyle: 'bg-sky-100 text-sky-700',
+        price: 'Talk to us',
+        priceUnit: '',
+        priceFootnote: 'Pricing based on contact volume',
+        headline: 'Inbound from every channel. Outbound that books itself.',
+        body: "ReceptionMate answers messages across web chat, WhatsApp, Instagram and Facebook — and sends opted-in MOT and service reminders that book customers in without anyone in the workshop lifting a finger.",
+        bullets: [
+          'Web chat widget on your garage website',
+          'WhatsApp, Instagram and Facebook DMs handled automatically',
+          'Outbound MOT and service reminders that book in-thread',
+          'All conversations land in the same ReceptionMate inbox',
+          'For garages who want messaging working as hard as the phone',
+        ],
+        cta: 'Talk to us about Connect',
+        href: '/get-started?tier=connect',
+        accent: 'border-ink-200 bg-white',
+        recommended: false,
+      },
     ],
-    cta: 'Start with Assist',
-    href: '/get-started?tier=assist',
-    accent: 'border-ink-200 bg-white',
-    recommended: false,
   },
-  {
-    name: 'Automate',
-    icon: 'spark',
-    badge: '3–5 day setup',
-    badgeStyle: 'bg-brand-100 text-brand-700',
-    price: 'Custom',
-    priceUnit: '',
-    priceFootnote: 'Based on branches & integration',
-    headline: 'Books the job, in your diary.',
-    body: "Everything in Assist, plus Leah integrates directly with your booking system — picks the slot, books the job, holds the bay. Customer hangs up with a confirmed appointment.",
-    bullets: [
-      'Integrates with Garage Hive, HubSpot and others',
-      'Reserves real slots in real time — no double-bookings',
-      'Quotes prices on the call from your service menu',
-      'Automatic SMS reminders + same-day confirmations',
-      'Built for busy multi-bay and multi-branch operations',
+  fr: {
+    eyebrow: 'Trois façons de commencer',
+    h2: 'Choisissez la formule adaptée à votre garage.',
+    sub: 'Les trois formules sont facturées au mois. La plupart des garages passent rapidement à Automate une fois le volume constaté — vous pouvez changer à tout moment.',
+    mostPopular: 'Le plus populaire',
+    footer: "Vous hésitez ? Commencez avec Assist — nous vous aiderons à passer à Automate lorsque vous serez prêt.",
+    tiers: [
+      {
+        name: 'Assist',
+        icon: 'phone',
+        badge: 'Opérationnel en quelques minutes',
+        badgeStyle: 'bg-emerald-100 text-emerald-700',
+        price: '£200',
+        priceUnit: '/mois',
+        priceFootnote: '400 minutes incluses · £0.25 / minute supplémentaire',
+        headline: 'Ne manquez plus aucun appel, saisissez chaque intervention.',
+        body: "Leah répond à vos appels manqués, recueille le nom du client, son véhicule, la prestation et son numéro, puis transmet l'intervention à votre équipe. Aucune intégration requise.",
+        bullets: [
+          'Opérationnel en quelques minutes — aucune intégration nécessaire',
+          'Appels, transcriptions et détails des interventions dans le portail',
+          'Confirmations par SMS au client',
+          'Idéal pour les petits ateliers et les garages à réceptionniste unique',
+        ],
+        cta: 'Commencer avec Assist',
+        href: '/get-started?tier=assist',
+        accent: 'border-ink-200 bg-white',
+        recommended: false,
+      },
+      {
+        name: 'Automate',
+        icon: 'spark',
+        badge: 'Mise en place en 3 à 5 jours',
+        badgeStyle: 'bg-brand-100 text-brand-700',
+        price: 'Sur mesure',
+        priceUnit: '',
+        priceFootnote: 'Selon le nombre de succursales et l\'intégration',
+        headline: 'Réserve l\'intervention, directement dans votre agenda.',
+        body: "Tout ce que propose Assist, et en plus Leah s'intègre directement à votre système de réservation — choisit le créneau, réserve l'intervention, bloque la place. Le client raccroche avec un rendez-vous confirmé.",
+        bullets: [
+          'S\'intègre à Garage Hive, HubSpot et d\'autres',
+          'Réserve de vrais créneaux en temps réel — aucun double rendez-vous',
+          'Établit des devis pendant l\'appel à partir de votre catalogue de prestations',
+          'Rappels SMS automatiques + confirmations le jour même',
+          'Conçu pour les activités multi-postes et multi-succursales à forte affluence',
+        ],
+        cta: 'Parlons d\'Automate',
+        href: '/get-started?tier=automate',
+        accent: 'border-brand-200 bg-gradient-to-br from-brand-50/60 to-white ring-2 ring-brand-600',
+        recommended: true,
+      },
+      {
+        name: 'Connect',
+        icon: 'chat',
+        badge: 'Mise en place en 3 à 5 jours',
+        badgeStyle: 'bg-sky-100 text-sky-700',
+        price: 'Contactez-nous',
+        priceUnit: '',
+        priceFootnote: 'Tarif selon le volume de contacts',
+        headline: 'Entrant depuis chaque canal. Sortant qui réserve tout seul.',
+        body: "ReceptionMate répond aux messages sur le chat web, WhatsApp, Instagram et Facebook — et envoie, avec consentement, des rappels de contrôle technique et d'entretien qui réservent les clients sans que personne à l'atelier ne lève le petit doigt.",
+        bullets: [
+          'Widget de chat web sur le site de votre garage',
+          'Messages WhatsApp, Instagram et Facebook traités automatiquement',
+          'Rappels sortants de contrôle technique et d\'entretien qui réservent dans la conversation',
+          'Toutes les conversations arrivent dans la même boîte de réception ReceptionMate',
+          'Pour les garages qui veulent une messagerie aussi performante que le téléphone',
+        ],
+        cta: 'Parlons de Connect',
+        href: '/get-started?tier=connect',
+        accent: 'border-ink-200 bg-white',
+        recommended: false,
+      },
     ],
-    cta: 'Talk to us about Automate',
-    href: '/get-started?tier=automate',
-    accent: 'border-brand-200 bg-gradient-to-br from-brand-50/60 to-white ring-2 ring-brand-600',
-    recommended: true,
   },
-  {
-    name: 'Connect',
-    icon: 'chat',
-    badge: '3–5 day setup',
-    badgeStyle: 'bg-sky-100 text-sky-700',
-    price: 'Talk to us',
-    priceUnit: '',
-    priceFootnote: 'Pricing based on contact volume',
-    headline: 'Inbound from every channel. Outbound that books itself.',
-    body: "ReceptionMate answers messages across web chat, WhatsApp, Instagram and Facebook — and sends opted-in MOT and service reminders that book customers in without anyone in the workshop lifting a finger.",
-    bullets: [
-      'Web chat widget on your garage website',
-      'WhatsApp, Instagram and Facebook DMs handled automatically',
-      'Outbound MOT and service reminders that book in-thread',
-      'All conversations land in the same ReceptionMate inbox',
-      'For garages who want messaging working as hard as the phone',
-    ],
-    cta: 'Talk to us about Connect',
-    href: '/get-started?tier=connect',
-    accent: 'border-ink-200 bg-white',
-    recommended: false,
-  },
-];
+}[lang];
+const tiers = c.tiers;
 
 const iconMap: Record<string, string> = {
   phone: 'M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z',
@@ -77,13 +163,12 @@ const iconMap: Record<string, string> = {
 <section class="bg-white py-20 sm:py-24">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-3xl text-center">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Three ways to start</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.eyebrow}</p>
       <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        Pick the tier that fits your garage.
+        {c.h2}
       </h2>
       <p class="mt-4 text-lg text-ink-600">
-        All three are billed monthly. Most garages move quickly to Automate
-        once they see the volume — you can switch any time.
+        {c.sub}
       </p>
     </div>
 
@@ -92,7 +177,7 @@ const iconMap: Record<string, string> = {
         <article class={`relative flex flex-col rounded-2xl border p-6 shadow-sm transition hover:shadow-lg hover:shadow-brand-900/5 ${t.accent} ${t.recommended ? 'lg:-my-2' : ''}`}>
           {t.recommended && (
             <span class="absolute -top-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow">
-              Most popular
+              {c.mostPopular}
             </span>
           )}
 
@@ -135,7 +220,7 @@ const iconMap: Record<string, string> = {
 
           <div class="mt-6 pt-5 border-t border-ink-200">
             <a
-              href={t.href}
+              href={L(t.href, lang)}
               class={t.recommended
                 ? 'inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-600/25 hover:bg-brand-700 transition'
                 : 'inline-flex w-full items-center justify-center gap-2 rounded-xl border border-ink-300 bg-white px-4 py-3 text-sm font-semibold text-ink-900 hover:border-brand-300 hover:text-brand-700 transition'
@@ -149,7 +234,7 @@ const iconMap: Record<string, string> = {
     </div>
 
     <p class="mt-8 text-center text-sm text-ink-500">
-      Not sure which? Start with Assist — we'll help you graduate to Automate when you're ready.
+      {c.footer}
     </p>
   </div>
 </section>

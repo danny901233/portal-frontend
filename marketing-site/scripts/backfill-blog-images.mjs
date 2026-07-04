@@ -49,17 +49,11 @@ for (const file of files) {
   const path = join(BLOG_DIR, file);
   const slug = file.replace(/\.md$/, '');
   const raw = readFileSync(path, 'utf8');
-  const imagePath = join(IMAGE_DIR, `${slug}.png`);
 
-  // Skip only if the post has a heroImage AND its image file actually exists. A post whose
-  // heroImage points at a missing file (e.g. the image was generated but never committed)
-  // still needs the PNG regenerated — without re-patching the frontmatter line it already has.
-  const hasHeroLine = /^heroImage:/m.test(raw);
-  if (hasHeroLine && existsSync(imagePath)) {
-    console.log(`  skip ${file} (already has heroImage + image file)`);
+  if (/^heroImage:/m.test(raw)) {
+    console.log(`  skip ${file} (already has heroImage)`);
     continue;
   }
-  if (hasHeroLine) console.log(`  ${file} heroImage points at a missing file — regenerating`);
 
   const titleMatch = raw.match(/^title:\s*"([^"]+)"/m);
   const descMatch = raw.match(/^description:\s*"([^"]+)"/m);
@@ -85,20 +79,17 @@ for (const file of files) {
       console.warn(`  no image data for ${file}; skipping`);
       continue;
     }
+    const imagePath = join(IMAGE_DIR, `${slug}.png`);
     writeFileSync(imagePath, Buffer.from(b64, 'base64'));
 
-    // Only add the frontmatter line if it isn't already there (avoid a duplicate heroImage
-    // when we're just regenerating a missing image file).
-    if (!hasHeroLine) {
-      const publicPath = `/blog/${slug}.png`;
-      const alt = `Illustration for "${title}"`;
-      const patched = raw.replace(
-        /^(---\n[\s\S]*?)\n---/m,
-        (_, fm) =>
-          `${fm}\nheroImage: "${publicPath}"\nheroImageAlt: "${alt.replace(/"/g, '\\"')}"\n---`,
-      );
-      writeFileSync(path, patched, 'utf8');
-    }
+    const publicPath = `/blog/${slug}.png`;
+    const alt = `Illustration for "${title}"`;
+    const patched = raw.replace(
+      /^(---\n[\s\S]*?)\n---/m,
+      (_, fm) =>
+        `${fm}\nheroImage: "${publicPath}"\nheroImageAlt: "${alt.replace(/"/g, '\\"')}"\n---`,
+    );
+    writeFileSync(path, patched, 'utf8');
     console.log(`  ✓ ${imagePath}`);
     processed += 1;
   } catch (err) {

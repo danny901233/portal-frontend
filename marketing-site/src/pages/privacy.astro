@@ -1,67 +1,123 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang } from '../i18n/ui';
 
-const LAST_UPDATED = '17 June 2026';
+const lang = getLang(Astro.url);
+
+const LAST_UPDATED = lang === 'fr' ? '17 juin 2026' : '17 June 2026';
 
 // Sub-processor categories. We disclose categories publicly here and the
 // full list of named sub-processors only to customers under a signed DPA —
 // it's enough for UK GDPR transparency without handing competitors a
 // roadmap of our stack.
-const subprocessorCategories = [
-  {
-    category: 'Telephony and SMS',
-    purpose: 'Inbound call routing, outbound SMS confirmations and reminders',
-  },
-  {
-    category: 'Speech recognition and language models',
-    purpose: 'Transcribing calls and generating natural responses',
-  },
-  {
-    category: 'Cloud hosting and storage',
-    purpose: 'Running the application, storing call recordings and database records',
-  },
-  {
-    category: 'Payment processing',
-    purpose: 'Card payments, Direct Debit collection, invoicing',
-  },
-  {
-    category: 'Marketing CRM and email delivery',
-    purpose: 'Marketing-site leads and transactional email only — never call data',
-  },
-];
+const subprocessorCategoriesByLang = {
+  en: [
+    {
+      category: 'Telephony and SMS',
+      purpose: 'Inbound call routing, outbound SMS confirmations and reminders',
+    },
+    {
+      category: 'Speech recognition and language models',
+      purpose: 'Transcribing calls and generating natural responses',
+    },
+    {
+      category: 'Cloud hosting and storage',
+      purpose: 'Running the application, storing call recordings and database records',
+    },
+    {
+      category: 'Payment processing',
+      purpose: 'Card payments, Direct Debit collection, invoicing',
+    },
+    {
+      category: 'Marketing CRM and email delivery',
+      purpose: 'Marketing-site leads and transactional email only — never call data',
+    },
+  ],
+  fr: [
+    {
+      category: 'Téléphonie et SMS',
+      purpose: 'Routage des appels entrants, confirmations et rappels par SMS sortants',
+    },
+    {
+      category: 'Reconnaissance vocale et modèles de langage',
+      purpose: 'Transcription des appels et génération de réponses naturelles',
+    },
+    {
+      category: 'Hébergement et stockage cloud',
+      purpose: 'Exécution de l’application, stockage des enregistrements d’appels et des données de la base',
+    },
+    {
+      category: 'Traitement des paiements',
+      purpose: 'Paiements par carte, prélèvement automatique (Direct Debit), facturation',
+    },
+    {
+      category: 'CRM marketing et envoi d’e-mails',
+      purpose: 'Prospects du site marketing et e-mails transactionnels uniquement — jamais les données d’appel',
+    },
+  ],
+};
+const subprocessorCategories = subprocessorCategoriesByLang[lang];
 
-const sections = [
-  { id: 'who-we-are', title: '1. Who we are' },
-  { id: 'what-we-collect', title: '2. What we collect' },
-  { id: 'why-we-collect', title: '3. Why we collect it' },
-  { id: 'how-we-share', title: '4. Who we share data with' },
-  { id: 'subprocessors', title: '5. Sub-processors' },
-  { id: 'transfers', title: '6. International transfers' },
-  { id: 'retention', title: '7. How long we keep data' },
-  { id: 'your-rights', title: '8. Your rights' },
-  { id: 'cookies', title: '9. Cookies and tracking' },
-  { id: 'security', title: '10. Security' },
-  { id: 'changes', title: '11. Changes to this policy' },
-  { id: 'contact', title: '12. Contact and complaints' },
-];
+const sectionsByLang = {
+  en: [
+    { id: 'who-we-are', title: '1. Who we are' },
+    { id: 'what-we-collect', title: '2. What we collect' },
+    { id: 'why-we-collect', title: '3. Why we collect it' },
+    { id: 'how-we-share', title: '4. Who we share data with' },
+    { id: 'subprocessors', title: '5. Sub-processors' },
+    { id: 'transfers', title: '6. International transfers' },
+    { id: 'retention', title: '7. How long we keep data' },
+    { id: 'your-rights', title: '8. Your rights' },
+    { id: 'cookies', title: '9. Cookies and tracking' },
+    { id: 'security', title: '10. Security' },
+    { id: 'changes', title: '11. Changes to this policy' },
+    { id: 'contact', title: '12. Contact and complaints' },
+  ],
+  fr: [
+    { id: 'who-we-are', title: '1. Qui nous sommes' },
+    { id: 'what-we-collect', title: '2. Ce que nous collectons' },
+    { id: 'why-we-collect', title: '3. Pourquoi nous le collectons' },
+    { id: 'how-we-share', title: '4. Avec qui nous partageons les données' },
+    { id: 'subprocessors', title: '5. Sous-traitants ultérieurs' },
+    { id: 'transfers', title: '6. Transferts internationaux' },
+    { id: 'retention', title: '7. Durée de conservation des données' },
+    { id: 'your-rights', title: '8. Vos droits' },
+    { id: 'cookies', title: '9. Cookies et suivi' },
+    { id: 'security', title: '10. Sécurité' },
+    { id: 'changes', title: '11. Modifications de cette politique' },
+    { id: 'contact', title: '12. Contact et réclamations' },
+  ],
+};
+const sections = sectionsByLang[lang];
+
+const c = {
+  en: {
+    metaTitle: 'Privacy Policy — ReceptionMate',
+    metaDesc: 'How ReceptionMate collects, uses, stores and shares personal data. UK GDPR compliant.',
+  },
+  fr: {
+    metaTitle: 'Politique de confidentialité — ReceptionMate',
+    metaDesc: 'Comment ReceptionMate collecte, utilise, conserve et partage les données personnelles. Conforme au RGPD.',
+  },
+}[lang];
 ---
 
 <BaseLayout
-  title="Privacy Policy — ReceptionMate"
-  description="How ReceptionMate collects, uses, stores and shares personal data. UK GDPR compliant."
+  title={c.metaTitle}
+  description={c.metaDesc}
 >
   <!-- Hero -->
   <section class="bg-white pt-16 pb-10 sm:pt-20 sm:pb-12">
     <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Legal</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{lang === 'fr' ? 'Mentions légales' : 'Legal'}</p>
       <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
-        Privacy Policy
+        {lang === 'fr' ? 'Politique de confidentialité' : 'Privacy Policy'}
       </h1>
-      <p class="mt-4 text-sm text-ink-500">Last updated: {LAST_UPDATED}</p>
+      <p class="mt-4 text-sm text-ink-500">{lang === 'fr' ? 'Dernière mise à jour :' : 'Last updated:'} {LAST_UPDATED}</p>
       <p class="mt-6 text-lg leading-relaxed text-ink-700">
-        ReceptionMate handles calls, transcripts and customer details for UK garages. This
-        page explains what we collect, why, who we share it with, and how to exercise your
-        rights under UK GDPR.
+        {lang === 'fr'
+          ? 'ReceptionMate traite les appels, les transcriptions et les coordonnées des clients pour le compte des garages. Cette page explique ce que nous collectons, pourquoi, avec qui nous le partageons et comment exercer vos droits au titre du RGPD.'
+          : 'ReceptionMate handles calls, transcripts and customer details for UK garages. This page explains what we collect, why, who we share it with, and how to exercise your rights under UK GDPR.'}
       </p>
     </div>
   </section>
@@ -70,7 +126,7 @@ const sections = [
   <section class="bg-ink-50 py-10">
     <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
       <div class="rounded-2xl border border-ink-200 bg-white p-6 sm:p-8">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-brand-600">On this page</h2>
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-brand-600">{lang === 'fr' ? 'Sur cette page' : 'On this page'}</h2>
         <ul class="mt-4 grid gap-2 sm:grid-cols-2">
           {sections.map((s) => (
             <li>
@@ -90,130 +146,272 @@ const sections = [
       <div class="space-y-12 text-base leading-relaxed text-ink-700">
 
         <div id="who-we-are">
-          <h2 class="text-2xl font-bold text-ink-900">1. Who we are</h2>
-          <p class="mt-4">
-            "ReceptionMate", "we", "us" and "our" refer to <strong>ReceptionMate Ltd</strong>,
-            a company registered in England and Wales (Company No. 16839506),
-            with registered office at Studio 9, 50–54 St. Paul's Square, Birmingham B3 1QS.
-          </p>
-          <p class="mt-3">
-            ReceptionMate Ltd is the <strong>data controller</strong> for the personal data we
-            process in connection with our marketing site, our portal, and the calls our AI
-            agents handle on behalf of our customers — except where we act as a <strong>data
-            processor</strong> on behalf of a customer (typically: the call recordings,
-            transcripts, and end-customer details captured while answering calls for a
-            specific garage). Customers acting as controllers should refer to their Data
-            Processing Agreement with us.
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[0].title}</h2>
+          {lang === 'fr' ? (
+            <>
+              <p class="mt-4">
+                « ReceptionMate », « nous » et « notre » désignent <strong>ReceptionMate Ltd</strong>,
+                société enregistrée en Angleterre et au Pays de Galles (N° de société 16839506),
+                dont le siège social est situé Studio 9, 50–54 St. Paul's Square, Birmingham B3 1QS.
+              </p>
+              <p class="mt-3">
+                ReceptionMate Ltd est le <strong>responsable du traitement</strong> des données
+                personnelles que nous traitons dans le cadre de notre site marketing, de notre
+                portail et des appels que nos agents IA gèrent pour le compte de nos clients —
+                sauf lorsque nous agissons en tant que <strong>sous-traitant</strong> pour le
+                compte d’un client (généralement : les enregistrements d’appels, les
+                transcriptions et les coordonnées des clients finaux recueillies lors des appels
+                traités pour un garage donné). Les clients agissant en qualité de responsables du
+                traitement doivent se référer à l’accord de traitement des données conclu avec nous.
+              </p>
+            </>
+          ) : (
+            <>
+              <p class="mt-4">
+                "ReceptionMate", "we", "us" and "our" refer to <strong>ReceptionMate Ltd</strong>,
+                a company registered in England and Wales (Company No. 16839506),
+                with registered office at Studio 9, 50–54 St. Paul's Square, Birmingham B3 1QS.
+              </p>
+              <p class="mt-3">
+                ReceptionMate Ltd is the <strong>data controller</strong> for the personal data we
+                process in connection with our marketing site, our portal, and the calls our AI
+                agents handle on behalf of our customers — except where we act as a <strong>data
+                processor</strong> on behalf of a customer (typically: the call recordings,
+                transcripts, and end-customer details captured while answering calls for a
+                specific garage). Customers acting as controllers should refer to their Data
+                Processing Agreement with us.
+              </p>
+            </>
+          )}
         </div>
 
         <div id="what-we-collect">
-          <h2 class="text-2xl font-bold text-ink-900">2. What we collect</h2>
-          <p class="mt-4">We collect the following categories of personal data:</p>
-          <ul class="mt-4 space-y-3 pl-5 list-disc">
-            <li>
-              <strong>Account information</strong> — name, email address, phone number,
-              business name, and role, provided when you sign up for the portal or request
-              a demo.
-            </li>
-            <li>
-              <strong>Call data</strong> — when our AI receptionist answers a call on behalf
-              of a customer garage, we record and store the audio, a generated transcript,
-              the caller's phone number, and any details the caller provides (name, vehicle
-              registration, service requested, preferred time).
-            </li>
-            <li>
-              <strong>Booking and message data</strong> — bookings made, SMS confirmations
-              sent, and notes attached to conversations.
-            </li>
-            <li>
-              <strong>Billing information</strong> — billing address, VAT number, and
-              payment-method metadata (the full card number is held by our payment processor,
-              not by us).
-            </li>
-            <li>
-              <strong>Usage data</strong> — actions taken in the portal, IP address, browser
-              type, and timestamps. Used for security and product improvement.
-            </li>
-            <li>
-              <strong>Marketing data</strong> — if you fill in a form on our marketing site,
-              we record what you submitted and where you came from.
-            </li>
-          </ul>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[1].title}</h2>
+          {lang === 'fr' ? (
+            <>
+              <p class="mt-4">Nous collectons les catégories de données personnelles suivantes :</p>
+              <ul class="mt-4 space-y-3 pl-5 list-disc">
+                <li>
+                  <strong>Informations de compte</strong> — nom, adresse e-mail, numéro de
+                  téléphone, nom de l’entreprise et fonction, fournis lors de votre inscription au
+                  portail ou de votre demande de démonstration.
+                </li>
+                <li>
+                  <strong>Données d’appel</strong> — lorsque notre réceptionniste IA répond à un
+                  appel pour le compte d’un garage client, nous enregistrons et conservons l’audio,
+                  une transcription générée, le numéro de téléphone de l’appelant et toute
+                  information communiquée par celui-ci (nom, immatriculation du véhicule, prestation
+                  demandée, créneau souhaité).
+                </li>
+                <li>
+                  <strong>Données de réservation et de messagerie</strong> — réservations
+                  effectuées, confirmations SMS envoyées et notes rattachées aux conversations.
+                </li>
+                <li>
+                  <strong>Informations de facturation</strong> — adresse de facturation, numéro de
+                  TVA et métadonnées du moyen de paiement (le numéro de carte complet est conservé
+                  par notre prestataire de paiement, et non par nous).
+                </li>
+                <li>
+                  <strong>Données d’utilisation</strong> — actions réalisées dans le portail,
+                  adresse IP, type de navigateur et horodatages. Utilisées à des fins de sécurité et
+                  d’amélioration du produit.
+                </li>
+                <li>
+                  <strong>Données marketing</strong> — si vous remplissez un formulaire sur notre
+                  site marketing, nous enregistrons ce que vous avez soumis et votre provenance.
+                </li>
+              </ul>
+            </>
+          ) : (
+            <>
+              <p class="mt-4">We collect the following categories of personal data:</p>
+              <ul class="mt-4 space-y-3 pl-5 list-disc">
+                <li>
+                  <strong>Account information</strong> — name, email address, phone number,
+                  business name, and role, provided when you sign up for the portal or request
+                  a demo.
+                </li>
+                <li>
+                  <strong>Call data</strong> — when our AI receptionist answers a call on behalf
+                  of a customer garage, we record and store the audio, a generated transcript,
+                  the caller's phone number, and any details the caller provides (name, vehicle
+                  registration, service requested, preferred time).
+                </li>
+                <li>
+                  <strong>Booking and message data</strong> — bookings made, SMS confirmations
+                  sent, and notes attached to conversations.
+                </li>
+                <li>
+                  <strong>Billing information</strong> — billing address, VAT number, and
+                  payment-method metadata (the full card number is held by our payment processor,
+                  not by us).
+                </li>
+                <li>
+                  <strong>Usage data</strong> — actions taken in the portal, IP address, browser
+                  type, and timestamps. Used for security and product improvement.
+                </li>
+                <li>
+                  <strong>Marketing data</strong> — if you fill in a form on our marketing site,
+                  we record what you submitted and where you came from.
+                </li>
+              </ul>
+            </>
+          )}
         </div>
 
         <div id="why-we-collect">
-          <h2 class="text-2xl font-bold text-ink-900">3. Why we collect it</h2>
-          <p class="mt-4">We process personal data on the following lawful bases:</p>
-          <ul class="mt-4 space-y-3 pl-5 list-disc">
-            <li>
-              <strong>Contract</strong> — to provide the ReceptionMate service to our
-              customers (answering calls, routing bookings, sending confirmations, billing).
-            </li>
-            <li>
-              <strong>Legitimate interests</strong> — to operate, secure and improve our
-              service, prevent fraud, and contact you about issues with your account. We
-              balance our interests against your rights and freedoms when relying on this
-              basis.
-            </li>
-            <li>
-              <strong>Consent</strong> — for marketing emails and non-essential cookies. You
-              can withdraw consent at any time.
-            </li>
-            <li>
-              <strong>Legal obligation</strong> — to meet our tax, accounting and other
-              statutory obligations.
-            </li>
-          </ul>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[2].title}</h2>
+          {lang === 'fr' ? (
+            <>
+              <p class="mt-4">Nous traitons les données personnelles sur les bases légales suivantes :</p>
+              <ul class="mt-4 space-y-3 pl-5 list-disc">
+                <li>
+                  <strong>Exécution du contrat</strong> — pour fournir le service ReceptionMate à
+                  nos clients (réponse aux appels, acheminement des réservations, envoi des
+                  confirmations, facturation).
+                </li>
+                <li>
+                  <strong>Intérêts légitimes</strong> — pour exploiter, sécuriser et améliorer notre
+                  service, prévenir la fraude et vous contacter au sujet de problèmes liés à votre
+                  compte. Lorsque nous nous fondons sur cette base, nous mettons en balance nos
+                  intérêts et vos droits et libertés.
+                </li>
+                <li>
+                  <strong>Consentement</strong> — pour les e-mails marketing et les cookies non
+                  essentiels. Vous pouvez retirer votre consentement à tout moment.
+                </li>
+                <li>
+                  <strong>Obligation légale</strong> — pour respecter nos obligations fiscales,
+                  comptables et autres obligations réglementaires.
+                </li>
+              </ul>
+            </>
+          ) : (
+            <>
+              <p class="mt-4">We process personal data on the following lawful bases:</p>
+              <ul class="mt-4 space-y-3 pl-5 list-disc">
+                <li>
+                  <strong>Contract</strong> — to provide the ReceptionMate service to our
+                  customers (answering calls, routing bookings, sending confirmations, billing).
+                </li>
+                <li>
+                  <strong>Legitimate interests</strong> — to operate, secure and improve our
+                  service, prevent fraud, and contact you about issues with your account. We
+                  balance our interests against your rights and freedoms when relying on this
+                  basis.
+                </li>
+                <li>
+                  <strong>Consent</strong> — for marketing emails and non-essential cookies. You
+                  can withdraw consent at any time.
+                </li>
+                <li>
+                  <strong>Legal obligation</strong> — to meet our tax, accounting and other
+                  statutory obligations.
+                </li>
+              </ul>
+            </>
+          )}
         </div>
 
         <div id="how-we-share">
-          <h2 class="text-2xl font-bold text-ink-900">4. Who we share data with</h2>
-          <p class="mt-4">
-            We do not sell personal data. We share it only with:
-          </p>
-          <ul class="mt-4 space-y-3 pl-5 list-disc">
-            <li>
-              <strong>Our sub-processors</strong> — third-party suppliers that operate parts
-              of our infrastructure under contract (see section 5).
-            </li>
-            <li>
-              <strong>Our customers</strong> — when an end-caller's data was captured on a
-              garage's account, that garage receives the call data so they can fulfil the
-              booking.
-            </li>
-            <li>
-              <strong>Professional advisers</strong> — accountants, lawyers and auditors,
-              where strictly necessary.
-            </li>
-            <li>
-              <strong>Authorities</strong> — where required by law, court order or to protect
-              our rights and the safety of others.
-            </li>
-          </ul>
-          <p class="mt-4">
-            We do not use customer call data to train third-party AI models without explicit
-            permission. We do not share call recordings or transcripts with other customers.
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[3].title}</h2>
+          {lang === 'fr' ? (
+            <>
+              <p class="mt-4">
+                Nous ne vendons pas de données personnelles. Nous les partageons uniquement avec :
+              </p>
+              <ul class="mt-4 space-y-3 pl-5 list-disc">
+                <li>
+                  <strong>Nos sous-traitants ultérieurs</strong> — prestataires tiers qui exploitent
+                  certaines parties de notre infrastructure sous contrat (voir la section 5).
+                </li>
+                <li>
+                  <strong>Nos clients</strong> — lorsque les données d’un appelant final ont été
+                  recueillies sur le compte d’un garage, ce garage reçoit les données d’appel afin de
+                  pouvoir honorer la réservation.
+                </li>
+                <li>
+                  <strong>Conseils professionnels</strong> — comptables, avocats et auditeurs,
+                  lorsque cela est strictement nécessaire.
+                </li>
+                <li>
+                  <strong>Autorités</strong> — lorsque la loi, une décision de justice l’exige, ou
+                  pour protéger nos droits et la sécurité d’autrui.
+                </li>
+              </ul>
+              <p class="mt-4">
+                Nous n’utilisons pas les données d’appel des clients pour entraîner des modèles d’IA
+                de tiers sans autorisation explicite. Nous ne partageons pas les enregistrements
+                d’appels ni les transcriptions avec d’autres clients.
+              </p>
+            </>
+          ) : (
+            <>
+              <p class="mt-4">
+                We do not sell personal data. We share it only with:
+              </p>
+              <ul class="mt-4 space-y-3 pl-5 list-disc">
+                <li>
+                  <strong>Our sub-processors</strong> — third-party suppliers that operate parts
+                  of our infrastructure under contract (see section 5).
+                </li>
+                <li>
+                  <strong>Our customers</strong> — when an end-caller's data was captured on a
+                  garage's account, that garage receives the call data so they can fulfil the
+                  booking.
+                </li>
+                <li>
+                  <strong>Professional advisers</strong> — accountants, lawyers and auditors,
+                  where strictly necessary.
+                </li>
+                <li>
+                  <strong>Authorities</strong> — where required by law, court order or to protect
+                  our rights and the safety of others.
+                </li>
+              </ul>
+              <p class="mt-4">
+                We do not use customer call data to train third-party AI models without explicit
+                permission. We do not share call recordings or transcripts with other customers.
+              </p>
+            </>
+          )}
         </div>
 
         <div id="subprocessors">
-          <h2 class="text-2xl font-bold text-ink-900">5. Sub-processors</h2>
-          <p class="mt-4">
-            We engage trusted third-party suppliers ("sub-processors") to operate parts of
-            our infrastructure. Each is bound by written terms requiring confidentiality
-            and an appropriate level of data protection, and is selected to meet UK / EU
-            data-protection standards.
-          </p>
-          <p class="mt-4">
-            The categories of sub-processors we use are:
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[4].title}</h2>
+          {lang === 'fr' ? (
+            <>
+              <p class="mt-4">
+                Nous faisons appel à des prestataires tiers de confiance (« sous-traitants
+                ultérieurs ») pour exploiter certaines parties de notre infrastructure. Chacun est lié
+                par des engagements écrits imposant la confidentialité et un niveau approprié de
+                protection des données, et est sélectionné pour répondre aux normes de protection des
+                données du Royaume-Uni et de l’UE.
+              </p>
+              <p class="mt-4">
+                Les catégories de sous-traitants ultérieurs que nous utilisons sont :
+              </p>
+            </>
+          ) : (
+            <>
+              <p class="mt-4">
+                We engage trusted third-party suppliers ("sub-processors") to operate parts of
+                our infrastructure. Each is bound by written terms requiring confidentiality
+                and an appropriate level of data protection, and is selected to meet UK / EU
+                data-protection standards.
+              </p>
+              <p class="mt-4">
+                The categories of sub-processors we use are:
+              </p>
+            </>
+          )}
           <div class="mt-6 overflow-hidden rounded-xl border border-ink-200">
             <table class="w-full text-left text-sm">
               <thead>
                 <tr class="border-b border-ink-200 bg-ink-50">
-                  <th scope="col" class="px-4 py-3 font-semibold text-ink-900">Category</th>
-                  <th scope="col" class="px-4 py-3 font-semibold text-ink-900">Purpose</th>
+                  <th scope="col" class="px-4 py-3 font-semibold text-ink-900">{lang === 'fr' ? 'Catégorie' : 'Category'}</th>
+                  <th scope="col" class="px-4 py-3 font-semibold text-ink-900">{lang === 'fr' ? 'Finalité' : 'Purpose'}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-ink-100">
@@ -226,118 +424,243 @@ const sections = [
               </tbody>
             </table>
           </div>
-          <p class="mt-4">
-            A full list of named sub-processors is available to customers on request as part
-            of our Data Processing Agreement. Email
-            <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>
-            to request it.
-          </p>
+          {lang === 'fr' ? (
+            <p class="mt-4">
+              La liste complète des sous-traitants ultérieurs nommément désignés est disponible sur
+              demande pour les clients, dans le cadre de notre accord de traitement des données.
+              Écrivez à
+              <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>
+              pour la demander.
+            </p>
+          ) : (
+            <p class="mt-4">
+              A full list of named sub-processors is available to customers on request as part
+              of our Data Processing Agreement. Email
+              <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>
+              to request it.
+            </p>
+          )}
         </div>
 
         <div id="transfers">
-          <h2 class="text-2xl font-bold text-ink-900">6. International transfers</h2>
-          <p class="mt-4">
-            Some of our sub-processors operate outside the UK and the EEA. Where personal
-            data is transferred outside the UK, we rely on the UK International Data Transfer
-            Agreement, the EU Standard Contractual Clauses with the UK Addendum, or an
-            adequacy decision — whichever applies to the destination country. Copies of the
-            relevant transfer mechanisms are available on request.
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[5].title}</h2>
+          {lang === 'fr' ? (
+            <p class="mt-4">
+              Certains de nos sous-traitants ultérieurs opèrent en dehors du Royaume-Uni et de l’EEE.
+              Lorsque des données personnelles sont transférées hors du Royaume-Uni, nous nous
+              appuyons sur l’International Data Transfer Agreement du Royaume-Uni, les clauses
+              contractuelles types de l’UE assorties de l’addendum britannique, ou une décision
+              d’adéquation — selon ce qui s’applique au pays de destination. Des copies des mécanismes
+              de transfert pertinents sont disponibles sur demande.
+            </p>
+          ) : (
+            <p class="mt-4">
+              Some of our sub-processors operate outside the UK and the EEA. Where personal
+              data is transferred outside the UK, we rely on the UK International Data Transfer
+              Agreement, the EU Standard Contractual Clauses with the UK Addendum, or an
+              adequacy decision — whichever applies to the destination country. Copies of the
+              relevant transfer mechanisms are available on request.
+            </p>
+          )}
         </div>
 
         <div id="retention">
-          <h2 class="text-2xl font-bold text-ink-900">7. How long we keep data</h2>
-          <ul class="mt-4 space-y-3 pl-5 list-disc">
-            <li>
-              <strong>Call recordings and transcripts</strong> — retained for the lifetime of
-              the customer's account, then deleted within 90 days of account closure (or
-              earlier if the customer requests deletion).
-            </li>
-            <li>
-              <strong>Account and billing records</strong> — retained for six years after the
-              end of the customer relationship, to meet HMRC and Companies Act requirements.
-            </li>
-            <li>
-              <strong>Marketing data</strong> — retained for three years from the last
-              meaningful interaction, then deleted.
-            </li>
-            <li>
-              <strong>Server and application logs</strong> — retained for 30 days for
-              security and debugging purposes.
-            </li>
-          </ul>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[6].title}</h2>
+          {lang === 'fr' ? (
+            <ul class="mt-4 space-y-3 pl-5 list-disc">
+              <li>
+                <strong>Enregistrements et transcriptions d’appels</strong> — conservés pendant toute
+                la durée de vie du compte du client, puis supprimés dans les 90 jours suivant la
+                clôture du compte (ou plus tôt si le client demande la suppression).
+              </li>
+              <li>
+                <strong>Données de compte et de facturation</strong> — conservées pendant six ans
+                après la fin de la relation client, afin de respecter les obligations du HMRC et du
+                Companies Act.
+              </li>
+              <li>
+                <strong>Données marketing</strong> — conservées pendant trois ans à compter de la
+                dernière interaction significative, puis supprimées.
+              </li>
+              <li>
+                <strong>Journaux serveur et applicatifs</strong> — conservés pendant 30 jours à des
+                fins de sécurité et de débogage.
+              </li>
+            </ul>
+          ) : (
+            <ul class="mt-4 space-y-3 pl-5 list-disc">
+              <li>
+                <strong>Call recordings and transcripts</strong> — retained for the lifetime of
+                the customer's account, then deleted within 90 days of account closure (or
+                earlier if the customer requests deletion).
+              </li>
+              <li>
+                <strong>Account and billing records</strong> — retained for six years after the
+                end of the customer relationship, to meet HMRC and Companies Act requirements.
+              </li>
+              <li>
+                <strong>Marketing data</strong> — retained for three years from the last
+                meaningful interaction, then deleted.
+              </li>
+              <li>
+                <strong>Server and application logs</strong> — retained for 30 days for
+                security and debugging purposes.
+              </li>
+            </ul>
+          )}
         </div>
 
         <div id="your-rights">
-          <h2 class="text-2xl font-bold text-ink-900">8. Your rights</h2>
-          <p class="mt-4">
-            Under UK GDPR you have the right to:
-          </p>
-          <ul class="mt-4 space-y-2 pl-5 list-disc">
-            <li>Access the personal data we hold about you.</li>
-            <li>Have inaccurate data corrected.</li>
-            <li>Have your data deleted ("right to be forgotten") in certain circumstances.</li>
-            <li>Restrict how we process your data.</li>
-            <li>Receive your data in a portable format.</li>
-            <li>Object to processing based on legitimate interests or direct marketing.</li>
-            <li>Withdraw consent at any time, where consent is the lawful basis.</li>
-          </ul>
-          <p class="mt-4">
-            If your data is held by ReceptionMate as a processor on behalf of one of our
-            customers (typically: call data from a specific garage), please contact that
-            garage directly to exercise your rights. We will support our customer to respond.
-          </p>
-          <p class="mt-4">
-            To exercise any right, email <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>.
-            We will respond within one calendar month.
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[7].title}</h2>
+          {lang === 'fr' ? (
+            <>
+              <p class="mt-4">
+                Au titre du RGPD, vous avez le droit de :
+              </p>
+              <ul class="mt-4 space-y-2 pl-5 list-disc">
+                <li>Accéder aux données personnelles que nous détenons à votre sujet.</li>
+                <li>Faire rectifier les données inexactes.</li>
+                <li>Faire supprimer vos données (« droit à l’oubli ») dans certaines circonstances.</li>
+                <li>Limiter la manière dont nous traitons vos données.</li>
+                <li>Recevoir vos données dans un format portable.</li>
+                <li>Vous opposer au traitement fondé sur l’intérêt légitime ou à la prospection directe.</li>
+                <li>Retirer votre consentement à tout moment, lorsque le consentement est la base légale.</li>
+              </ul>
+              <p class="mt-4">
+                Si vos données sont détenues par ReceptionMate en tant que sous-traitant pour le
+                compte de l’un de nos clients (généralement : les données d’appel d’un garage donné),
+                veuillez contacter ce garage directement pour exercer vos droits. Nous accompagnerons
+                notre client dans sa réponse.
+              </p>
+              <p class="mt-4">
+                Pour exercer un droit, écrivez à <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>.
+                Nous répondrons dans un délai d’un mois calendaire.
+              </p>
+            </>
+          ) : (
+            <>
+              <p class="mt-4">
+                Under UK GDPR you have the right to:
+              </p>
+              <ul class="mt-4 space-y-2 pl-5 list-disc">
+                <li>Access the personal data we hold about you.</li>
+                <li>Have inaccurate data corrected.</li>
+                <li>Have your data deleted ("right to be forgotten") in certain circumstances.</li>
+                <li>Restrict how we process your data.</li>
+                <li>Receive your data in a portable format.</li>
+                <li>Object to processing based on legitimate interests or direct marketing.</li>
+                <li>Withdraw consent at any time, where consent is the lawful basis.</li>
+              </ul>
+              <p class="mt-4">
+                If your data is held by ReceptionMate as a processor on behalf of one of our
+                customers (typically: call data from a specific garage), please contact that
+                garage directly to exercise your rights. We will support our customer to respond.
+              </p>
+              <p class="mt-4">
+                To exercise any right, email <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>.
+                We will respond within one calendar month.
+              </p>
+            </>
+          )}
         </div>
 
         <div id="cookies">
-          <h2 class="text-2xl font-bold text-ink-900">9. Cookies and tracking</h2>
-          <p class="mt-4">
-            Our marketing site uses essential cookies needed to make the site work. We do
-            not currently set advertising cookies. Our portal sets session cookies required
-            for sign-in. If we add analytics or marketing cookies in future, we will display
-            a consent banner and only set non-essential cookies after you agree.
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[8].title}</h2>
+          {lang === 'fr' ? (
+            <p class="mt-4">
+              Notre site marketing utilise des cookies essentiels nécessaires à son fonctionnement.
+              Nous ne déposons pas actuellement de cookies publicitaires. Notre portail dépose des
+              cookies de session requis pour la connexion. Si nous ajoutons à l’avenir des cookies
+              analytiques ou marketing, nous afficherons une bannière de consentement et ne déposerons
+              de cookies non essentiels qu’après votre accord.
+            </p>
+          ) : (
+            <p class="mt-4">
+              Our marketing site uses essential cookies needed to make the site work. We do
+              not currently set advertising cookies. Our portal sets session cookies required
+              for sign-in. If we add analytics or marketing cookies in future, we will display
+              a consent banner and only set non-essential cookies after you agree.
+            </p>
+          )}
         </div>
 
         <div id="security">
-          <h2 class="text-2xl font-bold text-ink-900">10. Security</h2>
-          <p class="mt-4">
-            We protect data using industry-standard measures: encrypted connections (TLS) for
-            all traffic, encrypted storage of call recordings, role-based access controls,
-            audit logging, and regular security reviews of our infrastructure. No system is
-            perfect, but we take this seriously and respond quickly to vulnerabilities.
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[9].title}</h2>
+          {lang === 'fr' ? (
+            <p class="mt-4">
+              Nous protégeons les données à l’aide de mesures conformes aux standards du secteur :
+              connexions chiffrées (TLS) pour l’ensemble du trafic, stockage chiffré des
+              enregistrements d’appels, contrôles d’accès basés sur les rôles, journalisation des
+              accès et revues de sécurité régulières de notre infrastructure. Aucun système n’est
+              parfait, mais nous prenons ce sujet au sérieux et réagissons rapidement aux failles.
+            </p>
+          ) : (
+            <p class="mt-4">
+              We protect data using industry-standard measures: encrypted connections (TLS) for
+              all traffic, encrypted storage of call recordings, role-based access controls,
+              audit logging, and regular security reviews of our infrastructure. No system is
+              perfect, but we take this seriously and respond quickly to vulnerabilities.
+            </p>
+          )}
         </div>
 
         <div id="changes">
-          <h2 class="text-2xl font-bold text-ink-900">11. Changes to this policy</h2>
-          <p class="mt-4">
-            We may update this policy as the service evolves. The "Last updated" date at the
-            top of the page reflects the most recent change. For material changes, we will
-            notify customers by email at least 30 days before the change takes effect.
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[10].title}</h2>
+          {lang === 'fr' ? (
+            <p class="mt-4">
+              Nous pouvons mettre à jour cette politique à mesure que le service évolue. La date de
+              « Dernière mise à jour » en haut de la page reflète la modification la plus récente. En
+              cas de changements importants, nous informerons les clients par e-mail au moins 30 jours
+              avant leur entrée en vigueur.
+            </p>
+          ) : (
+            <p class="mt-4">
+              We may update this policy as the service evolves. The "Last updated" date at the
+              top of the page reflects the most recent change. For material changes, we will
+              notify customers by email at least 30 days before the change takes effect.
+            </p>
+          )}
         </div>
 
         <div id="contact">
-          <h2 class="text-2xl font-bold text-ink-900">12. Contact and complaints</h2>
-          <p class="mt-4">
-            For any privacy question — including requests for a Data Processing Agreement —
-            email <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>.
-          </p>
-          <p class="mt-4">
-            If you are unhappy with how we have handled your data, you have the right to
-            complain to the UK Information Commissioner's Office (ICO):
-          </p>
-          <p class="mt-3 text-sm text-ink-600">
-            Information Commissioner's Office<br/>
-            Wycliffe House, Water Lane, Wilmslow, Cheshire SK9 5AF<br/>
-            Helpline: 0303 123 1113<br/>
-            <a href="https://ico.org.uk" class="text-brand-600 underline" rel="nofollow noopener" target="_blank">ico.org.uk</a>
-          </p>
+          <h2 class="text-2xl font-bold text-ink-900">{sections[11].title}</h2>
+          {lang === 'fr' ? (
+            <>
+              <p class="mt-4">
+                Pour toute question relative à la confidentialité — y compris les demandes d’accord de
+                traitement des données —
+                écrivez à <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>.
+              </p>
+              <p class="mt-4">
+                Si vous n’êtes pas satisfait de la manière dont nous avons traité vos données, vous
+                avez le droit de déposer une réclamation auprès de l’Information Commissioner’s Office
+                (ICO) du Royaume-Uni :
+              </p>
+              <p class="mt-3 text-sm text-ink-600">
+                Information Commissioner's Office<br/>
+                Wycliffe House, Water Lane, Wilmslow, Cheshire SK9 5AF<br/>
+                Ligne d’assistance : 0303 123 1113<br/>
+                <a href="https://ico.org.uk" class="text-brand-600 underline" rel="nofollow noopener" target="_blank">ico.org.uk</a>
+              </p>
+            </>
+          ) : (
+            <>
+              <p class="mt-4">
+                For any privacy question — including requests for a Data Processing Agreement —
+                email <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>.
+              </p>
+              <p class="mt-4">
+                If you are unhappy with how we have handled your data, you have the right to
+                complain to the UK Information Commissioner's Office (ICO):
+              </p>
+              <p class="mt-3 text-sm text-ink-600">
+                Information Commissioner's Office<br/>
+                Wycliffe House, Water Lane, Wilmslow, Cheshire SK9 5AF<br/>
+                Helpline: 0303 123 1113<br/>
+                <a href="https://ico.org.uk" class="text-brand-600 underline" rel="nofollow noopener" target="_blank">ico.org.uk</a>
+              </p>
+            </>
+          )}
         </div>
 
       </div>

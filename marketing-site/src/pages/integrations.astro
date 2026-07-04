@@ -1,5 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
 
 interface Integration {
   name: string;
@@ -11,74 +13,193 @@ interface Integration {
   capabilities: string[];
 }
 
-const integrations: Integration[] = [
-  {
-    name: 'Garage Hive',
-    category: 'DMS',
-    status: 'Live',
-    summary: 'The most popular UK garage management system among independents.',
-    capabilities: [
-      'Reads live diary availability during the call',
-      'Writes confirmed bookings with vehicle, service and time slot',
-      'Pulls customer history when a known caller rings',
-    ],
+const c = {
+  en: {
+    metaTitle: 'Integrations — ReceptionMate connects to Garage Hive, Tyresoft, HubSpot and more',
+    metaDescription: `ReceptionMate's AI receptionist integrates with the UK garage stack — Garage Hive, Tyresoft, HubSpot, calendars and telephony — to book jobs directly during the call.`,
+    kicker: 'Integrations',
+    h1: 'Connects to the tools your garage already runs on.',
+    heroSub: `ReceptionMate isn't a replacement for your garage management system — it works with it. Live integrations with Garage Hive, Tyresoft, HubSpot and the rest mean every booking the AI captures lands in your diary, without a CSV import in sight.`,
+    ctaH2: `Don't see your system?`,
+    ctaLead: `We add new integrations regularly. If you run a modern DMS or CRM and you'd like ReceptionMate to talk to it, email`,
+    ctaLead2: `and we'll tell you straight whether it's on the roadmap.`,
+    getStarted: 'Get started',
+    // Display labels for category headings (filter keys stay in English).
+    categoryLabels: {
+      DMS: 'DMS',
+      CRM: 'CRM',
+      Calendar: 'Calendar',
+      Telephony: 'Telephony',
+      Messaging: 'Messaging',
+    } as Record<Integration['category'], string>,
+    statusLabels: {
+      Live: 'Live',
+      Beta: 'Beta',
+      'On request': 'On request',
+    } as Record<Integration['status'], string>,
+    integrations: [
+      {
+        name: 'Garage Hive',
+        category: 'DMS',
+        status: 'Live',
+        summary: 'The most popular UK garage management system among independents.',
+        capabilities: [
+          'Reads live diary availability during the call',
+          'Writes confirmed bookings with vehicle, service and time slot',
+          'Pulls customer history when a known caller rings',
+        ],
+      },
+      {
+        name: 'Tyresoft',
+        category: 'DMS',
+        status: 'Live',
+        summary: 'Tyre-fit and EPOS platform used by independent tyre shops and generalist garages.',
+        capabilities: [
+          'Quotes tyre fitments from live stock during the call',
+          'Books fitments straight into the workshop diary',
+          'Captures vehicle, tyre size and brand preferences',
+        ],
+      },
+      {
+        name: 'HubSpot',
+        category: 'CRM',
+        status: 'Live',
+        summary: 'Pushes calls, transcripts and bookings into HubSpot as contact + deal records.',
+        capabilities: [
+          'Creates or updates contact records on every call',
+          'Logs call transcripts as engagement notes',
+          'Triggers HubSpot workflows on booking events',
+        ],
+      },
+      {
+        name: 'Twilio',
+        category: 'Telephony',
+        status: 'Live',
+        summary: 'The telephony layer powering inbound calls and SMS delivery.',
+        capabilities: [
+          'UK-based numbers with sub-second routing',
+          'SMS confirmations and reminders',
+          'Call recording with encrypted storage',
+        ],
+      },
+      {
+        name: 'Outlook & Google Calendar',
+        category: 'Calendar',
+        status: 'Live',
+        summary: 'For garages running diary in a generic calendar rather than a DMS.',
+        capabilities: [
+          'Reads the calendar during the call to find open slots',
+          'Writes appointments straight into the right calendar',
+          'Respects busy / out-of-office rules',
+        ],
+      },
+      {
+        name: 'WhatsApp Business',
+        category: 'Messaging',
+        status: 'Live',
+        summary: 'For sending confirmations and follow-ups over WhatsApp instead of SMS.',
+        capabilities: [
+          'Sends booking confirmations via WhatsApp templates',
+          'Two-way replies handled through the portal',
+          'Customer opt-in respected per call',
+        ],
+      },
+    ] as Integration[],
   },
-  {
-    name: 'Tyresoft',
-    category: 'DMS',
-    status: 'Live',
-    summary: 'Tyre-fit and EPOS platform used by independent tyre shops and generalist garages.',
-    capabilities: [
-      'Quotes tyre fitments from live stock during the call',
-      'Books fitments straight into the workshop diary',
-      'Captures vehicle, tyre size and brand preferences',
-    ],
+  fr: {
+    metaTitle: 'Intégrations — ReceptionMate se connecte à Garage Hive, Tyresoft, HubSpot et plus',
+    metaDescription: `La réceptionniste IA de ReceptionMate s’intègre à l’écosystème des garages — Garage Hive, Tyresoft, HubSpot, agendas et téléphonie — pour réserver les interventions directement pendant l’appel.`,
+    kicker: 'Intégrations',
+    h1: 'Se connecte aux outils que votre garage utilise déjà.',
+    heroSub: `ReceptionMate ne remplace pas votre système de gestion de garage — il fonctionne avec lui. Des intégrations en direct avec Garage Hive, Tyresoft, HubSpot et les autres font que chaque réservation captée par l’IA atterrit dans votre agenda, sans le moindre import CSV.`,
+    ctaH2: `Vous ne voyez pas votre système ?`,
+    ctaLead: `Nous ajoutons régulièrement de nouvelles intégrations. Si vous utilisez un DMS ou un CRM moderne et souhaitez que ReceptionMate communique avec, écrivez à`,
+    ctaLead2: `et nous vous dirons franchement s’il figure sur la feuille de route.`,
+    getStarted: 'Commencer',
+    categoryLabels: {
+      DMS: 'DMS',
+      CRM: 'CRM',
+      Calendar: 'Agenda',
+      Telephony: 'Téléphonie',
+      Messaging: 'Messagerie',
+    } as Record<Integration['category'], string>,
+    statusLabels: {
+      Live: 'En direct',
+      Beta: 'Bêta',
+      'On request': 'Sur demande',
+    } as Record<Integration['status'], string>,
+    integrations: [
+      {
+        name: 'Garage Hive',
+        category: 'DMS',
+        status: 'Live',
+        summary: 'Le système de gestion de garage le plus populaire parmi les indépendants.',
+        capabilities: [
+          'Lit les disponibilités de l’agenda en direct pendant l’appel',
+          'Enregistre les réservations confirmées avec véhicule, prestation et créneau',
+          'Récupère l’historique client lorsqu’un appelant connu téléphone',
+        ],
+      },
+      {
+        name: 'Tyresoft',
+        category: 'DMS',
+        status: 'Live',
+        summary: 'Plateforme de montage de pneus et de caisse (EPOS) utilisée par les spécialistes du pneu et les garages généralistes.',
+        capabilities: [
+          'Établit des devis de montage de pneus depuis le stock en direct pendant l’appel',
+          'Réserve les montages directement dans l’agenda de l’atelier',
+          'Enregistre le véhicule, la taille des pneus et les préférences de marque',
+        ],
+      },
+      {
+        name: 'HubSpot',
+        category: 'CRM',
+        status: 'Live',
+        summary: 'Transmet les appels, les transcriptions et les réservations vers HubSpot sous forme de fiches contact + transaction.',
+        capabilities: [
+          'Crée ou met à jour les fiches contact à chaque appel',
+          'Consigne les transcriptions d’appels sous forme de notes d’engagement',
+          'Déclenche des workflows HubSpot lors des événements de réservation',
+        ],
+      },
+      {
+        name: 'Twilio',
+        category: 'Telephony',
+        status: 'Live',
+        summary: 'La couche de téléphonie qui alimente les appels entrants et l’envoi de SMS.',
+        capabilities: [
+          'Numéros basés au Royaume-Uni avec un routage en moins d’une seconde',
+          'Confirmations et rappels par SMS',
+          'Enregistrement des appels avec stockage chiffré',
+        ],
+      },
+      {
+        name: 'Outlook & Google Calendar',
+        category: 'Calendar',
+        status: 'Live',
+        summary: 'Pour les garages qui gèrent leur agenda dans un calendrier générique plutôt que dans un DMS.',
+        capabilities: [
+          'Lit le calendrier pendant l’appel pour trouver les créneaux libres',
+          'Enregistre les rendez-vous directement dans le bon calendrier',
+          'Respecte les règles d’occupation / d’absence du bureau',
+        ],
+      },
+      {
+        name: 'WhatsApp Business',
+        category: 'Messaging',
+        status: 'Live',
+        summary: 'Pour envoyer les confirmations et les relances via WhatsApp plutôt que par SMS.',
+        capabilities: [
+          'Envoie les confirmations de réservation via des modèles WhatsApp',
+          'Réponses bidirectionnelles gérées depuis le portail',
+          'Consentement du client respecté à chaque appel',
+        ],
+      },
+    ] as Integration[],
   },
-  {
-    name: 'HubSpot',
-    category: 'CRM',
-    status: 'Live',
-    summary: 'Pushes calls, transcripts and bookings into HubSpot as contact + deal records.',
-    capabilities: [
-      'Creates or updates contact records on every call',
-      'Logs call transcripts as engagement notes',
-      'Triggers HubSpot workflows on booking events',
-    ],
-  },
-  {
-    name: 'Twilio',
-    category: 'Telephony',
-    status: 'Live',
-    summary: 'The telephony layer powering inbound calls and SMS delivery.',
-    capabilities: [
-      'UK-based numbers with sub-second routing',
-      'SMS confirmations and reminders',
-      'Call recording with encrypted storage',
-    ],
-  },
-  {
-    name: 'Outlook & Google Calendar',
-    category: 'Calendar',
-    status: 'Live',
-    summary: 'For garages running diary in a generic calendar rather than a DMS.',
-    capabilities: [
-      'Reads the calendar during the call to find open slots',
-      'Writes appointments straight into the right calendar',
-      'Respects busy / out-of-office rules',
-    ],
-  },
-  {
-    name: 'WhatsApp Business',
-    category: 'Messaging',
-    status: 'Live',
-    summary: 'For sending confirmations and follow-ups over WhatsApp instead of SMS.',
-    capabilities: [
-      'Sends booking confirmations via WhatsApp templates',
-      'Two-way replies handled through the portal',
-      'Customer opt-in respected per call',
-    ],
-  },
-];
+}[lang];
+
+const integrations = c.integrations;
 
 const categories = ['DMS', 'CRM', 'Calendar', 'Telephony', 'Messaging'] as const;
 
@@ -90,21 +211,18 @@ const statusStyles: Record<Integration['status'], string> = {
 ---
 
 <BaseLayout
-  title="Integrations — ReceptionMate connects to Garage Hive, Tyresoft, HubSpot and more"
-  description="ReceptionMate's AI receptionist integrates with the UK garage stack — Garage Hive, Tyresoft, HubSpot, calendars and telephony — to book jobs directly during the call."
+  title={c.metaTitle}
+  description={c.metaDescription}
 >
   <!-- Hero -->
   <section class="bg-white pt-16 pb-10 sm:pt-20 sm:pb-12">
     <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Integrations</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.kicker}</p>
       <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
-        Connects to the tools your garage already runs on.
+        {c.h1}
       </h1>
       <p class="mt-4 max-w-3xl text-lg leading-relaxed text-ink-700">
-        ReceptionMate isn't a replacement for your garage management system —
-        it works with it. Live integrations with Garage Hive, Tyresoft, HubSpot
-        and the rest mean every booking the AI captures lands in your diary,
-        without a CSV import in sight.
+        {c.heroSub}
       </p>
     </div>
   </section>
@@ -117,22 +235,22 @@ const statusStyles: Record<Integration['status'], string> = {
         if (list.length === 0) return null;
         return (
           <div>
-            <h2 class="text-2xl font-bold text-ink-900">{cat}</h2>
+            <h2 class="text-2xl font-bold text-ink-900">{c.categoryLabels[cat]}</h2>
             <div class="mt-5 grid gap-4 md:grid-cols-2">
               {list.map((i) => (
                 <article class="rounded-2xl border border-ink-200 bg-white p-6">
                   <div class="flex items-start justify-between gap-3">
                     <h3 class="text-lg font-semibold text-ink-900">{i.name}</h3>
                     <span class={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[i.status]}`}>
-                      {i.status}
+                      {c.statusLabels[i.status]}
                     </span>
                   </div>
                   <p class="mt-2 text-sm leading-relaxed text-ink-700">{i.summary}</p>
                   <ul class="mt-4 space-y-2">
-                    {i.capabilities.map((c) => (
+                    {i.capabilities.map((cap) => (
                       <li class="flex items-start gap-2 text-sm text-ink-700">
                         <svg xmlns="http://www.w3.org/2000/svg" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                        <span>{c}</span>
+                        <span>{cap}</span>
                       </li>
                     ))}
                   </ul>
@@ -149,19 +267,18 @@ const statusStyles: Record<Integration['status'], string> = {
   <section class="bg-white py-16 sm:py-20">
     <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
       <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        Don't see your system?
+        {c.ctaH2}
       </h2>
       <p class="mt-4 text-lg leading-relaxed text-ink-700">
-        We add new integrations regularly. If you run a modern DMS or CRM and
-        you'd like ReceptionMate to talk to it, email
+        {c.ctaLead}
         <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>
-        and we'll tell you straight whether it's on the roadmap.
+        {c.ctaLead2}
       </p>
       <a
-        href="/get-started"
+        href={L('/get-started', lang)}
         class="mt-8 inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-700 transition"
       >
-        Get started
+        {c.getStarted}
       </a>
     </div>
   </section>

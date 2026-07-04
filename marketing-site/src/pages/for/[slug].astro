@@ -1,6 +1,5 @@
 ---
-import BaseLayout from '../../layouts/BaseLayout.astro';
-import WhyUs from '../../components/WhyUs.astro';
+import IndustryPage from '../../components/IndustryPage.astro';
 import { INDUSTRIES } from '../../data/industries';
 
 export function getStaticPaths() {
@@ -11,86 +10,6 @@ export function getStaticPaths() {
 }
 
 const { industry } = Astro.props;
-const { name, displayName, context, pain, highlights } = industry;
-
-const seoTitle = `AI receptionist for ${name} — ReceptionMate`;
-const seoDescription = `ReceptionMate is the AI receptionist built for ${displayName}. Answers every call, books every job, integrates with the UK garage stack.`;
 ---
 
-<BaseLayout title={seoTitle} description={seoDescription}>
-
-  <!-- Hero -->
-  <section class="relative isolate overflow-hidden bg-white">
-    <div class="absolute inset-0 -z-10">
-      <div class="absolute -top-40 left-1/2 h-96 w-[800px] -translate-x-1/2 rounded-full bg-brand-100/60 blur-3xl"></div>
-    </div>
-
-    <div class="mx-auto max-w-5xl px-4 pt-16 pb-12 sm:px-6 lg:px-8 lg:pt-20">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">
-        For {displayName}
-      </p>
-      <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl lg:text-6xl">
-        The AI receptionist<br/>
-        <span class="text-brand-600">built for {displayName}.</span>
-      </h1>
-      <p class="mt-6 max-w-3xl text-lg leading-relaxed text-ink-700">{context}</p>
-      <p class="mt-4 max-w-3xl text-base leading-relaxed text-ink-600">{pain}</p>
-
-      <div class="mt-8 flex flex-wrap items-center gap-3">
-        <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition">
-          Get started
-        </a>
-        <a href="/case-studies" class="inline-flex items-center justify-center rounded-md border border-ink-300 px-5 py-3 text-sm font-semibold text-ink-700 hover:border-ink-400 transition">
-          See case studies
-        </a>
-      </div>
-    </div>
-  </section>
-
-  <!-- Industry highlights -->
-  <section class="bg-ink-50 py-16 sm:py-20">
-    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-3xl text-center">
-        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">What ReceptionMate does for {displayName}</p>
-        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Three things that change on day one.
-        </h2>
-      </div>
-
-      <div class="mt-12 grid gap-6 md:grid-cols-3">
-        {highlights.map((h) => (
-          <div class="rounded-2xl border border-ink-200 bg-white p-6">
-            <h3 class="text-lg font-semibold text-ink-900">{h.title}</h3>
-            <p class="mt-2 text-base leading-relaxed text-ink-700">{h.body}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  </section>
-
-  <!-- Reuse the comparison table — the differentiation message is the same. -->
-  <WhyUs />
-
-  <!-- CTA -->
-  <section class="bg-white py-16 sm:py-20">
-    <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-      <div class="relative overflow-hidden rounded-3xl bg-brand-600 p-10 text-center sm:p-14">
-        <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-          See ReceptionMate handle your calls.
-        </h2>
-        <p class="mx-auto mt-4 max-w-2xl text-lg text-brand-100">
-          No contract. You keep your existing number — we set up call forwarding
-          so the AI catches the calls your team can't get to.
-        </p>
-        <div class="mt-8">
-          <a
-            href="/get-started"
-            class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition"
-          >
-            Get started
-          </a>
-        </div>
-      </div>
-    </div>
-  </section>
-</BaseLayout>
+<IndustryPage industry={industry} />

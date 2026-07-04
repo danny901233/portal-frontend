@@ -1,36 +1,83 @@
 ---
-const features = [
-  {
-    title: 'Books straight into your diary',
-    body: 'Integrates with Garage Hive, HubSpot, and other booking systems. Slots are reserved in real time so no double-bookings, ever.',
-    icon: 'calendar',
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+
+const c = {
+  en: {
+    eyebrow: "What's in the box",
+    heading: 'Built for the way garages actually run.',
+    features: [
+      {
+        title: 'Books straight into your diary',
+        body: 'Integrates with Garage Hive, HubSpot, and other booking systems. Slots are reserved in real time so no double-bookings, ever.',
+        icon: 'calendar',
+      },
+      {
+        title: 'Knows your services and prices',
+        body: 'Trained on your menu — MOTs, services, diagnostics, tyres. Quotes prices on the spot when you let it.',
+        icon: 'sparkles',
+      },
+      {
+        title: 'Captures every detail',
+        body: 'Customer name, vehicle reg, service requested, preferred time, callback number. All in one place in the portal.',
+        icon: 'clipboard',
+      },
+      {
+        title: 'SMS confirmations & reminders',
+        body: 'Customer gets a confirmation text right after the call. Reminder the day before. No more no-shows.',
+        icon: 'phone',
+      },
+      {
+        title: 'Escalates when it should',
+        body: 'Complex enquiries, complaints, or VIP customers get put through to a human. You stay in control.',
+        icon: 'shield',
+      },
+      {
+        title: 'Reports on what matters',
+        body: 'Calls answered, bookings captured, revenue won, abandoned reasons. Weekly summary straight to your inbox.',
+        icon: 'chart',
+      },
+    ],
   },
-  {
-    title: 'Knows your services and prices',
-    body: 'Trained on your menu — MOTs, services, diagnostics, tyres. Quotes prices on the spot when you let it.',
-    icon: 'sparkles',
+  fr: {
+    eyebrow: 'Ce qui est inclus',
+    heading: 'Conçu pour le fonctionnement réel des garages.',
+    features: [
+      {
+        title: 'Réserve directement dans votre agenda',
+        body: "S'intègre à Garage Hive, HubSpot et d'autres systèmes de réservation. Les créneaux sont bloqués en temps réel : plus jamais de double réservation.",
+        icon: 'calendar',
+      },
+      {
+        title: 'Connaît vos prestations et vos tarifs',
+        body: 'Formé sur votre catalogue — contrôles techniques, révisions, diagnostics, pneus. Il annonce les prix instantanément lorsque vous l’autorisez.',
+        icon: 'sparkles',
+      },
+      {
+        title: 'Recueille chaque détail',
+        body: "Nom du client, immatriculation du véhicule, prestation demandée, horaire souhaité, numéro de rappel. Tout au même endroit dans le portail.",
+        icon: 'clipboard',
+      },
+      {
+        title: 'Confirmations et rappels par SMS',
+        body: "Le client reçoit un SMS de confirmation juste après l'appel. Un rappel la veille. Fini les rendez-vous manqués.",
+        icon: 'phone',
+      },
+      {
+        title: 'Transfère quand il le faut',
+        body: "Les demandes complexes, les réclamations ou les clients VIP sont transférés à un humain. Vous gardez le contrôle.",
+        icon: 'shield',
+      },
+      {
+        title: 'Des rapports sur l’essentiel',
+        body: "Appels traités, réservations enregistrées, chiffre d'affaires généré, motifs d'abandon. Un récapitulatif hebdomadaire directement dans votre boîte mail.",
+        icon: 'chart',
+      },
+    ],
   },
-  {
-    title: 'Captures every detail',
-    body: 'Customer name, vehicle reg, service requested, preferred time, callback number. All in one place in the portal.',
-    icon: 'clipboard',
-  },
-  {
-    title: 'SMS confirmations & reminders',
-    body: 'Customer gets a confirmation text right after the call. Reminder the day before. No more no-shows.',
-    icon: 'phone',
-  },
-  {
-    title: 'Escalates when it should',
-    body: 'Complex enquiries, complaints, or VIP customers get put through to a human. You stay in control.',
-    icon: 'shield',
-  },
-  {
-    title: 'Reports on what matters',
-    body: 'Calls answered, bookings captured, revenue won, abandoned reasons. Weekly summary straight to your inbox.',
-    icon: 'chart',
-  },
-];
+}[lang];
+
+const features = c.features;
 
 const iconMap: Record<string, string> = {
   calendar: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
@@ -45,9 +92,9 @@ const iconMap: Record<string, string> = {
 <section class="bg-ink-50 py-20 sm:py-24">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-3xl text-center">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">What's in the box</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.eyebrow}</p>
       <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        Built for the way garages actually run.
+        {c.heading}
       </h2>
     </div>
 

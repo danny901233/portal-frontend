@@ -4,21 +4,35 @@
 // no iframe). This route is just a redirect so existing links from the
 // marketing site (nav "Get started" CTA etc.) still work.
 
+import { getLang } from '../i18n/ui';
+const lang = getLang(Astro.url);
+
 const PORTAL_DEMO_URL = import.meta.env.PUBLIC_PORTAL_DEMO_URL
   || 'https://portal.receptionmate.co.uk/demo';
+
+const c = {
+  en: {
+    opening: 'Opening the ReceptionMate demo…',
+    continue: 'Continue',
+  },
+  fr: {
+    opening: 'Ouverture de la démo ReceptionMate…',
+    continue: 'Continuer',
+  },
+}[lang];
 ---
 <!doctype html>
-<html lang="en-GB">
+<html lang={lang === 'fr' ? 'fr' : 'en-GB'}>
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="refresh" content={`0; url=${PORTAL_DEMO_URL}`} />
     <link rel="canonical" href={PORTAL_DEMO_URL} />
-    <title>Opening the ReceptionMate demo…</title>
+    <title>{c.opening}</title>
     <script define:vars={{ PORTAL_DEMO_URL }}>
       window.location.replace(PORTAL_DEMO_URL);
     </script>
   </head>
   <body style="font-family:system-ui,-apple-system,sans-serif;padding:2rem;">
-    <p>Opening the ReceptionMate demo… <a href={PORTAL_DEMO_URL}>Continue</a></p>
+    <p>{c.opening} <a href={PORTAL_DEMO_URL}>{c.continue}</a></p>
   </body>
 </html>

@@ -3,28 +3,55 @@
 // case studies on /case-studies, keep these aligned — they're the same words.
 // `result` is the factual outcome row shown under the quote — not invented
 // text, drawn from the corresponding case study.
-const quotes = [
-  {
-    quote: "Over the 2 months (Oct / Nov) looking at the uplift in sales from the final invoice value and deducting your invoices, INO have generated an additional £21k that would have otherwise been lost sales.",
-    name: "Louise",
-    role: "In'n'Out Autocentres",
-    result: "992 calls answered · 245 bookings captured · £34,089 revenue",
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+const c = {
+  en: {
+    eyebrow: 'From the workshop floor',
+    h2: 'Real garages, real results.',
+    quotes: [
+      {
+        quote: "Over the 2 months (Oct / Nov) looking at the uplift in sales from the final invoice value and deducting your invoices, INO have generated an additional £21k that would have otherwise been lost sales.",
+        name: "Louise",
+        role: "In'n'Out Autocentres",
+        result: "992 calls answered · 245 bookings captured · £34,089 revenue",
+      },
+      {
+        quote: "Bookings we would have lost are now in our diary the next morning.",
+        name: "Mark",
+        role: "EAC Telford",
+        result: "1,468 calls answered · 158 bookings captured · £28,761 revenue",
+      },
+    ],
   },
-  {
-    quote: "Bookings we would have lost are now in our diary the next morning.",
-    name: "Mark",
-    role: "EAC Telford",
-    result: "1,468 calls answered · 158 bookings captured · £28,761 revenue",
+  fr: {
+    eyebrow: "Depuis l'atelier",
+    h2: 'De vrais garages, de vrais résultats.',
+    quotes: [
+      {
+        quote: "Sur les 2 mois (oct. / nov.), en analysant la hausse des ventes à partir de la valeur des factures finales et en déduisant vos factures, INO a généré 21 000 £ supplémentaires qui auraient sinon été des ventes perdues.",
+        name: "Louise",
+        role: "In'n'Out Autocentres",
+        result: "992 appels traités · 245 réservations enregistrées · 34 089 £ de chiffre d'affaires",
+      },
+      {
+        quote: "Les réservations que nous aurions perdues figurent désormais dans notre agenda dès le lendemain matin.",
+        name: "Mark",
+        role: "EAC Telford",
+        result: "1 468 appels traités · 158 réservations enregistrées · 28 761 £ de chiffre d'affaires",
+      },
+    ],
   },
-];
+}[lang];
+const quotes = c.quotes;
 ---
 
 <section class="bg-white py-20 sm:py-24">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-3xl text-center">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">From the workshop floor</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.eyebrow}</p>
       <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        Real garages, real results.
+        {c.h2}
       </h2>
     </div>
 
@@ -40,7 +67,7 @@ const quotes = [
               <p class="text-sm font-semibold text-ink-900">{q.name}</p>
               <p class="text-xs text-ink-500">{q.role}</p>
             </div>
-            <div class="flex items-center gap-0.5 text-amber-500" aria-label="5 out of 5 stars">
+            <div class="flex items-center gap-0.5 text-amber-500" aria-label={lang === 'fr' ? '5 étoiles sur 5' : '5 out of 5 stars'}>
               {Array.from({ length: 5 }).map(() => (
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>
               ))}

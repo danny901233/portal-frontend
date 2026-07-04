@@ -1,22 +1,41 @@
 ---
-const stats = [
-  { value: '30%', label: 'of garage calls go unanswered', note: 'industry average' },
-  { value: '£140', label: 'average value of a missed booking', note: 'lost revenue per call' },
-  { value: '74%', label: "of callers won't try again", note: 'they call your competitor' },
-];
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+const c = {
+  en: {
+    eyebrow: 'The problem',
+    heading: 'Every missed call is a customer in the next garage.',
+    para: 'Your team is on the ramps, on the phone, or at lunch. Meanwhile the phone rings, rings, rings — and another booking walks away.',
+    stats: [
+      { value: '30%', label: 'of garage calls go unanswered', note: 'industry average' },
+      { value: '£140', label: 'average value of a missed booking', note: 'lost revenue per call' },
+      { value: '74%', label: "of callers won't try again", note: 'they call your competitor' },
+    ],
+  },
+  fr: {
+    eyebrow: 'Le problème',
+    heading: 'Chaque appel manqué est un client qui va au garage voisin.',
+    para: 'Votre équipe est sur les ponts, au téléphone ou en pause déjeuner. Pendant ce temps, le téléphone sonne, sonne, sonne — et une réservation de plus vous échappe.',
+    stats: [
+      { value: '30%', label: 'des appels reçus par les garages restent sans réponse', note: 'moyenne du secteur' },
+      { value: '£140', label: "valeur moyenne d'une réservation manquée", note: 'revenu perdu par appel' },
+      { value: '74%', label: 'des appelants ne rappellent pas', note: 'ils appellent votre concurrent' },
+    ],
+  },
+}[lang];
+const stats = c.stats;
 ---
 
 <section class="bg-white py-20 sm:py-24">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="mx-auto max-w-3xl text-center">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">The problem</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.eyebrow}</p>
       <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        Every missed call is a customer in the next garage.
+        {c.heading}
       </h2>
       <!-- Long supporting paragraph hidden on mobile — stats below carry the message. -->
       <p class="mt-4 hidden text-lg text-ink-600 md:block">
-        Your team is on the ramps, on the phone, or at lunch. Meanwhile the phone rings,
-        rings, rings — and another booking walks away.
+        {c.para}
       </p>
     </div>
 

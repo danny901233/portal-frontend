@@ -2,6 +2,67 @@
 // "Calls Leah is handling right now" ticker — replaces the decorative
 // VoiceViz with something that looks live and conveys product activity.
 // Cities only; no garage names so no GDPR / consent burden.
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+const c = {
+  en: {
+    live: 'Live activity',
+    header: 'Calls Leah is handling for UK garages',
+    updates: 'Updates every few seconds.',
+    handled: 'handled',
+    forGarageIn: 'for a garage in',
+    aCall: 'a call',
+    footnote: 'Sample activity · live data loading…',
+    // Live-feed footnote once real data arrives.
+    liveFootnote: 'Live · calls handled across UK garages today',
+    justNow: 'Just now',
+    minAgo: 'min ago',
+    oneMinAgo: '1 min ago',
+    hrAgo: 'hrs ago',
+    oneHrAgo: '1 hr ago',
+    // Time labels for the four pre-rendered rows.
+    row0Time: 'Just now',
+    row1Time: '1 min ago',
+    row2Time: '3 min ago',
+    row3Time: '5 min ago',
+    // Fallback pool descriptions.
+    motBooking: 'an MOT booking',
+    serviceBooking: 'a service booking',
+    diagnostic: 'a diagnostic appointment',
+    generalEnquiry: 'a general enquiry',
+    priceEnquiry: 'a price enquiry',
+    booking: 'a booking',
+    callback: 'a callback request',
+    updateCall: 'an update call',
+  },
+  fr: {
+    live: 'Activité en direct',
+    header: 'Les appels que Leah gère pour les garages',
+    updates: 'Mise à jour toutes les quelques secondes.',
+    handled: 'a géré',
+    forGarageIn: 'pour un garage à',
+    aCall: 'un appel',
+    footnote: 'Activité à titre indicatif · chargement des données en direct…',
+    liveFootnote: 'En direct · appels gérés dans les garages aujourd’hui',
+    justNow: "À l'instant",
+    minAgo: 'min',
+    oneMinAgo: 'il y a 1 min',
+    hrAgo: 'h',
+    oneHrAgo: 'il y a 1 h',
+    row0Time: "À l'instant",
+    row1Time: 'il y a 1 min',
+    row2Time: 'il y a 3 min',
+    row3Time: 'il y a 5 min',
+    motBooking: 'un contrôle technique',
+    serviceBooking: 'une révision',
+    diagnostic: 'un rendez-vous de diagnostic',
+    generalEnquiry: 'une demande générale',
+    priceEnquiry: 'une demande de tarif',
+    booking: 'une réservation',
+    callback: 'une demande de rappel',
+    updateCall: 'un appel de suivi',
+  },
+}[lang];
 ---
 
 <div class="relative mx-auto w-full max-w-3xl">
@@ -17,25 +78,25 @@
         <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
         <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
       </span>
-      Live activity
+      {c.live}
     </span>
 
     <!-- Header -->
     <div class="mt-12 text-center">
-      <h3 class="text-lg font-bold text-ink-900">Calls Leah is handling for UK garages</h3>
-      <p class="mt-1 text-sm text-ink-500">Updates every few seconds.</p>
+      <h3 class="text-lg font-bold text-ink-900">{c.header}</h3>
+      <p class="mt-1 text-sm text-ink-500">{c.updates}</p>
     </div>
 
     <!-- Ticker -->
-    <ol id="call-ticker" class="mx-auto mt-6 max-w-xl space-y-2">
+    <ol id="call-ticker" class="mx-auto mt-6 max-w-xl space-y-2" data-lang={lang} data-i18n={JSON.stringify(c)}>
       <!-- Filled by inline script on mount; 4 rows pre-rendered to avoid layout pop -->
       <li class="ticker-row flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-3 shadow-sm">
         <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M21 3l-7 7M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
         </span>
         <div class="min-w-0 flex-1 text-left">
-          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> handled <span class="ticker-description">a call</span> for a garage in <span class="ticker-city">Telford</span></p>
-          <p class="text-xs text-ink-500"><span class="ticker-time">Just now</span></p>
+          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> {c.handled} <span class="ticker-description">{c.aCall}</span> {c.forGarageIn} <span class="ticker-city">Telford</span></p>
+          <p class="text-xs text-ink-500"><span class="ticker-time">{c.row0Time}</span></p>
         </div>
       </li>
       <li class="ticker-row flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-3 shadow-sm">
@@ -43,8 +104,8 @@
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M21 3l-7 7M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
         </span>
         <div class="min-w-0 flex-1 text-left">
-          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> handled <span class="ticker-description">a call</span> for a garage in <span class="ticker-city">Manchester</span></p>
-          <p class="text-xs text-ink-500"><span class="ticker-time">1 min ago</span></p>
+          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> {c.handled} <span class="ticker-description">{c.aCall}</span> {c.forGarageIn} <span class="ticker-city">Manchester</span></p>
+          <p class="text-xs text-ink-500"><span class="ticker-time">{c.row1Time}</span></p>
         </div>
       </li>
       <li class="ticker-row flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-3 shadow-sm">
@@ -52,8 +113,8 @@
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M21 3l-7 7M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
         </span>
         <div class="min-w-0 flex-1 text-left">
-          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> handled <span class="ticker-description">a call</span> for a garage in <span class="ticker-city">Birmingham</span></p>
-          <p class="text-xs text-ink-500"><span class="ticker-time">3 min ago</span></p>
+          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> {c.handled} <span class="ticker-description">{c.aCall}</span> {c.forGarageIn} <span class="ticker-city">Birmingham</span></p>
+          <p class="text-xs text-ink-500"><span class="ticker-time">{c.row2Time}</span></p>
         </div>
       </li>
       <li class="ticker-row flex items-center gap-3 rounded-xl border border-ink-200 bg-white p-3 shadow-sm">
@@ -61,15 +122,15 @@
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M21 3l-7 7M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
         </span>
         <div class="min-w-0 flex-1 text-left">
-          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> handled <span class="ticker-description">a call</span> for a garage in <span class="ticker-city">Leeds</span></p>
-          <p class="text-xs text-ink-500"><span class="ticker-time">5 min ago</span></p>
+          <p class="text-sm font-medium text-ink-900 truncate"><span class="ticker-agent">Leah</span> {c.handled} <span class="ticker-description">{c.aCall}</span> {c.forGarageIn} <span class="ticker-city">Leeds</span></p>
+          <p class="text-xs text-ink-500"><span class="ticker-time">{c.row3Time}</span></p>
         </div>
       </li>
     </ol>
 
     <!-- Footnote — updated by the script once real data is loaded -->
     <p id="call-ticker-footnote" class="mt-5 text-center text-xs text-ink-400">
-      Sample activity · live data loading…
+      {c.footnote}
     </p>
   </div>
 </div>
@@ -84,30 +145,42 @@
   // claim "Just now" for a fabricated event — especially at night when there
   // genuinely aren't many live calls.
   type Entry = { agent: string; city: string; description: string; ageMinutes: number };
-  const FALLBACK_POOL: Entry[] = [
-    { agent: 'Leah',   city: 'Telford',     description: 'an MOT booking',          ageMinutes: 12 },
-    { agent: 'Tom',    city: 'Manchester',  description: 'a service booking',        ageMinutes: 28 },
-    { agent: 'Sophie', city: 'Birmingham',  description: 'a diagnostic appointment', ageMinutes: 45 },
-    { agent: 'Leah',   city: 'Leeds',       description: 'a general enquiry',        ageMinutes: 67 },
-    { agent: 'Tom',    city: 'Cardiff',     description: 'a price enquiry',          ageMinutes: 95 },
-    { agent: 'Gemma',  city: 'Bristol',     description: 'a booking',                ageMinutes: 120 },
-    { agent: 'Fraser', city: 'Glasgow',     description: 'a callback request',       ageMinutes: 150 },
-    { agent: 'Leah',   city: 'Sheffield',   description: 'an update call',           ageMinutes: 180 },
-    { agent: 'Isobel', city: 'Edinburgh',   description: 'an MOT booking',           ageMinutes: 215 },
-    { agent: 'Tom',    city: 'Newcastle',   description: 'a general enquiry',        ageMinutes: 245 },
-    { agent: 'Sophie', city: 'Liverpool',   description: 'a service booking',        ageMinutes: 280 },
-    { agent: 'Leah',   city: 'Nottingham',  description: 'an MOT booking',           ageMinutes: 320 },
-    { agent: 'Tom',    city: 'Cambridge',   description: 'a general enquiry',        ageMinutes: 360 },
-    { agent: 'Amelia', city: 'Oxford',      description: 'a price enquiry',          ageMinutes: 410 },
-    { agent: 'Sophie', city: 'Plymouth',    description: 'a service booking',        ageMinutes: 460 },
-    { agent: 'Leah',   city: 'Southampton', description: 'an update call',           ageMinutes: 520 },
-    { agent: 'Tom',    city: 'Brighton',    description: 'an MOT booking',           ageMinutes: 580 },
-    { agent: 'Sophie', city: 'Reading',     description: 'a diagnostic appointment', ageMinutes: 640 },
-  ];
 
   const ticker = document.getElementById('call-ticker');
   const footnote = document.getElementById('call-ticker-footnote');
   const API_URL = 'https://portal.receptionmate.co.uk/api/public/recent-calls';
+
+  // Localised copy injected from the Astro frontmatter via data attributes so
+  // this bundled module stays a normal TS module (no define:vars needed).
+  type I18n = {
+    handled: string; forGarageIn: string; aCall: string; liveFootnote: string;
+    justNow: string; minAgo: string; oneMinAgo: string; hrAgo: string; oneHrAgo: string;
+    motBooking: string; serviceBooking: string; diagnostic: string; generalEnquiry: string;
+    priceEnquiry: string; booking: string; callback: string; updateCall: string;
+  };
+  const LANG = ticker?.dataset.lang ?? 'en';
+  const I18N: I18n = ticker?.dataset.i18n ? (JSON.parse(ticker.dataset.i18n) as I18n) : ({} as I18n);
+
+  const FALLBACK_POOL: Entry[] = [
+    { agent: 'Leah',   city: 'Telford',     description: I18N.motBooking,     ageMinutes: 12 },
+    { agent: 'Tom',    city: 'Manchester',  description: I18N.serviceBooking, ageMinutes: 28 },
+    { agent: 'Sophie', city: 'Birmingham',  description: I18N.diagnostic,     ageMinutes: 45 },
+    { agent: 'Leah',   city: 'Leeds',       description: I18N.generalEnquiry, ageMinutes: 67 },
+    { agent: 'Tom',    city: 'Cardiff',     description: I18N.priceEnquiry,   ageMinutes: 95 },
+    { agent: 'Gemma',  city: 'Bristol',     description: I18N.booking,        ageMinutes: 120 },
+    { agent: 'Fraser', city: 'Glasgow',     description: I18N.callback,       ageMinutes: 150 },
+    { agent: 'Leah',   city: 'Sheffield',   description: I18N.updateCall,     ageMinutes: 180 },
+    { agent: 'Isobel', city: 'Edinburgh',   description: I18N.motBooking,     ageMinutes: 215 },
+    { agent: 'Tom',    city: 'Newcastle',   description: I18N.generalEnquiry, ageMinutes: 245 },
+    { agent: 'Sophie', city: 'Liverpool',   description: I18N.serviceBooking, ageMinutes: 280 },
+    { agent: 'Leah',   city: 'Nottingham',  description: I18N.motBooking,     ageMinutes: 320 },
+    { agent: 'Tom',    city: 'Cambridge',   description: I18N.generalEnquiry, ageMinutes: 360 },
+    { agent: 'Amelia', city: 'Oxford',      description: I18N.priceEnquiry,   ageMinutes: 410 },
+    { agent: 'Sophie', city: 'Plymouth',    description: I18N.serviceBooking, ageMinutes: 460 },
+    { agent: 'Leah',   city: 'Southampton', description: I18N.updateCall,     ageMinutes: 520 },
+    { agent: 'Tom',    city: 'Brighton',    description: I18N.motBooking,     ageMinutes: 580 },
+    { agent: 'Sophie', city: 'Reading',     description: I18N.diagnostic,     ageMinutes: 640 },
+  ];
 
   if (ticker) {
     const rows = Array.from(ticker.querySelectorAll<HTMLElement>('.ticker-row'));
@@ -124,11 +197,12 @@
     let usingLiveData = false;
 
     const formatAge = (m: number): string => {
-      if (m === 0) return 'Just now';
-      if (m === 1) return '1 min ago';
-      if (m < 60) return `${m} min ago`;
+      if (m === 0) return I18N.justNow;
+      if (m === 1) return I18N.oneMinAgo;
+      if (m < 60) return LANG === 'fr' ? `il y a ${m} ${I18N.minAgo}` : `${m} ${I18N.minAgo}`;
       const h = Math.floor(m / 60);
-      return h === 1 ? '1 hr ago' : `${h} hrs ago`;
+      if (h === 1) return I18N.oneHrAgo;
+      return LANG === 'fr' ? `il y a ${h} ${I18N.hrAgo}` : `${h} ${I18N.hrAgo}`;
     };
 
     // Fetch real anonymized booking activity from the portal. We keep the
@@ -160,13 +234,15 @@
         pool = safe.map((d) => ({
           agent: d.agent || 'Leah',
           city: d.city,
-          description: d.description ?? (d.service ? `a ${d.service.toLowerCase()} booking` : 'a call'),
+          description: d.description ?? (d.service
+            ? (LANG === 'fr' ? `une réservation ${d.service.toLowerCase()}` : `a ${d.service.toLowerCase()} booking`)
+            : I18N.aCall),
           ageMinutes: d.ageMinutes ?? 0,
         }));
         cursor = 0;
         usingLiveData = true;
         if (footnote) {
-          footnote.textContent = 'Live · calls handled across UK garages today';
+          footnote.textContent = I18N.liveFootnote;
         }
 
         // Seed the four visible rows from the live data immediately so we
@@ -216,7 +292,7 @@
       const snapshot: Entry[] = rows.map((row) => ({
         agent: row.dataset.agent ?? row.querySelector('.ticker-agent')?.textContent ?? 'Leah',
         city: row.dataset.city ?? row.querySelector('.ticker-city')?.textContent ?? '',
-        description: row.dataset.description ?? row.querySelector('.ticker-description')?.textContent ?? 'a call',
+        description: row.dataset.description ?? row.querySelector('.ticker-description')?.textContent ?? I18N.aCall,
         ageMinutes: Number(row.dataset.ageMinutes ?? '0'),
       }));
 

@@ -1,89 +1,194 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
 
 // Real customer outcomes — pasted from the Oct–Dec 2025 reporting period.
 // Numbers are the actual ones in the case-study deck so we don't have to
 // keep two sources of truth in sync.
-const CASE_STUDIES = [
-  {
-    slug: 'eac-telford',
-    name: 'EAC Telford',
-    type: 'Independent Garage & Service Centre',
-    location: 'Telford, Shropshire',
-    period: 'Oct – Dec 2025',
-    logo: '/garages/EAC-logo.png',
-    overview:
-      'EAC Telford partnered with ReceptionMate to handle overflow and after-hours calls — making sure every customer enquiry was answered professionally and efficiently. Their main goal: stop losing potential bookings when the team was busy or the phones went unanswered.',
-    impact:
-      "ReceptionMate's AI Voice Agent let EAC Telford capture customers they would have otherwise missed, boosting their monthly workload and reducing lost opportunities. The business now benefits from instant call handling, improved customer satisfaction, and detailed call analytics that show exactly where enquiries are coming from.",
-    stats: [
-      { label: 'Calls answered',         value: '1,468',      icon: 'phone'    },
-      { label: 'Bookings made',          value: '158',        icon: 'calendar' },
-      { label: 'Revenue (excl. upsell)', value: '£9,806.16',  icon: 'money'    },
-      { label: 'Revenue (incl. upsell)', value: '£28,761.86', icon: 'sparkle', highlight: true },
+//
+// Locale-aware: the case-study copy (overview/impact/quotes/labels) is
+// translated per language; brand/product/people's names stay as-is, and the
+// £ figures/plate-style numbers are shared across locales.
+const c = {
+  en: {
+    title: 'UK garage success stories — ReceptionMate',
+    description: 'Real garages, real numbers. See how ReceptionMate captured 2,460 calls and over £60,000 of bookings for UK garages in a single quarter.',
+    badge: 'Customer outcomes · Q4 2025',
+    h1a: 'Real garages.', h1b: 'Real numbers.',
+    heroSub: 'We don’t share pixel-perfect testimonials. Here’s exactly what ReceptionMate captured for two UK garages over a single quarter — straight from their call logs.',
+    callsCaptured: 'Calls captured',
+    bookingsMade: 'Bookings made',
+    revenueCaptured: 'Revenue captured',
+    heroFootnote: 'Across 2 garages · 3 months · Including upsell.',
+    caseStudy: 'Case study',
+    reportingPeriod: 'Reporting period:',
+    logoAlt: (name: string) => `${name} logo`,
+    overview: 'Overview',
+    impact: 'Impact',
+    ctaTitle: 'Want results like these?',
+    ctaSub: 'Get set up in 5 minutes. You keep your existing number — we configure call forwarding so the AI catches the calls your team can\'t get to.',
+    getStarted: 'Get started',
+    liveDemo: 'Talk to Tom (live demo)',
+    studies: [
+      {
+        slug: 'eac-telford',
+        name: 'EAC Telford',
+        type: 'Independent Garage & Service Centre',
+        location: 'Telford, Shropshire',
+        period: 'Oct – Dec 2025',
+        logo: '/garages/EAC-logo.png',
+        overview:
+          'EAC Telford partnered with ReceptionMate to handle overflow and after-hours calls — making sure every customer enquiry was answered professionally and efficiently. Their main goal: stop losing potential bookings when the team was busy or the phones went unanswered.',
+        impact:
+          "ReceptionMate's AI Voice Agent let EAC Telford capture customers they would have otherwise missed, boosting their monthly workload and reducing lost opportunities. The business now benefits from instant call handling, improved customer satisfaction, and detailed call analytics that show exactly where enquiries are coming from.",
+        stats: [
+          { label: 'Calls answered',         value: '1,468',      icon: 'phone'    },
+          { label: 'Bookings made',          value: '158',        icon: 'calendar' },
+          { label: 'Revenue (excl. upsell)', value: '£9,806.16',  icon: 'money'    },
+          { label: 'Revenue (incl. upsell)', value: '£28,761.86', icon: 'sparkle', highlight: true },
+        ],
+        quote: 'Bookings we would have lost are now in our diary the next morning.',
+        quoteFrom: 'Mark, EAC Telford',
+      },
+      {
+        slug: 'inn-out-norwich',
+        name: "In'n'Out Autocentres Norwich & Spalding",
+        type: 'Fast-Fit Service & MOT Centre',
+        location: 'Norwich & Spalding',
+        period: 'Oct – Dec 2025',
+        logo: '/garages/ino-autocentres.png',
+        overview:
+          "In'n'Out Autocentres Norwich implemented ReceptionMate's AI Voice Agent to improve call handling efficiency and capture more bookings during peak hours and after-hours periods. The goal: no missed enquiries, fast professional communication, and accurate booking management.",
+        impact:
+          "Over October and November alone, ReceptionMate captured an additional £21,000 of work for In'n'Out across two branches — bookings that would have otherwise been lost. The trial generated enough confidence that Louise asked to extend it by another three months and roll it out to two more centres.",
+        stats: [
+          { label: 'Calls answered',         value: '992',        icon: 'phone'    },
+          { label: 'Bookings made',          value: '245',        icon: 'calendar' },
+          { label: 'Revenue (excl. upsell)', value: '£24,769.50', icon: 'money'    },
+          { label: 'Revenue (incl. upsell)', value: '£34,089',    icon: 'sparkle', highlight: true },
+        ],
+        quote: 'Over the 2 months (Oct / Nov) looking at the uplift in sales from the final invoice value and deducting your invoices, INO have generated an additional £21k that would have otherwise been lost sales.',
+        quoteFrom: "Louise, In'n'Out Autocentres",
+      },
+      {
+        slug: 'cg-auto-repairs',
+        name: 'C & G Auto Repairs',
+        type: 'Independent Garage',
+        location: 'Swansea',
+        period: 'March – May 2026',
+        logo: '/garages/cg-autorepairs.png',
+        overview:
+          'C & G Auto Repairs handle a focused volume of calls — every booking opportunity has to count. They use ReceptionMate to capture every enquiry, every quote request, and every booking 24/7, so nothing slips through the cracks during busy days in the workshop.',
+        impact:
+          "Of the 92 calls where the customer was actually trying to book or asking for a quote, ReceptionMate captured 36 confirmed bookings — a 39% conversion rate from booking intent to confirmed job. At an estimated average invoice value of £180 per job, that's roughly £6,480 of captured revenue that would have otherwise been missed.",
+        stats: [
+          { label: 'Calls answered',                value: '243',    icon: 'phone'    },
+          { label: 'Confirmed bookings',            value: '36',     icon: 'calendar' },
+          { label: 'Conversion (intent → booking)', value: '39%',    icon: 'sparkle'  },
+          { label: 'Est. revenue captured',         value: '£6,480', icon: 'money', highlight: true },
+        ],
+        // No quote yet — leave blank, the page renders without one.
+      },
     ],
-    quote: 'Bookings we would have lost are now in our diary the next morning.',
-    quoteFrom: 'Mark, EAC Telford',
   },
-  {
-    slug: 'inn-out-norwich',
-    name: "In'n'Out Autocentres Norwich & Spalding",
-    type: 'Fast-Fit Service & MOT Centre',
-    location: 'Norwich & Spalding',
-    period: 'Oct – Dec 2025',
-    logo: '/garages/ino-autocentres.png',
-    overview:
-      "In'n'Out Autocentres Norwich implemented ReceptionMate's AI Voice Agent to improve call handling efficiency and capture more bookings during peak hours and after-hours periods. The goal: no missed enquiries, fast professional communication, and accurate booking management.",
-    impact:
-      "Over October and November alone, ReceptionMate captured an additional £21,000 of work for In'n'Out across two branches — bookings that would have otherwise been lost. The trial generated enough confidence that Louise asked to extend it by another three months and roll it out to two more centres.",
-    stats: [
-      { label: 'Calls answered',         value: '992',        icon: 'phone'    },
-      { label: 'Bookings made',          value: '245',        icon: 'calendar' },
-      { label: 'Revenue (excl. upsell)', value: '£24,769.50', icon: 'money'    },
-      { label: 'Revenue (incl. upsell)', value: '£34,089',    icon: 'sparkle', highlight: true },
+  fr: {
+    title: 'Témoignages de garages — ReceptionMate',
+    description: 'De vrais garages, de vrais chiffres. Découvrez comment ReceptionMate a capté 2 460 appels et plus de 60 000 £ de réservations pour des garages en un seul trimestre.',
+    badge: 'Résultats clients · T4 2025',
+    h1a: 'De vrais garages.', h1b: 'De vrais chiffres.',
+    heroSub: 'Nous ne partageons pas de témoignages parfaits sur le papier. Voici exactement ce que ReceptionMate a capté pour deux garages sur un seul trimestre — directement issu de leurs journaux d’appels.',
+    callsCaptured: 'Appels captés',
+    bookingsMade: 'Réservations réalisées',
+    revenueCaptured: 'Chiffre d’affaires capté',
+    heroFootnote: 'Sur 2 garages · 3 mois · Ventes additionnelles incluses.',
+    caseStudy: 'Étude de cas',
+    reportingPeriod: 'Période de référence :',
+    logoAlt: (name: string) => `Logo ${name}`,
+    overview: 'Aperçu',
+    impact: 'Impact',
+    ctaTitle: 'Vous voulez des résultats comme ceux-ci ?',
+    ctaSub: 'Configuration en 5 minutes. Vous conservez votre numéro existant — nous paramétrons le renvoi d’appel pour que l’IA prenne les appels que votre équipe ne peut pas traiter.',
+    getStarted: 'Commencer',
+    liveDemo: 'Parlez à Tom (démo en direct)',
+    studies: [
+      {
+        slug: 'eac-telford',
+        name: 'EAC Telford',
+        type: 'Garage indépendant et centre de services',
+        location: 'Telford, Shropshire',
+        period: 'oct. – déc. 2025',
+        logo: '/garages/EAC-logo.png',
+        overview:
+          'EAC Telford s’est associé à ReceptionMate pour gérer les appels en débordement et hors des heures d’ouverture — en s’assurant que chaque demande client reçoive une réponse professionnelle et efficace. Leur objectif principal : ne plus perdre de réservations potentielles lorsque l’équipe est occupée ou que le téléphone reste sans réponse.',
+        impact:
+          'L’agent vocal IA de ReceptionMate a permis à EAC Telford de capter des clients qu’ils auraient autrement manqués, augmentant leur charge de travail mensuelle et réduisant les opportunités perdues. L’entreprise bénéficie désormais d’une prise d’appel instantanée, d’une meilleure satisfaction client et d’analyses d’appels détaillées qui montrent exactement d’où viennent les demandes.',
+        stats: [
+          { label: 'Appels pris',                        value: '1,468',      icon: 'phone'    },
+          { label: 'Réservations réalisées',             value: '158',        icon: 'calendar' },
+          { label: 'CA (hors vente additionnelle)',      value: '£9,806.16',  icon: 'money'    },
+          { label: 'CA (avec vente additionnelle)',      value: '£28,761.86', icon: 'sparkle', highlight: true },
+        ],
+        quote: 'Les réservations que nous aurions perdues sont désormais dans notre agenda dès le lendemain matin.',
+        quoteFrom: 'Mark, EAC Telford',
+      },
+      {
+        slug: 'inn-out-norwich',
+        name: "In'n'Out Autocentres Norwich & Spalding",
+        type: 'Centre de services rapides et de contrôle technique',
+        location: 'Norwich & Spalding',
+        period: 'oct. – déc. 2025',
+        logo: '/garages/ino-autocentres.png',
+        overview:
+          'In\'n\'Out Autocentres Norwich a déployé l’agent vocal IA de ReceptionMate pour améliorer l’efficacité de la prise d’appel et capter davantage de réservations aux heures de pointe et en dehors des heures d’ouverture. L’objectif : aucune demande manquée, une communication rapide et professionnelle, et une gestion précise des réservations.',
+        impact:
+          'Sur les seuls mois d’octobre et novembre, ReceptionMate a capté 21 000 £ de travail supplémentaire pour In\'n\'Out sur deux agences — des réservations qui auraient autrement été perdues. L’essai a généré suffisamment de confiance pour que Louise demande à le prolonger de trois mois et à le déployer dans deux centres supplémentaires.',
+        stats: [
+          { label: 'Appels pris',                        value: '992',        icon: 'phone'    },
+          { label: 'Réservations réalisées',             value: '245',        icon: 'calendar' },
+          { label: 'CA (hors vente additionnelle)',      value: '£24,769.50', icon: 'money'    },
+          { label: 'CA (avec vente additionnelle)',      value: '£34,089',    icon: 'sparkle', highlight: true },
+        ],
+        quote: 'Sur les 2 mois (oct. / nov.), en observant la hausse des ventes à partir de la valeur des factures finales et en déduisant vos factures, INO a généré 21 000 £ supplémentaires qui auraient autrement été des ventes perdues.',
+        quoteFrom: "Louise, In'n'Out Autocentres",
+      },
+      {
+        slug: 'cg-auto-repairs',
+        name: 'C & G Auto Repairs',
+        type: 'Garage indépendant',
+        location: 'Swansea',
+        period: 'mars – mai 2026',
+        logo: '/garages/cg-autorepairs.png',
+        overview:
+          'C & G Auto Repairs gère un volume d’appels ciblé — chaque opportunité de réservation doit compter. Ils utilisent ReceptionMate pour capter chaque demande, chaque demande de devis et chaque réservation 24h/24, 7j/7, afin que rien ne passe entre les mailles du filet pendant les journées chargées à l’atelier.',
+        impact:
+          'Sur les 92 appels où le client cherchait réellement à réserver ou demandait un devis, ReceptionMate a capté 36 réservations confirmées — un taux de conversion de 39 % de l’intention de réservation à l’intervention confirmée. Avec une valeur moyenne de facture estimée à 180 £ par intervention, cela représente environ 6 480 £ de chiffre d’affaires capté qui aurait autrement été manqué.',
+        stats: [
+          { label: 'Appels pris',                        value: '243',    icon: 'phone'    },
+          { label: 'Réservations confirmées',            value: '36',     icon: 'calendar' },
+          { label: 'Conversion (intention → réservation)', value: '39%',  icon: 'sparkle'  },
+          { label: 'CA capté (est.)',                    value: '£6,480', icon: 'money', highlight: true },
+        ],
+        // Pas encore de citation — laissé vide, la page s’affiche sans.
+      },
     ],
-    quote: 'Over the 2 months (Oct / Nov) looking at the uplift in sales from the final invoice value and deducting your invoices, INO have generated an additional £21k that would have otherwise been lost sales.',
-    quoteFrom: "Louise, In'n'Out Autocentres",
   },
-  {
-    slug: 'cg-auto-repairs',
-    name: 'C & G Auto Repairs',
-    type: 'Independent Garage',
-    location: 'Swansea',
-    period: 'March – May 2026',
-    logo: '/garages/cg-autorepairs.png',
-    overview:
-      'C & G Auto Repairs handle a focused volume of calls — every booking opportunity has to count. They use ReceptionMate to capture every enquiry, every quote request, and every booking 24/7, so nothing slips through the cracks during busy days in the workshop.',
-    impact:
-      "Of the 92 calls where the customer was actually trying to book or asking for a quote, ReceptionMate captured 36 confirmed bookings — a 39% conversion rate from booking intent to confirmed job. At an estimated average invoice value of £180 per job, that's roughly £6,480 of captured revenue that would have otherwise been missed.",
-    stats: [
-      { label: 'Calls answered',                value: '243',    icon: 'phone'    },
-      { label: 'Confirmed bookings',            value: '36',     icon: 'calendar' },
-      { label: 'Conversion (intent → booking)', value: '39%',    icon: 'sparkle'  },
-      { label: 'Est. revenue captured',         value: '£6,480', icon: 'money', highlight: true },
-    ],
-    // No quote yet — leave blank, the page renders without one.
-  },
-];
+}[lang];
+
+const CASE_STUDIES = c.studies;
 
 // Aggregate hero stats across all case studies.
 function parseNumber(v: string): number {
   return Number(v.replace(/[^0-9.]/g, '')) || 0;
 }
-function findStat(stats: { label: string; value: string }[], match: RegExp): string {
-  return stats.find((s) => match.test(s.label))?.value ?? '';
-}
-const totalCalls = CASE_STUDIES.reduce((s, c) => s + parseNumber(findStat(c.stats, /^calls answered/i)), 0);
-const totalBookings = CASE_STUDIES.reduce((s, c) => {
-  const v = findStat(c.stats, /confirmed bookings|^bookings made/i);
-  return s + parseNumber(v);
-}, 0);
+const totalCalls = CASE_STUDIES.reduce((s, cs) => s + parseNumber(cs.stats[0]?.value ?? ''), 0);
+const totalBookings = CASE_STUDIES.reduce((s, cs) => s + parseNumber(cs.stats[1]?.value ?? ''), 0);
 // Only sum stats that look like a £ amount — keeps percentages / counts out
-// of the revenue total when a case study doesn't track £ value. Matches both
-// "Revenue (incl. upsell)" and "Est. revenue captured" so estimated numbers
-// still roll up into the headline.
-const totalRevenue = CASE_STUDIES.reduce((s, c) => {
-  const v = findStat(c.stats, /revenue \(incl|est\. revenue/i);
+// of the revenue total when a case study doesn't track £ value. The revenue
+// figure is the highlighted stat, which is locale-independent (£ values are
+// shared), so we key off the highlight flag rather than the translated label.
+const totalRevenue = CASE_STUDIES.reduce((s, cs) => {
+  const v = cs.stats.find((st) => (st as any).highlight && st.value.startsWith('£'))?.value ?? '';
   if (!v.startsWith('£')) return s;
   return s + parseNumber(v);
 }, 0);
@@ -103,7 +208,7 @@ function statIcon(name: string) {
 }
 ---
 
-<BaseLayout title="UK garage success stories — ReceptionMate" description="Real garages, real numbers. See how ReceptionMate captured 2,460 calls and over £60,000 of bookings for UK garages in a single quarter.">
+<BaseLayout title={c.title} description={c.description}>
 
   <!-- ===== Hero ===== -->
   <section class="relative isolate overflow-hidden bg-white">
@@ -115,13 +220,13 @@ function statIcon(name: string) {
       <div class="text-center">
         <div class="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
           <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-          Customer outcomes · Q4 2025
+          {c.badge}
         </div>
         <h1 class="mt-6 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
-          Real garages.<br /><span class="text-brand-600">Real numbers.</span>
+          {c.h1a}<br /><span class="text-brand-600">{c.h1b}</span>
         </h1>
         <p class="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-ink-600 sm:text-lg">
-          We don&rsquo;t share pixel-perfect testimonials. Here&rsquo;s exactly what ReceptionMate captured for two UK garages over a single quarter — straight from their call logs.
+          {c.heroSub}
         </p>
       </div>
 
@@ -129,18 +234,18 @@ function statIcon(name: string) {
       <div class="mx-auto mt-10 grid max-w-3xl grid-cols-3 gap-3 sm:gap-4">
         <div class="rounded-2xl border border-ink-200 bg-white px-4 py-5 text-center shadow-sm">
           <p class="text-xl font-bold text-ink-900 sm:text-3xl lg:text-4xl">{totalCalls.toLocaleString('en-GB')}</p>
-          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-ink-500">Calls captured</p>
+          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-ink-500">{c.callsCaptured}</p>
         </div>
         <div class="rounded-2xl border border-ink-200 bg-white px-4 py-5 text-center shadow-sm">
           <p class="text-xl font-bold text-ink-900 sm:text-3xl lg:text-4xl">{totalBookings}</p>
-          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-ink-500">Bookings made</p>
+          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-ink-500">{c.bookingsMade}</p>
         </div>
         <div class="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-4 py-5 text-center shadow-sm">
           <p class="text-lg font-bold leading-tight text-emerald-700 sm:text-3xl lg:text-4xl">{formatGbp(totalRevenue)}</p>
-          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-emerald-700">Revenue captured</p>
+          <p class="mt-1 text-xs font-medium uppercase tracking-wider text-emerald-700">{c.revenueCaptured}</p>
         </div>
       </div>
-      <p class="mt-3 text-center text-xs text-ink-500">Across 2 garages · 3 months · Including upsell.</p>
+      <p class="mt-3 text-center text-xs text-ink-500">{c.heroFootnote}</p>
     </div>
   </section>
 
@@ -153,15 +258,15 @@ function statIcon(name: string) {
           <div class="grid gap-6 border-b border-ink-200 bg-gradient-to-br from-brand-50/60 to-white p-8 sm:grid-cols-[1fr_auto] sm:items-center">
             <div>
               <p class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">
-                Case study {String(idx + 1).padStart(2, '0')}
+                {c.caseStudy} {String(idx + 1).padStart(2, '0')}
               </p>
               <h2 class="mt-2 text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">{cs.name}</h2>
               <p class="mt-1 text-sm text-ink-600">{cs.type} · {cs.location}</p>
-              <p class="mt-0.5 text-xs text-ink-500">Reporting period: {cs.period}</p>
+              <p class="mt-0.5 text-xs text-ink-500">{c.reportingPeriod} {cs.period}</p>
             </div>
             <div class="flex justify-center sm:justify-end">
               <div class="flex h-24 w-44 items-center justify-center rounded-xl border border-ink-200 bg-white p-3">
-                <img src={cs.logo} alt={`${cs.name} logo`} class="max-h-full max-w-full object-contain" />
+                <img src={cs.logo} alt={c.logoAlt(cs.name)} class="max-h-full max-w-full object-contain" />
               </div>
             </div>
           </div>
@@ -182,11 +287,11 @@ function statIcon(name: string) {
           <!-- Body: overview, impact, quote -->
           <div class="grid gap-8 border-t border-ink-100 p-8 lg:grid-cols-2">
             <div>
-              <h3 class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">Overview</h3>
+              <h3 class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">{c.overview}</h3>
               <p class="mt-3 text-sm leading-relaxed text-ink-700">{cs.overview}</p>
             </div>
             <div>
-              <h3 class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">Impact</h3>
+              <h3 class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">{c.impact}</h3>
               <p class="mt-3 text-sm leading-relaxed text-ink-700">{cs.impact}</p>
             </div>
           </div>
@@ -210,18 +315,17 @@ function statIcon(name: string) {
   <!-- ===== CTA strip ===== -->
   <section class="bg-brand-600 text-white">
     <div class="mx-auto max-w-5xl px-4 py-16 text-center sm:px-6 sm:py-20">
-      <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Want results like these?</h2>
+      <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">{c.ctaTitle}</h2>
       <p class="mx-auto mt-3 max-w-xl text-base text-brand-100">
-        Get set up in 5 minutes. You keep your existing number — we configure
-        call forwarding so the AI catches the calls your team can't get to.
+        {c.ctaSub}
       </p>
       <div class="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
-        <a href="/get-started" class="inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-brand-700 shadow-lg shadow-brand-900/30 hover:bg-brand-50 transition">
-          Get started
+        <a href={L('/get-started', lang)} class="inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-brand-700 shadow-lg shadow-brand-900/30 hover:bg-brand-50 transition">
+          {c.getStarted}
           <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
         </a>
-        <a href="/demo" class="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/40 bg-transparent px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition">
-          Talk to Tom (live demo)
+        <a href={L('/demo', lang)} class="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/40 bg-transparent px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition">
+          {c.liveDemo}
         </a>
       </div>
     </div>

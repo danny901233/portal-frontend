@@ -1,5 +1,8 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang, L } from '../i18n/ui';
+
+const lang = getLang(Astro.url);
 
 // Three packages, one comparison page. Single source of truth: when a feature
 // row moves from ✗ to ✓ for a tier, change it here and the homepage Tiers
@@ -16,148 +19,180 @@ interface Feature {
   connect: Mark;
 }
 
-const tiers = [
-  {
-    key: 'assist',
-    name: 'Assist',
-    tagline: 'Catch every call.',
-    price: '£200',
-    priceUnit: '/month',
-    priceFootnote: '400 minutes included · £0.25 / overage minute',
-    cta: 'Start with Assist',
-    href: '/get-started?tier=assist',
-    recommended: false,
+const c = {
+  en: {
+    title: 'Pricing — ReceptionMate packages for UK garages',
+    description: 'Three ReceptionMate packages — Assist, Automate and Connect — compared side-by-side. Pick the AI receptionist tier that fits your UK garage.',
+    tiers: [
+      {
+        key: 'assist',
+        name: 'Assist',
+        tagline: 'Catch every call.',
+        price: '£200',
+        priceUnit: '/month',
+        priceFootnote: '400 minutes included · £0.25 / overage minute',
+        cta: 'Start with Assist',
+        href: '/get-started?tier=assist',
+        recommended: false,
+      },
+      {
+        key: 'automate',
+        name: 'Automate',
+        tagline: 'Book every job.',
+        price: 'Custom',
+        priceUnit: '',
+        priceFootnote: 'Based on branches & integrations',
+        cta: 'Talk to us about Automate',
+        href: '/get-started?tier=automate',
+        recommended: true,
+      },
+      {
+        key: 'connect',
+        name: 'Connect',
+        tagline: 'Inbound from every channel. Outbound that books itself.',
+        price: 'Talk to us',
+        priceUnit: '',
+        priceFootnote: 'Pricing based on contact volume',
+        cta: 'Talk to us about Connect',
+        href: '/get-started?tier=connect',
+        recommended: false,
+      },
+    ],
+    features: [
+      // VOICE
+      { group: 'Voice receptionist', label: 'Answers every inbound call', assist: true, automate: true, connect: false },
+      { group: 'Voice receptionist', label: 'Captures customer, vehicle and service details', assist: true, automate: true, connect: false },
+      { group: 'Voice receptionist', label: 'DVLA vehicle lookup during the call', detail: 'Make, model, year, fuel type, MOT status — pulled live.', assist: true, automate: true, connect: false },
+      { group: 'Voice receptionist', label: 'MOT history checker', assist: true, automate: true, connect: false },
+      { group: 'Voice receptionist', label: 'SMS confirmation to the customer', assist: true, automate: true, connect: true },
+      { group: 'Voice receptionist', label: 'Books slots straight into your diary', detail: 'Live integration with Garage Hive, Tyresoft, calendars and more.', assist: false, automate: true, connect: false },
+      { group: 'Voice receptionist', label: 'Quotes prices from your service menu on the call', assist: false, automate: true, connect: false },
+      { group: 'Voice receptionist', label: 'Multi-branch routing', assist: false, automate: true, connect: false },
+      // MESSAGING
+      { group: 'Messaging (web + social)', label: 'Web chat widget on your garage website', assist: false, automate: false, connect: true },
+      { group: 'Messaging (web + social)', label: 'WhatsApp Business inbound', assist: false, automate: false, connect: true },
+      { group: 'Messaging (web + social)', label: 'Instagram DM inbound', assist: false, automate: false, connect: true },
+      { group: 'Messaging (web + social)', label: 'Facebook Messenger inbound', assist: false, automate: false, connect: true },
+      { group: 'Messaging (web + social)', label: 'Outbound MOT and service reminders', detail: 'To opted-in existing customers — books in the same conversation.', assist: false, automate: false, connect: true },
+      // PORTAL
+      { group: 'Portal & reporting', label: 'All calls, transcripts and messages in one inbox', assist: true, automate: true, connect: true },
+      { group: 'Portal & reporting', label: 'Conversation tagging & search', assist: true, automate: true, connect: true },
+      { group: 'Portal & reporting', label: 'Weekly performance summary', assist: true, automate: true, connect: true },
+      // SUPPORT
+      { group: 'Setup & support', label: 'Time to live', assist: 'Minutes', automate: '3–5 days', connect: '3–5 days' },
+      { group: 'Setup & support', label: 'Setup help', assist: 'Self-serve', automate: 'White-glove', connect: 'Guided' },
+      { group: 'Setup & support', label: 'Minimum contract', assist: 'None', automate: 'None', connect: 'None' },
+    ] as Feature[],
+    groupOrder: ['Voice receptionist', 'Messaging (web + social)', 'Portal & reporting', 'Setup & support'],
+    heroKicker: 'Pricing',
+    heroH1: 'Three packages. Pick the one that fits.',
+    heroSub: "All packages are billed monthly. Most garages start with Assist or Automate for the voice side, and add Connect when they're ready to take messaging and outbound campaigns on as well.",
+    mostPopular: 'Most popular',
+    compareKicker: 'Compare',
+    compareH2: "What's in each package.",
+    featureCol: 'Feature',
+    tierTabs: ['Assist', 'Automate', 'Connect'],
+    faqH2: 'Pricing FAQ.',
+    faqs: [
+      { q: 'Can I combine Assist or Automate with Connect?', a: 'Yes. The voice side (Assist or Automate) and the messaging side (Connect) are designed to work together. Most multi-channel garages start with one and add the other.' },
+      { q: 'What happens if I exceed the included minutes on Assist?', a: "Overage is billed at £0.25 per minute. We'll flag it in the portal as you approach the included allowance so there are no surprises on your invoice." },
+      { q: 'Why is Automate "Custom" priced?', a: "Automate's pricing depends on how many branches you run and which integrations you need (Garage Hive, Tyresoft, custom DMS). Talk to us and we'll give you a fixed monthly number after a short scoping call." },
+      { q: 'Is there a contract?', a: 'Simple monthly billing. You can change tier any time — just disable the call-forwarding rule.' },
+      { q: 'Do you offer a free trial?', a: 'No — but you can switch on a paid month and switch it off at the end of it, no questions asked. Most garages see the platform pay for itself in the first fortnight.' },
+    ],
+    ctaH2: 'Not sure which one fits?',
+    ctaSub: "A 15-minute call with us is enough to figure it out. We'll look at your call volume and recommend Assist, Automate, Connect — or a combination.",
+    ctaButton: 'Talk to us',
   },
-  {
-    key: 'automate',
-    name: 'Automate',
-    tagline: 'Book every job.',
-    price: 'Custom',
-    priceUnit: '',
-    priceFootnote: 'Based on branches & integrations',
-    cta: 'Talk to us about Automate',
-    href: '/get-started?tier=automate',
-    recommended: true,
+  fr: {
+    title: 'Tarifs — Les formules ReceptionMate pour les garages',
+    description: 'Trois formules ReceptionMate — Assist, Automate et Connect — comparées côte à côte. Choisissez le niveau de réceptionniste IA adapté à votre garage.',
+    tiers: [
+      {
+        key: 'assist',
+        name: 'Assist',
+        tagline: 'Ne manquez plus aucun appel.',
+        price: '£200',
+        priceUnit: '/mois',
+        priceFootnote: '400 minutes incluses · £0.25 / minute supplémentaire',
+        cta: 'Démarrer avec Assist',
+        href: '/get-started?tier=assist',
+        recommended: false,
+      },
+      {
+        key: 'automate',
+        name: 'Automate',
+        tagline: 'Réservez chaque intervention.',
+        price: 'Sur mesure',
+        priceUnit: '',
+        priceFootnote: 'Selon vos succursales et intégrations',
+        cta: 'Parlons d’Automate',
+        href: '/get-started?tier=automate',
+        recommended: true,
+      },
+      {
+        key: 'connect',
+        name: 'Connect',
+        tagline: 'Entrant depuis chaque canal. Sortant qui réserve tout seul.',
+        price: 'Contactez-nous',
+        priceUnit: '',
+        priceFootnote: 'Tarif selon le volume de contacts',
+        cta: 'Parlons de Connect',
+        href: '/get-started?tier=connect',
+        recommended: false,
+      },
+    ],
+    features: [
+      // VOICE
+      { group: 'Réceptionniste vocale', label: 'Répond à chaque appel entrant', assist: true, automate: true, connect: false },
+      { group: 'Réceptionniste vocale', label: 'Recueille les coordonnées du client, du véhicule et de la prestation', assist: true, automate: true, connect: false },
+      { group: 'Réceptionniste vocale', label: 'Recherche du véhicule via la DVLA pendant l’appel', detail: 'Marque, modèle, année, type de carburant, statut du contrôle technique — en temps réel.', assist: true, automate: true, connect: false },
+      { group: 'Réceptionniste vocale', label: 'Vérification de l’historique du contrôle technique', assist: true, automate: true, connect: false },
+      { group: 'Réceptionniste vocale', label: 'Confirmation par SMS au client', assist: true, automate: true, connect: true },
+      { group: 'Réceptionniste vocale', label: 'Réserve les créneaux directement dans votre agenda', detail: 'Intégration en temps réel avec Garage Hive, Tyresoft, les calendriers et bien plus.', assist: false, automate: true, connect: false },
+      { group: 'Réceptionniste vocale', label: 'Communique les tarifs de votre catalogue de prestations pendant l’appel', assist: false, automate: true, connect: false },
+      { group: 'Réceptionniste vocale', label: 'Routage multi-succursales', assist: false, automate: true, connect: false },
+      // MESSAGING
+      { group: 'Messagerie (web + réseaux sociaux)', label: 'Widget de chat web sur le site de votre garage', assist: false, automate: false, connect: true },
+      { group: 'Messagerie (web + réseaux sociaux)', label: 'Entrant WhatsApp Business', assist: false, automate: false, connect: true },
+      { group: 'Messagerie (web + réseaux sociaux)', label: 'Entrant messages privés Instagram', assist: false, automate: false, connect: true },
+      { group: 'Messagerie (web + réseaux sociaux)', label: 'Entrant Facebook Messenger', assist: false, automate: false, connect: true },
+      { group: 'Messagerie (web + réseaux sociaux)', label: 'Rappels sortants de contrôle technique et d’entretien', detail: 'Aux clients existants ayant donné leur accord — réservation dans la même conversation.', assist: false, automate: false, connect: true },
+      // PORTAL
+      { group: 'Portail et rapports', label: 'Tous les appels, transcriptions et messages dans une seule boîte de réception', assist: true, automate: true, connect: true },
+      { group: 'Portail et rapports', label: 'Étiquetage et recherche des conversations', assist: true, automate: true, connect: true },
+      { group: 'Portail et rapports', label: 'Synthèse hebdomadaire des performances', assist: true, automate: true, connect: true },
+      // SUPPORT
+      { group: 'Installation et assistance', label: 'Délai de mise en service', assist: 'Quelques minutes', automate: '3 à 5 jours', connect: '3 à 5 jours' },
+      { group: 'Installation et assistance', label: 'Aide à la configuration', assist: 'En autonomie', automate: 'Sur mesure', connect: 'Accompagnée' },
+      { group: 'Installation et assistance', label: 'Engagement minimum', assist: 'Aucun', automate: 'Aucun', connect: 'Aucun' },
+    ] as Feature[],
+    groupOrder: ['Réceptionniste vocale', 'Messagerie (web + réseaux sociaux)', 'Portail et rapports', 'Installation et assistance'],
+    heroKicker: 'Tarifs',
+    heroH1: 'Trois formules. Choisissez celle qui vous convient.',
+    heroSub: 'Toutes les formules sont facturées mensuellement. La plupart des garages commencent avec Assist ou Automate pour la partie vocale, puis ajoutent Connect lorsqu’ils sont prêts à prendre en charge la messagerie et les campagnes sortantes.',
+    mostPopular: 'Le plus populaire',
+    compareKicker: 'Comparer',
+    compareH2: 'Ce que contient chaque formule.',
+    featureCol: 'Fonctionnalité',
+    tierTabs: ['Assist', 'Automate', 'Connect'],
+    faqH2: 'FAQ tarifs.',
+    faqs: [
+      { q: 'Puis-je combiner Assist ou Automate avec Connect ?', a: 'Oui. La partie vocale (Assist ou Automate) et la partie messagerie (Connect) sont conçues pour fonctionner ensemble. La plupart des garages multicanaux commencent par l’une et ajoutent l’autre.' },
+      { q: 'Que se passe-t-il si je dépasse les minutes incluses avec Assist ?', a: 'Le dépassement est facturé £0.25 par minute. Nous vous le signalons dans le portail à l’approche de l’allocation incluse, pour éviter toute surprise sur votre facture.' },
+      { q: 'Pourquoi Automate est-il facturé « sur mesure » ?', a: 'Le tarif d’Automate dépend du nombre de succursales que vous gérez et des intégrations dont vous avez besoin (Garage Hive, Tyresoft, DMS sur mesure). Contactez-nous et nous vous communiquerons un montant mensuel fixe après un bref appel de cadrage.' },
+      { q: 'Y a-t-il un contrat ?', a: 'Facturation mensuelle simple. Vous pouvez changer de formule à tout moment — il suffit de désactiver la règle de transfert d’appels.' },
+      { q: 'Proposez-vous un essai gratuit ?', a: 'Non — mais vous pouvez activer un mois payant et le désactiver à la fin, sans aucune question. La plupart des garages voient la plateforme s’autofinancer dès les deux premières semaines.' },
+    ],
+    ctaH2: 'Vous ne savez pas laquelle choisir ?',
+    ctaSub: 'Un appel de 15 minutes avec nous suffit pour y voir clair. Nous étudierons votre volume d’appels et vous recommanderons Assist, Automate, Connect — ou une combinaison.',
+    ctaButton: 'Contactez-nous',
   },
-  {
-    key: 'connect',
-    name: 'Connect',
-    tagline: 'Inbound from every channel. Outbound that books itself.',
-    price: 'Talk to us',
-    priceUnit: '',
-    priceFootnote: 'Pricing based on contact volume',
-    cta: 'Talk to us about Connect',
-    href: '/get-started?tier=connect',
-    recommended: false,
-  },
-];
+}[lang];
 
-const features: Feature[] = [
-  // VOICE
-  {
-    group: 'Voice receptionist',
-    label: 'Answers every inbound call',
-    assist: true, automate: true, connect: false,
-  },
-  {
-    group: 'Voice receptionist',
-    label: 'Captures customer, vehicle and service details',
-    assist: true, automate: true, connect: false,
-  },
-  {
-    group: 'Voice receptionist',
-    label: 'DVLA vehicle lookup during the call',
-    detail: 'Make, model, year, fuel type, MOT status — pulled live.',
-    assist: true, automate: true, connect: false,
-  },
-  {
-    group: 'Voice receptionist',
-    label: 'MOT history checker',
-    assist: true, automate: true, connect: false,
-  },
-  {
-    group: 'Voice receptionist',
-    label: 'SMS confirmation to the customer',
-    assist: true, automate: true, connect: true,
-  },
-  {
-    group: 'Voice receptionist',
-    label: 'Books slots straight into your diary',
-    detail: 'Live integration with Garage Hive, Tyresoft, calendars and more.',
-    assist: false, automate: true, connect: false,
-  },
-  {
-    group: 'Voice receptionist',
-    label: 'Quotes prices from your service menu on the call',
-    assist: false, automate: true, connect: false,
-  },
-  {
-    group: 'Voice receptionist',
-    label: 'Multi-branch routing',
-    assist: false, automate: true, connect: false,
-  },
-  // MESSAGING
-  {
-    group: 'Messaging (web + social)',
-    label: 'Web chat widget on your garage website',
-    assist: false, automate: false, connect: true,
-  },
-  {
-    group: 'Messaging (web + social)',
-    label: 'WhatsApp Business inbound',
-    assist: false, automate: false, connect: true,
-  },
-  {
-    group: 'Messaging (web + social)',
-    label: 'Instagram DM inbound',
-    assist: false, automate: false, connect: true,
-  },
-  {
-    group: 'Messaging (web + social)',
-    label: 'Facebook Messenger inbound',
-    assist: false, automate: false, connect: true,
-  },
-  {
-    group: 'Messaging (web + social)',
-    label: 'Outbound MOT and service reminders',
-    detail: 'To opted-in existing customers — books in the same conversation.',
-    assist: false, automate: false, connect: true,
-  },
-  // PORTAL
-  {
-    group: 'Portal & reporting',
-    label: 'All calls, transcripts and messages in one inbox',
-    assist: true, automate: true, connect: true,
-  },
-  {
-    group: 'Portal & reporting',
-    label: 'Conversation tagging & search',
-    assist: true, automate: true, connect: true,
-  },
-  {
-    group: 'Portal & reporting',
-    label: 'Weekly performance summary',
-    assist: true, automate: true, connect: true,
-  },
-  // SUPPORT
-  {
-    group: 'Setup & support',
-    label: 'Time to live',
-    assist: 'Minutes', automate: '3–5 days', connect: '3–5 days',
-  },
-  {
-    group: 'Setup & support',
-    label: 'Setup help',
-    assist: 'Self-serve', automate: 'White-glove', connect: 'Guided',
-  },
-  {
-    group: 'Setup & support',
-    label: 'Minimum contract',
-    assist: 'None', automate: 'None', connect: 'None',
-  },
-];
-
-const groupOrder = ['Voice receptionist', 'Messaging (web + social)', 'Portal & reporting', 'Setup & support'];
+const tiers = c.tiers;
+const features = c.features;
+const groupOrder = c.groupOrder;
 
 function renderMark(m: Mark) {
   if (typeof m === 'string') return { type: 'text', value: m };
@@ -166,20 +201,18 @@ function renderMark(m: Mark) {
 ---
 
 <BaseLayout
-  title="Pricing — ReceptionMate packages for UK garages"
-  description="Three ReceptionMate packages — Assist, Automate and Connect — compared side-by-side. Pick the AI receptionist tier that fits your UK garage."
+  title={c.title}
+  description={c.description}
 >
   <!-- Hero -->
   <section class="bg-white pt-16 pb-10 sm:pt-20 sm:pb-12">
     <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Pricing</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.heroKicker}</p>
       <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
-        Three packages. Pick the one that fits.
+        {c.heroH1}
       </h1>
       <p class="mt-4 max-w-3xl text-lg leading-relaxed text-ink-700">
-        All packages are billed monthly. Most garages
-        start with Assist or Automate for the voice side, and add Connect
-        when they're ready to take messaging and outbound campaigns on as well.
+        {c.heroSub}
       </p>
     </div>
   </section>
@@ -192,7 +225,7 @@ function renderMark(m: Mark) {
           <article class={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-sm transition hover:shadow-md ${t.recommended ? 'border-brand-200 ring-2 ring-brand-600 lg:-my-2' : 'border-ink-200'}`}>
             {t.recommended && (
               <span class="absolute -top-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow">
-                Most popular
+                {c.mostPopular}
               </span>
             )}
             <h2 class="text-2xl font-bold text-ink-900">{t.name}</h2>
@@ -205,7 +238,7 @@ function renderMark(m: Mark) {
               <p class="mt-1 text-xs text-ink-500">{t.priceFootnote}</p>
             </div>
             <a
-              href={t.href}
+              href={L(t.href, lang)}
               class={`mt-auto inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold transition ${t.recommended ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/25 hover:bg-brand-700' : 'border border-ink-300 bg-white text-ink-900 hover:border-brand-300 hover:text-brand-700'}`}>
               {t.cta}
             </a>
@@ -219,9 +252,9 @@ function renderMark(m: Mark) {
   <section class="bg-white py-16 sm:py-20">
     <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
       <div class="mx-auto max-w-3xl text-center">
-        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Compare</p>
+        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.compareKicker}</p>
         <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          What's in each package.
+          {c.compareH2}
         </h2>
       </div>
 
@@ -230,7 +263,7 @@ function renderMark(m: Mark) {
         <table class="w-full text-left">
           <thead>
             <tr class="border-b border-ink-200 bg-ink-50">
-              <th scope="col" class="px-6 py-5 text-sm font-semibold text-ink-900 w-[40%]">Feature</th>
+              <th scope="col" class="px-6 py-5 text-sm font-semibold text-ink-900 w-[40%]">{c.featureCol}</th>
               {tiers.map((t) => (
                 <th scope="col" class="px-6 py-5 text-center">
                   <p class="text-sm font-semibold text-ink-900">{t.name}</p>
@@ -290,11 +323,11 @@ function renderMark(m: Mark) {
            comparison table above handles the side-by-side view. -->
       <div class="mt-10 md:hidden">
         <div role="tablist" class="grid grid-cols-3 gap-2 rounded-xl bg-ink-100 p-1">
-          {['Assist', 'Automate', 'Connect'].map((name, i) => (
+          {c.tierTabs.map((name, i) => (
             <button
               type="button"
               role="tab"
-              data-tier-tab={name.toLowerCase()}
+              data-tier-tab={['assist', 'automate', 'connect'][i]}
               aria-selected={i === 1 ? 'true' : 'false'}
               class={`pricing-tier-tab rounded-lg px-3 py-2 text-sm font-semibold transition ${i === 1 ? 'bg-white text-brand-700 shadow-sm' : 'text-ink-600'}`}
             >{name}</button>
@@ -365,28 +398,14 @@ function renderMark(m: Mark) {
   <!-- Pricing FAQ -->
   <section class="bg-ink-50 py-16 sm:py-20">
     <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
-      <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">Pricing FAQ.</h2>
+      <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.faqH2}</h2>
       <div class="mt-8 space-y-3">
-        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
-          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">Can I combine Assist or Automate with Connect?</summary>
-          <p class="mt-3 text-base leading-relaxed text-ink-700">Yes. The voice side (Assist or Automate) and the messaging side (Connect) are designed to work together. Most multi-channel garages start with one and add the other.</p>
-        </details>
-        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
-          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">What happens if I exceed the included minutes on Assist?</summary>
-          <p class="mt-3 text-base leading-relaxed text-ink-700">Overage is billed at £0.25 per minute. We'll flag it in the portal as you approach the included allowance so there are no surprises on your invoice.</p>
-        </details>
-        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
-          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">Why is Automate "Custom" priced?</summary>
-          <p class="mt-3 text-base leading-relaxed text-ink-700">Automate's pricing depends on how many branches you run and which integrations you need (Garage Hive, Tyresoft, custom DMS). Talk to us and we'll give you a fixed monthly number after a short scoping call.</p>
-        </details>
-        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
-          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">Is there a contract?</summary>
-          <p class="mt-3 text-base leading-relaxed text-ink-700">Simple monthly billing. You can change tier any time — just disable the call-forwarding rule.</p>
-        </details>
-        <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
-          <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">Do you offer a free trial?</summary>
-          <p class="mt-3 text-base leading-relaxed text-ink-700">No — but you can switch on a paid month and switch it off at the end of it, no questions asked. Most garages see the platform pay for itself in the first fortnight.</p>
-        </details>
+        {c.faqs.map((f) => (
+          <details class="group rounded-2xl border border-ink-200 bg-white p-5 open:shadow-md">
+            <summary class="cursor-pointer list-none text-base font-semibold text-ink-900">{f.q}</summary>
+            <p class="mt-3 text-base leading-relaxed text-ink-700">{f.a}</p>
+          </details>
+        ))}
       </div>
     </div>
   </section>
@@ -395,13 +414,12 @@ function renderMark(m: Mark) {
   <section class="bg-white py-16 sm:py-20">
     <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
       <div class="rounded-3xl bg-brand-600 p-10 text-center sm:p-14">
-        <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">Not sure which one fits?</h2>
+        <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">{c.ctaH2}</h2>
         <p class="mx-auto mt-4 max-w-2xl text-lg text-brand-100">
-          A 15-minute call with us is enough to figure it out. We'll look at your call volume and
-          recommend Assist, Automate, Connect — or a combination.
+          {c.ctaSub}
         </p>
         <div class="mt-8">
-          <a href="/get-started" class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition">Talk to us</a>
+          <a href={L('/get-started', lang)} class="inline-flex items-center justify-center rounded-md bg-white px-6 py-3 text-base font-semibold text-brand-700 shadow-sm hover:bg-brand-50 transition">{c.ctaButton}</a>
         </div>
       </div>
     </div>

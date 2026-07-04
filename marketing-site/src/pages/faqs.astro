@@ -1,128 +1,274 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
 
 // FAQs are grouped for navigation but flattened for JSON-LD because Google's
 // FAQPage schema is a flat list. Keep answers plain text (no HTML) — JSON-LD
 // strips formatting anyway.
-
+//
+// Locale-aware: the FAQ groups (title + q/a items) are translated per language;
+// the JSON-LD is generated from whichever locale is active.
 interface FAQ { q: string; a: string; }
 
-const groups: { title: string; items: FAQ[] }[] = [
-  {
-    title: 'About ReceptionMate',
-    items: [
+const c = {
+  en: {
+    title: 'FAQs — ReceptionMate, the AI receptionist for UK garages',
+    description: 'Frequently asked questions about ReceptionMate — setup, call handling, integrations, pricing and data. Honest answers for UK garage owners.',
+    eyebrow: 'FAQs',
+    h1: 'Questions UK garage owners ask.',
+    heroSub: 'Straight answers on how ReceptionMate works, what it costs, how setup happens, and what we do with your data.',
+    ctaTitle: "Got a question we haven't answered?",
+    ctaSubA: 'Email us at ',
+    ctaSubB: ' or start the get-started flow — we\'ll handle the rest by phone or email.',
+    getStarted: 'Get started',
+    groups: [
       {
-        q: 'What is ReceptionMate?',
-        a: 'ReceptionMate is an AI receptionist built specifically for UK garages. It answers your phone calls, captures bookings directly into your garage management system (Garage Hive, Tyresoft and others), confirms the customer by text, and logs everything in a portal you can review. It handles aftersales bookings, sales enquiries and general reception calls.',
+        title: 'About ReceptionMate',
+        items: [
+          {
+            q: 'What is ReceptionMate?',
+            a: 'ReceptionMate is an AI receptionist built specifically for UK garages. It answers your phone calls, captures bookings directly into your garage management system (Garage Hive, Tyresoft and others), confirms the customer by text, and logs everything in a portal you can review. It handles aftersales bookings, sales enquiries and general reception calls.',
+          },
+          {
+            q: 'Who is ReceptionMate built for?',
+            a: 'Independent garages, multi-site service groups, MOT centres, tyre shops, body shops and main-dealer aftersales departments — anywhere in the UK where a workshop is busier than the receptionist can comfortably handle.',
+          },
+          {
+            q: 'How is ReceptionMate different from generic AI receptionists?',
+            a: 'Most AI receptionists are general-purpose tools sold across nail salons, dentists, law firms and garages. ReceptionMate was built for UK automotive from day one — it knows MOT cycles, can read UK registration plates spoken the way British drivers say them, understands service vocabulary (interim, cambelt, DPF), and integrates directly with Garage Hive and Tyresoft.',
+          },
+        ],
       },
       {
-        q: 'Who is ReceptionMate built for?',
-        a: 'Independent garages, multi-site service groups, MOT centres, tyre shops, body shops and main-dealer aftersales departments — anywhere in the UK where a workshop is busier than the receptionist can comfortably handle.',
+        title: 'Setup and going live',
+        items: [
+          {
+            q: 'Do I need to change my phone number?',
+            a: 'No. You keep your existing number. We provision a ReceptionMate number, and you set call forwarding on your existing landline or mobile: if a call rings 5–7 times without anyone picking up, it forwards to ReceptionMate. Out of hours, every call forwards automatically. Your team still answers first when they can.',
+          },
+          {
+            q: 'How long does setup take?',
+            a: 'Most garages are up and running within an hour. We pull your services, hours and prices from your Google Business Profile and website, you confirm the details, and the call-forwarding rule is configured by your telco the same day.',
+          },
+          {
+            q: 'Can I test it before going live?',
+            a: 'Yes — we set you up with a live test number so you can call in and throw any tricky booking at the agent. The call, the transcript and any captured booking appear in your portal in real time. If anything is off, you tune the agent\'s behaviour from the portal before switching the forwarding on.',
+          },
+          {
+            q: 'Do I need any new hardware?',
+            a: 'No. ReceptionMate runs entirely in the cloud. You use your existing phone, your existing garage management system, and a browser to see the portal.',
+          },
+        ],
       },
       {
-        q: 'How is ReceptionMate different from generic AI receptionists?',
-        a: 'Most AI receptionists are general-purpose tools sold across nail salons, dentists, law firms and garages. ReceptionMate was built for UK automotive from day one — it knows MOT cycles, can read UK registration plates spoken the way British drivers say them, understands service vocabulary (interim, cambelt, DPF), and integrates directly with Garage Hive and Tyresoft.',
+        title: 'How it works on a call',
+        items: [
+          {
+            q: 'Can ReceptionMate actually book a job, or does it just take a message?',
+            a: 'It books the job live during the call. It reads your diary, offers free slots, reserves the chosen one in real time, and confirms by SMS before the call ends. Messages and callbacks are also possible when the customer prefers — but the default behaviour is to capture the booking on the call.',
+          },
+          {
+            q: 'Does it understand UK accents and registration plates?',
+            a: 'Yes. ReceptionMate is trained on real UK garage calls — Scouse, Glaswegian, Geordie, West Country and everything in between — and captures number plates the way drivers actually phrase them (mixed letters, digit words and NATO alphabet, sometimes in the same sentence).',
+          },
+          {
+            q: 'What if a call is complex or needs a human?',
+            a: 'ReceptionMate hands the call to a human when the conversation goes outside what it can confidently handle — complaints, complex diagnostics, or when the caller asks for a specific person. You configure the handover rules in the portal.',
+          },
+          {
+            q: 'Can ReceptionMate look up vehicle details?',
+            a: 'Yes. When the caller gives a registration, ReceptionMate pulls make, model, year, fuel type, tax and MOT status from DVLA in under a second — and uses it to confirm the vehicle and quote the right service.',
+          },
+          {
+            q: 'Can it handle multiple calls at once?',
+            a: 'Yes. ReceptionMate has unlimited concurrent capacity — a Monday-morning spike, MOT season or a lunchtime queue all get answered instantly. Human services queue or miss calls when their lines are full; AI does not.',
+          },
+        ],
       },
-    ],
+      {
+        title: 'Pricing and contracts',
+        items: [
+          {
+            q: 'How does pricing work?',
+            a: 'ReceptionMate is sold as a monthly subscription. Pricing scales with call volume and number of branches — typically less than what a missed booking is worth in a single week. Talk to us via the get-started flow for a quote tailored to your call volume.',
+          },
+          {
+            q: 'Is there a contract?',
+            a: 'No long-term contract. You can stop using ReceptionMate at any time — just disable the call-forwarding rule.',
+          },
+          {
+            q: 'Are there hidden per-call or per-minute charges?',
+            a: 'No surprises. Your monthly bill is predictable. We tell you up front what\'s included and what happens if you exceed the base allowance.',
+          },
+        ],
+      },
+      {
+        title: 'Integrations',
+        items: [
+          {
+            q: 'Which garage management systems do you integrate with?',
+            a: 'Garage Hive, Tyresoft, and several others — including HubSpot, calendar systems and CRMs. We add new integrations regularly. If you run a system we don\'t support yet, talk to us — most modern DMS platforms have integration paths we can stand up quickly.',
+          },
+          {
+            q: 'Does the booking actually go into my diary?',
+            a: 'Yes — written into your DMS during the call, with the customer name, vehicle, service and time slot. No CSV imports, no copy-paste from voicemail transcripts.',
+          },
+          {
+            q: 'Can I send SMS confirmations and reminders?',
+            a: 'Yes. SMS confirmations go out as the call ends, and reminders the day before the appointment — reducing no-shows significantly.',
+          },
+        ],
+      },
+      {
+        title: 'Data and privacy',
+        items: [
+          {
+            q: 'Is ReceptionMate GDPR-compliant?',
+            a: 'Yes. ReceptionMate is built and operated to UK GDPR. Call recordings, transcripts and customer details live in your portal, exportable and deletable on request. See our /privacy page for full details on data controllers, sub-processors, retention and your rights.',
+          },
+          {
+            q: 'Where is my data stored?',
+            a: 'In UK and EU data centres. International transfers, where they happen for AI inference, use UK IDTA / EU Standard Contractual Clauses. The full sub-processor list is available to customers on request under our Data Processing Agreement.',
+          },
+          {
+            q: 'Are my calls used to train AI models?',
+            a: 'No. Customer call data is not used to train third-party models without explicit permission.',
+          },
+        ],
+      },
+    ] as { title: string; items: FAQ[] }[],
   },
-  {
-    title: 'Setup and going live',
-    items: [
+  fr: {
+    title: 'FAQ — ReceptionMate, la réceptionniste IA pour les garages',
+    description: 'Questions fréquentes sur ReceptionMate — configuration, prise d’appel, intégrations, tarifs et données. Des réponses honnêtes pour les gérants de garage.',
+    eyebrow: 'FAQ',
+    h1: 'Les questions que posent les gérants de garage.',
+    heroSub: 'Des réponses claires sur le fonctionnement de ReceptionMate, son coût, la mise en place et ce que nous faisons de vos données.',
+    ctaTitle: 'Une question à laquelle nous n’avons pas répondu ?',
+    ctaSubA: 'Écrivez-nous à ',
+    ctaSubB: ' ou lancez le parcours de démarrage — nous nous occupons du reste par téléphone ou par e-mail.',
+    getStarted: 'Commencer',
+    groups: [
       {
-        q: 'Do I need to change my phone number?',
-        a: 'No. You keep your existing number. We provision a ReceptionMate number, and you set call forwarding on your existing landline or mobile: if a call rings 5–7 times without anyone picking up, it forwards to ReceptionMate. Out of hours, every call forwards automatically. Your team still answers first when they can.',
+        title: 'À propos de ReceptionMate',
+        items: [
+          {
+            q: 'Qu’est-ce que ReceptionMate ?',
+            a: 'ReceptionMate est une réceptionniste IA conçue spécifiquement pour les garages. Elle répond à vos appels, enregistre les réservations directement dans votre logiciel de gestion de garage (Garage Hive, Tyresoft et autres), confirme au client par SMS et consigne tout dans un portail que vous pouvez consulter. Elle gère les réservations après-vente, les demandes commerciales et les appels de réception généraux.',
+          },
+          {
+            q: 'À qui s’adresse ReceptionMate ?',
+            a: 'Aux garages indépendants, aux groupes de services multi-sites, aux centres de contrôle technique, aux centres pneus, aux carrossiers et aux services après-vente des concessions — partout où un atelier est plus occupé que ce que le réceptionniste peut gérer confortablement.',
+          },
+          {
+            q: 'En quoi ReceptionMate se distingue-t-il des réceptionnistes IA génériques ?',
+            a: 'La plupart des réceptionnistes IA sont des outils polyvalents vendus aux salons de manucure, dentistes, cabinets d’avocats et garages. ReceptionMate a été conçu pour l’automobile dès le premier jour — il connaît les cycles de contrôle technique, sait lire les plaques d’immatriculation telles que les conducteurs les prononcent, comprend le vocabulaire de l’entretien (révision intermédiaire, courroie de distribution, FAP) et s’intègre directement à Garage Hive et Tyresoft.',
+          },
+        ],
       },
       {
-        q: 'How long does setup take?',
-        a: 'Most garages are up and running within an hour. We pull your services, hours and prices from your Google Business Profile and website, you confirm the details, and the call-forwarding rule is configured by your telco the same day.',
+        title: 'Configuration et mise en service',
+        items: [
+          {
+            q: 'Dois-je changer de numéro de téléphone ?',
+            a: 'Non. Vous conservez votre numéro existant. Nous vous attribuons un numéro ReceptionMate et vous paramétrez le renvoi d’appel sur votre ligne fixe ou mobile existante : si un appel sonne 5 à 7 fois sans réponse, il est renvoyé vers ReceptionMate. En dehors des heures d’ouverture, chaque appel est renvoyé automatiquement. Votre équipe répond toujours en premier lorsqu’elle le peut.',
+          },
+          {
+            q: 'Combien de temps prend la configuration ?',
+            a: 'La plupart des garages sont opérationnels en moins d’une heure. Nous récupérons vos services, horaires et tarifs depuis votre fiche Google Business et votre site web, vous confirmez les détails, et la règle de renvoi d’appel est configurée par votre opérateur le jour même.',
+          },
+          {
+            q: 'Puis-je le tester avant la mise en service ?',
+            a: 'Oui — nous vous fournissons un numéro de test en direct pour appeler et soumettre à l’agent n’importe quelle réservation complexe. L’appel, la transcription et toute réservation captée apparaissent dans votre portail en temps réel. Si quelque chose ne va pas, vous ajustez le comportement de l’agent depuis le portail avant d’activer le renvoi.',
+          },
+          {
+            q: 'Ai-je besoin de nouveau matériel ?',
+            a: 'Non. ReceptionMate fonctionne entièrement dans le cloud. Vous utilisez votre téléphone existant, votre logiciel de gestion de garage existant, et un navigateur pour accéder au portail.',
+          },
+        ],
       },
       {
-        q: 'Can I test it before going live?',
-        a: 'Yes — we set you up with a live test number so you can call in and throw any tricky booking at the agent. The call, the transcript and any captured booking appear in your portal in real time. If anything is off, you tune the agent\'s behaviour from the portal before switching the forwarding on.',
+        title: 'Comment ça se passe pendant un appel',
+        items: [
+          {
+            q: 'ReceptionMate peut-il réellement réserver une intervention, ou se contente-t-il de prendre un message ?',
+            a: 'Il réserve l’intervention en direct pendant l’appel. Il consulte votre agenda, propose des créneaux libres, réserve celui choisi en temps réel et confirme par SMS avant la fin de l’appel. Les messages et rappels sont aussi possibles si le client le préfère — mais le comportement par défaut est de capter la réservation pendant l’appel.',
+          },
+          {
+            q: 'Comprend-il les accents et les plaques d’immatriculation ?',
+            a: 'Oui. ReceptionMate est entraîné sur de vrais appels de garages et capte les plaques d’immatriculation telles que les conducteurs les formulent réellement (mélange de lettres, chiffres en toutes lettres et alphabet radio, parfois dans la même phrase).',
+          },
+          {
+            q: 'Que se passe-t-il si un appel est complexe ou nécessite un humain ?',
+            a: 'ReceptionMate transfère l’appel à un humain lorsque la conversation dépasse ce qu’il peut gérer avec confiance — réclamations, diagnostics complexes, ou lorsque l’appelant demande une personne précise. Vous configurez les règles de transfert dans le portail.',
+          },
+          {
+            q: 'ReceptionMate peut-il rechercher les détails d’un véhicule ?',
+            a: 'Oui. Lorsque l’appelant donne une immatriculation, ReceptionMate récupère la marque, le modèle, l’année, le type de carburant, la taxe et le statut du contrôle technique auprès de la DVLA en moins d’une seconde — et s’en sert pour confirmer le véhicule et proposer le bon service.',
+          },
+          {
+            q: 'Peut-il gérer plusieurs appels à la fois ?',
+            a: 'Oui. ReceptionMate dispose d’une capacité simultanée illimitée — un pic du lundi matin, la saison du contrôle technique ou une file d’attente le midi obtiennent tous une réponse instantanée. Les services humains mettent les appels en attente ou les manquent quand leurs lignes sont saturées ; l’IA non.',
+          },
+        ],
       },
       {
-        q: 'Do I need any new hardware?',
-        a: 'No. ReceptionMate runs entirely in the cloud. You use your existing phone, your existing garage management system, and a browser to see the portal.',
+        title: 'Tarifs et contrats',
+        items: [
+          {
+            q: 'Comment fonctionne la tarification ?',
+            a: 'ReceptionMate est vendu sous forme d’abonnement mensuel. Le tarif évolue selon le volume d’appels et le nombre d’agences — généralement inférieur à ce que vaut une réservation manquée en une seule semaine. Contactez-nous via le parcours de démarrage pour un devis adapté à votre volume d’appels.',
+          },
+          {
+            q: 'Y a-t-il un contrat ?',
+            a: 'Aucun engagement de longue durée. Vous pouvez arrêter d’utiliser ReceptionMate à tout moment — il suffit de désactiver la règle de renvoi d’appel.',
+          },
+          {
+            q: 'Y a-t-il des frais cachés par appel ou à la minute ?',
+            a: 'Aucune surprise. Votre facture mensuelle est prévisible. Nous vous indiquons dès le départ ce qui est inclus et ce qui se passe si vous dépassez le forfait de base.',
+          },
+        ],
       },
-    ],
+      {
+        title: 'Intégrations',
+        items: [
+          {
+            q: 'Avec quels logiciels de gestion de garage vous intégrez-vous ?',
+            a: 'Garage Hive, Tyresoft et plusieurs autres — dont HubSpot, des systèmes d’agenda et des CRM. Nous ajoutons régulièrement de nouvelles intégrations. Si vous utilisez un système que nous ne prenons pas encore en charge, contactez-nous — la plupart des plateformes DMS modernes disposent de voies d’intégration que nous pouvons mettre en place rapidement.',
+          },
+          {
+            q: 'La réservation entre-t-elle réellement dans mon agenda ?',
+            a: 'Oui — inscrite dans votre DMS pendant l’appel, avec le nom du client, le véhicule, le service et le créneau horaire. Aucun import CSV, aucun copier-coller depuis des transcriptions de messagerie.',
+          },
+          {
+            q: 'Puis-je envoyer des confirmations et rappels par SMS ?',
+            a: 'Oui. Les confirmations par SMS partent à la fin de l’appel, et les rappels la veille du rendez-vous — réduisant considérablement les absences.',
+          },
+        ],
+      },
+      {
+        title: 'Données et confidentialité',
+        items: [
+          {
+            q: 'ReceptionMate est-il conforme au RGPD ?',
+            a: 'Oui. ReceptionMate est conçu et exploité conformément au RGPD britannique. Les enregistrements d’appels, transcriptions et coordonnées clients résident dans votre portail, exportables et supprimables sur demande. Consultez notre page /privacy pour tous les détails sur les responsables de traitement, les sous-traitants, la conservation et vos droits.',
+          },
+          {
+            q: 'Où sont stockées mes données ?',
+            a: 'Dans des centres de données au Royaume-Uni et dans l’UE. Les transferts internationaux, lorsqu’ils ont lieu pour l’inférence IA, utilisent l’IDTA britannique / les clauses contractuelles types de l’UE. La liste complète des sous-traitants est disponible pour les clients sur demande dans le cadre de notre accord de traitement des données.',
+          },
+          {
+            q: 'Mes appels servent-ils à entraîner des modèles d’IA ?',
+            a: 'Non. Les données d’appels clients ne sont pas utilisées pour entraîner des modèles tiers sans autorisation explicite.',
+          },
+        ],
+      },
+    ] as { title: string; items: FAQ[] }[],
   },
-  {
-    title: 'How it works on a call',
-    items: [
-      {
-        q: 'Can ReceptionMate actually book a job, or does it just take a message?',
-        a: 'It books the job live during the call. It reads your diary, offers free slots, reserves the chosen one in real time, and confirms by SMS before the call ends. Messages and callbacks are also possible when the customer prefers — but the default behaviour is to capture the booking on the call.',
-      },
-      {
-        q: 'Does it understand UK accents and registration plates?',
-        a: 'Yes. ReceptionMate is trained on real UK garage calls — Scouse, Glaswegian, Geordie, West Country and everything in between — and captures number plates the way drivers actually phrase them (mixed letters, digit words and NATO alphabet, sometimes in the same sentence).',
-      },
-      {
-        q: 'What if a call is complex or needs a human?',
-        a: 'ReceptionMate hands the call to a human when the conversation goes outside what it can confidently handle — complaints, complex diagnostics, or when the caller asks for a specific person. You configure the handover rules in the portal.',
-      },
-      {
-        q: 'Can ReceptionMate look up vehicle details?',
-        a: 'Yes. When the caller gives a registration, ReceptionMate pulls make, model, year, fuel type, tax and MOT status from DVLA in under a second — and uses it to confirm the vehicle and quote the right service.',
-      },
-      {
-        q: 'Can it handle multiple calls at once?',
-        a: 'Yes. ReceptionMate has unlimited concurrent capacity — a Monday-morning spike, MOT season or a lunchtime queue all get answered instantly. Human services queue or miss calls when their lines are full; AI does not.',
-      },
-    ],
-  },
-  {
-    title: 'Pricing and contracts',
-    items: [
-      {
-        q: 'How does pricing work?',
-        a: 'ReceptionMate is sold as a monthly subscription. Pricing scales with call volume and number of branches — typically less than what a missed booking is worth in a single week. Talk to us via the get-started flow for a quote tailored to your call volume.',
-      },
-      {
-        q: 'Is there a contract?',
-        a: 'No long-term contract. You can stop using ReceptionMate at any time — just disable the call-forwarding rule.',
-      },
-      {
-        q: 'Are there hidden per-call or per-minute charges?',
-        a: 'No surprises. Your monthly bill is predictable. We tell you up front what\'s included and what happens if you exceed the base allowance.',
-      },
-    ],
-  },
-  {
-    title: 'Integrations',
-    items: [
-      {
-        q: 'Which garage management systems do you integrate with?',
-        a: 'Garage Hive, Tyresoft, and several others — including HubSpot, calendar systems and CRMs. We add new integrations regularly. If you run a system we don\'t support yet, talk to us — most modern DMS platforms have integration paths we can stand up quickly.',
-      },
-      {
-        q: 'Does the booking actually go into my diary?',
-        a: 'Yes — written into your DMS during the call, with the customer name, vehicle, service and time slot. No CSV imports, no copy-paste from voicemail transcripts.',
-      },
-      {
-        q: 'Can I send SMS confirmations and reminders?',
-        a: 'Yes. SMS confirmations go out as the call ends, and reminders the day before the appointment — reducing no-shows significantly.',
-      },
-    ],
-  },
-  {
-    title: 'Data and privacy',
-    items: [
-      {
-        q: 'Is ReceptionMate GDPR-compliant?',
-        a: 'Yes. ReceptionMate is built and operated to UK GDPR. Call recordings, transcripts and customer details live in your portal, exportable and deletable on request. See our /privacy page for full details on data controllers, sub-processors, retention and your rights.',
-      },
-      {
-        q: 'Where is my data stored?',
-        a: 'In UK and EU data centres. International transfers, where they happen for AI inference, use UK IDTA / EU Standard Contractual Clauses. The full sub-processor list is available to customers on request under our Data Processing Agreement.',
-      },
-      {
-        q: 'Are my calls used to train AI models?',
-        a: 'No. Customer call data is not used to train third-party models without explicit permission.',
-      },
-    ],
-  },
-];
+}[lang];
+
+const groups = c.groups;
 
 const flatItems = groups.flatMap((g) => g.items);
 
@@ -138,8 +284,8 @@ const jsonLd = {
 ---
 
 <BaseLayout
-  title="FAQs — ReceptionMate, the AI receptionist for UK garages"
-  description="Frequently asked questions about ReceptionMate — setup, call handling, integrations, pricing and data. Honest answers for UK garage owners."
+  title={c.title}
+  description={c.description}
 >
   <Fragment slot="head">
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
@@ -148,13 +294,12 @@ const jsonLd = {
   <!-- Hero -->
   <section class="bg-white pt-16 pb-10 sm:pt-20 sm:pb-12">
     <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
-      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">FAQs</p>
+      <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.eyebrow}</p>
       <h1 class="mt-3 text-4xl font-bold tracking-tight text-ink-900 sm:text-5xl">
-        Questions UK garage owners ask.
+        {c.h1}
       </h1>
       <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-700">
-        Straight answers on how ReceptionMate works, what it costs, how setup
-        happens, and what we do with your data.
+        {c.heroSub}
       </p>
     </div>
   </section>
@@ -187,14 +332,13 @@ const jsonLd = {
   <section class="bg-white py-16 sm:py-20">
     <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
       <h2 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-        Got a question we haven't answered?
+        {c.ctaTitle}
       </h2>
       <p class="mt-4 text-lg text-ink-700">
-        Email us at <a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a> or
-        start the get-started flow — we'll handle the rest by phone or email.
+        {c.ctaSubA}<a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>{c.ctaSubB}
       </p>
-      <a href="/get-started" class="mt-8 inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-700 transition">
-        Get started
+      <a href={L('/get-started', lang)} class="mt-8 inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-700 transition">
+        {c.getStarted}
       </a>
     </div>
   </section>

@@ -19,8 +19,10 @@ const c = {
     h1: 'Questions UK garage owners ask.',
     heroSub: 'Straight answers on how ReceptionMate works, what it costs, how setup happens, and what we do with your data.',
     ctaTitle: "Got a question we haven't answered?",
-    ctaSubA: 'Email us at ',
-    ctaSubB: ' or start the get-started flow — we\'ll handle the rest by phone or email.',
+    ctaSubA: 'Still have a question? ',
+    contactCta: 'Contact us',
+    contactTier: 'your garage',
+    ctaSubB: ' — or start the get-started flow and we\'ll handle the rest.',
     getStarted: 'Get started',
     groups: [
       {
@@ -146,8 +148,10 @@ const c = {
     h1: 'Les questions que posent les gérants de garage.',
     heroSub: 'Des réponses claires sur le fonctionnement de ReceptionMate, son coût, la mise en place et ce que nous faisons de vos données.',
     ctaTitle: 'Une question à laquelle nous n’avons pas répondu ?',
-    ctaSubA: 'Écrivez-nous à ',
-    ctaSubB: ' ou lancez le parcours de démarrage — nous nous occupons du reste par téléphone ou par e-mail.',
+    ctaSubA: 'Encore une question ? ',
+    contactCta: 'Contactez-nous',
+    contactTier: 'votre garage',
+    ctaSubB: ' — ou lancez le parcours de démarrage et nous nous occupons du reste.',
     getStarted: 'Commencer',
     groups: [
       {
@@ -335,7 +339,7 @@ const jsonLd = {
         {c.ctaTitle}
       </h2>
       <p class="mt-4 text-lg text-ink-700">
-        {c.ctaSubA}<a href="mailto:hello@receptionmate.co.uk" class="text-brand-600 underline">hello@receptionmate.co.uk</a>{c.ctaSubB}
+        {c.ctaSubA}<button type="button" data-lead-cta="website-faqs-contact" data-lead-tier={c.contactTier} class="text-brand-600 underline">{c.contactCta}</button>{c.ctaSubB}
       </p>
       <a href={L('/get-started', lang)} class="mt-8 inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-700 transition">
         {c.getStarted}

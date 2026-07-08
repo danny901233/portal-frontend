@@ -51,6 +51,8 @@ const c = {
     assistF1: 'Live in minutes — no integration needed',
     assistF2: 'Takes bookings using your set lead time',
     assistF3: 'Simple monthly billing',
+    assistTrialPrice: '14-day free trial',
+    assistTrialPriceSub: 'then £200/mo',
     mostPopular: 'Most popular',
     automateDesc: 'Books the job in your diary on the call — no callbacks.',
     automateF1: 'Plugs into Garage Hive, Tyresoft + more',
@@ -179,6 +181,8 @@ const c = {
     assistF1: 'Opérationnel en quelques minutes — aucune intégration nécessaire',
     assistF2: 'Prend les réservations selon le délai que vous définissez',
     assistF3: 'Facturation mensuelle simple',
+    assistTrialPrice: 'Essai gratuit 14 j',
+    assistTrialPriceSub: 'puis 200 £/mois',
     mostPopular: 'Le plus populaire',
     automateDesc: 'Enregistre l’intervention dans votre agenda pendant l’appel — sans rappel.',
     automateF1: 'Se connecte à Garage Hive, Tyresoft et plus encore',
@@ -372,7 +376,7 @@ const c = {
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
                   <span class="text-base font-semibold text-ink-900">Assist</span>
-                  <span class="text-sm font-medium text-ink-700">£200<span class="text-ink-400">/mo</span></span>
+                  <span class="text-sm font-semibold text-emerald-700">{c.assistTrialPrice}<span class="font-medium text-ink-400"> · {c.assistTrialPriceSub}</span></span>
                 </div>
                 <p class="mt-1 text-sm text-ink-600">{c.assistDesc}</p>
                 <ul class="mt-3 space-y-1.5 text-xs text-ink-600">

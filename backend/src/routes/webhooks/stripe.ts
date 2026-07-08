@@ -17,6 +17,7 @@ import { prisma } from '../../db.js';
 import { sendWelcomeEmail, sendEmail } from '../../utils/email.js';
 import { getStripeClient, STRIPE_TRIAL_DAYS } from '../../services/stripe.js';
 import { purchaseRandomTwilioNumber } from '../onboarding.js';
+import { sendAgentConfigWebhook } from '../config.js';
 
 const router = Router();
 
@@ -42,6 +43,16 @@ function invoiceSubId(invoice: Stripe.Invoice): string | undefined {
 // ── provisioning core: buy a Twilio number, set up the SIP trunk, send the welcome email ──
 // Idempotent by contract: the caller must skip this if the garage already has a number.
 async function provisionGarageAccount(garage: { id: string; name: string }, userEmail: string): Promise<void> {
+  // Match the portal voice webhook's routing: Assist/GarageHive garages run on LiveKit Account 2
+  // with their own agent; everything else stays on Account 1. Get this wrong and the number rings
+  // into a LiveKit project with no matching trunk — the call goes nowhere.
+  const cfg = await prisma.agentConfiguration.findUnique({
+    where: { garageId: garage.id },
+    select: { agentScript: true },
+  });
+  const agentScript = cfg?.agentScript || 'receptionmate-agent';
+  const account = agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent' ? 'account2' : 'account1';
+
   let twilioNumber: string | null = null;
   try {
     twilioNumber = await purchaseRandomTwilioNumber();
@@ -56,7 +67,8 @@ async function provisionGarageAccount(garage: { id: string; name: string }, user
         branchName: garage.name,
         contactEmail: userEmail,
         twilioNumber,
-        agentName: 'receptionmate-agent',
+        agentName: agentScript,
+        account,
         triggeredAt: new Date().toISOString(),
       }),
     });
@@ -68,6 +80,15 @@ async function provisionGarageAccount(garage: { id: string; name: string }, user
   } catch (err) {
     console.error(`[STRIPE_WEBHOOK] Twilio provisioning failed for garage=${garage.id}:`, err);
     // Don't throw — the trial has started; the team can assign a number manually.
+  }
+
+  // Push the garage's agent config to the live agent (DynamoDB). Self-serve signups never saved
+  // config in the portal, so this is the FIRST push — without it the number rings but the agent
+  // has no config to load and the call goes nowhere.
+  try {
+    await sendAgentConfigWebhook(garage.id);
+  } catch (err) {
+    console.error(`[STRIPE_WEBHOOK] agent config sync failed for garage=${garage.id}:`, err);
   }
 
   try {

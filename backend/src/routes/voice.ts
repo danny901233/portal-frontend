@@ -47,16 +47,19 @@ router.post('/voice', async (req: Request, res: Response) => {
   // agentScript; production Elite stays on 'tyresoft-agent' → Account 1.
   const isTyresoftTest = agentScript === 'tyresoft-agent-test';
   const isAccount2 = agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent';
+  const isMMH = agentScript === 'MMH-agent';
   const livekitSipDomain =
     isTyresoftTest && process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
       ? process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
       : isAccount2 && process.env.LIVEKIT_SIP_DOMAIN_ACCOUNT2
         ? process.env.LIVEKIT_SIP_DOMAIN_ACCOUNT2
-        : (
-            process.env.LIVEKIT_SIP_DOMAIN ||
-            process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
-            process.env.LIVEKIT_SIP_DOMAIN_ASSIST
-          );
+        : isMMH && process.env.LIVEKIT_SIP_DOMAIN_MMH
+          ? process.env.LIVEKIT_SIP_DOMAIN_MMH
+          : (
+              process.env.LIVEKIT_SIP_DOMAIN ||
+              process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
+              process.env.LIVEKIT_SIP_DOMAIN_ASSIST
+            );
 
   if (!livekitSipDomain) {
     return res
@@ -64,18 +67,25 @@ router.post('/voice', async (req: Request, res: Response) => {
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Call routing is not configured.</Say><Hangup/></Response>');
   }
 
-  const account = isTyresoftTest ? 'tyresoft-test' : isAccount2 ? 'account2' : 'account1';
+  const account = isTyresoftTest ? 'tyresoft-test' : isAccount2 ? 'account2' : isMMH ? 'mmh' : 'account1';
   console.log(`[VOICE] Routing garage ${garageId} (agentType=${agentType}, agentScript=${agentScript}, account=${account}) via ${livekitSipDomain}`);
 
   // Build recording status callback URL
   const portalBaseUrl = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';
   const recordingCallbackUrl = `${portalBaseUrl}/webhooks/recording-status`;
 
+  // Twilio outbound-SIP edge. Default is the US Virginia (Ashburn) edge, which adds a
+  // transatlantic hop for UK callers -> EU LiveKit. Pin ALL garages to the Frankfurt edge —
+  // every LiveKit project/agent is in eu-central (Germany). Twilio strips ;edge= before it
+  // forwards the INVITE to LiveKit. Verified on MMH: SIP edge Frankfurt (de1), Twilio RTP
+  // latency <10ms (was 36ms via the US Ashburn edge).
+  const sipEdge = ';edge=frankfurt';
+
   // Return TwiML that dials the LiveKit SIP address with recording enabled
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial record="record-from-answer" recordingStatusCallback="${recordingCallbackUrl}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed">
-    <Sip>sip:${garageId}@${livekitSipDomain}</Sip>
+    <Sip>sip:${garageId}@${livekitSipDomain}${sipEdge}</Sip>
   </Dial>
 </Response>`;
 
@@ -126,10 +136,11 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       console.log(`[RECORDING] Stored recording for CallSid ${CallSid}`);
 
       // Update call duration with recording duration (actual call time)
-      // OR delete the call if duration is under 30 seconds
+      // OR delete the call if it's under the minimum billable/logged length.
+      // 45s is the business rule: calls shorter than this never surface in the portal.
       if (durationSeconds !== null && !Number.isNaN(durationSeconds)) {
-        // If recording duration is under 30 seconds, delete the call from portal
-        if (durationSeconds < 30) {
+        // If recording duration is under 45 seconds, delete the call from portal
+        if (durationSeconds < 45) {
           const deletedCalls = await prisma.call.deleteMany({
             where: {
               twilioCallSid: CallSid,
@@ -137,10 +148,10 @@ router.post('/recording-status', async (req: Request, res: Response) => {
           });
 
           if (deletedCalls.count > 0) {
-            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 30s threshold`);
+            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 45s threshold`);
           }
         } else {
-          // Duration is >= 30 seconds, update the call with correct duration
+          // Duration is >= 45 seconds, update the call with correct duration
           const updatedCalls = await prisma.call.updateMany({
             where: {
               twilioCallSid: CallSid,
@@ -157,7 +168,7 @@ router.post('/recording-status', async (req: Request, res: Response) => {
           if (updatedCalls.count > 0) {
             console.log(`[RECORDING] ✅ Updated ${updatedCalls.count} call(s) with recording duration: ${durationSeconds}s`);
 
-            // Send notification email now that we've confirmed duration >= 30s
+            // Send notification email now that we've confirmed duration >= 45s
             const call = await prisma.call.findFirst({
               where: { twilioCallSid: CallSid },
               include: {

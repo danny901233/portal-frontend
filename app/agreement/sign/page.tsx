@@ -10,6 +10,8 @@ import {
   type AgreementSummary,
 } from '../../lib/api';
 import { getSessionToken } from '../../lib/auth';
+import { useLang } from '@/app/i18n/LocaleProvider';
+import TrialCardForm from '@/app/components/TrialCardForm';
 
 export default function AgreementSignPage() {
   return (
@@ -20,6 +22,105 @@ export default function AgreementSignPage() {
 }
 
 function AgreementSignInner() {
+  const lang = useLang();
+  const c = {
+    en: {
+      failedLoad: 'Failed to load agreement.',
+      couldntRecord: "We couldn't record your signature. Please try again.",
+      loadErrorTitle: 'We couldn’t load this agreement',
+      loadErrorHelp: 'If this link came from us by email, it may have expired. Reply to that email and we’ll send a fresh one.',
+      signedTitle: 'Agreement signed.',
+      thanks: (name: string) => `Thanks ${name} — a PDF copy is on its way to your inbox.`,
+      whatHappensNext: 'What happens next',
+      step1Title: 'Check your email for your login',
+      step1Body: "We've sent your portal username and a temporary password.",
+      step2Title: 'Sign in and set your own password',
+      step2Body: "You'll be prompted to change it on first login.",
+      step3Title: 'Set up your Direct Debit',
+      step3Body: "Takes 30 seconds — we'll bill on the day your minutes go live.",
+      step4Title: 'Complete the setup wizard',
+      step4Body: "Pick your voice, branch hours, greetings and we'll spin up your number.",
+      openPortal: 'Open the portal',
+      cantFindEmail: 'Can’t find the email? Check your spam folder, or write to',
+      settingUpDd: 'Setting up your Direct Debit next…',
+      brand: 'ReceptionMate',
+      signYourAgreement: 'Sign your service agreement',
+      agreementForPrefix: 'This agreement is for',
+      readThrough: 'Have a read through, then complete your name and position below to sign.',
+      commercialSummary: 'Commercial summary',
+      centres: 'Centres',
+      licenceFee: 'Licence fee',
+      perCentrePerMo: '/centre/mo',
+      setupFee: 'Setup fee',
+      waived: 'Waived',
+      monthlyTotal: 'Monthly total',
+      licences: 'Licences',
+      goLive: 'Go-live',
+      toBeConfirmed: 'To be confirmed',
+      fullAgreement: 'Full agreement',
+      versionLabel: 'Version',
+      signElectronically: 'Sign electronically',
+      todaysDate: 'Today’s date:',
+      fullName: 'Full name',
+      fullNamePlaceholder: 'e.g. Daniel Tyldesley',
+      position: 'Position / role',
+      positionPlaceholder: 'e.g. Director',
+      drawSignature: 'Draw your signature',
+      confirmPrefix: 'I confirm I have authority to sign this agreement on behalf of',
+      confirmSuffix: ', that the information above is correct, and I accept the terms of the agreement. I understand this constitutes my electronic signature.',
+      signing: 'Signing…',
+      signAgreement: 'Sign agreement',
+      questions: 'Questions? Email',
+    },
+    fr: {
+      failedLoad: 'Échec du chargement du contrat.',
+      couldntRecord: "Nous n'avons pas pu enregistrer votre signature. Veuillez réessayer.",
+      loadErrorTitle: 'Nous n’avons pas pu charger ce contrat',
+      loadErrorHelp: 'Si ce lien vous a été envoyé par e-mail, il a peut-être expiré. Répondez à cet e-mail et nous vous en enverrons un nouveau.',
+      signedTitle: 'Contrat signé.',
+      thanks: (name: string) => `Merci ${name} — une copie PDF est en route vers votre boîte de réception.`,
+      whatHappensNext: 'Prochaines étapes',
+      step1Title: 'Consultez votre e-mail pour vos identifiants',
+      step1Body: 'Nous vous avons envoyé votre nom d’utilisateur du portail et un mot de passe temporaire.',
+      step2Title: 'Connectez-vous et définissez votre propre mot de passe',
+      step2Body: 'Vous serez invité à le modifier lors de votre première connexion.',
+      step3Title: 'Configurez votre prélèvement automatique',
+      step3Body: 'Cela prend 30 secondes — nous facturerons le jour où vos minutes seront activées.',
+      step4Title: 'Terminez l’assistant de configuration',
+      step4Body: 'Choisissez votre voix, les horaires de votre agence, les messages d’accueil et nous activerons votre numéro.',
+      openPortal: 'Ouvrir le portail',
+      cantFindEmail: 'Vous ne trouvez pas l’e-mail ? Vérifiez votre dossier de courrier indésirable ou écrivez à',
+      settingUpDd: 'Configuration de votre prélèvement automatique…',
+      brand: 'ReceptionMate',
+      signYourAgreement: 'Signez votre contrat de service',
+      agreementForPrefix: 'Ce contrat concerne',
+      readThrough: 'Lisez-le attentivement, puis renseignez votre nom et votre fonction ci-dessous pour signer.',
+      commercialSummary: 'Récapitulatif commercial',
+      centres: 'Centres',
+      licenceFee: 'Frais de licence',
+      perCentrePerMo: '/centre/mois',
+      setupFee: 'Frais de configuration',
+      waived: 'Offerts',
+      monthlyTotal: 'Total mensuel',
+      licences: 'Licences',
+      goLive: 'Mise en service',
+      toBeConfirmed: 'À confirmer',
+      fullAgreement: 'Contrat complet',
+      versionLabel: 'Version',
+      signElectronically: 'Signer électroniquement',
+      todaysDate: 'Date du jour :',
+      fullName: 'Nom complet',
+      fullNamePlaceholder: 'ex. Daniel Tyldesley',
+      position: 'Fonction / poste',
+      positionPlaceholder: 'ex. Directeur',
+      drawSignature: 'Dessinez votre signature',
+      confirmPrefix: 'Je confirme que j’ai le pouvoir de signer ce contrat au nom de',
+      confirmSuffix: ', que les informations ci-dessus sont exactes, et j’accepte les conditions du contrat. Je comprends que cela constitue ma signature électronique.',
+      signing: 'Signature en cours…',
+      signAgreement: 'Signer le contrat',
+      questions: 'Des questions ? Écrivez à',
+    },
+  }[lang];
   const router = useRouter();
   const search = useSearchParams();
   const token = search.get('token');
@@ -72,7 +173,7 @@ function AgreementSignInner() {
           setCss(res.css ?? '');
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load agreement.';
+        const message = err instanceof Error ? err.message : c.failedLoad;
         if (!cancelled) setLoadError(message);
       } finally {
         if (!cancelled) setLoading(false);
@@ -91,6 +192,10 @@ function AgreementSignInner() {
   );
 
   const monthlyTotal = agreement ? agreement.licenceFeeGbp * agreement.centresCount : 0;
+
+  // Set once a public-signup customer has signed: holds the SetupIntent client_secret so we render
+  // the Stripe card form (custom Payment Element) in-page instead of redirecting to stripe.com.
+  const [cardClientSecret, setCardClientSecret] = useState<string | null>(null);
 
   const canSubmit =
     !!agreement &&
@@ -115,12 +220,12 @@ function AgreementSignInner() {
         ? await signAgreementByToken(token, payload)
         : await signAgreement(agreement.id, payload);
       setDone(true);
-      // Public-signup customers (magic-link path) now go to Stripe Checkout
-      // to pay for their first month before being onboarded. The backend
-      // returns the URL on the sign response.
-      const checkoutUrl = (result as { checkoutUrl?: string | null }).checkoutUrl;
-      if (token && checkoutUrl) {
-        setTimeout(() => { window.location.href = checkoutUrl; }, 1100);
+      // Public-signup customers (magic-link path) enter their card on this page via Stripe's
+      // Payment Element to start the 14-day trial — no redirect. The backend returns the
+      // SetupIntent client_secret; stashing it flips the success screen into the card form.
+      const clientSecret = (result as { checkoutClientSecret?: string | null }).checkoutClientSecret;
+      if (token && clientSecret) {
+        setCardClientSecret(clientSecret);
         return;
       }
       // For signed-in users (no magic-link token), continue onboarding without
@@ -131,7 +236,7 @@ function AgreementSignInner() {
       }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };
-      setSubmitError(e?.response?.data?.error ?? 'We couldn\'t record your signature. Please try again.');
+      setSubmitError(e?.response?.data?.error ?? c.couldntRecord);
     } finally {
       setSubmitting(false);
     }
@@ -144,10 +249,10 @@ function AgreementSignInner() {
     return (
       <Frame>
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center">
-          <h1 className="text-lg font-semibold text-rose-900">We couldn&rsquo;t load this agreement</h1>
+          <h1 className="text-lg font-semibold text-rose-900">{c.loadErrorTitle}</h1>
           <p className="mt-2 text-sm text-rose-700">{loadError}</p>
           <p className="mt-4 text-sm text-rose-700">
-            If this link came from us by email, it may have expired. Reply to that email and we&rsquo;ll send a fresh one.
+            {c.loadErrorHelp}
           </p>
         </div>
       </Frame>
@@ -172,22 +277,32 @@ function AgreementSignInner() {
               </svg>
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-xl font-semibold text-slate-900">Agreement signed.</h1>
+              <h1 className="text-xl font-semibold text-slate-900">{c.signedTitle}</h1>
               <p className="mt-1 text-sm text-slate-600">
-                Thanks {signedByName} — a PDF copy is on its way to your inbox.
+                {c.thanks(signedByName)}
               </p>
             </div>
           </div>
 
-          {token ? (
+          {token && cardClientSecret ? (
+            <div className="mt-6">
+              <h2 className="text-sm font-semibold text-slate-900">Start your 14-day free trial</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Add your card to activate. You won’t be charged today — the trial is free for 14 days.
+              </p>
+              <div className="mt-4">
+                <TrialCardForm clientSecret={cardClientSecret} />
+              </div>
+            </div>
+          ) : token ? (
             <>
               <div className="mt-6 rounded-2xl bg-slate-50 p-5">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">What happens next</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{c.whatHappensNext}</p>
                 <ol className="mt-3 space-y-3 text-sm text-slate-700">
-                  <NextStep n={1} title="Check your email for your login" body="We've sent your portal username and a temporary password." />
-                  <NextStep n={2} title="Sign in and set your own password" body="You'll be prompted to change it on first login." />
-                  <NextStep n={3} title="Set up your Direct Debit" body="Takes 30 seconds — we'll bill on the day your minutes go live." />
-                  <NextStep n={4} title="Complete the setup wizard" body="Pick your voice, branch hours, greetings and we'll spin up your number." />
+                  <NextStep n={1} title={c.step1Title} body={c.step1Body} />
+                  <NextStep n={2} title={c.step2Title} body={c.step2Body} />
+                  <NextStep n={3} title={c.step3Title} body={c.step3Body} />
+                  <NextStep n={4} title={c.step4Title} body={c.step4Body} />
                 </ol>
               </div>
 
@@ -195,16 +310,16 @@ function AgreementSignInner() {
                 href="/login"
                 className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-brand-600/30 hover:bg-brand-700 transition"
               >
-                Open the portal
+                {c.openPortal}
                 <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd"/></svg>
               </a>
               <p className="mt-3 text-center text-xs text-slate-500">
-                Can&rsquo;t find the email? Check your spam folder, or write to{' '}
+                {c.cantFindEmail}{' '}
                 <a href="mailto:hello@receptionmate.co.uk" className="underline">hello@receptionmate.co.uk</a>.
               </p>
             </>
           ) : (
-            <p className="mt-4 text-sm text-slate-600">Setting up your Direct Debit next&hellip;</p>
+            <p className="mt-4 text-sm text-slate-600">{c.settingUpDd}</p>
           )}
         </div>
       </Frame>
@@ -218,35 +333,35 @@ function AgreementSignInner() {
       <style>{css}</style>
 
       <header className="mb-6">
-        <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">ReceptionMate</p>
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">Sign your service agreement</h1>
+        <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">{c.brand}</p>
+        <h1 className="mt-1 text-2xl font-bold text-slate-900">{c.signYourAgreement}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          {customerEmail ? <>This agreement is for <strong>{customerEmail}</strong>. </> : null}
-          Have a read through, then complete your name and position below to sign.
+          {customerEmail ? <>{c.agreementForPrefix} <strong>{customerEmail}</strong>. </> : null}
+          {c.readThrough}
         </p>
       </header>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">Commercial summary</h2>
+          <h2 className="text-sm font-semibold text-slate-900">{c.commercialSummary}</h2>
         </div>
         <dl className="grid grid-cols-1 gap-x-6 gap-y-3 p-5 sm:grid-cols-3">
-          <SummaryItem label="Centres" value={String(agreement.centresCount)} />
-          <SummaryItem label="Licence fee" value={`${formatGbp(agreement.licenceFeeGbp)}/centre/mo`} />
-          <SummaryItem label="Setup fee" value={agreement.setupFeeGbp > 0 ? formatGbp(agreement.setupFeeGbp) : 'Waived'} />
-          <SummaryItem label="Monthly total" value={`${formatGbp(monthlyTotal)} + VAT`} />
-          <SummaryItem label="Licences" value={agreement.licences.map(capitalise).join(', ')} />
+          <SummaryItem label={c.centres} value={String(agreement.centresCount)} />
+          <SummaryItem label={c.licenceFee} value={`${formatGbp(agreement.licenceFeeGbp)}${c.perCentrePerMo}`} />
+          <SummaryItem label={c.setupFee} value={agreement.setupFeeGbp > 0 ? formatGbp(agreement.setupFeeGbp) : c.waived} />
+          <SummaryItem label={c.monthlyTotal} value={`${formatGbp(monthlyTotal)} + VAT`} />
+          <SummaryItem label={c.licences} value={agreement.licences.map(capitalise).join(', ')} />
           <SummaryItem
-            label="Go-live"
-            value={agreement.goLiveDate ? formatDate(agreement.goLiveDate) : 'To be confirmed'}
+            label={c.goLive}
+            value={agreement.goLiveDate ? formatDate(agreement.goLiveDate) : c.toBeConfirmed}
           />
         </dl>
       </section>
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">Full agreement</h2>
-          <span className="text-xs text-slate-500">Version {agreement.version}</span>
+          <h2 className="text-sm font-semibold text-slate-900">{c.fullAgreement}</h2>
+          <span className="text-xs text-slate-500">{c.versionLabel} {agreement.version}</span>
         </div>
         <div
           ref={contractRef}
@@ -256,20 +371,20 @@ function AgreementSignInner() {
       </section>
 
       <form onSubmit={handleSubmit} className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-sm font-semibold text-slate-900">Sign electronically</h2>
-        <p className="mt-1 text-xs text-slate-500">Today&rsquo;s date: {todayStr}</p>
+        <h2 className="text-sm font-semibold text-slate-900">{c.signElectronically}</h2>
+        <p className="mt-1 text-xs text-slate-500">{c.todaysDate} {todayStr}</p>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field
-            label="Full name"
-            placeholder="e.g. Daniel Tyldesley"
+            label={c.fullName}
+            placeholder={c.fullNamePlaceholder}
             value={signedByName}
             onChange={setSignedByName}
             required
           />
           <Field
-            label="Position / role"
-            placeholder="e.g. Director"
+            label={c.position}
+            placeholder={c.positionPlaceholder}
             value={signedByPosition}
             onChange={setSignedByPosition}
             required
@@ -277,7 +392,7 @@ function AgreementSignInner() {
         </div>
 
         <div className="mt-5">
-          <label className="text-xs font-medium uppercase tracking-wide text-slate-600">Draw your signature</label>
+          <label className="text-xs font-medium uppercase tracking-wide text-slate-600">{c.drawSignature}</label>
           <SignaturePad value={signatureDataUrl} onChange={setSignatureDataUrl} />
         </div>
 
@@ -289,9 +404,8 @@ function AgreementSignInner() {
             className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
           />
           <span>
-            I confirm I have authority to sign this agreement on behalf of{' '}
-            <strong>{agreement.clientName}</strong>, that the information above is correct, and I accept the terms of
-            the agreement. I understand this constitutes my electronic signature.
+            {c.confirmPrefix}{' '}
+            <strong>{agreement.clientName}</strong>{c.confirmSuffix}
           </span>
         </label>
 
@@ -305,13 +419,13 @@ function AgreementSignInner() {
             disabled={!canSubmit}
             className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {submitting ? 'Signing…' : 'Sign agreement'}
+            {submitting ? c.signing : c.signAgreement}
           </button>
         </div>
       </form>
 
       <p className="mt-6 text-center text-xs text-slate-500">
-        Questions? Email <a href="mailto:hello@receptionmate.co.uk" className="text-brand-600 hover:underline">hello@receptionmate.co.uk</a>.
+        {c.questions} <a href="mailto:hello@receptionmate.co.uk" className="text-brand-600 hover:underline">hello@receptionmate.co.uk</a>.
       </p>
     </Frame>
   );
@@ -328,11 +442,13 @@ function Frame({ children }: { children: React.ReactNode }) {
 }
 
 function FullPageSpinner() {
+  const lang = useLang();
+  const c = { en: { loading: 'Loading your agreement…' }, fr: { loading: 'Chargement de votre contrat…' } }[lang];
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50">
       <div className="text-center">
         <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-brand-600" />
-        <p className="mt-4 text-sm text-slate-500">Loading your agreement…</p>
+        <p className="mt-4 text-sm text-slate-500">{c.loading}</p>
       </div>
     </div>
   );
@@ -396,6 +512,11 @@ function SignaturePad({
   value: string | null;
   onChange: (dataUrl: string | null) => void;
 }) {
+  const lang = useLang();
+  const c = {
+    en: { captured: 'Looks good — your signature is captured.', prompt: 'Use your mouse, finger or stylus to sign above.', clear: 'Clear' },
+    fr: { captured: 'Parfait — votre signature est enregistrée.', prompt: 'Utilisez votre souris, votre doigt ou un stylet pour signer ci-dessus.', clear: 'Effacer' },
+  }[lang];
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
@@ -485,14 +606,14 @@ function SignaturePad({
       </div>
       <div className="mt-2 flex items-center justify-between">
         <p className="text-xs text-slate-500">
-          {value ? 'Looks good — your signature is captured.' : 'Use your mouse, finger or stylus to sign above.'}
+          {value ? c.captured : c.prompt}
         </p>
         <button
           type="button"
           onClick={clear}
           className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
         >
-          Clear
+          {c.clear}
         </button>
       </div>
     </div>

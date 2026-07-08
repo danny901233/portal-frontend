@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail } from '../utils/email.js';
-import { createFirstMonthCheckoutSession, stripeConfigured } from '../services/stripe.js';
+import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS } from '../services/stripe.js';
 import {
   renderAgreementHtml,
   TEMPLATE_VERSION,
@@ -348,27 +348,39 @@ async function finaliseSignature(opts: {
     clientName: agreement.clientName,
   });
 
-  // Public-signup customers (mustChangePassword === true) are routed to
-  // Stripe Checkout for their first month's payment. Provisioning + welcome
-  // email both fire from the Stripe webhook after payment lands.
-  let checkoutUrl: string | null = null;
+  // Public-signup customers (mustChangePassword === true) start their 14-day free trial with a
+  // custom Stripe Payment Element (no redirect). We create a trial subscription now and return its
+  // SetupIntent client_secret; the sign page mounts the card form and confirms it. Provisioning +
+  // welcome email fire from the Stripe webhook (setup_intent.succeeded) once the card is confirmed.
+  let checkoutClientSecret: string | null = null;
   if (user?.mustChangePassword && stripeConfigured()) {
     try {
       const garageId = user.garageAccessIds?.[0] ?? null;
       if (garageId) {
-        const session = await createFirstMonthCheckoutSession({
+        const trial = await createAssistTrialSubscription({
           userId: user.id,
           email: user.email,
           businessName: agreement.clientName,
           garageId,
           agreementId: agreement.id,
         });
-        checkoutUrl = session.url ?? null;
+        checkoutClientSecret = trial.clientSecret;
+        // Store the Stripe refs now so the setup_intent.succeeded webhook can map the confirmed
+        // card back to this garage (by customer id) and provision the account.
+        const trialEndsAt = new Date(Date.now() + STRIPE_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+        await prisma.garage.update({
+          where: { id: garageId },
+          data: {
+            stripeCustomerId: trial.customerId,
+            stripeSubscriptionId: trial.subscriptionId,
+            trialEndsAt,
+          },
+        });
       } else {
-        console.warn('[AGREEMENT_SIGN] public-signup user has no garage — skipping Stripe Checkout');
+        console.warn('[AGREEMENT_SIGN] public-signup user has no garage — skipping Stripe trial');
       }
     } catch (e) {
-      console.error('[AGREEMENT_SIGN] Stripe Checkout session create failed:', e);
+      console.error('[AGREEMENT_SIGN] Stripe trial subscription create failed:', e);
     }
   }
 
@@ -379,9 +391,9 @@ async function finaliseSignature(opts: {
   return opts.res.json({
     success: true,
     nextStep,
-    // When set, the marketing-flow customer should be redirected here to
-    // pay for their first month before being onboarded.
-    checkoutUrl,
+    // When set, the marketing-flow customer should enter their card (Stripe Payment Element)
+    // to start the trial — the sign page mounts the form with this SetupIntent client_secret.
+    checkoutClientSecret,
     agreement: {
       id: updated.id,
       status: updated.status,

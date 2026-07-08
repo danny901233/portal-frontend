@@ -384,6 +384,25 @@ async function finaliseSignature(opts: {
     }
   }
 
+  // Self-serve customers set their own password straight after the card (no reliance on the
+  // welcome email that hotmail/Outlook loves to eat), then log in. Mint a one-time password-setup
+  // token now and clear the Direct-Debit gate (they pay by Stripe card, not DD). Once the card is
+  // confirmed the sign page sends them to /reset-password?token=… . Manually-onboarded customers
+  // never hit this path, so they keep the welcome-email flow untouched.
+  let passwordSetupToken: string | null = null;
+  if (opts.consumeTokenId && checkoutClientSecret && user) {
+    const resetToken = randomBytes(32).toString('hex');
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetToken,
+        resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000),
+        mustSetupPayment: false, // paid via Stripe card — skip the GoCardless DD gate
+      },
+    });
+    passwordSetupToken = resetToken;
+  }
+
   // After signing: tell the frontend what the next gate is so it can route
   // straight into DD setup or the dashboard without bouncing through /login.
   const nextStep: 'payment' | 'dashboard' = user?.mustSetupPayment ? 'payment' : 'dashboard';
@@ -394,6 +413,9 @@ async function finaliseSignature(opts: {
     // When set, the marketing-flow customer should enter their card (Stripe Payment Element)
     // to start the trial — the sign page mounts the form with this SetupIntent client_secret.
     checkoutClientSecret,
+    // After the card is confirmed, the self-serve customer is sent to /reset-password?token=this
+    // to set their own password, then logs in — no welcome email needed to get into the portal.
+    passwordSetupToken,
     agreement: {
       id: updated.id,
       status: updated.status,

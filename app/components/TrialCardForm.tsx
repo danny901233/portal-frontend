@@ -16,12 +16,18 @@ import {
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '');
 
-function CardForm() {
+function CardForm({ resetToken }: { resetToken?: string | null }) {
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
+
+  // Where to send the customer once the card is confirmed: straight to set their own password
+  // (then they log in — no welcome email needed). Same URL doubles as the 3-D Secure return_url.
+  const nextUrl = resetToken
+    ? `${window.location.origin}/reset-password?token=${encodeURIComponent(resetToken)}`
+    : `${window.location.origin}/setup-payment/stripe-complete`;
 
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,8 +38,8 @@ function CardForm() {
     const { error: confirmErr, setupIntent } = await stripe.confirmSetup({
       elements,
       confirmParams: {
-        // Only used if the bank forces a 3-D Secure redirect; most cards confirm inline.
-        return_url: `${window.location.origin}/setup-payment/stripe-complete`,
+        // Used if the bank forces a 3-D Secure redirect; most cards confirm inline.
+        return_url: nextUrl,
       },
       redirect: 'if_required',
     });
@@ -44,10 +50,12 @@ function CardForm() {
       return;
     }
     if (setupIntent && setupIntent.status === 'succeeded') {
+      // Card confirmed inline (no 3-D Secure) — go set a password, then log in.
       setSucceeded(true);
+      window.location.href = nextUrl;
       return;
     }
-    // A redirect is in progress (3-D Secure) — the return page takes over.
+    // A redirect is in progress (3-D Secure) — return_url takes over.
     setSubmitting(false);
   };
 
@@ -59,17 +67,8 @@ function CardForm() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <p className="mt-3 text-sm font-semibold text-emerald-900">You’re all set — your 14-day free trial has started.</p>
-        <p className="mt-1 text-sm text-emerald-700">
-          No charge today. We’re setting your number up now and your login is on its way by email.
-        </p>
-        <a
-          href="/login"
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-brand-600/30 hover:bg-brand-700 transition"
-        >
-          Open the portal
-          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd"/></svg>
-        </a>
+        <p className="mt-3 text-sm font-semibold text-emerald-900">Card confirmed — your 14-day free trial has started.</p>
+        <p className="mt-1 text-sm text-emerald-700">No charge today. Taking you to set your password…</p>
       </div>
     );
   }
@@ -92,7 +91,7 @@ function CardForm() {
   );
 }
 
-export default function TrialCardForm({ clientSecret }: { clientSecret: string }) {
+export default function TrialCardForm({ clientSecret, resetToken }: { clientSecret: string; resetToken?: string | null }) {
   return (
     <Elements
       stripe={stripePromise}
@@ -108,7 +107,7 @@ export default function TrialCardForm({ clientSecret }: { clientSecret: string }
         },
       }}
     >
-      <CardForm />
+      <CardForm resetToken={resetToken} />
     </Elements>
   );
 }

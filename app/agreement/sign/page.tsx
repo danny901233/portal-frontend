@@ -196,6 +196,8 @@ function AgreementSignInner() {
   // Set once a public-signup customer has signed: holds the SetupIntent client_secret so we render
   // the Stripe card form (custom Payment Element) in-page instead of redirecting to stripe.com.
   const [cardClientSecret, setCardClientSecret] = useState<string | null>(null);
+  // One-time token to set their own password after the card (custom flow → no welcome-email reliance).
+  const [cardResetToken, setCardResetToken] = useState<string | null>(null);
 
   const canSubmit =
     !!agreement &&
@@ -225,6 +227,7 @@ function AgreementSignInner() {
       // SetupIntent client_secret; stashing it flips the success screen into the card form.
       const clientSecret = (result as { checkoutClientSecret?: string | null }).checkoutClientSecret;
       if (token && clientSecret) {
+        setCardResetToken((result as { passwordSetupToken?: string | null }).passwordSetupToken ?? null);
         setCardClientSecret(clientSecret);
         return;
       }
@@ -291,7 +294,7 @@ function AgreementSignInner() {
                 Add your card to activate. You won’t be charged today — the trial is free for 14 days.
               </p>
               <div className="mt-4">
-                <TrialCardForm clientSecret={cardClientSecret} />
+                <TrialCardForm clientSecret={cardClientSecret} resetToken={cardResetToken} />
               </div>
             </div>
           ) : token ? (

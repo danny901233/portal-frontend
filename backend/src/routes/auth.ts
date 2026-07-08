@@ -325,9 +325,35 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       select: { id: true },
     });
 
+    // Auto-login: issue a session so the reset page can drop the customer straight into the
+    // portal (self-serve "choose a password" flow) instead of bouncing them to the login screen.
+    let session: unknown = null;
+    const secret = process.env.JWT_SECRET;
+    if (secret) {
+      const allowedGarageIds = Array.isArray(updatedUser.garageAccessIds) ? updatedUser.garageAccessIds : [];
+      const branchRoles = sanitizeBranchRoles(updatedUser.branchRoles);
+      const accessibleGarages = await prisma.garage.findMany({
+        where: { id: { in: allowedGarageIds } },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+      const authToken = jwt.sign(
+        { userId: updatedUser.id, email: updatedUser.email, garageIds: allowedGarageIds, role: updatedUser.role, branchRoles },
+        secret,
+        { expiresIn: '12h' },
+      );
+      session = {
+        token: authToken,
+        selectedGarageId: allowedGarageIds[0] ?? null,
+        garages: accessibleGarages,
+        user: { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role, branchRoles },
+      };
+    }
+
     res.json({
       success: true,
       message: 'Password reset successfully',
+      session,
       nextStep: pendingAgreement
         ? 'agreement'
         : updatedUser.mustSetupPayment

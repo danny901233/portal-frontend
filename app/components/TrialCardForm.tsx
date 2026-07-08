@@ -26,7 +26,7 @@ function CardForm({ resetToken }: { resetToken?: string | null }) {
   // Where to send the customer once the card is confirmed: straight to set their own password
   // (then they log in — no welcome email needed). Same URL doubles as the 3-D Secure return_url.
   const nextUrl = resetToken
-    ? `${window.location.origin}/reset-password?token=${encodeURIComponent(resetToken)}`
+    ? `${window.location.origin}/reset-password?token=${encodeURIComponent(resetToken)}&setup=1`
     : `${window.location.origin}/setup-payment/stripe-complete`;
 
   const handlePay = async (e: React.FormEvent) => {

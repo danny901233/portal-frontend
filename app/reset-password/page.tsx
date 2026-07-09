@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, Suspense } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import { persistSession } from '../lib/auth';
 
 function ResetPasswordForm() {
   const lang = useLang();
@@ -25,6 +26,9 @@ function ResetPasswordForm() {
       confirmPasswordPlaceholder: 'Confirm new password',
       resetting: 'Resetting Password…',
       resetButton: 'Reset Password',
+      chooseTitle: 'Choose a password',
+      chooseSubtitle: 'Set a password to finish setting up your account.',
+      chooseButton: 'Set password & continue',
     },
     fr: {
       failedReset: 'Échec de la réinitialisation du mot de passe',
@@ -43,11 +47,16 @@ function ResetPasswordForm() {
       confirmPasswordPlaceholder: 'Confirmez le nouveau mot de passe',
       resetting: 'Réinitialisation en cours…',
       resetButton: 'Réinitialiser le mot de passe',
+      chooseTitle: 'Choisissez un mot de passe',
+      chooseSubtitle: 'Définissez un mot de passe pour finaliser votre compte.',
+      chooseButton: 'Définir le mot de passe et continuer',
     },
   }[lang];
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
+  // Self-serve signup flow arrives with ?setup=1 → "Choose a password" wording + auto-login.
+  const setup = searchParams.get('setup') === '1';
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -71,7 +80,24 @@ function ResetPasswordForm() {
 
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      // If the backend issued a session (self-serve flow), log the customer in and drop them
+      // straight into the portal — no separate login step.
+      const session = data?.session;
+      if (session?.token) {
+        persistSession({
+          token: session.token,
+          garageId: session.selectedGarageId ?? '',
+          garages: session.garages ?? [],
+          userId: session.user?.id ?? '',
+          email: session.user?.email ?? '',
+          role: session.user?.role,
+          branchRoles: session.user?.branchRoles ?? {},
+        });
+        const dest = data?.nextStep === 'payment' ? '/setup-payment' : data?.nextStep === 'agreement' ? '/agreement/sign' : '/calls';
+        router.replace(dest);
+        return;
+      }
       setMessage({ type: 'success', text: c.resetSuccess });
       setTimeout(() => {
         router.push('/login');
@@ -143,8 +169,8 @@ function ResetPasswordForm() {
               className="h-24 w-auto"
             />
           </div>
-          <h1 className="text-2xl font-semibold">{c.resetTitle}</h1>
-          <p className="mt-2 text-sm text-slate-500">{c.resetSubtitle}</p>
+          <h1 className="text-2xl font-semibold">{setup ? c.chooseTitle : c.resetTitle}</h1>
+          <p className="mt-2 text-sm text-slate-500">{setup ? c.chooseSubtitle : c.resetSubtitle}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -199,18 +225,20 @@ function ResetPasswordForm() {
             disabled={resetPasswordMutation.isPending}
             className="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
           >
-            {resetPasswordMutation.isPending ? c.resetting : c.resetButton}
+            {resetPasswordMutation.isPending ? c.resetting : (setup ? c.chooseButton : c.resetButton)}
           </button>
 
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => router.push('/login')}
-              className="text-sm text-brand-600 hover:text-brand-700 hover:underline"
-            >
-              {c.backToLogin}
-            </button>
-          </div>
+          {!setup && (
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => router.push('/login')}
+                className="text-sm text-brand-600 hover:text-brand-700 hover:underline"
+              >
+                {c.backToLogin}
+              </button>
+            </div>
+          )}
         </form>
       </div>
     </div>

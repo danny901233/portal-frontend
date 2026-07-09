@@ -18,6 +18,10 @@ const activationPayloadSchema = z.object({
   contactPhone: z.string().nullable().optional(),
   twilioNumber: z.string(),
   agentName: z.string().nullable().optional(),
+  // Which LiveKit Cloud project to provision on. Assist/GarageHive garages run on account2
+  // (the RMB-Assist project); everything else defaults to account1. Must match how the portal
+  // voice webhook routes the call, or the number rings into a project with no matching trunk.
+  account: z.enum(['account1', 'account2']).optional().default('account1'),
   triggeredAt: z.string(),
 });
 
@@ -82,10 +86,8 @@ function getSipClient(account: LiveKitAccount): SipClient {
   return livekitSipClientAccount1;
 }
 
-// Backwards-compatible alias for the existing /provision flow which still
-// creates trunks on Account 1 only (per the rollout plan — Account 2 garages
-// are migrated via /update-agent today, not provisioned directly).
-const livekitSipClient = livekitSipClientAccount1;
+// The SIP client is now chosen per-account inside createLiveKitSipTrunk (getSipClient), so a
+// self-serve Assist signup can be provisioned straight onto Account 2.
 
 // Health check endpoint
 app.get('/health', (_req: Request, res: Response) => {
@@ -121,7 +123,8 @@ app.post('/provision', async (req: Request, res: Response) => {
         payload.garageId,
         payload.garageName,
         payload.twilioNumber,
-        payload.agentName ?? undefined
+        payload.agentName ?? undefined,
+        payload.account
       );
       console.log('✅ LiveKit SIP trunk created successfully');
     } catch (error) {
@@ -268,10 +271,12 @@ async function createLiveKitSipTrunk(
   garageId: string,
   garageName: string,
   twilioNumber: string,
-  agentName?: string
+  agentName?: string,
+  account: LiveKitAccount = 'account1'
 ): Promise<void> {
   try {
-    console.log('Creating LiveKit SIP trunk for garage:', garageId);
+    const livekitSipClient = getSipClient(account);
+    console.log(`Creating LiveKit SIP trunk for garage: ${garageId} on ${account}`);
     const dispatchAgentName =
       process.env.LIVEKIT_DISPATCH_AGENT_NAME?.trim() ||
       agentName?.trim() ||

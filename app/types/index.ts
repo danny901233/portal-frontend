@@ -40,6 +40,9 @@ export interface CallRecord {
   capturedRevenue?: number | null;
   bookingDetails?: string | null;
   createdAt: string;
+  // Set by the backend when the owning garage is in arrears: caller identity, summary,
+  // transcript and recording have been withheld; only date + tag are populated.
+  restricted?: boolean;
 }
 
 export interface GarageSummary {

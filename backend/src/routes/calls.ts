@@ -15,7 +15,7 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
+import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail, sendArrearsCallNoticeEmail } from '../utils/email.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { trackConfirmedBooking } from '../services/billing.js';
 import { logCallToHubSpot } from '../services/hubspot.js';
@@ -190,6 +190,30 @@ const parseCallJson = (call: Call & { feedback?: CallFeedback | null }): CallWit
     feedback: serializeCallFeedback(feedback ?? null),
   };
 };
+
+// Arrears gating: strip every content field from a parsed call so a restricted garage's own
+// users see ONLY when the call happened and its tag. Everything that identifies the caller or
+// reveals what was said/booked is nulled server-side (including roomName, which embeds the
+// caller's number, and metrics, which can carry the AI diagnosis). Internal staff never hit this.
+const redactRestrictedCall = (call: ReturnType<typeof parseCallJson>) => ({
+  ...call,
+  roomName: '',
+  recordingUrl: null,
+  recordingDurationSeconds: null,
+  recordingCompletedAt: null,
+  twilioCallSid: null,
+  fromNumber: null,
+  registrationNumber: null,
+  customerName: null,
+  customerPhone: null,
+  capturedRevenue: null,
+  bookingDetails: null,
+  summary: '',
+  transcript: [],
+  metrics: {},
+  emotionData: null,
+  restricted: true,
+});
 
 const ensureWebhookSecret = (req: Request) => {
   const configuredSecret = process.env.WEBHOOK_SECRET;
@@ -451,9 +475,21 @@ router.post('/calls', async (req: Request, res: Response) => {
       const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
       const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
 
-      if (userNeedsPaymentSetup) {
+      if (createdCall.garage?.accessRestricted) {
+        // Arrears: don't reveal any call content by email — just notify that a call was handled
+        // and that the details are locked until the account is brought up to date.
+        console.log(`[EMAIL] ⛔ Garage in arrears - sending arrears call notice (details withheld)`);
+
+        void sendArrearsCallNoticeEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+          branchName: createdCall.garage.agentConfiguration.branchName,
+          createdAt: createdCall.createdAt.toISOString(),
+          portalUrl,
+        }).catch((error) => {
+          console.error('[EMAIL] Failed to send arrears call notice email:', error);
+        });
+      } else if (userNeedsPaymentSetup) {
         console.log(`[EMAIL] 💳 User(s) need payment setup - sending payment reminder email`);
-        
+
         void sendPaymentSetupReminderEmail(createdCall.garage.agentConfiguration.notificationEmails, {
           branchName: createdCall.garage.agentConfiguration.branchName,
           summary: payload.summary,
@@ -586,8 +622,25 @@ router.get(
 
       const parsedCalls = calls.map((call: Call & { feedback?: CallFeedback | null }) => parseCallJson(call));
 
-      res.json({ 
-        calls: parsedCalls,
+      // Arrears gating: for a garage's OWN users (never staff), redact calls belonging to any
+      // garage flagged accessRestricted — they keep only date + tag. One query for the flags.
+      let outCalls = parsedCalls;
+      if (!isStaff && parsedCalls.length > 0) {
+        const gids = Array.from(new Set(calls.map((c) => c.garageId)));
+        const restricted = await prisma.garage.findMany({
+          where: { id: { in: gids }, accessRestricted: true },
+          select: { id: true },
+        });
+        if (restricted.length > 0) {
+          const restrictedIds = new Set(restricted.map((g) => g.id));
+          outCalls = parsedCalls.map((pc) =>
+            restrictedIds.has((pc as { garageId: string }).garageId) ? redactRestrictedCall(pc) : pc,
+          );
+        }
+      }
+
+      res.json({
+        calls: outCalls,
         pagination: {
           page: currentPage,
           pageSize: itemsPerPage,
@@ -924,6 +977,17 @@ router.get(
         return res.status(404).json({ error: 'Call not found' });
       }
 
+      // Arrears gating: a restricted garage's own users get the redacted call (date + tag only).
+      if (!isStaff) {
+        const g = await prisma.garage.findUnique({
+          where: { id: garageId },
+          select: { accessRestricted: true },
+        });
+        if (g?.accessRestricted) {
+          return res.json({ call: redactRestrictedCall(parseCallJson(call)) });
+        }
+      }
+
       res.json({ call: parseCallJson(call) });
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -1096,6 +1160,11 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
     const allowedGarages = resolveAllowedGarages(req.user);
     if (req.user?.role !== 'RECEPTIONMATE_STAFF' && !allowedGarages.includes(call.garageId)) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Arrears gating: withhold recordings from a restricted garage's own users (staff unaffected).
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF' && call.garage?.accessRestricted) {
+      return res.status(403).json({ error: 'restricted', restricted: true });
     }
 
     // If we already have a recording URL, return it

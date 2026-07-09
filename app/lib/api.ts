@@ -144,6 +144,13 @@ export const fetchGarages = async (): Promise<GaragesResponse> => {
   return data;
 };
 
+// Which of the user's garages are locked for non-payment (arrears). The portal shows a
+// full-screen payment blocker when the selected garage is in this list.
+export const fetchArrearsStatus = async (): Promise<{ lockedGarageIds: string[] }> => {
+  const { data } = await api.get<{ lockedGarageIds: string[] }>(`/api/billing/arrears-status`);
+  return data;
+};
+
 export const fetchAgentConfiguration = async (
   garageId?: string
 ): Promise<AgentConfigurationResponse> => {

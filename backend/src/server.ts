@@ -41,6 +41,8 @@ import agreementsRouter from './routes/agreements.js';
 import supportRouter from './routes/support.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
+import { startArrearsSweep } from './utils/arrears.js';
+import billingStatusRouter from './routes/billing-status.js';
 
 const app = express();
 
@@ -115,6 +117,7 @@ app.use('/api', messagesRouter);
 app.use('/api', billingRouter);
 app.use('/api', billingActivationRouter);
 app.use('/api/customer/billing', customerBillingRouter);
+app.use('/api', billingStatusRouter);
 app.use('/api', socialConnectionsRouter);
 app.use('/api', oauthRouter);
 app.use('/api', smsRouter);
@@ -147,4 +150,7 @@ app.listen(port, '0.0.0.0', () => {
 
   // Initialize scheduled report jobs
   initializeScheduledReports();
+
+  // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.
+  startArrearsSweep();
 });

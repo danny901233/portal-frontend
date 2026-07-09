@@ -7,6 +7,7 @@ import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import SetupWizard from './SetupWizard';
 import SupportChatWidget from './SupportChatWidget';
+import PaymentBlocker from './PaymentBlocker';
 import {
   ALL_ASSIGNED_BRANCHES_IDENTIFIER,
   BranchScopeProvider,
@@ -26,7 +27,7 @@ import {
   setGarageId,
   setGarages,
 } from '../lib/auth';
-import { fetchGarages, fetchPendingAgreement } from '../lib/api';
+import { fetchGarages, fetchPendingAgreement, fetchArrearsStatus } from '../lib/api';
 import { fetchOnboardingStatus } from '../lib/onboarding';
 import type { GarageSummary } from '../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
@@ -62,6 +63,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [messagesNeedingAttention, setMessagesNeedingAttention] = useState(0);
   const [conversationsNeedingAttention, setConversationsNeedingAttention] = useState(0);
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
@@ -225,6 +227,31 @@ export default function AppShell({ children }: { children: ReactNode }) {
     };
   }, [shouldShowChrome, isReady, userId, isStaffUser, pathname, router]);
 
+  // Arrears gate — if the selected garage is locked for non-payment, show the full-screen
+  // payment blocker. Internal staff are never blocked. Polled so an already-open session
+  // locks the moment the 2-day grace elapses.
+  useEffect(() => {
+    if (!shouldShowChrome || !isReady || !garageId || isStaffUser) {
+      setIsLocked(false);
+      return;
+    }
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { lockedGarageIds } = await fetchArrearsStatus();
+        if (!cancelled) setIsLocked(lockedGarageIds.includes(garageId));
+      } catch {
+        /* fail open — never block the portal on a transient status-check error */
+      }
+    };
+    void check();
+    const interval = setInterval(check, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [shouldShowChrome, isReady, garageId, isStaffUser]);
+
   // Check if setup wizard should be shown
   useEffect(() => {
     const checkSetupWizard = async () => {
@@ -369,6 +396,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <div className="text-sm text-slate-500">{c.preparing}</div>
       </div>
     </div>
+  ) : isLocked && !isStaffUser ? (
+    <PaymentBlocker
+      garageName={garages.find((g) => g.id === garageId)?.name}
+      onLogout={() => {
+        clearSession();
+        setIsStaffUser(false);
+        setUserIdState(null);
+        router.replace('/login');
+      }}
+    />
   ) : (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
       <Sidebar

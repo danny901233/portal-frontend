@@ -45,7 +45,7 @@ export default function IdentityTab({ config, save, isSaving }: Props) {
       isSaving={isSaving}
       saveDisabled={branchNameMissing}
     >
-      <Field label="Branch name" required hint="e.g. Speedy Spanners — Reading">
+      <Field label="Branch name" required hint="e.g. Riverside Motors — Reading">
         <input
           type="text"
           value={branchName}
@@ -74,7 +74,7 @@ export default function IdentityTab({ config, save, isSaving }: Props) {
           type="email"
           value={emailAddress}
           onChange={(e) => setEmailAddress(e.target.value)}
-          placeholder="hello@speedyspanners.co.uk"
+          placeholder="hello@yourgarage.co.uk"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
         />
       </Field>
@@ -94,7 +94,7 @@ export default function IdentityTab({ config, save, isSaving }: Props) {
           type="url"
           value={websiteUrl}
           onChange={(e) => setWebsiteUrl(e.target.value)}
-          placeholder="https://speedyspanners.co.uk"
+          placeholder="https://yourgarage.co.uk"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
         />
       </Field>

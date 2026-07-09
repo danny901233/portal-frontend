@@ -1047,3 +1047,230 @@ This is an automated email from ReceptionMate
     text,
   });
 };
+
+interface ArrearsCallNoticeEmailData {
+  branchName: string;
+  createdAt: string;
+  portalUrl: string;
+}
+
+// ReceptionMate brand assets for transactional emails (match the portal / marketing site).
+const RM_LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
+const RM_BRAND = '#3426cf';       // brand-600 (primary indigo)
+const RM_BRAND_DARK = '#281eb0';  // brand-700
+
+/**
+ * Shared branded shell for arrears emails: white card on light grey, an indigo header
+ * band carrying the ReceptionMate logo, and a consistent footer. Callers pass the inner
+ * body HTML. Keeps every arrears email on-brand with the portal.
+ */
+const arrearsEmailShell = (bodyHtml: string): string => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f1f2f9;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f1f2f9;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(52,38,207,0.12);">
+          <tr>
+            <td style="padding: 32px; background-color: ${RM_BRAND}; text-align: center;">
+              <img src="${RM_LOGO_URL}" alt="ReceptionMate" height="120" style="height: 120px; width: auto; display: inline-block;" />
+            </td>
+          </tr>
+          ${bodyHtml}
+          <tr>
+            <td style="padding: 24px 32px; background-color: #f7f7fb; border-top: 1px solid #e9eaf5;">
+              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #8b90b0; text-align: center;">
+                This is an automated email from ReceptionMate<br/>
+                © ${new Date().getFullYear()} ReceptionMate. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+/**
+ * Arrears notice — sent instead of the full call summary when a garage is flagged
+ * accessRestricted. Deliberately contains NO call content (no caller, summary, transcript
+ * or recording): it only confirms a call was handled and that the details are on hold
+ * until the account is brought up to date.
+ */
+export const sendArrearsCallNoticeEmail = async (
+  notificationEmails: string[],
+  data: ArrearsCallNoticeEmailData,
+): Promise<boolean> => {
+  if (notificationEmails.length === 0) {
+    console.log('No notification emails configured for arrears call notice');
+    return false;
+  }
+
+  const date = new Date(data.createdAt);
+  const formattedDate = date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const html = arrearsEmailShell(`
+          <tr>
+            <td style="padding: 36px 32px 8px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">📞 We handled a call for you</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b7194;">${data.branchName}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 0;">
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                Your ReceptionMate AI receptionist answered a call for you on <strong>${formattedDate}</strong>.
+              </p>
+              <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                Your account is currently <strong>in arrears</strong>, so the caller's details, the call summary,
+                transcript and recording are <strong>on hold</strong>. As soon as your account is brought up to
+                date, everything will be unlocked in your portal.
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #fff8ec; border: 1px solid #f6dfae; border-radius: 10px; font-size: 14px; line-height: 1.5; color: #8a6417;">
+                    <strong>📞 Call handled:</strong> ${formattedDate}<br/>
+                    <strong>🔒 Details:</strong> locked until your account is up to date
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 28px 32px 4px; text-align: center;">
+              <a href="${data.portalUrl}/login" style="display: inline-block; padding: 14px 30px; background-color: ${RM_BRAND}; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 10px;">
+                Bring my account up to date
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 32px; text-align: center;">
+              <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #8b90b0;">
+                Questions? Contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>
+              </p>
+            </td>
+          </tr>`);
+
+  const text = `
+WE HANDLED A CALL FOR YOU
+
+${data.branchName}
+
+Your ReceptionMate AI receptionist answered a call for you on ${formattedDate}.
+
+Your account is currently IN ARREARS, so the caller's details, the call summary, transcript and recording are on hold. As soon as your account is brought up to date, everything will be unlocked in your portal.
+
+Call handled: ${formattedDate}
+Details: locked until your account is up to date
+
+Bring your account up to date: ${data.portalUrl}/login
+
+Questions? Contact us at hello@receptionmate.co.uk
+
+---
+This is an automated email from ReceptionMate
+`;
+
+  return sendEmail({
+    to: notificationEmails,
+    subject: 'We handled a call for you — account update needed',
+    html,
+    text,
+  });
+};
+
+interface ArrearsWarningEmailData {
+  branchName: string;
+  portalUrl: string;
+  graceDays: number;
+}
+
+/**
+ * Payment-failed warning — sent to the garage (billing + notification emails) as soon
+ * as a Stripe card charge fails. Advises the payment failed, that we'll retry, and that
+ * access will be limited if it isn't brought up to date within the grace window.
+ */
+export const sendArrearsWarningEmail = async (
+  recipients: string[],
+  data: ArrearsWarningEmailData,
+): Promise<boolean> => {
+  if (recipients.length === 0) {
+    console.log('No recipients configured for arrears warning email');
+    return false;
+  }
+
+  const html = arrearsEmailShell(`
+          <tr>
+            <td style="padding: 36px 32px 8px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">⚠️ We couldn't take your payment</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b7194;">${data.branchName}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 0;">
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                We tried to take your ReceptionMate subscription payment but the card was declined.
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #fef3f2; border: 1px solid #fbd5d0; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #7a2b23;">
+                    We'll automatically retry over the next few days. To avoid any interruption, please update your
+                    payment details. If your account isn't brought up to date within <strong>${data.graceDays} days</strong>,
+                    portal access will be limited until payment is received — though your AI receptionist will keep
+                    answering your calls throughout.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 28px 32px 4px; text-align: center;">
+              <a href="${data.portalUrl}/login" style="display: inline-block; padding: 14px 30px; background-color: ${RM_BRAND}; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 10px;">
+                Update my payment details
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 32px; text-align: center;">
+              <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #8b90b0;">
+                Questions? Contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>
+              </p>
+            </td>
+          </tr>`);
+
+  const text = `
+WE COULDN'T TAKE YOUR PAYMENT
+
+${data.branchName}
+
+We tried to take your ReceptionMate subscription payment but the card was declined.
+
+We'll automatically retry over the next few days. To avoid any interruption, please update your payment details. If your account isn't brought up to date within ${data.graceDays} days, portal access will be limited until payment is received — though your AI receptionist will keep answering your calls throughout.
+
+Update your payment details: ${data.portalUrl}/login
+
+Questions? Contact us at hello@receptionmate.co.uk
+
+---
+This is an automated email from ReceptionMate
+`;
+
+  return sendEmail({
+    to: recipients,
+    subject: 'Payment failed — please update your details',
+    html,
+    text,
+  });
+};

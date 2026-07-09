@@ -316,6 +316,13 @@ model AgentConfiguration {
   // false = the chat agent politely declines and points them at phone/email (messagingHandoffMessage).
   messagingHumanHandoff     Boolean  @default(true)
   messagingHandoffMessage   String?
+  // Messaging notifications: when to alert the garage about chat activity and how.
+  // scope: "off" | "escalated" (only when a chat is handed to a human) | "all"
+  //        (every inbound customer message, including AI-handled).
+  messagingNotifyScope      String   @default("off")
+  messagingNotifyEmail      Boolean  @default(false)
+  messagingNotifySms        Boolean  @default(false)
+  messagingNotifyPhone      String?  // SMS recipient number (E.164). SMS billed at £0.20 each.
   transferNumber            String?
   allowBookings             Boolean  @default(false)
   bookingLeadTimeDays       Int      @default(1)
@@ -363,6 +370,20 @@ model SmsBookingLink {
   twilioMessageSid String?
   status           String   @default("sent")
   costGbp          Float    @default(0.99)
+  createdAt        DateTime @default(now())
+
+  @@index([garageId, createdAt])
+  @@index([garageId])
+}
+
+// One row per messaging-notification SMS actually sent, for billing (£0.20 each).
+// Standalone (garageId is a plain id, no relation) so it doesn't touch the Garage model.
+model MessagingNotificationSms {
+  id               String   @id @default(cuid())
+  garageId         String
+  phoneNumber      String
+  twilioMessageSid String?
+  costGbp          Float    @default(0.20)
   createdAt        DateTime @default(now())
 
   @@index([garageId, createdAt])

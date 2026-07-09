@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
@@ -1083,6 +1084,7 @@ async function executeTool(
             },
           });
           console.log(`[TS_AGENT] Callback request logged for ${name} (${phone})`);
+          void notifyMessaging({ conversationId, event: 'escalated' });
         }
         return { success: true, message: 'Callback request logged.' };
       }
@@ -1104,6 +1106,7 @@ async function executeTool(
             data: { needsAttention: true, agentPaused: true },
           });
           console.log(`[TS_AGENT] Conversation ${conversationId} flagged as needsAttention`);
+          void notifyMessaging({ conversationId, event: 'escalated' });
         }
 
         return { success: true, message: 'Message taken. The team has been notified and will get back to you shortly.' };

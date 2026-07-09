@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
@@ -3093,6 +3094,7 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
     where: { id: conversationId },
     data: { needsAttention: true },
   });
+  void notifyMessaging({ conversationId, event: 'escalated' });
   
   const serviceContext = session.serviceSelectedName ? ` about ${session.serviceSelectedName}` : '';
   return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've passed that on${serviceContext}. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'} — have a great day!"\n\nConversation complete.`;

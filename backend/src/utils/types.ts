@@ -237,6 +237,12 @@ export type AgentConfigurationPayload = {
   agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
   enableSmsBookingLinks?: boolean;
   humanEscalation?: boolean;
+  messagingHumanHandoff?: boolean;
+  messagingHandoffMessage?: string | null;
+  messagingNotifyScope?: string;
+  messagingNotifyEmail?: boolean;
+  messagingNotifySms?: boolean;
+  messagingNotifyPhone?: string | null;
   transferNumber?: string | null;
   allowBookings?: boolean;
   bookingLeadTimeDays?: number;

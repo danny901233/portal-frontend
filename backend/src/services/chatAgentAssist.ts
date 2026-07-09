@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
@@ -148,6 +149,7 @@ async function executeAssistTool(
             where: { id: conversationId },
             data: { needsAttention: true, agentPaused: true },
           });
+          void notifyMessaging({ conversationId, event: 'escalated' });
         }
         if (name === 'book_slot') {
           return {

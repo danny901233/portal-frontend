@@ -18,6 +18,7 @@ import { sendWelcomeEmail, sendEmail } from '../../utils/email.js';
 import { getStripeClient, STRIPE_TRIAL_DAYS } from '../../services/stripe.js';
 import { purchaseRandomTwilioNumber } from '../onboarding.js';
 import { sendAgentConfigWebhook } from '../config.js';
+import { updateOpportunity, LIVE_STAGE_ID } from '../../services/highlevel.js';
 
 const router = Router();
 
@@ -162,7 +163,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
   if (!subId) return;
   const garage = await prisma.garage.findFirst({
     where: { stripeSubscriptionId: subId },
-    select: { id: true, businessId: true, includedMinutes: true, subscriptionCostGbp: true, costPerMinuteGbp: true, vatRate: true, subscriptionActivatedAt: true },
+    select: { id: true, businessId: true, includedMinutes: true, subscriptionCostGbp: true, costPerMinuteGbp: true, vatRate: true, subscriptionActivatedAt: true, ghlOpportunityId: true },
   });
   if (!garage) return; // not one of ours (e.g. an existing DD customer) — ignore
 
@@ -200,9 +201,18 @@ async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
     },
   });
 
-  // First successful charge = trial converted → mark the garage activated.
+  // First successful charge = trial converted → mark the garage activated, and
+  // promote its HighLevel opportunity from "Free trial live" to "Live and £££".
   if (!garage.subscriptionActivatedAt) {
     await prisma.garage.update({ where: { id: garage.id }, data: { subscriptionActivatedAt: new Date() } });
+    if (garage.ghlOpportunityId && (invoice.amount_paid ?? 0) > 0) {
+      void updateOpportunity(garage.ghlOpportunityId, {
+        stageId: LIVE_STAGE_ID,
+        monetaryValueGbp: garage.subscriptionCostGbp,
+      }).then((ok) =>
+        console.log(`[STRIPE_WEBHOOK] HL opportunity ${garage.ghlOpportunityId} → Live (${ok ? 'ok' : 'failed'})`),
+      );
+    }
   }
   console.log(`[STRIPE_WEBHOOK] invoice paid garage=${garage.id} stripeInvoice=${invoice.id} £${(invoice.amount_paid ?? 0) / 100}`);
 }

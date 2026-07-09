@@ -311,6 +311,11 @@ model AgentConfiguration {
   agentScript               String   @default("receptionmate-agent")
   enableSmsBookingLinks     Boolean  @default(true)
   humanEscalation           Boolean  @default(true)
+  // Messaging (chat) human handoff — independent of the voice humanEscalation above.
+  // true  = the chat agent offers to take a message / flag the team when a human is asked for.
+  // false = the chat agent politely declines and points them at phone/email (messagingHandoffMessage).
+  messagingHumanHandoff     Boolean  @default(true)
+  messagingHandoffMessage   String?
   transferNumber            String?
   allowBookings             Boolean  @default(false)
   bookingLeadTimeDays       Int      @default(1)

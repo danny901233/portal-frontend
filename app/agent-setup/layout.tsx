@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '../lib/utils';
-import { isReceptionMateStaff } from '../lib/auth';
+import { isReceptionMateStaff, getGarageId, getSessionToken } from '../lib/auth';
 import { useLang } from '@/app/i18n/LocaleProvider';
 import SetupProgress from './SetupProgress';
 import TourBanner from './TourBanner';
@@ -35,6 +35,10 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
     label: 'Réservations et transferts',
     description: 'Comportement de réservation + où diriger les appels',
   },
+  '/agent-setup/messaging': {
+    label: 'Messagerie',
+    description: "Comportement de l'agent de chat + canaux connectés",
+  },
   '/agent-setup/training': {
     label: 'Formation',
     description: 'Apprenez-en à l’agent sur vous',
@@ -56,7 +60,39 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
 export default function AgentSetupLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isStaff = isReceptionMateStaff();
-  const visible = AGENT_SETUP_NAV.filter((n) => !n.staffOnly || isStaff);
+
+  // Messaging tab is only relevant to garages on the chat product. Resolve
+  // access the same way AppShell does (per-garage endpoint) and hide the tab
+  // otherwise. Staff always see it so they can configure on a garage's behalf.
+  const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
+  useEffect(() => {
+    const garageId = getGarageId();
+    if (!garageId) {
+      setHasMessagingAccess(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/internal-api/garages/${garageId}/messaging-access`, {
+          headers: { Authorization: `Bearer ${getSessionToken()}` },
+        });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          setHasMessagingAccess(Boolean(data.hasMessagingAccess));
+        }
+      } catch {
+        if (!cancelled) setHasMessagingAccess(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  const visible = AGENT_SETUP_NAV.filter(
+    (n) => (!n.staffOnly || isStaff) && (!n.messagingOnly || hasMessagingAccess || isStaff),
+  );
   const lang = useLang();
   const c = {
     en: {

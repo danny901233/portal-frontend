@@ -265,6 +265,13 @@ export interface AgentConfiguration {
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
+  humanEscalation?: boolean;
+  // Messaging (chat) agent: whether it may hand a chat over to a human, and an
+  // optional bespoke message to send when handoff is turned off. Independent of
+  // the voice-side humanEscalation so a garage can allow phone transfers while
+  // keeping chat fully AI-handled (or vice versa).
+  messagingHumanHandoff?: boolean;
+  messagingHandoffMessage?: string | null;
   allowBookings: boolean;
   bookingLeadTimeDays: number;
   voice: VoiceOption;

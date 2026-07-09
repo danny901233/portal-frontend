@@ -100,6 +100,7 @@ export interface CreateOpportunityArgs {
   name: string;
   monetaryValueGbp?: number;
   monthlyCostPerBranchGbp?: number; // → opportunity custom field monthly_cost_per_branch
+  packageName?: string;             // → opportunity custom field package (e.g. "Assist")
   kind: OpportunityKind;
 }
 
@@ -123,9 +124,14 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
     status: 'open',
   };
   if (typeof args.monetaryValueGbp === 'number') body.monetaryValue = args.monetaryValueGbp;
+  const customFields: Array<{ key: string; field_value: string }> = [];
   if (typeof args.monthlyCostPerBranchGbp === 'number') {
-    body.customFields = [{ key: 'monthly_cost_per_branch', field_value: String(args.monthlyCostPerBranchGbp) }];
+    customFields.push({ key: 'monthly_cost_per_branch', field_value: String(args.monthlyCostPerBranchGbp) });
   }
+  if (args.packageName) {
+    customFields.push({ key: 'package', field_value: args.packageName });
+  }
+  if (customFields.length) body.customFields = customFields;
 
   try {
     const res = await fetch(`${GHL_BASE_URL}/opportunities/`, {
@@ -192,6 +198,7 @@ export async function pushSignupToHighlevel(args: {
   opportunityName: string;
   monetaryValueGbp?: number;
   monthlyCostPerBranchGbp?: number;
+  packageName?: string;
   kind: OpportunityKind;
 }): Promise<{ opportunityId: string | null }> {
   const contact = await upsertContact({
@@ -209,6 +216,7 @@ export async function pushSignupToHighlevel(args: {
     name: args.opportunityName,
     monetaryValueGbp: args.monetaryValueGbp,
     monthlyCostPerBranchGbp: args.monthlyCostPerBranchGbp,
+    packageName: args.packageName,
     kind: args.kind,
   });
   return { opportunityId: opp.id };

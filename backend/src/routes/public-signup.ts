@@ -258,6 +258,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
       tags: ['website-signup', 'assist', 'trial'],
       opportunityName: `${businessName} — Assist 14-day trial (£${ASSIST_DEFAULTS.subscriptionCostGbp}/mo per branch)`,
       monetaryValueGbp: ASSIST_DEFAULTS.subscriptionCostGbp,
+      monthlyCostPerBranchGbp: ASSIST_DEFAULTS.subscriptionCostGbp,
       kind: 'trial',
     }).then((r) => {
       if (r.opportunityId) {

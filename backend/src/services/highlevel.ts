@@ -99,6 +99,7 @@ export interface CreateOpportunityArgs {
   contactId: string;
   name: string;
   monetaryValueGbp?: number;
+  monthlyCostPerBranchGbp?: number; // → opportunity custom field monthly_cost_per_branch
   kind: OpportunityKind;
 }
 
@@ -122,6 +123,9 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
     status: 'open',
   };
   if (typeof args.monetaryValueGbp === 'number') body.monetaryValue = args.monetaryValueGbp;
+  if (typeof args.monthlyCostPerBranchGbp === 'number') {
+    body.customFields = [{ key: 'monthly_cost_per_branch', field_value: String(args.monthlyCostPerBranchGbp) }];
+  }
 
   try {
     const res = await fetch(`${GHL_BASE_URL}/opportunities/`, {
@@ -187,6 +191,7 @@ export async function pushSignupToHighlevel(args: {
   tags?: string[];
   opportunityName: string;
   monetaryValueGbp?: number;
+  monthlyCostPerBranchGbp?: number;
   kind: OpportunityKind;
 }): Promise<{ opportunityId: string | null }> {
   const contact = await upsertContact({
@@ -203,6 +208,7 @@ export async function pushSignupToHighlevel(args: {
     contactId: contact.contactId,
     name: args.opportunityName,
     monetaryValueGbp: args.monetaryValueGbp,
+    monthlyCostPerBranchGbp: args.monthlyCostPerBranchGbp,
     kind: args.kind,
   });
   return { opportunityId: opp.id };

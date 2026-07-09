@@ -573,6 +573,10 @@ const c = {
             <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-assist-email">{c.emailLabel}</label>
             <input type="email" id="gs-assist-email" name="email" required autocomplete="email" placeholder={c.emailPlaceholder} class="gs-input gs-input-plain" />
           </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-assist-phone">{c.phoneLabel}</label>
+            <input type="tel" id="gs-assist-phone" name="phone" required autocomplete="tel" placeholder={c.phonePlaceholder} class="gs-input gs-input-plain" />
+          </div>
 
           <div id="gs-assist-error" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200"></div>
 
@@ -1014,6 +1018,7 @@ const c = {
 
     const name  = form.querySelector('[name=name]').value.trim();
     const email = form.querySelector('[name=email]').value.trim();
+    const phone = form.querySelector('[name=phone]')?.value.trim() || '';
 
     try {
       const res = await fetch(SIGNUP_ENDPOINT, {
@@ -1024,6 +1029,7 @@ const c = {
           email,
           address: state.address,
           name,
+          phone: phone || undefined,
           googlePlaceId: state.placeId || undefined,
           prospectId: state.prospectId || undefined,
         }),

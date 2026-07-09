@@ -22,9 +22,11 @@ interface InvoiceData {
   minutesUsed: number;
   minutesIncluded: number;
   smsCount: number;
+  notificationSmsCount?: number;
   subscriptionAmount: number;
   minutesAmount: number;
   smsAmount: number;
+  notificationSmsAmount?: number;
   subtotal: number;
   vatAmount: number;
   total: number;
@@ -293,6 +295,13 @@ function addLineItems(doc: typeof PDFDocument.prototype, invoice: InvoiceData) {
     doc.text('SMS Messages', itemX, currentY);
     doc.text(`${invoice.smsCount} sent @ £0.99/SMS`, descX, currentY);
     doc.text(`£${(invoice.smsAmount / 100).toFixed(2)}`, amountX, currentY);
+    currentY += 25;
+  }
+
+  if ((invoice.notificationSmsCount ?? 0) > 0) {
+    doc.text('Notification SMS', itemX, currentY);
+    doc.text(`${invoice.notificationSmsCount} sent @ £0.20/SMS`, descX, currentY);
+    doc.text(`£${((invoice.notificationSmsAmount ?? 0) / 100).toFixed(2)}`, amountX, currentY);
     currentY += 25;
   }
 

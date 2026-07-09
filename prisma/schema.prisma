@@ -629,12 +629,14 @@ model Invoice {
   minutesUsed            Int @default(0)
   minutesIncluded        Int @default(0)
   smsCount               Int @default(0)
+  notificationSmsCount   Int @default(0) // Messaging-notification SMS sent (£0.20 each)
   messagingMessagesCount Int @default(0) // Webchat/messaging messages billed
 
   // Costs (in pence for precision)
   subscriptionAmount          Int // Base (voice) subscription cost
   minutesAmount               Int @default(0)
   smsAmount                   Int @default(0)
+  notificationSmsAmount       Int @default(0) // Messaging-notification SMS cost (£0.20 each)
   messagingSubscriptionAmount Int @default(0) // Webchat subscription portion
   messagingMessagesAmount     Int @default(0) // Webchat overage messages cost
   subtotal                    Int // Before VAT

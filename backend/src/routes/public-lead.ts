@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
 import { sendEmail } from '../utils/email.js';
+import { sendOpsSms } from '../utils/opsAlerts.js';
 import { highlevelConfigured, upsertContact, createOpportunity } from '../services/highlevel.js';
 
 const router = Router();
@@ -35,9 +36,10 @@ router.post('/public/lead', async (req: Request, res: Response) => {
 
   const { name, companyName, email, phone, source, notes } = parsed.data;
 
-  // Always send a team notification email — gives us a fallback record even
+  // Always notify the team by email + SMS — gives us a fallback record even
   // if HighLevel is down for any reason.
   void notifyTeam({ name, companyName, email, phone, source, notes });
+  void notifyTeamSms({ name, companyName, email, phone, source });
 
   if (!highlevelConfigured()) {
     console.warn('[LEAD] HighLevel env vars not set — skipping CRM sync.');
@@ -90,7 +92,23 @@ function humaniseSource(source?: string): string {
     return 'Connect enquiry';
   }
   if (s.includes('assist')) return 'Assist enquiry';
+  if (s.includes('demo')) return 'Book a demo';
   return 'Website enquiry';
+}
+
+// Fire a short SMS to the team so a new lead is impossible to miss.
+function notifyTeamSms(lead: {
+  name: string;
+  companyName: string;
+  email: string;
+  phone: string;
+  source?: string;
+}): void {
+  void sendOpsSms(
+    `New RM lead — ${humaniseSource(lead.source)}\n` +
+      `${lead.name}, ${lead.companyName}\n` +
+      `${lead.phone} · ${lead.email}`,
+  );
 }
 
 async function notifyTeam(lead: {

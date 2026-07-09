@@ -108,7 +108,9 @@ export default function Sidebar({
     const filteredBase = baseNavigation.filter((item) => {
       if (item.href === '/messages') return hasMessagingAccess;
       if (item.href === '/billing') return hasManagerAccess;
-      if (item.requiresManager) return isManagerUser;
+      // Branch-managers (MANAGER branch-role, global role USER) are managers of their
+      // own garage — show them the manager items too, matching how Billing gates.
+      if (item.requiresManager) return isManagerUser || hasManagerAccess;
       if (item.requiresMessaging) return hasMessagingAccess;
       if (item.requiresStaff) return showAdminLink;
       return true;

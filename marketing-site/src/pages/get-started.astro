@@ -16,6 +16,7 @@ const lang = getLang(Astro.url);
 
 const LEAD_ENDPOINT    = import.meta.env.PUBLIC_LEAD_ENDPOINT    || 'https://portal.receptionmate.co.uk/api/public/lead';
 const SIGNUP_ENDPOINT  = import.meta.env.PUBLIC_SIGNUP_ENDPOINT  || 'https://portal.receptionmate.co.uk/api/public-signup';
+const PROSPECT_ENDPOINT = import.meta.env.PUBLIC_PROSPECT_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/prospect';
 const PORTAL_LOGIN_URL = import.meta.env.PUBLIC_PORTAL_LOGIN_URL || 'https://portal.receptionmate.co.uk/login?welcome=true';
 const GOOGLE_API_KEY   = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
@@ -725,10 +726,12 @@ const c = {
   .gs-primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 
-<script is:inline define:vars={{ LEAD_ENDPOINT, SIGNUP_ENDPOINT, PORTAL_LOGIN_URL, GOOGLE_API_KEY, T: c.js }}>
+<script is:inline define:vars={{ LEAD_ENDPOINT, SIGNUP_ENDPOINT, PROSPECT_ENDPOINT, PORTAL_LOGIN_URL, GOOGLE_API_KEY, T: c.js }}>
   const state = {
     businessName: '',
     address: '',
+    placeId: '',
+    prospectId: '',
     tier: '',
     gms: '',
     gmsName: '',
@@ -838,12 +841,20 @@ const c = {
   const $search  = document.getElementById('gs-search');
   const $results = document.getElementById('gs-search-results');
 
-  function pickBusiness(name, addr) {
+  function pickBusiness(name, addr, placeId) {
     state.businessName = name;
     state.address = addr || '';
+    state.placeId = placeId || '';
     updateBusinessReadback();
     $results.classList.add('hidden');
     setStep('package', true);
+    // Create the "Abandoned checkout" opportunity the moment a garage is chosen.
+    try {
+      fetch(PROSPECT_ENDPOINT, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined }),
+      }).then((r) => r.json()).then((d) => { if (d && d.prospectId) state.prospectId = d.prospectId; }).catch(() => {});
+    } catch (e) {}
   }
 
   function updateBusinessReadback() {
@@ -859,7 +870,7 @@ const c = {
   function renderResults(items) {
     $results.innerHTML = '';
     if (!items.length) { $results.classList.add('hidden'); return; }
-    items.slice(0, 6).forEach(({ mainText, secondaryText }) => {
+    items.slice(0, 6).forEach(({ mainText, secondaryText, placeId }) => {
       const li = document.createElement('li');
       li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
       li.innerHTML = `
@@ -868,7 +879,7 @@ const c = {
           <p class="truncate text-sm font-semibold text-ink-900">${mainText}</p>
           <p class="truncate text-xs text-ink-500">${secondaryText}</p>
         </div>`;
-      li.addEventListener('click', () => pickBusiness(mainText, secondaryText));
+      li.addEventListener('click', () => pickBusiness(mainText, secondaryText, placeId));
       $results.appendChild(li);
     });
     $results.classList.remove('hidden');
@@ -890,6 +901,7 @@ const c = {
           renderResults((suggestions || []).map((s) => ({
             mainText:      s.placePrediction?.mainText?.toString()      || s.placePrediction?.text?.toString() || '',
             secondaryText: s.placePrediction?.secondaryText?.toString() || '',
+            placeId:       s.placePrediction?.placeId || '',
           })));
         } catch (err) { console.error('[get-started] autocomplete failed', err); }
       } else if (legacySvc) {
@@ -898,6 +910,7 @@ const c = {
           (preds) => renderResults((preds || []).map((p) => ({
             mainText:      p.structured_formatting?.main_text      || p.description || '',
             secondaryText: p.structured_formatting?.secondary_text || '',
+            placeId:       p.place_id || '',
           }))),
         );
       }
@@ -1011,6 +1024,8 @@ const c = {
           email,
           address: state.address,
           name,
+          googlePlaceId: state.placeId || undefined,
+          prospectId: state.prospectId || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));

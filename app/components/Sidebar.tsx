@@ -76,7 +76,6 @@ const baseNavigation: NavItem[] = [
   { name: 'Templates', tKey: 'nav.templates', href: '/templates', icon: <TemplateIcon />, requiresMessaging: true },
   { name: 'Agent Configurations', tKey: 'nav.agentConfigurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
   { name: 'Team', tKey: 'nav.team', href: '/team', icon: <UsersIcon />, requiresManager: true },
-  { name: 'Integrations', tKey: 'nav.integrations', href: '/integrations', icon: <PuzzleIcon />, requiresStaff: true },
   { name: 'Observability', tKey: 'nav.observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },
   { name: 'Billing', tKey: 'nav.billing', href: '/billing', icon: <BillingIcon /> },
 ];

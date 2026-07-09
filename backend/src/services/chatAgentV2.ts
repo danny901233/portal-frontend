@@ -1825,7 +1825,7 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'take_message',
-        description: 'Take a message for callback when booking cannot be completed.',
+        description: 'Hand the customer to a human. ONLY use this when EITHER you genuinely cannot help (e.g. a booking truly cannot be completed, or the request is outside what you can answer/do), OR the customer explicitly asks to speak to a human / for a callback. Do NOT use it for things you can answer or book yourself.',
         parameters: {
           type: 'object',
           properties: {

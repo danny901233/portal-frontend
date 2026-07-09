@@ -87,7 +87,7 @@ function buildAssistTools(allowBookings: boolean, humanEscalation: boolean): Ope
       function: {
         name: 'take_message',
         description:
-          'Pass the customer to the team. Only call this AFTER you have gathered their name, best contact number, the vehicle registration (if it concerns a specific car), exactly what they need (the specific job/symptom — not just "a booking"), and any preferred timing. This is the ONLY way the team learns about the chat, so make the reason detailed.',
+          'Hand the customer to a human. ONLY call this when EITHER (a) you genuinely cannot help from your knowledge or tools, OR (b) the customer explicitly asks to speak to a human / for someone to call them back. Do NOT call it for questions you can answer or bookings you can make yourself — help with those directly. When you do use it, first gather their name, best contact number, the vehicle registration (if it concerns a specific car), exactly what they need (the specific job/symptom — not just "a booking"), and any preferred timing, then make the reason detailed.',
         parameters: {
           type: 'object',
           properties: {
@@ -257,7 +257,8 @@ function buildAssistSystemPrompt(
     if (!allowBookings) {
       prompt += `- You can't access a diary, but you CAN take a message so the team calls them back to book or help.\n`;
     }
-    prompt += `- ALWAYS GATHER THE FULL PICTURE before you take a message — never fire it off with just a name and "a booking". Ask, naturally and one at a time, for: their name, best contact number, the vehicle registration (if it's about a specific car), exactly what they need (the specific job, MOT, service, or the symptom/noise — get the detail), and roughly when would suit them. THEN call take_message with a detailed reason. take_message (or book_slot) is the ONLY way the team hears about the chat.\n`;
+    prompt += `- WHEN TO HAND OVER: only take a message / involve a human when EITHER you genuinely can't help from the information and tools you have, OR the customer explicitly asks to speak to a human or for a callback. If you can answer their question${allowBookings ? ' or book them in' : ''} yourself, just do it — don't take a message.\n`;
+    prompt += `- WHEN you do take a message, GATHER THE FULL PICTURE first — never fire it off with just a name and "a booking". Ask, naturally and one at a time, for: their name, best contact number, the vehicle registration (if it's about a specific car), exactly what they need (the specific job, MOT, service, or the symptom/noise — get the detail), and roughly when would suit them. THEN call take_message with a detailed reason.\n`;
   } else {
     const custom = ((config as any).messagingHandoffMessage || '').trim();
     if (custom) {

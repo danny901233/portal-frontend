@@ -9,7 +9,9 @@ const twilioClient =
   process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
     ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
     : null;
-const SMS_FROM = process.env.TWILIO_SMS_FROM || '';
+// Reuse the shared Twilio number the rest of the platform sends from
+// (TWILIO_PHONE_NUMBER); TWILIO_SMS_FROM overrides it if ever needed.
+const SMS_FROM = process.env.TWILIO_SMS_FROM || process.env.TWILIO_PHONE_NUMBER || '';
 
 const SMS_COST_GBP = 0.2;
 

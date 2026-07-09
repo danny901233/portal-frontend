@@ -511,7 +511,7 @@ function buildTools(tsConfig?: TyresoftConfig): OpenAI.Chat.ChatCompletionTool[]
       type: 'function',
       function: {
         name: 'ts_take_message',
-        description: 'Take a message from the customer when they want to speak to a human, leave a message, or make a request the AI cannot handle. Call this tool after collecting their message and phone number.',
+        description: 'Hand the customer to a human. ONLY use this when EITHER the customer explicitly asks to speak to a human, OR they make a request you genuinely cannot handle from your knowledge and tools. Do NOT use it for questions you can answer or bookings you can make yourself. Call it after collecting their message and phone number.',
         parameters: {
           type: 'object',
           properties: {

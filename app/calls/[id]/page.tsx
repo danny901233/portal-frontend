@@ -5,9 +5,10 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { fetchCallById } from '../../lib/api';
-import { getGarageId, isReceptionMateStaff } from '../../lib/auth';
+import { getGarageId, getSessionToken, isReceptionMateStaff } from '../../lib/auth';
 import { getFeedbackReasonLabel } from '../../lib/callFeedback';
 import { getCallTagLabel, getCallTagStyle } from '../../lib/callTags';
+import { cn } from '../../lib/utils';
 import type { CallRecord } from '../../types';
 import { ToolCallEntry } from './components/ToolCallEntry';
 import { LogEntry } from './components/LogEntry';
@@ -101,9 +102,9 @@ const MetricCard = ({ label, value }: { label: string; value: number | string | 
     displayValue = String(value);
   }
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-slate-900 whitespace-pre-wrap break-words text-sm">{displayValue}</div>
+    <div className="rounded-lg border border-slate-200 bg-white p-3 md:p-4">
+      <div className="text-[10px] md:text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-sm md:text-base font-semibold text-slate-900 whitespace-pre-wrap break-words">{displayValue}</div>
     </div>
   );
 };
@@ -112,10 +113,12 @@ const TranscriptEntry = ({
   entry,
   offsetSeconds,
   allEntries,
+  onImprove,
 }: {
   entry: TranscriptEntry_Union;
   offsetSeconds: number;
   allEntries?: TranscriptEntry_Union[];
+  onImprove?: (question: string, answer: string) => void;
 }) => {
   const lang = useLang();
   const c = {
@@ -232,27 +235,70 @@ const TranscriptEntry = ({
   const confidence = 'confidence' in entry ? entry.confidence : undefined;
   const latency = 'latency_ms' in entry ? entry.latency_ms : undefined;
   
+  // Conversation bubbles: the caller (the human — "user"/"caller") sits on the
+  // right in a white bubble; the AI agent sits on the left in an indigo bubble.
+  const speakerRaw = String(entry.speaker || '');
+  const speaker = speakerRaw.toLowerCase();
+  const isCaller = /user|caller|customer|human|client/.test(speaker);
+  const label = isCaller
+    ? 'Caller'
+    : /assistant|agent|\bai\b|bot|receptionist/.test(speaker)
+      ? 'Agent'
+      : speakerRaw;
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex items-center justify-between">
-        <div className="text-xs uppercase tracking-wide text-slate-500">{entry.speaker}</div>
-        {isStaff && (confidence !== undefined || latency !== undefined) && (
-          <div className="flex items-center gap-3 text-[10px] text-slate-500">
-            {confidence !== undefined && (
-              <span className={confidence > 0.9 ? 'text-emerald-500' : confidence > 0.7 ? 'text-amber-500' : 'text-rose-500'}>
-                {(confidence * 100).toFixed(0)}% {c.confidence}
-              </span>
-            )}
-            {latency !== undefined && (
-              <span className={latency < 500 ? 'text-emerald-500' : latency < 1500 ? 'text-amber-500' : 'text-rose-500'}>
-                {latency}ms
-              </span>
-            )}
-          </div>
+    <div className={cn('flex flex-col', isCaller ? 'items-end' : 'items-start')}>
+      <div
+        className={cn(
+          'mb-1 px-1 text-[10px] font-bold uppercase tracking-wider',
+          isCaller ? 'text-slate-400' : 'text-brand-600',
         )}
+      >
+        {label}
       </div>
-      <div className="mt-2 whitespace-pre-line text-sm text-slate-900">{entry.text}</div>
-      <div className="mt-2 text-xs text-slate-500">{offsetSeconds}s</div>
+      <div
+        className={cn(
+          'max-w-[85%] whitespace-pre-line px-3.5 py-2.5 text-sm leading-relaxed',
+          isCaller
+            ? 'rounded-2xl rounded-br-md border border-slate-200 bg-white text-slate-900'
+            : 'rounded-2xl rounded-bl-md bg-brand-600 text-white',
+        )}
+      >
+        {entry.text}
+      </div>
+      {isStaff && (confidence !== undefined || latency !== undefined) && (
+        <div className="mt-1 flex items-center gap-3 px-1 text-[10px] text-slate-400">
+          {confidence !== undefined && (
+            <span>{(confidence * 100).toFixed(0)}% {c.confidence}</span>
+          )}
+          {latency !== undefined && <span>{latency}ms</span>}
+        </div>
+      )}
+      {/* Thumbs-down on the agent's turns — opens the "Train Bot" editor so the
+          garage can correct the answer and save it as an FAQ. */}
+      {!isCaller && entry.text && onImprove && (
+        <button
+          type="button"
+          onClick={() => {
+            const list = allEntries || [];
+            const i = list.indexOf(entry);
+            let q = '';
+            for (let j = i - 1; j >= 0; j--) {
+              const e = list[j] as { speaker?: string; text?: string };
+              const sp = String(e?.speaker || '').toLowerCase();
+              if (/user|caller|customer|human|client/.test(sp) && e?.text) { q = e.text; break; }
+            }
+            onImprove(q, String(entry.text || ''));
+          }}
+          title="Answer not right? Train the agent"
+          className="mt-1 flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7.5 15h2.25m8.024-9.75c.011.05.028.1.052.148.591 1.2.924 2.55.924 3.977a8.96 8.96 0 01-.999 4.125m.023-8.25c-.076-.365.183-.75.575-.75h.908c.889 0 1.713.518 1.972 1.368.339 1.11.521 2.287.521 3.507 0 1.553-.295 3.036-.831 4.398C20.613 14.547 19.833 15 19 15h-1.053c-.472 0-.745-.556-.5-.96a8.95 8.95 0 00.303-.54m.023-8.25H16.48a4.5 4.5 0 01-1.423-.23l-3.114-1.04a4.5 4.5 0 00-1.423-.23H6.504c-1.036 0-1.875.84-1.875 1.875v.75c0 1.036.84 1.875 1.875 1.875h1.079L7.5 15z" />
+          </svg>
+          <span>Improve answer</span>
+        </button>
+      )}
     </div>
   );
 };
@@ -351,6 +397,9 @@ export default function CallDetailPage() {
       loadingDetails: 'Loading call details…',
       unableToLoad: 'Unable to load this call.',
       tryAgainLater: 'Please try again later.',
+      arrearsTitle: 'Details locked — account in arrears',
+      arrearsBody:
+        'This call was handled by your AI receptionist, but the caller details, summary, transcript and recording are hidden until your account is brought up to date. Please settle your account to unlock the full details.',
       callDetails: 'Call Details',
       recordedOn: (date: string) => `Recorded on ${date}`,
       callId: 'Call ID',
@@ -395,6 +444,9 @@ export default function CallDetailPage() {
       loadingDetails: 'Chargement des détails de l’appel…',
       unableToLoad: 'Impossible de charger cet appel.',
       tryAgainLater: 'Veuillez réessayer plus tard.',
+      arrearsTitle: 'Détails verrouillés — compte en souffrance',
+      arrearsBody:
+        'Cet appel a été traité par votre réceptionniste IA, mais les coordonnées de l’appelant, le résumé, la transcription et l’enregistrement sont masqués jusqu’à la régularisation de votre compte. Veuillez régulariser votre compte pour débloquer les détails complets.',
       callDetails: 'Détails de l’appel',
       recordedOn: (date: string) => `Enregistré le ${date}`,
       callId: 'ID d’appel',
@@ -439,6 +491,44 @@ export default function CallDetailPage() {
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [fetchingRecording, setFetchingRecording] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
+  // "Train Bot" from a call transcript — correct an agent answer and save it as an
+  // FAQ (same endpoint as the messaging inbox; also pushed to the voice agent).
+  const [trainOpen, setTrainOpen] = useState(false);
+  const [trainQuestion, setTrainQuestion] = useState('');
+  const [trainAnswer, setTrainAnswer] = useState('');
+  const [trainSaving, setTrainSaving] = useState(false);
+  const [trainDone, setTrainDone] = useState(false);
+
+  const openTrainModal = useCallback((question: string, answer: string) => {
+    setTrainQuestion(question);
+    setTrainAnswer(answer);
+    setTrainDone(false);
+    setTrainOpen(true);
+  }, []);
+
+  const submitTrain = async () => {
+    const gid = getGarageId();
+    const token = getSessionToken();
+    if (!gid || !trainQuestion.trim() || !trainAnswer.trim()) return;
+    setTrainSaving(true);
+    try {
+      const res = await fetch(`/api/garages/${gid}/train-faq`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ question: trainQuestion.trim(), answer: trainAnswer.trim() }),
+      });
+      if (res.ok) {
+        setTrainDone(true);
+        setTimeout(() => setTrainOpen(false), 1200);
+      }
+    } catch {
+      // swallow — keep the modal open so they can retry
+    } finally {
+      setTrainSaving(false);
+    }
+  };
+  // Mobile-only view toggle. Desktop shows details + transcript side by side.
+  const [detailTab, setDetailTab] = useState<'details' | 'transcript'>('details');
 
   const copyCallId = useCallback(() => {
     if (!callId) {
@@ -570,6 +660,34 @@ export default function CallDetailPage() {
     notFound();
   }
 
+  // Arrears gating: the backend has already stripped this call to date + tag. Render a clear
+  // locked view instead of a page full of empty sections.
+  if (call.restricted) {
+    return (
+      <div className="space-y-6">
+        <Link href="/calls" className="inline-flex items-center text-sm text-brand-600 hover:text-brand-700">
+          {c.backToCalls}
+        </Link>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold text-slate-900">{c.callDetails}</h1>
+          <span
+            className={`${getCallTagStyle(call.callType)} inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold shadow-sm shadow-slate-900/30`}
+          >
+            {getCallTagLabel(call.callType, lang)}
+          </span>
+          <p className="text-sm text-slate-500">{c.recordedOn(new Date(call.createdAt).toLocaleString())}</p>
+        </div>
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
+          <span aria-hidden className="text-2xl leading-none">🔒</span>
+          <div className="text-sm text-amber-900">
+            <p className="text-base font-semibold">{c.arrearsTitle}</p>
+            <p className="mt-1 text-amber-800">{c.arrearsBody}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const callerName = deriveCallerName(call);
   const callerNumber = formatPhoneNumber(deriveCallerNumber(call));
   const diagnosis = (call.metrics as Record<string, unknown> | null | undefined)?.['diagnosis'] as
@@ -656,15 +774,41 @@ export default function CallDetailPage() {
         </p>
       </div>
 
+      {/* Mobile-only Details / Transcript toggle. Desktop shows both together. */}
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1 md:hidden">
+        <button
+          type="button"
+          onClick={() => setDetailTab('details')}
+          className={cn(
+            'flex-1 rounded-lg py-2 text-sm font-semibold transition-colors',
+            detailTab === 'details' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500',
+          )}
+        >
+          {lang === 'fr' ? 'Détails' : 'Details'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setDetailTab('transcript')}
+          className={cn(
+            'flex-1 rounded-lg py-2 text-sm font-semibold transition-colors',
+            detailTab === 'transcript' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500',
+          )}
+        >
+          {c.transcript}
+        </button>
+      </div>
+
       {isStaff ? (
         <section
-          className={`rounded-xl border p-5 ${
+          className={cn(
+            'rounded-xl border p-5',
             diagnosis?.status === 'issue'
               ? 'border-amber-300 bg-amber-50'
               : diagnosis
                 ? 'border-emerald-300 bg-emerald-50'
-                : 'border-slate-200 bg-white'
-          }`}
+                : 'border-slate-200 bg-white',
+            detailTab !== 'details' && 'hidden md:block',
+          )}
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -728,14 +872,14 @@ export default function CallDetailPage() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <section className={cn('grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-3', detailTab !== 'details' && 'hidden md:grid')}>
         <MetricCard label={c.callTag} value={getCallTagLabel(call.callType, lang)} />
         <MetricCard label={c.callerName} value={callerName} />
         <MetricCard label={c.callerNumber} value={callerNumber} />
       </section>
 
       {isStaff && metricEntries.length > 0 ? (
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className={cn('grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4', detailTab !== 'details' && 'hidden md:grid')}>
           {metricEntries.map(([key, value]) => (
             <MetricCard key={key} label={key.replace(/_/g, ' ')} value={value} />
           ))}
@@ -744,17 +888,17 @@ export default function CallDetailPage() {
 
       <section className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-6">
+          <div className={cn('rounded-xl border border-slate-200 bg-white p-6', detailTab !== 'details' && 'hidden md:block')}>
             <h2 className="text-lg font-semibold text-slate-900">{c.conversationSummary}</h2>
             <p className="mt-2 text-sm text-slate-600">{call.summary}</p>
           </div>
 
-          <div className="space-y-3">
-            <h2 className="text-lg font-semibold text-slate-900">{c.transcript}</h2>
-            <p className="text-xs uppercase tracking-wide text-slate-500">{c.scrollToExplore}</p>
+          <div className={cn('space-y-3', detailTab !== 'transcript' && 'hidden md:block')}>
+            <h2 className="hidden text-lg font-semibold text-slate-900 md:block">{c.transcript}</h2>
+            <p className="hidden text-xs uppercase tracking-wide text-slate-500 md:block">{c.scrollToExplore}</p>
             <div className="relative">
               <div
-                className="max-h-[48rem] space-y-3 overflow-y-auto pr-2 pb-16"
+                className="space-y-3 pb-4 md:max-h-[48rem] md:overflow-y-auto md:pr-2 md:pb-16"
                 onScroll={handleTranscriptScroll}
               >
                 {transcript.map((entry: CallRecord['transcript'][number], index) => (
@@ -763,31 +907,32 @@ export default function CallDetailPage() {
                     entry={entry}
                     allEntries={transcript}
                     offsetSeconds={Math.max(0, Math.round(entry.timestamp - firstTimestamp))}
+                    onImprove={openTrainModal}
                   />
                 ))}
               </div>
               {showTranscriptHint ? (
-                <>
+                <div className="hidden md:block">
                   <div
-                    className="pointer-events-none absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-slate-900 via-slate-900/60 to-transparent z-10"
+                    className="pointer-events-none absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-white via-white/60 to-transparent z-10"
                     aria-hidden
                   />
                   <div
-                    className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-slate-900 via-slate-900/60 to-transparent z-10"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-white via-white/60 to-transparent z-10"
                     aria-hidden
                   />
                   <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center z-20">
-                    <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-600 shadow-lg shadow-slate-900/60">
+                    <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-600 shadow-md shadow-slate-900/10 ring-1 ring-slate-200">
                       {c.scrollToReadMore}
                     </span>
                   </div>
-                </>
+                </div>
               ) : null}
             </div>
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className={cn('space-y-4', detailTab !== 'details' && 'hidden md:block')}>
           {call.feedback ? (
             <div className="rounded-xl border border-slate-200 bg-white p-6">
               <h2 className="text-lg font-semibold text-slate-900">{c.callFeedback}</h2>
@@ -875,6 +1020,67 @@ export default function CallDetailPage() {
           </div>
         </div>
       </section>
+
+      {/* Train Bot — correct an agent answer from the transcript and save it as an FAQ */}
+      {trainOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !trainSaving && setTrainOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-slate-900">Improve this answer</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Edit the answer and save it as an FAQ — the agent will use it for similar questions next time.
+            </p>
+
+            <label className="mt-4 block text-sm font-medium text-slate-700">Question</label>
+            <textarea
+              value={trainQuestion}
+              onChange={(e) => setTrainQuestion(e.target.value)}
+              rows={2}
+              placeholder="What the caller asked"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            />
+
+            <label className="mt-3 block text-sm font-medium text-slate-700">Answer</label>
+            <textarea
+              value={trainAnswer}
+              onChange={(e) => setTrainAnswer(e.target.value)}
+              rows={4}
+              placeholder="The correct answer the agent should give"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            />
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              {trainDone ? (
+                <span className="text-sm font-medium text-emerald-600">Saved ✓ Agent trained</span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setTrainOpen(false)}
+                    disabled={trainSaving}
+                    className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitTrain}
+                    disabled={trainSaving || !trainQuestion.trim() || !trainAnswer.trim()}
+                    className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {trainSaving ? 'Saving…' : 'Train agent'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

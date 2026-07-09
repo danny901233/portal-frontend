@@ -544,12 +544,16 @@ router.post(
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
-      // Save message to DB
+      // Save message to DB. Manual sends keep role 'assistant' (so the agent still
+      // treats them as the reply side), but we record who sent it so the inbox can
+      // show the staff member's name instead of "AI".
       const message = await prisma.chatMessage.create({
         data: {
           conversationId,
           role: 'assistant',
           content,
+          staffUserId: req.user?.userId ?? null,
+          staffUserEmail: req.user?.email ?? null,
         },
       });
 

@@ -15,6 +15,7 @@ interface Message {
   platform?: string;
   mediaUrl?: string;
   mediaType?: string;
+  staffUserEmail?: string | null;
 }
 
 interface Conversation {
@@ -278,6 +279,52 @@ export default function MessagesPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [sendingImage, setSendingImage] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  // "Train Bot" modal — opened from the thumbs-down on an AI reply. Lets the user
+  // correct the answer and save it as an FAQ so the agent answers it right next time.
+  const [trainModal, setTrainModal] = useState<{ question: string; answer: string } | null>(null);
+  const [trainAnswer, setTrainAnswer] = useState('');
+  const [trainQuestion, setTrainQuestion] = useState('');
+  const [trainSaving, setTrainSaving] = useState(false);
+  const [trainDone, setTrainDone] = useState(false);
+
+  const openTrainModal = (aiMessage: Message) => {
+    // Prefill the question with the customer's most recent message before this reply.
+    const msgs = selectedConversation?.messages ?? [];
+    const idx = msgs.findIndex((m) => m.id === aiMessage.id);
+    let question = '';
+    for (let i = idx - 1; i >= 0; i--) {
+      if (msgs[i].role === 'user' && msgs[i].content && msgs[i].content !== '[Image]') {
+        question = msgs[i].content;
+        break;
+      }
+    }
+    setTrainQuestion(question);
+    setTrainAnswer(aiMessage.content);
+    setTrainDone(false);
+    setTrainModal({ question, answer: aiMessage.content });
+  };
+
+  const submitTrain = async () => {
+    const garageId = getGarageId();
+    const token = getSessionToken();
+    if (!garageId || !trainQuestion.trim() || !trainAnswer.trim()) return;
+    setTrainSaving(true);
+    try {
+      const res = await fetch(`/api/garages/${garageId}/train-faq`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ question: trainQuestion.trim(), answer: trainAnswer.trim() }),
+      });
+      if (res.ok) {
+        setTrainDone(true);
+        setTimeout(() => setTrainModal(null), 1200);
+      }
+    } catch {
+      // swallow — keep the modal open so they can retry
+    } finally {
+      setTrainSaving(false);
+    }
+  };
   const imageInputRef = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1130,16 +1177,38 @@ export default function MessagesPage() {
                   key={message.id}
                   className={cn('flex flex-col', message.role === 'user' ? 'items-start' : 'items-end')}
                 >
-                  {/* Platform badge */}
-                  {message.platform && (
-                    <div className="text-xs text-slate-500 mb-1 flex items-center gap-1">
-                      {(() => {
-                        const IconComponent = PLATFORM_ICONS[message.platform as keyof typeof PLATFORM_ICONS];
-                        return IconComponent ? <IconComponent /> : null;
-                      })()}
-                      <span>{message.platform}</span>
-                    </div>
-                  )}
+                  {/* Sender label: ✨ AI for the agent, the staff member's name for a
+                      human reply, or the channel for the customer's message. */}
+                  <div className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+                    {(() => {
+                      const IconComponent = message.platform
+                        ? PLATFORM_ICONS[message.platform as keyof typeof PLATFORM_ICONS]
+                        : null;
+                      const plat = message.platform
+                        ? message.platform.charAt(0).toUpperCase() + message.platform.slice(1)
+                        : '';
+                      let who = '';
+                      let isAi = false;
+                      if (message.role !== 'user') {
+                        if (message.staffUserEmail) {
+                          const local = message.staffUserEmail.split('@')[0];
+                          who = local.charAt(0).toUpperCase() + local.slice(1);
+                        } else {
+                          who = 'AI';
+                          isAi = true;
+                        }
+                      }
+                      const label = [who, plat].filter(Boolean).join(' · ');
+                      if (!label && !IconComponent) return null;
+                      return (
+                        <>
+                          {isAi && <span aria-hidden>✨</span>}
+                          {IconComponent ? <IconComponent /> : null}
+                          <span>{label}</span>
+                        </>
+                      );
+                    })()}
+                  </div>
                   <div
                     className={cn(
                       'max-w-md px-4 py-2 rounded-lg',
@@ -1170,6 +1239,21 @@ export default function MessagesPage() {
                       {formatTime(message.createdAt)}
                     </p>
                   </div>
+                  {/* Thumbs-down on AI replies — opens the "Train Bot" editor so the
+                      garage can correct the answer and save it as an FAQ. */}
+                  {message.role !== 'user' && !message.staffUserEmail && message.content && message.content !== '[Image]' && (
+                    <button
+                      type="button"
+                      onClick={() => openTrainModal(message)}
+                      title="Answer not right? Train the agent"
+                      className="mt-1 flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7.5 15h2.25m8.024-9.75c.011.05.028.1.052.148.591 1.2.924 2.55.924 3.977a8.96 8.96 0 01-.999 4.125m.023-8.25c-.076-.365.183-.75.575-.75h.908c.889 0 1.713.518 1.972 1.368.339 1.11.521 2.287.521 3.507 0 1.553-.295 3.036-.831 4.398C20.613 14.547 19.833 15 19 15h-1.053c-.472 0-.745-.556-.5-.96a8.95 8.95 0 00.303-.54m.023-8.25H16.48a4.5 4.5 0 01-1.423-.23l-3.114-1.04a4.5 4.5 0 00-1.423-.23H6.504c-1.036 0-1.875.84-1.875 1.875v.75c0 1.036.84 1.875 1.875 1.875h1.079L7.5 15z" />
+                      </svg>
+                      <span>Improve answer</span>
+                    </button>
+                  )}
                 </div>
                       );
                     })()
@@ -1291,6 +1375,67 @@ export default function MessagesPage() {
             className="max-w-full max-h-full object-contain rounded-lg"
             onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      )}
+
+      {/* Train Bot — correct an AI answer and save it as an FAQ */}
+      {trainModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !trainSaving && setTrainModal(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-slate-900">Improve this answer</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Edit the answer and save it as an FAQ — the agent will use it for similar questions next time.
+            </p>
+
+            <label className="mt-4 block text-sm font-medium text-slate-700">Question</label>
+            <textarea
+              value={trainQuestion}
+              onChange={(e) => setTrainQuestion(e.target.value)}
+              rows={2}
+              placeholder="What the customer asked"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            />
+
+            <label className="mt-3 block text-sm font-medium text-slate-700">Answer</label>
+            <textarea
+              value={trainAnswer}
+              onChange={(e) => setTrainAnswer(e.target.value)}
+              rows={4}
+              placeholder="The correct answer the agent should give"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            />
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              {trainDone ? (
+                <span className="text-sm font-medium text-emerald-600">Saved ✓ Agent trained</span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setTrainModal(null)}
+                    disabled={trainSaving}
+                    className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitTrain}
+                    disabled={trainSaving || !trainQuestion.trim() || !trainAnswer.trim()}
+                    className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {trainSaving ? 'Saving…' : 'Train agent'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

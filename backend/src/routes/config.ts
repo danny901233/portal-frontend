@@ -1457,4 +1457,39 @@ router.delete(
   },
 );
 
+// Append a Q&A to the garage's FAQs — used by the messaging inbox "Train Bot"
+// (thumbs-down on an AI reply → edit the Q&A → train). The chat agents read faqs
+// straight from Postgres, so it takes effect on the next message.
+router.post(
+  '/garages/:garageId/train-faq',
+  authenticate,
+  requireManagerLive,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId } = req.params;
+      const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
+      const answer = typeof req.body?.answer === 'string' ? req.body.answer.trim() : '';
+      if (!question || !answer) {
+        return res.status(400).json({ error: 'question and answer are required' });
+      }
+      const config = await prisma.agentConfiguration.findUnique({ where: { garageId } });
+      if (!config) return res.status(404).json({ error: 'Configuration not found' });
+      const faqs = Array.isArray(config.faqs) ? (config.faqs as unknown[]) : [];
+      const updated = [
+        ...faqs,
+        { question: question.slice(0, 1000), answer: answer.slice(0, 4000), active: true },
+      ];
+      await prisma.agentConfiguration.update({
+        where: { garageId },
+        data: { faqs: updated as Prisma.InputJsonValue },
+      });
+      void sendAgentConfigWebhook(garageId).catch(() => {}); // keep voice/DynamoDB in sync (best-effort)
+      return res.json({ success: true, faqCount: updated.length });
+    } catch (e) {
+      console.error('[train-faq] failed', e);
+      return res.status(500).json({ error: 'Failed to save FAQ' });
+    }
+  },
+);
+
 export default router;

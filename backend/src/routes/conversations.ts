@@ -160,9 +160,15 @@ router.post('/conversations/:id/reply', authenticate, async (req: Request, res: 
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Save staff message
+    // Save staff message (record who sent it so the inbox can show the name)
     await prisma.chatMessage.create({
-      data: { conversationId: id, role: 'staff', content: message },
+      data: {
+        conversationId: id,
+        role: 'staff',
+        content: message,
+        staffUserId: req.user?.userId ?? null,
+        staffUserEmail: req.user?.email ?? null,
+      },
     });
 
     // Pause agent and clear unread count
@@ -209,7 +215,13 @@ router.post('/conversations/:id/messages', authenticate, async (req: Request, re
     }
 
     await prisma.chatMessage.create({
-      data: { conversationId: id, role: 'staff', content: text },
+      data: {
+        conversationId: id,
+        role: 'staff',
+        content: text,
+        staffUserId: req.user?.userId ?? null,
+        staffUserEmail: req.user?.email ?? null,
+      },
     });
 
     await prisma.chatConversation.update({

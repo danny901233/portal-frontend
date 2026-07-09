@@ -136,10 +136,11 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       console.log(`[RECORDING] Stored recording for CallSid ${CallSid}`);
 
       // Update call duration with recording duration (actual call time)
-      // OR delete the call if duration is under 30 seconds
+      // OR delete the call if it's under the minimum billable/logged length.
+      // 45s is the business rule: calls shorter than this never surface in the portal.
       if (durationSeconds !== null && !Number.isNaN(durationSeconds)) {
-        // If recording duration is under 30 seconds, delete the call from portal
-        if (durationSeconds < 30) {
+        // If recording duration is under 45 seconds, delete the call from portal
+        if (durationSeconds < 45) {
           const deletedCalls = await prisma.call.deleteMany({
             where: {
               twilioCallSid: CallSid,
@@ -147,10 +148,10 @@ router.post('/recording-status', async (req: Request, res: Response) => {
           });
 
           if (deletedCalls.count > 0) {
-            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 30s threshold`);
+            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 45s threshold`);
           }
         } else {
-          // Duration is >= 30 seconds, update the call with correct duration
+          // Duration is >= 45 seconds, update the call with correct duration
           const updatedCalls = await prisma.call.updateMany({
             where: {
               twilioCallSid: CallSid,
@@ -167,7 +168,7 @@ router.post('/recording-status', async (req: Request, res: Response) => {
           if (updatedCalls.count > 0) {
             console.log(`[RECORDING] ✅ Updated ${updatedCalls.count} call(s) with recording duration: ${durationSeconds}s`);
 
-            // Send notification email now that we've confirmed duration >= 30s
+            // Send notification email now that we've confirmed duration >= 45s
             const call = await prisma.call.findFirst({
               where: { twilioCallSid: CallSid },
               include: {

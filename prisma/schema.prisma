@@ -12,6 +12,11 @@ model Garage {
   id                 String  @id @default(uuid())
   name               String
   twilioNumber       String?
+  // Stripe billing (NEW Assist self-serve signups only — 14-day trial then monthly card
+  // subscription). Existing customers stay on GoCardless Direct Debit and never get these set.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  trialEndsAt          DateTime?
   hasMessagingAccess Boolean @default(false)
 
   // Billing Configuration

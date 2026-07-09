@@ -654,7 +654,7 @@ const writeAgentConfigToDynamo = async (
   }
 };
 
-const sendAgentConfigWebhook = async (garageId: string) => {
+export const sendAgentConfigWebhook = async (garageId: string) => {
   try {
     const [configurationRecord, garageRecord] = await Promise.all([
       prisma.agentConfiguration.findUnique({ where: { garageId } }),

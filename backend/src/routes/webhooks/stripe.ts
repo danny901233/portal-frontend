@@ -14,7 +14,8 @@ import { Router } from 'express';
 import express from 'express';
 import Stripe from 'stripe';
 import { prisma } from '../../db.js';
-import { sendWelcomeEmail, sendEmail } from '../../utils/email.js';
+import { sendWelcomeEmail, sendEmail, sendArrearsWarningEmail } from '../../utils/email.js';
+import { ARREARS_GRACE_DAYS } from '../../utils/arrears.js';
 import { getStripeClient, STRIPE_TRIAL_DAYS } from '../../services/stripe.js';
 import { purchaseRandomTwilioNumber } from '../onboarding.js';
 import { sendAgentConfigWebhook } from '../config.js';
@@ -201,6 +202,12 @@ async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
     },
   });
 
+  // Payment landed → clear any arrears state (unlock the account + stop the timer).
+  await prisma.garage.updateMany({
+    where: { id: garage.id, OR: [{ paymentFailedAt: { not: null } }, { accessRestricted: true }] },
+    data: { paymentFailedAt: null, accessRestricted: false },
+  });
+
   // First successful charge = trial converted → mark the garage activated, and
   // promote its HighLevel opportunity from "Free trial live" to "Live and £££".
   if (!garage.subscriptionActivatedAt) {
@@ -217,18 +224,50 @@ async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
   console.log(`[STRIPE_WEBHOOK] invoice paid garage=${garage.id} stripeInvoice=${invoice.id} £${(invoice.amount_paid ?? 0) / 100}`);
 }
 
-// ── a subscription charge failed: log + notify (Stripe handles retries/dunning itself) ──
+// ── a subscription charge failed: start the arrears timer, warn the garage, notify ops.
+// Stripe keeps retrying (dunning); after the grace window the backstop sweep locks the
+// account. A later invoice.payment_succeeded clears everything.
 async function handleInvoiceFailed(invoice: Stripe.Invoice): Promise<void> {
   const subId = invoiceSubId(invoice);
   if (!subId) return;
-  const garage = await prisma.garage.findFirst({ where: { stripeSubscriptionId: subId }, select: { id: true, name: true } });
+  const garage = await prisma.garage.findFirst({
+    where: { stripeSubscriptionId: subId },
+    select: {
+      id: true,
+      name: true,
+      paymentFailedAt: true,
+      business: { select: { billingEmail: true, contactEmail: true } },
+      agentConfiguration: { select: { branchName: true, notificationEmails: true } },
+    },
+  });
   if (!garage) return;
   console.warn(`[STRIPE_WEBHOOK] invoice payment FAILED garage=${garage.id} (${garage.name}) stripeInvoice=${invoice.id}`);
+
+  // Start the arrears clock on the first failure; leave it running on subsequent retries.
+  if (!garage.paymentFailedAt) {
+    await prisma.garage.update({ where: { id: garage.id }, data: { paymentFailedAt: new Date() } });
+  }
+
+  // Warn the garage — billing email + call/message notification emails (deduped).
+  const recipients = Array.from(new Set([
+    garage.business?.billingEmail,
+    garage.business?.contactEmail,
+    ...(garage.agentConfiguration?.notificationEmails ?? []),
+  ].filter((e): e is string => Boolean(e && e.includes('@')))));
+  if (recipients.length > 0) {
+    void sendArrearsWarningEmail(recipients, {
+      branchName: garage.agentConfiguration?.branchName || garage.name,
+      portalUrl: PORTAL_URL,
+      graceDays: ARREARS_GRACE_DAYS,
+    }).catch((e) => console.error('[STRIPE_WEBHOOK] arrears warning email failed:', e));
+  }
+
+  // Internal heads-up to ops.
   void sendEmail({
     to: [OPS_EMAIL],
     subject: `Assist payment failed — ${garage.name}`,
-    text: `Stripe subscription payment failed for ${garage.name} (garage ${garage.id}, invoice ${invoice.id}). Stripe will retry automatically; check the dashboard if it keeps failing.`,
-    html: `<p>Stripe subscription payment failed for <strong>${garage.name}</strong> (garage ${garage.id}, invoice ${invoice.id}).</p><p>Stripe will retry automatically (dunning); check the dashboard if it keeps failing.</p>`,
+    text: `Stripe subscription payment failed for ${garage.name} (garage ${garage.id}, invoice ${invoice.id}). The garage has been warned; access auto-locks after ${ARREARS_GRACE_DAYS} days if unpaid. Stripe will retry automatically.`,
+    html: `<p>Stripe subscription payment failed for <strong>${garage.name}</strong> (garage ${garage.id}, invoice ${invoice.id}).</p><p>The garage has been warned; access auto-locks after ${ARREARS_GRACE_DAYS} days if unpaid. Stripe will retry automatically (dunning).</p>`,
   }).catch(() => {});
 }
 

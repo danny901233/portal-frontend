@@ -20,7 +20,7 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
       title: 'Branch identity',
       description: "Tells the agent who it's representing. Used in the greeting and every prompt.",
       branchName: 'Branch name',
-      branchNameHint: 'e.g. Speedy Spanners — Reading',
+      branchNameHint: 'e.g. Riverside Motors — Reading',
       branchNameRequired: "Branch name is required so the agent knows who it's representing.",
       agentName: 'Agent name',
       agentNameHint: "What the agent calls itself on calls (e.g. the voice's name, or your own — like 'Jamie')",
@@ -43,7 +43,7 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
       description:
         "Indique à l'agent qui il représente. Utilisé dans le message d'accueil et chaque prompt.",
       branchName: "Nom de l'agence",
-      branchNameHint: 'p. ex. Speedy Spanners — Reading',
+      branchNameHint: 'p. ex. Riverside Motors — Reading',
       branchNameRequired: "Le nom de l'agence est requis pour que l'agent sache qui il représente.",
       agentName: "Nom de l'agent",
       agentNameHint:
@@ -152,7 +152,7 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
           type="email"
           value={emailAddress}
           onChange={(e) => setEmailAddress(e.target.value)}
-          placeholder="hello@speedyspanners.co.uk"
+          placeholder="hello@yourgarage.co.uk"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
         />
       </Field>
@@ -172,7 +172,7 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
           type="url"
           value={websiteUrl}
           onChange={(e) => setWebsiteUrl(e.target.value)}
-          placeholder="https://speedyspanners.co.uk"
+          placeholder="https://yourgarage.co.uk"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
         />
       </Field>

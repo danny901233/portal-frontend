@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
 import { sendEmail } from '../utils/email.js';
+import { sendOpsSms } from '../utils/opsAlerts.js';
 import { TEMPLATE_VERSION } from '../services/agreementTemplate.js';
 import { pushSignupToHighlevel } from '../services/highlevel.js';
 import { ensureAdminAccessToGarage } from './admin.js';
@@ -270,6 +271,29 @@ router.post('/public-signup', async (req: Request, res: Response) => {
     });
 
     console.log(`[PUBLIC_SIGNUP] created account: ${normalizedEmail} → ${businessName} (garage=${garage.id}, agreement=${agreement.id})`);
+
+    // Ops alert — email + SMS to the team so a new Assist trial signup is impossible to miss.
+    {
+      const details = [
+        `Business: ${businessName}`,
+        `Email: ${normalizedEmail}`,
+        phoneNumber ? `Phone: ${phoneNumber}` : null,
+        websiteUrl ? `Website: ${websiteUrl}` : null,
+      ].filter(Boolean) as string[];
+      void sendEmail({
+        to: ['hello@receptionmate.co.uk'],
+        subject: `New Assist trial signup — ${businessName}`,
+        html:
+          `<div style="font-family:Inter,system-ui,sans-serif;max-width:560px;color:#0f172a;">` +
+          `<h2 style="color:#3426cf;margin:0 0 12px;">New Assist 14-day trial signup 🎉</h2>` +
+          details.map((d) => `<p style="margin:4px 0;">${escapeForEmail(d)}</p>`).join('') +
+          `<p style="margin-top:16px;color:#64748b;font-size:12px;">Opportunity created in HighLevel (Free trial live).</p></div>`,
+        text: `New Assist 14-day trial signup\n\n${details.join('\n')}`,
+      }).catch((e) => console.error('[PUBLIC_SIGNUP] ops signup email failed:', e));
+      void sendOpsSms(
+        `New Assist trial signup 🎉\n${businessName}\n${normalizedEmail}${phoneNumber ? ` · ${phoneNumber}` : ''}`,
+      );
+    }
 
     return res.status(201).json({
       success: true,

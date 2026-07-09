@@ -681,3 +681,57 @@ model Invoice {
   @@index([businessId, periodStart])
   @@index([status])
 }
+
+// A self-serve Assist signup that has NOT yet become a real account. Created when the
+// customer submits their garage details; the real Business/Garage/User/Agreement are
+// only created once they have signed the agreement AND confirmed a card (Stripe
+// setup_intent.succeeded). Until then we hold their details here and track them in
+// HighLevel's "Abandoned checkout" stage so no interested party is lost.
+model PendingSignup {
+  id            String   @id @default(uuid())
+  businessName  String
+  email         String
+  name          String?
+  googlePlaceId String?
+  product      String?  // assist | automate | connect | multibranch | custom
+  contactPhone String?  // contact phone captured on the scope step (non-Assist)
+
+  // Enriched from Google Places at submit time so we don't re-call Google on completion.
+  branchAddress      String?
+  phoneNumber        String?
+  websiteUrl         String?
+  weeklyOpeningHours Json?
+
+  // Magic-link sign token (single-use-ish; the pending row is the source of truth).
+  signToken String  @unique
+  status    String  @default("pending") // pending | signed | completed
+
+  // HighLevel — opportunity starts in "Abandoned checkout", moves to "Free trial live" on completion.
+  ghlOpportunityId String?
+  ghlContactId     String?
+
+  // Signature capture (transferred onto the real Agreement on completion).
+  signedByName     String?
+  signedByPosition String?
+  signatureImage   String?  @db.Text
+  signedFromIp     String?
+  signedUserAgent  String?
+  templateSnapshot String?  @db.Text
+  agreementVersion String?
+  signedAt         DateTime?
+
+  // Stripe trial — created when they sign; the webhook maps the confirmed card back here.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  trialEndsAt          DateTime?
+
+  // Set once the real account is provisioned (idempotency guard for the webhook).
+  createdGarageId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
+
+  @@index([email])
+  @@index([stripeCustomerId])
+}

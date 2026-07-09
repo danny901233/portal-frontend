@@ -16,17 +16,19 @@ import {
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '');
 
-function CardForm({ resetToken }: { resetToken?: string | null }) {
+function CardForm({ resetToken, pendingSignupId }: { resetToken?: string | null; pendingSignupId?: string | null }) {
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
 
-  // Where to send the customer once the card is confirmed: straight to set their own password
-  // (then they log in — no welcome email needed). Same URL doubles as the 3-D Secure return_url.
+  const chooseUrl = (t: string) => `${window.location.origin}/reset-password?token=${encodeURIComponent(t)}&setup=1`;
+
+  // 3-D Secure return_url (most cards confirm inline and never use this). If we already have a
+  // reset token, go straight to Choose-a-password; otherwise the webhook provisions + welcome email.
   const nextUrl = resetToken
-    ? `${window.location.origin}/reset-password?token=${encodeURIComponent(resetToken)}&setup=1`
+    ? chooseUrl(resetToken)
     : `${window.location.origin}/setup-payment/stripe-complete`;
 
   const handlePay = async (e: React.FormEvent) => {
@@ -50,8 +52,25 @@ function CardForm({ resetToken }: { resetToken?: string | null }) {
       return;
     }
     if (setupIntent && setupIntent.status === 'succeeded') {
-      // Card confirmed inline (no 3-D Secure) — go set a password, then log in.
+      // Card confirmed inline (no 3-D Secure). For the deferred flow, create the account NOW
+      // (returns a set-password token), then go to Choose-a-password → auto-login.
       setSucceeded(true);
+      if (pendingSignupId && !resetToken) {
+        try {
+          const res = await fetch('/internal-api/public/signup-complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pendingSignupId }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (data?.resetToken) {
+            window.location.href = chooseUrl(data.resetToken);
+            return;
+          }
+        } catch {
+          /* fall through — the webhook is the backstop; they can log in via the welcome email */
+        }
+      }
       window.location.href = nextUrl;
       return;
     }
@@ -91,7 +110,7 @@ function CardForm({ resetToken }: { resetToken?: string | null }) {
   );
 }
 
-export default function TrialCardForm({ clientSecret, resetToken }: { clientSecret: string; resetToken?: string | null }) {
+export default function TrialCardForm({ clientSecret, resetToken, pendingSignupId }: { clientSecret: string; resetToken?: string | null; pendingSignupId?: string | null }) {
   return (
     <Elements
       stripe={stripePromise}
@@ -107,7 +126,7 @@ export default function TrialCardForm({ clientSecret, resetToken }: { clientSecr
         },
       }}
     >
-      <CardForm resetToken={resetToken} />
+      <CardForm resetToken={resetToken} pendingSignupId={pendingSignupId} />
     </Elements>
   );
 }

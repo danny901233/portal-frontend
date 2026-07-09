@@ -39,11 +39,15 @@ export function stripeConfigured(): boolean {
 }
 
 export interface CreateCheckoutSessionArgs {
-  userId: string;
   email: string;
   businessName: string;
-  garageId: string;
-  agreementId: string;
+  // Present for the legacy flow (account already exists). For the new deferred flow the
+  // account doesn't exist yet, so pendingSignupId is carried in the metadata instead and
+  // the setup_intent.succeeded webhook creates the account from it.
+  userId?: string;
+  garageId?: string;
+  agreementId?: string;
+  pendingSignupId?: string;
 }
 
 export const STRIPE_TRIAL_DAYS = TRIAL_DAYS;
@@ -57,13 +61,14 @@ export async function createAssistTrialCheckoutSession(args: CreateCheckoutSessi
     throw new Error('STRIPE_ASSIST_PRICE_ID is not configured');
   }
 
-  const metadata = {
-    userId:       args.userId,
-    garageId:     args.garageId,
-    agreementId:  args.agreementId,
+  const metadata: Record<string, string> = {
     businessName: args.businessName.slice(0, 100),
     kind: 'assist-trial',
   };
+  if (args.userId) metadata.userId = args.userId;
+  if (args.garageId) metadata.garageId = args.garageId;
+  if (args.agreementId) metadata.agreementId = args.agreementId;
+  if (args.pendingSignupId) metadata.pendingSignupId = args.pendingSignupId;
 
   return stripe.checkout.sessions.create({
     mode: 'subscription',
@@ -105,13 +110,14 @@ export async function createAssistTrialSubscription(args: CreateCheckoutSessionA
     throw new Error('STRIPE_ASSIST_PRICE_ID is not configured');
   }
 
-  const metadata = {
-    userId:       args.userId,
-    garageId:     args.garageId,
-    agreementId:  args.agreementId,
+  const metadata: Record<string, string> = {
     businessName: args.businessName.slice(0, 100),
     kind: 'assist-trial',
   };
+  if (args.userId) metadata.userId = args.userId;
+  if (args.garageId) metadata.garageId = args.garageId;
+  if (args.agreementId) metadata.agreementId = args.agreementId;
+  if (args.pendingSignupId) metadata.pendingSignupId = args.pendingSignupId;
 
   const customer = await stripe.customers.create({
     email: args.email,

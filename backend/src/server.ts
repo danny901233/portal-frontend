@@ -39,10 +39,12 @@ import publicStatsRouter from './routes/public-stats.js';
 import publicLeadRouter from './routes/public-lead.js';
 import agreementsRouter from './routes/agreements.js';
 import supportRouter from './routes/support.js';
+import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';
 import billingStatusRouter from './routes/billing-status.js';
+import publicProspectRouter from './routes/public-prospect.js';
 
 const app = express();
 
@@ -62,7 +64,7 @@ app.use(helmet());
 const PUBLIC_CORS_PATHS = ['/api/public', '/api/public-signup', '/api/livekit'];
 app.use(
   PUBLIC_CORS_PATHS,
-  cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'], maxAge: 86400 }),
+  cors({ origin: '*', methods: ['GET', 'POST', 'PATCH', 'OPTIONS'], allowedHeaders: ['Content-Type'], maxAge: 86400 }),
 );
 
 // Strict CORS for the authenticated portal API. We SKIP /api/public so
@@ -118,6 +120,7 @@ app.use('/api', billingRouter);
 app.use('/api', billingActivationRouter);
 app.use('/api/customer/billing', customerBillingRouter);
 app.use('/api', billingStatusRouter);
+app.use('/api', publicProspectRouter);
 app.use('/api', socialConnectionsRouter);
 app.use('/api', oauthRouter);
 app.use('/api', smsRouter);
@@ -133,6 +136,7 @@ app.use('/api', publicLeadRouter);
 app.use('/api', livekitDemoRouter);
 app.use('/api', agreementsRouter);
 app.use('/api', supportRouter);
+app.use('/api', deviceTokensRouter);
 app.use('/api', templatesRouter);
 app.use('/api/webhooks', metaWhatsappWebhook);
 app.use('/api/webhooks', metaFacebookWebhook);

@@ -21,8 +21,16 @@ const PIPELINE_ID     = process.env.GHL_PIPELINE_ID     ?? '';
 const SIGNUP_STAGE_ID = process.env.GHL_SIGNUP_STAGE_ID ?? '';
 const LEAD_STAGE_ID   = process.env.GHL_LEAD_STAGE_ID   ?? '';
 const TRIAL_STAGE_ID  = process.env.GHL_TRIAL_STAGE_ID  ?? '';
+// New self-serve signups land here on details-submit (before they sign + pay), then move
+// to "Free trial live" once the account is created. Defaults to the live stage id.
+const ABANDONED_STAGE_ID = process.env.GHL_ABANDONED_STAGE_ID ?? '81307e40-9210-47e4-9898-7f1a18ce8ee7';
 // The "Live and £££" stage an opportunity is promoted to once the trial converts.
 export const LIVE_STAGE_ID = SIGNUP_STAGE_ID;
+// The "Free trial live" stage a signup moves to once it becomes a real trial account.
+export const TRIAL_LIVE_STAGE_ID = TRIAL_STAGE_ID;
+// The "Enquiry Received & Demo Links sent" stage a non-Assist lead moves to (it passes
+// through Abandoned checkout first, per the get-started flow).
+export const ENQUIRY_STAGE_ID = LEAD_STAGE_ID;
 
 const HEADERS = {
   Authorization: `Bearer ${GHL_PIT}`,
@@ -41,7 +49,9 @@ function pipelineConfigured(): boolean {
 
 export interface UpsertContactArgs {
   name: string;
-  email: string;
+  // Email OR phone must be present — HL needs at least one identifier. At the garage-search
+  // step of the funnel we only have the garage's Google phone (no user email yet).
+  email?: string;
   phone?: string;
   companyName: string;
   website?: string;
@@ -66,11 +76,11 @@ export async function upsertContact(args: UpsertContactArgs): Promise<ContactRes
     firstName,
     lastName,
     name: args.name,
-    email: args.email,
     companyName: args.companyName,
     source: args.source || 'website',
     tags: args.tags ?? ['website-lead'],
   };
+  if (args.email) body.email = args.email;
   if (args.phone) body.phone = args.phone;
   if (args.website) body.website = args.website;
 
@@ -93,7 +103,42 @@ export async function upsertContact(args: UpsertContactArgs): Promise<ContactRes
   }
 }
 
-export type OpportunityKind = 'signup' | 'lead' | 'trial';
+// Update an existing contact by id (PUT) — used to replace a placeholder identifier with the
+// real name/email/phone as a prospect progresses, without creating a duplicate. Tolerant.
+export async function updateContact(
+  contactId: string,
+  fields: { name?: string; email?: string; phone?: string; website?: string },
+): Promise<boolean> {
+  if (!highlevelConfigured() || !contactId) return false;
+  const body: Record<string, unknown> = {};
+  if (fields.name) {
+    const parts = fields.name.trim().split(/\s+/);
+    body.firstName = parts[0] ?? '';
+    body.lastName = parts.slice(1).join(' ');
+    body.name = fields.name;
+  }
+  if (fields.email) body.email = fields.email;
+  if (fields.phone) body.phone = fields.phone;
+  if (fields.website) body.website = fields.website;
+  if (Object.keys(body).length === 0) return false;
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/contacts/${contactId}`, {
+      method: 'PUT',
+      headers: HEADERS,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.error(`[HL] contact update failed ${res.status}:`, (await res.text()).slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[HL] contact update threw:', err);
+    return false;
+  }
+}
+
+export type OpportunityKind = 'signup' | 'lead' | 'trial' | 'abandoned';
 
 export interface CreateOpportunityArgs {
   contactId: string;
@@ -111,8 +156,9 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
     return { id: null };
   }
   const stageId =
-    args.kind === 'signup' ? SIGNUP_STAGE_ID :
-    args.kind === 'trial'  ? (TRIAL_STAGE_ID || SIGNUP_STAGE_ID) :
+    args.kind === 'signup'    ? SIGNUP_STAGE_ID :
+    args.kind === 'trial'     ? (TRIAL_STAGE_ID || SIGNUP_STAGE_ID) :
+    args.kind === 'abandoned' ? (ABANDONED_STAGE_ID || LEAD_STAGE_ID) :
     LEAD_STAGE_ID;
 
   const body: Record<string, unknown> = {
@@ -200,7 +246,7 @@ export async function pushSignupToHighlevel(args: {
   monthlyCostPerBranchGbp?: number;
   packageName?: string;
   kind: OpportunityKind;
-}): Promise<{ opportunityId: string | null }> {
+}): Promise<{ opportunityId: string | null; contactId: string | null }> {
   const contact = await upsertContact({
     name: args.name,
     email: args.email,
@@ -210,7 +256,7 @@ export async function pushSignupToHighlevel(args: {
     source: args.source,
     tags: args.tags,
   });
-  if (!contact.contactId) return { opportunityId: null };
+  if (!contact.contactId) return { opportunityId: null, contactId: null };
   const opp = await createOpportunity({
     contactId: contact.contactId,
     name: args.opportunityName,
@@ -219,5 +265,5 @@ export async function pushSignupToHighlevel(args: {
     packageName: args.packageName,
     kind: args.kind,
   });
-  return { opportunityId: opp.id };
+  return { opportunityId: opp.id, contactId: contact.contactId };
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "PendingSignup" ADD COLUMN IF NOT EXISTS "product" TEXT;
+ALTER TABLE "PendingSignup" ADD COLUMN IF NOT EXISTS "contactPhone" TEXT;

@@ -182,11 +182,9 @@ router.get('/agreements/sign/:token', async (req: Request, res: Response) => {
     include: { user: true },
   });
 
-  if (!tokenRow || tokenRow.consumedAt || tokenRow.expiresAt < new Date()) {
-    return res.status(404).json({ error: 'Sign link not found or expired' });
-  }
-  if (!tokenRow.agreementId) {
-    return res.status(404).json({ error: 'Sign link has no agreement' });
+  if (!tokenRow || tokenRow.consumedAt || tokenRow.expiresAt < new Date() || !tokenRow.agreementId) {
+    // Not a manual/legacy sign token — try a self-serve PendingSignup (deferred-account flow).
+    return renderPendingSignAgreement(req.params.token, res);
   }
 
   const agreement = await prisma.agreement.findUnique({ where: { id: tokenRow.agreementId } });
@@ -228,11 +226,9 @@ router.post('/agreements/sign/:token', async (req: Request, res: Response) => {
   }
 
   const tokenRow = await prisma.signLinkToken.findUnique({ where: { token: req.params.token } });
-  if (!tokenRow || tokenRow.consumedAt || tokenRow.expiresAt < new Date()) {
-    return res.status(404).json({ error: 'Sign link not found or expired' });
-  }
-  if (!tokenRow.agreementId) {
-    return res.status(404).json({ error: 'Sign link has no agreement' });
+  if (!tokenRow || tokenRow.consumedAt || tokenRow.expiresAt < new Date() || !tokenRow.agreementId) {
+    // Not a manual/legacy sign token — try a self-serve PendingSignup (deferred-account flow).
+    return finalisePendingSignature(req.params.token, parsed.data, clientIp(req), req.headers['user-agent'] ?? '', res);
   }
 
   return finaliseSignature({
@@ -422,6 +418,102 @@ async function finaliseSignature(opts: {
       signedAt: updated.signedAt,
       signedByName: updated.signedByName,
     },
+  });
+}
+
+// ── Self-serve deferred-account flow: the sign token maps to a PendingSignup, not an Agreement.
+// No account exists yet; we render/sign against the pending row and create the Stripe trial. The
+// real account is created only after the card is confirmed (POST /public/signup-complete + webhook).
+function pendingAgreementInputs(businessName: string) {
+  return {
+    type: 'saas',
+    clientName: businessName,
+    setupFeeGbp: 0,
+    licenceFeeGbp: 200,
+    centresCount: 1,
+    licences: ['assist'] as string[],
+    goLiveDate: null as Date | null,
+  };
+}
+
+async function renderPendingSignAgreement(token: string, res: Response) {
+  const pending = await prisma.pendingSignup.findUnique({ where: { signToken: token } });
+  if (!pending || pending.status === 'completed' || pending.expiresAt < new Date()) {
+    return res.status(404).json({ error: 'Sign link not found or expired' });
+  }
+  const html = buildSnapshot(pendingAgreementInputs(pending.businessName));
+  return res.json({
+    agreement: {
+      id: 'pending', clientName: pending.businessName, setupFeeGbp: 0, licenceFeeGbp: 200,
+      centresCount: 1, licences: ['assist'], goLiveDate: null, status: 'sent', type: 'saas', version: TEMPLATE_VERSION,
+    },
+    customerEmail: pending.email,
+    html,
+    css: AGREEMENT_CSS,
+  });
+}
+
+async function finalisePendingSignature(
+  token: string,
+  data: { signedByName: string; signedByPosition: string; signatureDataUrl: string; signerEmail?: string },
+  ip: string,
+  userAgent: string,
+  res: Response,
+) {
+  const pending = await prisma.pendingSignup.findUnique({ where: { signToken: token } });
+  if (!pending || pending.expiresAt < new Date()) {
+    return res.status(404).json({ error: 'Sign link not found or expired' });
+  }
+  if (pending.createdGarageId) return res.status(409).json({ error: 'Already completed' });
+
+  const now = new Date();
+  const snapshot = buildSnapshot(pendingAgreementInputs(pending.businessName), {
+    name: data.signedByName, position: data.signedByPosition, at: now, signatureImage: data.signatureDataUrl,
+  });
+
+  // Create the Stripe 14-day trial keyed to this pending signup (metadata carries pendingSignupId).
+  let checkoutClientSecret: string | null = null;
+  let stripeCustomerId: string | null = null;
+  let stripeSubscriptionId: string | null = null;
+  if (stripeConfigured()) {
+    try {
+      const trial = await createAssistTrialSubscription({
+        email: pending.email, businessName: pending.businessName, pendingSignupId: pending.id,
+      });
+      checkoutClientSecret = trial.clientSecret;
+      stripeCustomerId = trial.customerId;
+      stripeSubscriptionId = trial.subscriptionId;
+    } catch (e) {
+      console.error('[AGREEMENT_SIGN] pending Stripe trial create failed:', e);
+    }
+  }
+  const trialEndsAt = new Date(Date.now() + STRIPE_TRIAL_DAYS * 24 * 60 * 60 * 1000);
+  await prisma.pendingSignup.update({
+    where: { id: pending.id },
+    data: {
+      status: 'signed',
+      signedByName: data.signedByName,
+      signedByPosition: data.signedByPosition,
+      signatureImage: data.signatureDataUrl,
+      signedFromIp: ip,
+      signedUserAgent: userAgent.slice(0, 500),
+      signedAt: now,
+      templateSnapshot: snapshot,
+      agreementVersion: TEMPLATE_VERSION,
+      email: data.signerEmail ? data.signerEmail.toLowerCase() : pending.email,
+      stripeCustomerId,
+      stripeSubscriptionId,
+      trialEndsAt,
+    },
+  });
+
+  return res.json({
+    success: true,
+    nextStep: 'payment',
+    checkoutClientSecret,
+    passwordSetupToken: null, // account isn't created until the card confirms — set then, via /public/signup-complete
+    pendingSignupId: pending.id,
+    agreement: { id: 'pending', status: 'signed', signedAt: now, signedByName: data.signedByName },
   });
 }
 

@@ -14,7 +14,7 @@
 // in clauses 9, 12, 13 are mis-numbered) are intentional — they mirror the
 // source document verbatim. Fix the source, then bump TEMPLATE_VERSION here.
 
-export const TEMPLATE_VERSION = '1.0';
+export const TEMPLATE_VERSION = '1.1';
 
 export type LicenceTier = 'assist' | 'automate' | 'connect';
 
@@ -109,8 +109,9 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
     <h2>3. Term</h2>
     <p><strong>3.1</strong> This Agreement shall commence on the agreed &ldquo;Go Live&rdquo; date${
       inputs.goLiveDate ? ` (<strong>${fmtDate(inputs.goLiveDate)}</strong>)` : ''
-    } and continue for a rolling monthly term.</p>
-    <p><strong>3.2</strong> After the Initial Period, the Agreement shall renew automatically on a monthly rolling basis unless terminated in accordance with Clause 13.</p>
+    } and shall comprise: (a) a <strong>14-day free trial</strong>; (b) an initial fixed term of <strong>three (3) months</strong> (the &ldquo;Proof Period&rdquo;) commencing at the end of the free trial; and (c) upon expiry of the Proof Period, a <strong>minimum term of twelve (12) months</strong> (the &ldquo;Contract Term&rdquo;) into which this Agreement shall automatically continue.</p>
+    <p><strong>3.2</strong> During the free trial the Client may cancel at any time at no cost and shall not be charged. After the free trial the Client is committed to the Proof Period and the subsequent Contract Term and may terminate only in accordance with Clause 13.</p>
+    <p><strong>3.3</strong> At the end of the Contract Term, and at the end of each subsequent term, this Agreement shall renew automatically for a further fixed term of twelve (12) months unless either Party gives not less than thirty (30) days&rsquo; written notice before the end of the then-current term.</p>
 
     <p>The Provider shall:</p>
     <ol type="a">
@@ -126,22 +127,29 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
     <h2>5. Fees and Payment</h2>
     <p><strong>5.1 Setup Fee.</strong> A setup fee of <strong>${setupFeeStr}</strong> is due upon signing this Agreement.</p>
     <p>
-      <strong>5.2 Licence Fee.</strong> The subscription fee shall be <strong>${licenceFeeStr}</strong> per month per centre,
-      payable monthly in advance. The number of centres being onboarded under this Agreement is
+      <strong>5.2 Free Trial.</strong> The first fourteen (14) days from the Go Live date are provided
+      <strong>free of charge</strong>. The Client&rsquo;s payment card is securely authorised upon signing, but
+      <strong>no charge is taken during the free trial</strong>. The first monthly Licence Fee is charged on the
+      fifteenth (15th) day unless the Client cancels during the free trial, in which case no charge is made.
+    </p>
+    <p>
+      <strong>5.3 Licence Fee.</strong> Following the 14-day free trial, the subscription fee shall be
+      <strong>${licenceFeeStr}</strong> per month per centre, payable monthly in advance throughout the Proof
+      Period and the Contract Term. The number of centres being onboarded under this Agreement is
       <strong>${inputs.centresCount}</strong>, giving a total monthly subscription of
       <strong>${monthlyTotalStr}</strong> exclusive of VAT.
     </p>
     <p>The licences included under this Agreement are:</p>
     <ul>${licenceList}</ul>
 
-    <p><strong>5.3 Usage Charges.</strong></p>
+    <p><strong>5.4 Usage Charges.</strong></p>
     <ul>
       <li>The <strong>Automate</strong> licence includes 600 minutes of AI-handled calls; £0.25 per connected minute applies after the initial 600 minutes.</li>
       <li>The <strong>Assist</strong> licence includes 400 minutes of AI-handled calls; £0.25 per connected minute applies after the initial 400 minutes. Assist <strong>excludes</strong> diary integration.</li>
       <li>The <strong>Connect</strong> licence includes 500 AI messaging conversations; £0.25 per message applies thereafter. SMS charges are separate and not included within the messaging allowance; SMS messages are charged at £0.25 per message.</li>
     </ul>
 
-    <p><strong>5.4</strong> All fees are exclusive of VAT and payable within 14 days of invoice.</p>
+    <p><strong>5.5</strong> All fees are exclusive of VAT and payable within 14 days of invoice.</p>
   </section>
 
   <section>
@@ -199,11 +207,9 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
 
   <section>
     <h2>13. Termination</h2>
-    <p><strong>13.1</strong> Either Party may terminate this Agreement:</p>
-    <ol type="a">
-      <li>At any time after the Initial Period of 3 months. After this time, 30 days&rsquo; written notice is required.</li>
-    </ol>
-    <p><strong>13.2</strong> Either Party may terminate immediately if the other Party commits a material breach that remains unremedied after 10 days of written notice.</p>
+    <p><strong>13.1</strong> The Client may cancel at any time during the 14-day free trial at no cost. Thereafter the Client is committed to the Proof Period and the Contract Term and may not terminate for convenience during those periods. Should the Client cease to use the Services, or seek to exit, before the end of the then-current committed term other than for cause, the remaining Licence Fees for that term shall remain payable.</p>
+    <p><strong>13.2</strong> Following the Contract Term, and during any subsequent renewal term, either Party may terminate on not less than thirty (30) days&rsquo; written notice given before the end of the then-current term, in accordance with Clause 3.3.</p>
+    <p><strong>13.3</strong> Either Party may terminate immediately if the other Party commits a material breach that remains unremedied after 10 days of written notice, or upon the other Party&rsquo;s insolvency.</p>
   </section>
 
   <section>

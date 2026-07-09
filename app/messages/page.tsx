@@ -680,21 +680,13 @@ export default function MessagesPage() {
 
   return (
     <div className="space-y-4">
-      {/* Header with Integrations Button */}
+      {/* Header. Channel connections now live under Agent Setup > Messaging
+          (previously an "Integrations" button here). */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
           <p className="text-sm text-slate-500 mt-1">{c.subtitle}</p>
         </div>
-        <button
-          onClick={() => router.push('/integrations')}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-700 text-slate-900 rounded-lg transition-colors border border-slate-300"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          <span className="text-sm font-medium">{c.connectPlatforms}</span>
-        </button>
       </div>
 
       <div className="flex h-[calc(100vh-220px)] gap-0">

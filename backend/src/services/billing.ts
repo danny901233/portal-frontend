@@ -33,6 +33,7 @@ const getGocardlessClient = () => {
 export interface UsageSummary {
   minutesUsed: number;
   smsCount: number;
+  notificationSmsCount: number; // messaging-notification SMS sent, billed £0.20 each
 }
 
 export interface BillingCalculation {
@@ -84,8 +85,19 @@ export async function calculateUsage(
   const totalSeconds = calls.reduce((sum, call) => sum + call.durationSeconds, 0);
   const minutesUsed = Math.ceil(totalSeconds / 60);
 
-  // Calculate SMS count
+  // Calculate SMS count (booking-link SMS)
   const smsCount = await prisma.smsBookingLink.count({
+    where: {
+      garageId,
+      createdAt: {
+        gte: periodStart,
+        lte: periodEnd,
+      },
+    },
+  });
+
+  // Messaging-notification SMS actually sent this period (billed £0.20 each)
+  const notificationSmsCount = await prisma.messagingNotificationSms.count({
     where: {
       garageId,
       createdAt: {
@@ -98,6 +110,7 @@ export async function calculateUsage(
   return {
     minutesUsed,
     smsCount,
+    notificationSmsCount,
   };
 }
 
@@ -618,6 +631,8 @@ export async function generateInvoicesForUser(userId: string) {
       const overageMinutes = Math.max(0, usage.minutesUsed - garage.includedMinutes);
       const minutesAmount = Math.round(overageMinutes * garage.costPerMinuteGbp * 100);
       const smsAmount = Math.round(usage.smsCount * 0.99 * 100);
+      // Messaging-notification SMS: £0.20 each (only SMS notifications are chargeable).
+      const notificationSmsAmount = Math.round(usage.notificationSmsCount * 0.2 * 100);
 
       // Messaging subscription (webchat / WhatsApp). Billed like the voice subscription: a flat
       // monthly fee for garages with messaging access, suppressed while booking-activation is
@@ -629,7 +644,7 @@ export async function generateInvoicesForUser(userId: string) {
           ? Math.round((garage.messagingSubscriptionCostGbp || 0) * 100)
           : 0;
 
-      const subtotal = subscriptionAmount + minutesAmount + smsAmount + messagingSubscriptionAmount;
+      const subtotal = subscriptionAmount + minutesAmount + smsAmount + notificationSmsAmount + messagingSubscriptionAmount;
       const vatAmount = Math.round(subtotal * garage.vatRate);
       const total = subtotal + vatAmount;
 
@@ -653,9 +668,11 @@ export async function generateInvoicesForUser(userId: string) {
         minutesUsed: usage.minutesUsed,
         minutesIncluded: garage.includedMinutes,
         smsCount: usage.smsCount,
+        notificationSmsCount: usage.notificationSmsCount,
         subscriptionAmount,
         minutesAmount,
         smsAmount,
+        notificationSmsAmount,
         messagingSubscriptionAmount,
         subtotal,
         vatAmount,

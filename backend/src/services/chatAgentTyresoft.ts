@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
@@ -360,10 +361,10 @@ export async function getTyresoftChatResponse(
 
     const isOpen    = checkOpeningHours(config.weeklyOpeningHours);
     const session   = tsSessions.get(conversationId) || {};
-    const humanEscalation = config.humanEscalation !== false; // default ON
+    const messagingHandoff = (config as any).messagingHumanHandoff !== false; // chat handoff; default ON
     let tools       = buildTools(tsConfig);
-    if (!humanEscalation) tools = tools.filter((t) => !['ts_take_message', 'ts_request_callback'].includes((t as any).function?.name));
-    const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig, humanEscalation, tsConfig);
+    if (!messagingHandoff) tools = tools.filter((t) => !['ts_take_message', 'ts_request_callback'].includes((t as any).function?.name));
+    const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig, messagingHandoff, tsConfig);
 
     // Build message history
     const previousMessages = (await prisma.chatMessage.findMany({
@@ -510,7 +511,7 @@ function buildTools(tsConfig?: TyresoftConfig): OpenAI.Chat.ChatCompletionTool[]
       type: 'function',
       function: {
         name: 'ts_take_message',
-        description: 'Take a message from the customer when they want to speak to a human, leave a message, or make a request the AI cannot handle. Call this tool after collecting their message and phone number.',
+        description: 'Hand the customer to a human. ONLY use this when EITHER the customer explicitly asks to speak to a human, OR they make a request you genuinely cannot handle from your knowledge and tools. Do NOT use it for questions you can answer or bookings you can make yourself. Call it after collecting their message and phone number.',
         parameters: {
           type: 'object',
           properties: {
@@ -1083,6 +1084,7 @@ async function executeTool(
             },
           });
           console.log(`[TS_AGENT] Callback request logged for ${name} (${phone})`);
+          void notifyMessaging({ conversationId, event: 'escalated' });
         }
         return { success: true, message: 'Callback request logged.' };
       }
@@ -1104,6 +1106,7 @@ async function executeTool(
             data: { needsAttention: true, agentPaused: true },
           });
           console.log(`[TS_AGENT] Conversation ${conversationId} flagged as needsAttention`);
+          void notifyMessaging({ conversationId, event: 'escalated' });
         }
 
         return { success: true, message: 'Message taken. The team has been notified and will get back to you shortly.' };
@@ -1569,8 +1572,13 @@ function buildSystemPrompt(
       prompt += `  Ask for their name and best number if not already known.\n`;
       prompt += `  Call ts_request_callback, then tell them: "No problem — I've logged a callback request and someone will give you a ring shortly."\n\n`;
     } else {
-      const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
-      prompt += `- You CANNOT take messages, pass details to the team, or arrange callbacks — no one is available over chat. If the customer wants to speak to a human, leave a message, or asks for a callback, do NOT offer to; instead tell them to contact us directly${esc ? ` on ${esc}` : ''}. You can still answer their questions and book them in.\n\n`;
+      const custom = ((config as any).messagingHandoffMessage || '').trim();
+      if (custom) {
+        prompt += `- You CANNOT take messages, pass details to the team, or arrange callbacks — no one is available over chat. If the customer wants a human, to leave a message, or a callback, do NOT offer to; instead reply with this exact message: "${custom}". You can still answer their questions and book them in.\n\n`;
+      } else {
+        const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
+        prompt += `- You CANNOT take messages, pass details to the team, or arrange callbacks — no one is available over chat. If the customer wants to speak to a human, leave a message, or asks for a callback, do NOT offer to; instead tell them to contact us directly${esc ? ` on ${esc}` : ''}. You can still answer their questions and book them in.\n\n`;
+      }
     }
 
     // Active session context — show whenever there is ANY booking state

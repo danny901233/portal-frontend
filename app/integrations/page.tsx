@@ -40,7 +40,7 @@ const InstagramIcon = () => (
 );
 
 
-export default function IntegrationsPage() {
+export default function IntegrationsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const router = useRouter();
   const [connections, setConnections] = useState<SocialConnection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -375,21 +375,25 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className={embedded ? '' : 'max-w-4xl mx-auto'}>
       <div className="mb-6">
-        <button
-          onClick={() => router.push('/messages')}
-          className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors mb-4"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          <span className="text-sm">{c.backToMessages}</span>
-        </button>
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">{c.title}</h1>
-        <p className="text-slate-500">
-          {c.subtitle}
-        </p>
+        {!embedded && (
+          <>
+            <button
+              onClick={() => router.push('/messages')}
+              className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors mb-4"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="text-sm">{c.backToMessages}</span>
+            </button>
+            <h1 className="text-2xl font-bold text-slate-900 mb-2">{c.title}</h1>
+            <p className="text-slate-500">
+              {c.subtitle}
+            </p>
+          </>
+        )}
 
         {/* Tab switcher */}
         <div className="flex gap-1 mt-5 p-1 bg-slate-100 rounded-lg w-fit">

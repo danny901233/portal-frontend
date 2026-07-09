@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
+import { notifyMessaging } from '../../services/messagingNotifications.js';
 import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
 import { scheduleHumanReply } from '../../services/chatDelay.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
@@ -443,6 +444,14 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               mediaType,
               metaMid: metaMid ?? null,
             },
+          });
+
+          // Messaging notifications (scope 'all') — alert the garage about the new
+          // inbound message. No-op unless they've enabled it. Fire-and-forget.
+          void notifyMessaging({
+            conversationId: conversation.id,
+            event: 'inbound',
+            preview: messageText || (mediaUrl ? '[Image]' : ''),
           });
 
           // Check if agent pause has expired and auto-resume

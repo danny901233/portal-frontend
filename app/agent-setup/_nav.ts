@@ -3,6 +3,9 @@ export interface AgentSetupNavItem {
   label: string;
   description: string;
   staffOnly?: boolean;
+  // Only shown to garages that have the messaging (chat) product. The layout
+  // resolves access via /internal-api/garages/:id/messaging-access.
+  messagingOnly?: boolean;
 }
 
 /**
@@ -21,6 +24,7 @@ export const AGENT_SETUP_NAV: AgentSetupNavItem[] = [
   { href: '/agent-setup/questions',           label: 'Smart questions & F&Qs',     description: 'What to ask + common Q&A' },
   { href: '/agent-setup/rules',               label: 'Rules',               description: 'Custom rules the agent must follow' },
   { href: '/agent-setup/bookings-transfers',  label: 'Bookings & transfers', description: 'Booking behavior + where to send calls' },
+  { href: '/agent-setup/messaging',           label: 'Messaging',           description: 'Chat agent behaviour + connected channels', messagingOnly: true },
   { href: '/agent-setup/training',            label: 'Training',            description: 'Teach the agent about you' },
   { href: '/agent-setup/notifications',       label: 'Notifications',       description: 'Who gets emailed after a call' },
   { href: '/agent-setup/integrations',        label: 'Integrations',        description: 'HubSpot' },

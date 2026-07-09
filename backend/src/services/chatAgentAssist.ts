@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
@@ -86,7 +87,7 @@ function buildAssistTools(allowBookings: boolean, humanEscalation: boolean): Ope
       function: {
         name: 'take_message',
         description:
-          'Pass the customer to the team. Only call this AFTER you have gathered their name, best contact number, the vehicle registration (if it concerns a specific car), exactly what they need (the specific job/symptom — not just "a booking"), and any preferred timing. This is the ONLY way the team learns about the chat, so make the reason detailed.',
+          'Hand the customer to a human. ONLY call this when EITHER (a) you genuinely cannot help from your knowledge or tools, OR (b) the customer explicitly asks to speak to a human / for someone to call them back. Do NOT call it for questions you can answer or bookings you can make yourself — help with those directly. When you do use it, first gather their name, best contact number, the vehicle registration (if it concerns a specific car), exactly what they need (the specific job/symptom — not just "a booking"), and any preferred timing, then make the reason detailed.',
         parameters: {
           type: 'object',
           properties: {
@@ -148,6 +149,7 @@ async function executeAssistTool(
             where: { id: conversationId },
             data: { needsAttention: true, agentPaused: true },
           });
+          void notifyMessaging({ conversationId, event: 'escalated' });
         }
         if (name === 'book_slot') {
           return {
@@ -255,10 +257,16 @@ function buildAssistSystemPrompt(
     if (!allowBookings) {
       prompt += `- You can't access a diary, but you CAN take a message so the team calls them back to book or help.\n`;
     }
-    prompt += `- ALWAYS GATHER THE FULL PICTURE before you take a message — never fire it off with just a name and "a booking". Ask, naturally and one at a time, for: their name, best contact number, the vehicle registration (if it's about a specific car), exactly what they need (the specific job, MOT, service, or the symptom/noise — get the detail), and roughly when would suit them. THEN call take_message with a detailed reason. take_message (or book_slot) is the ONLY way the team hears about the chat.\n`;
+    prompt += `- WHEN TO HAND OVER: only take a message / involve a human when EITHER you genuinely can't help from the information and tools you have, OR the customer explicitly asks to speak to a human or for a callback. If you can answer their question${allowBookings ? ' or book them in' : ''} yourself, just do it — don't take a message.\n`;
+    prompt += `- WHEN you do take a message, GATHER THE FULL PICTURE first — never fire it off with just a name and "a booking". Ask, naturally and one at a time, for: their name, best contact number, the vehicle registration (if it's about a specific car), exactly what they need (the specific job, MOT, service, or the symptom/noise — get the detail), and roughly when would suit them. THEN call take_message with a detailed reason.\n`;
   } else {
-    const contact = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
-    prompt += `- IMPORTANT: no one is available to follow up over chat and you CANNOT take messages or promise a callback. For anything you can't answer from the information above${allowBookings ? ' or book yourself' : ''} — a complaint, a status update, speaking to a person, ${allowBookings ? '' : 'a booking, '}or anything needing a human — do NOT offer to pass it on. Politely tell them to get in touch with the garage directly${contact ? ` on ${contact}` : ''}, as no one is available over chat.\n`;
+    const custom = ((config as any).messagingHandoffMessage || '').trim();
+    if (custom) {
+      prompt += `- IMPORTANT: no one is available to follow up over chat. When the customer asks to speak to a person, wants a callback, or needs anything you can't answer${allowBookings ? ' or book yourself' : ''}, do NOT offer to take a message — reply with this exact message: "${custom}"\n`;
+    } else {
+      const contact = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
+      prompt += `- IMPORTANT: no one is available to follow up over chat and you CANNOT take messages or promise a callback. For anything you can't answer from the information above${allowBookings ? ' or book yourself' : ''} — a complaint, a status update, speaking to a person, ${allowBookings ? '' : 'a booking, '}or anything needing a human — do NOT offer to pass it on. Politely tell them to get in touch with the garage directly${contact ? ` on ${contact}` : ''}, as no one is available over chat.\n`;
+    }
   }
   prompt += `\n`;
 
@@ -293,7 +301,8 @@ export async function getAssistChatResponse(
     const config = garage.agentConfiguration;
 
     const allowBookings = config.allowBookings === true;
-    const humanEscalation = config.humanEscalation !== false; // default ON
+    // Chat-specific handoff (independent of the voice humanEscalation). Default ON.
+    const messagingHandoff = (config as any).messagingHumanHandoff !== false;
     const leadDays = Number(config.bookingLeadTimeDays ?? 1) || 1;
     const slots = allowBookings ? generateSyntheticSlots(leadDays) : [];
     const isOpen = checkOpeningHours(config.weeklyOpeningHours);
@@ -301,8 +310,8 @@ export async function getAssistChatResponse(
     const session = assistSessions.get(conversationId) || {};
     assistSessions.set(conversationId, session);
 
-    const tools = buildAssistTools(allowBookings, humanEscalation);
-    const sysPrompt = buildAssistSystemPrompt(config, garage.knowledgeDocuments, isOpen, allowBookings, slots, humanEscalation);
+    const tools = buildAssistTools(allowBookings, messagingHandoff);
+    const sysPrompt = buildAssistSystemPrompt(config, garage.knowledgeDocuments, isOpen, allowBookings, slots, messagingHandoff);
 
     const previousMessages = (
       await prisma.chatMessage.findMany({

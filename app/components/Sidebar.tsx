@@ -35,6 +35,10 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
     label: 'Réservations et transferts',
     description: 'Comportement de réservation + où diriger les appels',
   },
+  '/agent-setup/messaging': {
+    label: 'Messagerie',
+    description: "Comportement de l'agent de chat + canaux connectés",
+  },
   '/agent-setup/training': {
     label: 'Formation',
     description: 'Apprenez-en à l’agent sur vous',
@@ -72,7 +76,6 @@ const baseNavigation: NavItem[] = [
   { name: 'Templates', tKey: 'nav.templates', href: '/templates', icon: <TemplateIcon />, requiresMessaging: true },
   { name: 'Agent Configurations', tKey: 'nav.agentConfigurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
   { name: 'Team', tKey: 'nav.team', href: '/team', icon: <UsersIcon />, requiresManager: true },
-  { name: 'Integrations', tKey: 'nav.integrations', href: '/integrations', icon: <PuzzleIcon />, requiresStaff: true },
   { name: 'Observability', tKey: 'nav.observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },
   { name: 'Billing', tKey: 'nav.billing', href: '/billing', icon: <BillingIcon /> },
 ];
@@ -105,7 +108,9 @@ export default function Sidebar({
     const filteredBase = baseNavigation.filter((item) => {
       if (item.href === '/messages') return hasMessagingAccess;
       if (item.href === '/billing') return hasManagerAccess;
-      if (item.requiresManager) return isManagerUser;
+      // Branch-managers (MANAGER branch-role, global role USER) are managers of their
+      // own garage — show them the manager items too, matching how Billing gates.
+      if (item.requiresManager) return isManagerUser || hasManagerAccess;
       if (item.requiresMessaging) return hasMessagingAccess;
       if (item.requiresStaff) return showAdminLink;
       return true;
@@ -173,6 +178,7 @@ export default function Sidebar({
                 icon={item.icon}
                 name={item.tKey ? t(item.tKey) : item.name}
                 activePath={activePath}
+                hasMessagingAccess={hasMessagingAccess}
               />
             );
           }
@@ -283,10 +289,12 @@ function AgentConfigSidebarItem({
   icon,
   name,
   activePath,
+  hasMessagingAccess = false,
 }: {
   icon: React.ReactNode;
   name: string;
   activePath: string;
+  hasMessagingAccess?: boolean;
 }) {
   const lang = useLang();
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -299,7 +307,7 @@ function AgentConfigSidebarItem({
 
   const isStaff = isReceptionMateStaff();
   const setupItems: AgentSetupNavItem[] = AGENT_SETUP_NAV.filter(
-    (n) => !n.staffOnly || isStaff,
+    (n) => (!n.staffOnly || isStaff) && (!n.messagingOnly || hasMessagingAccess || isStaff),
   );
 
   const cancelClose = () => {

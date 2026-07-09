@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
@@ -1370,7 +1371,7 @@ export async function getChatAgentResponse(
     let toolsForCall = isPostBooking ? undefined : getConversationalTools();
     // Human escalation off → no message-taking; drop take_message so the model falls back to the
     // "contact the garage directly" rule in the system prompt instead.
-    if (toolsForCall && config.humanEscalation === false) {
+    if (toolsForCall && (config as any).messagingHumanHandoff === false) {
       toolsForCall = toolsForCall.filter((t) => (t as any).function?.name !== 'take_message');
     }
 
@@ -1824,7 +1825,7 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'take_message',
-        description: 'Take a message for callback when booking cannot be completed.',
+        description: 'Hand the customer to a human. ONLY use this when EITHER you genuinely cannot help (e.g. a booking truly cannot be completed, or the request is outside what you can answer/do), OR the customer explicitly asks to speak to a human / for a callback. Do NOT use it for things you can answer or book yourself.',
         parameters: {
           type: 'object',
           properties: {
@@ -3093,6 +3094,7 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
     where: { id: conversationId },
     data: { needsAttention: true },
   });
+  void notifyMessaging({ conversationId, event: 'escalated' });
   
   const serviceContext = session.serviceSelectedName ? ` about ${session.serviceSelectedName}` : '';
   return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've passed that on${serviceContext}. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'} — have a great day!"\n\nConversation complete.`;
@@ -4194,9 +4196,14 @@ RECOGNISING AFFIRMATIVE RESPONSES:
 - NEVER ask for a registration again if the customer says yes/yh/ya/ye/yep/yup to a question about their vehicle — call confirm_vehicle(confirmed=true) instead
 - If the customer has already confirmed their vehicle (CURRENT STATE shows Vehicle) and says any affirmative, proceed with the booking — do NOT restart the flow\n`;
 
-  if (config.humanEscalation === false) {
-    const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
-    prompt += `\nHUMAN ESCALATION IS OFF: You cannot take messages, pass details to the team, or arrange callbacks — the take_message tool is unavailable. Any time you would normally take a message or offer a callback (including when a booking can't be completed, a vehicle or price can't be found, or the customer asks to speak to a person), do NOT offer to take details or call back. Instead tell the customer to contact the garage directly${esc ? ` on ${esc}` : ''}, as no one is available over chat. You can still answer from your knowledge and complete bookings through the diary.\n`;
+  if ((config as any).messagingHumanHandoff === false) {
+    const custom = ((config as any).messagingHandoffMessage || '').trim();
+    if (custom) {
+      prompt += `\nMESSAGING HANDOFF IS OFF: You cannot take messages, pass details to the team, or arrange callbacks — the take_message tool is unavailable. Any time you would normally take a message or offer a callback (including when a booking can't be completed, a vehicle or price can't be found, or the customer asks to speak to a person), do NOT — instead reply with this exact message: "${custom}". You can still answer from your knowledge and complete bookings through the diary.\n`;
+    } else {
+      const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
+      prompt += `\nHUMAN ESCALATION IS OFF: You cannot take messages, pass details to the team, or arrange callbacks — the take_message tool is unavailable. Any time you would normally take a message or offer a callback (including when a booking can't be completed, a vehicle or price can't be found, or the customer asks to speak to a person), do NOT offer to take details or call back. Instead tell the customer to contact the garage directly${esc ? ` on ${esc}` : ''}, as no one is available over chat. You can still answer from your knowledge and complete bookings through the diary.\n`;
+    }
   }
 
   // Advisory upsell context — set when an outstanding health-check advisory was

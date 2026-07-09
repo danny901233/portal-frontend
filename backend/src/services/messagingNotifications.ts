@@ -9,9 +9,11 @@ const twilioClient =
   process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
     ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
     : null;
-// Reuse the shared Twilio number the rest of the platform sends from
-// (TWILIO_PHONE_NUMBER); TWILIO_SMS_FROM overrides it if ever needed.
-const SMS_FROM = process.env.TWILIO_SMS_FROM || process.env.TWILIO_PHONE_NUMBER || '';
+// Send from the same one-way alphanumeric sender ID the monitor/watchdog alerts
+// use ('RMonitor') — proven working, so it doesn't depend on a phone number being
+// SMS-capable. One-way is fine: recipients reply in the ReceptionMate inbox, not
+// by SMS. Override with TWILIO_SMS_FROM if a different sender is ever wanted.
+const SMS_FROM = process.env.TWILIO_SMS_FROM || 'RMonitor';
 
 const SMS_COST_GBP = 0.2;
 

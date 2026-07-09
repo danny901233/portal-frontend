@@ -19,7 +19,9 @@ import { ARREARS_GRACE_DAYS } from '../../utils/arrears.js';
 import { getStripeClient, STRIPE_TRIAL_DAYS } from '../../services/stripe.js';
 import { purchaseRandomTwilioNumber } from '../onboarding.js';
 import { sendAgentConfigWebhook } from '../config.js';
-import { updateOpportunity, LIVE_STAGE_ID } from '../../services/highlevel.js';
+import { updateOpportunity, LIVE_STAGE_ID, TRIAL_LIVE_STAGE_ID } from '../../services/highlevel.js';
+import { createAccountFromPending } from '../public-signup.js';
+import { sendOpsSms } from '../../utils/opsAlerts.js';
 
 const router = Router();
 
@@ -114,6 +116,37 @@ async function provisionGarageAccount(garage: { id: string; name: string }, user
 async function handleSetupIntentSucceeded(si: Stripe.SetupIntent): Promise<void> {
   const customerId = typeof si.customer === 'string' ? si.customer : si.customer?.id ?? null;
   if (!customerId) return;
+
+  // Deferred-account flow: the card belongs to a PendingSignup, not a garage yet. Create the
+  // account now (idempotent — the /public/signup-complete call may have already done it),
+  // provision, move the HL opportunity to "Free trial live", and alert the team.
+  const pending = await prisma.pendingSignup.findFirst({
+    where: { stripeCustomerId: customerId },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (pending) {
+    const created = await createAccountFromPending(pending.id);
+    if (created) {
+      const g = await prisma.garage.findUnique({ where: { id: created.garageId }, select: { twilioNumber: true } });
+      if (!g?.twilioNumber) {
+        await provisionGarageAccount({ id: created.garageId, name: created.garageName }, created.userEmail);
+      }
+      if (pending.ghlOpportunityId && TRIAL_LIVE_STAGE_ID) {
+        void updateOpportunity(pending.ghlOpportunityId, { stageId: TRIAL_LIVE_STAGE_ID, monetaryValueGbp: 200 })
+          .then((ok) => console.log(`[STRIPE_WEBHOOK] HL opp ${pending.ghlOpportunityId} → Free trial live (${ok ? 'ok' : 'failed'})`));
+      }
+      // Ops alert — a real, carded trial signup.
+      void sendEmail({
+        to: ['hello@receptionmate.co.uk'],
+        subject: `New Assist trial signup — ${created.garageName}`,
+        text: `New Assist 14-day trial signup (card confirmed).\n\nBusiness: ${created.garageName}\nEmail: ${created.userEmail}`,
+        html: `<p>New Assist 14-day trial signup 🎉 (card confirmed)</p><p>Business: <strong>${created.garageName}</strong><br/>Email: ${created.userEmail}</p>`,
+      }).catch(() => {});
+      void sendOpsSms(`New Assist trial signup 🎉\n${created.garageName}\n${created.userEmail}`);
+    }
+    return;
+  }
+
   const garage = await prisma.garage.findFirst({
     where: { stripeCustomerId: customerId },
     select: { id: true, name: true, twilioNumber: true },

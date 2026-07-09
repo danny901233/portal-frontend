@@ -11,6 +11,7 @@ import {
 } from '../../lib/api';
 import { getSessionToken } from '../../lib/auth';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import TrialCardForm from '@/app/components/TrialCardForm';
 
 export default function AgreementSignPage() {
   return (
@@ -192,6 +193,14 @@ function AgreementSignInner() {
 
   const monthlyTotal = agreement ? agreement.licenceFeeGbp * agreement.centresCount : 0;
 
+  // Set once a public-signup customer has signed: holds the SetupIntent client_secret so we render
+  // the Stripe card form (custom Payment Element) in-page instead of redirecting to stripe.com.
+  const [cardClientSecret, setCardClientSecret] = useState<string | null>(null);
+  // One-time token to set their own password after the card (custom flow → no welcome-email reliance).
+  const [cardResetToken, setCardResetToken] = useState<string | null>(null);
+  // Deferred-account flow: the account is created only after the card, via this pending id.
+  const [cardPendingId, setCardPendingId] = useState<string | null>(null);
+
   const canSubmit =
     !!agreement &&
     signedByName.trim().length > 1 &&
@@ -215,12 +224,14 @@ function AgreementSignInner() {
         ? await signAgreementByToken(token, payload)
         : await signAgreement(agreement.id, payload);
       setDone(true);
-      // Public-signup customers (magic-link path) now go to Stripe Checkout
-      // to pay for their first month before being onboarded. The backend
-      // returns the URL on the sign response.
-      const checkoutUrl = (result as { checkoutUrl?: string | null }).checkoutUrl;
-      if (token && checkoutUrl) {
-        setTimeout(() => { window.location.href = checkoutUrl; }, 1100);
+      // Public-signup customers (magic-link path) enter their card on this page via Stripe's
+      // Payment Element to start the 14-day trial — no redirect. The backend returns the
+      // SetupIntent client_secret; stashing it flips the success screen into the card form.
+      const clientSecret = (result as { checkoutClientSecret?: string | null }).checkoutClientSecret;
+      if (token && clientSecret) {
+        setCardResetToken((result as { passwordSetupToken?: string | null }).passwordSetupToken ?? null);
+        setCardPendingId((result as { pendingSignupId?: string | null }).pendingSignupId ?? null);
+        setCardClientSecret(clientSecret);
         return;
       }
       // For signed-in users (no magic-link token), continue onboarding without
@@ -279,7 +290,17 @@ function AgreementSignInner() {
             </div>
           </div>
 
-          {token ? (
+          {token && cardClientSecret ? (
+            <div className="mt-6">
+              <h2 className="text-sm font-semibold text-slate-900">Start your 14-day free trial</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Add your card to activate. You won’t be charged today — the trial is free for 14 days.
+              </p>
+              <div className="mt-4">
+                <TrialCardForm clientSecret={cardClientSecret} resetToken={cardResetToken} pendingSignupId={cardPendingId} />
+              </div>
+            </div>
+          ) : token ? (
             <>
               <div className="mt-6 rounded-2xl bg-slate-50 p-5">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{c.whatHappensNext}</p>

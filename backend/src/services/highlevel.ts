@@ -14,11 +14,15 @@ const GHL_BASE_URL = (process.env.GHL_API_BASE || 'https://services.leadconnecto
 // HighLevel pipeline IDs. Pinned via env so a rename in HL doesn't break our
 // CRM sync (and so we don't pay an API roundtrip on every opportunity create).
 //   GHL_PIPELINE_ID       — "Onboarding Newest"
-//   GHL_SIGNUP_STAGE_ID   — "Live and £££..." (paid signups land here)
+//   GHL_SIGNUP_STAGE_ID   — "Live and £££..." (converted/paid accounts land here)
 //   GHL_LEAD_STAGE_ID     — "Enquiry Received & Demo Links sent" (new leads)
+//   GHL_TRIAL_STAGE_ID    — "Free trial live" (new 14-day Assist trials land here)
 const PIPELINE_ID     = process.env.GHL_PIPELINE_ID     ?? '';
 const SIGNUP_STAGE_ID = process.env.GHL_SIGNUP_STAGE_ID ?? '';
 const LEAD_STAGE_ID   = process.env.GHL_LEAD_STAGE_ID   ?? '';
+const TRIAL_STAGE_ID  = process.env.GHL_TRIAL_STAGE_ID  ?? '';
+// The "Live and £££" stage an opportunity is promoted to once the trial converts.
+export const LIVE_STAGE_ID = SIGNUP_STAGE_ID;
 
 const HEADERS = {
   Authorization: `Bearer ${GHL_PIT}`,
@@ -40,6 +44,7 @@ export interface UpsertContactArgs {
   email: string;
   phone?: string;
   companyName: string;
+  website?: string;
   source?: string;
   tags?: string[];
 }
@@ -67,6 +72,7 @@ export async function upsertContact(args: UpsertContactArgs): Promise<ContactRes
     tags: args.tags ?? ['website-lead'],
   };
   if (args.phone) body.phone = args.phone;
+  if (args.website) body.website = args.website;
 
   try {
     const res = await fetch(`${GHL_BASE_URL}/contacts/upsert`, {
@@ -87,7 +93,7 @@ export async function upsertContact(args: UpsertContactArgs): Promise<ContactRes
   }
 }
 
-export type OpportunityKind = 'signup' | 'lead';
+export type OpportunityKind = 'signup' | 'lead' | 'trial';
 
 export interface CreateOpportunityArgs {
   contactId: string;
@@ -102,7 +108,10 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
     console.warn('[HL] skipping opportunity — set GHL_PIPELINE_ID / GHL_SIGNUP_STAGE_ID / GHL_LEAD_STAGE_ID in env.');
     return { id: null };
   }
-  const stageId = args.kind === 'signup' ? SIGNUP_STAGE_ID : LEAD_STAGE_ID;
+  const stageId =
+    args.kind === 'signup' ? SIGNUP_STAGE_ID :
+    args.kind === 'trial'  ? (TRIAL_STAGE_ID || SIGNUP_STAGE_ID) :
+    LEAD_STAGE_ID;
 
   const body: Record<string, unknown> = {
     pipelineId: PIPELINE_ID,
@@ -133,32 +142,68 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
   }
 }
 
+// Move an existing opportunity to a different stage (and optionally update its
+// value). Used to promote a trial opportunity to "Live and £££" on conversion.
+// Tolerant: logs + returns false on failure, never throws.
+export async function updateOpportunity(
+  opportunityId: string,
+  args: { stageId?: string; monetaryValueGbp?: number; status?: string },
+): Promise<boolean> {
+  if (!highlevelConfigured() || !opportunityId) return false;
+  const body: Record<string, unknown> = {};
+  if (args.stageId) body.pipelineStageId = args.stageId;
+  if (typeof args.monetaryValueGbp === 'number') body.monetaryValue = args.monetaryValueGbp;
+  if (args.status) body.status = args.status;
+  if (Object.keys(body).length === 0) return false;
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/opportunities/${opportunityId}`, {
+      method: 'PUT',
+      headers: HEADERS,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`[HL] opportunity update failed ${res.status}:`, text.slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[HL] opportunity update threw:', err);
+    return false;
+  }
+}
+
 // Convenience helper: upsert a contact and create an opportunity in one go.
 // Both calls are tolerant — failures log + return null but never throw.
+// Returns the created opportunity id (so callers can store it and promote the
+// opportunity later, e.g. when a trial converts to paid).
 export async function pushSignupToHighlevel(args: {
   name: string;
   email: string;
   phone?: string;
   companyName: string;
+  website?: string;
   source: string;
   tags?: string[];
   opportunityName: string;
   monetaryValueGbp?: number;
   kind: OpportunityKind;
-}): Promise<void> {
+}): Promise<{ opportunityId: string | null }> {
   const contact = await upsertContact({
     name: args.name,
     email: args.email,
     phone: args.phone,
     companyName: args.companyName,
+    website: args.website,
     source: args.source,
     tags: args.tags,
   });
-  if (!contact.contactId) return;
-  await createOpportunity({
+  if (!contact.contactId) return { opportunityId: null };
+  const opp = await createOpportunity({
     contactId: contact.contactId,
     name: args.opportunityName,
     monetaryValueGbp: args.monetaryValueGbp,
     kind: args.kind,
   });
+  return { opportunityId: opp.id };
 }

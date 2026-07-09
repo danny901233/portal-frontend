@@ -17,6 +17,7 @@ model Garage {
   stripeCustomerId     String?
   stripeSubscriptionId String?
   trialEndsAt          DateTime?
+  ghlOpportunityId     String?   // HighLevel opportunity for this account (created at trial signup, promoted to "Live" on conversion)
   hasMessagingAccess Boolean @default(false)
 
   // Billing Configuration

@@ -245,17 +245,26 @@ router.post('/public-signup', async (req: Request, res: Response) => {
       console.error('[PUBLIC_SIGNUP] sign-agreement email failed:', error);
     });
 
-    // 6. Fire-and-forget HighLevel push — contact + opportunity in the
-    //    "Onboarding Newest" pipeline so the team can track new accounts.
+    // 6. HighLevel push — contact + opportunity in the "Free trial live" stage of
+    //    the "Onboarding Newest" pipeline. Store the opportunity id so the Stripe
+    //    webhook can promote it to "Live and £££" when the 14-day trial converts.
     void pushSignupToHighlevel({
       name: name || businessName,
       email: normalizedEmail,
+      phone: phoneNumber ?? undefined,
       companyName: businessName,
+      website: websiteUrl ?? undefined,
       source: 'website-getstarted-assist',
-      tags: ['website-signup', 'assist'],
-      opportunityName: `${businessName} — Assist signup`,
+      tags: ['website-signup', 'assist', 'trial'],
+      opportunityName: `${businessName} — Assist 14-day trial (£${ASSIST_DEFAULTS.subscriptionCostGbp}/mo per branch)`,
       monetaryValueGbp: ASSIST_DEFAULTS.subscriptionCostGbp,
-      kind: 'signup',
+      kind: 'trial',
+    }).then((r) => {
+      if (r.opportunityId) {
+        prisma.garage
+          .update({ where: { id: garage.id }, data: { ghlOpportunityId: r.opportunityId } })
+          .catch((e) => console.error('[PUBLIC_SIGNUP] failed to store ghlOpportunityId:', e));
+      }
     });
 
     console.log(`[PUBLIC_SIGNUP] created account: ${normalizedEmail} → ${businessName} (garage=${garage.id}, agreement=${agreement.id})`);

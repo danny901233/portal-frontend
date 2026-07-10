@@ -214,7 +214,7 @@ export default function TeamPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
           <p className="text-sm text-slate-500 mt-1">{c.subtitle}</p>
@@ -239,7 +239,8 @@ export default function TeamPage() {
         ) : members.length === 0 ? (
           <div className="flex items-center justify-center py-16 text-slate-500 text-sm">{c.noMembers}</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px] md:min-w-0">
             <thead>
               <tr className="border-b border-slate-200 text-left">
                 <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{c.colEmail}</th>
@@ -302,6 +303,7 @@ export default function TeamPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

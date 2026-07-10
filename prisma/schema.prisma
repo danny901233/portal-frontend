@@ -12,20 +12,12 @@ model Garage {
   id                 String  @id @default(uuid())
   name               String
   twilioNumber       String?
-  // Stripe billing (NEW Assist self-serve signups only — 14-day trial then monthly card
-  // subscription). Existing customers stay on GoCardless Direct Debit and never get these set.
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
-  trialEndsAt          DateTime?
-  ghlOpportunityId     String?   // HighLevel opportunity for this account (created at trial signup, promoted to "Live" on conversion)
   hasMessagingAccess Boolean @default(false)
 
-  // Arrears / access gating. accessRestricted (manual or auto) withholds call content and
-  // shows the portal payment blocker. paymentFailedAt starts the 2-day arrears timer on a
-  // failed Stripe card charge; once past grace the backstop sweep flips accessRestricted.
-  // Both cleared on a successful payment. Stripe-only (GoCardless billing is separate).
-  accessRestricted   Boolean   @default(false)
-  paymentFailedAt    DateTime?
+  // Arrears / access gating: when true, this garage's OWN users see only date+tag for
+  // their calls (caller name/number, summary, transcript and recordings are withheld),
+  // and per-call emails become an "account in arrears" notice. Internal staff are unaffected.
+  accessRestricted   Boolean @default(false)
 
   // Billing Configuration
   subscriptionCostGbp Float @default(0)
@@ -44,6 +36,18 @@ model Garage {
   bookingsRequiredForActivation Int       @default(4)
   activationBookingsCount       Int       @default(0)
   subscriptionActivatedAt       DateTime?
+
+  // Stripe billing (NEW Assist self-serve signups only — 14-day trial then monthly card
+  // subscription). Existing customers stay on GoCardless Direct Debit and never get these set.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  trialEndsAt          DateTime?
+  ghlOpportunityId     String?
+
+  // Arrears timer: set when a Stripe card charge fails. Once this is older than the grace
+  // period (2 days) the garage is auto-locked (accessRestricted = true). Cleared when a
+  // payment succeeds. Only ever set for Stripe customers (GoCardless billing is separate).
+  paymentFailedAt      DateTime?
 
   // Setup Wizard
   setupWizardCompleted   Boolean   @default(false)
@@ -176,6 +180,11 @@ model User {
   // In-portal support chat with the ReceptionMate team
   supportConversation SupportConversation?
   supportMessages     SupportMessage[]
+
+  // Mobile push notifications (iOS APNs device tokens). One user may have
+  // several devices; tokens are registered by the mobile app on launch.
+  deviceTokens String[] @default([])
+  pushEnabled  Boolean  @default(true)
 }
 
 // Lightweight inbound-support chat between a portal user (the customer) and
@@ -324,19 +333,17 @@ model AgentConfiguration {
   agentScript               String   @default("receptionmate-agent")
   enableSmsBookingLinks     Boolean  @default(true)
   humanEscalation           Boolean  @default(true)
+  transferNumber            String?
   // Messaging (chat) human handoff — independent of the voice humanEscalation above.
   // true  = the chat agent offers to take a message / flag the team when a human is asked for.
   // false = the chat agent politely declines and points them at phone/email (messagingHandoffMessage).
   messagingHumanHandoff     Boolean  @default(true)
   messagingHandoffMessage   String?
-  // Messaging notifications: when to alert the garage about chat activity and how.
-  // scope: "off" | "escalated" (only when a chat is handed to a human) | "all"
-  //        (every inbound customer message, including AI-handled).
+  // Messaging notifications: when to alert the garage and how.
   messagingNotifyScope      String   @default("off")
   messagingNotifyEmail      Boolean  @default(false)
   messagingNotifySms        Boolean  @default(false)
-  messagingNotifyPhone      String?  // SMS recipient number (E.164). SMS billed at £0.20 each.
-  transferNumber            String?
+  messagingNotifyPhone      String?
   allowBookings             Boolean  @default(false)
   bookingLeadTimeDays       Int      @default(1)
   customRules               Json?
@@ -390,7 +397,6 @@ model SmsBookingLink {
 }
 
 // One row per messaging-notification SMS actually sent, for billing (£0.20 each).
-// Standalone (garageId is a plain id, no relation) so it doesn't touch the Garage model.
 model MessagingNotificationSms {
   id               String   @id @default(cuid())
   garageId         String
@@ -592,8 +598,10 @@ model OutboundCampaign {
   garage            Garage            @relation(fields: [garageId], references: [id], onDelete: Cascade)
   name              String
   channel           String            @default("sms") // "sms" | "whatsapp"
-  status            String            @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed"
+  status            String            @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed" | "queued"
   sentAt            DateTime?
+  resumeAt          DateTime?
+  tierLimit         Int               @default(250)
   totalContacts     Int               @default(0)
   sentCount         Int               @default(0)
   messageTemplateId String? // Optional: ID of MessageTemplate to use

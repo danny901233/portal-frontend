@@ -3,6 +3,7 @@ import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
+import { notifyFlaggedConversation } from '../utils/push.js';
 
 // ── Assist chat agent ───────────────────────────────────────────────────────
 // The chat counterpart of the optimised-assist VOICE agent: message-taking, plus SYNTHETIC-slot
@@ -149,6 +150,7 @@ async function executeAssistTool(
             where: { id: conversationId },
             data: { needsAttention: true, agentPaused: true },
           });
+          void notifyFlaggedConversation(conversationId);
           void notifyMessaging({ conversationId, event: 'escalated' });
         }
         if (name === 'book_slot') {

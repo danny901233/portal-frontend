@@ -5,6 +5,7 @@ import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
 import { getVehicleAdvisories } from './garageHiveBc.js';
+import { notifyFlaggedConversation } from '../utils/push.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -3094,8 +3095,9 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
     where: { id: conversationId },
     data: { needsAttention: true },
   });
+  void notifyFlaggedConversation(conversationId);
   void notifyMessaging({ conversationId, event: 'escalated' });
-  
+
   const serviceContext = session.serviceSelectedName ? ` about ${session.serviceSelectedName}` : '';
   return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've passed that on${serviceContext}. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'} — have a great day!"\n\nConversation complete.`;
 }

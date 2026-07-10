@@ -273,6 +273,7 @@ export default function MessagesPage() {
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [showPauseDropdown, setShowPauseDropdown] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showTaggingPanel, setShowTaggingPanel] = useState(false);
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean | null>(null);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -327,12 +328,38 @@ export default function MessagesPage() {
   };
   const imageInputRef = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Tracks whether the user is at (or very near) the bottom of the thread.
+  // Updated on scroll. Used to decide whether polling updates should force-
+  // scroll to the newest message or leave the user where they are back-reading.
+  const isAtBottomRef = useRef(true);
 
+  const handleMessagesScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const threshold = 100; // px from bottom counts as "at bottom"
+    isAtBottomRef.current =
+      container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+  };
+
+  // When a conversation is opened (or switched), always jump to the newest
+  // message. Reset the at-bottom tracker so subsequent polling updates behave
+  // correctly.
   useLayoutEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
-  }, [selectedConversation?.messages]);
+    isAtBottomRef.current = true;
+  }, [selectedConversation?.id]);
+
+  // On new message polling updates, only auto-scroll if the user was already
+  // at the bottom — respect the user's position if they're back-reading.
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    if (isAtBottomRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [selectedConversation?.messages?.length]);
 
   useEffect(() => {
     const garageId = getGarageId();
@@ -646,6 +673,29 @@ export default function MessagesPage() {
     }
   };
 
+  const markAsUnread = async () => {
+    if (!selectedConversation) return;
+    try {
+      const token = getSessionToken();
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ unreadCount: 1 }),
+        }
+      );
+      if (!response.ok) throw new Error('Failed to mark as unread');
+      setSelectedConversation({ ...selectedConversation, unreadCount: 1 });
+      await fetchConversations();
+    } catch (error) {
+      console.error('Error marking as unread:', error);
+    }
+  };
+
   useEffect(() => {
     if (!selectedGarageId) return;
 
@@ -729,16 +779,19 @@ export default function MessagesPage() {
     <div className="space-y-4">
       {/* Header. Channel connections now live under Agent Setup > Messaging
           (previously an "Integrations" button here). */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
           <p className="text-sm text-slate-500 mt-1">{c.subtitle}</p>
         </div>
       </div>
 
-      <div className="flex h-[calc(100vh-220px)] gap-0">
-        {/* Left Sidebar - Conversations List */}
-        <div className="w-96 bg-white border border-slate-200 rounded-l-lg flex flex-col">
+      <div className="flex flex-col md:flex-row h-[calc(100dvh-13rem)] md:h-[calc(100vh-220px)] gap-0">
+        {/* Left Sidebar - Conversations List (single-pane on mobile: hidden once a chat is open) */}
+        <div className={cn(
+          'w-full md:w-96 flex-1 min-h-0 md:flex-none md:h-auto md:max-h-none bg-white border border-slate-200 rounded-2xl md:rounded-l-2xl md:rounded-tr-none md:rounded-br-none flex-col shadow-sm shadow-slate-900/5',
+          selectedConversation ? 'hidden md:flex' : 'flex'
+        )}>
           {/* Search and Filters */}
           <div className="p-4 border-b border-slate-200">
           <div className="flex gap-2 mb-4">
@@ -748,7 +801,7 @@ export default function MessagesPage() {
                 placeholder={c.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 pl-10 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-4 py-2 pl-10 bg-white border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
               />
               <svg className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -782,7 +835,7 @@ export default function MessagesPage() {
                         className={cn(
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'all'
-                            ? 'bg-purple-600 text-white'
+                            ? 'bg-brand-600 text-white'
                             : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
@@ -841,7 +894,7 @@ export default function MessagesPage() {
                         className={cn(
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'instagram'
-                            ? 'bg-purple-600 text-white'
+                            ? 'bg-brand-600 text-white'
                             : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
@@ -867,13 +920,13 @@ export default function MessagesPage() {
               className={cn(
                 'pb-2 px-1 text-sm font-medium transition-colors relative',
                 viewMode === 'active'
-                  ? 'text-green-400'
+                  ? 'text-brand-600'
                   : 'text-slate-500 hover:text-slate-600'
               )}
             >
               {c.tabActive}
               {viewMode === 'active' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-400" />
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600" />
               )}
             </button>
             <button
@@ -923,72 +976,80 @@ export default function MessagesPage() {
                 key={conv.id}
                 onClick={() => fetchConversationDetail(conv.id)}
                 className={cn(
-                  'p-4 border-b border-slate-200 cursor-pointer transition-colors hover:bg-slate-50',
+                  'relative flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-3.5 transition-colors hover:bg-slate-50',
                   selectedConversation?.id === conv.id && 'bg-slate-50',
-                  conv.needsAttention && 'border-l-4 border-l-orange-500'
                 )}
               >
-                <div className="flex items-start gap-3">
-                  <div className={cn(
-                    'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0',
-                    PLATFORM_COLORS[conv.platform as keyof typeof PLATFORM_COLORS]
-                  )}>
-                    {getInitials(conv.customerName || conv.customerPhone || conv.customerId || 'UK')}
+                {conv.needsAttention && (
+                  <span aria-hidden className="absolute inset-y-2.5 left-0 w-1 rounded-r-full bg-orange-500" />
+                )}
+                <div className={cn(
+                  'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-2',
+                  conv.platform === 'whatsapp' ? 'bg-emerald-100 text-emerald-800 ring-emerald-200' :
+                  conv.platform === 'facebook' ? 'bg-blue-100 text-blue-800 ring-blue-200' :
+                  conv.platform === 'instagram' ? 'bg-pink-100 text-pink-800 ring-pink-200' :
+                  'bg-slate-100 text-slate-500 ring-slate-200'
+                )}>
+                  {getInitials(conv.customerName || conv.customerPhone || conv.customerId || 'UK')}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="truncate text-[15px] font-semibold text-slate-900">
+                      {conv.customerName || conv.customerPhone || conv.customerId || c.unknown}
+                    </h3>
+                    <span className="shrink-0 text-xs text-slate-400">{formatTime(conv.lastMessageAt)}</span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-1">
-                      <h3 className="font-medium text-slate-900 text-sm truncate">
-                        {conv.customerName || conv.customerPhone || conv.customerId || c.unknown}
-                      </h3>
-                      <span className="text-xs text-slate-500 ml-2 flex-shrink-0">{formatTime(conv.lastMessageAt)}</span>
-                    </div>
-                    <p className="text-xs text-slate-500 truncate mb-2">
-                      {conv.messages[0]?.content || c.noMessages}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {/* Show all platforms if merged */}
-                      {conv.platforms && conv.platforms.length > 1 ? (
-                        <div className="flex gap-1">
+                  {conv.customerPhone && conv.customerName && (
+                    <p className="truncate text-[11px] text-slate-400">+{conv.customerPhone}</p>
+                  )}
+                  <p className="mt-0.5 truncate text-[13px] text-slate-500">
+                    {conv.messages[0]?.content || c.noMessages}
+                  </p>
+                  {(conv.platforms && conv.platforms.length > 1) || conv.unreadCount > 0 ? (
+                    <div className="mt-1.5 flex items-center gap-2">
+                      {conv.platforms && conv.platforms.length > 1 && (
+                        <div className="flex gap-1.5">
                           {conv.platforms.map((p) => {
                             const IconComponent = PLATFORM_ICONS[p as keyof typeof PLATFORM_ICONS];
                             return IconComponent ? (
                               <span key={p} className={cn(
-                                'p-1 rounded',
-                                p === 'whatsapp' && 'text-green-400',
-                                p === 'facebook' && 'text-blue-400',
-                                p === 'instagram' && 'text-purple-400'
+                                p === 'whatsapp' && 'text-emerald-600',
+                                p === 'facebook' && 'text-blue-600',
+                                p === 'instagram' && 'text-pink-600'
                               )}>
                                 <IconComponent />
                               </span>
                             ) : null;
                           })}
                         </div>
-                      ) : (
-                        <span className={cn(
-                          'text-xs px-2 py-0.5 rounded-full',
-                          conv.platform === 'whatsapp' && 'bg-green-500/20 text-green-300',
-                          conv.platform === 'facebook' && 'bg-blue-500/20 text-blue-300',
-                          conv.platform === 'instagram' && 'bg-purple-500/20 text-purple-300'
-                        )}>
-                          {c.lead}
-                        </span>
                       )}
                       {conv.unreadCount > 0 && (
-                        <span className="w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                        <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-600 px-1.5 text-xs font-semibold text-white">
                           {conv.unreadCount}
                         </span>
                       )}
                     </div>
-                  </div>
+                  ) : null}
                 </div>
               </div>
             ))
           )}
         </div>
+        {/* Platform legend */}
+        <div className="border-t border-slate-100 bg-slate-50 px-3 py-2">
+          <div className="flex items-center justify-around text-[10px] font-medium uppercase tracking-widest text-slate-400">
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> WhatsApp</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> Facebook</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-pink-500" /> Instagram</span>
+          </div>
+        </div>
       </div>
 
-      {/* Right Panel - Conversation Detail */}
-      <div className="flex-1 bg-white border border-l-0 border-slate-200 rounded-r-lg flex flex-col">
+      {/* Right Panel - Conversation Detail (single-pane on mobile: shown only when a chat is open) */}
+      <div className={cn(
+        'flex-1 min-h-0 md:h-auto bg-white border border-slate-200 md:border-t md:border-l-0 rounded-2xl md:rounded-b-none md:rounded-l-none md:rounded-r-2xl flex-col shadow-sm shadow-slate-900/5',
+        selectedConversation ? 'flex' : 'hidden md:flex'
+      )}>
         {!selectedConversation ? (
           <div className="flex-1 flex items-center justify-center text-slate-500">
             <div className="text-center">
@@ -999,8 +1060,18 @@ export default function MessagesPage() {
         ) : (
           <>
             {/* Conversation Header */}
-            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+            <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedConversation(null)}
+                  className="md:hidden -ml-1 rounded-full p-1 text-slate-500 transition-colors hover:bg-slate-100"
+                  aria-label="Back to conversations"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-6 w-6">
+                    <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 0 1 0 1.06L9.08 10l3.71 3.71a.75.75 0 1 1-1.06 1.06l-4.24-4.24a.75.75 0 0 1 0-1.06l4.24-4.24a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+                  </svg>
+                </button>
                 <div className={cn(
                   'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium',
                   PLATFORM_COLORS[selectedConversation.platform as keyof typeof PLATFORM_COLORS]
@@ -1014,6 +1085,9 @@ export default function MessagesPage() {
                      selectedConversation.customerId ||
                      c.unknown}
                   </h2>
+                  {selectedConversation.customerPhone && selectedConversation.customerName && (
+                    <p className="text-xs text-slate-400">+{selectedConversation.customerPhone}</p>
+                  )}
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1 text-xs text-slate-500">
                       {(() => {
@@ -1046,117 +1120,125 @@ export default function MessagesPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={toggleFlag}
-                  className={cn(
-                    'px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5',
-                    selectedConversation.needsAttention
-                      ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-slate-600'
-                  )}
-                  title={selectedConversation.needsAttention ? c.removeFlag : c.flagForAttention}
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clipRule="evenodd" />
-                  </svg>
-                  {selectedConversation.needsAttention ? c.flagged : c.flag}
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Status chip: shows current agent state */}
+                {selectedConversation.agentPaused ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700 ring-1 ring-orange-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+                    {c.agentPaused}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {c.agentActive}
+                  </span>
+                )}
 
-                <button
-                  onClick={() => setShowTaggingPanel(!showTaggingPanel)}
-                  className={cn(
-                    'px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5',
-                    showTaggingPanel
-                      ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-slate-600'
-                  )}
-                  title={c.toggleTagsPanel}
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                  </svg>
-                  {c.tags}
-                </button>
-
-                {/* Pause Agent Button with Dropdown */}
+                {/* Primary action: Pause / Resume */}
                 {selectedConversation.agentPaused ? (
                   <button
                     onClick={() => toggleAgent()}
-                    className="px-3 py-1.5 text-sm rounded-md transition-colors bg-green-600 hover:bg-green-700 text-white"
+                    className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:border-emerald-500"
                   >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
                     {c.resumeAgent}
                   </button>
                 ) : (
                   <div className="relative">
                     <button
                       onClick={() => setShowPauseDropdown(!showPauseDropdown)}
-                      className="px-3 py-1.5 text-sm rounded-md transition-colors bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-1"
+                      className="inline-flex items-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:border-orange-500"
                     >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 9v6m-4.5 0V9M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
                       {c.pauseAgent}
-                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                       </svg>
                     </button>
-
                     {showPauseDropdown && (
                       <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setShowPauseDropdown(false)}
-                        />
-                        <div className="absolute right-0 mt-2 w-48 bg-slate-100 border border-slate-300 rounded-lg shadow-xl z-20">
-                          <div className="p-2">
-                            <button
-                              onClick={() => toggleAgent(2)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
-                            >
-                              {c.pause2h}
-                            </button>
-                            <button
-                              onClick={() => toggleAgent(4)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
-                            >
-                              {c.pause4h}
-                            </button>
-                            <button
-                              onClick={() => toggleAgent(8)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
-                            >
-                              {c.pause8h}
-                            </button>
-                            <button
-                              onClick={() => toggleAgent(24)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-600 hover:bg-slate-700 transition-colors"
-                            >
-                              {c.pause24h}
-                            </button>
-                          </div>
+                        <div className="fixed inset-0 z-10" onClick={() => setShowPauseDropdown(false)} />
+                        <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg shadow-slate-900/10 z-20">
+                          <button onClick={() => toggleAgent(2)} className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">{c.pause2h}</button>
+                          <button onClick={() => toggleAgent(4)} className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">{c.pause4h}</button>
+                          <button onClick={() => toggleAgent(8)} className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">{c.pause8h}</button>
+                          <button onClick={() => toggleAgent(24)} className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">{c.pause24h}</button>
                         </div>
                       </>
                     )}
                   </div>
                 )}
-                {selectedConversation.status === 'active' ? (
+
+                {/* Kebab menu: Unread, Flag, Tags, Resolve */}
+                <div className="relative">
                   <button
-                    onClick={() => updateConversationStatus('resolved')}
-                    className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors"
+                    onClick={() => setShowMoreMenu(!showMoreMenu)}
+                    className="rounded-md border border-slate-300 bg-white p-1.5 text-slate-600 hover:border-slate-500 hover:text-slate-900"
+                    title="More actions"
                   >
-                    {c.resolve}
+                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                    </svg>
                   </button>
-                ) : (
-                  <button
-                    onClick={() => updateConversationStatus('active')}
-                    className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors"
-                  >
-                    {c.reopen}
-                  </button>
-                )}
+                  {showMoreMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowMoreMenu(false)} />
+                      <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg shadow-slate-900/10 z-20">
+                        <button
+                          onClick={() => { setShowMoreMenu(false); markAsUnread(); }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                        >
+                          <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+                          Mark as unread
+                        </button>
+                        <button
+                          onClick={() => { setShowMoreMenu(false); toggleFlag(); }}
+                          className={cn(
+                            'flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-50',
+                            selectedConversation.needsAttention ? 'text-orange-700' : 'text-slate-700'
+                          )}
+                        >
+                          <svg className={cn('h-4 w-4', selectedConversation.needsAttention ? 'text-orange-500' : 'text-slate-400')} fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clipRule="evenodd" /></svg>
+                          {selectedConversation.needsAttention ? c.removeFlag : c.flagForAttention}
+                        </button>
+                        <button
+                          onClick={() => { setShowMoreMenu(false); setShowTaggingPanel(!showTaggingPanel); }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                        >
+                          <svg className="h-4 w-4 text-slate-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg>
+                          {c.tags}
+                        </button>
+                        <div className="my-1 h-px bg-slate-100" />
+                        {selectedConversation.status === 'active' ? (
+                          <button
+                            onClick={() => { setShowMoreMenu(false); updateConversationStatus('resolved'); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            {c.resolve}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => { setShowMoreMenu(false); updateConversationStatus('active'); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-brand-700 hover:bg-brand-50"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                            {c.reopen}
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Messages */}
-            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-50">
+            <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-50">
               {(() => {
                 const msgItems = (selectedConversation.messages || [])
                   .filter((message) => !message.content?.startsWith('[Context:'))
@@ -1211,10 +1293,10 @@ export default function MessagesPage() {
                   </div>
                   <div
                     className={cn(
-                      'max-w-md px-4 py-2 rounded-lg',
+                      'max-w-md px-4 py-2.5',
                       message.role === 'user'
-                        ? 'bg-slate-100 text-slate-900'
-                        : 'bg-purple-600 text-white'
+                        ? 'rounded-2xl rounded-bl-md border border-slate-200 bg-white text-slate-900 shadow-sm'
+                        : 'rounded-2xl rounded-br-md bg-brand-600 text-white shadow-sm shadow-brand-600/20'
                     )}
                   >
                     {message.mediaUrl && message.mediaType?.startsWith('image/') && (
@@ -1285,7 +1367,7 @@ export default function MessagesPage() {
                         </button>
                       </div>
                     )}
-                    <div className="flex gap-2">
+                    <div className="rounded-xl border border-slate-300 bg-white transition focus-within:border-brand-600 focus-within:ring-1 focus-within:ring-brand-600">
                       <input
                         ref={imageInputRef}
                         type="file"
@@ -1293,16 +1375,6 @@ export default function MessagesPage() {
                         onChange={handleImageSelect}
                         className="hidden"
                       />
-                      <button
-                        onClick={() => imageInputRef.current?.click()}
-                        disabled={sending || sendingImage}
-                        className="px-3 py-2 bg-slate-100 border border-slate-300 hover:bg-slate-700 text-slate-600 rounded-lg transition-colors disabled:opacity-50"
-                        title={c.attachImage}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </button>
                       <input
                         type="text"
                         value={messageInput}
@@ -1310,19 +1382,31 @@ export default function MessagesPage() {
                         onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (selectedImage ? sendImage() : sendMessage())}
                         placeholder={selectedImage ? c.addCaption : c.writeMessage}
                         maxLength={1600}
-                        className="flex-1 px-4 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        className="w-full border-0 bg-transparent px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-0"
                         disabled={sending || sendingImage}
                       />
-                      <button
-                        onClick={selectedImage ? sendImage : sendMessage}
-                        disabled={(sending || sendingImage) || (!selectedImage && !messageInput.trim())}
-                        className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {sendingImage ? c.sending : sending ? c.sending : c.send}
-                      </button>
-                    </div>
-                    <div className="text-right text-xs text-slate-500 mt-1">
-                      {messageInput.length} / 1600
+                      <div className="flex items-center justify-between border-t border-slate-100 px-2 py-1.5">
+                        <button
+                          onClick={() => imageInputRef.current?.click()}
+                          disabled={sending || sendingImage}
+                          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                          title={c.attachImage}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[11px] tabular-nums text-slate-400">{messageInput.length} / 1600</span>
+                          <button
+                            onClick={selectedImage ? sendImage : sendMessage}
+                            disabled={(sending || sendingImage) || (!selectedImage && !messageInput.trim())}
+                            className="inline-flex items-center gap-1 rounded-md bg-brand-600 hover:bg-brand-700 px-4 py-1.5 text-xs font-semibold text-white shadow-sm shadow-brand-600/20 transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:bg-brand-200"
+                          >
+                            {sendingImage ? c.sending : sending ? c.sending : c.send}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </>
                 )}

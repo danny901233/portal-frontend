@@ -1443,7 +1443,7 @@ export default function AgentConfigurationsPage() {
 
   if (!hasGarage) {
     return (
-      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-700">
         {c.noGarage}
       </div>
     );
@@ -1451,7 +1451,7 @@ export default function AgentConfigurationsPage() {
 
   if (query.isLoading) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-300">
+      <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-700">
         {c.loading}
       </div>
     );
@@ -1461,15 +1461,15 @@ export default function AgentConfigurationsPage() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-50">{c.pageTitle}</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-2xl font-semibold text-slate-900">{c.pageTitle}</h1>
+          <p className="text-sm text-slate-600">
             {c.pageSubtitle}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className="rounded-md border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-slate-50 disabled:opacity-60"
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-60"
             onClick={() => {
               setFeedback(null);
               setIsEditing((state) => {
@@ -1487,26 +1487,26 @@ export default function AgentConfigurationsPage() {
       </header>
 
       {ghMisconfigWarning && (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700">
           <span className="font-semibold">{c.configWarningLabel}</span>
           {ghMisconfigWarning}
         </div>
       )}
 
       {feedback ? (
-        <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
           {feedback}
         </div>
       ) : null}
 
       <form onSubmit={onSubmit} className="space-y-8">
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-          <h2 className="text-lg font-semibold text-slate-100">{c.branchDetails}</h2>
-          <p className="mt-1 text-sm text-slate-400">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+          <h2 className="text-lg font-semibold text-slate-900">{c.branchDetails}</h2>
+          <p className="mt-1 text-sm text-slate-600">
             {c.branchDetailsDesc}
           </p>
           <div className="mt-6 grid gap-5 md:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.branchName}</span>
               <input
                 type="text"
@@ -1514,41 +1514,41 @@ export default function AgentConfigurationsPage() {
                 onChange={handleInputChange('branchName')}
                 disabled={!isEditing || mutation.isPending}
                 required
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.branchPhone}</span>
               <input
                 type="text"
                 value={formState.phoneNumber}
                 onChange={handleInputChange('phoneNumber')}
                 disabled={!isEditing || mutation.isPending}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.rmNumber}</span>
               <input
                 type="text"
                 value={twilioNumber}
                 readOnly
                 placeholder={c.notAssignedYet}
-                className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-400 focus:border-slate-700 focus:outline-none"
+                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 focus:border-slate-300 focus:outline-none"
               />
               <span className="text-[11px] text-slate-500">{c.managedByStaff}</span>
             </label>
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.primaryEmail}</span>
               <input
                 type="email"
                 value={formState.emailAddress}
                 onChange={handleInputChange('emailAddress')}
                 disabled={!isEditing || mutation.isPending}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.websiteUrl}</span>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
@@ -1556,7 +1556,7 @@ export default function AgentConfigurationsPage() {
                   value={formState.websiteUrl}
                   onChange={handleInputChange('websiteUrl')}
                   disabled={!isEditing || mutation.isPending || scanningSite || publishingKnowledge}
-                  className="w-full flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                   placeholder="https://"
                 />
                 {isEditing ? (
@@ -1566,7 +1566,7 @@ export default function AgentConfigurationsPage() {
                     disabled={
                       mutation.isPending || scanningSite || publishingKnowledge || !formState.websiteUrl
                     }
-                    className="inline-flex items-center justify-center rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-100 transition hover:border-sky-500 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-900 transition hover:border-sky-500 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {scanningSite ? c.scanning : c.scanSite}
                   </button>
@@ -1575,21 +1575,21 @@ export default function AgentConfigurationsPage() {
             </label>
           </div>
 
-          <label className="mt-5 flex flex-col gap-2 text-sm text-slate-300">
+          <label className="mt-5 flex flex-col gap-2 text-sm text-slate-700">
             <span className="text-xs uppercase tracking-wide text-slate-500">{c.branchAddress}</span>
             <textarea
               value={formState.branchAddress}
               onChange={handleInputChange('branchAddress')}
               disabled={!isEditing || mutation.isPending}
               rows={3}
-              className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
           
           <div className="mt-6">
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.notificationEmails}</span>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-600">
                 {c.notificationEmailsDesc}
               </p>
               
@@ -1607,13 +1607,13 @@ export default function AgentConfigurationsPage() {
                     }}
                     disabled={mutation.isPending}
                     placeholder={c.addEmailPlaceholder}
-                    className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                   />
                   <button
                     type="button"
                     onClick={handleAddNotificationEmail}
                     disabled={mutation.isPending || !newNotificationEmail.trim()}
-                    className="rounded-md border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-sky-500 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-sky-500 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {c.add}
                   </button>
@@ -1621,13 +1621,13 @@ export default function AgentConfigurationsPage() {
               ) : null}
               
               {formState.notificationEmails.length > 0 ? (
-                <div className="mt-2 space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+                <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   {formState.notificationEmails.map((email) => (
                     <div
                       key={email}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800/60 bg-slate-950/60 px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
                     >
-                      <span className="text-sm text-slate-100">{email}</span>
+                      <span className="text-sm text-slate-900">{email}</span>
                       {isEditing ? (
                         <button
                           type="button"
@@ -1642,7 +1642,7 @@ export default function AgentConfigurationsPage() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-2 rounded-xl border border-slate-800/70 bg-slate-900/50 p-3 text-xs text-slate-400">
+                <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                   {isEditing ? c.noEmailsEditing : c.noEmailsView}
                 </div>
               )}
@@ -1652,18 +1652,18 @@ export default function AgentConfigurationsPage() {
 
         {formState.agentType === 'assist' && (
           <>
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-              <h2 className="text-lg font-semibold text-slate-100">{c.bookingPreferences}</h2>
-              <p className="mt-1 text-sm text-slate-400">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+              <h2 className="text-lg font-semibold text-slate-900">{c.bookingPreferences}</h2>
+              <p className="mt-1 text-sm text-slate-600">
                 {c.bookingPreferencesDesc}
               </p>
 
-              <div className="mt-6 flex items-center justify-between">
-                <div className="flex-1">
-                  <span className="text-sm font-medium text-slate-300">
+              <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex-1 min-w-[12rem]">
+                  <span className="text-sm font-medium text-slate-700">
                     {c.allowBookings}
                   </span>
-                  <p className="mt-0.5 text-xs text-slate-400">
+                  <p className="mt-0.5 text-xs text-slate-600">
                     {c.allowBookingsDesc}
                   </p>
                 </div>
@@ -1678,17 +1678,17 @@ export default function AgentConfigurationsPage() {
                   disabled={!isEditing || mutation.isPending}
                   className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
                     formState.allowBookings
-                      ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
-                      : 'border-slate-700 bg-slate-900/60 text-slate-200'
+                      ? 'border-emerald-500 bg-emerald-100 text-emerald-700'
+                      : 'border-slate-300 bg-white text-slate-800'
                   } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
                 >
                   <span
                     className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
-                      formState.allowBookings ? 'bg-emerald-500/70' : 'bg-slate-700'
+                      formState.allowBookings ? 'bg-emerald-500/70' : 'bg-slate-200'
                     }`}
                   >
                     <span
-                      className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                      className={`absolute h-4 w-4 rounded-full bg-white transition-transform ${
                         formState.allowBookings ? 'translate-x-5' : 'translate-x-1'
                       }`}
                     />
@@ -1698,11 +1698,11 @@ export default function AgentConfigurationsPage() {
               </div>
 
               {formState.allowBookings && (
-                <div className="mt-6 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
-                  <label htmlFor="bookingLeadTime" className="block text-sm font-medium text-slate-300">
+                <div className="mt-6 rounded-lg border border-slate-300 bg-white p-4">
+                  <label htmlFor="bookingLeadTime" className="block text-sm font-medium text-slate-700">
                     {c.bookingLeadTime}
                   </label>
-                  <p className="mt-1 text-xs text-slate-400">
+                  <p className="mt-1 text-xs text-slate-600">
                     {c.bookingLeadTimeDesc}
                   </p>
                   <div className="mt-3 flex items-center gap-3">
@@ -1719,12 +1719,12 @@ export default function AgentConfigurationsPage() {
                         }))
                       }
                       disabled={!isEditing || mutation.isPending}
-                      className="block w-32 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="block w-32 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
                     />
-                    <span className="text-sm text-slate-400">{c.days}</span>
+                    <span className="text-sm text-slate-600">{c.days}</span>
                   </div>
-                  <div className="mt-3 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
-                    <p className="text-xs text-sky-200">
+                  <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
+                    <p className="text-xs text-sky-700">
                       {formState.bookingLeadTimeDays === 1
                         ? c.leadTimeToday
                         : c.leadTimeAdvance(formState.bookingLeadTimeDays)}
@@ -1734,26 +1734,26 @@ export default function AgentConfigurationsPage() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-              <h2 className="text-lg font-semibold text-slate-100">{c.smsBookingLinks}</h2>
-              <p className="mt-1 text-sm text-slate-400">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+              <h2 className="text-lg font-semibold text-slate-900">{c.smsBookingLinks}</h2>
+              <p className="mt-1 text-sm text-slate-600">
                 {c.smsBookingLinksDesc1}<strong>{c.websiteUrlBold}</strong>{c.smsBookingLinksDesc2}
               </p>
 
-            <div className="mt-4 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
-              <p className="text-xs text-sky-200">
+            <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3">
+              <p className="text-xs text-sky-700">
                 <strong>{c.tipLabel}</strong>{c.smsTip}
               </p>
             </div>
 
-            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-              <p className="text-xs text-amber-200">
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <p className="text-xs text-amber-700">
                 <strong>{c.billingNoteLabel}</strong>{c.smsBillingNote}
               </p>
             </div>
 
-            <div className="mt-6 flex items-center justify-between">
-              <span className="text-sm text-slate-300">
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-sm text-slate-700">
                 {c.enableSms}
               </span>
               <button
@@ -1767,17 +1767,17 @@ export default function AgentConfigurationsPage() {
                 disabled={!isEditing || mutation.isPending}
                 className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
                   formState.enableSmsBookingLinks
-                    ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
-                    : 'border-slate-700 bg-slate-900/60 text-slate-200'
+                    ? 'border-emerald-500 bg-emerald-100 text-emerald-700'
+                    : 'border-slate-300 bg-white text-slate-800'
                 } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
               >
                 <span
                   className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
-                    formState.enableSmsBookingLinks ? 'bg-emerald-500/70' : 'bg-slate-700'
+                    formState.enableSmsBookingLinks ? 'bg-emerald-500/70' : 'bg-slate-200'
                   }`}
                 >
                   <span
-                    className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                    className={`absolute h-4 w-4 rounded-full bg-white transition-transform ${
                       formState.enableSmsBookingLinks ? 'translate-x-5' : 'translate-x-1'
                     }`}
                   />
@@ -1807,11 +1807,11 @@ export default function AgentConfigurationsPage() {
           }}
         />
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-100">{c.knowledgeBase}</h2>
-              <p className="text-sm text-slate-400">
+              <h2 className="text-lg font-semibold text-slate-900">{c.knowledgeBase}</h2>
+              <p className="text-sm text-slate-600">
                 {c.knowledgeBaseDesc}
               </p>
             </div>
@@ -1823,19 +1823,19 @@ export default function AgentConfigurationsPage() {
           </div>
 
           {scanningSite ? (
-            <div className="mt-4 rounded-xl border border-slate-800/70 bg-slate-950/60 p-4 text-sm text-slate-300">
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
               {c.scanningWebsite}
             </div>
           ) : null}
 
           {discoveredPages.length ? (
-            <div className="mt-4 space-y-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+            <div className="mt-4 space-y-4 rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-100">
+                  <p className="text-sm font-semibold text-slate-900">
                     {c.discoveredPages(discoveredPages.length)}
                   </p>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-600">
                     {c.tickPages}
                   </p>
                 </div>
@@ -1844,7 +1844,7 @@ export default function AgentConfigurationsPage() {
                     type="button"
                     onClick={handleAutoPopulateFromScan}
                     disabled={publishingKnowledge}
-                    className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-medium text-emerald-400 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1 font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {c.autoFill}
                   </button>
@@ -1852,7 +1852,7 @@ export default function AgentConfigurationsPage() {
                     type="button"
                     onClick={handleSelectAllPages}
                     disabled={publishingKnowledge || allPagesSelected}
-                    className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1 font-medium text-slate-200 transition hover:border-sky-500 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-slate-300 bg-slate-50 px-3 py-1 font-medium text-slate-800 transition hover:border-sky-500 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {c.selectAll}
                   </button>
@@ -1860,7 +1860,7 @@ export default function AgentConfigurationsPage() {
                     type="button"
                     onClick={handleClearAllPages}
                     disabled={publishingKnowledge || selectedPageUrls.length === 0}
-                    className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1 font-medium text-slate-200 transition hover:border-rose-500 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-slate-300 bg-slate-50 px-3 py-1 font-medium text-slate-800 transition hover:border-rose-500 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {c.clear}
                   </button>
@@ -1873,18 +1873,18 @@ export default function AgentConfigurationsPage() {
                   return (
                     <label
                       key={page.url}
-                      className="flex items-start gap-3 rounded-lg border border-slate-800/70 bg-slate-900/60 p-3"
+                      className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"
                     >
                       <input
                         type="checkbox"
-                        className="mt-1 h-4 w-4 rounded border border-slate-600 bg-slate-950 text-sky-500 focus:ring-sky-500"
+                        className="mt-1 h-4 w-4 rounded border border-slate-300 bg-white text-sky-500 focus:ring-sky-500"
                         checked={isChecked}
                         onChange={() => togglePageSelection(page.url)}
                         disabled={publishingKnowledge}
                       />
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-baseline justify-between gap-3">
-                          <span className="text-sm font-semibold text-slate-100">
+                          <span className="text-sm font-semibold text-slate-900">
                             {page.title?.trim() || c.untitledPage}
                           </span>
                           <span className="text-xs text-slate-500 break-all">
@@ -1892,34 +1892,34 @@ export default function AgentConfigurationsPage() {
                           </span>
                         </div>
                         {page.description ? (
-                          <p className="text-xs text-slate-300">{page.description}</p>
+                          <p className="text-xs text-slate-700">{page.description}</p>
                         ) : null}
                         {page.snippet ? (
-                          <p className="text-xs text-slate-400">{page.snippet}</p>
+                          <p className="text-xs text-slate-600">{page.snippet}</p>
                         ) : null}
-                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
+                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
                           {page.chunkCount ? (
-                            <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-0.5">
+                            <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5">
                               {c.sectionsBadge(page.chunkCount)}
                             </span>
                           ) : null}
                           {page.phoneNumbers.length ? (
-                            <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-0.5">
+                            <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5">
                               {c.phonesBadge(page.phoneNumbers.length)}
                             </span>
                           ) : null}
                           {page.emails.length ? (
-                            <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-0.5">
+                            <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5">
                               {c.emailsBadge(page.emails.length)}
                             </span>
                           ) : null}
                           {page.hours.length ? (
-                            <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-0.5">
+                            <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5">
                               {c.hoursRowsBadge(page.hours.length)}
                             </span>
                           ) : null}
                           {page.address ? (
-                            <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-0.5">
+                            <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5">
                               {c.addressFound}
                             </span>
                           ) : null}
@@ -1931,7 +1931,7 @@ export default function AgentConfigurationsPage() {
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-600">
                   {c.selectedPages(selectedPageUrls.length)}
                 </span>
                 <button
@@ -1949,19 +1949,19 @@ export default function AgentConfigurationsPage() {
           ) : null}
 
           {!discoveredPages.length && !scanningSite ? (
-            <p className="mt-4 rounded-xl border border-slate-800/70 bg-slate-900/60 p-4 text-sm text-slate-400">
+            <p className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
               {c.startScanHint}
             </p>
           ) : null}
 
           {/* Document & price-list uploads — parsed, chunked, and retrieved per-call (no prompt bloat). */}
-          <div className="mt-6 border-t border-slate-800 pt-5">
-            <h3 className="text-sm font-semibold text-slate-100">{c.docsAndPriceLists}</h3>
-            <p className="mt-1 text-xs text-slate-400">
+          <div className="mt-6 border-t border-slate-200 pt-5">
+            <h3 className="text-sm font-semibold text-slate-900">{c.docsAndPriceLists}</h3>
+            <p className="mt-1 text-xs text-slate-600">
               {c.docsDesc}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <label className="cursor-pointer rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200 transition hover:border-sky-500 hover:text-sky-100">
+              <label className="cursor-pointer rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 transition hover:border-sky-500 hover:text-sky-700">
                 {uploadDocMutation.isPending ? c.uploading : c.uploadDocument}
                 <input
                   type="file"
@@ -1972,7 +1972,7 @@ export default function AgentConfigurationsPage() {
                 />
               </label>
               {formState.agentType === 'assist' && showPriceUpload ? (
-                <label className="cursor-pointer rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/20">
+                <label className="cursor-pointer rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">
                   {uploadDocMutation.isPending ? c.uploading : c.uploadPriceList}
                   <input
                     type="file"
@@ -1985,16 +1985,16 @@ export default function AgentConfigurationsPage() {
               ) : null}
             </div>
             {formState.agentType === 'assist' ? (
-              <div className="mt-3 rounded-lg border border-slate-800/70 bg-slate-950/40 p-3">
+              <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
                 <label className="flex cursor-pointer items-center gap-3">
                   <input
                     type="checkbox"
                     checked={showPriceUpload}
                     onChange={(event) => handleTogglePrices(event.target.checked)}
                     disabled={deleteDocMutation.isPending}
-                    className="h-4 w-4 rounded border-slate-600 bg-slate-900 accent-emerald-500"
+                    className="h-4 w-4 rounded border-slate-300 bg-slate-50 accent-emerald-500"
                   />
-                  <span className="text-sm font-medium text-slate-200">{c.givePrices}</span>
+                  <span className="text-sm font-medium text-slate-800">{c.givePrices}</span>
                 </label>
                 <p className="mt-1.5 pl-7 text-[11px] text-slate-500">
                   {showPriceUpload
@@ -2008,10 +2008,10 @@ export default function AgentConfigurationsPage() {
                 {uploadedDocs.map((doc) => (
                   <li
                     key={doc.uploadId}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-800/70 bg-slate-950/60 px-3 py-2"
+                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-sm text-slate-200">{doc.fileName}</p>
+                      <p className="truncate text-sm text-slate-800">{doc.fileName}</p>
                       <p className="text-[11px] text-slate-500">
                         {doc.kind === 'price-list' ? c.priceListLabel : c.documentLabel} · {c.docSections(doc.chunks)}
                       </p>
@@ -2020,7 +2020,7 @@ export default function AgentConfigurationsPage() {
                       type="button"
                       onClick={() => deleteDocMutation.mutate(doc.uploadId)}
                       disabled={deleteDocMutation.isPending}
-                      className="shrink-0 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-medium text-slate-300 transition hover:border-rose-500 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="shrink-0 rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 transition hover:border-rose-500 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {c.remove}
                     </button>
@@ -2033,16 +2033,16 @@ export default function AgentConfigurationsPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-          <h2 className="text-lg font-semibold text-slate-100">{c.availabilityMessaging}</h2>
-          <p className="mt-1 text-sm text-slate-400">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+          <h2 className="text-lg font-semibold text-slate-900">{c.availabilityMessaging}</h2>
+          <p className="mt-1 text-sm text-slate-600">
             {c.availabilityDesc}
           </p>
           <div className="mt-6 grid gap-5 md:grid-cols-2">
-            <div className="flex flex-col gap-2 text-sm text-slate-300">
+            <div className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.weeklyHours}</span>
               {isEditing ? (
-                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <div className="hidden grid-cols-[minmax(110px,0.4fr)_repeat(2,minmax(0,1fr))_auto] items-center gap-3 px-3 text-xs uppercase tracking-wide text-slate-500 md:grid">
                     <span>{c.day}</span>
                     <span>{c.opens}</span>
@@ -2054,16 +2054,16 @@ export default function AgentConfigurationsPage() {
                     return (
                       <div
                         key={day}
-                        className="grid grid-cols-[minmax(110px,0.4fr)_repeat(2,minmax(0,1fr))_auto] items-center gap-3 rounded-lg border border-slate-800/60 bg-slate-950/60 px-3 py-2"
+                        className="grid grid-cols-2 md:grid-cols-[minmax(110px,0.4fr)_repeat(2,minmax(0,1fr))_auto] items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
                       >
-                        <span className="text-sm font-medium text-slate-100">{DAY_LABELS[day]}</span>
+                        <span className="col-span-2 text-sm font-medium text-slate-900 md:col-span-1">{DAY_LABELS[day]}</span>
                         <input
                           type="time"
                           aria-label={c.openingTimeAria(DAY_LABELS[day])}
                           value={hours.open ?? ''}
                           onChange={handleHoursChange(day, 'open')}
                           disabled={!isEditing || mutation.isPending || hours.closed}
-                          className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                         />
                         <input
                           type="time"
@@ -2071,16 +2071,16 @@ export default function AgentConfigurationsPage() {
                           value={hours.close ?? ''}
                           onChange={handleHoursChange(day, 'close')}
                           disabled={!isEditing || mutation.isPending || hours.closed}
-                          className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                         />
                         <button
                           type="button"
                           onClick={() => handleDayClosedToggle(day)}
                           disabled={!isEditing || mutation.isPending}
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                          className={`col-span-2 md:col-span-1 rounded-full border px-3 py-1 text-xs font-semibold transition ${
                             hours.closed
                               ? 'border-rose-500/70 bg-rose-500/10 text-rose-200 hover:border-rose-400 hover:text-rose-100'
-                              : 'border-emerald-500/70 bg-emerald-500/10 text-emerald-100 hover:border-emerald-400 hover:text-emerald-50'
+                              : 'border-emerald-500/70 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:text-emerald-700'
                           } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
                         >
                           {hours.closed ? c.closed : c.open}
@@ -2090,13 +2090,13 @@ export default function AgentConfigurationsPage() {
                   })}
                 </div>
               ) : (
-                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   {WEEKDAY_ORDER.map((day) => {
                     const hours = formState.weeklyOpeningHours[day];
                     return (
                       <div key={day} className="flex items-center justify-between gap-4 text-sm">
-                        <span className="text-slate-400">{DAY_LABELS[day]}</span>
-                        <span className="text-slate-100">{describeHoursRange(hours, lang)}</span>
+                        <span className="text-slate-600">{DAY_LABELS[day]}</span>
+                        <span className="text-slate-900">{describeHoursRange(hours, lang)}</span>
                       </div>
                     );
                   })}
@@ -2106,7 +2106,7 @@ export default function AgentConfigurationsPage() {
                 {c.hoursHint}
               </p>
             </div>
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.holidayClosures}</span>
               <textarea
                 value={formState.holidayClosures}
@@ -2114,13 +2114,13 @@ export default function AgentConfigurationsPage() {
                 disabled={!isEditing || mutation.isPending}
                 rows={4}
                 placeholder={c.holidayPlaceholder}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
             </label>
           </div>
 
           <div className="mt-6 grid gap-5 md:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.greetingLine}</span>
               <input
                 type="text"
@@ -2128,10 +2128,10 @@ export default function AgentConfigurationsPage() {
                 onChange={handleInputChange('greetingLine')}
                 disabled={!isEditing || mutation.isPending}
                 placeholder={c.greetingPlaceholder}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
             </label>
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.transferNumber}</span>
               <input
                 type="text"
@@ -2139,16 +2139,16 @@ export default function AgentConfigurationsPage() {
                 onChange={handleInputChange('transferNumber')}
                 disabled={!isEditing || mutation.isPending}
                 placeholder={c.transferPlaceholder}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               />
               <span className="text-xs text-slate-500">{c.transferHint}</span>
             </label>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-          <h2 className="text-lg font-semibold text-slate-100">{c.toneBookingRules}</h2>
-          <p className="mt-1 text-sm text-slate-400">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+          <h2 className="text-lg font-semibold text-slate-900">{c.toneBookingRules}</h2>
+          <p className="mt-1 text-sm text-slate-600">
             {c.toneBookingDesc}
           </p>
 
@@ -2164,19 +2164,19 @@ export default function AgentConfigurationsPage() {
                     className={`rounded-xl border p-4 text-sm transition ${
                       isSelected
                         ? 'border-purple-500 bg-purple-500/15'
-                        : 'border-slate-800 bg-slate-900/50'
+                        : 'border-slate-200 bg-slate-50'
                     }`}
                   >
                     <button
                       type="button"
                       className={`w-full text-left mb-3 ${
-                        isSelected ? 'text-slate-100' : 'text-slate-300 hover:text-slate-200'
+                        isSelected ? 'text-slate-900' : 'text-slate-700 hover:text-slate-800'
                       } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
                       onClick={() => handleVoiceChange(option.value)}
                       disabled={!isEditing || mutation.isPending}
                     >
                       <div className="text-sm font-semibold">{option.label}</div>
-                      <div className="mt-1 text-xs text-slate-400">{option.description}</div>
+                      <div className="mt-1 text-xs text-slate-600">{option.description}</div>
                     </button>
                     <button
                       type="button"
@@ -2185,7 +2185,7 @@ export default function AgentConfigurationsPage() {
                       className={`w-full flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${
                         isPlaying
                           ? 'bg-purple-500 text-white'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-100'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900'
                       } ${!formState.greetingLine ? 'cursor-not-allowed opacity-40' : ''}`}
                       title={!formState.greetingLine ? c.addGreetingToPreview : c.playPreview}
                     >
@@ -2210,7 +2210,7 @@ export default function AgentConfigurationsPage() {
               })}
             </div>
             {!formState.greetingLine && (
-              <p className="mt-2 text-xs text-amber-400">
+              <p className="mt-2 text-xs text-amber-600">
                 {c.greetingHint}
               </p>
             )}
@@ -2227,8 +2227,8 @@ export default function AgentConfigurationsPage() {
                     type="button"
                     className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
                       isSelected
-                        ? 'border-sky-500 bg-sky-500/15 text-slate-100'
-                        : 'border-slate-800 bg-slate-900/50 text-slate-300 hover:border-slate-700 hover:text-slate-200'
+                        ? 'border-sky-500 bg-sky-50 text-slate-900'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:text-slate-800'
                     } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
                     onClick={() => {
                       if (!isEditing || mutation.isPending) return;
@@ -2237,7 +2237,7 @@ export default function AgentConfigurationsPage() {
                     disabled={!isEditing || mutation.isPending}
                   >
                     <div className="text-sm font-semibold">{option.label}</div>
-                    <div className="mt-1 text-xs text-slate-400">{option.description}</div>
+                    <div className="mt-1 text-xs text-slate-600">{option.description}</div>
                   </button>
                 );
               })}
@@ -2247,18 +2247,18 @@ export default function AgentConfigurationsPage() {
           {/* Response timing / interruption sensitivity removed from the UI — endpointing
               (dynamic) and interruption sensitivity are now hardcoded in every agent. */}
 
-          <div className="mt-6 flex flex-col gap-3 text-sm text-slate-300">
+          <div className="mt-6 flex flex-col gap-3 text-sm text-slate-700">
             <span className="text-xs uppercase tracking-wide text-slate-500">
               <span className="inline-flex items-center gap-2">
                 {c.allowFastFitTitle}
                 <span
-                  className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                  className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-[11px] text-slate-700 transition focus-visible:border-slate-300 focus-visible:text-slate-900 focus-visible:outline-none"
                   tabIndex={0}
                   role="button"
                   aria-label={c.allowFastFitAria}
                 >
                   i
-                  <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-48 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-48 -translate-x-1/2 translate-y-2 rounded-md bg-slate-100 px-3 py-2 text-left text-[11px] font-normal text-slate-900 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
                     {c.allowFastFitTooltip}
                   </span>
                 </span>
@@ -2270,17 +2270,17 @@ export default function AgentConfigurationsPage() {
               disabled={!isEditing || mutation.isPending}
               className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
                 formState.allowFastFitOnly
-                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
-                  : 'border-slate-700 bg-slate-900/60 text-slate-200'
+                  ? 'border-emerald-500 bg-emerald-100 text-emerald-700'
+                  : 'border-slate-300 bg-white text-slate-800'
               } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
             >
               <span
                 className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
-                  formState.allowFastFitOnly ? 'bg-emerald-500/70' : 'bg-slate-700'
+                  formState.allowFastFitOnly ? 'bg-emerald-500/70' : 'bg-slate-200'
                 }`}
               >
                 <span
-                  className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                  className={`absolute h-4 w-4 rounded-full bg-white transition-transform ${
                     formState.allowFastFitOnly ? 'translate-x-5' : 'translate-x-1'
                   }`}
                 />
@@ -2290,24 +2290,24 @@ export default function AgentConfigurationsPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-          <h2 className="text-lg font-semibold text-slate-100">{c.dropOffBookings}</h2>
-          <p className="mt-1 text-sm text-slate-400">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+          <h2 className="text-lg font-semibold text-slate-900">{c.dropOffBookings}</h2>
+          <p className="mt-1 text-sm text-slate-600">
             {c.dropOffDesc}
           </p>
 
-          <div className="mt-6 flex flex-col gap-3 text-sm text-slate-300">
+          <div className="mt-6 flex flex-col gap-3 text-sm text-slate-700">
             <span className="text-xs uppercase tracking-wide text-slate-500">
               <span className="inline-flex items-center gap-2">
                 {c.enableDropOff}
                 <span
-                  className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                  className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-[11px] text-slate-700 transition focus-visible:border-slate-300 focus-visible:text-slate-900 focus-visible:outline-none"
                   tabIndex={0}
                   role="button"
                   aria-label={c.enableDropOffAria}
                 >
                   i
-                  <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-48 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                  <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-48 -translate-x-1/2 translate-y-2 rounded-md bg-slate-100 px-3 py-2 text-left text-[11px] font-normal text-slate-900 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
                     {c.enableDropOffTooltip}
                   </span>
                 </span>
@@ -2319,17 +2319,17 @@ export default function AgentConfigurationsPage() {
               disabled={!isEditing || mutation.isPending}
               className={`inline-flex w-fit items-center gap-3 rounded-full border px-4 py-2 text-sm font-medium transition ${
                 formState.enableDropOffBookings
-                  ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100'
-                  : 'border-slate-700 bg-slate-900/60 text-slate-200'
+                  ? 'border-emerald-500 bg-emerald-100 text-emerald-700'
+                  : 'border-slate-300 bg-white text-slate-800'
               } ${!isEditing || mutation.isPending ? 'cursor-not-allowed opacity-60' : ''}`}
             >
               <span
                 className={`relative inline-flex h-5 w-10 items-center rounded-full transition ${
-                  formState.enableDropOffBookings ? 'bg-emerald-500/70' : 'bg-slate-700'
+                  formState.enableDropOffBookings ? 'bg-emerald-500/70' : 'bg-slate-200'
                 }`}
               >
                 <span
-                  className={`absolute h-4 w-4 rounded-full bg-slate-950 transition-transform ${
+                  className={`absolute h-4 w-4 rounded-full bg-white transition-transform ${
                     formState.enableDropOffBookings ? 'translate-x-5' : 'translate-x-1'
                   }`}
                 />
@@ -2341,18 +2341,18 @@ export default function AgentConfigurationsPage() {
           {formState.enableDropOffBookings && (
             <>
               <div className="mt-6">
-                <label className="flex flex-col gap-2 text-sm text-slate-300">
+                <label className="flex flex-col gap-2 text-sm text-slate-700">
                   <span className="text-xs uppercase tracking-wide text-slate-500">
                     <span className="inline-flex items-center gap-2">
                       {c.dropOffMessage}
                       <span
-                        className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                        className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-[11px] text-slate-700 transition focus-visible:border-slate-300 focus-visible:text-slate-900 focus-visible:outline-none"
                         tabIndex={0}
                         role="button"
                         aria-label={c.dropOffMessageAria}
                       >
                         i
-                        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md bg-slate-100 px-3 py-2 text-left text-[11px] font-normal text-slate-900 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
                           {c.dropOffMessageTooltip}
                         </span>
                       </span>
@@ -2365,27 +2365,27 @@ export default function AgentConfigurationsPage() {
                       onChange={(e) => setFormState((prev) => ({ ...prev, dropOffMessage: e.target.value }))}
                       placeholder={c.dropOffMessagePlaceholder}
                       disabled={mutation.isPending}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   ) : (
-                    <span className="text-sm text-slate-200">{formState.dropOffMessage || c.notSet}</span>
+                    <span className="text-sm text-slate-800">{formState.dropOffMessage || c.notSet}</span>
                   )}
                 </label>
               </div>
 
               <div className="mt-6">
-                <label className="flex flex-col gap-2 text-sm text-slate-300">
+                <label className="flex flex-col gap-2 text-sm text-slate-700">
                   <span className="text-xs uppercase tracking-wide text-slate-500">
                     <span className="inline-flex items-center gap-2">
                       {c.excludedServices}
                       <span
-                        className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-600 text-[11px] text-slate-300 transition focus-visible:border-slate-400 focus-visible:text-slate-100 focus-visible:outline-none"
+                        className="group relative inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-[11px] text-slate-700 transition focus-visible:border-slate-300 focus-visible:text-slate-900 focus-visible:outline-none"
                         tabIndex={0}
                         role="button"
                         aria-label={c.excludedServicesAria}
                       >
                         i
-                        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md bg-slate-800 px-3 py-2 text-left text-[11px] font-normal text-slate-100 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
+                        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-64 -translate-x-1/2 translate-y-2 rounded-md bg-slate-100 px-3 py-2 text-left text-[11px] font-normal text-slate-900 shadow-lg group-hover:block group-focus:block group-focus-visible:block">
                           {c.excludedServicesTooltip}
                         </span>
                       </span>
@@ -2406,10 +2406,10 @@ export default function AgentConfigurationsPage() {
                       }
                       placeholder={c.excludedPlaceholder}
                       disabled={mutation.isPending}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-600 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   ) : (
-                    <span className="text-sm text-slate-200">
+                    <span className="text-sm text-slate-800">
                       {(formState.dropOffExcludeServices || []).join(', ') || c.none}
                     </span>
                   )}
@@ -2419,14 +2419,14 @@ export default function AgentConfigurationsPage() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-          <h2 className="text-lg font-semibold text-slate-100">{c.agentType}</h2>
-          <p className="mt-1 text-sm text-slate-400">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+          <h2 className="text-lg font-semibold text-slate-900">{c.agentType}</h2>
+          <p className="mt-1 text-sm text-slate-600">
             {c.agentTypeDesc}
           </p>
 
           <div className="mt-6">
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.agent}</span>
               <select
                 value={formState.agentType}
@@ -2437,7 +2437,7 @@ export default function AgentConfigurationsPage() {
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {agentTypeOptions.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -2449,7 +2449,7 @@ export default function AgentConfigurationsPage() {
                 {agentTypeOptions.find((option) => option.value === formState.agentType)?.description ?? ''}
               </span>
               {!canEditAgentType && (
-                <span className="text-xs text-amber-400">
+                <span className="text-xs text-amber-600">
                   {c.onlyStaffAgentType}
                 </span>
               )}
@@ -2457,7 +2457,7 @@ export default function AgentConfigurationsPage() {
           </div>
 
           <div className="mt-6">
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.agentVersion}</span>
               <select
                 value={formState.agentScript}
@@ -2468,7 +2468,7 @@ export default function AgentConfigurationsPage() {
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {agentScriptOptions.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -2479,11 +2479,11 @@ export default function AgentConfigurationsPage() {
               <span className="text-xs text-slate-500">
                 {agentScriptOptions.find((option) => option.value === formState.agentScript)?.description ?? ''}
               </span>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-600">
                 {c.agentScriptHint}
               </span>
               {!canEditAgentType && (
-                <span className="text-xs text-amber-400">
+                <span className="text-xs text-amber-600">
                   {c.onlyStaffAgentVersion}
                 </span>
               )}
@@ -2492,15 +2492,15 @@ export default function AgentConfigurationsPage() {
         </section>
 
         {formState.agentScript === 'tyresoft-agent' && canEditAgentType && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-            <h2 className="text-lg font-semibold text-slate-100">{c.tyresoftConfig}</h2>
-            <p className="mt-1 text-sm text-slate-400">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+            <h2 className="text-lg font-semibold text-slate-900">{c.tyresoftConfig}</h2>
+            <p className="mt-1 text-sm text-slate-600">
               {c.tyresoftDesc}
             </p>
             <div className="mt-6">
               {isEditing ? (
                 <div className="grid gap-5 md:grid-cols-2">
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.workspace}</span>
                     <input
                       type="text"
@@ -2508,40 +2508,40 @@ export default function AgentConfigurationsPage() {
                       value={formState.tyresoftSettings.tsWorkspace}
                       onChange={handleTyresoftSettingsChange('tsWorkspace')}
                       disabled={!isEditing || mutation.isPending}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.username}</span>
                     <input
                       type="text"
                       value={formState.tyresoftSettings.tsUsername}
                       onChange={handleTyresoftSettingsChange('tsUsername')}
                       disabled={!isEditing || mutation.isPending}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.password}</span>
                     <input
                       type="password"
                       value={formState.tyresoftSettings.tsPassword}
                       onChange={handleTyresoftSettingsChange('tsPassword')}
                       disabled={!isEditing || mutation.isPending}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.apiKey}</span>
                     <input
                       type="password"
                       value={formState.tyresoftSettings.tsApiKey}
                       onChange={handleTyresoftSettingsChange('tsApiKey')}
                       disabled={!isEditing || mutation.isPending}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.depotId}</span>
                     <input
                       type="text"
@@ -2549,7 +2549,7 @@ export default function AgentConfigurationsPage() {
                       value={formState.tyresoftSettings.tsDepotId}
                       onChange={handleTyresoftSettingsChange('tsDepotId')}
                       disabled={!isEditing || mutation.isPending}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
                 </div>
@@ -2557,23 +2557,23 @@ export default function AgentConfigurationsPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.workspace}</span>
-                    <div className="text-slate-100">{formState.tyresoftSettings.tsWorkspace || c.notSet}</div>
+                    <div className="text-slate-900">{formState.tyresoftSettings.tsWorkspace || c.notSet}</div>
                   </div>
                   <div>
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.username}</span>
-                    <div className="text-slate-100">{formState.tyresoftSettings.tsUsername || c.notSet}</div>
+                    <div className="text-slate-900">{formState.tyresoftSettings.tsUsername || c.notSet}</div>
                   </div>
                   <div>
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.password}</span>
-                    <div className="text-slate-100">{maskSecretValue(formState.tyresoftSettings.tsPassword, lang)}</div>
+                    <div className="text-slate-900">{maskSecretValue(formState.tyresoftSettings.tsPassword, lang)}</div>
                   </div>
                   <div>
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.apiKey}</span>
-                    <div className="text-slate-100">{maskSecretValue(formState.tyresoftSettings.tsApiKey, lang)}</div>
+                    <div className="text-slate-900">{maskSecretValue(formState.tyresoftSettings.tsApiKey, lang)}</div>
                   </div>
                   <div>
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.depotId}</span>
-                    <div className="text-slate-100">{formState.tyresoftSettings.tsDepotId || c.notSet}</div>
+                    <div className="text-slate-900">{formState.tyresoftSettings.tsDepotId || c.notSet}</div>
                   </div>
                 </div>
               )}
@@ -2581,14 +2581,14 @@ export default function AgentConfigurationsPage() {
           </section>
         )}
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-          <h2 className="text-lg font-semibold text-slate-100">{c.diaryIntegration}</h2>
-          <p className="mt-1 text-sm text-slate-400">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+          <h2 className="text-lg font-semibold text-slate-900">{c.diaryIntegration}</h2>
+          <p className="mt-1 text-sm text-slate-600">
             {c.diaryDesc}
           </p>
 
           <div className="mt-6 space-y-5">
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
+            <label className="flex flex-col gap-2 text-sm text-slate-700">
               <span className="text-xs uppercase tracking-wide text-slate-500">{c.system}</span>
               <select
                 value={formState.integrationProvider}
@@ -2596,7 +2596,7 @@ export default function AgentConfigurationsPage() {
                   handleIntegrationProviderChange(event.target.value as IntegrationProvider)
                 }
                 disabled={!isEditing || mutation.isPending}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {integrationProviderOptions.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -2612,7 +2612,7 @@ export default function AgentConfigurationsPage() {
             {formState.integrationProvider === 'garage_hive' ? (
               isEditing ? (
                 <div className="grid gap-5 md:grid-cols-2">
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.ghInstance}</span>
                     <input
                       type="text"
@@ -2621,13 +2621,13 @@ export default function AgentConfigurationsPage() {
                       onChange={handleGarageHiveSettingsChange('instanceUrl')}
                       disabled={!isEditing || mutation.isPending}
                       required={formState.integrationProvider === 'garage_hive'}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <span className="text-xs text-slate-500">
                       {c.ghInstanceHint}
                     </span>
                   </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.ghApiKey}</span>
                     <input
                       type="password"
@@ -2635,13 +2635,13 @@ export default function AgentConfigurationsPage() {
                       onChange={handleGarageHiveSettingsChange('apiKey')}
                       disabled={!isEditing || mutation.isPending}
                       required={formState.integrationProvider === 'garage_hive'}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <span className="text-xs text-slate-500">
                       {c.ghApiKeyHint}
                     </span>
                   </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.customerId}</span>
                     <input
                       type="text"
@@ -2649,13 +2649,13 @@ export default function AgentConfigurationsPage() {
                       onChange={handleGarageHiveSettingsChange('customerId')}
                       disabled={!isEditing || mutation.isPending}
                       required={formState.integrationProvider === 'garage_hive'}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <span className="text-xs text-slate-500">
                       {c.customerIdHint}
                     </span>
                   </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700">
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.locationId}</span>
                     <input
                       type="text"
@@ -2663,7 +2663,7 @@ export default function AgentConfigurationsPage() {
                       onChange={handleGarageHiveSettingsChange('locationId')}
                       disabled={!isEditing || mutation.isPending}
                       required={formState.integrationProvider === 'garage_hive'}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <span className="text-xs text-slate-500">
                       {c.locationIdHint}
@@ -2671,33 +2671,33 @@ export default function AgentConfigurationsPage() {
                   </label>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
                   <div className="flex flex-col gap-3">
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.system}</span>
-                      <div className="text-slate-100">Garage Hive</div>
+                      <div className="text-slate-900">Garage Hive</div>
                     </div>
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.instance}</span>
-                      <div className="text-slate-100">
+                      <div className="text-slate-900">
                         {formState.garageHiveSettings.instanceUrl || c.notSet}
                       </div>
                     </div>
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.ghApiKeyShort}</span>
-                      <div className="text-slate-100">
+                      <div className="text-slate-900">
                         {maskSecretValue(formState.garageHiveSettings.apiKey, lang)}
                       </div>
                     </div>
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.customerId}</span>
-                      <div className="text-slate-100">
+                      <div className="text-slate-900">
                         {formState.garageHiveSettings.customerId || c.notSet}
                       </div>
                     </div>
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.locationId}</span>
-                      <div className="text-slate-100">
+                      <div className="text-slate-900">
                         {formState.garageHiveSettings.locationId || c.notSet}
                       </div>
                     </div>
@@ -2706,7 +2706,7 @@ export default function AgentConfigurationsPage() {
               )
             ) : (
               !isEditing && (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
                   {c.noDiaryIntegration}
                 </div>
               )
@@ -2715,9 +2715,9 @@ export default function AgentConfigurationsPage() {
         </section>
 
         {/* CRM Integration — HubSpot */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
-          <h2 className="text-lg font-semibold text-slate-100">{c.crmIntegration}</h2>
-          <p className="mt-1 text-sm text-slate-400">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
+          <h2 className="text-lg font-semibold text-slate-900">{c.crmIntegration}</h2>
+          <p className="mt-1 text-sm text-slate-600">
             {c.crmDesc}
           </p>
           <div className="mt-6 space-y-5">
@@ -2727,26 +2727,26 @@ export default function AgentConfigurationsPage() {
                 checked={formState.hubspotSettings?.enabled === true}
                 onChange={handleHubspotSettingsChange('enabled')}
                 disabled={!isEditing || mutation.isPending}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500 disabled:cursor-not-allowed"
+                className="h-4 w-4 rounded border-slate-300 bg-slate-100 text-sky-500 focus:ring-sky-500 disabled:cursor-not-allowed"
               />
-              <span className="text-sm text-slate-300">{c.enableHubspot}</span>
+              <span className="text-sm text-slate-700">{c.enableHubspot}</span>
             </label>
 
             {formState.hubspotSettings?.enabled && (
               isEditing ? (
                 <div className="flex flex-col gap-5">
-                  <div className="rounded-xl border border-sky-800/40 bg-sky-950/30 p-4 text-sm text-slate-300">
-                    <p className="mb-3 font-medium text-sky-300">{c.hubspotSetupTitle}</p>
-                    <ol className="flex flex-col gap-2 text-slate-400 list-decimal list-inside">
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-slate-700">
+                    <p className="mb-3 font-medium text-sky-700">{c.hubspotSetupTitle}</p>
+                    <ol className="flex flex-col gap-2 text-slate-600 list-decimal list-inside">
                       <li>{c.hubspotStep1}</li>
-                      <li>{c.hubspotStep2a}<span className="text-slate-200">{c.hubspotStep2b}</span>{c.hubspotStep2c}</li>
-                      <li>{c.hubspotStep3a}<code className="text-sky-300">crm.objects.contacts.read</code>, <code className="text-sky-300">crm.objects.contacts.write</code>, <code className="text-sky-300">tickets</code>, <code className="text-sky-300">crm.objects.calls.write</code>{c.hubspotStep3b}</li>
-                      <li>{c.hubspotStep4a}<code className="text-sky-300">pat-</code>{c.hubspotStep4b}</li>
+                      <li>{c.hubspotStep2a}<span className="text-slate-800">{c.hubspotStep2b}</span>{c.hubspotStep2c}</li>
+                      <li>{c.hubspotStep3a}<code className="text-sky-700">crm.objects.contacts.read</code>, <code className="text-sky-700">crm.objects.contacts.write</code>, <code className="text-sky-700">tickets</code>, <code className="text-sky-700">crm.objects.calls.write</code>{c.hubspotStep3b}</li>
+                      <li>{c.hubspotStep4a}<code className="text-sky-700">pat-</code>{c.hubspotStep4b}</li>
                       <li>{c.hubspotStep5}</li>
                     </ol>
                   </div>
                   <div className="grid gap-5 md:grid-cols-2">
-                    <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
+                    <label className="flex flex-col gap-2 text-sm text-slate-700 md:col-span-2">
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.hubspotApiToken}</span>
                       <input
                         type="password"
@@ -2754,10 +2754,10 @@ export default function AgentConfigurationsPage() {
                         value={formState.hubspotSettings?.apiToken ?? ''}
                         onChange={handleHubspotSettingsChange('apiToken')}
                         disabled={!isEditing || mutation.isPending}
-                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
                     </label>
-                    <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
+                    <label className="flex flex-col gap-2 text-sm text-slate-700 md:col-span-2">
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.hubspotInboxEmail}</span>
                       <input
                         type="email"
@@ -2765,11 +2765,11 @@ export default function AgentConfigurationsPage() {
                         value={formState.hubspotSettings?.inboxEmail ?? ''}
                         onChange={handleHubspotSettingsChange('inboxEmail')}
                         disabled={!isEditing || mutation.isPending}
-                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
                       <span className="text-xs text-slate-500">{c.hubspotInboxHint}</span>
                     </label>
-                    <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <label className="flex flex-col gap-2 text-sm text-slate-700">
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.hubspotOwnerId}</span>
                       <input
                         type="text"
@@ -2777,26 +2777,26 @@ export default function AgentConfigurationsPage() {
                         value={formState.hubspotSettings?.ownerId ?? ''}
                         onChange={handleHubspotSettingsChange('ownerId')}
                         disabled={!isEditing || mutation.isPending}
-                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
                       <span className="text-xs text-slate-500">{c.hubspotOwnerHint}</span>
                     </label>
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
                   <div className="flex flex-col gap-3">
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.privateAppToken}</span>
-                      <div className="text-slate-100">{formState.hubspotSettings?.apiToken ? '••••••••••••••••' : c.notSet}</div>
+                      <div className="text-slate-900">{formState.hubspotSettings?.apiToken ? '••••••••••••••••' : c.notSet}</div>
                     </div>
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.inboxEmail}</span>
-                      <div className="text-slate-100">{formState.hubspotSettings?.inboxEmail || c.notSet}</div>
+                      <div className="text-slate-900">{formState.hubspotSettings?.inboxEmail || c.notSet}</div>
                     </div>
                     <div>
                       <span className="text-xs uppercase tracking-wide text-slate-500">{c.ownerId}</span>
-                      <div className="text-slate-100">{formState.hubspotSettings?.ownerId || c.notSet}</div>
+                      <div className="text-slate-900">{formState.hubspotSettings?.ownerId || c.notSet}</div>
                     </div>
                   </div>
                 </div>

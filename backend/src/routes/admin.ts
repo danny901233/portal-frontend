@@ -638,6 +638,17 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
   }
 
   try {
+    // 0. Reject a duplicate email UP FRONT — before we create any business/garage/SIP trunk —
+    // so onboarding can't 500 at the user-creation step (step 6) and leave an orphaned garage +
+    // trunk + dispatch rule behind.
+    const emailLc = parsed.data.userEmail.trim().toLowerCase();
+    const existingUser = await prisma.user.findUnique({ where: { email: emailLc } });
+    if (existingUser) {
+      return res.status(409).json({
+        error: `An account with the email "${emailLc}" already exists. Use a different email — a +alias such as name+demo@domain.com works for test accounts.`,
+      });
+    }
+
     // 1. Create business
     const business = await prisma.business.create({
       data: { name: parsed.data.businessName },
@@ -685,9 +696,11 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       });
       const agentName = agentConfig?.agentScript === 'tyresoft-agent'
           ? 'tyresoft-agent'
-          : agentConfig?.agentScript === 'receptionmate-agent-v3' 
-            ? 'receptionmate-agent-v3' 
-            : 'receptionmate-agent';
+          : agentConfig?.agentScript === 'receptionmate-agent-v3'
+            ? 'receptionmate-agent-v3'
+            : agentConfig?.agentScript === 'MMH-agent'
+              ? 'MMH-agent'
+              : 'receptionmate-agent';
       const onboardingSecret = process.env.ONBOARDING_SECRET;
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };

@@ -7,6 +7,7 @@ import { syncGocardlessPayments } from '../services/gocardlessSync.js';
 import { syncNegativeFeedbackToExcel } from '../services/feedbackExcelSync.js';
 import { sendInoInvoice } from '../services/inoInvoice.js';
 import { runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
+import { processQueuedCampaigns } from '../services/outboundSend.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 
@@ -202,4 +203,21 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ Negative feedback Excel sync scheduled: Every 2 hours (UK time)');
+
+  // Outbound campaign queue processor: Every 30 minutes
+  // Picks up campaigns with status='queued' whose resumeAt has passed and sends the next batch
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const result = await processQueuedCampaigns();
+      if (result.processed > 0) {
+        console.log(`[OUTBOUND-CRON] Processed ${result.processed} queued campaign(s)`);
+      }
+    } catch (error) {
+      console.error('[OUTBOUND-CRON] Queue processor failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London',
+  });
+
+  console.log('✓ Outbound campaign queue processor scheduled: Every 30 minutes');
 };

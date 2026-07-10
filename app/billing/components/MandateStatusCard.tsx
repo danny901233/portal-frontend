@@ -74,7 +74,7 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-slate-900">{c.heading}</h2>
           <p className="mt-1 text-sm text-slate-500">

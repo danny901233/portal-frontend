@@ -7,7 +7,6 @@ import { routeChatMessage, invalidateSessionCache } from '../../services/chatAge
 import { scheduleHumanReply } from '../../services/chatDelay.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
 import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
-import { optOutFromReminders } from '../../services/garageHiveBc.js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 
@@ -219,59 +218,6 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             });
           }
 
-          // ── OPT-OUT (STOP) ───────────────────────────────────────────────
-          // Reminders tell customers to "Reply STOP to opt out". Honour that on
-          // WhatsApp: mark every outbound contact for this number opted out (so
-          // our send-time DNC skips them), confirm, write the opt-out back to
-          // Garage Hive (disableReminders on their vehicles), and skip the agent.
-          const OPT_OUT_PATTERN = /^\s*(stop|unsubscribe|cancel|quit|end|opt\s*out)\s*$/i;
-          if (messageText && OPT_OUT_PATTERN.test(messageText)) {
-            await prisma.outboundContact.updateMany({
-              where: { garageId: connection.garageId, phone: { in: phoneVariants } },
-              data: { status: 'opted_out' },
-            });
-
-            // Log the customer's STOP so the garage sees it in the thread.
-            await prisma.chatMessage
-              .create({
-                data: {
-                  conversationId: conversation.id,
-                  role: 'user',
-                  content: messageText,
-                  metaMid: (message.id as string | undefined) ?? null,
-                },
-              })
-              .catch(() => {});
-
-            // Send a brief confirmation (within the 24h window, plain text is fine).
-            const confirmation =
-              "No problem — you won't receive any more reminders from us. Message us anytime if you'd like to book.";
-            try {
-              await axios.post(
-                `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-                { messaging_product: 'whatsapp', to: customerPhone, type: 'text', text: { body: confirmation } },
-                { headers: { Authorization: `Bearer ${connection.accessToken}` } },
-              );
-              await prisma.chatMessage
-                .create({ data: { conversationId: conversation.id, role: 'assistant', content: confirmation } })
-                .catch(() => {});
-            } catch (e) {
-              console.error('[WhatsApp] opt-out confirmation failed:', e);
-            }
-
-            // Write the opt-out back to Garage Hive (best-effort, non-blocking).
-            if (outboundContact?.registration) {
-              optOutFromReminders(connection.garageId, outboundContact.registration)
-                .then((n) =>
-                  console.log(`[WhatsApp] Opt-out written to Garage Hive: ${n} vehicle(s) for ${outboundContact.registration}`),
-                )
-                .catch((e) => console.error('[WhatsApp] Garage Hive opt-out write-back failed:', e));
-            }
-
-            console.log(`[WhatsApp] Opt-out from ${customerPhone} — marked opted_out, agent skipped`);
-            continue;
-          }
-
           // Inject outbound context the first time a campaign recipient replies
           // (status not yet 'replied' means context hasn't been injected yet)
           if (outboundContact && outboundContact.status !== 'replied') {
@@ -447,7 +393,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
           });
 
           // Messaging notifications (scope 'all') — alert the garage about the new
-          // inbound message. No-op unless they've enabled it. Fire-and-forget.
+          // inbound message. No-op unless enabled. Fire-and-forget.
           void notifyMessaging({
             conversationId: conversation.id,
             event: 'inbound',

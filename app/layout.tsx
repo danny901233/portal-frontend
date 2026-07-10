@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import "./globals.css";
@@ -8,6 +8,15 @@ import AppShell from "./components/AppShell";
 export const metadata: Metadata = {
   title: "ReceptionMate Portal",
   description: "Operational dashboard for AI call logs",
+};
+
+// viewport-fit=cover makes the iOS safe-area insets resolve to real values so
+// the fixed bottom nav clears the home indicator / rounded corners instead of
+// being clipped (env(safe-area-inset-*) is 0 without this).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({

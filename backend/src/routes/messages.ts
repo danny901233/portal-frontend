@@ -544,9 +544,7 @@ router.post(
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
-      // Save message to DB. Manual sends keep role 'assistant' (so the agent still
-      // treats them as the reply side), but we record who sent it so the inbox can
-      // show the staff member's name instead of "AI".
+      // Save message to DB
       const message = await prisma.chatMessage.create({
         data: {
           conversationId,
@@ -658,6 +656,8 @@ router.post(
           content: caption || '[Image]',
           mediaUrl,
           mediaType: file.mimetype,
+          staffUserId: req.user?.userId ?? null,
+          staffUserEmail: req.user?.email ?? null,
         },
       });
 
@@ -969,13 +969,26 @@ async function sendImageMessage(
   }
 
   if (conversation.platform === 'whatsapp') {
+    let sendUrl = imageUrl;
+    if (imageUrl.includes('.s3.') && imageUrl.includes('.amazonaws.com')) {
+      const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+      const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+      const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+      if (awsAccessKey && awsSecretKey) {
+        const parsed = new URL(imageUrl);
+        const s3Key = parsed.pathname.replace(/^\//, '');
+        const bucket = parsed.hostname.split('.s3.')[0];
+        const s3 = new S3Client({ region: awsRegion, credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey } });
+        sendUrl = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: s3Key }), { expiresIn: 3600 });
+      }
+    }
     await axios.post(
       `https://graph.facebook.com/v21.0/${connection.whatsappPhoneNumberId}/messages`,
       {
         messaging_product: 'whatsapp',
         to: conversation.customerPhone,
         type: 'image',
-        image: { link: imageUrl, ...(caption && { caption }) },
+        image: { link: sendUrl, ...(caption && { caption }) },
       },
       {
         headers: { Authorization: `Bearer ${connection.accessToken}` },

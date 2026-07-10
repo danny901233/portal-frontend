@@ -536,7 +536,7 @@ export default function TemplatesPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">{c.title}</h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -571,7 +571,7 @@ export default function TemplatesPage() {
       {/* Create form */}
       {showForm && (
         <form onSubmit={handleSubmit} className="mb-8">
-          <div className="flex gap-6 items-start">
+          <div className="flex flex-col md:flex-row gap-6 items-start">
 
             {/* Left — form fields */}
             <div className="flex-1 rounded-xl border border-slate-300 bg-slate-50 p-6">
@@ -585,7 +585,7 @@ export default function TemplatesPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">{c.templateName}</label>
                   <input
@@ -865,7 +865,7 @@ export default function TemplatesPage() {
 
               <div className="mb-6">
                 <label className="block text-sm font-medium text-slate-600 mb-1">{c.button} <span className="text-slate-500 font-normal">{c.optional}</span></label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <select
                     value={formButtonType}
                     onChange={e => setFormButtonType(e.target.value)}
@@ -908,7 +908,7 @@ export default function TemplatesPage() {
             </div>
 
             {/* Right — WhatsApp preview */}
-            <div className="w-80 shrink-0">
+            <div className="w-full md:w-80 shrink-0">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{c.preview}</p>
               {/* Phone frame */}
               <div className="rounded-2xl border border-slate-300 overflow-hidden shadow-xl">
@@ -971,9 +971,9 @@ export default function TemplatesPage() {
         <div className="space-y-3">
           {templates.map(t => (
             <div key={t.id} className="rounded-xl border border-slate-300 bg-slate-50 p-5">
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                 <div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <h3 className="font-medium text-slate-900">{t.name}</h3>
                     <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLORS[t.status] || STATUS_COLORS.draft)}>
                       {c.statusLabels[t.status] ?? t.status}
@@ -994,7 +994,7 @@ export default function TemplatesPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {t.status === 'draft' && (
                     <button
                       onClick={() => handleSubmitToMeta(t.id)}

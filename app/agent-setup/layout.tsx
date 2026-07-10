@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '../lib/utils';
 import { isReceptionMateStaff, getGarageId, getSessionToken } from '../lib/auth';
@@ -37,7 +37,7 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
   },
   '/agent-setup/messaging': {
     label: 'Messagerie',
-    description: "Comportement de l'agent de chat + canaux connectés",
+    description: "Comportement de l'agent de chat + transfert à un humain",
   },
   '/agent-setup/training': {
     label: 'Formation',
@@ -59,6 +59,7 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
 
 export default function AgentSetupLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const isStaff = isReceptionMateStaff();
 
   // Messaging tab is only relevant to garages on the chat product. Resolve
@@ -106,8 +107,9 @@ export default function AgentSetupLayout({ children }: { children: ReactNode }) 
   }[lang];
 
   return (
-    <div className="flex min-h-screen bg-white text-slate-900">
-      <aside className="w-64 shrink-0 border-r border-slate-200 bg-slate-50 px-3 py-6">
+    <div className="flex min-h-screen flex-col bg-[#f4f2ec] text-slate-900 md:flex-row md:bg-white">
+      {/* Desktop-only left rail. On mobile it's replaced by the section dropdown below. */}
+      <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-slate-50 px-3 py-6 md:block">
         <SetupProgress />
         <div className="px-3 pb-4">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -149,7 +151,33 @@ export default function AgentSetupLayout({ children }: { children: ReactNode }) 
         </nav>
       </aside>
 
-      <main className="flex-1 px-8 py-8">
+      <main className="min-w-0 flex-1 px-4 py-5 md:px-8 md:py-8">
+        {/* Mobile section nav — a native horizontal-scrolling tab bar (replaces
+            the desktop rail). Only the chosen section renders below it. */}
+        <div className="mb-5 md:hidden">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{c.heading}</div>
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {visible.map((item) => {
+              const isActive = pathname === item.href;
+              const fr = lang === 'fr' ? AGENT_SETUP_NAV_FR[item.href] : undefined;
+              return (
+                <button
+                  key={item.href}
+                  type="button"
+                  onClick={() => router.push(item.href)}
+                  className={cn(
+                    'shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition-colors',
+                    isActive
+                      ? 'bg-brand-600 text-white shadow-sm'
+                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:text-slate-900',
+                  )}
+                >
+                  {fr?.label ?? item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <TourBanner />
         <div className="mx-auto max-w-3xl">{children}</div>
       </main>

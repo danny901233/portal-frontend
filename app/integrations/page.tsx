@@ -446,7 +446,7 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
               key={platform.id}
               className="bg-white border border-slate-200 rounded-lg p-6"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                 <div className="flex items-start gap-4">
                   <div className={cn('p-3 rounded-lg', platform.color)}>
                     <Icon />
@@ -475,7 +475,7 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
                   </div>
                 </div>
 
-                <div className="ml-4 shrink-0">
+                <div className="ml-14 md:ml-4 shrink-0">
                   {connection ? (
                     <button
                       onClick={() => disconnectPlatform(connection.id)}

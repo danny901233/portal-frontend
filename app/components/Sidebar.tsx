@@ -3,6 +3,21 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+/** True on phone-width viewports. Used to swap the Agent Config hover-flyout
+ *  for a plain link that just navigates (the sub-pages carry their own top
+ *  section picker on mobile). */
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return isMobile;
+}
 import { cn } from '../lib/utils';
 import { fetchAgentConfiguration } from '../lib/api';
 import { AGENT_SETUP_NAV, type AgentSetupNavItem } from '../agent-setup/_nav';
@@ -37,7 +52,7 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
   },
   '/agent-setup/messaging': {
     label: 'Messagerie',
-    description: "Comportement de l'agent de chat + canaux connectés",
+    description: "Comportement de l'agent de chat + transfert à un humain",
   },
   '/agent-setup/training': {
     label: 'Formation',
@@ -92,6 +107,13 @@ interface SidebarProps {
   hasManagerAccess?: boolean;
   isManagerUser?: boolean;
   messagesNeedingAttention?: number;
+  /** Mobile drawer open state (ignored on desktop, where the sidebar is always in-flow). */
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+  /** Content shown at the top of the mobile drawer (the branch selector). */
+  mobileTop?: React.ReactNode;
+  /** Logout handler — rendered at the bottom of the mobile drawer. */
+  onLogout?: () => void;
 }
 
 export default function Sidebar({
@@ -102,6 +124,10 @@ export default function Sidebar({
   hasManagerAccess = false,
   isManagerUser = false,
   messagesNeedingAttention = 0,
+  mobileOpen = false,
+  onMobileClose,
+  mobileTop,
+  onLogout,
 }: SidebarProps) {
   const t = useT();
   const items = useMemo(() => {
@@ -154,15 +180,48 @@ export default function Sidebar({
   const formattedNumber = twilioNumber ? prettifyUKNumber(twilioNumber) : null;
 
   return (
-    <aside className="sticky top-0 flex h-screen w-64 flex-col border-r border-brand-700 bg-brand-600">
-      {/* Logo */}
-      <div className="flex items-center justify-center px-4 py-7">
-        <img
-          src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
-          alt="ReceptionMate"
-          className="h-20 w-auto"
-        />
-      </div>
+    <>
+      {/* Mobile backdrop (desktop: never shown) */}
+      <div
+        className={cn(
+          'fixed inset-0 z-40 bg-slate-900/50 transition-opacity md:hidden',
+          mobileOpen ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={onMobileClose}
+        aria-hidden
+      />
+      <aside
+        className={cn(
+          'flex h-screen w-64 flex-col border-r border-brand-700 bg-brand-600',
+          // Mobile: off-canvas drawer that slides in. Reserve the iOS home-indicator
+          // safe area at the bottom so the number card / logout aren't clipped.
+          'fixed inset-y-0 left-0 z-50 max-w-[86vw] overflow-y-auto pb-[env(safe-area-inset-bottom)] transition-transform duration-300 md:pb-0',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          // Desktop: back to the normal in-flow sticky sidebar
+          'md:sticky md:top-0 md:z-auto md:max-w-none md:translate-x-0 md:overflow-visible',
+        )}
+      >
+        {/* Logo + mobile close */}
+        <div className="relative flex items-center justify-center px-4 py-7">
+          <img
+            src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+            alt="ReceptionMate"
+            className="h-20 w-auto"
+          />
+          <button
+            type="button"
+            onClick={onMobileClose}
+            aria-label="Close menu"
+            className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full text-brand-100 hover:bg-white/10 md:hidden"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {/* Branch selector at the top of the mobile drawer */}
+        {mobileTop ? (
+          <div className="px-3 pb-2 md:hidden">{mobileTop}</div>
+        ) : null}
 
       {/* Main nav — scrolls internally if it overflows so the bottom card
           stays pinned to the viewport. */}
@@ -238,6 +297,20 @@ export default function Sidebar({
               <span>{item.tKey ? t(item.tKey) : item.name}</span>
             </Link>
           ))}
+          {/* Mobile: open the support chat from the menu (the floating button is desktop-only) */}
+          <button
+            type="button"
+            onClick={() => {
+              onMobileClose?.();
+              window.dispatchEvent(new Event('rm-open-support'));
+            }}
+            className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-brand-50 transition-colors hover:bg-white/10 hover:text-white md:hidden"
+          >
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-brand-100 group-hover:text-white">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>
+            </span>
+            <span>{t('sidebar.support')}</span>
+          </button>
         </div>
       </div>
 
@@ -266,7 +339,22 @@ export default function Sidebar({
           </div>
         </div>
       </div>
-    </aside>
+
+      {/* Logout — bottom of the mobile drawer only (desktop logs out from the top bar) */}
+      {onLogout ? (
+        <div className="border-t border-white/10 px-3 py-3 md:hidden">
+          <button
+            type="button"
+            onClick={onLogout}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-2.5 text-sm font-semibold text-white ring-1 ring-white/15 hover:bg-white/15"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+            {t('navbar.signOut')}
+          </button>
+        </div>
+      ) : null}
+      </aside>
+    </>
   );
 }
 
@@ -286,17 +374,18 @@ function prettifyUKNumber(raw: string): string {
  * delay lets the cursor traverse from trigger to tray without flickering shut.
  */
 function AgentConfigSidebarItem({
+  hasMessagingAccess = false,
   icon,
   name,
   activePath,
-  hasMessagingAccess = false,
 }: {
   icon: React.ReactNode;
   name: string;
-  activePath: string;
   hasMessagingAccess?: boolean;
+  activePath: string;
 }) {
   const lang = useLang();
+  const isMobile = useIsMobile();
   const triggerRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState(false);
@@ -332,6 +421,32 @@ function AgentConfigSidebarItem({
   };
 
   useEffect(() => () => cancelClose(), []);
+
+  // Mobile: no hover-flyout. Tapping just navigates to the first setup page,
+  // which renders its own top section picker for switching sub-pages.
+  if (isMobile) {
+    return (
+      <Link
+        href="/agent-setup/company-information"
+        className={cn(
+          'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+          isActive
+            ? 'bg-white text-brand-700 shadow-sm'
+            : 'text-brand-50 hover:bg-white/10 hover:text-white',
+        )}
+      >
+        <span
+          className={cn(
+            'inline-flex h-5 w-5 shrink-0 items-center justify-center transition-colors',
+            isActive ? 'text-brand-600' : 'text-brand-100 group-hover:text-white',
+          )}
+        >
+          {icon}
+        </span>
+        <span className="flex-1 truncate">{name}</span>
+      </Link>
+    );
+  }
 
   return (
     <div

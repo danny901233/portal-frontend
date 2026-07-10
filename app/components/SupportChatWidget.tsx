@@ -6,6 +6,7 @@
 // gets stuck or the customer asks for a human.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import {
   fetchMySupportThread,
   markSupportThreadRead,
@@ -68,6 +69,19 @@ export default function SupportChatWidget() {
   }[lang];
   const [authed, setAuthed] = useState(false);
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  // Let other parts of the app (e.g. the mobile drawer's Support button) open this.
+  useEffect(() => {
+    const openit = () => setOpen(true);
+    window.addEventListener('rm-open-support', openit);
+    return () => window.removeEventListener('rm-open-support', openit);
+  }, []);
+  // On mobile the chat is full-screen, so close it when the user taps the bottom nav to leave.
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+      setOpen(false);
+    }
+  }, [pathname]);
   const [view, setView] = useState<View>('menu');
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [unread, setUnread] = useState(0);
@@ -156,7 +170,7 @@ export default function SupportChatWidget() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? c.closeHelp : c.openHelp}
-        className="fixed bottom-5 right-5 z-[60] inline-flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-xl shadow-brand-600/30 transition hover:bg-brand-700"
+        className="fixed bottom-5 right-5 z-[60] hidden h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-xl shadow-brand-600/30 transition hover:bg-brand-700 md:inline-flex"
       >
         {open ? <CloseIcon /> : <ChatIcon />}
         {!open && unread > 0 && (
@@ -167,7 +181,7 @@ export default function SupportChatWidget() {
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-5 z-[60] flex h-[560px] w-[380px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="fixed inset-x-0 top-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-[60] flex flex-col overflow-hidden border border-slate-200 bg-white shadow-2xl md:inset-x-auto md:top-auto md:bottom-24 md:right-5 md:h-[560px] md:w-[380px] md:max-w-[calc(100vw-2.5rem)] md:rounded-2xl">
           {view === 'menu' && (
             <MenuView
               onPickChat={() => {
@@ -178,6 +192,7 @@ export default function SupportChatWidget() {
                 }, CONNECTING_MS);
               }}
               onPickWhatsApp={openWhatsApp}
+              onClose={() => setOpen(false)}
               error={error}
             />
           )}
@@ -192,6 +207,7 @@ export default function SupportChatWidget() {
               error={error}
               onSend={handleSend}
               onBack={() => setView('menu')}
+              onClose={() => setOpen(false)}
               listEndRef={listEndRef}
               aiJoinedAt={aiJoinedAt}
             />
@@ -205,10 +221,12 @@ export default function SupportChatWidget() {
 function MenuView({
   onPickChat,
   onPickWhatsApp,
+  onClose,
   error,
 }: {
   onPickChat: () => void;
   onPickWhatsApp: () => void;
+  onClose: () => void;
   error: string | null;
 }) {
   const lang = useLang();
@@ -240,10 +258,18 @@ function MenuView({
   }[lang];
   return (
     <div className="flex h-full flex-col">
-      <header className="bg-brand-600 px-5 py-5 text-white">
+      <header className="relative bg-brand-600 px-5 py-5 text-white">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close help"
+          className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
+        >
+          <CloseIcon />
+        </button>
         <p className="text-xs font-semibold uppercase tracking-wider text-brand-100">{c.eyebrow}</p>
-        <h2 className="mt-1 text-lg font-semibold">{c.title}</h2>
-        <p className="mt-0.5 text-xs text-brand-100">
+        <h2 className="mt-1 pr-8 text-lg font-semibold">{c.title}</h2>
+        <p className="mt-0.5 pr-8 text-xs text-brand-100">
           {c.subtitle}
         </p>
       </header>
@@ -376,6 +402,7 @@ function ChatView({
   error,
   onSend,
   onBack,
+  onClose,
   listEndRef,
   aiJoinedAt,
 }: {
@@ -387,6 +414,7 @@ function ChatView({
   error: string | null;
   onSend: (e: React.FormEvent) => void;
   onBack: () => void;
+  onClose: () => void;
   listEndRef: React.RefObject<HTMLDivElement | null>;
   aiJoinedAt: Date | null;
 }) {
@@ -423,6 +451,14 @@ function ChatView({
           <p className="text-sm font-semibold">{AI_PERSONA.name}</p>
           <p className="text-xs text-brand-100">{AI_PERSONA.title} · {c.repliesInstantly}</p>
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close help"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
+        >
+          <CloseIcon />
+        </button>
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 px-4 py-4">

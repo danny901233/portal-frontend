@@ -22,6 +22,8 @@ export const messages = {
       billing: 'Billing',
       admin: 'Admin',
       helpGuides: 'Help & Guides',
+      setup: 'Setup',
+      more: 'More',
     },
     navbar: {
       branch: 'Branch',
@@ -35,6 +37,7 @@ export const messages = {
     sidebar: {
       yourNumber: 'Your ReceptionMate number',
       notAssigned: 'Not assigned yet',
+      support: 'Support chat',
     },
     common: {
       save: 'Save',
@@ -59,6 +62,8 @@ export const messages = {
       billing: 'Facturation',
       admin: 'Admin',
       helpGuides: 'Aide & Guides',
+      setup: 'Config',
+      more: 'Plus',
     },
     navbar: {
       branch: 'Établissement',
@@ -72,6 +77,7 @@ export const messages = {
     sidebar: {
       yourNumber: 'Votre numéro ReceptionMate',
       notAssigned: 'Pas encore attribué',
+      support: 'Chat d’assistance',
     },
     common: {
       save: 'Enregistrer',

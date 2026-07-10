@@ -55,6 +55,12 @@ function CardForm({ resetToken, pendingSignupId }: { resetToken?: string | null;
       // Card confirmed inline (no 3-D Secure). For the deferred flow, create the account NOW
       // (returns a set-password token), then go to Choose-a-password → auto-login.
       setSucceeded(true);
+      // Google Ads conversion — a real, carded 14-day trial has started (Count=One, so Google
+      // de-dupes per click even if this ever fires more than once).
+      const w = window as unknown as { gtag?: (...args: unknown[]) => void };
+      if (typeof w.gtag === 'function') {
+        w.gtag('event', 'conversion', { send_to: 'AW-16449651971/8I8tCMHe7s0cEIOK56M9', value: 200, currency: 'GBP' });
+      }
       if (pendingSignupId && !resetToken) {
         try {
           const res = await fetch('/internal-api/public/signup-complete', {

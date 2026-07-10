@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
+import Script from "next/script";
 import "./globals.css";
 import Providers from "./providers";
 import AppShell from "./components/AppShell";
@@ -47,6 +48,14 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
+        {/* Google tag (gtag.js) — Google Ads conversion tracking */}
+        <Script src="https://www.googletagmanager.com/gtag/js?id=AW-16449651971" strategy="afterInteractive" />
+        <Script id="gtag-init" strategy="afterInteractive">{`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'AW-16449651971');
+        `}</Script>
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>

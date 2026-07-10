@@ -275,8 +275,6 @@ export interface AgentConfiguration {
   // keeping chat fully AI-handled (or vice versa).
   messagingHumanHandoff?: boolean;
   messagingHandoffMessage?: string | null;
-  // Messaging notifications: alert the garage about chat activity.
-  // scope: 'off' | 'escalated' (only when handed to a human) | 'all' (every inbound message)
   messagingNotifyScope?: 'off' | 'escalated' | 'all';
   messagingNotifyEmail?: boolean;
   messagingNotifySms?: boolean;

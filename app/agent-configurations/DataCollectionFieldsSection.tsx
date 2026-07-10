@@ -44,7 +44,7 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
       addField: '+ Add field',
       savedNote: (
         <>
-          Saved to <code className="text-slate-400">configuration.dataCollectionFields</code>; the
+          Saved to <code className="text-slate-600">configuration.dataCollectionFields</code>; the
           agent reads it on every call (5-min cache per garage).
         </>
       ),
@@ -67,7 +67,7 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
       addField: '+ Ajouter un champ',
       savedNote: (
         <>
-          Enregistré dans <code className="text-slate-400">configuration.dataCollectionFields</code> ; l&rsquo;agent
+          Enregistré dans <code className="text-slate-600">configuration.dataCollectionFields</code> ; l&rsquo;agent
           le lit à chaque appel (cache de 5 min par garage).
         </>
       ),
@@ -105,16 +105,16 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
   };
 
   return (
-    <section className="rounded-2xl border border-amber-700/60 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+    <section className="rounded-2xl border border-amber-300 bg-white p-6 shadow-lg shadow-slate-200/60">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-slate-100">{c.title}</h2>
-            <span className="rounded bg-amber-600/20 px-2 py-0.5 text-xs font-medium text-amber-300">
+            <h2 className="text-lg font-semibold text-slate-900">{c.title}</h2>
+            <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
               {c.badge}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-slate-600">
             {c.desc}
           </p>
         </div>
@@ -122,7 +122,7 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
           type="button"
           onClick={resetToDefaults}
           disabled={disabled}
-          className="shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+          className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
         >
           {c.resetDefaults}
         </button>
@@ -132,40 +132,40 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
         {effectiveFields.map((field, idx) => (
           <div
             key={`${field.key}-${idx}`}
-            className="rounded-xl border border-slate-800 bg-slate-950/50 p-4"
+            className="rounded-xl border border-slate-200 bg-white p-4"
           >
             <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-slate-200">
+              <label className="flex items-center gap-2 text-sm text-slate-800">
                 <input
                   type="checkbox"
                   checked={field.active}
                   onChange={(e) => updateField(idx, { active: e.target.checked })}
                   disabled={disabled}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+                  className="h-4 w-4 rounded border-slate-300 bg-slate-100"
                 />
                 <span className="font-medium">{c.active}</span>
               </label>
 
-              <label className="flex items-center gap-2 text-sm text-slate-200">
+              <label className="flex items-center gap-2 text-sm text-slate-800">
                 <input
                   type="checkbox"
                   checked={field.required}
                   onChange={(e) => updateField(idx, { required: e.target.checked })}
                   disabled={disabled || !field.active}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+                  className="h-4 w-4 rounded border-slate-300 bg-slate-100"
                 />
                 <span>{c.required}</span>
               </label>
 
               <div className="ml-auto flex items-center gap-2">
-                <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-xs text-slate-400">
+                <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-600">
                   {field.key}
                 </span>
                 <button
                   type="button"
                   onClick={() => removeField(idx)}
                   disabled={disabled}
-                  className="rounded-lg border border-red-900/50 px-2 py-1 text-xs text-red-400 hover:bg-red-950/40 disabled:opacity-50"
+                  className="rounded-lg border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
                 >
                   {c.remove}
                 </button>
@@ -174,7 +174,7 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
 
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">
+                <label className="block text-xs font-medium uppercase tracking-wide text-slate-600">
                   {c.labelHeading}
                 </label>
                 <input
@@ -184,11 +184,11 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
                   disabled={disabled}
                   maxLength={120}
                   placeholder={c.labelPlaceholder}
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-amber-600 focus:outline-none disabled:opacity-50"
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-amber-300 focus:outline-none disabled:opacity-50"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wide text-slate-400">
+                <label className="block text-xs font-medium uppercase tracking-wide text-slate-600">
                   {c.instructionHeading}
                 </label>
                 <input
@@ -198,7 +198,7 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
                   disabled={disabled}
                   maxLength={280}
                   placeholder={c.instructionPlaceholder}
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-amber-600 focus:outline-none disabled:opacity-50"
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:border-amber-300 focus:outline-none disabled:opacity-50"
                 />
               </div>
             </div>
@@ -211,7 +211,7 @@ export default function DataCollectionFieldsSection({ fields, onChange, disabled
           type="button"
           onClick={addField}
           disabled={disabled}
-          className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
         >
           {c.addField}
         </button>

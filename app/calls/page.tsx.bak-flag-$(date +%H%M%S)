@@ -3,57 +3,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
-import { fetchCalls, submitCallFeedback, downloadConfirmedBookingsCsv } from '../lib/api';
+import { fetchCalls, submitCallFeedback } from '../lib/api';
 import { getGarageId } from '../lib/auth';
 import {
   TRACKED_TAGS,
-  TAG_COLORS,
   getCallTagLabel,
   getCallTagStyle,
-  normaliseCallTag,
 } from '../lib/callTags';
-import { getFeedbackOptions } from '../lib/callFeedback';
+import { FEEDBACK_OPTIONS } from '../lib/callFeedback';
 import { cn } from '../lib/utils';
 import type { CallRecord, CallsResponse } from '../types';
-import { useLang } from '@/app/i18n/LocaleProvider';
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
-
-// Compact "3m 33s" duration for the mobile call cards.
-const formatCallDuration = (seconds?: number | null): string | null => {
-  if (!seconds || seconds <= 0) return null;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  if (m <= 0) return `${s}s`;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
-};
-
-// Readable (darkened) text colours for the soft tag pills on the mobile call
-// cards — the light TAG_COLORS (sky, amber, emerald) wouldn't pass contrast as
-// text on a tinted background, so pills use these deeper variants.
-const TAG_PILL_TEXT: Record<string, string> = {
-  update: '#0369a1',
-  quote: '#4338ca',
-  'general enquiry': '#7e22ce',
-  internal: '#92600e',
-  complaint: '#be123c',
-  'human request': '#047857',
-  'confirmed booking': '#15803d',
-  other: '#475569',
-};
-
-// Initials for the avatar tile — only when the caller has a real name;
-// number-only / unknown callers get a phone glyph instead (see render).
-const getCallInitials = (name: string): string => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  if (parts[0]) return parts[0].slice(0, 2).toUpperCase();
-  return '·';
-};
 
 const summaryPreview = (summary?: string | null, maxWords = 20) => {
   if (!summary) {
@@ -78,10 +43,10 @@ const toIsoDate = (value: string, endOfDay = false): string | undefined => {
   return date.toISOString();
 };
 
-const formatCallTag = (raw?: string | null, lang: 'en' | 'fr' = 'en') => getCallTagLabel(raw, lang);
+const formatCallTag = (raw?: string | null) => getCallTagLabel(raw);
 
-const renderCallTag = (raw?: string | null, lang: 'en' | 'fr' = 'en') => {
-  const label = getCallTagLabel(raw, lang);
+const renderCallTag = (raw?: string | null) => {
+  const label = getCallTagLabel(raw);
   const style = getCallTagStyle(raw);
   return (
     <span
@@ -431,141 +396,6 @@ const buildCallSearchText = (call: CallRecord): string => {
 export default function CallsPage() {
   const garageId = getGarageId();
   const router = useRouter();
-  const lang = useLang();
-  const c = {
-    en: {
-      garageNotSelected: 'Garage not selected. Log out and sign in again to choose a garage.',
-      callActivity: 'Call Activity',
-      monitorInteractions: 'Monitor interactions from your ReceptionMate AI voice agent.',
-      totalCalls: 'Total calls',
-      inSelectedFilter: 'In the selected filter',
-      confirmedBookings: 'Confirmed bookings',
-      callsCapturedBooking: 'Calls that captured a booking',
-      avgDuration: 'Avg duration',
-      perCall: 'Per call',
-      totalTime: 'Total time',
-      combinedCallTime: 'Combined call time',
-      recentCalls: 'Recent calls',
-      arrearsTitle: 'Account in arrears',
-      arrearsBody:
-        'Caller details, summaries, transcripts and recordings are hidden until this account is brought up to date. You can still see when calls came in and their type.',
-      hidden: 'Hidden',
-      searchFilterListen: 'Search, filter and listen back — newest first.',
-      callsBadge: (n: number) => `${n} call${n === 1 ? '' : 's'}`,
-      callTag: 'Call Tag',
-      allCalls: 'All Calls',
-      from: 'From',
-      to: 'To',
-      search: 'Search',
-      searchPlaceholder: 'e.g. "MOT" AND (booking OR estimate)',
-      searchTitle: 'Supports AND, OR, NOT and quoted phrases',
-      clearFilters: 'Clear filters',
-      loading: 'Loading…',
-      resultsCount: (n: number) => `${n} result${n === 1 ? '' : 's'}`,
-      exportNegativeFeedback: 'Export negative feedback',
-      exportFailed: 'Failed to export negative feedback',
-      colCaller: 'Caller',
-      colFromNumber: 'From Number',
-      colDateTime: 'Date & Time',
-      colTag: 'Tag',
-      colRecording: 'Recording',
-      colSummary: 'Summary',
-      colDetails: 'Details',
-      colRating: 'Rating',
-      loadingCalls: 'Loading calls…',
-      noCallsFound: 'No calls found. Adjust filters or widen your search query.',
-      loadingRecording: 'Loading...',
-      loadRecording: 'Load Recording',
-      viewSummary: 'View Summary',
-      viewDetails: 'View Details',
-      ratePositively: 'Rate call positively',
-      rateNegatively: 'Rate call negatively',
-      showingPage: (page: number, totalPages: number, total: number) =>
-        `Showing page ${page} of ${totalPages} (${total} total calls)`,
-      previous: 'Previous',
-      next: 'Next',
-      failedToLoad: 'Failed to load calls.',
-      tryAgainLater: 'Please try again later.',
-      provideFeedback: 'Provide feedback',
-      improveAI: 'Let us know what we can do to improve our AI.',
-      callLabel: 'Call:',
-      tellUsMore: 'Tell us more…',
-      cancel: 'Cancel',
-      saving: 'Saving…',
-      confirm: 'Confirm',
-      feedbackSubmitError: 'Failed to submit feedback. Please try again.',
-      callSummary: 'Call Summary',
-      caller: 'Caller:',
-      closeSummary: 'Close summary',
-      summaryUnavailable: 'Summary unavailable for this call.',
-    },
-    fr: {
-      garageNotSelected: 'Aucun garage sélectionné. Déconnectez-vous et reconnectez-vous pour choisir un garage.',
-      callActivity: 'Activité des appels',
-      monitorInteractions: 'Suivez les interactions de votre agent vocal IA ReceptionMate.',
-      totalCalls: 'Total des appels',
-      inSelectedFilter: 'Dans le filtre sélectionné',
-      confirmedBookings: 'Réservations confirmées',
-      callsCapturedBooking: 'Appels ayant abouti à une réservation',
-      avgDuration: 'Durée moyenne',
-      perCall: 'Par appel',
-      totalTime: 'Temps total',
-      combinedCallTime: 'Temps d’appel cumulé',
-      recentCalls: 'Appels récents',
-      arrearsTitle: 'Compte en souffrance',
-      arrearsBody:
-        'Les coordonnées des appelants, les résumés, les transcriptions et les enregistrements sont masqués jusqu’à la régularisation du compte. Vous pouvez toujours voir l’heure des appels et leur type.',
-      hidden: 'Masqué',
-      searchFilterListen: 'Recherchez, filtrez et réécoutez — les plus récents en premier.',
-      callsBadge: (n: number) => `${n} appel${n === 1 ? '' : 's'}`,
-      callTag: 'Catégorie d’appel',
-      allCalls: 'Tous les appels',
-      from: 'Du',
-      to: 'Au',
-      search: 'Recherche',
-      searchPlaceholder: 'ex. « contrôle technique » AND (réservation OR devis)',
-      searchTitle: 'Prend en charge AND, OR, NOT et les expressions entre guillemets',
-      clearFilters: 'Effacer les filtres',
-      loading: 'Chargement…',
-      resultsCount: (n: number) => `${n} résultat${n === 1 ? '' : 's'}`,
-      exportNegativeFeedback: 'Exporter les avis négatifs',
-      exportFailed: 'Échec de l’export des avis négatifs',
-      colCaller: 'Appelant',
-      colFromNumber: 'Numéro appelant',
-      colDateTime: 'Date et heure',
-      colTag: 'Catégorie',
-      colRecording: 'Enregistrement',
-      colSummary: 'Résumé',
-      colDetails: 'Détails',
-      colRating: 'Évaluation',
-      loadingCalls: 'Chargement des appels…',
-      noCallsFound: 'Aucun appel trouvé. Ajustez les filtres ou élargissez votre recherche.',
-      loadingRecording: 'Chargement...',
-      loadRecording: 'Charger l’enregistrement',
-      viewSummary: 'Voir le résumé',
-      viewDetails: 'Voir les détails',
-      ratePositively: 'Évaluer l’appel positivement',
-      rateNegatively: 'Évaluer l’appel négativement',
-      showingPage: (page: number, totalPages: number, total: number) =>
-        `Page ${page} sur ${totalPages} (${total} appels au total)`,
-      previous: 'Précédent',
-      next: 'Suivant',
-      failedToLoad: 'Échec du chargement des appels.',
-      tryAgainLater: 'Veuillez réessayer plus tard.',
-      provideFeedback: 'Donner un avis',
-      improveAI: 'Dites-nous ce que nous pouvons faire pour améliorer notre IA.',
-      callLabel: 'Appel :',
-      tellUsMore: 'Dites-nous en plus…',
-      cancel: 'Annuler',
-      saving: 'Enregistrement…',
-      confirm: 'Confirmer',
-      feedbackSubmitError: 'Échec de l’envoi de l’avis. Veuillez réessayer.',
-      callSummary: 'Résumé de l’appel',
-      caller: 'Appelant :',
-      closeSummary: 'Fermer le résumé',
-      summaryUnavailable: 'Résumé indisponible pour cet appel.',
-    },
-  }[lang];
   const [callTagFilter, setCallTagFilter] = useState('all');
   const [startDateInput, setStartDateInput] = useState('');
   const [endDateInput, setEndDateInput] = useState('');
@@ -683,9 +513,6 @@ export default function CallsPage() {
 
   const displayedCalls = filteredCalls;
 
-  // True when the viewed branch is in arrears (backend has redacted the calls to date+tag only).
-  const anyRestricted = useMemo(() => displayedCalls.some((call) => call.restricted), [displayedCalls]);
-
   // Lightweight summary stats for the KPI strip
   const summaryStats = useMemo(() => {
     const total = displayedCalls.length;
@@ -739,20 +566,6 @@ export default function CallsPage() {
     setEndDateInput('');
     setSearchTerm('');
   }, []);
-
-  const handleExportNegativeFeedback = useCallback(async () => {
-    try {
-      const blob = await downloadConfirmedBookingsCsv(garageId ?? undefined);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `negative-feedback-${garageId}.csv`;
-      anchor.click();
-      window.URL.revokeObjectURL(url);
-    } catch {
-      alert(c.exportFailed);
-    }
-  }, [garageId, c]);
 
   const handleReasonToggle = useCallback((value: string) => {
     setFeedbackReasons((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
@@ -905,7 +718,7 @@ export default function CallsPage() {
   const feedbackErrorMessage = feedbackMutation.isError
     ? feedbackMutation.error instanceof Error
       ? feedbackMutation.error.message
-      : c.feedbackSubmitError
+      : 'Failed to submit feedback. Please try again.'
     : null;
 
   const handleSummaryOpen = useCallback((callId: string) => {
@@ -977,7 +790,7 @@ export default function CallsPage() {
   if (!garageId) {
     return (
       <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
-        {c.garageNotSelected}
+        Garage not selected. Log out and sign in again to choose a garage.
       </div>
     );
   }
@@ -985,53 +798,43 @@ export default function CallsPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold text-slate-900">{c.callActivity}</h1>
-        <p className="text-sm text-slate-500">{c.monitorInteractions}</p>
+        <h1 className="text-2xl font-semibold text-slate-900">Call Activity</h1>
+        <p className="text-sm text-slate-500">Monitor interactions from your ReceptionMate AI voice agent.</p>
       </div>
 
-      {anyRestricted ? (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
-          <span aria-hidden className="text-lg leading-none">🔒</span>
-          <div className="text-sm text-amber-900">
-            <p className="font-semibold">{c.arrearsTitle}</p>
-            <p className="mt-0.5 text-amber-800">{c.arrearsBody}</p>
-          </div>
-        </div>
-      ) : null}
-
       {/* KPI summary strip */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm md:p-5">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.totalCalls}</div>
-          <div className="mt-1 text-xl font-semibold md:mt-3 md:text-3xl text-slate-900">{query.isLoading ? '—' : summaryStats.total}</div>
-          <p className="mt-1 text-xs text-slate-500">{c.inSelectedFilter}</p>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total calls</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.total}</div>
+          <p className="mt-1 text-xs text-slate-500">In the selected filter</p>
         </div>
-        <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-3 shadow-sm md:p-5">
-          <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">{c.confirmedBookings}</div>
-          <div className="mt-1 text-xl font-semibold md:mt-3 md:text-3xl text-emerald-700">{query.isLoading ? '—' : summaryStats.confirmed}</div>
-          <p className="mt-1 text-xs text-slate-500">{c.callsCapturedBooking}</p>
+        <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Confirmed bookings</div>
+          <div className="mt-3 text-3xl font-semibold text-emerald-700">{query.isLoading ? '—' : summaryStats.confirmed}</div>
+          <p className="mt-1 text-xs text-slate-500">Calls that captured a booking</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm md:p-5">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.avgDuration}</div>
-          <div className="mt-1 text-xl font-semibold md:mt-3 md:text-3xl text-slate-900">{query.isLoading ? '—' : summaryStats.avgDuration}</div>
-          <p className="mt-1 text-xs text-slate-500">{c.perCall}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Avg duration</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.avgDuration}</div>
+          <p className="mt-1 text-xs text-slate-500">Per call</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm md:p-5">
-          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.totalTime}</div>
-          <div className="mt-1 text-xl font-semibold md:mt-3 md:text-3xl text-slate-900">{query.isLoading ? '—' : summaryStats.totalDuration}</div>
-          <p className="mt-1 text-xs text-slate-500">{c.combinedCallTime}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Total time</div>
+          <div className="mt-3 text-3xl font-semibold text-slate-900">{query.isLoading ? '—' : summaryStats.totalDuration}</div>
+          <p className="mt-1 text-xs text-slate-500">Combined call time</p>
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">{c.recentCalls}</h2>
-            <p className="text-xs text-slate-500">{c.searchFilterListen}</p>
+            <h2 className="text-base font-semibold text-slate-900">Recent calls</h2>
+            <p className="text-xs text-slate-500">Search, filter and listen back — newest first.</p>
           </div>
           {!query.isLoading && summaryStats.total > 0 ? (
             <span className="hidden rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-200 sm:inline-flex">
-              {c.callsBadge(summaryStats.total)}
+              {summaryStats.total} call{summaryStats.total === 1 ? '' : 's'}
             </span>
           ) : null}
         </div>
@@ -1039,7 +842,7 @@ export default function CallsPage() {
         <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-700 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">{c.callTag}</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500">Call Tag</span>
               <select
                 value={callTagFilter}
                 onChange={(event) => setCallTagFilter(event.target.value)}
@@ -1047,14 +850,14 @@ export default function CallsPage() {
               >
                 {callTagOptions.map((type) => (
                   <option key={type} value={type}>
-                    {type === 'all' ? c.allCalls : formatCallTag(type, lang)}
+                    {type === 'all' ? 'All Calls' : formatCallTag(type)}
                   </option>
                 ))}
               </select>
             </label>
 
             <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">{c.from}</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500">From</span>
               <input
                 type="date"
                 value={startDateInput}
@@ -1064,7 +867,7 @@ export default function CallsPage() {
             </label>
 
             <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">{c.to}</span>
+              <span className="text-xs uppercase tracking-wide text-slate-500">To</span>
               <input
                 type="date"
                 value={endDateInput}
@@ -1075,16 +878,16 @@ export default function CallsPage() {
             </label>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex flex-1 items-center gap-2 md:flex-none">
-              <span className="text-xs uppercase tracking-wide text-slate-500">{c.search}</span>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-500">Search</span>
               <input
                 type="search"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder={c.searchPlaceholder}
-                title={c.searchTitle}
-                className="w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none md:w-56"
+                placeholder={'e.g. "MOT" AND (booking OR estimate)'}
+                title="Supports AND, OR, NOT and quoted phrases"
+                className="w-56 rounded-md border border-slate-300 bg-white px-3 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
               />
             </label>
             {filtersActive ? (
@@ -1093,116 +896,42 @@ export default function CallsPage() {
                 onClick={resetFilters}
                 className="text-xs font-medium text-brand-600 hover:text-brand-700"
               >
-                {c.clearFilters}
+                Clear filters
               </button>
             ) : null}
             <span className="text-xs uppercase tracking-wide text-slate-500">
               {query.isLoading
-                ? c.loading
-                : c.resultsCount(displayedCalls.length)}
+                ? 'Loading…'
+                : `${displayedCalls.length} result${displayedCalls.length === 1 ? '' : 's'}`}
             </span>
-            <button
-              type="button"
-              onClick={handleExportNegativeFeedback}
-              className="rounded-md border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300 hover:border-slate-500 hover:text-slate-100"
-            >
-              {c.exportNegativeFeedback}
-            </button>
           </div>
         </div>
 
-        {/* Mobile: native-style call cards — colour rail + avatar per outcome,
-            whole row taps through to the detail. Desktop table unchanged. */}
-        <div className="md:hidden">
-          {query.isLoading ? (
-            <div className="py-10 text-center text-sm text-slate-500">{c.loadingCalls}</div>
-          ) : displayedCalls.length === 0 ? (
-            <div className="py-10 text-center text-sm text-slate-500">{c.noCallsFound}</div>
-          ) : (
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              {displayedCalls.map((call) => {
-                const callerName = deriveCallerName(call);
-                const formattedNumber = formatPhoneNumber(deriveCallerNumber(call));
-                const normTag = normaliseCallTag(call.callType);
-                const tagColor = TAG_COLORS[normTag] ?? TAG_COLORS.other;
-                const tagText = TAG_PILL_TEXT[normTag] ?? TAG_PILL_TEXT.other;
-                const hasName = /[a-z]/i.test(callerName);
-                const duration = formatCallDuration(call.durationSeconds);
-                return (
-                  <button
-                    key={call.id}
-                    type="button"
-                    onClick={() => router.push(`/calls/${call.id}`)}
-                    className="relative flex w-full items-center gap-3 border-b border-slate-100 px-3.5 py-3 text-left transition-colors last:border-b-0 hover:bg-slate-50 active:bg-slate-100"
-                  >
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-2.5 left-0 w-1 rounded-r-full"
-                      style={{ backgroundColor: tagColor }}
-                    />
-                    <span
-                      className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-[13px] font-bold"
-                      style={{ backgroundColor: `${tagColor}1f`, color: tagColor }}
-                    >
-                      {hasName ? (
-                        getCallInitials(callerName)
-                      ) : (
-                        <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                          <path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 2 4.2 2 2 0 0 1 4 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9Z" />
-                        </svg>
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[15px] font-semibold text-slate-900">
-                        {call.restricted ? `🔒 ${c.hidden}` : callerName}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs text-slate-500">
-                        {formatDate(call.createdAt)}
-                        {duration ? ` · ${duration}` : ''}
-                        {hasName && formattedNumber ? ` · ${formattedNumber}` : ''}
-                      </span>
-                    </span>
-                    <span
-                      className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                      style={{ backgroundColor: `${tagColor}22`, color: tagText }}
-                    >
-                      {getCallTagLabel(call.callType, lang)}
-                    </span>
-                    <svg className="h-4 w-4 shrink-0 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path d="m9 6 6 6-6 6" />
-                    </svg>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="hidden overflow-x-auto md:block">
+        <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-white text-xs uppercase tracking-widest text-slate-500">
               <tr>
-                <th className="px-5 py-3 text-left font-medium">{c.colCaller}</th>
-                <th className="px-5 py-3 text-left font-medium">{c.colFromNumber}</th>
-                <th className="px-5 py-3 text-left font-medium">{c.colDateTime}</th>
-                <th className="px-5 py-3 text-left font-medium">{c.colTag}</th>
-                <th className="px-5 py-3 text-left font-medium">{c.colRecording}</th>
-                <th className="px-5 py-3 text-left font-medium">{c.colSummary}</th>
-                <th className="px-5 py-3 text-left font-medium">{c.colDetails}</th>
-                <th className="px-5 py-3 text-left font-medium">{c.colRating}</th>
+                <th className="px-5 py-3 text-left font-medium">Caller</th>
+                <th className="px-5 py-3 text-left font-medium">From Number</th>
+                <th className="px-5 py-3 text-left font-medium">Date &amp; Time</th>
+                <th className="px-5 py-3 text-left font-medium">Tag</th>
+                <th className="px-5 py-3 text-left font-medium">Recording</th>
+                <th className="px-5 py-3 text-left font-medium">Summary</th>
+                <th className="px-5 py-3 text-left font-medium">Details</th>
+                <th className="px-5 py-3 text-left font-medium">Rating</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {query.isLoading ? (
                 <tr>
                   <td colSpan={8} className="px-5 py-10 text-center text-slate-500">
-                    {c.loadingCalls}
+                    Loading calls…
                   </td>
                 </tr>
               ) : displayedCalls.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-5 py-10 text-center text-slate-500">
-                    {c.noCallsFound}
+                    No calls found. Adjust filters or widen your search query.
                   </td>
                 </tr>
               ) : (
@@ -1210,7 +939,7 @@ export default function CallsPage() {
                   const callerName = deriveCallerName(call);
                   const callerNumberRaw = deriveCallerNumber(call);
                   const formattedNumber = formatPhoneNumber(callerNumberRaw);
-                  const callTag = renderCallTag(call.callType, lang);
+                  const callTag = renderCallTag(call.callType);
                   const rating = ratings[call.id] ?? null;
                   const upActive = rating === 'up';
                   const downActive = rating === 'down';
@@ -1220,15 +949,9 @@ export default function CallsPage() {
                   return (
                     <tr key={call.id} className="hover:bg-slate-50">
                       <td className="px-5 py-3 align-top text-slate-900">
-                        {call.restricted ? (
-                          <span className="inline-flex items-center gap-1 font-medium text-slate-400">
-                            🔒 {c.hidden}
-                          </span>
-                        ) : (
-                          <span className="font-semibold tracking-tight text-slate-900" title={callerName}>
-                            {callerName}
-                          </span>
-                        )}
+                        <span className="font-semibold tracking-tight text-slate-900" title={callerName}>
+                          {callerName}
+                        </span>
                       </td>
                       <td className="px-5 py-3 align-top text-slate-700" title={formattedNumber}>
                         {formattedNumber}
@@ -1255,7 +978,7 @@ export default function CallsPage() {
                               disabled={loadingRecordings.has(call.id)}
                               className="rounded-md border border-slate-300 px-2 py-1 text-xs text-brand-600 hover:border-slate-500 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {loadingRecordings.has(call.id) ? c.loadingRecording : c.loadRecording}
+                              {loadingRecordings.has(call.id) ? 'Loading...' : 'Load Recording'}
                             </button>
                             {recordingErrors[call.id] && (
                               <p className="text-xs text-rose-600">{recordingErrors[call.id]}</p>
@@ -1272,21 +995,20 @@ export default function CallsPage() {
                             onClick={() => handleSummaryOpen(call.id)}
                             className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
                           >
-                            {c.viewSummary}
+                            View Summary
                           </button>
                         ) : (
                           <span className="text-slate-500">—</span>
                         )}
                       </td>
                       <td className="px-5 py-3 align-top">
-                        <a
-                          href={`/calls/${call.id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => handleViewDetails(call.id)}
                           className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-brand-600 transition-colors hover:border-slate-500 hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
                         >
-                          {c.viewDetails}
-                        </a>
+                          View Details
+                        </button>
                       </td>
                       <td className="px-5 py-3 align-top">
                         <div className="flex items-center gap-2">
@@ -1302,7 +1024,7 @@ export default function CallsPage() {
                                 : 'border-slate-300 hover:border-emerald-300/70 hover:text-emerald-200',
                             )}
                             aria-pressed={upActive}
-                            aria-label={c.ratePositively}
+                            aria-label="Rate call positively"
                           >
                             <ThumbIcon direction="up" active={upActive} />
                           </button>
@@ -1318,7 +1040,7 @@ export default function CallsPage() {
                                 : 'border-slate-300 hover:border-rose-300/70 hover:text-rose-800',
                             )}
                             aria-pressed={downActive}
-                            aria-label={c.rateNegatively}
+                            aria-label="Rate call negatively"
                           >
                             <ThumbIcon direction="down" active={downActive} />
                           </button>
@@ -1336,7 +1058,7 @@ export default function CallsPage() {
         {pagination && pagination.totalPages > 1 && (
           <div className="mt-6 flex items-center justify-between border-t border-slate-200 pt-6">
             <div className="text-sm text-slate-500">
-              {c.showingPage(pagination.page, pagination.totalPages, pagination.total)}
+              Showing page {pagination.page} of {pagination.totalPages} ({pagination.total} total calls)
             </div>
             <div className="flex gap-2">
               <button
@@ -1349,7 +1071,7 @@ export default function CallsPage() {
                     : 'border-slate-300 text-slate-700 hover:border-brand-600 hover:text-brand-600',
                 )}
               >
-                {c.previous}
+                Previous
               </button>
               <div className="flex items-center gap-1">
                 {/* Show page numbers */}
@@ -1393,7 +1115,7 @@ export default function CallsPage() {
                     : 'border-slate-300 text-slate-700 hover:border-brand-600 hover:text-brand-600',
                 )}
               >
-                {c.next}
+                Next
               </button>
             </div>
           </div>
@@ -1402,7 +1124,7 @@ export default function CallsPage() {
 
       {query.isError ? (
         <div className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          {c.failedToLoad} {query.error instanceof Error ? query.error.message : c.tryAgainLater}
+          Failed to load calls. {query.error instanceof Error ? query.error.message : 'Please try again later.'}
         </div>
       ) : null}
 
@@ -1416,14 +1138,14 @@ export default function CallsPage() {
           >
             <div className="space-y-2">
               <h3 id="feedback-title" className="text-lg font-semibold text-slate-900">
-                {c.provideFeedback}
+                Provide feedback
               </h3>
               <p className="text-sm text-slate-500">
-                {c.improveAI}
+                Let us know what we can do to improve our AI.
               </p>
               {modalCallerName ? (
                 <p className="text-sm text-slate-700">
-                  {c.callLabel} <span className="font-medium text-slate-900">{modalCallerName}</span>
+                  Call: <span className="font-medium text-slate-900">{modalCallerName}</span>
                 </p>
               ) : null}
               {modalSummary ? (
@@ -1434,7 +1156,7 @@ export default function CallsPage() {
             </div>
 
             <div className="mt-5 space-y-3">
-              {getFeedbackOptions(lang).map((option) => {
+              {FEEDBACK_OPTIONS.map((option) => {
                 const checked = feedbackReasons.includes(option.value);
                 return (
                   <label key={option.value} className="flex items-start gap-3 text-sm text-slate-700">
@@ -1454,7 +1176,7 @@ export default function CallsPage() {
                 <textarea
                   className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-brand-600 focus:outline-none"
                   rows={3}
-                  placeholder={c.tellUsMore}
+                  placeholder="Tell us more…"
                   value={feedbackNotes}
                   onChange={(event) => setFeedbackNotes(event.target.value)}
                   disabled={isSavingFeedback}
@@ -1468,7 +1190,7 @@ export default function CallsPage() {
                 onClick={handleFeedbackCancel}
                 className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-500"
               >
-                {c.cancel}
+                Cancel
               </button>
               <button
                 type="button"
@@ -1482,7 +1204,7 @@ export default function CallsPage() {
                 )}
                 aria-busy={isSavingFeedback}
               >
-                {isSavingFeedback ? c.saving : c.confirm}
+                {isSavingFeedback ? 'Saving…' : 'Confirm'}
               </button>
             </div>
             {feedbackErrorMessage ? (
@@ -1505,11 +1227,11 @@ export default function CallsPage() {
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-2">
                 <h3 id="summary-title" className="text-lg font-semibold text-slate-900">
-                  {c.callSummary}
+                  Call Summary
                 </h3>
                 {summaryModalCallerName ? (
                   <p className="text-sm text-slate-700">
-                    {c.caller} <span className="font-medium text-slate-900">{summaryModalCallerName}</span>
+                    Caller: <span className="font-medium text-slate-900">{summaryModalCallerName}</span>
                   </p>
                 ) : null}
               </div>
@@ -1517,7 +1239,7 @@ export default function CallsPage() {
                 type="button"
                 onClick={closeSummaryModal}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-slate-700 transition-colors hover:border-slate-500 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white"
-                aria-label={c.closeSummary}
+                aria-label="Close summary"
               >
                 X
               </button>
@@ -1527,7 +1249,7 @@ export default function CallsPage() {
               {summaryModalContent ? (
                 <p className="whitespace-pre-line">{summaryModalContent}</p>
               ) : (
-                <p>{c.summaryUnavailable}</p>
+                <p>Summary unavailable for this call.</p>
               )}
             </div>
           </div>

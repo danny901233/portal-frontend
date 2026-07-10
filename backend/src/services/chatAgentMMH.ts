@@ -42,6 +42,32 @@ function buildSystemPrompt(
   const branch = config.branchName || 'Midlands Motorhome Hire';
   const faqs = (knowledge || []).slice(0, 15)
     .map(k => `- ${k.title ? k.title + ': ' : ''}${(k.content || '').slice(0, 400)}`).join('\n');
+
+  // Portal-configured custom rules (agent-setup → Rules). These override
+  // anything else in the prompt — so if a customer asks something that matches
+  // a rule (e.g. asking for photos → send video link), the rule wins over the
+  // default behaviour. Mirrors the pattern used by chatAgentV2/Assist/Tyresoft.
+  const customRuleLines = Array.isArray(config.customRules)
+    ? config.customRules
+        .filter((r: any) => r && typeof r === 'object' && r.active === true && (r.text || '').trim())
+        .map((r: any) => `- ${String(r.text).trim()}`)
+    : [];
+  const customRulesBlock = customRuleLines.length > 0
+    ? `\n\nRULES YOU MUST FOLLOW (these override anything else in this prompt):\n${customRuleLines.join('\n')}`
+    : '';
+
+  // Portal-configured Q&A / smart questions (agent-setup → Q&A). Distinct from
+  // the knowledge-base entries above (uploaded documents); these are structured
+  // question/answer pairs the operator wants the agent to prefer over guessing.
+  // Mirrors the pattern used by chatAgentV2/Assist/Tyresoft.
+  const configFaqLines = Array.isArray(config.faqs)
+    ? config.faqs
+        .filter((f: any) => f && (f.question || f.q) && (f.answer || f.a))
+        .map((f: any) => `Q: ${String(f.question || f.q).trim()}\nA: ${String(f.answer || f.a).trim()}`)
+    : [];
+  const configFaqsBlock = configFaqLines.length > 0
+    ? `\n\nCOMMON QUESTIONS — answer from these when a customer asks something similar; do NOT invent an answer:\n${configFaqLines.join('\n')}`
+    : '';
   const today = new Date();
   const todayIso = isoOf(today);
   // Weekly Monday anchors for the next ~10 weeks so the model can read off the correct
@@ -96,7 +122,7 @@ KEY HIRE FACTS (authoritative — state these exactly, never guess):
 - Extras (gas, BBQ, bike rack, pets, etc.), insurance options and payment are all handled on the secure checkout link.
 
 WHAT'S INCLUDED / FAQs:
-${faqs || '150 miles a night, comprehensive insurance, nationwide breakdown cover, a full kitchen, hot shower & toilet, heating and a full handover with video guides.'}`;
+${faqs || '150 miles a night, comprehensive insurance, nationwide breakdown cover, a full kitchen, hot shower & toilet, heating and a full handover with video guides.'}${customRulesBlock}${configFaqsBlock}`;
 }
 
 function tools(): OpenAI.Chat.ChatCompletionTool[] {

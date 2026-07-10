@@ -267,7 +267,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
                     : 'border-slate-300 bg-slate-50 hover:border-slate-500'
                 }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-1">
                   <div className="text-sm font-semibold text-slate-900">{opt.label}</div>
                   <code className="rounded bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-500">
                     {opt.value}
@@ -424,13 +424,13 @@ export default function AdminTab({ config, save, isSaving }: Props) {
             label={c.tyreMarkup}
             hint={c.tyreMarkupHint}
           >
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <select
                 value={ts.tyreMarkupType ?? 'flat'}
                 onChange={(e) =>
                   setTs({ ...ts, tyreMarkupType: e.target.value as 'flat' | 'percent' })
                 }
-                className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 md:w-auto"
               >
                 <option value="flat">{c.flatPerTyre}</option>
                 <option value="percent">{c.percentage}</option>
@@ -442,7 +442,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
                 value={ts.tyreMarkupValue ?? ''}
                 onChange={(e) => setTs({ ...ts, tyreMarkupValue: e.target.value })}
                 placeholder={ts.tyreMarkupType === 'percent' ? 'e.g. 15' : 'e.g. 28'}
-                className="w-32 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 md:w-32"
               />
             </div>
           </Field>

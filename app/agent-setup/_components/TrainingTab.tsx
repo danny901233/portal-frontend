@@ -328,7 +328,7 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                 return (
                   <div className="mt-3 rounded-md border border-dashed border-brand-300 bg-brand-50 p-3">
                     {upload ? (
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-medium text-brand-800">
                             {c.currentPriceList}<span className="font-semibold">{upload.fileName}</span>
@@ -364,7 +364,7 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                       </div>
                     )}
                     {upload && showPriceList ? (
-                      <div className="mt-3 border-t border-brand-200 pt-3">
+                      <div className="mt-3 overflow-x-auto border-t border-brand-200 pt-3">
                         <table className="w-full text-left text-[11px]">
                           <thead>
                             <tr className="text-slate-500">

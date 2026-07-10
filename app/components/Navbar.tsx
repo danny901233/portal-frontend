@@ -15,6 +15,8 @@ interface NavbarProps {
   allowAllAssignedBranches?: boolean;
   isStaff?: boolean;
   onLogout?: () => void;
+  /** Opens the mobile sidebar drawer (mobile only). */
+  onOpenMobileNav?: () => void;
 }
 
 export default function Navbar({
@@ -26,6 +28,7 @@ export default function Navbar({
   allowAllAssignedBranches = false,
   isStaff = false,
   onLogout,
+  onOpenMobileNav,
 }: NavbarProps) {
   const router = useRouter();
   const lang = useLang();
@@ -97,19 +100,19 @@ export default function Navbar({
   };
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6">
-      <div className="flex flex-col">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{c.branch}</span>
+    <header className="flex items-center justify-between gap-3 border-0 bg-transparent px-0 md:h-16 md:border-b md:border-slate-200 md:bg-white md:px-6">
+      <div className="flex min-w-0 flex-1 flex-col md:flex-none">
+        <span className="hidden text-xs font-medium uppercase tracking-wide text-slate-500 md:block">{c.branch}</span>
         {garages.length > 0 || allowAllAssignedBranches ? (
-          <div ref={dropdownRef} className="relative mt-1 w-64">
+          <div ref={dropdownRef} className="relative w-full md:mt-1 md:w-64">
             <button
               type="button"
               onClick={() => setIsOpen(!isOpen)}
-              className="flex w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-900 transition-colors hover:border-slate-400 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/20"
+              className="flex w-full items-center justify-between rounded-md border border-white/25 bg-white/10 px-3 py-2.5 text-left text-sm font-medium text-white transition-colors hover:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 md:border-slate-300 md:bg-white md:py-2 md:font-normal md:text-slate-900 md:hover:border-slate-400 md:focus:border-brand-600 md:focus:ring-brand-600/20"
             >
               <span className="truncate">{displayName}</span>
               <svg
-                className={`h-4 w-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                className={`h-4 w-4 text-white/80 transition-transform md:text-slate-400 ${isOpen ? 'rotate-180' : ''}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -169,15 +172,15 @@ export default function Navbar({
             )}
           </div>
         ) : (
-          <div className="mt-1 w-64 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+          <div className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 md:w-64">
             {selectedGarageId || c.noBranchesAvailable}
           </div>
         )}
         {showGarageId ? (
-          <span className="mt-1 text-[11px] text-slate-500">{c.garageId} <span className="font-mono break-all">{selectedGarageId}</span></span>
+          <span className="mt-1 hidden text-[11px] text-slate-500 md:block">{c.garageId} <span className="font-mono break-all">{selectedGarageId}</span></span>
         ) : null}
       </div>
-      <div className="flex items-center gap-4">
+      <div className="hidden shrink-0 items-center gap-4 md:flex">
         <div className="text-right">
           <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-slate-500">{c.signedIn}</p>
           <p className="text-sm font-semibold text-slate-900">{email}</p>

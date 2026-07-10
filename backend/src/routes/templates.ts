@@ -254,24 +254,38 @@ router.post(
 
       console.log(`[TEMPLATES] Submitting to Meta: ${template.name}`, JSON.stringify(metaPayload, null, 2));
 
-      // Template management requires whatsapp_business_management scope.
-      // The per-garage connection token only has whatsapp_business_messaging,
-      // so we use the dedicated template management token here.
-      const templateToken = getTemplateToken() || connection.accessToken;
+      // Template management needs whatsapp_business_management on the WABA. The
+      // shared template token has that for ReceptionMate's OWN WABAs — but a
+      // garage that brought its own WABA via embedded signup (e.g. EAC Telford)
+      // is only manageable with its OWN connection token. So try the shared
+      // token first, and on a permission error fall back to the garage's token.
+      const primaryToken = getTemplateToken() || connection.accessToken;
 
-      const metaRes = await fetch(
-        `https://graph.facebook.com/v18.0/${wabaId}/message_templates`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${templateToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(metaPayload),
-        }
-      );
+      const submitToMeta = async (token: string) => {
+        const r = await fetch(
+          `https://graph.facebook.com/v18.0/${wabaId}/message_templates`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(metaPayload),
+          }
+        );
+        return { res: r, data: await r.json() };
+      };
 
-      const metaData = await metaRes.json();
+      let { res: metaRes, data: metaData } = await submitToMeta(primaryToken);
+
+      const isPermissionError =
+        metaData?.error?.code === 200 ||
+        metaData?.error?.code === 10 ||
+        /permission/i.test(metaData?.error?.message ?? '');
+      if (!metaRes.ok && isPermissionError && connection.accessToken && connection.accessToken !== primaryToken) {
+        console.warn(`[TEMPLATES] Shared template token hit a permission error on WABA ${wabaId} — retrying with the garage's own connection token`);
+        ({ res: metaRes, data: metaData } = await submitToMeta(connection.accessToken));
+      }
 
       if (!metaRes.ok) {
         console.error('[TEMPLATES] Meta API error:', metaData);

@@ -85,8 +85,8 @@ export default function PronunciationsTab({ config, save, isSaving }: Props) {
         ) : (
           <ul className="space-y-2">
             {items.map((item, idx) => (
-              <li key={idx} className="grid grid-cols-12 gap-2 rounded-lg border border-slate-200 bg-white p-3">
-                <div className="col-span-5">
+              <li key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-white p-3 md:grid-cols-12">
+                <div className="md:col-span-5">
                   <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">{c.written}</label>
                   <input
                     type="text"
@@ -96,7 +96,7 @@ export default function PronunciationsTab({ config, save, isSaving }: Props) {
                     className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
                   />
                 </div>
-                <div className="col-span-6">
+                <div className="md:col-span-6">
                   <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-slate-500">{c.soundItOut}</label>
                   <input
                     type="text"
@@ -106,7 +106,7 @@ export default function PronunciationsTab({ config, save, isSaving }: Props) {
                     className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
                   />
                 </div>
-                <div className="col-span-1 flex items-end justify-end">
+                <div className="flex items-end justify-end md:col-span-1">
                   <button
                     type="button"
                     onClick={() => removeItem(idx)}

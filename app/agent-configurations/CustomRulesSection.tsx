@@ -84,16 +84,16 @@ export default function CustomRulesSection({ rules, onChange, disabled }: Props)
   };
 
   return (
-    <section className="rounded-2xl border border-slate-700/60 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+    <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-lg shadow-slate-200/60">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-slate-100">{c.title}</h2>
-            <span className="rounded bg-emerald-600/20 px-2 py-0.5 text-xs font-medium text-emerald-300">
+            <h2 className="text-lg font-semibold text-slate-900">{c.title}</h2>
+            <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
               {c.badge}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-slate-600">
             {c.desc}
           </p>
         </div>
@@ -106,14 +106,14 @@ export default function CustomRulesSection({ rules, onChange, disabled }: Props)
 
       <div className="mt-5 space-y-3">
         {effectiveRules.length === 0 && (
-          <div className="rounded-lg border border-dashed border-slate-700 px-4 py-6 text-center text-sm text-slate-500">
+          <div className="rounded-lg border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
             {c.empty}
           </div>
         )}
         {effectiveRules.map((rule, idx) => (
           <div
             key={idx}
-            className="rounded-lg border border-slate-700/60 bg-slate-950/40 p-4"
+            className="rounded-lg border border-slate-300 bg-white p-4"
           >
             <div className="flex items-start gap-3">
               <label className="mt-1 flex shrink-0 cursor-pointer items-center gap-2">
@@ -122,9 +122,9 @@ export default function CustomRulesSection({ rules, onChange, disabled }: Props)
                   checked={rule.active}
                   disabled={disabled}
                   onChange={(e) => updateRule(idx, { active: e.target.checked })}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
+                  className="h-4 w-4 rounded border-slate-300 bg-slate-100 text-emerald-500 focus:ring-emerald-500"
                 />
-                <span className="text-xs font-medium text-slate-400">{c.active}</span>
+                <span className="text-xs font-medium text-slate-600">{c.active}</span>
               </label>
               <div className="flex-1">
                 <textarea
@@ -134,7 +134,7 @@ export default function CustomRulesSection({ rules, onChange, disabled }: Props)
                   onChange={(e) => updateRule(idx, { text: e.target.value })}
                   placeholder={c.placeholder}
                   rows={2}
-                  className="block w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+                  className="block w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
                 />
                 <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
                   <span>{c.chars(rule.text.length)}</span>
@@ -144,7 +144,7 @@ export default function CustomRulesSection({ rules, onChange, disabled }: Props)
                 type="button"
                 onClick={() => removeRule(idx)}
                 disabled={disabled}
-                className="shrink-0 rounded-md border border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-rose-300 disabled:opacity-50"
+                className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-rose-300 disabled:opacity-50"
               >
                 {c.remove}
               </button>
@@ -158,12 +158,12 @@ export default function CustomRulesSection({ rules, onChange, disabled }: Props)
           type="button"
           onClick={addRule}
           disabled={disabled || effectiveRules.length >= MAX_RULES}
-          className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {c.addRule}
         </button>
         <span className="text-xs text-slate-500">
-          {c.savedToPrefix}<code className="text-slate-400">configuration.customRules</code>
+          {c.savedToPrefix}<code className="text-slate-600">configuration.customRules</code>
         </span>
       </div>
     </section>

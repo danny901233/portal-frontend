@@ -17,6 +17,7 @@ import type {
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail, sendArrearsCallNoticeEmail } from '../utils/email.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
+import { notifyGarageUsers, garageUnreadBadge } from '../utils/push.js';
 import { trackConfirmedBooking } from '../services/billing.js';
 import { logCallToHubSpot } from '../services/hubspot.js';
 import { analyzeCall, analyzeDeep } from '../services/callDiagnosis.js';
@@ -356,6 +357,8 @@ router.post('/calls', async (req: Request, res: Response) => {
             agentConfiguration: {
               select: {
                 branchName: true,
+                agentName: true,
+                voice: true,
                 notificationEmails: true,
                 integrationProviderConfig: true,
               },
@@ -489,7 +492,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         });
       } else if (userNeedsPaymentSetup) {
         console.log(`[EMAIL] 💳 User(s) need payment setup - sending payment reminder email`);
-
+        
         void sendPaymentSetupReminderEmail(createdCall.garage.agentConfiguration.notificationEmails, {
           branchName: createdCall.garage.agentConfiguration.branchName,
           summary: payload.summary,
@@ -520,6 +523,32 @@ router.post('/calls', async (req: Request, res: Response) => {
           console.error('[EMAIL] Failed to send notification email:', error);
         });
       }
+    }
+
+    // Mobile push: tell the garage's users their AI receptionist just handled a
+    // call, with the summary as the body (iOS shows it in full when expanded).
+    // Independent of email config — fire-and-forget, dormant until APNs creds set.
+    {
+      const cfg = createdCall.garage?.agentConfiguration;
+      const personaName =
+        (cfg?.agentName && cfg.agentName.trim()) ||
+        (cfg?.voice ? cfg.voice.charAt(0).toUpperCase() + cfg.voice.slice(1) : '') ||
+        'Your receptionist';
+      // Arrears: withhold the summary from the push body too — just say a call was handled.
+      const restricted = Boolean(createdCall.garage?.accessRestricted);
+      const summary = (payload.summary || '').trim();
+      const pushBody = restricted
+        ? 'Your account is in arrears — settle up to view this call.'
+        : summary || 'Tap to see the call details.';
+      void (async () => {
+        const badge = await garageUnreadBadge(payload.garageId);
+        await notifyGarageUsers(payload.garageId, {
+          title: `${personaName} handled a call for you`,
+          body: pushBody,
+          data: { type: 'call', callId, garageId: payload.garageId },
+          badge,
+        });
+      })();
     }
 
     res.status(201).json({ success: true, callId });
@@ -1158,12 +1187,13 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     // Check user has access to this garage
     const allowedGarages = resolveAllowedGarages(req.user);
-    if (req.user?.role !== 'RECEPTIONMATE_STAFF' && !allowedGarages.includes(call.garageId)) {
+    const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+    if (!isStaff && !allowedGarages.includes(call.garageId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     // Arrears gating: withhold recordings from a restricted garage's own users (staff unaffected).
-    if (req.user?.role !== 'RECEPTIONMATE_STAFF' && call.garage?.accessRestricted) {
+    if (!isStaff && call.garage?.accessRestricted) {
       return res.status(403).json({ error: 'restricted', restricted: true });
     }
 
@@ -1547,12 +1577,35 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       return res.status(404).send('Recording not found');
     }
 
-    // Stream the audio back to the client
+    // Stream the audio back to the client WITH HTTP Range support. iOS Safari /
+    // the mobile WebView send a `Range` request for <audio> and refuse to play
+    // unless the server answers 206 with Accept-Ranges/Content-Range. The old
+    // code always replied 200 with the whole body, so recordings were silent on
+    // iPhone (they worked on desktop Chrome, which is more lenient).
+    const buffer = Buffer.from(await twilioResponse.arrayBuffer());
+    const total = buffer.length;
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
+    res.setHeader('Accept-Ranges', 'bytes');
 
-    const buffer = await twilioResponse.arrayBuffer();
-    res.send(Buffer.from(buffer));
+    const rangeHeader = req.headers.range;
+    if (rangeHeader) {
+      const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
+      const start = match ? parseInt(match[1], 10) : 0;
+      const end = match && match[2] ? parseInt(match[2], 10) : total - 1;
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= total) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        return res.status(416).end();
+      }
+      const safeEnd = Math.min(end, total - 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${safeEnd}/${total}`);
+      res.setHeader('Content-Length', safeEnd - start + 1);
+      return res.end(buffer.subarray(start, safeEnd + 1));
+    }
+
+    res.setHeader('Content-Length', total);
+    return res.end(buffer);
   } catch (error) {
     console.error('[RECORDING] Error streaming recording:', error);
     res.status(500).send('Failed to stream recording');
@@ -1621,6 +1674,75 @@ router.post('/calls/:id/reviewed', authenticate, async (req: Request, res: Respo
     return res.json({ reviewed });
   } catch (err) {
     console.error('[REVIEWED] toggle failed:', err);
+    return res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// Mark a call as VIEWED by the current user (opening its detail). Stored in metrics.viewedAt
+// (no schema change), so a call counts as "unread" for the badge until it's opened. Any user
+// with access to the call's garage can mark it; the flag is shared (first view clears it).
+router.post('/calls/:id/viewed', authenticate, async (req: Request, res: Response) => {
+  try {
+    const call = await prisma.call.findUnique({ where: { id: req.params.id } });
+    if (!call) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+    if (!isStaff) {
+      const allowed = resolveAllowedGarages(req.user);
+      if (!call.garageId || !allowed.includes(call.garageId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+    const base =
+      call.metrics && typeof call.metrics === 'object' && !Array.isArray(call.metrics)
+        ? (call.metrics as Record<string, unknown>)
+        : {};
+    if (!base.viewedAt) {
+      await prisma.call.update({
+        where: { id: call.id },
+        data: {
+          metrics: { ...base, viewedAt: new Date().toISOString() } as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[VIEWED] mark failed:', err);
+    return res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// Unread badge counts for the mobile app: calls not yet opened + unread chat messages, across
+// the user's accessible garages. Calls created before CALL_BADGE_SINCE are treated as already
+// seen so the badge starts clean at launch (only new calls accrue until viewed).
+const CALL_BADGE_SINCE = new Date(process.env.CALL_BADGE_SINCE || '2026-07-06T20:00:00Z');
+router.get('/notifications/counts', authenticate, async (req: Request, res: Response) => {
+  try {
+    const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+    // Badges are a garage-user feature; staff use desktop, so skip the (huge) all-garages count.
+    const allowed = isStaff ? [] : resolveAllowedGarages(req.user);
+    if (allowed.length === 0) {
+      return res.json({ unreadCalls: 0, unreadMessages: 0 });
+    }
+
+    // Unread calls: not viewed, created since launch. metrics.viewedAt lives in JSON -> raw query.
+    const rows = await prisma.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM "Call"
+      WHERE "garageId" = ANY(${allowed}) AND "createdAt" >= ${CALL_BADGE_SINCE}
+        AND ("metrics"->>'viewedAt') IS NULL`;
+    const unreadCalls = Number(rows[0]?.n ?? 0);
+
+    // Unread chat messages: sum of ChatConversation.unreadCount across accessible garages.
+    const agg = await prisma.chatConversation.aggregate({
+      where: { garageId: { in: allowed } },
+      _sum: { unreadCount: true },
+    });
+    const unreadMessages = agg._sum.unreadCount ?? 0;
+
+    return res.json({ unreadCalls, unreadMessages });
+  } catch (err) {
+    console.error('[COUNTS] failed:', err);
     return res.status(500).json({ error: 'server_error' });
   }
 });

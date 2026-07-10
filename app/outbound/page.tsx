@@ -24,6 +24,7 @@ const STATUS_COLORS: Record<string, string> = {
   sent: 'bg-green-500/20 text-green-300',
   processed: 'bg-green-500/20 text-green-300',
   failed: 'bg-red-500/20 text-red-300',
+  queued: 'bg-blue-500/20 text-blue-300',
 };
 
 const STATUS_LABELS: Record<'en' | 'fr', Record<string, string>> = {
@@ -33,6 +34,7 @@ const STATUS_LABELS: Record<'en' | 'fr', Record<string, string>> = {
     sent: 'Processed',
     processed: 'Processed',
     failed: 'Failed',
+    queued: 'Queued',
   },
   fr: {
     draft: 'Brouillon',
@@ -40,6 +42,7 @@ const STATUS_LABELS: Record<'en' | 'fr', Record<string, string>> = {
     sent: 'Traité',
     processed: 'Traité',
     failed: 'Échec',
+    queued: 'En file',
   },
 };
 
@@ -743,7 +746,7 @@ export default function OutboundPage() {
                     className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
                   />
                 </div>
-                <div className="min-w-[220px] flex-1">
+                <div className="w-full md:min-w-[220px] md:flex-1">
                   <label className="mb-1 block text-xs font-medium text-slate-500">{c.whatsappTemplate}</label>
                   <select
                     value={autoTemplateId}
@@ -933,8 +936,49 @@ export default function OutboundPage() {
         ) : campaigns.length === 0 ? (
           <p className="text-sm text-slate-500">{c.noCampaigns}</p>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-300">
-            <table className="w-full text-left text-sm">
+          <>
+          {/* Mobile: campaign cards (desktop keeps the table below) */}
+          <div className="space-y-2 md:hidden">
+            {campaigns.map((camp) => {
+              const rate = camp.totalContacts > 0 ? Math.round((camp.sentCount / camp.totalContacts) * 100) : 0;
+              const pending = camp.status === 'draft' || camp.status === 'sending';
+              return (
+                <button
+                  key={camp.id}
+                  type="button"
+                  onClick={() => handleViewResults(camp)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-300 p-3 text-left hover:bg-slate-50"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-slate-900">{camp.name}</p>
+                    <p className="mt-0.5 text-xs capitalize text-slate-500">
+                      {camp.channel} · {camp.totalContacts} · {new Date(camp.createdAt).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB')}
+                    </p>
+                    {!pending ? (
+                      <p className="mt-0.5 text-xs text-slate-500">{rate}% ({camp.sentCount}/{camp.totalContacts})</p>
+                    ) : null}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-xs font-medium',
+                        STATUS_COLORS[camp.status] || 'bg-slate-500/20 text-slate-600',
+                      )}
+                    >
+                      {STATUS_LABELS[lang][camp.status] ?? camp.status}
+                    </span>
+                    {camp.status === 'queued' && camp.resumeAt && (
+                      <p className="mt-0.5 text-[10px] text-blue-400">
+                        Next: {new Date(camp.resumeAt).toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB', { timeStyle: 'short' })}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-300 md:block">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="bg-slate-100 text-xs text-slate-500">
                 <tr>
                   <th className="px-4 py-3">{c.thName}</th>
@@ -980,6 +1024,11 @@ export default function OutboundPage() {
                       >
                         {STATUS_LABELS[lang][c.status] ?? c.status}
                       </span>
+                      {c.status === 'queued' && c.resumeAt && (
+                        <p className="mt-0.5 text-[10px] text-blue-400">
+                          Next batch: {new Date(c.resumeAt).toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-slate-500">
                       {new Date(c.createdAt).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB')}
@@ -989,6 +1038,7 @@ export default function OutboundPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
@@ -1009,13 +1059,21 @@ export default function OutboundPage() {
                   {selectedCampaign?.name ?? c.loadingModal}
                 </h2>
                 {selectedCampaign && (
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {c.sentTotal(
-                      selectedCampaign.sentCount,
-                      selectedCampaign.totalContacts,
-                      new Date(selectedCampaign.createdAt).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB'),
+                  <>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {c.sentTotal(
+                        selectedCampaign.sentCount,
+                        selectedCampaign.totalContacts,
+                        new Date(selectedCampaign.createdAt).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB'),
+                      )}
+                    </p>
+                    {selectedCampaign.status === 'queued' && selectedCampaign.resumeAt && (
+                      <p className="mt-0.5 text-xs text-blue-500">
+                        Next batch: {new Date(selectedCampaign.resumeAt).toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' })}
+                        {' '}({selectedCampaign.totalContacts - selectedCampaign.sentCount} remaining)
+                      </p>
                     )}
-                  </p>
+                  </>
                 )}
               </div>
               <button

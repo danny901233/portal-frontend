@@ -36,6 +36,7 @@ function loadCampaign(id: string) {
   return prisma.outboundCampaign.findUnique({
     where: { id },
     include: { contacts: { where: { status: 'pending' } } },
+    // Note: resumeAt, tierLimit, sentCount are on the model but not in the TS type — accessed via (campaign as any)
   });
 }
 
@@ -61,6 +62,10 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
   const campaign = await loadCampaign(campaignId);
   if (!campaign) return { ok: false, code: 404, error: 'Campaign not found' };
   if (campaign.status === 'sent') return { ok: false, code: 400, error: 'Campaign already sent' };
+  if (campaign.status === 'queued') {
+    const resumeAt = (campaign as any).resumeAt ? new Date((campaign as any).resumeAt).toISOString() : 'unknown';
+    return { ok: false, code: 400, error: `Campaign is queued and will automatically send the next batch at ${resumeAt}. Please wait for the daily limit to reset.` };
+  }
   if (campaign.contacts.length === 0) {
     return { ok: false, code: 400, error: 'No pending contacts to send to' };
   }
@@ -112,6 +117,31 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
 export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number; total: number }> {
   const { campaign, garageName, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
 
+  const tierLimit = (campaign as any).tierLimit ?? 250;
+
+  // Rolling 24h cross-campaign quota check — Meta's tier limit counts messages
+  // DELIVERED to unique numbers, not API calls made. Failed deliveries don't count.
+  // Count contacts with status sent/delivered/read/replied (exclude failed/pending/opted_out).
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const recentSentCount = await prisma.outboundContact.count({
+    where: {
+      garageId: campaign.garageId,
+      status: { in: ['sent', 'delivered', 'read', 'replied'] },
+      updatedAt: { gte: twentyFourHoursAgo },
+    },
+  });
+  const availableQuota = Math.max(0, tierLimit - recentSentCount);
+
+  if (availableQuota === 0) {
+    console.log(`[OUTBOUND] Quota exhausted for garage ${campaign.garageId} (${recentSentCount} sent in 24h, limit ${tierLimit}). Queueing campaign ${campaign.id}.`);
+    const resumeAt = new Date(Date.now() + 24.5 * 60 * 60 * 1000);
+    await prisma.outboundCampaign.update({
+      where: { id: campaign.id },
+      data: { status: 'queued', resumeAt },
+    });
+    return { sent: 0, total: campaign.contacts.length };
+  }
+
   const optedOut = await prisma.outboundContact.findMany({
     where: { garageId: campaign.garageId, status: 'opted_out' },
     select: { phone: true },
@@ -119,8 +149,14 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
   const dncSet = new Set(optedOut.map((c) => c.phone));
 
   let sentCount = 0;
+  let rateLimitHit = false;
 
   for (const contact of campaign.contacts) {
+    if (sentCount >= availableQuota) {
+      console.log(`[OUTBOUND] Reached quota (${sentCount}/${availableQuota}) for campaign ${campaign.id}, stopping batch.`);
+      break;
+    }
+
     if (dncSet.has(contact.phone)) {
       console.log(`[OUTBOUND] Skipping DNC number ${contact.phone}`);
       await prisma.outboundContact.update({ where: { id: contact.id }, data: { status: 'opted_out' } });
@@ -173,7 +209,15 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
       });
       sentCount++;
     } catch (err: unknown) {
-      const metaError = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data;
+      const metaError = (err as { response?: { data?: { error?: { message?: string; code?: number } } } })?.response?.data;
+      const errorCode = metaError?.error?.code;
+
+      if (errorCode === 131048) {
+        console.log(`[OUTBOUND] Meta rate limit hit (131048) for campaign ${campaign.id}, keeping contact pending for retry`);
+        rateLimitHit = true;
+        break;
+      }
+
       console.error(`[OUTBOUND] Failed to send to ${contact.phone}:`, metaError ?? err);
       const errorReason = metaError?.error?.message || 'Send failed';
       await prisma.outboundContact.update({
@@ -183,13 +227,64 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
     }
   }
 
-  const finalStatus = sentCount === 0 ? 'failed' : 'processed';
-  await prisma.outboundCampaign.update({
-    where: { id: campaign.id },
-    data: { status: finalStatus, sentAt: new Date(), sentCount },
+  // Check remaining pending contacts
+  const remainingPending = await prisma.outboundContact.count({
+    where: { campaignId: campaign.id, status: 'pending' },
   });
-  console.log(`[OUTBOUND] Campaign ${campaign.id} ${finalStatus}: ${sentCount}/${campaign.contacts.length}`);
+
+  const existingSentCount = campaign.sentCount ?? 0;
+  const totalSent = existingSentCount + sentCount;
+
+  let finalStatus: string;
+  if (remainingPending > 0) {
+    const resumeAt = new Date(Date.now() + 24.5 * 60 * 60 * 1000);
+    finalStatus = 'queued';
+    await prisma.outboundCampaign.update({
+      where: { id: campaign.id },
+      data: { status: 'queued', sentAt: new Date(), sentCount: totalSent, resumeAt },
+    });
+    console.log(`[OUTBOUND] Campaign ${campaign.id} queued: ${sentCount} sent this batch, ${remainingPending} remaining. Resume at ${resumeAt.toISOString()}`);
+  } else {
+    finalStatus = sentCount === 0 && totalSent === 0 ? 'failed' : 'processed';
+    await prisma.outboundCampaign.update({
+      where: { id: campaign.id },
+      data: { status: finalStatus, sentAt: new Date(), sentCount: totalSent },
+    });
+    console.log(`[OUTBOUND] Campaign ${campaign.id} ${finalStatus}: ${totalSent} total sent`);
+  }
+
   return { sent: sentCount, total: campaign.contacts.length };
+}
+
+/** Process all queued campaigns whose resumeAt has passed. Called by the cron job. */
+export async function processQueuedCampaigns(): Promise<{ processed: number }> {
+  const now = new Date();
+  const queuedCampaigns = await prisma.outboundCampaign.findMany({
+    where: { status: 'queued', resumeAt: { lte: now } },
+    select: { id: true, name: true },
+  });
+
+  if (queuedCampaigns.length === 0) return { processed: 0 };
+
+  let processed = 0;
+  for (const qc of queuedCampaigns) {
+    console.log(`[OUTBOUND-CRON] Processing queued campaign: ${qc.name} (${qc.id})`);
+    try {
+      // Set to 'sending' before calling sendCampaignById so getCampaignSendContext doesn't block it
+      await prisma.outboundCampaign.update({ where: { id: qc.id }, data: { status: 'sending' } });
+      const result = await sendCampaignById(qc.id);
+      if (result.ok) {
+        console.log(`[OUTBOUND-CRON] Campaign ${qc.id}: sent ${result.sent}/${result.total}`);
+      } else {
+        console.error(`[OUTBOUND-CRON] Campaign ${qc.id} failed: ${result.error}`);
+      }
+      processed++;
+    } catch (error) {
+      console.error(`[OUTBOUND-CRON] Campaign ${qc.id} error:`, error);
+    }
+  }
+
+  return { processed };
 }
 
 /**

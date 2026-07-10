@@ -56,6 +56,31 @@ api.interceptors.response.use(
   }
 );
 
+// Mobile push notifications — register/unregister this device's APNs token.
+export const registerDeviceToken = async (token: string): Promise<void> => {
+  await api.post("/me/device-token", { token });
+};
+
+export const unregisterDeviceToken = async (token: string): Promise<void> => {
+  await api.delete("/me/device-token", { data: { token } });
+};
+
+// Unread badge counts for the app (bottom-nav badges + iOS app-icon badge).
+export type NotificationCounts = { unreadCalls: number; unreadMessages: number };
+export const fetchNotificationCounts = async (): Promise<NotificationCounts> => {
+  const { data } = await api.get<NotificationCounts>("/notifications/counts");
+  return { unreadCalls: data?.unreadCalls ?? 0, unreadMessages: data?.unreadMessages ?? 0 };
+};
+
+// Mark a call as viewed (clears it from the unread-calls badge). Best-effort.
+export const markCallViewed = async (callId: string): Promise<void> => {
+  try {
+    await api.post(`/calls/${callId}/viewed`);
+  } catch {
+    /* non-fatal: badge will re-sync on next poll */
+  }
+};
+
 export type CallFilters = {
   callType?: string;
   startDate?: string;
@@ -539,6 +564,8 @@ export interface OutboundCampaign {
   totalContacts: number;
   sentCount: number;
   sentAt?: string | null;
+  resumeAt?: string | null;
+  tierLimit?: number;
   messageTemplateId?: string | null;
   variableMapping?: Record<string, string> | null;
   createdAt: string;

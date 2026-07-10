@@ -3,6 +3,7 @@ import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
+import { notifyFlaggedConversation } from '../utils/push.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -1083,8 +1084,9 @@ async function executeTool(
               ...(phone ? { customerPhone: phone } : {}),
             },
           });
-          console.log(`[TS_AGENT] Callback request logged for ${name} (${phone})`);
+          void notifyFlaggedConversation(conversationId);
           void notifyMessaging({ conversationId, event: 'escalated' });
+          console.log(`[TS_AGENT] Callback request logged for ${name} (${phone})`);
         }
         return { success: true, message: 'Callback request logged.' };
       }
@@ -1105,8 +1107,9 @@ async function executeTool(
             where: { id: conversationId },
             data: { needsAttention: true, agentPaused: true },
           });
-          console.log(`[TS_AGENT] Conversation ${conversationId} flagged as needsAttention`);
+          void notifyFlaggedConversation(conversationId);
           void notifyMessaging({ conversationId, event: 'escalated' });
+          console.log(`[TS_AGENT] Conversation ${conversationId} flagged as needsAttention`);
         }
 
         return { success: true, message: 'Message taken. The team has been notified and will get back to you shortly.' };

@@ -39,7 +39,6 @@ import publicStatsRouter from './routes/public-stats.js';
 import publicLeadRouter from './routes/public-lead.js';
 import agreementsRouter from './routes/agreements.js';
 import supportRouter from './routes/support.js';
-import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';

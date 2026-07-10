@@ -136,7 +136,6 @@ app.use('/api', publicLeadRouter);
 app.use('/api', livekitDemoRouter);
 app.use('/api', agreementsRouter);
 app.use('/api', supportRouter);
-app.use('/api', deviceTokensRouter);
 app.use('/api', templatesRouter);
 app.use('/api/webhooks', metaWhatsappWebhook);
 app.use('/api/webhooks', metaFacebookWebhook);

@@ -152,10 +152,13 @@
 
   /* embed mode — iframed on the marketing pages; drop the brand chrome so the
      host page provides the framing, and let the demo report its own height. */
-  body.embed{padding:22px 12px 58px;gap:16px;}
+  body.embed{min-height:0;padding:20px 12px 26px;gap:14px;}
   body.embed .hdr,
   body.embed .foot,
-  body.embed .feats{display:none;}
+  body.embed .feats,
+  body.embed .replay{display:none;}
+  /* more compact phone so the demo sits neatly beside a text column */
+  body.embed .phone{width:300px;height:600px;padding:10px;border-radius:44px;}
 </style>
 </head>
 <body>

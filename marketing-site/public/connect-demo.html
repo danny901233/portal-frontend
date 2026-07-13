@@ -149,6 +149,13 @@
     .stage{flex-direction:column;gap:28px;}
     .feats{width:min(360px,90vw);}
   }
+
+  /* embed mode — iframed on the marketing pages; drop the brand chrome so the
+     host page provides the framing, and let the demo report its own height. */
+  body.embed{padding:20px 12px 66px;gap:18px;}
+  body.embed .brandrow,
+  body.embed .foot,
+  body.embed .feats{display:none;}
 </style>
 </head>
 <body>
@@ -240,6 +247,16 @@
   </p>
 
 <script>
+  // Embed mode: hide brand chrome + report height to the host page's iframe.
+  const IS_EMBED = new URLSearchParams(location.search).has('embed');
+  if (IS_EMBED) document.body.classList.add('embed');
+  function postHeight(){
+    if(!IS_EMBED) return;
+    try{ parent.postMessage({ rmDemoHeight: Math.ceil(document.body.getBoundingClientRect().height) }, '*'); }catch(e){}
+  }
+  window.addEventListener('load', postHeight);
+  window.addEventListener('resize', postHeight);
+
   function setClock(){const d=new Date();let h=d.getHours(),m=d.getMinutes();const hh=((h+11)%12)+1;
     document.getElementById('clock').textContent=hh+':'+String(m).padStart(2,'0');}
   setClock();setInterval(setClock,30000);
@@ -346,6 +363,7 @@
   });
   replay.addEventListener('click',run);
   switchTo('mot');
+  setTimeout(postHeight, 400);
 </script>
 </body>
 </html>

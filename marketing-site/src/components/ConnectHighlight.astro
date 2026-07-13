@@ -121,7 +121,7 @@ const thread = c.thread;
       <div class="relative">
         <iframe
           class="rm-demo-frame mx-auto block w-full max-w-lg "
-          src="/connect-demo?embed=1"
+          src={`/connect-demo?embed=1${lang === 'fr' ? '&lang=fr' : ''}`}
           title="ReceptionMate Connect — interactive demo"
           loading="lazy"
           scrolling="no"

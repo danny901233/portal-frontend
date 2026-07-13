@@ -138,15 +138,14 @@
       <span class="logo">R</span>
       <b>ReceptionMate <span>Connect</span></b>
     </div>
-    <div><span class="pill"><span class="dot"></span><span id="pillText">WhatsApp demo · MOT reminder</span></span></div>
-    <h1 id="hTitle">Reminders that <em>book themselves in</em>.</h1>
-    <p id="hSub">Connect messages your opted&#8209;in customers when their MOT or service is due — and books them straight in over WhatsApp, with no one in the workshop typing a thing.</p>
+    <div><span class="pill"><span class="dot"></span><span id="pillText">WhatsApp demo · MOT reminder + advisory upsell</span></span></div>
+    <h1 id="hTitle">Books the MOT — and the <em>advisory work</em> too.</h1>
+    <p id="hSub">Connect reminds your customer their MOT's due, books them in, then offers the advisory work your technician flagged last time — so it's all sorted in one visit. Extra revenue, no extra effort.</p>
   </div>
 
   <div class="tabs" id="tabs">
-    <button data-s="mot" class="active">MOT reminder</button>
-    <button data-s="advisory">Advisory upsell</button>
-    <button data-s="deferred">Deferred work</button>
+    <button data-s="mot" class="active">MOT reminder + advisory upsell</button>
+    <button data-s="deferred">Deferred work reminder</button>
   </div>
 
   <div class="phone">
@@ -218,31 +217,19 @@
   // Each scenario is a natural WhatsApp thread that turns a message into booked work.
   const SCENARIOS = {
     mot: {
-      pill:"WhatsApp demo · MOT reminder",
-      title:"Reminders that <em>book themselves in</em>.",
-      sub:"Connect messages your opted‑in customers when their MOT or service is due — and books them straight in over WhatsApp, with no one in the workshop typing a thing.",
+      pill:"WhatsApp demo · MOT reminder + advisory upsell",
+      title:"Books the MOT — and the <em>advisory work</em> too.",
+      sub:"Connect reminds your customer their MOT's due, books them in, then offers the advisory work your technician flagged last time — so it's all sorted in one visit. Extra revenue, no extra effort.",
       thread:[
-        {who:'in', t:"Hi Sarah 👋 It's Bridgewater Garage. Hope you're keeping well! Quick reminder that your Vauxhall Corsa (LV21 KXG) is due its MOT by 19 July. Would you like me to book it in?", at:"09:41"},
+        {who:'in', t:"Hi Sarah 👋 It's Bridgewater Garage. Quick reminder that your Vauxhall Corsa (LV21 KXG) is due its MOT by 19 July. Would you like me to book it in?", at:"09:41"},
         {who:'out',t:"Oh, thanks for the reminder! Yes please 🙂", at:"09:41"},
         {who:'in', t:"Lovely. I've got Tuesday 8 July at 10:30, or Thursday the 10th first thing — which suits you best?", at:"09:42"},
         {who:'out',t:"Tuesday's perfect 👍", at:"09:42"},
-        {who:'in', t:"Brilliant — you're booked in ✅\nTuesday 8 July, 10:30 for your MOT. It usually takes about 45 minutes, and we'll message you straight away if anything needs doing.", at:"09:42"},
-        {who:'out',t:"Great, thank you!", at:"09:43"},
-        {who:'in', t:"You're very welcome, Sarah 🚗 If anything changes you can reschedule any time here: bridgewater.garage/booking — see you Tuesday!", at:"09:43"},
-      ],
-    },
-    advisory: {
-      pill:"WhatsApp demo · advisory upsell",
-      title:"Turn advisories into <em>booked work</em>.",
-      sub:"After a service or MOT, Connect follows up on the advisories your technician noted — explains what was found, quotes it fairly, and books the work back in. Revenue that used to quietly walk out of the door.",
-      thread:[
-        {who:'in', t:"Hi Sarah 👋 Hope the Corsa's running nicely since its MOT last week. Quick note from the workshop — our technician flagged your front brake pads are down to around 3mm, so they'll be due for replacing soon. Would you like me to sort that for you?", at:"14:12"},
-        {who:'out',t:"Ah okay. How much would that be?", at:"14:15"},
-        {who:'in', t:"Front pads supplied & fitted are £89 all in, and it takes about 45 minutes. Best done in the next few weeks so they don't start scoring the discs (which gets pricier).", at:"14:16"},
-        {who:'out',t:"Makes sense. Can you do a Saturday?", at:"14:18"},
-        {who:'in', t:"I can 👍 This Saturday the 19th at 9:30, or the following Saturday at 11 — which works?", at:"14:18"},
-        {who:'out',t:"This Saturday please", at:"14:19"},
-        {who:'in', t:"Done ✅ Booked for Saturday 19 July, 9:30 — front brake pads (£89). We'll have you back on the road within the hour. See you then, Sarah!", at:"14:19"},
+        {who:'in', t:"Great, that's booked ✅ One thing while it's in — last time you were with us, our technician noted your front brake pads were getting low (around 3mm). Shall I have them done at the same time as the MOT? It's £89 fitted and saves you a second trip.", at:"09:42"},
+        {who:'out',t:"Oh, good idea — yes please 👍", at:"09:43"},
+        {who:'in', t:"Perfect — added to your booking ✅\nTuesday 8 July, 10:30 · MOT + front brake pads. Allow about an hour and a quarter. See you then, Sarah!", at:"09:43"},
+        {who:'out',t:"Brilliant, thank you!", at:"09:43"},
+        {who:'in', t:"You're very welcome, Sarah 🚗 We'll message you straight away if anything else needs doing. Reschedule any time here: bridgewater.garage/booking", at:"09:44"},
       ],
     },
     deferred: {
@@ -250,7 +237,7 @@
       title:"Never lose <em>deferred work</em> again.",
       sub:"When a customer puts a job off, Connect quietly remembers — then follows up weeks later at exactly the right time, bringing the work (and the customer) back through your door.",
       thread:[
-        {who:'in', t:"Hi Sarah 👋 A little while back when the Corsa was in, you decided to hold off on the rear discs & pads that were advised. Just a friendly reminder they'll want doing before winter — no rush at all, but happy to book you in whenever suits?", at:"10:05"},
+        {who:'in', t:"Hi Sarah 👋 A little while back when the Corsa was in, you decided to hold off on the rear discs & pads that were advised. We flagged them to check back around now — happy to book you in whenever suits? No rush at all.", at:"10:05"},
         {who:'out',t:"Oh yeah, I'd completely forgotten about those! Probably about time now.", at:"10:11"},
         {who:'in', t:"No problem at all — that's what I'm here for 🙂 Rear discs & pads are £180 fitted, around an hour and a half. I've got Thursday the 24th at 1pm free?", at:"10:12"},
         {who:'out',t:"Thursday works great", at:"10:13"},
@@ -320,7 +307,7 @@
     if(btn) switchTo(btn.dataset.s);
   });
   replay.addEventListener('click',run);
-  run();
+  switchTo('mot');
 </script>
 </body>
 </html>

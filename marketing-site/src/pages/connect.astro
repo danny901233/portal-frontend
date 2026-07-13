@@ -408,59 +408,26 @@ const useCases = c.useCases;
           </ul>
         </div>
 
-        <!-- Right: WhatsApp thread mockup -->
+        <!-- Right: live interactive demo (embeds /connect-demo) -->
         <div class="relative">
-          <div class="mx-auto max-w-sm rounded-3xl border border-ink-200 bg-white shadow-xl shadow-emerald-900/10 overflow-hidden">
-            <!-- Phone-style header -->
-            <header class="flex items-center gap-3 bg-emerald-600 px-4 py-3">
-              <span class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-emerald-600 font-bold">{GARAGE_INITIAL}</span>
-              <div class="min-w-0 flex-1 text-white">
-                <p class="text-sm font-semibold leading-tight">{GARAGE_NAME}</p>
-                <p class="text-xs text-emerald-100">{c.threadStatus}</p>
-              </div>
-            </header>
-            <!-- Thread -->
-            <ol class="space-y-2 bg-[#e5ddd5] px-3 py-4">
-              {threadMOT.map((m) => (
-                <li class={m.from === 'rm' ? 'flex justify-end' : 'flex justify-start'}>
-                  <div class={`max-w-[80%] rounded-xl px-3 py-2 text-sm leading-relaxed shadow-sm ${m.from === 'rm' ? 'bg-emerald-100 text-ink-900 rounded-tr-sm' : 'bg-white text-ink-900 rounded-tl-sm'}`}>
-                    {m.text}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
-          <p class="mt-3 text-center text-xs text-ink-500">{c.threadCaption}</p>
+          <iframe
+            class="rm-demo-frame mx-auto block w-full max-w-lg rounded-3xl border border-ink-200 bg-white shadow-xl shadow-emerald-900/10"
+            src="/connect-demo?embed=1"
+            title="ReceptionMate Connect — interactive demo"
+            loading="lazy"
+            scrolling="no"
+            style="height:920px;"
+          ></iframe>
+          <p class="mt-3 text-center text-xs text-ink-500">{c.demoSub}</p>
         </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Interactive demo (embeds /connect-demo) -->
-  <section class="bg-gradient-to-b from-white to-ink-50 py-16 sm:py-20">
-    <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-3xl text-center">
-        <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">{c.demoEyebrow}</p>
-        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.demoH2}</h2>
-        <p class="mt-4 text-lg leading-relaxed text-ink-700">{c.demoSub}</p>
-      </div>
-      <div class="mt-10 overflow-hidden rounded-3xl border border-ink-200 bg-white shadow-xl shadow-brand-900/10">
-        <iframe
-          id="connect-demo-frame"
-          src="/connect-demo?embed=1"
-          title="ReceptionMate Connect — interactive demo"
-          loading="lazy"
-          scrolling="no"
-          class="w-full block"
-          style="height:1160px;border:0;"
-        ></iframe>
       </div>
     </div>
     <script is:inline>
       window.addEventListener('message', function (e) {
-        if (e && e.data && typeof e.data.rmDemoHeight === 'number') {
-          var f = document.getElementById('connect-demo-frame');
-          if (f) f.style.height = (e.data.rmDemoHeight + 8) + 'px';
+        if (!e || !e.data || typeof e.data.rmDemoHeight !== 'number') return;
+        var frames = document.querySelectorAll('iframe.rm-demo-frame');
+        for (var i = 0; i < frames.length; i++) {
+          if (frames[i].contentWindow === e.source) frames[i].style.height = (e.data.rmDemoHeight + 8) + 'px';
         }
       });
     </script>

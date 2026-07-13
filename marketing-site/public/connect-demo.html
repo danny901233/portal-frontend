@@ -31,8 +31,9 @@
   /* header */
   .hdr{text-align:center;max-width:520px;}
   .brandrow{display:inline-flex;align-items:center;gap:10px;margin-bottom:16px;}
-  .logo{width:34px;height:34px;border-radius:8px;background:var(--brand-600);display:grid;place-items:center;
-        color:#fff;font-weight:800;font-size:19px;box-shadow:0 6px 16px rgba(52,38,207,.28);}
+  .logo{width:38px;height:38px;border-radius:9px;background:var(--brand-600);display:grid;place-items:center;
+        overflow:hidden;box-shadow:0 6px 16px rgba(52,38,207,.28);}
+  .logo img{width:76%;height:76%;object-fit:contain;}
   .brandrow b{font-size:18px;color:var(--ink-900);letter-spacing:-.02em;font-weight:700;}
   .brandrow b span{color:var(--brand-600);}
   .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--brand-200);background:var(--brand-50);
@@ -128,6 +129,20 @@
   .powered{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-400);margin-top:2px;}
   .powered .d{width:13px;height:13px;border-radius:3px;background:var(--brand-600);color:#fff;font-weight:800;
     font-size:9px;display:grid;place-items:center;}
+
+  /* phone + flanking benefit bullets */
+  .stage{display:flex;align-items:center;justify-content:center;gap:40px;flex-wrap:wrap;width:100%;}
+  .feats{list-style:none;width:238px;display:flex;flex-direction:column;gap:22px;}
+  .feats li{display:flex;gap:11px;align-items:flex-start;}
+  .feats .fi{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--brand-50);color:var(--brand-600);
+    display:grid;place-items:center;margin-top:1px;border:1px solid var(--brand-100);}
+  .feats .fi svg{width:12px;height:12px;fill:none;stroke:var(--brand-600);stroke-width:3;}
+  .feats b{display:block;font-size:14px;color:var(--ink-900);font-weight:700;letter-spacing:-.01em;margin-bottom:2px;}
+  .feats .d2{display:block;font-size:12.5px;line-height:1.5;color:var(--ink-600);}
+  @media (max-width:920px){
+    .stage{flex-direction:column;gap:28px;}
+    .feats{width:min(360px,90vw);}
+  }
 </style>
 </head>
 <body>
@@ -135,18 +150,25 @@
 
   <div class="hdr">
     <div class="brandrow">
-      <span class="logo">R</span>
+      <span class="logo"><img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate logo" /></span>
       <b>ReceptionMate <span>Connect</span></b>
     </div>
-    <div><span class="pill"><span class="dot"></span><span id="pillText">WhatsApp demo · MOT reminder + advisory upsell</span></span></div>
-    <h1 id="hTitle">Books the MOT — and the <em>advisory work</em> too.</h1>
-    <p id="hSub">Connect reminds your customer their MOT's due, books them in, then offers the advisory work your technician flagged last time — so it's all sorted in one visit. Extra revenue, no extra effort.</p>
+    <div><span class="pill"><span class="dot"></span><span id="pillText">WhatsApp demo · MOT/service reminder + advisory upsell</span></span></div>
+    <h1 id="hTitle">Books the MOT or service — and the <em>advisory work</em> too.</h1>
+    <p id="hSub">Connect reminds your customer when their MOT or service is due, books them in, then offers the advisory work your technician flagged last time — so it's all sorted in one visit. Extra revenue, no extra effort.</p>
   </div>
 
   <div class="tabs" id="tabs">
-    <button data-s="mot" class="active">MOT reminder + advisory upsell</button>
+    <button data-s="mot" class="active">MOT/service reminder + advisory upsell</button>
     <button data-s="deferred">Deferred work reminder</button>
   </div>
+
+  <div class="stage">
+    <ul class="feats feats-left">
+      <li><span class="fi"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Reaches them on WhatsApp</b><span class="d2">Where 9 in 10 messages get read — not lost to voicemail</span></div></li>
+      <li><span class="fi"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Books it in for them</b><span class="d2">MOT, service or advisory work — no phone tag, no hold music</span></div></li>
+      <li><span class="fi"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Feels human</b><span class="d2">A natural, friendly chat — not a clunky “reply Y to confirm”</span></div></li>
+    </ul>
 
   <div class="phone">
     <div class="screen">
@@ -191,6 +213,13 @@
     </div>
   </div>
 
+    <ul class="feats feats-right">
+      <li><span class="fi"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Fills your diary automatically</b><span class="d2">Due dates pulled straight from Garage Hive</span></div></li>
+      <li><span class="fi"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Turns advisories into revenue</b><span class="d2">Upsells the work your technician flagged last visit</span></div></li>
+      <li><span class="fi"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><div><b>Zero workshop effort</b><span class="d2">You only ever see the booked appointment</span></div></li>
+    </ul>
+  </div>
+
   <button class="replay" id="replay" style="display:none;">
     <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a5 5 0 11-5 5H5a7 7 0 107-7z"/></svg>
     Replay the conversation
@@ -217,9 +246,9 @@
   // Each scenario is a natural WhatsApp thread that turns a message into booked work.
   const SCENARIOS = {
     mot: {
-      pill:"WhatsApp demo · MOT reminder + advisory upsell",
-      title:"Books the MOT — and the <em>advisory work</em> too.",
-      sub:"Connect reminds your customer their MOT's due, books them in, then offers the advisory work your technician flagged last time — so it's all sorted in one visit. Extra revenue, no extra effort.",
+      pill:"WhatsApp demo · MOT/service reminder + advisory upsell",
+      title:"Books the MOT or service — and the <em>advisory work</em> too.",
+      sub:"Connect reminds your customer when their MOT or service is due, books them in, then offers the advisory work your technician flagged last time — so it's all sorted in one visit. Extra revenue, no extra effort.",
       thread:[
         {who:'in', t:"Hi Sarah 👋 It's Bridgewater Garage. Quick reminder that your Vauxhall Corsa (LV21 KXG) is due its MOT by 19 July. Would you like me to book it in?", at:"09:41"},
         {who:'out',t:"Oh, thanks for the reminder! Yes please 🙂", at:"09:41"},

@@ -84,17 +84,37 @@ function listExistingPosts() {
     .map((f) => {
       const content = readFileSync(join(BLOG_DIR, f), 'utf8');
       const titleMatch = content.match(/title:\s*"([^"]+)"/);
-      return { filename: f, title: titleMatch ? titleMatch[1] : f };
+      const keyMatch = content.match(/topicKey:\s*"?([a-z0-9-]+)"?/);
+      return { filename: f, title: titleMatch ? titleMatch[1] : f, topicKey: keyMatch ? keyMatch[1] : null };
     });
 }
 
 function pickTopic(existing) {
-  // Pick the first pillar whose key doesn't appear in any existing filename.
-  // Fall back to a random pillar if everything has been covered.
-  const usedSlugs = existing.map((p) => p.filename.toLowerCase());
-  const fresh = TOPIC_PILLARS.find((t) => !usedSlugs.some((s) => s.includes(t.key)));
-  if (fresh) return fresh;
-  return TOPIC_PILLARS[Math.floor(Math.random() * TOPIC_PILLARS.length)];
+  // Rotate topics evenly by picking the LEAST-covered pillar. Coverage is read
+  // from each post's `topicKey` frontmatter (stamped at generation time), with
+  // a filename-substring fallback for older posts that predate that field.
+  //
+  // (The previous version compared a pillar's key against post *filenames* —
+  // but filenames are slugs of the AI-written title, which rarely contain the
+  // key, so the same early pillar got picked every run. That's why the blog
+  // filled up with near-duplicate Garage Hive posts.)
+  const counts = new Map(TOPIC_PILLARS.map((t) => [t.key, 0]));
+  for (const p of existing) {
+    let key = p.topicKey && counts.has(p.topicKey) ? p.topicKey : null;
+    if (!key) {
+      const fname = p.filename.toLowerCase();
+      const hit = TOPIC_PILLARS.find((t) => fname.includes(t.key));
+      key = hit ? hit.key : null;
+    }
+    if (key) counts.set(key, counts.get(key) + 1);
+  }
+  let best = TOPIC_PILLARS[0];
+  let bestCount = Infinity;
+  for (const t of TOPIC_PILLARS) {
+    const n = counts.get(t.key);
+    if (n < bestCount) { bestCount = n; best = t; }
+  }
+  return best;
 }
 
 const SYSTEM_PROMPT = `You are a senior content writer producing posts for ReceptionMate's blog.
@@ -195,19 +215,25 @@ Remember: frontmatter then body. No H1 in the body. UK English. End with a soft 
   // Generate a hero image via DALL-E that matches the post topic.
   const imageInfo = await generateHeroImage(client, slug, titleMatch[1], topic);
 
+  // Always stamp the topic key so the next run's rotation is reliable.
+  let out = text.replace(
+    /^(---\n[\s\S]*?)\n---/m,
+    (_, fm) => `${fm}\ntopicKey: "${topic.key}"\n---`,
+  );
+
   // Inject heroImage + heroImageAlt into the frontmatter before writing.
   // We splice them in just before the closing `---` so they keep the same
   // visual grouping as title/description.
-  const withImage = imageInfo
-    ? text.replace(
-        /^(---\n[\s\S]*?)\n---/m,
-        (_, fm) =>
-          `${fm}\nheroImage: "${imageInfo.path}"\nheroImageAlt: "${imageInfo.alt.replace(/"/g, '\\"')}"\n---`,
-      )
-    : text;
+  if (imageInfo) {
+    out = out.replace(
+      /^(---\n[\s\S]*?)\n---/m,
+      (_, fm) =>
+        `${fm}\nheroImage: "${imageInfo.path}"\nheroImageAlt: "${imageInfo.alt.replace(/"/g, '\\"')}"\n---`,
+    );
+  }
 
   const outPath = join(BLOG_DIR, `${slug}.md`);
-  writeFileSync(outPath, withImage + '\n', 'utf8');
+  writeFileSync(outPath, out + '\n', 'utf8');
   console.log(`Wrote ${outPath}`);
 }
 

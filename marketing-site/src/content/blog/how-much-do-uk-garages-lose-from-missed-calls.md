@@ -3,6 +3,7 @@ title: "How much do UK garages lose from missed calls?"
 description: "We analysed call patterns across UK independent garages to put a real number on the cost of unanswered phones. The answer surprised us."
 publishedAt: 2026-06-14
 author: human
+topicKey: "recovering-missed-calls"
 tags: ["data", "missed calls", "garages"]
 heroImage: "/blog/how-much-do-uk-garages-lose-from-missed-calls.png"
 heroImageAlt: "Illustration for \"How much do UK garages lose from missed calls?\""

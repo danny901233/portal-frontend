@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>ReceptionMate Connect — WhatsApp MOT Reminder</title>
+<title>ReceptionMate Connect — WhatsApp reminders that book work in</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -20,7 +20,7 @@
   body{
     font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     color:var(--ink-700);background:#fff;min-height:100vh;position:relative;overflow-x:hidden;
-    display:flex;flex-direction:column;align-items:center;gap:30px;padding:48px 16px 64px;
+    display:flex;flex-direction:column;align-items:center;gap:24px;padding:48px 16px 64px;
   }
   /* soft brand blobs — matches marketing hero */
   .blob{position:fixed;border-radius:50%;filter:blur(80px);z-index:-1;}
@@ -29,7 +29,7 @@
   .blob.c{bottom:-120px;right:-100px;width:340px;height:340px;background:rgba(221,224,253,.5);}
 
   /* header */
-  .hdr{text-align:center;max-width:480px;}
+  .hdr{text-align:center;max-width:520px;}
   .brandrow{display:inline-flex;align-items:center;gap:10px;margin-bottom:16px;}
   .logo{width:34px;height:34px;border-radius:8px;background:var(--brand-600);display:grid;place-items:center;
         color:#fff;font-weight:800;font-size:19px;box-shadow:0 6px 16px rgba(52,38,207,.28);}
@@ -38,9 +38,17 @@
   .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--brand-200);background:var(--brand-50);
     color:var(--brand-700);font-size:12px;font-weight:600;padding:5px 13px;border-radius:999px;margin-bottom:16px;}
   .pill .dot{width:6px;height:6px;border-radius:50%;background:#10b981;}
-  .hdr h1{font-size:27px;line-height:1.15;letter-spacing:-.025em;color:var(--ink-900);font-weight:800;}
+  .hdr h1{font-size:27px;line-height:1.15;letter-spacing:-.025em;color:var(--ink-900);font-weight:800;min-height:62px;}
   .hdr h1 em{font-style:normal;color:var(--brand-600);}
-  .hdr p{margin-top:12px;font-size:15px;line-height:1.55;color:var(--ink-600);}
+  .hdr p{margin-top:12px;font-size:15px;line-height:1.55;color:var(--ink-600);min-height:70px;}
+
+  /* scenario switcher */
+  .tabs{display:inline-flex;gap:5px;background:var(--brand-50);border:1px solid var(--brand-100);
+    padding:5px;border-radius:14px;flex-wrap:wrap;justify-content:center;max-width:100%;}
+  .tabs button{border:none;background:transparent;color:var(--brand-700);font-family:inherit;font-size:13px;
+    font-weight:600;padding:9px 15px;border-radius:10px;cursor:pointer;transition:.15s;white-space:nowrap;}
+  .tabs button.active{background:var(--brand-600);color:#fff;box-shadow:0 4px 12px rgba(52,38,207,.25);}
+  .tabs button:not(.active):hover{background:var(--brand-100);}
 
   /* phone */
   .phone{position:relative;width:336px;height:706px;border-radius:52px;background:#1c1c1e;padding:12px;
@@ -130,9 +138,15 @@
       <span class="logo">R</span>
       <b>ReceptionMate <span>Connect</span></b>
     </div>
-    <div><span class="pill"><span class="dot"></span>WhatsApp demo · MOT reminder</span></div>
-    <h1>Reminders that <em>book themselves in</em>.</h1>
-    <p>Connect messages your opted‑in customers when their MOT or service is due — and books them straight in over WhatsApp, with no one in the workshop typing a thing.</p>
+    <div><span class="pill"><span class="dot"></span><span id="pillText">WhatsApp demo · MOT reminder</span></span></div>
+    <h1 id="hTitle">Reminders that <em>book themselves in</em>.</h1>
+    <p id="hSub">Connect messages your opted&#8209;in customers when their MOT or service is due — and books them straight in over WhatsApp, with no one in the workshop typing a thing.</p>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button data-s="mot" class="active">MOT reminder</button>
+    <button data-s="advisory">Advisory upsell</button>
+    <button data-s="deferred">Deferred work</button>
   </div>
 
   <div class="phone">
@@ -184,7 +198,7 @@
   </button>
 
   <p class="foot">
-    This is the customer's phone. <b>Connect</b> sends the reminder, holds a natural chat, finds a slot and confirms — your team only ever sees the booked appointment.
+    This is the customer's phone. <b>Connect</b> reaches out at the right moment, holds a natural chat, quotes the work, finds a slot and confirms — your team only ever sees the booked appointment.
     <br><span class="powered"><span class="d">R</span>Powered by ReceptionMate Connect</span>
   </p>
 
@@ -196,19 +210,56 @@
   const chat=document.getElementById('chat');
   const waStatus=document.getElementById('waStatus');
   const replay=document.getElementById('replay');
+  const pillText=document.getElementById('pillText');
+  const hTitle=document.getElementById('hTitle');
+  const hSub=document.getElementById('hSub');
   const TICKS='<svg class="ticks" viewBox="0 0 18 12"><path d="M5.5 9.3L2 5.8l-1 1 4.5 4.5 1-1zm3 0L5 5.8l-1 1L8.5 11.3l8-8-1-1z"/></svg>';
 
-  // human-like MOT reminder thread that books the customer in
-  const thread=[
-    {who:'in', t:"Hi Sarah 👋 It's Bridgewater Garage. Hope you're keeping well! Quick reminder that your Vauxhall Corsa (LV21 KXG) is due its MOT by 19 July. Would you like me to book it in?", at:"09:41"},
-    {who:'out',t:"Oh, thanks for the reminder! Yes please 🙂", at:"09:41"},
-    {who:'in', t:"Lovely. I've got Tuesday 8 July at 10:30, or Thursday the 10th first thing — which suits you best?", at:"09:42"},
-    {who:'out',t:"Tuesday's perfect 👍", at:"09:42"},
-    {who:'in', t:"Brilliant — you're booked in ✅\nTuesday 8 July, 10:30 for your MOT. It usually takes about 45 minutes, and we'll message you straight away if anything needs doing.", at:"09:42"},
-    {who:'out',t:"Great, thank you!", at:"09:43"},
-    {who:'in', t:"You're very welcome, Sarah 🚗 If anything changes you can reschedule any time here: bridgewater.garage/booking — see you Tuesday!", at:"09:43"},
-  ];
+  // Each scenario is a natural WhatsApp thread that turns a message into booked work.
+  const SCENARIOS = {
+    mot: {
+      pill:"WhatsApp demo · MOT reminder",
+      title:"Reminders that <em>book themselves in</em>.",
+      sub:"Connect messages your opted‑in customers when their MOT or service is due — and books them straight in over WhatsApp, with no one in the workshop typing a thing.",
+      thread:[
+        {who:'in', t:"Hi Sarah 👋 It's Bridgewater Garage. Hope you're keeping well! Quick reminder that your Vauxhall Corsa (LV21 KXG) is due its MOT by 19 July. Would you like me to book it in?", at:"09:41"},
+        {who:'out',t:"Oh, thanks for the reminder! Yes please 🙂", at:"09:41"},
+        {who:'in', t:"Lovely. I've got Tuesday 8 July at 10:30, or Thursday the 10th first thing — which suits you best?", at:"09:42"},
+        {who:'out',t:"Tuesday's perfect 👍", at:"09:42"},
+        {who:'in', t:"Brilliant — you're booked in ✅\nTuesday 8 July, 10:30 for your MOT. It usually takes about 45 minutes, and we'll message you straight away if anything needs doing.", at:"09:42"},
+        {who:'out',t:"Great, thank you!", at:"09:43"},
+        {who:'in', t:"You're very welcome, Sarah 🚗 If anything changes you can reschedule any time here: bridgewater.garage/booking — see you Tuesday!", at:"09:43"},
+      ],
+    },
+    advisory: {
+      pill:"WhatsApp demo · advisory upsell",
+      title:"Turn advisories into <em>booked work</em>.",
+      sub:"After a service or MOT, Connect follows up on the advisories your technician noted — explains what was found, quotes it fairly, and books the work back in. Revenue that used to quietly walk out of the door.",
+      thread:[
+        {who:'in', t:"Hi Sarah 👋 Hope the Corsa's running nicely since its MOT last week. Quick note from the workshop — our technician flagged your front brake pads are down to around 3mm, so they'll be due for replacing soon. Would you like me to sort that for you?", at:"14:12"},
+        {who:'out',t:"Ah okay. How much would that be?", at:"14:15"},
+        {who:'in', t:"Front pads supplied & fitted are £89 all in, and it takes about 45 minutes. Best done in the next few weeks so they don't start scoring the discs (which gets pricier).", at:"14:16"},
+        {who:'out',t:"Makes sense. Can you do a Saturday?", at:"14:18"},
+        {who:'in', t:"I can 👍 This Saturday the 19th at 9:30, or the following Saturday at 11 — which works?", at:"14:18"},
+        {who:'out',t:"This Saturday please", at:"14:19"},
+        {who:'in', t:"Done ✅ Booked for Saturday 19 July, 9:30 — front brake pads (£89). We'll have you back on the road within the hour. See you then, Sarah!", at:"14:19"},
+      ],
+    },
+    deferred: {
+      pill:"WhatsApp demo · deferred work reminder",
+      title:"Never lose <em>deferred work</em> again.",
+      sub:"When a customer puts a job off, Connect quietly remembers — then follows up weeks later at exactly the right time, bringing the work (and the customer) back through your door.",
+      thread:[
+        {who:'in', t:"Hi Sarah 👋 A little while back when the Corsa was in, you decided to hold off on the rear discs & pads that were advised. Just a friendly reminder they'll want doing before winter — no rush at all, but happy to book you in whenever suits?", at:"10:05"},
+        {who:'out',t:"Oh yeah, I'd completely forgotten about those! Probably about time now.", at:"10:11"},
+        {who:'in', t:"No problem at all — that's what I'm here for 🙂 Rear discs & pads are £180 fitted, around an hour and a half. I've got Thursday the 24th at 1pm free?", at:"10:12"},
+        {who:'out',t:"Thursday works great", at:"10:13"},
+        {who:'in', t:"Perfect — booked in ✅ Thursday 24 July, 1pm for rear discs & pads (£180). I'll send a reminder the day before. Thanks Sarah!", at:"10:13"},
+      ],
+    },
+  };
 
+  let current='mot';
   let timers=[];
   const t=(fn,ms)=>{const id=setTimeout(fn,ms);timers.push(id);return id;};
   const clearAll=()=>{timers.forEach(clearTimeout);timers=[];};
@@ -233,6 +284,7 @@
   function run(){
     clearAll();chat.innerHTML='';waStatus.textContent='online';replay.style.display='none';
     addEncryption();
+    const thread=SCENARIOS[current].thread;
     let clock=900;
     thread.forEach((m)=>{
       if(m.who==='in'){
@@ -249,6 +301,24 @@
     });
     t(()=>{replay.style.display='inline-flex';},clock+400);
   }
+
+  function switchTo(key){
+    if(!SCENARIOS[key]) return;
+    current=key;
+    const s=SCENARIOS[key];
+    pillText.textContent=s.pill;
+    hTitle.innerHTML=s.title;
+    hSub.innerHTML=s.sub;
+    document.querySelectorAll('#tabs button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.s===key);
+    });
+    run();
+  }
+
+  document.getElementById('tabs').addEventListener('click',(e)=>{
+    const btn=e.target.closest('button');
+    if(btn) switchTo(btn.dataset.s);
+  });
   replay.addEventListener('click',run);
   run();
 </script>

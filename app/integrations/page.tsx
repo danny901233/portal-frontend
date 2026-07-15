@@ -1,9 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
+
+// WhatsApp Embedded Signup (Phase 2). app_id + config_id are public (exposed to the
+// browser by design). Overridable via env if the app ever changes.
+const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID || '1600229954436428';
+const META_ES_CONFIG_ID = process.env.NEXT_PUBLIC_META_ES_CONFIG_ID || '888785980261763';
+const META_GRAPH_VERSION = 'v21.0';
 
 interface SocialConnection {
   id: string;
@@ -41,6 +47,7 @@ export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const waSessionRef = useRef<{ waba_id?: string; phone_number_id?: string }>({});
 
 
   useEffect(() => {
@@ -106,8 +113,81 @@ export default function IntegrationsPage() {
     }
   };
 
+  // Load the Facebook JS SDK once, and listen for the Embedded Signup sessionInfo
+  // (which carries the WABA id + phone-number id the garage creates/selects).
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (!/\.facebook\.com$/.test(new URL(event.origin).hostname) && event.origin !== 'https://www.facebook.com') return;
+      try {
+        const d = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (d?.type === 'WA_EMBEDDED_SIGNUP' && d?.data) {
+          if (d.data.waba_id) waSessionRef.current.waba_id = d.data.waba_id;
+          if (d.data.phone_number_id) waSessionRef.current.phone_number_id = d.data.phone_number_id;
+        }
+      } catch { /* ignore non-JSON messages */ }
+    };
+    window.addEventListener('message', onMessage);
+    if (!document.getElementById('facebook-jssdk')) {
+      (window as any).fbAsyncInit = function () {
+        (window as any).FB.init({ appId: META_APP_ID, autoLogAppEvents: true, xfbml: false, version: META_GRAPH_VERSION });
+      };
+      const s = document.createElement('script');
+      s.id = 'facebook-jssdk';
+      s.src = 'https://connect.facebook.net/en_US/sdk.js';
+      s.async = true; s.defer = true; s.crossOrigin = 'anonymous';
+      document.body.appendChild(s);
+    }
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  // WhatsApp uses Embedded Signup (create-new or connect-existing WABA) instead of the
+  // legacy redirect OAuth. The FB.login popup returns an auth code; the WABA + phone-number
+  // ids arrive via the sessionInfo message captured above. All three go to the backend,
+  // which exchanges the code (no redirect_uri — the 36008 fix) and connects the number.
+  const connectWhatsAppEmbedded = () => {
+    const FB = (window as any).FB;
+    if (!FB) { alert('Still loading — please try again in a moment.'); return; }
+    waSessionRef.current = {};
+    FB.login((response: any) => {
+      const code = response?.authResponse?.code;
+      if (!code) return; // user closed the popup / cancelled
+      const finish = async () => {
+        const { waba_id, phone_number_id } = waSessionRef.current;
+        if (!waba_id || !phone_number_id) {
+          setStatusMessage({ type: 'error', text: 'Signup closed before a number was shared. Please try again.' });
+          return;
+        }
+        try {
+          const token = getSessionToken();
+          const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/oauth/whatsapp/embedded-exchange`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ garageId: selectedGarageId, code, wabaId: waba_id, phoneNumberId: phone_number_id }),
+          });
+          const d = await r.json();
+          if (r.ok && d.success) {
+            setStatusMessage({ type: 'success', text: `WhatsApp connected${d.displayNumber ? ' (' + d.displayNumber + ')' : ''}!` });
+            fetchConnections();
+          } else {
+            setStatusMessage({ type: 'error', text: 'Could not finish connecting WhatsApp. Please try again or contact support.' });
+          }
+        } catch {
+          setStatusMessage({ type: 'error', text: 'Network error connecting WhatsApp. Please try again.' });
+        }
+      };
+      // The sessionInfo message usually lands during the flow; give it a beat if not.
+      if (waSessionRef.current.phone_number_id) finish(); else setTimeout(finish, 800);
+    }, {
+      config_id: META_ES_CONFIG_ID,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: { setup: {}, featureType: '', sessionInfoVersion: '3' },
+    });
+  };
+
   const connectPlatform = async (platformId: string) => {
     if (!selectedGarageId) return;
+    if (platformId === 'whatsapp') { connectWhatsAppEmbedded(); return; }
 
     try {
       const token = getSessionToken();

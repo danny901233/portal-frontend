@@ -1,5 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import SocialProof from '../components/SocialProof.astro';
+import ConnectSignupModal from '../components/ConnectSignupModal.astro';
 import { getLang, L } from '../i18n/ui';
 const lang = getLang(Astro.url);
 
@@ -12,18 +14,28 @@ const lang = getLang(Astro.url);
 const LEAD_SOURCE = 'website-mot-campaign';
 const LEAD_TIER = 'Connect · MOT reminders';
 
+// Hero self-serve entry: a HeyJodie-style Google Places search box. Typing the garage
+// name → Places autocomplete → picks the business (enriches a prospect) → opens the
+// prefilled signup. The full onboarding flow is built later; for now this captures the
+// garage + starts the free month. Reuses the /get-started Places plumbing.
+const GOOGLE_API_KEY    = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
+const PROSPECT_ENDPOINT = import.meta.env.PUBLIC_PROSPECT_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/prospect';
+
 const c = {
   en: {
-    title: 'Free for a month: AI that WhatsApps your MOT customers and books them in | ReceptionMate',
-    description: 'Not another reminder text. ReceptionMate’s AI messages your MOT customers on WhatsApp, answers their questions and books them in — within the lead time you set. Free for a month, no card.',
+    title: 'Free for a month: AI that WhatsApps your MOT & service customers and books them in | ReceptionMate',
+    description: 'Not another reminder text. ReceptionMate’s AI messages your MOT and service customers on WhatsApp, answers their questions and books them in — within the lead time you set. Free for a month, no card.',
     freeBadge: '1 month free — no card, nothing to cancel',
     eyebrow: 'For UK MOT centres',
-    h1a: 'An AI receptionist that WhatsApps your MOT customers —',
+    h1a: 'Your AI automatically WhatsApps your MOT & service customers —',
     h1b: 'and books them back in.',
-    sub: 'When an MOT falls due, ReceptionMate’s AI messages the customer on WhatsApp, answers their questions, offers a time and books them in — within the lead time you set. No one calls the garage. Try it free for a month on your own customers.',
-    ctaPrimary: 'Start your free month',
+    sub: 'The AI messages your customers when they’re due, answers their questions and books them in. No calls, no chasing.',
+    ctaPrimary: 'Claim your free month',
     ctaSecondary: 'Watch the AI in action',
     terms: '1 month free · No card · Cancel anytime',
+    searchPlaceholder: 'Type your garage name…',
+    searchBtn: 'Start free month',
+    searchManual: 'Can’t find your garage?',
     threadGarage: 'Hillside Garage',
     thread: [
       { from: 'ai', text: 'Hi Sarah 👋 It’s Hillside Garage — your Ford Fiesta’s MOT is due on the 14th. Want me to get it booked in?' },
@@ -75,7 +87,7 @@ const c = {
     ],
     // demo
     demoEyebrow: 'See it for yourself',
-    demoH2: 'Play through a live MOT reminder',
+    demoH2: 'Play through a live MOT & service reminder',
     demoSub: 'This is exactly what your customers would receive — the AI books the visit and even offers the advisory work.',
     // FAQ
     faqEyebrow: 'Questions garages ask',
@@ -84,26 +96,30 @@ const c = {
       { q: 'Is it really free?', a: 'Yes — a full month, completely free. No card, nothing to cancel. If it’s not filling your diary, you just walk away.' },
       { q: 'Do I have to install anything?', a: 'No. We set it up and it runs off your existing customer list. Nobody in the workshop lifts a finger.' },
       { q: 'Will it message customers I haven’t asked it to?', a: 'No — it only messages your own customers, about their own vehicle’s MOT, and always in your garage’s name.' },
-      { q: 'What happens when the free month ends?', a: 'You decide. Keep it running on a simple monthly plan, or stop — no contract, no cancellation hoops.' },
-      { q: 'Do the bookings land with me?', a: 'Yes — every booking comes through to you within the lead time you set, ready to drop into your day. We walk you through it in setup.' },
-      { q: 'How soon can we be live?', a: 'Minutes. Give us your customer list (or connect your system) and reminders start going out.' },
+      { q: 'What happens when the free month ends?', a: 'You decide. To keep it running it’s £250 a month including 500 conversation credits (extra credits are 20p each) — no contract, cancel anytime. Or just stop; nothing to cancel.' },
+      { q: 'Do the bookings land with me?', a: 'Yes. You set your availability — how far ahead customers can book (your lead time). The customer picks a date within it, and the booking comes straight through to you to add to your diary. No double-bookings, no surprises.' },
+      { q: 'How soon can we be live?', a: 'We handle the setup for you. Once we’ve got your customer list, your garage details and your availability rules, we get your first reminders going out — usually within a few days.' },
+      { q: 'Does it do service reminders too?', a: 'Yes — MOT and service reminders both. Services are often your bigger jobs, so it’s where a lot of the value is: the AI brings those customers back the same way.' },
     ],
     // final
     finalH2: 'See how many MOTs the AI brings back.',
     finalSub: 'Switch it on for your own customers, free for a month. If it fills your diary, keep it. If not, walk away — no card, nothing to cancel.',
-    finalCta: 'Start your free month',
+    finalCta: 'Claim your free month',
   },
   fr: {
-    title: 'Gratuit un mois : une IA qui contacte vos clients CT sur WhatsApp et réserve | ReceptionMate',
+    title: 'Gratuit un mois : une IA qui contacte vos clients CT & entretien sur WhatsApp et réserve | ReceptionMate',
     description: 'Pas un simple rappel. L’IA de ReceptionMate écrit à vos clients sur WhatsApp, répond à leurs questions et réserve — selon le délai que vous définissez. Gratuit un mois, sans carte.',
     freeBadge: '1 mois gratuit — sans carte, rien à annuler',
     eyebrow: 'Pour les centres de contrôle technique',
-    h1a: 'Une IA qui contacte vos clients sur WhatsApp —',
-    h1b: 'et reprend rendez-vous.',
-    sub: 'À l’échéance, l’IA de ReceptionMate écrit au client sur WhatsApp, répond à ses questions, propose un créneau et réserve — selon le délai que vous définissez. Personne n’appelle le garage. Essayez-le gratuitement un mois sur vos propres clients.',
-    ctaPrimary: 'Démarrer le mois gratuit',
+    h1a: 'Votre IA contacte automatiquement vos clients CT & entretien sur WhatsApp —',
+    h1b: 'et les reprend en rendez-vous.',
+    sub: 'L’IA écrit à vos clients à l’échéance, répond à leurs questions et réserve. Sans appels, sans relances.',
+    ctaPrimary: 'Réservez votre mois gratuit',
     ctaSecondary: 'Voir l’IA en action',
     terms: '1 mois gratuit · Sans carte · Annulez à tout moment',
+    searchPlaceholder: 'Saisissez le nom de votre garage…',
+    searchBtn: 'Mois gratuit',
+    searchManual: 'Vous ne trouvez pas votre garage ?',
     threadGarage: 'Garage Hillside',
     thread: [
       { from: 'ai', text: 'Bonjour Sarah 👋 Ici Garage Hillside — le CT de votre Ford Fiesta est dû le 14. Je vous le réserve ?' },
@@ -164,7 +180,7 @@ const c = {
     ],
     finalH2: 'Voyez combien de contrôles l’IA fait revenir.',
     finalSub: 'Activez-le pour vos propres clients, gratuitement un mois. Si votre agenda se remplit, gardez-le. Sinon, partez — sans carte, rien à annuler.',
-    finalCta: 'Démarrer le mois gratuit',
+    finalCta: 'Réservez votre mois gratuit',
   },
 }[lang];
 
@@ -175,71 +191,65 @@ const faqSchema = {
 };
 ---
 
-<BaseLayout title={c.title} description={c.description}>
-  <!-- Hero -->
+<BaseLayout title={c.title} description={c.description} landing>
+  <!-- Focused landing header: logo only, no exit links -->
+  <header slot="nav" class="border-b border-ink-100 bg-white">
+    <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4">
+      <span class="inline-flex h-20 items-center justify-center rounded-2xl bg-brand-600 px-5 py-3 sm:h-24 sm:px-6 md:h-28 md:px-7 md:py-4">
+        <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" class="h-14 w-auto sm:h-16 md:h-20" />
+      </span>
+      <button data-connect-cta class="hidden shrink-0 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:inline-flex">
+        Start your free month
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero — clean centered single column; the live WhatsApp demo lives further down. -->
   <section class="relative overflow-hidden">
-    <div class="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-5 pt-14 pb-12 sm:pt-20 lg:grid-cols-2 lg:gap-14">
-      <div>
-        <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-1.5 text-sm font-bold text-emerald-700 ring-1 ring-emerald-300">
-          <span class="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
-          {c.freeBadge}
-        </div>
-        <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.eyebrow}</p>
-        <h1 class="mt-3 text-4xl font-bold leading-tight tracking-tight text-ink-900 sm:text-5xl">
-          {c.h1a} <span class="text-brand-600">{c.h1b}</span>
-        </h1>
-        <p class="mt-5 max-w-xl text-lg leading-relaxed text-ink-600">{c.sub}</p>
-        <div class="mt-8 flex flex-wrap items-center gap-4">
-          <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
-            class="inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700">
-            {c.ctaPrimary}
-          </button>
-          <a href="#demo" class="inline-flex items-center justify-center rounded-md border border-ink-300 px-6 py-3 text-sm font-semibold text-ink-700 transition hover:border-ink-400">
-            {c.ctaSecondary}
-          </a>
+    <div class="mx-auto flex max-w-3xl flex-col items-center px-5 pt-12 pb-10 text-center sm:pt-16 sm:pb-14">
+      <div class="mb-5 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-1.5 text-sm font-bold text-emerald-700 ring-1 ring-emerald-300">
+        <span class="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+        {c.freeBadge}
+      </div>
+      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.eyebrow}</p>
+      <h1 class="mt-3 text-balance text-4xl font-bold leading-tight tracking-tight text-ink-900 sm:text-5xl">
+        {c.h1a} <span class="text-brand-600">{c.h1b}</span>
+      </h1>
+      <p class="mt-5 max-w-xl text-lg leading-relaxed text-ink-600">{c.sub}</p>
+      <!-- Self-serve entry: HeyJodie-style Places search box. Type garage name → pick → start. -->
+      <div class="mt-8 w-full max-w-xl">
+        <div class="relative">
+          <form id="mot-signup" class="flex flex-col gap-2 rounded-3xl border border-ink-200 bg-white p-2 text-left shadow-lg shadow-ink-900/5 transition focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-brand-500/10 sm:flex-row sm:items-center sm:gap-3 sm:rounded-full">
+            <div class="flex min-w-0 flex-1 items-center gap-2">
+              <span class="pl-3 text-ink-400" aria-hidden="true">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+              </span>
+              <input id="mot-search" type="text" autocomplete="off" placeholder={c.searchPlaceholder}
+                class="min-w-0 flex-1 bg-transparent py-2.5 text-base text-ink-900 placeholder:text-ink-400 focus:outline-none" />
+            </div>
+            <button id="mot-search-btn" type="submit"
+              class="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-brand-600 px-5 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:w-auto sm:px-6 sm:py-2.5">
+              {c.searchBtn}
+              <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+            </button>
+          </form>
+          <ul id="mot-search-results" class="absolute left-0 right-0 top-full z-20 mt-2 hidden max-h-72 overflow-y-auto rounded-2xl border border-ink-200 bg-white text-left shadow-xl"></ul>
         </div>
         <p class="mt-3 text-sm font-medium text-ink-500">{c.terms}</p>
-      </div>
-
-      <!-- WhatsApp-style conversation -->
-      <div class="mx-auto w-full max-w-sm">
-        <div class="overflow-hidden rounded-2xl border border-ink-200 bg-[#efeae2] shadow-xl">
-          <div class="flex items-center gap-3 bg-[#008069] px-4 py-3 text-white">
-            <div class="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-sm font-bold">{c.threadGarage.charAt(0)}</div>
-            <div>
-              <p class="text-sm font-semibold leading-tight">{c.threadGarage}</p>
-              <p class="text-[11px] leading-tight text-white/80">online</p>
-            </div>
-            <svg class="ml-auto h-5 w-5 text-white/90" viewBox="0 0 24 24" fill="currentColor"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1 1 0 0 0-1.02.24l-2.2 2.2a15.05 15.05 0 0 1-6.59-6.59l2.2-2.2a1 1 0 0 0 .25-1.02A11.36 11.36 0 0 1 8.5 4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1c0 9.39 7.61 17 17 17a1 1 0 0 0 1-1v-3.5a1 1 0 0 0-1-1Z"/></svg>
-          </div>
-          <div class="space-y-2 px-3 py-4">
-            {c.thread.map((m) => (
-              <div class={m.from === 'ai' ? 'flex justify-end' : 'flex justify-start'}>
-                <p class={`max-w-[80%] rounded-lg px-3 py-2 text-sm leading-snug shadow-sm ${m.from === 'ai' ? 'bg-[#d9fdd3] text-ink-900' : 'bg-white text-ink-900'}`}>{m.text}</p>
-              </div>
-            ))}
-          </div>
+        <div class="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-sm">
+          <a href="#demo" class="font-semibold text-brand-600 hover:text-brand-700 hover:underline">{c.ctaSecondary}</a>
+          <button type="button" id="mot-manual" class="font-medium text-ink-500 hover:text-ink-700 hover:underline">{c.searchManual}</button>
         </div>
-        <p class="mt-3 text-center text-xs text-ink-500">{c.threadCaption}</p>
       </div>
     </div>
   </section>
 
-  <!-- Trust strip -->
-  <section class="border-y border-ink-100 bg-white">
-    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-3 px-5 py-4 text-sm font-medium text-ink-500">
-      {c.trust.map((t) => (
-        <span class="inline-flex items-center gap-2">
-          <svg class="h-4 w-4 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-          {t}
-        </span>
-      ))}
-    </div>
-  </section>
+  <!-- Trusted-by logo banner (same rotating strip as the homepage) -->
+  <SocialProof />
 
   <!-- Not a reminder. A booking. -->
   <section class="bg-ink-50/60">
-    <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+    <div class="mx-auto max-w-6xl px-5 py-12 sm:py-20">
       <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.diffEyebrow}</p>
       <h2 class="mt-3 max-w-3xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.diffH2}</h2>
       <div class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -269,9 +279,20 @@ const faqSchema = {
     </div>
   </section>
 
+  <!-- CTA -->
+  <section class="bg-brand-50/60">
+    <div class="mx-auto max-w-6xl px-5 py-10 text-center">
+      <button type="button" data-connect-cta
+        class="inline-flex w-full items-center justify-center rounded-md bg-brand-600 px-7 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:w-auto">
+        {c.ctaPrimary}
+      </button>
+      <p class="mt-3 text-sm font-medium text-ink-500">{c.terms}</p>
+    </div>
+  </section>
+
   <!-- Why WhatsApp + stats -->
   <section class="bg-white">
-    <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+    <div class="mx-auto max-w-6xl px-5 py-12 sm:py-20">
       <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.waEyebrow}</p>
       <h2 class="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.waH2}</h2>
       <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-600">{c.waSub}</p>
@@ -284,12 +305,25 @@ const faqSchema = {
           </div>
         ))}
       </div>
+      <p class="mt-4 text-xs text-ink-400">Open-rate figures are widely reported industry averages (WhatsApp vs email).</p>
+    </div>
+  </section>
+
+  <!-- ROI illustration — clearly an estimate on the visitor's own numbers, not a customer result -->
+  <section class="bg-white">
+    <div class="mx-auto max-w-4xl px-5 pb-12 sm:pb-20">
+      <div class="rounded-2xl border-2 border-brand-100 bg-brand-50/50 p-6 text-center sm:p-8">
+        <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">Do the maths</p>
+        <h2 class="mt-3 text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Say 200 of your customers have an MOT or service due.</h2>
+        <p class="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-ink-600">Even if just <strong class="text-ink-900">1 in 5</strong> rebooks through the reminder, that’s <strong class="text-brand-700">40 jobs a month</strong> back in your bays that would otherwise have slipped away — for a fraction of the price of a single one of them.</p>
+        <p class="mt-4 text-xs text-ink-400">Illustration based on your own customer numbers — not a specific garage’s results.</p>
+      </div>
     </div>
   </section>
 
   <!-- The AI does the talking -->
   <section class="bg-ink-50/60">
-    <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+    <div class="mx-auto max-w-6xl px-5 py-12 sm:py-20">
       <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.aiEyebrow}</p>
       <h2 class="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.aiH2}</h2>
       <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-600">{c.aiSub}</p>
@@ -303,18 +337,18 @@ const faqSchema = {
         ))}
       </div>
       <div class="mt-10">
-        <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
-          class="inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700">
+        <button type="button" data-connect-cta
+          class="inline-flex w-full items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:w-auto">
           {c.ctaPrimary}
         </button>
-        <span class="ml-3 text-sm font-medium text-ink-500">{c.terms}</span>
+        <p class="mt-3 text-sm font-medium text-ink-500">{c.terms}</p>
       </div>
     </div>
   </section>
 
   <!-- Demo -->
   <section id="demo" class="bg-white">
-    <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+    <div class="mx-auto max-w-6xl px-5 py-12 sm:py-20">
       <div class="grid grid-cols-1 items-center gap-10 lg:grid-cols-2">
         <div>
           <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.demoEyebrow}</p>
@@ -324,7 +358,7 @@ const faqSchema = {
         <div class="relative">
           <iframe
             class="rm-demo-frame mx-auto block w-full max-w-lg"
-            src={`/connect-demo?embed=1${lang === 'fr' ? '&lang=fr' : ''}`}
+            src={`/connect-demo?embed=1&only=mot${lang === 'fr' ? '&lang=fr' : ''}`}
             title="ReceptionMate Connect — MOT reminder demo"
             loading="lazy"
             scrolling="no"
@@ -335,9 +369,20 @@ const faqSchema = {
     </div>
   </section>
 
+  <!-- CTA -->
+  <section class="bg-brand-50/60">
+    <div class="mx-auto max-w-6xl px-5 py-10 text-center">
+      <button type="button" data-connect-cta
+        class="inline-flex w-full items-center justify-center rounded-md bg-brand-600 px-7 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:w-auto">
+        {c.ctaPrimary}
+      </button>
+      <p class="mt-3 text-sm font-medium text-ink-500">{c.terms}</p>
+    </div>
+  </section>
+
   <!-- FAQ (objection handling) -->
   <section class="bg-ink-50/60">
-    <div class="mx-auto max-w-3xl px-5 py-16 sm:py-20">
+    <div class="mx-auto max-w-3xl px-5 py-12 sm:py-20">
       <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.faqEyebrow}</p>
       <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.faqH2}</h2>
       <div class="mt-8 space-y-3">
@@ -354,14 +399,39 @@ const faqSchema = {
     </div>
   </section>
 
+  <!-- Data / privacy reassurance -->
+  <section class="bg-white">
+    <div class="mx-auto max-w-5xl px-5 pb-12 sm:pb-20">
+      <div class="rounded-2xl border border-ink-100 bg-ink-50/40 p-6 sm:p-8">
+        <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">Your data, handled properly</p>
+        <h2 class="mt-3 text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Sharing your customer list, safely.</h2>
+        <ul class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {[
+            'UK GDPR compliant — we act as your data processor under a written agreement.',
+            'We only contact your customers, about their own vehicle — always in your garage’s name.',
+            'Messages are sent over the official WhatsApp Business platform.',
+            'Opt-outs and “stop” requests are handled automatically.',
+            'Your data stays yours — never shared or sold.',
+            'Secure handling from the moment you send it.',
+          ].map((t) => (
+            <li class="flex items-start gap-3 text-ink-700">
+              <svg class="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              <span>{t}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <!-- Final CTA -->
   <section class="bg-brand-700">
-    <div class="mx-auto max-w-4xl px-5 py-16 text-center sm:py-20">
+    <div class="mx-auto max-w-4xl px-5 py-12 text-center sm:py-20">
       <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">{c.finalH2}</h2>
       <p class="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-brand-100">{c.finalSub}</p>
       <div class="mt-8 flex justify-center">
-        <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
-          class="inline-flex items-center justify-center rounded-md bg-white px-7 py-3 text-base font-semibold text-brand-700 shadow-sm transition hover:bg-brand-50">
+        <button type="button" data-connect-cta
+          class="inline-flex w-full items-center justify-center rounded-md bg-white px-7 py-3 text-base font-semibold text-brand-700 shadow-sm transition hover:bg-brand-50 sm:w-auto">
           {c.finalCta}
         </button>
       </div>
@@ -370,6 +440,9 @@ const faqSchema = {
   </section>
 
   <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+
+  <!-- Self-serve Connect trial signup wizard (opened by [data-connect-cta] + the hero search box) -->
+  <ConnectSignupModal />
 </BaseLayout>
 
 <script is:inline>
@@ -381,4 +454,124 @@ const faqSchema = {
       if (frames[i].contentWindow === e.source) frames[i].style.height = (e.data.rmDemoHeight + 8) + 'px';
     }
   });
+</script>
+
+<script is:inline define:vars={{ GOOGLE_API_KEY, PROSPECT_ENDPOINT, LEAD_SOURCE, LEAD_TIER, LANG: lang }}>
+  // HeyJodie-style hero: Google Places garage search → pick → enrich prospect + open the
+  // prefilled signup (LeadModal). Full onboarding is built later; this captures the garage
+  // and starts the free month. Places plumbing mirrors /get-started.
+  (function () {
+    const $search  = document.getElementById('mot-search');
+    const $results = document.getElementById('mot-search-results');
+    const $form    = document.getElementById('mot-signup');
+    const $manual  = document.getElementById('mot-manual');
+    if (!$search || !$form) return;
+
+    let placesReady = false, placesMode = '', legacySvc = null, loadPromise = null;
+    window.gm_authFailure = () => console.error('[mot] Google Maps auth failed.');
+
+    function ensurePlaces() {
+      if (placesReady) return Promise.resolve();
+      if (!GOOGLE_API_KEY) return Promise.resolve();
+      if (loadPromise) return loadPromise;
+      loadPromise = new Promise((resolve) => {
+        const setMode = () => {
+          const ns = window.google && window.google.maps && window.google.maps.places;
+          if (ns && ns.AutocompleteSuggestion) { placesMode = 'new'; placesReady = true; }
+          else if (ns && ns.AutocompleteService) { placesMode = 'legacy'; legacySvc = new google.maps.places.AutocompleteService(); placesReady = true; }
+        };
+        if (window.google && window.google.maps && window.google.maps.places) { setMode(); if (placesReady) return resolve(); }
+        const s = document.createElement('script');
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=' + GOOGLE_API_KEY + '&libraries=places&v=weekly';
+        s.async = true; s.defer = true;
+        s.onload  = () => { setMode(); resolve(); };
+        s.onerror = () => { console.error('[mot] Failed to load Google Maps'); resolve(); };
+        document.head.appendChild(s);
+      });
+      return loadPromise;
+    }
+
+    function startSignup(name, addr, placeId) {
+      $results.classList.add('hidden');
+      // Enrich a prospect (abandoned-checkout opportunity) the moment a garage is chosen.
+      try {
+        fetch(PROSPECT_ENDPOINT, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined, source: LEAD_SOURCE }),
+        }).catch(() => {});
+      } catch (e) {}
+      // Open the prefilled signup to capture contact details.
+      window.dispatchEvent(new CustomEvent('rm:connect-open', { detail: { company: name, placeId: placeId || undefined, address: addr || undefined } }));
+    }
+
+    function renderResults(items) {
+      $results.innerHTML = '';
+      if (!items.length) { $results.classList.add('hidden'); return; }
+      items.slice(0, 6).forEach((it) => {
+        const li = document.createElement('li');
+        li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
+        li.innerHTML = '<svg class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>'
+          + '<div class="min-w-0 flex-1"><p class="truncate text-sm font-semibold text-ink-900"></p><p class="truncate text-xs text-ink-500"></p></div>';
+        li.querySelectorAll('p')[0].textContent = it.mainText;
+        li.querySelectorAll('p')[1].textContent = it.secondaryText;
+        li.addEventListener('click', () => startSignup(it.mainText, it.secondaryText, it.placeId));
+        $results.appendChild(li);
+      });
+      $results.classList.remove('hidden');
+    }
+
+    let debounce;
+    $search.addEventListener('input', () => {
+      clearTimeout(debounce);
+      const q = $search.value.trim();
+      if (q.length < 2) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
+      debounce = setTimeout(async () => {
+        await ensurePlaces();
+        if (!placesReady) return;
+        if (placesMode === 'new') {
+          try {
+            const { suggestions } = await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+              input: q, includedRegionCodes: ['gb'], language: LANG === 'fr' ? 'fr' : 'en-GB', region: 'GB',
+            });
+            renderResults((suggestions || []).map((s) => ({
+              mainText:      (s.placePrediction && (s.placePrediction.mainText ? s.placePrediction.mainText.toString() : (s.placePrediction.text && s.placePrediction.text.toString()))) || '',
+              secondaryText: (s.placePrediction && s.placePrediction.secondaryText && s.placePrediction.secondaryText.toString()) || '',
+              placeId:       (s.placePrediction && s.placePrediction.placeId) || '',
+            })));
+          } catch (err) { console.error('[mot] autocomplete failed', err); }
+        } else if (legacySvc) {
+          legacySvc.getPlacePredictions({ input: q, componentRestrictions: { country: 'gb' } }, (preds) => {
+            renderResults((preds || []).map((p) => ({
+              mainText:      (p.structured_formatting && p.structured_formatting.main_text) || p.description || '',
+              secondaryText: (p.structured_formatting && p.structured_formatting.secondary_text) || '',
+              placeId:       p.place_id || '',
+            })));
+          });
+        }
+      }, 200);
+    });
+
+    // Submitting with a typed-but-unpicked name → still start the signup with what they typed.
+    $form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = $search.value.trim();
+      if (q.length >= 2) { startSignup(q, '', ''); }
+      else { $search.focus(); }
+    });
+
+    // "Can't find your garage?" → open the signup wizard (garage name entered manually).
+    if ($manual) $manual.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('rm:connect-open', { detail: {} }));
+    });
+
+    // Any [data-connect-cta] button opens the signup wizard.
+    document.querySelectorAll('[data-connect-cta]').forEach((b) => {
+      b.addEventListener('click', () => window.dispatchEvent(new CustomEvent('rm:connect-open', { detail: {} })));
+    });
+
+    // Dismiss the results on outside click.
+    document.addEventListener('click', (e) => {
+      if (!$results.contains(e.target) && e.target !== $search) $results.classList.add('hidden');
+    });
+  })();
 </script>

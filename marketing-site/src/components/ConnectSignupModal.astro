@@ -1,0 +1,183 @@
+---
+// Self-serve Connect trial signup modal (WhatsApp messaging, 1 month free, no card).
+// Opened by dispatching:
+//   window.dispatchEvent(new CustomEvent('rm:connect-open', { detail: { company, placeId, address } }))
+// Two steps: (1) garage + contact + password -> SMS OTP sent, (2) enter code -> account
+// created. On success we redirect to the portal login (email prefilled). Fully additive:
+// posts only to the new /api/public/connect-signup/{start,verify} endpoints.
+import { getLang } from '../i18n/ui';
+const lang = getLang(Astro.url);
+const START_ENDPOINT  = import.meta.env.PUBLIC_CONNECT_START_ENDPOINT  || 'https://portal.receptionmate.co.uk/api/public/connect-signup/start';
+const VERIFY_ENDPOINT = import.meta.env.PUBLIC_CONNECT_VERIFY_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/connect-signup/verify';
+const PORTAL_LOGIN    = import.meta.env.PUBLIC_PORTAL_LOGIN_URL || 'https://portal.receptionmate.co.uk/login';
+const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
+---
+
+<div id="cs-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-ink-900/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+  <div class="cs-card relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-ink-900/5">
+    <button type="button" id="cs-close" aria-label="Close" class="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+
+    <div class="bg-gradient-to-br from-brand-600 via-brand-600 to-brand-800 px-7 pb-6 pt-6 text-white">
+      <img src={LOGO} alt="ReceptionMate" class="h-14 w-auto" />
+      <h2 class="mt-3 text-xl font-bold leading-tight">Start your free month</h2>
+      <p class="mt-1 text-sm text-brand-100">1 month free · No card · Cancel anytime</p>
+    </div>
+
+    <!-- Step 1: details -->
+    <form id="cs-form-details" class="space-y-3 p-6">
+      <div>
+        <label class="cs-label" for="cs-garage">Garage name</label>
+        <input id="cs-garage" name="businessName" required minlength="2" class="cs-input" placeholder="Acme Auto Centre" />
+      </div>
+      <div>
+        <label class="cs-label" for="cs-name">Your name</label>
+        <input id="cs-name" name="name" required minlength="2" autocomplete="name" class="cs-input" placeholder="Jane Smith" />
+      </div>
+      <div>
+        <label class="cs-label" for="cs-email">Email</label>
+        <input id="cs-email" name="email" type="email" required autocomplete="email" class="cs-input" placeholder="you@yourgarage.co.uk" />
+      </div>
+      <div>
+        <label class="cs-label" for="cs-mobile">Mobile number</label>
+        <input id="cs-mobile" name="mobile" type="tel" required autocomplete="tel" class="cs-input" placeholder="07700 000000" />
+        <p class="mt-1 text-xs text-ink-400">We'll text you a code to confirm it's really you.</p>
+      </div>
+      <div>
+        <label class="cs-label" for="cs-password">Choose a password</label>
+        <input id="cs-password" name="password" type="password" required minlength="8" autocomplete="new-password" class="cs-input" placeholder="At least 8 characters" />
+      </div>
+      <div id="cs-err-1" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
+      <button type="submit" id="cs-submit-1" class="cs-btn">
+        <span class="cs-idle">Text me a code →</span>
+        <span class="cs-loading">Sending…</span>
+      </button>
+    </form>
+
+    <!-- Step 2: verify -->
+    <form id="cs-form-code" class="hidden space-y-3 p-6">
+      <p class="text-sm text-ink-600">Enter the 6-digit code we texted to <span id="cs-mobile-masked" class="font-semibold text-ink-900"></span>.</p>
+      <div>
+        <label class="cs-label" for="cs-code">Verification code</label>
+        <input id="cs-code" name="code" inputmode="numeric" required minlength="4" maxlength="10" class="cs-input tracking-[0.4em] text-center text-lg" placeholder="••••••" />
+      </div>
+      <div id="cs-err-2" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
+      <button type="submit" id="cs-submit-2" class="cs-btn">
+        <span class="cs-idle">Verify &amp; start free month →</span>
+        <span class="cs-loading">Creating your account…</span>
+      </button>
+      <button type="button" id="cs-back" class="w-full text-center text-xs font-medium text-ink-500 hover:text-ink-700 hover:underline">← Change my details</button>
+    </form>
+
+    <!-- Success -->
+    <div id="cs-success" class="hidden px-7 py-10 text-center">
+      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 ring-8 ring-emerald-50">
+        <svg class="h-7 w-7 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <p class="mt-5 text-lg font-bold text-ink-900">You're in — your free month is live.</p>
+      <p class="mt-2 text-sm leading-relaxed text-ink-600">Taking you to your dashboard to finish setting up WhatsApp…</p>
+    </div>
+  </div>
+</div>
+
+<style>
+  .cs-card { animation: cs-pop 0.28s cubic-bezier(0.2,0.9,0.3,1.2); }
+  @keyframes cs-pop { from { opacity:0; transform: translateY(12px) scale(0.97); } to { opacity:1; transform:none; } }
+  .cs-label { margin-bottom:0.3rem; display:block; font-size:0.8rem; font-weight:600; color:#334155; }
+  .cs-input { width:100%; border-radius:0.75rem; border:1.5px solid #e2e8f0; background:#f8fafc; padding:0.7rem 0.9rem; font-size:0.95rem; color:#0f172a; transition:border-color .15s, box-shadow .15s, background .15s; }
+  .cs-input::placeholder { color:#94a3b8; }
+  .cs-input:focus { outline:none; background:#fff; border-color:#3426cf; box-shadow:0 0 0 4px rgba(52,38,207,0.12); }
+  .cs-btn { width:100%; border-radius:0.75rem; background:linear-gradient(to right,#3426cf,#4f46e5); padding:0.8rem 1rem; font-size:0.9rem; font-weight:600; color:#fff; box-shadow:0 10px 15px -3px rgba(52,38,207,0.3); transition:box-shadow .15s; }
+  .cs-btn:disabled { opacity:0.7; cursor:not-allowed; }
+  .cs-btn .cs-loading { display:none; }
+  .cs-btn.is-loading .cs-idle { display:none; }
+  .cs-btn.is-loading .cs-loading { display:inline; }
+</style>
+
+<script is:inline define:vars={{ START_ENDPOINT, VERIFY_ENDPOINT, PORTAL_LOGIN }}>
+  (function () {
+    const modal = document.getElementById('cs-modal');
+    const formD = document.getElementById('cs-form-details');
+    const formC = document.getElementById('cs-form-code');
+    const success = document.getElementById('cs-success');
+    if (!modal || !formD || !formC) return;
+    const $ = (id) => document.getElementById(id);
+    let data = {};
+
+    const show = (el) => el.classList.remove('hidden');
+    const hide = (el) => el.classList.add('hidden');
+    const load = (btn, on) => { btn.disabled = on; btn.classList.toggle('is-loading', on); };
+    const err = (el, msg) => { el.textContent = msg; el.classList.remove('hidden'); };
+
+    function open(detail) {
+      hide(formC); hide(success); show(formD);
+      $('cs-err-1').classList.add('hidden'); $('cs-err-2').classList.add('hidden');
+      if (detail && detail.company) $('cs-garage').value = detail.company;
+      data.placeId = (detail && detail.placeId) || undefined;
+      data.address = (detail && detail.address) || undefined;
+      modal.classList.remove('hidden'); modal.classList.add('flex');
+      document.body.style.overflow = 'hidden';
+      setTimeout(() => (detail && detail.company ? $('cs-name') : $('cs-garage')).focus(), 60);
+    }
+    function close() { modal.classList.add('hidden'); modal.classList.remove('flex'); document.body.style.overflow = ''; }
+
+    window.addEventListener('rm:connect-open', (e) => open(e.detail || {}));
+    $('cs-close').addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) close(); });
+    $('cs-back').addEventListener('click', () => { hide(formC); show(formD); });
+
+    // Step 1 -> send OTP
+    formD.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('cs-err-1').classList.add('hidden');
+      const btn = $('cs-submit-1'); load(btn, true);
+      data.businessName = $('cs-garage').value.trim();
+      data.name = $('cs-name').value.trim();
+      data.email = $('cs-email').value.trim();
+      data.mobile = $('cs-mobile').value.trim();
+      data.password = $('cs-password').value;
+      try {
+        const r = await fetch(START_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessName: data.businessName, name: data.name, email: data.email, mobile: data.mobile }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.success) {
+          $('cs-mobile-masked').textContent = d.mobileMasked || data.mobile;
+          hide(formD); show(formC);
+          setTimeout(() => $('cs-code').focus(), 60);
+        } else if (r.status === 409) {
+          err($('cs-err-1'), 'This email already has an account — please sign in instead.');
+        } else if (d.error === 'invalid_mobile') {
+          err($('cs-err-1'), 'Please enter a valid UK mobile number.');
+        } else {
+          err($('cs-err-1'), 'Something went wrong. Please try again in a moment.');
+        }
+      } catch (_) { err($('cs-err-1'), 'Network error — please try again.'); }
+      finally { load(btn, false); }
+    });
+
+    // Step 2 -> verify + create
+    formC.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('cs-err-2').classList.add('hidden');
+      const btn = $('cs-submit-2'); load(btn, true);
+      try {
+        const r = await fetch(VERIFY_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...data, code: $('cs-code').value.trim() }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.success) {
+          hide(formC); show(success);
+          setTimeout(() => { window.location.href = PORTAL_LOGIN + '?email=' + encodeURIComponent(data.email) + '&welcome=connect'; }, 1800);
+        } else if (r.status === 401) {
+          err($('cs-err-2'), 'That code is not correct or has expired.');
+        } else if (r.status === 409) {
+          err($('cs-err-2'), 'This email already has an account — please sign in instead.');
+        } else {
+          err($('cs-err-2'), 'Something went wrong creating your account. Please try again.');
+        }
+      } catch (_) { err($('cs-err-2'), 'Network error — please try again.'); }
+      finally { load(btn, false); }
+    });
+  })();
+</script>

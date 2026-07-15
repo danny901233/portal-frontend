@@ -175,7 +175,16 @@ const faqSchema = {
 };
 ---
 
-<BaseLayout title={c.title} description={c.description}>
+<BaseLayout title={c.title} description={c.description} landing>
+  <!-- Focused landing header: logo only, no exit links -->
+  <header slot="nav" class="border-b border-ink-100 bg-white">
+    <div class="mx-auto flex max-w-6xl items-center px-5 py-4">
+      <span class="inline-flex h-12 items-center justify-center rounded-xl bg-brand-600 px-4">
+        <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" class="h-8 w-auto" />
+      </span>
+    </div>
+  </header>
+
   <!-- Hero -->
   <section class="relative overflow-hidden">
     <div class="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-5 pt-14 pb-12 sm:pt-20 lg:grid-cols-2 lg:gap-14">

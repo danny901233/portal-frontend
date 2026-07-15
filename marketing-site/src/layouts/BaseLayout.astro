@@ -7,6 +7,8 @@ interface Props {
   title?: string;
   description?: string;
   ogImage?: string;
+  // Focused landing-page mode: logo-only header + minimal footer, no exit links.
+  landing?: boolean;
 }
 
 const lang = getLang(Astro.url);
@@ -26,7 +28,9 @@ const {
   title = defaultTitle,
   description = defaultDescription,
   ogImage = '/og.png',
+  landing = false,
 } = Astro.props;
+const footerYear = 2026;
 ---
 
 <!doctype html>
@@ -269,6 +273,7 @@ const {
       document.getElementById('cookie-decline')?.addEventListener('click', () => setConsent('declined'));
     </script>
 
+    {!landing && (
     <footer class="border-t border-ink-200 bg-ink-50 py-12">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div class="grid grid-cols-2 gap-8 md:grid-cols-4">
@@ -340,5 +345,14 @@ const {
         <p class="mt-3 text-[11px] text-ink-400">Verification: tepxfk</p>
       </div>
     </footer>
+    )}
+    {landing && (
+      <footer class="border-t border-ink-100 bg-white py-8">
+        <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-5 text-sm text-ink-500 sm:flex-row">
+          <p>© {footerYear} ReceptionMate Ltd</p>
+          <a href={L('/privacy', lang)} class="hover:text-brand-600">{t.footer.privacy}</a>
+        </div>
+      </footer>
+    )}
   </body>
 </html>

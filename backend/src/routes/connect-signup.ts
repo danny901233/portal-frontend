@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import twilio from 'twilio';
 import { prisma } from '../db.js';
 
@@ -164,15 +165,16 @@ router.post('/verify', async (req, res) => {
       },
     });
 
-    // 6. User — MANAGER, with the password they chose. mustSetupPayment=true so the
-    //    portal prompts Direct Debit before the trial ends (no card at signup).
+    // 6. User — MANAGER, with the password they chose. mustSetupPayment=false: this is a
+    //    no-card trial, so we do NOT force Direct Debit setup up front — DD is prompted near
+    //    the end of the free month (Phase 3). Forcing payment now would contradict "no card".
     const passwordHash = await bcrypt.hash(password, 10);
-    await prisma.user.create({
+    const user = await prisma.user.create({
       data: {
         email,
         passwordHash,
         mustChangePassword: false,
-        mustSetupPayment: true,
+        mustSetupPayment: false,
         garageAccessIds: [garage.id],
         role: 'MANAGER',
         branchRoles: { [garage.id]: 'MANAGER' },
@@ -180,8 +182,30 @@ router.post('/verify', async (req, res) => {
     });
 
     console.log(`[CONNECT_SIGNUP] created Connect trial: ${email} -> ${businessName} (garage=${garage.id})`);
-    // Frontend logs them in via the existing /api/auth/login (which handles mustSetupPayment).
-    return res.status(201).json({ success: true, email, businessName });
+
+    // 7. Auto-login: mint the same session token /api/auth/login issues, so the marketing
+    //    site can drop the user straight into the portal (via /welcome) with no password
+    //    re-entry. Returned to the browser and carried in the URL fragment (never logged).
+    const branchRoles = { [garage.id]: 'MANAGER' };
+    let session: any = null;
+    const secret = process.env.JWT_SECRET;
+    if (secret) {
+      const token = jwt.sign(
+        { userId: user.id, email, role: 'MANAGER', branchRoles, garageIds: [garage.id] },
+        secret,
+        { expiresIn: '12h' },
+      );
+      session = {
+        token,
+        userId: user.id,
+        email,
+        role: 'MANAGER',
+        branchRoles,
+        garageId: garage.id,
+        garages: [{ id: garage.id, name: businessName }],
+      };
+    }
+    return res.status(201).json({ success: true, email, businessName, session });
   } catch (error) {
     console.error('[CONNECT_SIGNUP] verify failed:', error);
     return res.status(500).json({ success: false, error: 'server_error' });

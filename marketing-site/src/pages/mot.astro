@@ -13,6 +13,13 @@ const lang = getLang(Astro.url);
 const LEAD_SOURCE = 'website-mot-campaign';
 const LEAD_TIER = 'Connect · MOT reminders';
 
+// Hero self-serve entry: a HeyJodie-style Google Places search box. Typing the garage
+// name → Places autocomplete → picks the business (enriches a prospect) → opens the
+// prefilled signup. The full onboarding flow is built later; for now this captures the
+// garage + starts the free month. Reuses the /get-started Places plumbing.
+const GOOGLE_API_KEY    = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
+const PROSPECT_ENDPOINT = import.meta.env.PUBLIC_PROSPECT_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/prospect';
+
 const c = {
   en: {
     title: 'Free for a month: AI that WhatsApps your MOT & service customers and books them in | ReceptionMate',
@@ -25,6 +32,9 @@ const c = {
     ctaPrimary: 'Claim your free month',
     ctaSecondary: 'Watch the AI in action',
     terms: '1 month free · No card · Cancel anytime',
+    searchPlaceholder: 'Type your garage name…',
+    searchBtn: 'Start free month',
+    searchManual: 'Can’t find your garage?',
     threadGarage: 'Hillside Garage',
     thread: [
       { from: 'ai', text: 'Hi Sarah 👋 It’s Hillside Garage — your Ford Fiesta’s MOT is due on the 14th. Want me to get it booked in?' },
@@ -106,6 +116,9 @@ const c = {
     ctaPrimary: 'Réservez votre mois gratuit',
     ctaSecondary: 'Voir l’IA en action',
     terms: '1 mois gratuit · Sans carte · Annulez à tout moment',
+    searchPlaceholder: 'Saisissez le nom de votre garage…',
+    searchBtn: 'Mois gratuit',
+    searchManual: 'Vous ne trouvez pas votre garage ?',
     threadGarage: 'Garage Hillside',
     thread: [
       { from: 'ai', text: 'Bonjour Sarah 👋 Ici Garage Hillside — le CT de votre Ford Fiesta est dû le 14. Je vous le réserve ?' },
@@ -203,16 +216,29 @@ const faqSchema = {
           {c.h1a} <span class="text-brand-600">{c.h1b}</span>
         </h1>
         <p class="mt-5 max-w-xl text-lg leading-relaxed text-ink-600">{c.sub}</p>
-        <div class="mt-8 flex flex-wrap items-center gap-4">
-          <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
-            class="inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700">
-            {c.ctaPrimary}
-          </button>
-          <a href="#demo" class="inline-flex items-center justify-center rounded-md border border-ink-300 px-6 py-3 text-sm font-semibold text-ink-700 transition hover:border-ink-400">
-            {c.ctaSecondary}
-          </a>
+        <!-- Self-serve entry: HeyJodie-style Places search box. Type garage name → pick → start. -->
+        <div class="mt-8 max-w-xl">
+          <div class="relative">
+            <form id="mot-signup" class="flex items-center gap-2 rounded-full border border-ink-200 bg-white p-2 shadow-lg shadow-ink-900/5 transition focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-brand-500/10 sm:gap-3">
+              <span class="pl-3 text-ink-400" aria-hidden="true">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+              </span>
+              <input id="mot-search" type="text" autocomplete="off" placeholder={c.searchPlaceholder}
+                class="min-w-0 flex-1 bg-transparent py-2.5 text-base text-ink-900 placeholder:text-ink-400 focus:outline-none" />
+              <button id="mot-search-btn" type="submit"
+                class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:px-6 sm:text-base">
+                {c.searchBtn}
+                <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+              </button>
+            </form>
+            <ul id="mot-search-results" class="absolute left-0 right-0 top-full z-20 mt-2 hidden max-h-72 overflow-y-auto rounded-2xl border border-ink-200 bg-white text-left shadow-xl"></ul>
+          </div>
+          <p class="mt-3 text-sm font-medium text-ink-500">{c.terms}</p>
+          <div class="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+            <a href="#demo" class="font-semibold text-brand-600 hover:text-brand-700 hover:underline">{c.ctaSecondary}</a>
+            <button type="button" id="mot-manual" class="font-medium text-ink-500 hover:text-ink-700 hover:underline">{c.searchManual}</button>
+          </div>
         </div>
-        <p class="mt-3 text-sm font-medium text-ink-500">{c.terms}</p>
       </div>
 
       <!-- WhatsApp-style conversation -->
@@ -458,4 +484,119 @@ const faqSchema = {
       if (frames[i].contentWindow === e.source) frames[i].style.height = (e.data.rmDemoHeight + 8) + 'px';
     }
   });
+</script>
+
+<script is:inline define:vars={{ GOOGLE_API_KEY, PROSPECT_ENDPOINT, LEAD_SOURCE, LEAD_TIER, LANG: lang }}>
+  // HeyJodie-style hero: Google Places garage search → pick → enrich prospect + open the
+  // prefilled signup (LeadModal). Full onboarding is built later; this captures the garage
+  // and starts the free month. Places plumbing mirrors /get-started.
+  (function () {
+    const $search  = document.getElementById('mot-search');
+    const $results = document.getElementById('mot-search-results');
+    const $form    = document.getElementById('mot-signup');
+    const $manual  = document.getElementById('mot-manual');
+    if (!$search || !$form) return;
+
+    let placesReady = false, placesMode = '', legacySvc = null, loadPromise = null;
+    window.gm_authFailure = () => console.error('[mot] Google Maps auth failed.');
+
+    function ensurePlaces() {
+      if (placesReady) return Promise.resolve();
+      if (!GOOGLE_API_KEY) return Promise.resolve();
+      if (loadPromise) return loadPromise;
+      loadPromise = new Promise((resolve) => {
+        const setMode = () => {
+          const ns = window.google && window.google.maps && window.google.maps.places;
+          if (ns && ns.AutocompleteSuggestion) { placesMode = 'new'; placesReady = true; }
+          else if (ns && ns.AutocompleteService) { placesMode = 'legacy'; legacySvc = new google.maps.places.AutocompleteService(); placesReady = true; }
+        };
+        if (window.google && window.google.maps && window.google.maps.places) { setMode(); if (placesReady) return resolve(); }
+        const s = document.createElement('script');
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=' + GOOGLE_API_KEY + '&libraries=places&v=weekly';
+        s.async = true; s.defer = true;
+        s.onload  = () => { setMode(); resolve(); };
+        s.onerror = () => { console.error('[mot] Failed to load Google Maps'); resolve(); };
+        document.head.appendChild(s);
+      });
+      return loadPromise;
+    }
+
+    function startSignup(name, addr, placeId) {
+      $results.classList.add('hidden');
+      // Enrich a prospect (abandoned-checkout opportunity) the moment a garage is chosen.
+      try {
+        fetch(PROSPECT_ENDPOINT, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined, source: LEAD_SOURCE }),
+        }).catch(() => {});
+      } catch (e) {}
+      // Open the prefilled signup to capture contact details.
+      window.dispatchEvent(new CustomEvent('rm:lead-open', { detail: { source: LEAD_SOURCE, tier: LEAD_TIER, company: name } }));
+    }
+
+    function renderResults(items) {
+      $results.innerHTML = '';
+      if (!items.length) { $results.classList.add('hidden'); return; }
+      items.slice(0, 6).forEach((it) => {
+        const li = document.createElement('li');
+        li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
+        li.innerHTML = '<svg class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>'
+          + '<div class="min-w-0 flex-1"><p class="truncate text-sm font-semibold text-ink-900"></p><p class="truncate text-xs text-ink-500"></p></div>';
+        li.querySelectorAll('p')[0].textContent = it.mainText;
+        li.querySelectorAll('p')[1].textContent = it.secondaryText;
+        li.addEventListener('click', () => startSignup(it.mainText, it.secondaryText, it.placeId));
+        $results.appendChild(li);
+      });
+      $results.classList.remove('hidden');
+    }
+
+    let debounce;
+    $search.addEventListener('input', () => {
+      clearTimeout(debounce);
+      const q = $search.value.trim();
+      if (q.length < 2) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
+      debounce = setTimeout(async () => {
+        await ensurePlaces();
+        if (!placesReady) return;
+        if (placesMode === 'new') {
+          try {
+            const { suggestions } = await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+              input: q, includedRegionCodes: ['gb'], language: LANG === 'fr' ? 'fr' : 'en-GB', region: 'GB',
+            });
+            renderResults((suggestions || []).map((s) => ({
+              mainText:      (s.placePrediction && (s.placePrediction.mainText ? s.placePrediction.mainText.toString() : (s.placePrediction.text && s.placePrediction.text.toString()))) || '',
+              secondaryText: (s.placePrediction && s.placePrediction.secondaryText && s.placePrediction.secondaryText.toString()) || '',
+              placeId:       (s.placePrediction && s.placePrediction.placeId) || '',
+            })));
+          } catch (err) { console.error('[mot] autocomplete failed', err); }
+        } else if (legacySvc) {
+          legacySvc.getPlacePredictions({ input: q, componentRestrictions: { country: 'gb' } }, (preds) => {
+            renderResults((preds || []).map((p) => ({
+              mainText:      (p.structured_formatting && p.structured_formatting.main_text) || p.description || '',
+              secondaryText: (p.structured_formatting && p.structured_formatting.secondary_text) || '',
+              placeId:       p.place_id || '',
+            })));
+          });
+        }
+      }, 200);
+    });
+
+    // Submitting with a typed-but-unpicked name → still start the signup with what they typed.
+    $form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = $search.value.trim();
+      if (q.length >= 2) { startSignup(q, '', ''); }
+      else { $search.focus(); }
+    });
+
+    // "Can't find your garage?" → open the plain signup form.
+    if ($manual) $manual.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('rm:lead-open', { detail: { source: LEAD_SOURCE, tier: LEAD_TIER } }));
+    });
+
+    // Dismiss the results on outside click.
+    document.addEventListener('click', (e) => {
+      if (!$results.contains(e.target) && e.target !== $search) $results.classList.add('hidden');
+    });
+  })();
 </script>

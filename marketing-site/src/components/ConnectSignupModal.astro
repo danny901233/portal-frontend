@@ -10,6 +10,7 @@ const lang = getLang(Astro.url);
 const START_ENDPOINT  = import.meta.env.PUBLIC_CONNECT_START_ENDPOINT  || 'https://portal.receptionmate.co.uk/api/public/connect-signup/start';
 const VERIFY_ENDPOINT = import.meta.env.PUBLIC_CONNECT_VERIFY_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/connect-signup/verify';
 const PORTAL_LOGIN    = import.meta.env.PUBLIC_PORTAL_LOGIN_URL || 'https://portal.receptionmate.co.uk/login';
+const PORTAL_WELCOME  = import.meta.env.PUBLIC_PORTAL_WELCOME_URL || 'https://portal.receptionmate.co.uk/welcome';
 const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
 ---
 
@@ -95,7 +96,7 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
   .cs-btn.is-loading .cs-loading { display:inline; }
 </style>
 
-<script is:inline define:vars={{ START_ENDPOINT, VERIFY_ENDPOINT, PORTAL_LOGIN }}>
+<script is:inline define:vars={{ START_ENDPOINT, VERIFY_ENDPOINT, PORTAL_LOGIN, PORTAL_WELCOME }}>
   (function () {
     const modal = document.getElementById('cs-modal');
     const formD = document.getElementById('cs-form-details');
@@ -168,7 +169,14 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
         const d = await r.json().catch(() => ({}));
         if (r.ok && d.success) {
           hide(formC); show(success);
-          setTimeout(() => { window.location.href = PORTAL_LOGIN + '?email=' + encodeURIComponent(data.email) + '&welcome=connect'; }, 1800);
+          setTimeout(() => {
+            if (d.session) {
+              // Auto-login: hand the session to the portal via the URL fragment (never logged).
+              window.location.href = PORTAL_WELCOME + '#s=' + encodeURIComponent(JSON.stringify(d.session));
+            } else {
+              window.location.href = PORTAL_LOGIN + '?email=' + encodeURIComponent(data.email) + '&welcome=connect';
+            }
+          }, 1500);
         } else if (r.status === 401) {
           err($('cs-err-2'), 'That code is not correct or has expired.');
         } else if (r.status === 409) {

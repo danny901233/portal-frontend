@@ -21,7 +21,7 @@ const c = {
     h1a: 'An AI receptionist that WhatsApps your MOT & service customers —',
     h1b: 'and books them back in.',
     sub: 'When an MOT or service is due, ReceptionMate’s AI messages the customer on WhatsApp, answers their questions, offers a time and books them in — within the lead time you set. No one calls the garage. Try it free for a month on your own customers.',
-    ctaPrimary: 'Start your free month',
+    ctaPrimary: 'Claim your free month',
     ctaSecondary: 'Watch the AI in action',
     terms: '1 month free · No card · Cancel anytime',
     threadGarage: 'Hillside Garage',
@@ -85,14 +85,14 @@ const c = {
       { q: 'Do I have to install anything?', a: 'No. We set it up and it runs off your existing customer list. Nobody in the workshop lifts a finger.' },
       { q: 'Will it message customers I haven’t asked it to?', a: 'No — it only messages your own customers, about their own vehicle’s MOT, and always in your garage’s name.' },
       { q: 'What happens when the free month ends?', a: 'You decide. Keep it running on a simple monthly plan, or stop — no contract, no cancellation hoops.' },
-      { q: 'Do the bookings land with me?', a: 'Yes — every booking comes through to you within the lead time you set, ready to drop into your day. We walk you through it in setup.' },
-      { q: 'How soon can we be live?', a: 'Minutes. Give us your customer list (or connect your system) and reminders start going out.' },
+      { q: 'Do the bookings land with me?', a: 'Yes. You set your availability — how far ahead customers can book (your lead time). The customer picks a date within it, and the booking comes straight through to you to add to your diary. No double-bookings, no surprises.' },
+      { q: 'How soon can we be live?', a: 'We handle the setup for you. Once we’ve got your customer list, your garage details and your availability rules, we get your first reminders going out — usually within a few days.' },
       { q: 'Does it do service reminders too?', a: 'Yes — MOT and service reminders both. Services are often your bigger jobs, so it’s where a lot of the value is: the AI brings those customers back the same way.' },
     ],
     // final
     finalH2: 'See how many MOTs the AI brings back.',
     finalSub: 'Switch it on for your own customers, free for a month. If it fills your diary, keep it. If not, walk away — no card, nothing to cancel.',
-    finalCta: 'Start your free month',
+    finalCta: 'Claim your free month',
   },
   fr: {
     title: 'Gratuit un mois : une IA qui contacte vos clients CT & entretien sur WhatsApp et réserve | ReceptionMate',
@@ -102,7 +102,7 @@ const c = {
     h1a: 'Une IA qui contacte vos clients CT & entretien sur WhatsApp —',
     h1b: 'et reprend rendez-vous.',
     sub: 'À l’échéance d’un CT ou d’un entretien, l’IA de ReceptionMate écrit au client sur WhatsApp, répond à ses questions, propose un créneau et réserve — selon le délai que vous définissez. Personne n’appelle le garage. Essayez-le gratuitement un mois sur vos propres clients.',
-    ctaPrimary: 'Démarrer le mois gratuit',
+    ctaPrimary: 'Réservez votre mois gratuit',
     ctaSecondary: 'Voir l’IA en action',
     terms: '1 mois gratuit · Sans carte · Annulez à tout moment',
     threadGarage: 'Garage Hillside',
@@ -165,7 +165,7 @@ const c = {
     ],
     finalH2: 'Voyez combien de contrôles l’IA fait revenir.',
     finalSub: 'Activez-le pour vos propres clients, gratuitement un mois. Si votre agenda se remplit, gardez-le. Sinon, partez — sans carte, rien à annuler.',
-    finalCta: 'Démarrer le mois gratuit',
+    finalCta: 'Réservez votre mois gratuit',
   },
 }[lang];
 
@@ -305,6 +305,19 @@ const faqSchema = {
           </div>
         ))}
       </div>
+      <p class="mt-4 text-xs text-ink-400">Open-rate figures are widely reported industry averages (WhatsApp vs email).</p>
+    </div>
+  </section>
+
+  <!-- ROI illustration — clearly an estimate on the visitor's own numbers, not a customer result -->
+  <section class="bg-white">
+    <div class="mx-auto max-w-4xl px-5 pb-16 sm:pb-20">
+      <div class="rounded-2xl border-2 border-brand-100 bg-brand-50/50 p-8 text-center">
+        <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">Do the maths</p>
+        <h2 class="mt-3 text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Say 200 of your customers have an MOT or service due.</h2>
+        <p class="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-ink-600">Even if just <strong class="text-ink-900">1 in 5</strong> rebooks through the reminder, that’s <strong class="text-brand-700">40 jobs a month</strong> back in your bays that would otherwise have slipped away — for a fraction of the price of a single one of them.</p>
+        <p class="mt-4 text-xs text-ink-400">Illustration based on your own customer numbers — not a specific garage’s results.</p>
+      </div>
     </div>
   </section>
 
@@ -382,6 +395,31 @@ const faqSchema = {
             <p class="mt-3 leading-relaxed text-ink-600">{f.a}</p>
           </details>
         ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Data / privacy reassurance -->
+  <section class="bg-white">
+    <div class="mx-auto max-w-5xl px-5 pb-16 sm:pb-20">
+      <div class="rounded-2xl border border-ink-100 bg-ink-50/40 p-8">
+        <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">Your data, handled properly</p>
+        <h2 class="mt-3 text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Sharing your customer list, safely.</h2>
+        <ul class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {[
+            'UK GDPR compliant — we act as your data processor under a written agreement.',
+            'We only contact your customers, about their own vehicle — always in your garage’s name.',
+            'Messages are sent over the official WhatsApp Business platform.',
+            'Opt-outs and “stop” requests are handled automatically.',
+            'Your data stays yours — never shared or sold.',
+            'Secure handling from the moment you send it.',
+          ].map((t) => (
+            <li class="flex items-start gap-3 text-ink-700">
+              <svg class="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              <span>{t}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   </section>

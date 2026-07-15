@@ -180,8 +180,8 @@ const faqSchema = {
   <!-- Focused landing header: logo only, no exit links -->
   <header slot="nav" class="border-b border-ink-100 bg-white">
     <div class="mx-auto flex max-w-6xl items-center px-5 py-4">
-      <span class="inline-flex h-12 items-center justify-center rounded-xl bg-brand-600 px-4">
-        <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" class="h-8 w-auto" />
+      <span class="inline-flex h-16 items-center justify-center rounded-2xl bg-brand-600 px-5 sm:h-20 sm:px-6">
+        <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" class="h-10 w-auto sm:h-12" />
       </span>
     </div>
   </header>
@@ -279,6 +279,17 @@ const faqSchema = {
     </div>
   </section>
 
+  <!-- CTA -->
+  <section class="bg-brand-50/60">
+    <div class="mx-auto max-w-6xl px-5 py-10 text-center">
+      <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+        class="inline-flex items-center justify-center rounded-md bg-brand-600 px-7 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700">
+        {c.ctaPrimary}
+      </button>
+      <p class="mt-3 text-sm font-medium text-ink-500">{c.terms}</p>
+    </div>
+  </section>
+
   <!-- Why WhatsApp + stats -->
   <section class="bg-white">
     <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
@@ -342,6 +353,17 @@ const faqSchema = {
           ></iframe>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="bg-brand-50/60">
+    <div class="mx-auto max-w-6xl px-5 py-10 text-center">
+      <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+        class="inline-flex items-center justify-center rounded-md bg-brand-600 px-7 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700">
+        {c.ctaPrimary}
+      </button>
+      <p class="mt-3 text-sm font-medium text-ink-500">{c.terms}</p>
     </div>
   </section>
 

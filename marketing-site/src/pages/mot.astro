@@ -11,171 +11,259 @@ const LEAD_TIER = 'Connect · MOT reminders';
 
 const c = {
   en: {
-    title: 'MOT reminders that rebook themselves — for UK MOT centres | ReceptionMate',
-    description: 'ReceptionMate Connect messages your customers when their MOT is due — over WhatsApp, text and web chat — and turns the reply into a booking. Free for a month, no card.',
+    title: 'AI that books MOTs back in over WhatsApp — for UK MOT centres | ReceptionMate',
+    description: 'Not another reminder text. ReceptionMate’s AI messages your MOT customers on WhatsApp, chats through their questions, and books them straight into your diary — hands-free.',
     eyebrow: 'For UK MOT centres',
-    h1a: 'Fill your MOT bays.',
-    h1b: 'Reminders that rebook themselves.',
-    sub: 'ReceptionMate Connect messages your customers the moment their MOT is due — over WhatsApp, text and web chat — and turns the reply straight into a booking. No chasing, no forgotten reminders, no empty ramps.',
+    h1a: 'An AI that messages your MOT customers on WhatsApp —',
+    h1b: 'and books them back in.',
+    sub: 'This isn’t another reminder text that gets ignored. When an MOT falls due, ReceptionMate’s AI messages the customer on WhatsApp, answers their questions, offers a time and books it into your diary. No one calls the garage. You just watch the bookings land.',
     ctaPrimary: 'Start your free month',
-    ctaSecondary: 'Watch a live reminder',
+    ctaSecondary: 'Watch the AI in action',
     trust: 'Free for a month · No card required · Works with your existing customer list',
-    offer1: '1 month free',
-    offer1s: 'Try it on your own customers, on us.',
-    offer2: 'No card required',
-    offer2s: 'Nothing to pay, nothing to cancel.',
-    offer3: 'No extra work',
-    offer3s: 'Runs off your existing customer list.',
-    demoEyebrow: 'See it in action',
-    demoH2: 'A live MOT reminder that books the visit',
-    demoSub: 'Play through a real MOT reminder — it books the slot and even offers the advisory work. This is exactly what your customers would receive.',
-    whyEyebrow: 'Why MOT centres use it',
-    whyH2: 'Every MOT that’s due, reminded and rebooked — automatically.',
-    benefits: [
-      { h: 'Never miss a reminder', b: 'Every customer gets messaged on time, the month their MOT falls due. No spreadsheets, no “we meant to text them”.' },
-      { h: 'Replies become bookings', b: 'The AI handles the back-and-forth — picks a slot, confirms the date, drops it in the diary. You just see the booking.' },
-      { h: 'It pays for itself', b: 'One rebooked MOT more than covers the month. Most centres are leaving a diary’s worth of repeat work on the table.' },
-      { h: 'More than reminders', b: 'The same agent answers your web-chat and WhatsApp enquiries 24/7 — so out-of-hours interest becomes bookings too.' },
+    // chat thread
+    threadGarage: 'Hillside Garage',
+    thread: [
+      { from: 'ai', text: 'Hi Sarah 👋 It’s Hillside Garage — your Ford Fiesta’s MOT is due on the 14th. Want me to get it booked in?' },
+      { from: 'owner', text: 'Oh yes please, forgot about that!' },
+      { from: 'ai', text: 'No problem 🙂 I’ve got Tuesday 9am or Thursday 2pm this week — which suits you?' },
+      { from: 'owner', text: 'Thursday works' },
+      { from: 'ai', text: 'Booked ✅ Thursday 2pm for your MOT. We’ll send a reminder the day before. See you then!' },
     ],
-    howEyebrow: 'How it works',
-    howH2: 'Live in minutes, then it runs itself.',
-    steps: [
-      { n: '1', h: 'We load your customers', b: 'From your existing list or system — nothing for you to type out.' },
-      { n: '2', h: 'Connect messages them', b: 'About a month before each MOT is due, on the channel they use.' },
-      { n: '3', h: 'They rebook, you fill up', b: 'Replies turn into booked slots. Your bays stay busy.' },
+    threadCaption: 'A real reminder conversation — start to booked, all handled by the AI.',
+    // not-a-reminder
+    diffEyebrow: 'Not a reminder. A booking.',
+    diffH2: 'Old reminder tools send a text and hope. This one does the whole job.',
+    diffOldLabel: 'A typical MOT reminder service',
+    diffOld: [
+      'Fires off a one-way “your MOT is due, call us” text.',
+      'The customer has to remember to ring during opening hours.',
+      'Most never call back — the reminder just… evaporates.',
     ],
-    finalH2: 'See how many MOTs come back.',
-    finalSub: 'Switch on reminders for your own customers, free for a month. If it fills your diary, keep it. If not, walk away — no card, nothing to cancel.',
+    diffNewLabel: 'ReceptionMate',
+    diffNew: [
+      'The AI opens a real WhatsApp conversation with the customer.',
+      'It answers questions, offers times and books the slot then and there.',
+      'The booking drops into your diary — no phone call, no chasing.',
+    ],
+    // whatsapp stats
+    waEyebrow: 'Why WhatsApp',
+    waH2: 'Where reminders actually get seen — and replied to.',
+    waSub: 'Letters get binned, emails get buried, voicemails get ignored. A WhatsApp lands like a message from a mate — opened almost every time, usually within minutes — and because it’s a conversation, they reply and book on the spot.',
+    stats: [
+      { n: '~98%', l: 'of WhatsApp messages are opened', s: 'vs around 20% for email' },
+      { n: 'Minutes', l: 'is how fast most are read', s: 'not days later, if at all' },
+      { n: '2-way', l: 'they reply right there', s: 'no app, no portal, no phone call' },
+    ],
+    // AI does it
+    aiEyebrow: 'The AI does the talking',
+    aiH2: 'It speaks to the customer and books the slot for you.',
+    aiSub: 'Every message, every reply, every booking is handled by the AI — in your garage’s name. Your team just sees the appointments appear.',
+    aiSteps: [
+      { n: '1', h: 'It reaches out', b: 'On WhatsApp, ~a month before the MOT’s due — by name, about their vehicle.' },
+      { n: '2', h: 'It has the conversation', b: 'Answers “how much?”, “how long?”, offers times — like a receptionist would.' },
+      { n: '3', h: 'It books them in', b: 'Confirms the slot and writes it straight to your diary. Done.' },
+    ],
+    // demo
+    demoEyebrow: 'See it for yourself',
+    demoH2: 'Play through a live MOT reminder',
+    demoSub: 'This is exactly what your customers would receive — the AI books the visit and even offers the advisory work.',
+    // final
+    finalH2: 'See how many MOTs the AI brings back.',
+    finalSub: 'Switch it on for your own customers, free for a month. If it fills your diary, keep it. If not, walk away — no card, nothing to cancel.',
     finalCta: 'Start your free month',
   },
   fr: {
-    title: 'Rappels de contrôle technique qui reprennent rendez-vous — pour les centres | ReceptionMate',
-    description: 'ReceptionMate Connect contacte vos clients à l’échéance de leur contrôle technique — WhatsApp, SMS et chat — et transforme la réponse en rendez-vous. Gratuit un mois, sans carte.',
+    title: 'Une IA qui reprend rendez-vous pour vos contrôles techniques via WhatsApp | ReceptionMate',
+    description: 'Pas un simple rappel. L’IA de ReceptionMate contacte vos clients sur WhatsApp, répond à leurs questions et les réinscrit à votre agenda — sans intervention.',
     eyebrow: 'Pour les centres de contrôle technique',
-    h1a: 'Remplissez vos créneaux.',
-    h1b: 'Des rappels qui reprennent rendez-vous.',
-    sub: 'ReceptionMate Connect contacte vos clients dès que leur contrôle technique arrive à échéance — WhatsApp, SMS et chat — et transforme la réponse en rendez-vous. Sans relance manuelle, sans oubli, sans créneau vide.',
+    h1a: 'Une IA qui contacte vos clients sur WhatsApp —',
+    h1b: 'et reprend rendez-vous.',
+    sub: 'Pas un énième SMS ignoré. À l’échéance, l’IA de ReceptionMate écrit au client sur WhatsApp, répond à ses questions, propose un créneau et l’inscrit à votre agenda. Personne n’appelle le garage. Vous voyez les rendez-vous arriver.',
     ctaPrimary: 'Démarrer le mois gratuit',
-    ctaSecondary: 'Voir un rappel en direct',
+    ctaSecondary: 'Voir l’IA en action',
     trust: 'Gratuit un mois · Sans carte · Fonctionne avec votre fichier client',
-    offer1: '1 mois gratuit',
-    offer1s: 'Essayez sur vos propres clients, offert.',
-    offer2: 'Sans carte',
-    offer2s: 'Rien à payer, rien à annuler.',
-    offer3: 'Aucun travail en plus',
-    offer3s: 'S’appuie sur votre fichier client existant.',
-    demoEyebrow: 'En action',
-    demoH2: 'Un rappel de contrôle technique qui réserve la visite',
-    demoSub: 'Parcourez un vrai rappel — il réserve le créneau et propose même les travaux conseillés. C’est exactement ce que recevraient vos clients.',
-    whyEyebrow: 'Pourquoi les centres l’utilisent',
-    whyH2: 'Chaque contrôle à échéance, rappelé et repris — automatiquement.',
-    benefits: [
-      { h: 'Plus aucun oubli', b: 'Chaque client est contacté au bon moment, le mois de son échéance. Sans tableur, sans « on comptait le faire ».' },
-      { h: 'Les réponses deviennent des RDV', b: 'L’IA gère l’échange — choisit un créneau, confirme la date, l’inscrit à l’agenda. Vous voyez le rendez-vous.' },
-      { h: 'Rentable tout de suite', b: 'Un seul contrôle repris couvre le mois. La plupart des centres laissent filer un agenda entier de travail récurrent.' },
-      { h: 'Bien plus que des rappels', b: 'Le même agent répond à votre chat et WhatsApp 24h/24 — l’intérêt hors horaires devient aussi des rendez-vous.' },
+    threadGarage: 'Garage Hillside',
+    thread: [
+      { from: 'ai', text: 'Bonjour Sarah 👋 Ici Garage Hillside — le contrôle technique de votre Ford Fiesta est dû le 14. Je vous le réserve ?' },
+      { from: 'owner', text: 'Oui merci, j’avais oublié !' },
+      { from: 'ai', text: 'Avec plaisir 🙂 J’ai mardi 9h ou jeudi 14h cette semaine — quel créneau ?' },
+      { from: 'owner', text: 'Jeudi c’est bien' },
+      { from: 'ai', text: 'Réservé ✅ Jeudi 14h pour votre contrôle. On vous rappellera la veille. À jeudi !' },
     ],
-    howEyebrow: 'Comment ça marche',
-    howH2: 'Opérationnel en quelques minutes, puis autonome.',
-    steps: [
-      { n: '1', h: 'On charge vos clients', b: 'Depuis votre fichier ou système — rien à saisir.' },
-      { n: '2', h: 'Connect les contacte', b: 'Environ un mois avant chaque échéance, sur leur canal habituel.' },
-      { n: '3', h: 'Ils reprennent RDV', b: 'Les réponses deviennent des créneaux réservés. Vos ponts restent occupés.' },
+    threadCaption: 'Une vraie conversation de rappel — du début à la réservation, gérée par l’IA.',
+    diffEyebrow: 'Pas un rappel. Un rendez-vous.',
+    diffH2: 'Les outils classiques envoient un SMS et espèrent. Celui-ci fait tout le travail.',
+    diffOldLabel: 'Un service de rappel classique',
+    diffOld: [
+      'Envoie un SMS à sens unique « contrôle dû, appelez-nous ».',
+      'Le client doit penser à appeler aux heures d’ouverture.',
+      'La plupart n’appellent jamais — le rappel s’évapore.',
     ],
-    finalH2: 'Voyez combien de contrôles reviennent.',
-    finalSub: 'Activez les rappels pour vos propres clients, gratuitement un mois. Si votre agenda se remplit, gardez-le. Sinon, partez — sans carte, rien à annuler.',
+    diffNewLabel: 'ReceptionMate',
+    diffNew: [
+      'L’IA ouvre une vraie conversation WhatsApp avec le client.',
+      'Elle répond, propose des créneaux et réserve sur-le-champ.',
+      'Le rendez-vous arrive à votre agenda — sans appel, sans relance.',
+    ],
+    waEyebrow: 'Pourquoi WhatsApp',
+    waH2: 'Là où les rappels sont vraiment vus — et où l’on répond.',
+    waSub: 'Les courriers finissent à la poubelle, les e-mails enfouis, les messages vocaux ignorés. Un WhatsApp arrive comme un message d’un proche — ouvert presque à chaque fois, souvent en quelques minutes — et comme c’est une conversation, on répond et on réserve tout de suite.',
+    stats: [
+      { n: '~98 %', l: 'des messages WhatsApp sont ouverts', s: 'contre ~20 % pour l’e-mail' },
+      { n: 'Minutes', l: 'le délai de lecture habituel', s: 'pas des jours plus tard' },
+      { n: 'Bidirectionnel', l: 'on répond directement', s: 'sans appli, sans portail, sans appel' },
+    ],
+    aiEyebrow: 'C’est l’IA qui parle',
+    aiH2: 'Elle échange avec le client et réserve le créneau pour vous.',
+    aiSub: 'Chaque message, chaque réponse, chaque réservation est géré par l’IA — au nom de votre garage. Votre équipe voit simplement les rendez-vous apparaître.',
+    aiSteps: [
+      { n: '1', h: 'Elle prend contact', b: 'Sur WhatsApp, ~un mois avant l’échéance — par prénom, à propos du véhicule.' },
+      { n: '2', h: 'Elle mène la conversation', b: 'Répond « combien ? », « combien de temps ? », propose des créneaux.' },
+      { n: '3', h: 'Elle réserve', b: 'Confirme le créneau et l’écrit directement à votre agenda. C’est fait.' },
+    ],
+    demoEyebrow: 'Voyez par vous-même',
+    demoH2: 'Parcourez un rappel en direct',
+    demoSub: 'C’est exactement ce que recevraient vos clients — l’IA réserve la visite et propose les travaux conseillés.',
+    finalH2: 'Voyez combien de contrôles l’IA fait revenir.',
+    finalSub: 'Activez-le pour vos propres clients, gratuitement un mois. Si votre agenda se remplit, gardez-le. Sinon, partez — sans carte, rien à annuler.',
     finalCta: 'Démarrer le mois gratuit',
   },
 }[lang];
 ---
 
 <BaseLayout title={c.title} description={c.description}>
-  <!-- Hero -->
+  <!-- Hero: copy + live WhatsApp thread -->
   <section class="relative overflow-hidden">
-    <div class="mx-auto max-w-6xl px-5 pt-16 pb-10 sm:pt-24 sm:pb-14">
-      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.eyebrow}</p>
-      <h1 class="mt-3 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-ink-900 sm:text-5xl">
-        {c.h1a}<br /><span class="text-brand-600">{c.h1b}</span>
-      </h1>
-      <p class="mt-5 max-w-2xl text-lg leading-relaxed text-ink-600">{c.sub}</p>
-      <div class="mt-8 flex flex-wrap items-center gap-4">
-        <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
-          class="inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">
-          {c.ctaPrimary}
-        </button>
-        <a href="#demo" class="inline-flex items-center justify-center rounded-md border border-ink-300 px-6 py-3 text-sm font-semibold text-ink-700 transition hover:border-ink-400">
-          {c.ctaSecondary}
-        </a>
+    <div class="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-5 pt-16 pb-12 sm:pt-20 lg:grid-cols-2 lg:gap-14">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.eyebrow}</p>
+        <h1 class="mt-3 text-4xl font-bold leading-tight tracking-tight text-ink-900 sm:text-5xl">
+          {c.h1a} <span class="text-brand-600">{c.h1b}</span>
+        </h1>
+        <p class="mt-5 max-w-xl text-lg leading-relaxed text-ink-600">{c.sub}</p>
+        <div class="mt-8 flex flex-wrap items-center gap-4">
+          <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+            class="inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">
+            {c.ctaPrimary}
+          </button>
+          <a href="#demo" class="inline-flex items-center justify-center rounded-md border border-ink-300 px-6 py-3 text-sm font-semibold text-ink-700 transition hover:border-ink-400">
+            {c.ctaSecondary}
+          </a>
+        </div>
+        <p class="mt-4 text-sm text-ink-500">{c.trust}</p>
       </div>
-      <p class="mt-4 text-sm text-ink-500">{c.trust}</p>
-    </div>
-  </section>
 
-  <!-- Offer band -->
-  <section class="border-y border-ink-100 bg-ink-50/60">
-    <div class="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-5 py-8 sm:grid-cols-3">
-      {[[c.offer1, c.offer1s], [c.offer2, c.offer2s], [c.offer3, c.offer3s]].map(([h, s]) => (
-        <div class="flex items-start gap-3">
-          <svg class="mt-0.5 h-6 w-6 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-          <div>
-            <p class="font-semibold text-ink-900">{h}</p>
-            <p class="text-sm text-ink-600">{s}</p>
+      <!-- WhatsApp-style conversation -->
+      <div class="mx-auto w-full max-w-sm">
+        <div class="overflow-hidden rounded-2xl border border-ink-200 bg-[#efeae2] shadow-xl">
+          <div class="flex items-center gap-3 bg-[#008069] px-4 py-3 text-white">
+            <div class="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-sm font-bold">{c.threadGarage.charAt(0)}</div>
+            <div>
+              <p class="text-sm font-semibold leading-tight">{c.threadGarage}</p>
+              <p class="text-[11px] leading-tight text-white/80">online</p>
+            </div>
+            <svg class="ml-auto h-5 w-5 text-white/90" viewBox="0 0 24 24" fill="currentColor"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1 1 0 0 0-1.02.24l-2.2 2.2a15.05 15.05 0 0 1-6.59-6.59l2.2-2.2a1 1 0 0 0 .25-1.02A11.36 11.36 0 0 1 8.5 4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1c0 9.39 7.61 17 17 17a1 1 0 0 0 1-1v-3.5a1 1 0 0 0-1-1Z"/></svg>
+          </div>
+          <div class="space-y-2 px-3 py-4">
+            {c.thread.map((m) => (
+              <div class={m.from === 'ai' ? 'flex justify-end' : 'flex justify-start'}>
+                <p class={`max-w-[80%] rounded-lg px-3 py-2 text-sm leading-snug shadow-sm ${m.from === 'ai' ? 'bg-[#d9fdd3] text-ink-900' : 'bg-white text-ink-900'}`}>{m.text}</p>
+              </div>
+            ))}
           </div>
         </div>
-      ))}
-    </div>
-  </section>
-
-  <!-- Demo -->
-  <section id="demo" class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
-    <div class="grid grid-cols-1 items-center gap-10 lg:grid-cols-2">
-      <div>
-        <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.demoEyebrow}</p>
-        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.demoH2}</h2>
-        <p class="mt-4 text-lg leading-relaxed text-ink-600">{c.demoSub}</p>
-      </div>
-      <div class="relative">
-        <iframe
-          class="rm-demo-frame mx-auto block w-full max-w-lg"
-          src={`/connect-demo?embed=1${lang === 'fr' ? '&lang=fr' : ''}`}
-          title="ReceptionMate Connect — MOT reminder demo"
-          loading="lazy"
-          scrolling="no"
-          style="height:720px;background:transparent;border:0;"
-        ></iframe>
+        <p class="mt-3 text-center text-xs text-ink-500">{c.threadCaption}</p>
       </div>
     </div>
   </section>
 
-  <!-- Why -->
-  <section class="border-t border-ink-100 bg-white">
+  <!-- Not a reminder. A booking. -->
+  <section class="border-y border-ink-100 bg-ink-50/60">
     <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
-      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.whyEyebrow}</p>
-      <h2 class="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.whyH2}</h2>
-      <div class="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2">
-        {c.benefits.map((b) => (
+      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.diffEyebrow}</p>
+      <h2 class="mt-3 max-w-3xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.diffH2}</h2>
+      <div class="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div class="rounded-xl border border-ink-200 bg-white p-6">
+          <p class="text-sm font-semibold uppercase tracking-wide text-ink-400">{c.diffOldLabel}</p>
+          <ul class="mt-4 space-y-3">
+            {c.diffOld.map((t) => (
+              <li class="flex items-start gap-3 text-ink-600">
+                <svg class="mt-0.5 h-5 w-5 shrink-0 text-ink-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div class="rounded-xl border-2 border-brand-500 bg-white p-6 shadow-sm">
+          <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.diffNewLabel}</p>
+          <ul class="mt-4 space-y-3">
+            {c.diffNew.map((t) => (
+              <li class="flex items-start gap-3 text-ink-800">
+                <svg class="mt-0.5 h-5 w-5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Why WhatsApp + stats -->
+  <section class="bg-white">
+    <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.waEyebrow}</p>
+      <h2 class="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.waH2}</h2>
+      <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-600">{c.waSub}</p>
+      <div class="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-3">
+        {c.stats.map((st) => (
           <div class="rounded-xl border border-ink-100 bg-ink-50/40 p-6">
-            <h3 class="text-lg font-semibold text-ink-900">{b.h}</h3>
-            <p class="mt-2 text-ink-600">{b.b}</p>
+            <p class="text-4xl font-bold tracking-tight text-brand-600">{st.n}</p>
+            <p class="mt-2 font-semibold text-ink-900">{st.l}</p>
+            <p class="mt-1 text-sm text-ink-500">{st.s}</p>
           </div>
         ))}
       </div>
     </div>
   </section>
 
-  <!-- How it works -->
+  <!-- The AI does the talking -->
   <section class="border-t border-ink-100 bg-ink-50/60">
     <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
-      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.howEyebrow}</p>
-      <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.howH2}</h2>
+      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.aiEyebrow}</p>
+      <h2 class="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.aiH2}</h2>
+      <p class="mt-4 max-w-2xl text-lg leading-relaxed text-ink-600">{c.aiSub}</p>
       <div class="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-3">
-        {c.steps.map((s) => (
+        {c.aiSteps.map((s) => (
           <div class="rounded-xl border border-ink-100 bg-white p-6">
             <div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand-600 text-base font-bold text-white">{s.n}</div>
             <h3 class="mt-4 text-lg font-semibold text-ink-900">{s.h}</h3>
             <p class="mt-2 text-ink-600">{s.b}</p>
           </div>
         ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Demo -->
+  <section id="demo" class="border-t border-ink-100 bg-white">
+    <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+      <div class="grid grid-cols-1 items-center gap-10 lg:grid-cols-2">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.demoEyebrow}</p>
+          <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.demoH2}</h2>
+          <p class="mt-4 text-lg leading-relaxed text-ink-600">{c.demoSub}</p>
+        </div>
+        <div class="relative">
+          <iframe
+            class="rm-demo-frame mx-auto block w-full max-w-lg"
+            src={`/connect-demo?embed=1${lang === 'fr' ? '&lang=fr' : ''}`}
+            title="ReceptionMate Connect — MOT reminder demo"
+            loading="lazy"
+            scrolling="no"
+            style="height:720px;background:transparent;border:0;"
+          ></iframe>
+        </div>
       </div>
     </div>
   </section>

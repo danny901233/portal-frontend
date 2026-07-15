@@ -398,7 +398,14 @@
         clock+=900;
       }
     });
-    t(()=>{replay.style.display='inline-flex';},clock+400);
+    // Embedded on the marketing pages: loop the conversation automatically (no replay button,
+    // which would sit below the phone and get clipped by the fixed iframe height). On the
+    // standalone demo page, keep the manual replay button.
+    if (IS_EMBED) {
+      t(run, clock + 3500);
+    } else {
+      t(()=>{replay.style.display='inline-flex';},clock+400);
+    }
   }
 
   function switchTo(key){

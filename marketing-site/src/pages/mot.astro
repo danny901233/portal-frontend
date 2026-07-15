@@ -14,9 +14,10 @@ const c = {
     title: 'AI that books MOTs back in over WhatsApp — for UK MOT centres | ReceptionMate',
     description: 'Not another reminder text. ReceptionMate’s AI messages your MOT customers on WhatsApp, chats through their questions, and books them straight into your diary — hands-free.',
     eyebrow: 'For UK MOT centres',
+    freeBadge: '1 month free — no card, nothing to cancel',
     h1a: 'An AI that messages your MOT customers on WhatsApp —',
     h1b: 'and books them back in.',
-    sub: 'This isn’t another reminder text that gets ignored. When an MOT falls due, ReceptionMate’s AI messages the customer on WhatsApp, answers their questions, offers a time and books it into your diary. No one calls the garage. You just watch the bookings land.',
+    sub: 'This isn’t another reminder text that gets ignored. When an MOT falls due, ReceptionMate’s AI messages the customer on WhatsApp, answers their questions, offers a time within the lead time you set, and books them in. No one calls the garage. You just watch the bookings land.',
     ctaPrimary: 'Start your free month',
     ctaSecondary: 'Watch the AI in action',
     trust: 'Free for a month · No card required · Works with your existing customer list',
@@ -43,7 +44,7 @@ const c = {
     diffNew: [
       'The AI opens a real WhatsApp conversation with the customer.',
       'It answers questions, offers times and books the slot then and there.',
-      'The booking drops into your diary — no phone call, no chasing.',
+      'The booking’s made within the lead time you set — no phone call, no chasing.',
     ],
     // whatsapp stats
     waEyebrow: 'Why WhatsApp',
@@ -61,7 +62,7 @@ const c = {
     aiSteps: [
       { n: '1', h: 'It reaches out', b: 'On WhatsApp, ~a month before the MOT’s due — by name, about their vehicle.' },
       { n: '2', h: 'It has the conversation', b: 'Answers “how much?”, “how long?”, offers times — like a receptionist would.' },
-      { n: '3', h: 'It books them in', b: 'Confirms the slot and writes it straight to your diary. Done.' },
+      { n: '3', h: 'It books them in', b: 'Confirms a slot within the lead time you set. Done.' },
     ],
     // demo
     demoEyebrow: 'See it for yourself',
@@ -76,9 +77,10 @@ const c = {
     title: 'Une IA qui reprend rendez-vous pour vos contrôles techniques via WhatsApp | ReceptionMate',
     description: 'Pas un simple rappel. L’IA de ReceptionMate contacte vos clients sur WhatsApp, répond à leurs questions et les réinscrit à votre agenda — sans intervention.',
     eyebrow: 'Pour les centres de contrôle technique',
+    freeBadge: '1 mois gratuit — sans carte, rien à annuler',
     h1a: 'Une IA qui contacte vos clients sur WhatsApp —',
     h1b: 'et reprend rendez-vous.',
-    sub: 'Pas un énième SMS ignoré. À l’échéance, l’IA de ReceptionMate écrit au client sur WhatsApp, répond à ses questions, propose un créneau et l’inscrit à votre agenda. Personne n’appelle le garage. Vous voyez les rendez-vous arriver.',
+    sub: 'Pas un énième SMS ignoré. À l’échéance, l’IA de ReceptionMate écrit au client sur WhatsApp, répond à ses questions, propose un créneau selon le délai que vous définissez, et le réserve. Personne n’appelle le garage. Vous voyez les rendez-vous arriver.',
     ctaPrimary: 'Démarrer le mois gratuit',
     ctaSecondary: 'Voir l’IA en action',
     trust: 'Gratuit un mois · Sans carte · Fonctionne avec votre fichier client',
@@ -103,7 +105,7 @@ const c = {
     diffNew: [
       'L’IA ouvre une vraie conversation WhatsApp avec le client.',
       'Elle répond, propose des créneaux et réserve sur-le-champ.',
-      'Le rendez-vous arrive à votre agenda — sans appel, sans relance.',
+      'Le rendez-vous est pris selon le délai que vous définissez — sans appel, sans relance.',
     ],
     waEyebrow: 'Pourquoi WhatsApp',
     waH2: 'Là où les rappels sont vraiment vus — et où l’on répond.',
@@ -119,7 +121,7 @@ const c = {
     aiSteps: [
       { n: '1', h: 'Elle prend contact', b: 'Sur WhatsApp, ~un mois avant l’échéance — par prénom, à propos du véhicule.' },
       { n: '2', h: 'Elle mène la conversation', b: 'Répond « combien ? », « combien de temps ? », propose des créneaux.' },
-      { n: '3', h: 'Elle réserve', b: 'Confirme le créneau et l’écrit directement à votre agenda. C’est fait.' },
+      { n: '3', h: 'Elle réserve', b: 'Confirme un créneau selon le délai que vous définissez. C’est fait.' },
     ],
     demoEyebrow: 'Voyez par vous-même',
     demoH2: 'Parcourez un rappel en direct',
@@ -136,6 +138,10 @@ const c = {
   <section class="relative overflow-hidden">
     <div class="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-5 pt-16 pb-12 sm:pt-20 lg:grid-cols-2 lg:gap-14">
       <div>
+        <div class="mb-4 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-1.5 text-sm font-bold text-emerald-700 ring-1 ring-emerald-300">
+          <span class="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+          {c.freeBadge}
+        </div>
         <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.eyebrow}</p>
         <h1 class="mt-3 text-4xl font-bold leading-tight tracking-tight text-ink-900 sm:text-5xl">
           {c.h1a} <span class="text-brand-600">{c.h1b}</span>

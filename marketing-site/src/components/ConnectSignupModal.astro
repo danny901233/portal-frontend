@@ -15,69 +15,120 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
 ---
 
 <div id="cs-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-ink-900/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-  <div class="cs-card relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-ink-900/5">
-    <button type="button" id="cs-close" aria-label="Close" class="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25">
+  <div class="cs-card relative grid w-full max-w-[54rem] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-ink-900/5 md:grid-cols-[1.05fr_1fr]">
+    <button type="button" id="cs-close" aria-label="Close" class="absolute right-4 top-4 z-20 inline-flex h-9 w-9 items-center justify-center rounded-full bg-ink-900/10 text-ink-500 transition hover:bg-ink-900/20 md:bg-white/15 md:text-white md:hover:bg-white/25">
       <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
     </button>
 
-    <div class="bg-gradient-to-br from-brand-600 via-brand-600 to-brand-800 px-7 pb-6 pt-6 text-white">
-      <img src={LOGO} alt="ReceptionMate" class="h-14 w-auto" />
-      <h2 class="mt-3 text-xl font-bold leading-tight">Start your free month</h2>
-      <p class="mt-1 text-sm text-brand-100">1 month free · No card · Cancel anytime</p>
-    </div>
+    <!-- LEFT: brand + value panel (desktop) -->
+    <aside class="relative hidden flex-col justify-between overflow-hidden bg-brand-700 p-9 text-white md:flex">
+      <div class="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-brand-400/25 blur-3xl" aria-hidden="true"></div>
+      <div class="pointer-events-none absolute -bottom-24 -left-16 h-56 w-56 rounded-full bg-brand-500/25 blur-3xl" aria-hidden="true"></div>
+      <div class="relative">
+        <img src={LOGO} alt="ReceptionMate" class="h-12 w-auto" />
+        <p class="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-brand-200">Your free month</p>
+        <h2 class="mt-2 text-2xl font-bold leading-snug tracking-tight text-balance">Live in a minute — the AI does the rest.</h2>
+        <ul class="mt-8 space-y-5">
+          <li class="flex items-start gap-3.5">
+            <span class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            </span>
+            <p class="text-sm leading-relaxed text-brand-50">It WhatsApps your MOT &amp; service customers <span class="font-semibold text-white">automatically</span> when they're due.</p>
+          </li>
+          <li class="flex items-start gap-3.5">
+            <span class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg>
+            </span>
+            <p class="text-sm leading-relaxed text-brand-50">Answers their questions and <span class="font-semibold text-white">books them straight in</span> — no phone tag.</p>
+          </li>
+          <li class="flex items-start gap-3.5">
+            <span class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.3L12 15.3 7.2 17.6l.9-5.3L4.2 8.5l5.4-.8z"/></svg>
+            </span>
+            <p class="text-sm leading-relaxed text-brand-50">Free for a month — <span class="font-semibold text-white">no card</span>, cancel anytime.</p>
+          </li>
+        </ul>
+      </div>
+      <div class="relative mt-10 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-brand-100">
+        <span class="inline-flex items-center gap-1.5"><svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>Official WhatsApp Business</span>
+        <span class="inline-flex items-center gap-1.5"><svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>UK GDPR compliant</span>
+      </div>
+    </aside>
 
-    <!-- Step 1: details -->
-    <form id="cs-form-details" class="space-y-3 p-6">
-      <div>
-        <label class="cs-label" for="cs-garage">Garage name</label>
-        <input id="cs-garage" name="businessName" required minlength="2" class="cs-input" placeholder="Acme Auto Centre" />
+    <!-- RIGHT: form -->
+    <div class="p-6 sm:p-9">
+      <!-- mobile-only compact brand header -->
+      <div class="mb-6 flex items-center gap-3 md:hidden">
+        <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600"><img src={LOGO} alt="ReceptionMate" class="h-6 w-auto" /></span>
+        <div>
+          <p class="text-sm font-bold text-ink-900">Start your free month</p>
+          <p class="text-xs text-ink-500">1 month free · No card · Cancel anytime</p>
+        </div>
       </div>
-      <div>
-        <label class="cs-label" for="cs-name">Your name</label>
-        <input id="cs-name" name="name" required minlength="2" autocomplete="name" class="cs-input" placeholder="Jane Smith" />
-      </div>
-      <div>
-        <label class="cs-label" for="cs-email">Email</label>
-        <input id="cs-email" name="email" type="email" required autocomplete="email" class="cs-input" placeholder="you@yourgarage.co.uk" />
-      </div>
-      <div>
-        <label class="cs-label" for="cs-mobile">Mobile number</label>
-        <input id="cs-mobile" name="mobile" type="tel" required autocomplete="tel" class="cs-input" placeholder="07700 000000" />
-        <p class="mt-1 text-xs text-ink-400">We'll text you a code to confirm it's really you.</p>
-      </div>
-      <div>
-        <label class="cs-label" for="cs-password">Choose a password</label>
-        <input id="cs-password" name="password" type="password" required minlength="8" autocomplete="new-password" class="cs-input" placeholder="At least 8 characters" />
-      </div>
-      <div id="cs-err-1" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
-      <button type="submit" id="cs-submit-1" class="cs-btn">
-        <span class="cs-idle">Text me a code →</span>
-        <span class="cs-loading">Sending…</span>
-      </button>
-    </form>
 
-    <!-- Step 2: verify -->
-    <form id="cs-form-code" class="hidden space-y-3 p-6">
-      <p class="text-sm text-ink-600">Enter the 6-digit code we texted to <span id="cs-mobile-masked" class="font-semibold text-ink-900"></span>.</p>
-      <div>
-        <label class="cs-label" for="cs-code">Verification code</label>
-        <input id="cs-code" name="code" inputmode="numeric" required minlength="4" maxlength="10" class="cs-input tracking-[0.4em] text-center text-lg" placeholder="••••••" />
-      </div>
-      <div id="cs-err-2" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
-      <button type="submit" id="cs-submit-2" class="cs-btn">
-        <span class="cs-idle">Verify &amp; start free month →</span>
-        <span class="cs-loading">Creating your account…</span>
-      </button>
-      <button type="button" id="cs-back" class="w-full text-center text-xs font-medium text-ink-500 hover:text-ink-700 hover:underline">← Change my details</button>
-    </form>
+      <!-- Step 1: details -->
+      <form id="cs-form-details" class="space-y-3.5">
+        <div class="mb-1 hidden md:block">
+          <p class="text-xs font-semibold uppercase tracking-wide text-brand-600">Step 1 of 2</p>
+          <h3 class="mt-1 text-xl font-bold tracking-tight text-ink-900">Create your account</h3>
+          <p class="mt-1 text-sm text-ink-500">A few details and your free month is live.</p>
+        </div>
+        <div>
+          <label class="cs-label" for="cs-garage">Garage name</label>
+          <input id="cs-garage" name="businessName" required minlength="2" class="cs-input" placeholder="e.g. Bridgewater Garage" />
+        </div>
+        <div>
+          <label class="cs-label" for="cs-name">Your name</label>
+          <input id="cs-name" name="name" required minlength="2" autocomplete="name" class="cs-input" placeholder="Jane Smith" />
+        </div>
+        <div>
+          <label class="cs-label" for="cs-email">Email</label>
+          <input id="cs-email" name="email" type="email" required autocomplete="email" class="cs-input" placeholder="you@yourgarage.co.uk" />
+        </div>
+        <div>
+          <label class="cs-label" for="cs-mobile">Mobile number</label>
+          <input id="cs-mobile" name="mobile" type="tel" required autocomplete="tel" class="cs-input" placeholder="07700 000000" />
+          <p class="mt-1 text-xs text-ink-400">We'll text you a code to confirm it's really you.</p>
+        </div>
+        <div>
+          <label class="cs-label" for="cs-password">Choose a password</label>
+          <input id="cs-password" name="password" type="password" required minlength="8" autocomplete="new-password" class="cs-input" placeholder="At least 8 characters" />
+        </div>
+        <div id="cs-err-1" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
+        <button type="submit" id="cs-submit-1" class="cs-btn">
+          <span class="cs-idle">Text me a code →</span>
+          <span class="cs-loading">Sending…</span>
+        </button>
+        <p class="pt-0.5 text-center text-xs text-ink-400">1 month free · No card · Cancel anytime</p>
+      </form>
 
-    <!-- Success -->
-    <div id="cs-success" class="hidden px-7 py-10 text-center">
-      <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 ring-8 ring-emerald-50">
-        <svg class="h-7 w-7 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <!-- Step 2: verify -->
+      <form id="cs-form-code" class="hidden space-y-4">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-brand-600">Step 2 of 2</p>
+          <h3 class="mt-1 text-xl font-bold tracking-tight text-ink-900">Enter your code</h3>
+          <p class="mt-1 text-sm text-ink-500">We texted a 6-digit code to <span id="cs-mobile-masked" class="font-semibold text-ink-800"></span>.</p>
+        </div>
+        <div>
+          <label class="cs-label" for="cs-code">Verification code</label>
+          <input id="cs-code" name="code" inputmode="numeric" required minlength="4" maxlength="10" class="cs-input text-center text-xl tracking-[0.5em]" placeholder="••••••" />
+        </div>
+        <div id="cs-err-2" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
+        <button type="submit" id="cs-submit-2" class="cs-btn">
+          <span class="cs-idle">Verify &amp; start free month →</span>
+          <span class="cs-loading">Creating your account…</span>
+        </button>
+        <button type="button" id="cs-back" class="w-full text-center text-xs font-medium text-ink-500 hover:text-ink-700 hover:underline">← Change my details</button>
+      </form>
+
+      <!-- Success -->
+      <div id="cs-success" class="hidden py-10 text-center">
+        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 ring-8 ring-emerald-50">
+          <svg class="h-7 w-7 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <p class="mt-5 text-lg font-bold text-ink-900">You're in — your free month is live.</p>
+        <p class="mt-2 text-sm leading-relaxed text-ink-600">Taking you in to connect your WhatsApp…</p>
       </div>
-      <p class="mt-5 text-lg font-bold text-ink-900">You're in — your free month is live.</p>
-      <p class="mt-2 text-sm leading-relaxed text-ink-600">Taking you to your dashboard to finish setting up WhatsApp…</p>
     </div>
   </div>
 </div>
@@ -88,8 +139,11 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
   .cs-label { margin-bottom:0.3rem; display:block; font-size:0.8rem; font-weight:600; color:#334155; }
   .cs-input { width:100%; border-radius:0.75rem; border:1.5px solid #e2e8f0; background:#f8fafc; padding:0.7rem 0.9rem; font-size:0.95rem; color:#0f172a; transition:border-color .15s, box-shadow .15s, background .15s; }
   .cs-input::placeholder { color:#94a3b8; }
+  .cs-input:hover { border-color:#cbd5e1; }
   .cs-input:focus { outline:none; background:#fff; border-color:#3426cf; box-shadow:0 0 0 4px rgba(52,38,207,0.12); }
-  .cs-btn { width:100%; border-radius:0.75rem; background:linear-gradient(to right,#3426cf,#4f46e5); padding:0.8rem 1rem; font-size:0.9rem; font-weight:600; color:#fff; box-shadow:0 10px 15px -3px rgba(52,38,207,0.3); transition:box-shadow .15s; }
+  .cs-btn { width:100%; border-radius:0.75rem; background:linear-gradient(to right,#3426cf,#4f46e5); padding:0.85rem 1rem; font-size:0.925rem; font-weight:600; color:#fff; box-shadow:0 10px 15px -3px rgba(52,38,207,0.3); transition:box-shadow .15s, transform .1s; }
+  .cs-btn:hover { box-shadow:0 12px 20px -4px rgba(52,38,207,0.45); }
+  .cs-btn:active { transform: translateY(1px); }
   .cs-btn:disabled { opacity:0.7; cursor:not-allowed; }
   .cs-btn .cs-loading { display:none; }
   .cs-btn.is-loading .cs-idle { display:none; }

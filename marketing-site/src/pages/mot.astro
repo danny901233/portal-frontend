@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import SocialProof from '../components/SocialProof.astro';
 import { getLang, L } from '../i18n/ui';
 const lang = getLang(Astro.url);
 
@@ -249,6 +250,9 @@ const faqSchema = {
       ))}
     </div>
   </section>
+
+  <!-- Trusted-by logo banner (same rotating strip as the homepage) -->
+  <SocialProof />
 
   <!-- Not a reminder. A booking. -->
   <section class="bg-ink-50/60">

@@ -254,6 +254,14 @@
   // Embed mode: hide brand chrome + report height to the host page's iframe.
   const IS_EMBED = new URLSearchParams(location.search).has('embed');
   if (IS_EMBED) document.body.classList.add('embed');
+  // ?only=<scenario> — restrict the demo to a single scenario (e.g. only=mot on the MOT landing
+  // page, where the deferred-work reminder isn't relevant). Drops the other tabs + the picker.
+  const ONLY = new URLSearchParams(location.search).get('only');
+  if (ONLY) {
+    document.querySelectorAll('#tabs button').forEach(b => { if (b.dataset.s !== ONLY) b.remove(); });
+    const picker = document.querySelector('.scenario-picker');
+    if (picker) picker.style.display = 'none';
+  }
   function postHeight(){
     if(!IS_EMBED) return;
     try{ parent.postMessage({ rmDemoHeight: Math.ceil(document.body.getBoundingClientRect().height) }, '*'); }catch(e){}

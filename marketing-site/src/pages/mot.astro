@@ -179,10 +179,13 @@ const faqSchema = {
 <BaseLayout title={c.title} description={c.description} landing>
   <!-- Focused landing header: logo only, no exit links -->
   <header slot="nav" class="border-b border-ink-100 bg-white">
-    <div class="mx-auto flex max-w-6xl items-center px-5 py-4">
-      <span class="inline-flex h-16 items-center justify-center rounded-2xl bg-brand-600 px-5 sm:h-20 sm:px-6">
-        <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" class="h-10 w-auto sm:h-12" />
+    <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4">
+      <span class="inline-flex h-20 items-center justify-center rounded-2xl bg-brand-600 px-6 sm:h-24 sm:px-8">
+        <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" class="h-12 w-auto sm:h-16" />
       </span>
+      <button data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER} class="hidden shrink-0 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:inline-flex">
+        Start your free month
+      </button>
     </div>
   </header>
 
@@ -358,7 +361,7 @@ const faqSchema = {
         <div class="relative">
           <iframe
             class="rm-demo-frame mx-auto block w-full max-w-lg"
-            src={`/connect-demo?embed=1${lang === 'fr' ? '&lang=fr' : ''}`}
+            src={`/connect-demo?embed=1&only=mot${lang === 'fr' ? '&lang=fr' : ''}`}
             title="ReceptionMate Connect — MOT reminder demo"
             loading="lazy"
             scrolling="no"

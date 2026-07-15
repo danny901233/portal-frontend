@@ -1,0 +1,208 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+
+// Campaign landing page for the MOT-centre push: mailer + AI-call follow-up drive here.
+// CTA captures a lead (LeadModal → /api/public/lead → HighLevel + team email). Onboarding
+// (the free-month Connect trial) is set up by the team afterwards.
+const LEAD_SOURCE = 'website-mot-campaign';
+const LEAD_TIER = 'Connect · MOT reminders';
+
+const c = {
+  en: {
+    title: 'MOT reminders that rebook themselves — for UK MOT centres | ReceptionMate',
+    description: 'ReceptionMate Connect messages your customers when their MOT is due — over WhatsApp, text and web chat — and turns the reply into a booking. Free for a month, no card.',
+    eyebrow: 'For UK MOT centres',
+    h1a: 'Fill your MOT bays.',
+    h1b: 'Reminders that rebook themselves.',
+    sub: 'ReceptionMate Connect messages your customers the moment their MOT is due — over WhatsApp, text and web chat — and turns the reply straight into a booking. No chasing, no forgotten reminders, no empty ramps.',
+    ctaPrimary: 'Start your free month',
+    ctaSecondary: 'Watch a live reminder',
+    trust: 'Free for a month · No card required · Works with your existing customer list',
+    offer1: '1 month free',
+    offer1s: 'Try it on your own customers, on us.',
+    offer2: 'No card required',
+    offer2s: 'Nothing to pay, nothing to cancel.',
+    offer3: 'No extra work',
+    offer3s: 'Runs off your existing customer list.',
+    demoEyebrow: 'See it in action',
+    demoH2: 'A live MOT reminder that books the visit',
+    demoSub: 'Play through a real MOT reminder — it books the slot and even offers the advisory work. This is exactly what your customers would receive.',
+    whyEyebrow: 'Why MOT centres use it',
+    whyH2: 'Every MOT that’s due, reminded and rebooked — automatically.',
+    benefits: [
+      { h: 'Never miss a reminder', b: 'Every customer gets messaged on time, the month their MOT falls due. No spreadsheets, no “we meant to text them”.' },
+      { h: 'Replies become bookings', b: 'The AI handles the back-and-forth — picks a slot, confirms the date, drops it in the diary. You just see the booking.' },
+      { h: 'It pays for itself', b: 'One rebooked MOT more than covers the month. Most centres are leaving a diary’s worth of repeat work on the table.' },
+      { h: 'More than reminders', b: 'The same agent answers your web-chat and WhatsApp enquiries 24/7 — so out-of-hours interest becomes bookings too.' },
+    ],
+    howEyebrow: 'How it works',
+    howH2: 'Live in minutes, then it runs itself.',
+    steps: [
+      { n: '1', h: 'We load your customers', b: 'From your existing list or system — nothing for you to type out.' },
+      { n: '2', h: 'Connect messages them', b: 'About a month before each MOT is due, on the channel they use.' },
+      { n: '3', h: 'They rebook, you fill up', b: 'Replies turn into booked slots. Your bays stay busy.' },
+    ],
+    finalH2: 'See how many MOTs come back.',
+    finalSub: 'Switch on reminders for your own customers, free for a month. If it fills your diary, keep it. If not, walk away — no card, nothing to cancel.',
+    finalCta: 'Start your free month',
+  },
+  fr: {
+    title: 'Rappels de contrôle technique qui reprennent rendez-vous — pour les centres | ReceptionMate',
+    description: 'ReceptionMate Connect contacte vos clients à l’échéance de leur contrôle technique — WhatsApp, SMS et chat — et transforme la réponse en rendez-vous. Gratuit un mois, sans carte.',
+    eyebrow: 'Pour les centres de contrôle technique',
+    h1a: 'Remplissez vos créneaux.',
+    h1b: 'Des rappels qui reprennent rendez-vous.',
+    sub: 'ReceptionMate Connect contacte vos clients dès que leur contrôle technique arrive à échéance — WhatsApp, SMS et chat — et transforme la réponse en rendez-vous. Sans relance manuelle, sans oubli, sans créneau vide.',
+    ctaPrimary: 'Démarrer le mois gratuit',
+    ctaSecondary: 'Voir un rappel en direct',
+    trust: 'Gratuit un mois · Sans carte · Fonctionne avec votre fichier client',
+    offer1: '1 mois gratuit',
+    offer1s: 'Essayez sur vos propres clients, offert.',
+    offer2: 'Sans carte',
+    offer2s: 'Rien à payer, rien à annuler.',
+    offer3: 'Aucun travail en plus',
+    offer3s: 'S’appuie sur votre fichier client existant.',
+    demoEyebrow: 'En action',
+    demoH2: 'Un rappel de contrôle technique qui réserve la visite',
+    demoSub: 'Parcourez un vrai rappel — il réserve le créneau et propose même les travaux conseillés. C’est exactement ce que recevraient vos clients.',
+    whyEyebrow: 'Pourquoi les centres l’utilisent',
+    whyH2: 'Chaque contrôle à échéance, rappelé et repris — automatiquement.',
+    benefits: [
+      { h: 'Plus aucun oubli', b: 'Chaque client est contacté au bon moment, le mois de son échéance. Sans tableur, sans « on comptait le faire ».' },
+      { h: 'Les réponses deviennent des RDV', b: 'L’IA gère l’échange — choisit un créneau, confirme la date, l’inscrit à l’agenda. Vous voyez le rendez-vous.' },
+      { h: 'Rentable tout de suite', b: 'Un seul contrôle repris couvre le mois. La plupart des centres laissent filer un agenda entier de travail récurrent.' },
+      { h: 'Bien plus que des rappels', b: 'Le même agent répond à votre chat et WhatsApp 24h/24 — l’intérêt hors horaires devient aussi des rendez-vous.' },
+    ],
+    howEyebrow: 'Comment ça marche',
+    howH2: 'Opérationnel en quelques minutes, puis autonome.',
+    steps: [
+      { n: '1', h: 'On charge vos clients', b: 'Depuis votre fichier ou système — rien à saisir.' },
+      { n: '2', h: 'Connect les contacte', b: 'Environ un mois avant chaque échéance, sur leur canal habituel.' },
+      { n: '3', h: 'Ils reprennent RDV', b: 'Les réponses deviennent des créneaux réservés. Vos ponts restent occupés.' },
+    ],
+    finalH2: 'Voyez combien de contrôles reviennent.',
+    finalSub: 'Activez les rappels pour vos propres clients, gratuitement un mois. Si votre agenda se remplit, gardez-le. Sinon, partez — sans carte, rien à annuler.',
+    finalCta: 'Démarrer le mois gratuit',
+  },
+}[lang];
+---
+
+<BaseLayout title={c.title} description={c.description}>
+  <!-- Hero -->
+  <section class="relative overflow-hidden">
+    <div class="mx-auto max-w-6xl px-5 pt-16 pb-10 sm:pt-24 sm:pb-14">
+      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.eyebrow}</p>
+      <h1 class="mt-3 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-ink-900 sm:text-5xl">
+        {c.h1a}<br /><span class="text-brand-600">{c.h1b}</span>
+      </h1>
+      <p class="mt-5 max-w-2xl text-lg leading-relaxed text-ink-600">{c.sub}</p>
+      <div class="mt-8 flex flex-wrap items-center gap-4">
+        <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+          class="inline-flex items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">
+          {c.ctaPrimary}
+        </button>
+        <a href="#demo" class="inline-flex items-center justify-center rounded-md border border-ink-300 px-6 py-3 text-sm font-semibold text-ink-700 transition hover:border-ink-400">
+          {c.ctaSecondary}
+        </a>
+      </div>
+      <p class="mt-4 text-sm text-ink-500">{c.trust}</p>
+    </div>
+  </section>
+
+  <!-- Offer band -->
+  <section class="border-y border-ink-100 bg-ink-50/60">
+    <div class="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-5 py-8 sm:grid-cols-3">
+      {[[c.offer1, c.offer1s], [c.offer2, c.offer2s], [c.offer3, c.offer3s]].map(([h, s]) => (
+        <div class="flex items-start gap-3">
+          <svg class="mt-0.5 h-6 w-6 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+          <div>
+            <p class="font-semibold text-ink-900">{h}</p>
+            <p class="text-sm text-ink-600">{s}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <!-- Demo -->
+  <section id="demo" class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+    <div class="grid grid-cols-1 items-center gap-10 lg:grid-cols-2">
+      <div>
+        <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.demoEyebrow}</p>
+        <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.demoH2}</h2>
+        <p class="mt-4 text-lg leading-relaxed text-ink-600">{c.demoSub}</p>
+      </div>
+      <div class="relative">
+        <iframe
+          class="rm-demo-frame mx-auto block w-full max-w-lg"
+          src={`/connect-demo?embed=1${lang === 'fr' ? '&lang=fr' : ''}`}
+          title="ReceptionMate Connect — MOT reminder demo"
+          loading="lazy"
+          scrolling="no"
+          style="height:720px;background:transparent;border:0;"
+        ></iframe>
+      </div>
+    </div>
+  </section>
+
+  <!-- Why -->
+  <section class="border-t border-ink-100 bg-white">
+    <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.whyEyebrow}</p>
+      <h2 class="mt-3 max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.whyH2}</h2>
+      <div class="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2">
+        {c.benefits.map((b) => (
+          <div class="rounded-xl border border-ink-100 bg-ink-50/40 p-6">
+            <h3 class="text-lg font-semibold text-ink-900">{b.h}</h3>
+            <p class="mt-2 text-ink-600">{b.b}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="border-t border-ink-100 bg-ink-50/60">
+    <div class="mx-auto max-w-6xl px-5 py-16 sm:py-20">
+      <p class="text-sm font-semibold uppercase tracking-wide text-brand-600">{c.howEyebrow}</p>
+      <h2 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">{c.howH2}</h2>
+      <div class="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-3">
+        {c.steps.map((s) => (
+          <div class="rounded-xl border border-ink-100 bg-white p-6">
+            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand-600 text-base font-bold text-white">{s.n}</div>
+            <h3 class="mt-4 text-lg font-semibold text-ink-900">{s.h}</h3>
+            <p class="mt-2 text-ink-600">{s.b}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA -->
+  <section class="bg-brand-700">
+    <div class="mx-auto max-w-4xl px-5 py-16 text-center sm:py-20">
+      <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">{c.finalH2}</h2>
+      <p class="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-brand-100">{c.finalSub}</p>
+      <div class="mt-8 flex justify-center">
+        <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+          class="inline-flex items-center justify-center rounded-md bg-white px-7 py-3 text-base font-semibold text-brand-700 shadow-sm transition hover:bg-brand-50">
+          {c.finalCta}
+        </button>
+      </div>
+      <p class="mt-4 text-sm text-brand-200">{c.trust}</p>
+    </div>
+  </section>
+</BaseLayout>
+
+<script is:inline>
+  // Auto-size the embedded /connect-demo iframe to its reported content height.
+  window.addEventListener('message', function (e) {
+    if (!e.data || typeof e.data.rmDemoHeight !== 'number') return;
+    var frames = document.querySelectorAll('iframe.rm-demo-frame');
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].contentWindow === e.source) frames[i].style.height = (e.data.rmDemoHeight + 8) + 'px';
+    }
+  });
+</script>

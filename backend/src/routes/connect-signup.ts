@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import twilio from 'twilio';
 import { prisma } from '../db.js';
+import { pushSignupToHighlevel, updateOpportunity, TRIAL_LIVE_STAGE_ID } from '../services/highlevel.js';
 
 // ---------------------------------------------------------------------------
 // Self-serve "Connect-only" signup (WhatsApp messaging, no voice tier).
@@ -183,6 +184,28 @@ router.post('/verify', async (req, res) => {
     });
 
     console.log(`[CONNECT_SIGNUP] created Connect trial: ${email} -> ${businessName} (garage=${garage.id})`);
+
+    // Fire-and-forget: create a HighLevel opportunity at the "Free trial live" stage and
+    // store its id on the garage. When the trial converts (Stripe webhook), it's promoted
+    // to "Live and £££" with the £250 value. Non-fatal — signup succeeds even if HL is down.
+    void (async () => {
+      try {
+        const { opportunityId } = await pushSignupToHighlevel({
+          name, email, phone: mobile, companyName: businessName,
+          source: 'website-mot-connect', tags: ['website-signup', 'connect', 'trial'],
+          opportunityName: `${businessName} — Connect trial`,
+          monetaryValueGbp: 250, kind: 'signup',
+        });
+        if (opportunityId) {
+          if (TRIAL_LIVE_STAGE_ID) {
+            await updateOpportunity(opportunityId, { stageId: TRIAL_LIVE_STAGE_ID, monetaryValueGbp: 250 }).catch(() => {});
+          }
+          await prisma.garage.update({ where: { id: garage.id }, data: { ghlOpportunityId: opportunityId } });
+        }
+      } catch (e) {
+        console.error('[CONNECT_SIGNUP] HL opportunity push failed:', e);
+      }
+    })();
 
     // 7. Auto-login: mint the same session token /api/auth/login issues, so the marketing
     //    site can drop the user straight into the portal (via /welcome) with no password

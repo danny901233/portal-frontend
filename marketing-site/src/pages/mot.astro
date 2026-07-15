@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import SocialProof from '../components/SocialProof.astro';
+import ConnectSignupModal from '../components/ConnectSignupModal.astro';
 import { getLang, L } from '../i18n/ui';
 const lang = getLang(Astro.url);
 
@@ -95,7 +96,7 @@ const c = {
       { q: 'Is it really free?', a: 'Yes — a full month, completely free. No card, nothing to cancel. If it’s not filling your diary, you just walk away.' },
       { q: 'Do I have to install anything?', a: 'No. We set it up and it runs off your existing customer list. Nobody in the workshop lifts a finger.' },
       { q: 'Will it message customers I haven’t asked it to?', a: 'No — it only messages your own customers, about their own vehicle’s MOT, and always in your garage’s name.' },
-      { q: 'What happens when the free month ends?', a: 'You decide. Keep it running on a simple monthly plan, or stop — no contract, no cancellation hoops.' },
+      { q: 'What happens when the free month ends?', a: 'You decide. To keep it running it’s £250 a month including 500 conversation credits (extra credits are 20p each) — no contract, cancel anytime. Or just stop; nothing to cancel.' },
       { q: 'Do the bookings land with me?', a: 'Yes. You set your availability — how far ahead customers can book (your lead time). The customer picks a date within it, and the booking comes straight through to you to add to your diary. No double-bookings, no surprises.' },
       { q: 'How soon can we be live?', a: 'We handle the setup for you. Once we’ve got your customer list, your garage details and your availability rules, we get your first reminders going out — usually within a few days.' },
       { q: 'Does it do service reminders too?', a: 'Yes — MOT and service reminders both. Services are often your bigger jobs, so it’s where a lot of the value is: the AI brings those customers back the same way.' },
@@ -197,7 +198,7 @@ const faqSchema = {
       <span class="inline-flex h-20 items-center justify-center rounded-2xl bg-brand-600 px-5 py-3 sm:h-24 sm:px-6 md:h-28 md:px-7 md:py-4">
         <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" class="h-14 w-auto sm:h-16 md:h-20" />
       </span>
-      <button data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER} class="hidden shrink-0 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:inline-flex">
+      <button data-connect-cta class="hidden shrink-0 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:inline-flex">
         Start your free month
       </button>
     </div>
@@ -281,7 +282,7 @@ const faqSchema = {
   <!-- CTA -->
   <section class="bg-brand-50/60">
     <div class="mx-auto max-w-6xl px-5 py-10 text-center">
-      <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+      <button type="button" data-connect-cta
         class="inline-flex w-full items-center justify-center rounded-md bg-brand-600 px-7 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:w-auto">
         {c.ctaPrimary}
       </button>
@@ -336,7 +337,7 @@ const faqSchema = {
         ))}
       </div>
       <div class="mt-10">
-        <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+        <button type="button" data-connect-cta
           class="inline-flex w-full items-center justify-center rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:w-auto">
           {c.ctaPrimary}
         </button>
@@ -371,7 +372,7 @@ const faqSchema = {
   <!-- CTA -->
   <section class="bg-brand-50/60">
     <div class="mx-auto max-w-6xl px-5 py-10 text-center">
-      <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+      <button type="button" data-connect-cta
         class="inline-flex w-full items-center justify-center rounded-md bg-brand-600 px-7 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:w-auto">
         {c.ctaPrimary}
       </button>
@@ -429,7 +430,7 @@ const faqSchema = {
       <h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">{c.finalH2}</h2>
       <p class="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-brand-100">{c.finalSub}</p>
       <div class="mt-8 flex justify-center">
-        <button type="button" data-lead-cta={LEAD_SOURCE} data-lead-tier={LEAD_TIER}
+        <button type="button" data-connect-cta
           class="inline-flex w-full items-center justify-center rounded-md bg-white px-7 py-3 text-base font-semibold text-brand-700 shadow-sm transition hover:bg-brand-50 sm:w-auto">
           {c.finalCta}
         </button>
@@ -439,6 +440,9 @@ const faqSchema = {
   </section>
 
   <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+
+  <!-- Self-serve Connect trial signup wizard (opened by [data-connect-cta] + the hero search box) -->
+  <ConnectSignupModal />
 </BaseLayout>
 
 <script is:inline>
@@ -497,7 +501,7 @@ const faqSchema = {
         }).catch(() => {});
       } catch (e) {}
       // Open the prefilled signup to capture contact details.
-      window.dispatchEvent(new CustomEvent('rm:lead-open', { detail: { source: LEAD_SOURCE, tier: LEAD_TIER, company: name } }));
+      window.dispatchEvent(new CustomEvent('rm:connect-open', { detail: { company: name, placeId: placeId || undefined, address: addr || undefined } }));
     }
 
     function renderResults(items) {
@@ -555,9 +559,14 @@ const faqSchema = {
       else { $search.focus(); }
     });
 
-    // "Can't find your garage?" → open the plain signup form.
+    // "Can't find your garage?" → open the signup wizard (garage name entered manually).
     if ($manual) $manual.addEventListener('click', () => {
-      window.dispatchEvent(new CustomEvent('rm:lead-open', { detail: { source: LEAD_SOURCE, tier: LEAD_TIER } }));
+      window.dispatchEvent(new CustomEvent('rm:connect-open', { detail: {} }));
+    });
+
+    // Any [data-connect-cta] button opens the signup wizard.
+    document.querySelectorAll('[data-connect-cta]').forEach((b) => {
+      b.addEventListener('click', () => window.dispatchEvent(new CustomEvent('rm:connect-open', { detail: {} })));
     });
 
     // Dismiss the results on outside click.

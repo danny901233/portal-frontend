@@ -13,6 +13,15 @@ model Garage {
   name  String
   twilioNumber String?
   hasMessagingAccess Boolean @default(false)
+  hasVoiceAccess Boolean @default(true)
+
+  // Outbound calling — the garage's OWN existing number, verified with Twilio
+  // so it can be presented as the caller ID on outbound (click-to-call) calls.
+  // The garage keeps their number where it is; verification just proves they
+  // own it (Twilio Verified Caller ID) so presenting it isn't CLI spoofing.
+  outboundCallerId String?           // E.164, the garage's existing number
+  outboundCallerIdVerified Boolean @default(false)
+  outboundCallerIdSid String?        // Twilio OutgoingCallerId SID once verified
 
   // Billing Configuration
   subscriptionCostGbp Float @default(0)
@@ -80,6 +89,23 @@ model Call {
   emotionData  Json?
   createdAt    DateTime @default(now())
   feedback     CallFeedback?
+}
+
+// A click-to-call outbound call placed from the portal (human talks; the
+// garage's verified number is shown as the caller ID). Logged for the
+// Outbound tab on the Calls page.
+model OutboundCall {
+  id              String   @id @default(cuid())
+  garageId        String
+  toNumber        String
+  callerId        String   // the garage number presented to the recipient
+  agentPhone      String   // the staff phone that rang first
+  twilioCallSid   String?  @unique
+  status          String   @default("initiated")
+  durationSeconds Int?
+  createdAt       DateTime @default(now())
+
+  @@index([garageId, createdAt])
 }
 
 model TwilioRecording {

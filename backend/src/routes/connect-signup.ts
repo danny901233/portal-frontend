@@ -143,6 +143,7 @@ router.post('/verify', async (req, res) => {
         name: businessName,
         businessId: business.id,
         hasMessagingAccess: true,
+        hasVoiceAccess: false,   // Connect-only: no voice tier — portal hides Calls / voice setup
         trialEndDate,
         subscriptionCostGbp: CONNECT_DEFAULTS.subscriptionCostGbp,
         includedMinutes: CONNECT_DEFAULTS.includedMinutes,

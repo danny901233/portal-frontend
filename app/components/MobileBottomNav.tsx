@@ -7,6 +7,7 @@ import { useT } from '../i18n/LocaleProvider';
 
 interface Props {
   hasMessagingAccess?: boolean;
+  hasVoiceAccess?: boolean;
   unreadCalls?: number;
   unreadMessages?: number;
   onOpenMore: () => void;
@@ -18,6 +19,7 @@ interface Props {
  */
 export default function MobileBottomNav({
   hasMessagingAccess = false,
+  hasVoiceAccess = true,
   unreadCalls = 0,
   unreadMessages = 0,
   onOpenMore,
@@ -27,7 +29,7 @@ export default function MobileBottomNav({
 
   const items = [
     { href: '/dashboard', label: t('nav.dashboard'), icon: <DashIcon />, badge: 0 },
-    { href: '/calls', label: t('nav.calls'), icon: <PhoneIcon />, badge: unreadCalls },
+    ...(hasVoiceAccess ? [{ href: '/calls', label: t('nav.calls'), icon: <PhoneIcon />, badge: unreadCalls }] : []),
     ...(hasMessagingAccess
       ? [{ href: '/messages', label: t('nav.messages'), icon: <ChatIcon />, badge: unreadMessages }]
       : []),

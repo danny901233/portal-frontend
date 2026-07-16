@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import Softphone from './Softphone';
 import { useState, useRef, useEffect } from 'react';
 import type { GarageSummary } from '../types';
 import { ALL_ASSIGNED_BRANCHES_IDENTIFIER } from '../lib/branchScope';
@@ -181,6 +182,7 @@ export default function Navbar({
         ) : null}
       </div>
       <div className="hidden shrink-0 items-center gap-4 md:flex">
+        <Softphone />
         <div className="text-right">
           <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-slate-500">{c.signedIn}</p>
           <p className="text-sm font-semibold text-slate-900">{email}</p>

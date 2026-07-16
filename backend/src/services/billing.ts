@@ -1,5 +1,6 @@
 import { prisma } from '../db.js';
 import { createRequire } from 'module';
+import { syncBusinessBillingFromUser, resolveChargeMandate } from '../utils/billingSync.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -402,6 +403,7 @@ export async function trackConfirmedBooking(garageId: string) {
           nextBillingDate: now, // Bill immediately when activation threshold reached
         },
       });
+      await syncBusinessBillingFromUser(user.id); // Phase A: mirror cycle dates onto the business
 
       console.log(`✓ Billing cycle started for ${user.email} - first billing on ${now.toISOString().split('T')[0]}`);
     }
@@ -471,6 +473,7 @@ export async function activateTrialEndedGarages() {
           nextBillingDate: trialEndDate, // Bill immediately when trial ends
         },
       });
+      await syncBusinessBillingFromUser(user.id); // Phase A: mirror cycle dates onto the business
 
       results.push({
         garageId: garage.id,
@@ -735,13 +738,33 @@ export async function generateInvoicesForUser(userId: string) {
 
       const client = getGocardlessClient();
 
-      // charge_date is normally the billing date — but GoCardless REJECTS a charge_date in the
-      // past (with a ValidationFailedError), which happens when a run lands on/after the billing
-      // date (e.g. VWGS, 11 Jun for a 10 Jun date). When the billing date has already passed,
-      // omit charge_date so GoCardless collects on the earliest valid working day instead of
-      // hard-failing and silently orphaning the invoice.
+      // charge_date has to satisfy TWO GoCardless rules. Breaking either throws a
+      // ValidationFailedError, and before 30 Jun that silently orphaned the whole month:
+      //   1. It can't be in the past — happens when a run lands on/after the billing date
+      //      (e.g. VWGS, 11 Jun for a 10 Jun date).
+      //   2. It can't be before the mandate's next_possible_charge_date — Direct Debit needs
+      //      ~3 working days' notice. findUsersDueForBilling looks 3 working days ahead using a
+      //      naive weekday count that knows nothing about bank holidays or GoCardless's own
+      //      submission cutoffs, so the billing date regularly lands inside that notice window
+      //      (Promotive, 30 Jun: asked for 2 Jul when the earliest legal date was 3 Jul).
+      // So: collect ON the billing date when that's legal, otherwise on the earliest date
+      // GoCardless will accept. Omitting charge_date also lets GoCardless choose, which is the
+      // fallback when the billing date has passed or the mandate can't be read.
       const todayStr = new Date().toISOString().split('T')[0];
       const billingDateStr = periodEnd.toISOString().split('T')[0];
+      // Phase B: charge the BUSINESS's mandate (falls back to the user's).
+      const chargeMandate = await resolveChargeMandate(invoicesToCharge[0]?.invoice?.businessId, user.gocardlessMandateId);
+
+      let nextPossibleStr: string | null = null;
+      try {
+        const mandate: any = await client.mandates.find(chargeMandate);
+        nextPossibleStr = mandate?.next_possible_charge_date ?? null;
+      } catch (mandateError) {
+        console.warn(
+          `[BILLING] Could not read next_possible_charge_date for ${chargeMandate}; letting GoCardless pick the date:`,
+          mandateError instanceof Error ? mandateError.message : mandateError,
+        );
+      }
       const paymentArgs: any = {
         amount: totalAmount,
         currency: 'GBP',
@@ -752,11 +775,19 @@ export async function generateInvoicesForUser(userId: string) {
           period_end: periodEnd.toISOString(),
         },
         links: {
-          mandate: user.gocardlessMandateId,
+          mandate: chargeMandate,
         },
       };
       if (billingDateStr > todayStr) {
-        paymentArgs.charge_date = billingDateStr;
+        if (nextPossibleStr && billingDateStr < nextPossibleStr) {
+          paymentArgs.charge_date = nextPossibleStr;
+          console.log(
+            `[BILLING] ${user.email}: billing date ${billingDateStr} is inside the Direct Debit ` +
+            `notice window (earliest chargeable ${nextPossibleStr}); collecting on ${nextPossibleStr}.`,
+          );
+        } else {
+          paymentArgs.charge_date = billingDateStr;
+        }
       }
 
       // Create single combined payment
@@ -1004,6 +1035,9 @@ export async function createPaymentForInvoice(invoiceId: string) {
     description: `ReceptionMate Invoice ${invoice.id.slice(0, 8)} - ${invoice.garage.name}`,
   });
 
+  // Phase B: charge the BUSINESS's mandate (falls back to the user's).
+  const chargeMandate = await resolveChargeMandate(invoice.businessId, user.gocardlessMandateId);
+
   // Create payment (amount in pence as string)
   const payment = await client.payments.create({
     amount: amountInPence,
@@ -1016,7 +1050,7 @@ export async function createPaymentForInvoice(invoiceId: string) {
       // Note: GoCardless only allows 3 metadata properties max
     },
     links: {
-      mandate: user.gocardlessMandateId,
+      mandate: chargeMandate,
     },
   });
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Softphone from '../components/Softphone';
 import { useRouter } from 'next/navigation';
 import { downloadConfirmedBookingsCsv, fetchCalls, fetchAgentConfiguration } from '../lib/api';
 import type { CallRecord, ConfirmedBookingCategory } from '../types';
@@ -265,6 +266,7 @@ export default function DashboardPage() {
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean>(false);
+  const [hasVoiceAccess, setHasVoiceAccess] = useState<boolean>(true);
   // Mobile-only: collapse the lower analytics (charts + tag spotlight) behind a
   // toggle so the phone dashboard is scannable. Desktop always shows everything.
   const [showMoreInsights, setShowMoreInsights] = useState<boolean>(false);
@@ -337,6 +339,7 @@ export default function DashboardPage() {
         if (response.ok) {
           const data = await response.json();
           setHasMessagingAccess(data.hasMessagingAccess || false);
+          setHasVoiceAccess(data.hasVoiceAccess !== false);
         }
       } catch (error) {
         console.error('Error checking messaging access:', error);
@@ -838,6 +841,13 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Mobile: quick call button */}
+      {hasVoiceAccess && (
+      <div className="md:hidden">
+        <Softphone variant="bar" />
+      </div>
+      )}
+
       {/* Mobile Home hero — the agent on duty (signature moment). Desktop keeps the revenue hero below. */}
       <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#3a2ec9] to-[#1f1483] p-4 text-white shadow-lg shadow-brand-600/30 md:hidden">
         <div className="flex items-center gap-3">
@@ -849,7 +859,7 @@ export default function DashboardPage() {
             <div className="truncate text-base font-semibold">{agentName}</div>
             <div className="mt-0.5 flex items-center gap-1.5 text-xs text-white/75">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 motion-safe:animate-pulse" />
-              On duty · answering your calls
+              On duty · answering your {hasVoiceAccess === false ? 'enquiries' : 'calls'}
             </div>
           </div>
         </div>
@@ -871,6 +881,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Mobile metrics — calls handled + time saved. Revenue in the caption below. */}
+      {hasVoiceAccess && (
       <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:hidden">
         <div className="flex-1 p-4">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{lang === 'fr' ? 'Appels traités' : 'Calls handled'}</div>
@@ -881,6 +892,7 @@ export default function DashboardPage() {
           <div className="mt-2 text-[28px] font-extrabold leading-none tracking-tight tabular-nums text-slate-900">{loading ? '—' : formatDuration(totalDurationSeconds)}</div>
         </div>
       </div>
+      )}
       <p className="px-1 text-xs text-slate-500 md:hidden">
         {c.capturedRevenue}:{' '}
         <span className="font-semibold text-slate-700">{loading ? '—' : formatCurrency(bookingRevenueTotal)}</span>
@@ -890,6 +902,7 @@ export default function DashboardPage() {
       </p>
 
       {/* Mobile: calls by type as ranked bars */}
+      {hasVoiceAccess && (
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:hidden">
         <div className="mb-3 flex items-baseline justify-between">
           <h3 className="text-[15px] font-bold text-slate-900">{c.callTypeDistribution}</h3>
@@ -918,13 +931,14 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Mobile: recent activity preview (calls + chats interleaved) */}
       {recentActivity.length > 0 ? (
-        <div className="md:hidden">
+        <div className={hasVoiceAccess ? 'md:hidden' : ''}>
           <div className="mb-2.5 flex items-baseline justify-between px-1">
             <h3 className="text-[15px] font-bold text-slate-900">{lang === 'fr' ? 'Activité récente' : 'Recent activity'}</h3>
-            <button type="button" onClick={() => router.push('/calls')} className="text-[13px] font-semibold text-brand-600">
+            <button type="button" onClick={() => router.push(hasVoiceAccess ? '/calls' : '/messages')} className="text-[13px] font-semibold text-brand-600">
               {lang === 'fr' ? 'Voir tout' : 'See all'}
             </button>
           </div>
@@ -1010,6 +1024,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {hasVoiceAccess && (
       <div className="hidden grid-cols-3 gap-2 md:grid md:gap-4 md:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:rounded-2xl md:p-5">
           <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">{c.totalCalls}</div>
@@ -1031,6 +1046,7 @@ export default function DashboardPage() {
           <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.topCallTagHint}</p>
         </div>
       </div>
+      )}
 
       {hasMessagingAccess && selectedGarageId && !shouldAggregateAllBranches && (
         <div className="grid gap-4 md:grid-cols-2">
@@ -1048,6 +1064,7 @@ export default function DashboardPage() {
       )}
 
       {/* Mobile-only toggle to reveal the analytics below. Hidden on desktop. */}
+      {hasVoiceAccess && (
       <button
         type="button"
         onClick={() => setShowMoreInsights((v) => !v)}
@@ -1067,7 +1084,9 @@ export default function DashboardPage() {
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
+      )}
 
+      {hasVoiceAccess && (
       <div className={cn('grid gap-4 lg:grid-cols-3', showMoreInsights ? '' : 'hidden md:grid')}>
         <div className="hidden rounded-2xl border border-slate-200 bg-white p-6 md:block">
           <div className="flex items-center justify-between">
@@ -1228,6 +1247,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

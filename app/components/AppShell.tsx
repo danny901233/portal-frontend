@@ -76,6 +76,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [branchScope, setBranchScope] = useState<BranchScope>('single');
   const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
+  const [hasVoiceAccess, setHasVoiceAccess] = useState<boolean | null>(null);
   const [messagesNeedingAttention, setMessagesNeedingAttention] = useState(0);
   const [conversationsNeedingAttention, setConversationsNeedingAttention] = useState(0);
   const [unreadCalls, setUnreadCalls] = useState(0);
@@ -84,6 +85,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [isLocked, setIsLocked] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isMobile = useIsMobile();
+  const [addCardBusy, setAddCardBusy] = useState(false);
+  const handleConnectAddCard = useCallback(async () => {
+    if (!garageId) return;
+    setAddCardBusy(true);
+    try {
+      const token = getSessionToken();
+      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ garageId }),
+      });
+      const d = await r.json();
+      if (d?.url) { window.location.href = d.url; return; }
+    } catch { /* fallthrough */ }
+    setAddCardBusy(false);
+  }, [garageId]);
+
   const handleLogout = useCallback(() => {
     clearSession();
     setIsStaffUser(false);
@@ -294,7 +312,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       try {
         const status = await fetchOnboardingStatus();
-        if (status.needsSetup || showSetup) {
+        if ((status.needsSetup || showSetup) && hasVoiceAccess !== null) {
           setWizardAgentType(status.agentType);
           setSetupWizardOpen(true);
           // Clear query param if present
@@ -308,7 +326,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     };
 
     void checkSetupWizard();
-  }, [shouldShowChrome, isReady, garageId, pathname, router]);
+  }, [shouldShowChrome, isReady, garageId, pathname, router, hasVoiceAccess]);
 
   useEffect(() => {
     if (!restrictToAssignedBranches) {
@@ -359,6 +377,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           const hasAccess = accessData.hasMessagingAccess || false;
           console.log('[MESSAGING] Setting hasMessagingAccess to:', hasAccess);
           setHasMessagingAccess(hasAccess);
+          setHasVoiceAccess(accessData.hasVoiceAccess !== false);
 
           // If has access, fetch needs attention count
           if (hasAccess) {
@@ -455,6 +474,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <PaymentBlocker
       garageName={garages.find((g) => g.id === garageId)?.name}
       onLogout={handleLogout}
+      variant={hasVoiceAccess === false ? 'trial-ended' : 'arrears'}
+      onAddCard={handleConnectAddCard}
+      busy={addCardBusy}
     />
   ) : (
     (() => {
@@ -476,6 +498,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             activePath={pathname ?? '/calls'}
             showAdminLink={isStaffUser}
             hasMessagingAccess={hasMessagingAccess}
+            hasVoiceAccess={hasVoiceAccess !== false}
             hasManagerAccess={managedGarageIds.length > 0}
             isManagerUser={isStaffUser || isAdminUser}
             messagesNeedingAttention={messagesNeedingAttention}
@@ -497,6 +520,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {/* Mobile-only bottom tab bar (desktop unchanged) */}
           <MobileBottomNav
             hasMessagingAccess={hasMessagingAccess}
+            hasVoiceAccess={hasVoiceAccess !== false}
             unreadCalls={unreadCalls}
             unreadMessages={unreadMessages}
             onOpenMore={() => setMobileNavOpen(true)}
@@ -513,6 +537,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         isOpen={setupWizardOpen}
         garageId={garageId || ''}
         agentType={wizardAgentType}
+        hasVoiceAccess={hasVoiceAccess !== false}
         onComplete={() => {
           setSetupWizardOpen(false);
           // Optionally refresh the page

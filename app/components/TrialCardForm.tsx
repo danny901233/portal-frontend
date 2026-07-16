@@ -16,7 +16,7 @@ import {
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '');
 
-function CardForm({ resetToken, pendingSignupId }: { resetToken?: string | null; pendingSignupId?: string | null }) {
+function CardForm({ resetToken, pendingSignupId, email }: { resetToken?: string | null; pendingSignupId?: string | null; email?: string | null }) {
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
@@ -55,6 +55,16 @@ function CardForm({ resetToken, pendingSignupId }: { resetToken?: string | null;
       // Card confirmed inline (no 3-D Secure). For the deferred flow, create the account NOW
       // (returns a set-password token), then go to Choose-a-password → auto-login.
       setSucceeded(true);
+      // Google Ads conversion — a real, carded 14-day trial has started (Count=One, so Google
+      // de-dupes per click even if this ever fires more than once).
+      const w = window as unknown as { gtag?: (...args: unknown[]) => void };
+      if (typeof w.gtag === 'function') {
+        // Enhanced conversions: pass the customer's email (gtag normalises + hashes it before
+        // sending) so Google can match the conversion more accurately. Improves attribution only —
+        // the email is never exposed back to us.
+        if (email) w.gtag('set', 'user_data', { email });
+        w.gtag('event', 'conversion', { send_to: 'AW-16449651971/8I8tCMHe7s0cEIOK56M9', value: 200, currency: 'GBP' });
+      }
       if (pendingSignupId && !resetToken) {
         try {
           const res = await fetch('/internal-api/public/signup-complete', {
@@ -110,7 +120,7 @@ function CardForm({ resetToken, pendingSignupId }: { resetToken?: string | null;
   );
 }
 
-export default function TrialCardForm({ clientSecret, resetToken, pendingSignupId }: { clientSecret: string; resetToken?: string | null; pendingSignupId?: string | null }) {
+export default function TrialCardForm({ clientSecret, resetToken, pendingSignupId, email }: { clientSecret: string; resetToken?: string | null; pendingSignupId?: string | null; email?: string | null }) {
   return (
     <Elements
       stripe={stripePromise}
@@ -126,7 +136,7 @@ export default function TrialCardForm({ clientSecret, resetToken, pendingSignupI
         },
       }}
     >
-      <CardForm resetToken={resetToken} pendingSignupId={pendingSignupId} />
+      <CardForm resetToken={resetToken} pendingSignupId={pendingSignupId} email={email} />
     </Elements>
   );
 }

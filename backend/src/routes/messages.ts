@@ -26,7 +26,7 @@ router.get(
 
       const garage = await prisma.garage.findUnique({
         where: { id: garageId },
-        select: { id: true, name: true, hasMessagingAccess: true },
+        select: { id: true, name: true, hasMessagingAccess: true, hasVoiceAccess: true },
       });
 
       if (!garage) {
@@ -39,6 +39,7 @@ router.get(
       res.json({
         success: true,
         hasMessagingAccess: garage.hasMessagingAccess,
+        hasVoiceAccess: garage.hasVoiceAccess,
       });
     } catch (error) {
       console.error('Failed to check messaging access:', error);

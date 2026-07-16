@@ -72,7 +72,11 @@ export async function createAccountFromPending(
   const greetingLine = `[timeofday], ${businessName}, Leah speaking, how can I help?`;
   const seededFaqs = industryDefaultFaqs(businessName);
 
-  const business = await prisma.business.create({ data: { name: businessName } });
+  // Self-serve pays by Stripe card, never Direct Debit — mark the rail at creation so the
+  // payment gate and mandate-chasing never treat this customer as a DD account.
+  const business = await prisma.business.create({
+    data: { name: businessName, billingMethod: 'stripe_card' },
+  });
   const garage = await prisma.garage.create({
     data: {
       name: businessName,

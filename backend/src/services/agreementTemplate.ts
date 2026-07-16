@@ -14,7 +14,7 @@
 // in clauses 9, 12, 13 are mis-numbered) are intentional — they mirror the
 // source document verbatim. Fix the source, then bump TEMPLATE_VERSION here.
 
-export const TEMPLATE_VERSION = '1.1';
+export const TEMPLATE_VERSION = '1.2';
 
 export type LicenceTier = 'assist' | 'automate' | 'connect';
 
@@ -134,8 +134,8 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
     </p>
     <p>
       <strong>5.3 Licence Fee.</strong> Following the 14-day free trial, the subscription fee shall be
-      <strong>${licenceFeeStr}</strong> per month per centre, payable monthly in advance throughout the Proof
-      Period and the Contract Term. The number of centres being onboarded under this Agreement is
+      <strong>${licenceFeeStr}</strong> per month per branch, payable monthly in advance throughout the Proof
+      Period and the Contract Term. The number of branches being onboarded under this Agreement is
       <strong>${inputs.centresCount}</strong>, giving a total monthly subscription of
       <strong>${monthlyTotalStr}</strong> exclusive of VAT.
     </p>

@@ -15,10 +15,11 @@ interface SetupWizardProps {
   isOpen: boolean;
   garageId: string;
   agentType: 'assist' | 'automate';
+  hasVoiceAccess?: boolean;
   onComplete: () => void;
 }
 
-export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWizardProps) {
+export default function SetupWizard({ isOpen, agentType, onComplete, hasVoiceAccess = true }: SetupWizardProps) {
   const router = useRouter();
   const lang = useLang();
   const c = {
@@ -39,6 +40,8 @@ export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWiza
       skip: 'Skip for now',
       opening: 'Opening…',
       setup: 'Set up my agent',
+      connectWelcome: 'Welcome aboard! Your WhatsApp messaging is ready to set up. Tell the AI about your business, add your FAQs and rules, then connect your WhatsApp number so it can start messaging your customers.',
+      connectBullet2: 'Connect your WhatsApp number so the AI can message your customers',
     },
     fr: {
       heading: 'Configurons votre agent IA',
@@ -57,6 +60,8 @@ export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWiza
       skip: 'Ignorer pour l’instant',
       opening: 'Ouverture…',
       setup: 'Configurer mon agent',
+      connectWelcome: 'Bienvenue à bord ! Votre messagerie WhatsApp est prête. Présentez votre entreprise à l’IA, ajoutez vos FAQ et règles, puis connectez votre numéro WhatsApp.',
+      connectBullet2: 'Connectez votre numéro WhatsApp pour que l’IA puisse écrire à vos clients',
     },
   }[lang];
   const [busy, setBusy] = useState<'start' | 'skip' | null>(null);
@@ -103,12 +108,12 @@ export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWiza
 
         <div className="px-6 py-6">
           <p className="text-sm text-slate-700">
-            {c.welcome(agentType === 'automate' ? 'Automate' : 'Assist')}
+            {hasVoiceAccess === false ? c.connectWelcome : c.welcome(agentType === 'automate' ? 'Automate' : 'Assist')}
           </p>
 
           <ul className="mt-4 space-y-2 text-sm text-slate-600">
             <Bullet>{c.bullet1}</Bullet>
-            <Bullet>{c.bullet2}</Bullet>
+            <Bullet>{hasVoiceAccess === false ? c.connectBullet2 : c.bullet2}</Bullet>
             <Bullet>{c.bullet3}</Bullet>
           </ul>
 

@@ -2,9 +2,10 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { fetchCalls, submitCallFeedback, downloadConfirmedBookingsCsv } from '../lib/api';
-import { getGarageId } from '../lib/auth';
+import { getGarageId, isReceptionMateStaff } from '../lib/auth';
 import {
   TRACKED_TAGS,
   TAG_COLORS,
@@ -584,6 +585,9 @@ export default function CallsPage() {
   const [, startTransition] = useTransition();
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(100);
+  // Outbound calling is a ReceptionMate-staff-only tool for now.
+  const [isStaff, setIsStaff] = useState(false);
+  useEffect(() => { setIsStaff(isReceptionMateStaff()); }, []);
 
   const startDateIso = useMemo(() => toIsoDate(startDateInput), [startDateInput]);
   const endDateIso = useMemo(() => toIsoDate(endDateInput, true), [endDateInput]);
@@ -988,6 +992,14 @@ export default function CallsPage() {
         <h1 className="text-2xl font-semibold text-slate-900">{c.callActivity}</h1>
         <p className="text-sm text-slate-500">{c.monitorInteractions}</p>
       </div>
+
+      {/* Tabs: inbound (this page) / outbound calls — outbound is staff-only for now */}
+      {isStaff && (
+        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 text-sm shadow-sm">
+          <span className="rounded-md bg-brand-600 px-4 py-1.5 font-semibold text-white">Inbound</span>
+          <Link href="/outbound-calls" className="rounded-md px-4 py-1.5 font-medium text-slate-500 hover:text-slate-800">Outbound</Link>
+        </div>
+      )}
 
       {anyRestricted ? (
         <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createRequire } from 'module';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { syncBusinessBillingFromUser } from '../utils/billingSync.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -264,6 +265,7 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
         nextBillingDate: nextBillingDate,
       },
     });
+    await syncBusinessBillingFromUser(user.id); // Phase A: mirror mandate onto the business
 
     res.json({
       success: true,
@@ -419,6 +421,7 @@ router.post('/payment/confirm-mandate-update', authenticate, async (req: Request
         mustSetupPayment: false,
       },
     });
+    await syncBusinessBillingFromUser(user.id); // Phase A: mirror mandate onto the business
 
     console.log(`Updated mandate for user ${user.id}: ${oldMandateId} → ${newMandateId}`);
 

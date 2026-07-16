@@ -30,6 +30,12 @@ const messageSchema = z.object({
 });
 
 async function getOrCreateConversation(userId: string) {
+  // A JWT can outlive its user (e.g. an account deleted after login). Upserting a
+  // SupportConversation with a userId that has no matching User row throws a
+  // foreign-key error (P2003) that, unhandled, used to crash the whole backend.
+  // Treat a missing user as an expired session — callers return 401.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) return null;
   return prisma.supportConversation.upsert({
     where: { userId },
     update: {},
@@ -45,6 +51,7 @@ router.get('/support/me', authenticate, async (req: Request, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
 
   const conversation = await getOrCreateConversation(req.user.userId);
+  if (!conversation) return res.status(401).json({ error: 'Your session has expired. Please log in again.' });
   const messages = await prisma.supportMessage.findMany({
     where: { conversationId: conversation.id },
     orderBy: { createdAt: 'asc' },
@@ -71,6 +78,7 @@ router.post('/support/me/messages', authenticate, async (req: Request, res: Resp
   }
 
   const conversation = await getOrCreateConversation(req.user.userId);
+  if (!conversation) return res.status(401).json({ error: 'Your session has expired. Please log in again.' });
   const customerMessage = await prisma.supportMessage.create({
     data: {
       conversationId: conversation.id,
@@ -189,6 +197,7 @@ router.post('/support/me/messages', authenticate, async (req: Request, res: Resp
 router.post('/support/me/read', authenticate, async (req: Request, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
   const conversation = await getOrCreateConversation(req.user.userId);
+  if (!conversation) return res.status(401).json({ error: 'Your session has expired. Please log in again.' });
   await prisma.supportConversation.update({
     where: { id: conversation.id },
     data: { unreadForUser: 0 },

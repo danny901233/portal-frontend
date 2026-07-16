@@ -147,11 +147,22 @@ async function handleSetupIntentSucceeded(si: Stripe.SetupIntent): Promise<void>
     return;
   }
 
+  // Auto-provisioning (buys a Twilio number + emails voice credentials) is ONLY ever right for a
+  // self-serve ASSIST trial, so require that exact shape rather than "has a Stripe customer":
+  //   - A CONNECT garage also has stripeCustomerId + stripeSubscriptionId, but never trialEndsAt
+  //     (it tracks its trial on trialEndDate). It has no voice at all — provisioning would buy it
+  //     a phone number it can't use and email it credentials for a product it didn't buy.
+  //   - A DIRECT DEBIT garage can no longer reach here now the agreement-sign path doesn't mint
+  //     Stripe customers, but require the shape explicitly rather than lean on that.
   const garage = await prisma.garage.findFirst({
-    where: { stripeCustomerId: customerId },
+    where: {
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: { not: null },
+      trialEndsAt: { not: null },
+    },
     select: { id: true, name: true, twilioNumber: true },
   });
-  if (!garage) return; // not one of ours
+  if (!garage) return; // not ours, or not a self-serve Assist trial — never auto-provision
   if (garage.twilioNumber) {
     console.log(`[STRIPE_WEBHOOK] garage ${garage.id} already provisioned, skipping`);
     return;
@@ -167,6 +178,26 @@ async function handleSetupIntentSucceeded(si: Stripe.SetupIntent): Promise<void>
 // ── legacy hosted Stripe Checkout path — kept for any in-flight hosted sessions ──
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const meta = session.metadata || {};
+  // Connect trial->paid: card added on the paywall. Record the subscription and UNLOCK.
+  if (meta.kind === 'connect-billing' && meta.garageId) {
+    const cg = await prisma.garage.update({
+      where: { id: meta.garageId },
+      select: { ghlOpportunityId: true },
+      data: {
+        stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null,
+        stripeSubscriptionId: typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null,
+        accessRestricted: false,
+        paymentFailedAt: null,
+        subscriptionActivatedAt: new Date(),
+      },
+    });
+    if (cg.ghlOpportunityId && LIVE_STAGE_ID) {
+      void updateOpportunity(cg.ghlOpportunityId, { stageId: LIVE_STAGE_ID, monetaryValueGbp: 250 })
+        .then((ok) => console.log(`[STRIPE_WEBHOOK] Connect HL opp ${cg.ghlOpportunityId} → Live (${ok ? 'ok' : 'failed'})`));
+    }
+    console.log(`[STRIPE_WEBHOOK] Connect paid + unlocked: garage ${meta.garageId}`);
+    return;
+  }
   if (meta.kind !== 'assist-trial' || !meta.garageId || !meta.userId) return;
   const garage = await prisma.garage.findUnique({
     where: { id: meta.garageId },

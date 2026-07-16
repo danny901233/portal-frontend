@@ -297,7 +297,7 @@ function AgreementSignInner() {
                 Add your card to activate. You won’t be charged today — the trial is free for 14 days.
               </p>
               <div className="mt-4">
-                <TrialCardForm clientSecret={cardClientSecret} resetToken={cardResetToken} pendingSignupId={cardPendingId} />
+                <TrialCardForm clientSecret={cardClientSecret} resetToken={cardResetToken} pendingSignupId={cardPendingId} email={customerEmail} />
               </div>
             </div>
           ) : token ? (

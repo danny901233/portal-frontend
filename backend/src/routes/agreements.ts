@@ -344,60 +344,26 @@ async function finaliseSignature(opts: {
     clientName: agreement.clientName,
   });
 
-  // Public-signup customers (mustChangePassword === true) start their 14-day free trial with a
-  // custom Stripe Payment Element (no redirect). We create a trial subscription now and return its
-  // SetupIntent client_secret; the sign page mounts the card form and confirms it. Provisioning +
-  // welcome email fire from the Stripe webhook (setup_intent.succeeded) once the card is confirmed.
-  let checkoutClientSecret: string | null = null;
-  if (user?.mustChangePassword && stripeConfigured()) {
-    try {
-      const garageId = user.garageAccessIds?.[0] ?? null;
-      if (garageId) {
-        const trial = await createAssistTrialSubscription({
-          userId: user.id,
-          email: user.email,
-          businessName: agreement.clientName,
-          garageId,
-          agreementId: agreement.id,
-        });
-        checkoutClientSecret = trial.clientSecret;
-        // Store the Stripe refs now so the setup_intent.succeeded webhook can map the confirmed
-        // card back to this garage (by customer id) and provision the account.
-        const trialEndsAt = new Date(Date.now() + STRIPE_TRIAL_DAYS * 24 * 60 * 60 * 1000);
-        await prisma.garage.update({
-          where: { id: garageId },
-          data: {
-            stripeCustomerId: trial.customerId,
-            stripeSubscriptionId: trial.subscriptionId,
-            trialEndsAt,
-          },
-        });
-      } else {
-        console.warn('[AGREEMENT_SIGN] public-signup user has no garage — skipping Stripe trial');
-      }
-    } catch (e) {
-      console.error('[AGREEMENT_SIGN] Stripe trial subscription create failed:', e);
-    }
-  }
-
-  // Self-serve customers set their own password straight after the card (no reliance on the
-  // welcome email that hotmail/Outlook loves to eat), then log in. Mint a one-time password-setup
-  // token now and clear the Direct-Debit gate (they pay by Stripe card, not DD). Once the card is
-  // confirmed the sign page sends them to /reset-password?token=… . Manually-onboarded customers
-  // never hit this path, so they keep the welcome-email flow untouched.
-  let passwordSetupToken: string | null = null;
-  if (opts.consumeTokenId && checkoutClientSecret && user) {
-    const resetToken = randomBytes(32).toString('hex');
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        resetToken,
-        resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000),
-        mustSetupPayment: false, // paid via Stripe card — skip the GoCardless DD gate
-      },
-    });
-    passwordSetupToken = resetToken;
-  }
+  // NO Stripe here. This function is only ever reached by a STAFF-ISSUED agreement — the sign
+  // token is minted solely by POST /admin/agreements/:id/send — and staff-issued means a Direct
+  // Debit customer. Self-serve runs a different function entirely (finalisePendingSignature),
+  // which creates its own trial keyed on pendingSignupId. Only self-serve pays by Stripe card.
+  //
+  // This used to create a Stripe Assist trial + clear the DD gate for anyone with
+  // mustChangePassword === true, on the stated premise that "manually-onboarded customers never
+  // hit this path". That was false: /admin/onboard sets mustChangePassword: true. So a staff
+  // onboarded DD customer signing their agreement got (a) a 14-day trial at STRIPE_ASSIST_PRICE_ID
+  // regardless of what licenceFeeGbp they actually agreed, (b) a card form on the sign page, and
+  // (c) mustSetupPayment: false — silently deleting the Direct Debit step from their onboarding.
+  // Never triggered: every agreement to date was licences:["assist"], and the only Stripe-subbed
+  // garages are a genuine self-serve signup and an internal test. Moto Oil was one click away.
+  //
+  // Kept in the response as nulls: finalisePendingSignature returns the same shape and the sign
+  // page reads both fields, so the contract must not change. A manually-onboarded customer who
+  // should pay by card is handled by the payment gate (/setup-payment), at their agreed price —
+  // not by a hardcoded Assist trial that skips the gate.
+  const checkoutClientSecret: string | null = null;
+  const passwordSetupToken: string | null = null;
 
   // After signing: tell the frontend what the next gate is so it can route
   // straight into DD setup or the dashboard without bouncing through /login.

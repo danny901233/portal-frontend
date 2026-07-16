@@ -84,6 +84,21 @@ type BookingCategory = 'service' | 'mot' | 'diagnostic' | 'other';
 // "his already-booked MOT" would be wrongly upgraded to "confirmed booking".
 const POSITIVE_RE = /\b(booked|scheduled|confirmed|reserved)\b/i;
 const TIME_RE = /\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)\b|\b\d{1,2}:\d{2}\b/i;
+// A DROP-OFF booking the agent placed, in the exact shape it writes them:
+// "<service>, drop-off Wednesday 22nd July". It legitimately has NO confirmation verb and NO
+// clock time — a drop-off is a DATE only by design ("never a specific time") — so the
+// verb+time test above rejects every one of them. Barrys Wed 29 Jul and Sawans Wed 22 Jul
+// both landed as message_only, while a remap the agent WRONGLY gave a 10:00 AM time sailed
+// through: we were counting the bug and dropping the correct behaviour.
+//
+// Deliberately NARROW: "drop-off" must be followed directly by a weekday. Matching a bare
+// "drop off" + any date lets through "will drop off vehicle between 8am" (intent, no agreed
+// day) and, once the time requirement is relaxed, a pile of PRE-EXISTING bookings that only
+// failed before for want of a clock time ("previously booked in for a service", "booked a
+// diagnostics test online for Friday 17th", "rescheduling his scheduled appointment for next
+// Tuesday"). Tested against 1100 real bookingDetails: this matches the 2 genuine drop-offs and
+// none of those 5.
+const DROPOFF_BOOKING_RE = /\bdrop[\s-]?off\s+(?:on\s+)?(?:mon|tues?|wed(nes)?|thur?s?|fri|sat(ur)?|sun)/i;
 const NEGATIVE_RE = new RegExp(
   [
     'already[\\s-]+booked',
@@ -107,7 +122,11 @@ const detectBookingFromDetails = (
 ): { isBooking: boolean; category: BookingCategory | undefined } => {
   if (!bookingDetails) return { isBooking: false, category: undefined };
   const text = String(bookingDetails);
-  if (!POSITIVE_RE.test(text) || !TIME_RE.test(text)) return { isBooking: false, category: undefined };
+  // Two ways to qualify: a timed booking (verb + clock time), or a drop-off (date only).
+  // NEGATIVE_RE still vetoes both below.
+  const isTimedBooking = POSITIVE_RE.test(text) && TIME_RE.test(text);
+  const isDropOffBooking = DROPOFF_BOOKING_RE.test(text);
+  if (!isTimedBooking && !isDropOffBooking) return { isBooking: false, category: undefined };
   if (NEGATIVE_RE.test(text)) return { isBooking: false, category: undefined };
 
   // Infer category from the text. When MOT + service both appear, service wins

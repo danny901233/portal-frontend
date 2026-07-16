@@ -66,6 +66,7 @@ export default function AgentSetupLayout({ children }: { children: ReactNode }) 
   // access the same way AppShell does (per-garage endpoint) and hide the tab
   // otherwise. Staff always see it so they can configure on a garage's behalf.
   const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
+  const [hasVoiceAccess, setHasVoiceAccess] = useState(true);
   useEffect(() => {
     const garageId = getGarageId();
     if (!garageId) {
@@ -81,6 +82,7 @@ export default function AgentSetupLayout({ children }: { children: ReactNode }) 
         if (!cancelled && res.ok) {
           const data = await res.json();
           setHasMessagingAccess(Boolean(data.hasMessagingAccess));
+          setHasVoiceAccess(data.hasVoiceAccess !== false);
         }
       } catch {
         if (!cancelled) setHasMessagingAccess(false);
@@ -92,7 +94,7 @@ export default function AgentSetupLayout({ children }: { children: ReactNode }) 
   }, [pathname]);
 
   const visible = AGENT_SETUP_NAV.filter(
-    (n) => (!n.staffOnly || isStaff) && (!n.messagingOnly || hasMessagingAccess || isStaff),
+    (n) => (!n.staffOnly || isStaff) && (!n.messagingOnly || hasMessagingAccess || isStaff) && (!n.voiceOnly || hasVoiceAccess),
   );
   const lang = useLang();
   const c = {

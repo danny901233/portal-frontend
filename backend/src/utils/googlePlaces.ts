@@ -112,3 +112,28 @@ export async function fetchPlaceDetails(placeId: string | undefined | null): Pro
 }
 
 export const hasPlacesKey = (): boolean => Boolean(PLACES_KEY);
+
+export interface PlacePrediction { placeId: string; description: string; }
+
+// Type-ahead autocomplete (UK establishments) used by the admin quick-onboard
+// modal so staff can pick the customer's Google listing and auto-fill the agent
+// config. Proxied through the backend so the browser never needs a Maps key.
+export async function placesAutocomplete(query: string): Promise<PlacePrediction[]> {
+  const q = (query || '').trim();
+  if (q.length < 3 || !PLACES_KEY) return [];
+  try {
+    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&types=establishment&components=country:gb&key=${encodeURIComponent(PLACES_KEY)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const resp = await fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+    const data: any = await resp.json();
+    if (data?.status !== 'OK' && data?.status !== 'ZERO_RESULTS') {
+      console.warn(`[PLACES] autocomplete non-OK: status=${data?.status} error=${data?.error_message || ''}`);
+      return [];
+    }
+    return (data.predictions || []).slice(0, 6).map((p: any) => ({ placeId: p.place_id, description: p.description }));
+  } catch (err) {
+    console.error('[PLACES] autocomplete failed:', err);
+    return [];
+  }
+}

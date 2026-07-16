@@ -13,6 +13,11 @@ model Garage {
   name               String
   twilioNumber       String?
   hasMessagingAccess Boolean @default(false)
+  hasVoiceAccess Boolean @default(true)
+
+  outboundCallerId String?
+  outboundCallerIdVerified Boolean @default(false)
+  outboundCallerIdSid String?
 
   // Arrears / access gating: when true, this garage's OWN users see only date+tag for
   // their calls (caller name/number, summary, transcript and recordings are withheld),
@@ -52,6 +57,14 @@ model Garage {
   // Setup Wizard
   setupWizardCompleted   Boolean   @default(false)
   setupWizardCompletedAt DateTime?
+
+  // Sales-led onboarding pipeline. Defaults to 'live' so every pre-existing garage is treated as
+  // already onboarded — out of the pipeline UI and never re-invitable.
+  // awaiting_agreement -> awaiting_credentials -> agent_built -> invited -> mandate_pending -> live
+  onboardingStage        String    @default("live")
+  // Set when the customer is actually invited (welcome email with login details), which happens
+  // AFTER the agent is built — not at account-creation time.
+  welcomeEmailSentAt     DateTime?
 
   // Widget Customization
   widgetLogoUrl      String?
@@ -134,6 +147,20 @@ model Call {
   emotionData              Json?
   createdAt                DateTime                  @default(now())
   feedback                 CallFeedback?
+}
+
+model OutboundCall {
+  id              String   @id @default(cuid())
+  garageId        String
+  toNumber        String
+  callerId        String
+  agentPhone      String
+  twilioCallSid   String?  @unique
+  status          String   @default("initiated")
+  durationSeconds Int?
+  createdAt       DateTime @default(now())
+
+  @@index([garageId, createdAt])
 }
 
 model TwilioRecording {
@@ -428,6 +455,20 @@ model Business {
   companyRegNumber     String?
   billingEmail         String?
   billingInfoUpdatedAt DateTime?
+
+  // How this customer pays. One rail or the other — never both. Self-serve signups (marketing
+  // Assist, Connect) are always 'stripe_card'; manual sign-ups are staff's choice of
+  // 'directdebit' (the default) or 'stripe_card', changeable at any time. 'invoice' is In'n'out,
+  // who pay by emailed invoice + bank transfer via the sendInoInvoice cron: they must never be
+  // sent to GoCardless/Stripe or chased for a mandate they will never have.
+  billingMethod         String      @default("directdebit") // 'directdebit' | 'stripe_card' | 'invoice'
+
+  // GoCardless Direct Debit lives on the BUSINESS (the paying entity). Mirrored from the
+  // billing user during the user->business migration (Phase A dual-write); billing reads these.
+  gocardlessMandateId   String?
+  gocardlessCustomerId  String?
+  billingCycleStartDate DateTime?
+  nextBillingDate       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../../db.js';
+import { syncBusinessBillingFromUser } from '../../utils/billingSync.js';
 
 const router = Router();
 
@@ -71,6 +72,7 @@ async function handleMandateEvent(event: any) {
           gocardlessCustomerId: null,
         },
       });
+      await syncBusinessBillingFromUser(user.id); // Phase A: mirror mandate clear onto the business
       console.log(`[GoCardless] User ${user.email} mandate ${action} - payment setup required`);
       break;
 

@@ -1,8 +1,98 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useState, useEffect, useRef } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
+
+type ExtraBranch = { name: string; googlePlaceId: string | null; twilioNumber?: string };
+
+// One additional branch — its own Google type-ahead + name + per-branch cost.
+function BranchRow({ index, value, onChange, onRemove }: {
+  index: number;
+  value: ExtraBranch;
+  onChange: (v: ExtraBranch) => void;
+  onRemove: () => void;
+}) {
+  const [predictions, setPredictions] = useState<{ placeId: string; description: string }[]>([]);
+  const [show, setShow] = useState(false);
+  const [buying, setBuying] = useState(false);
+  const pickedRef = useRef(false);
+  useEffect(() => {
+    if (pickedRef.current) { pickedRef.current = false; return; }
+    const q = value.name.trim();
+    if (q.length < 3) { setPredictions([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/admin/places-autocomplete', { params: { q } });
+        setPredictions(data.predictions || []);
+        setShow(true);
+      } catch { setPredictions([]); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [value.name]);
+  const buyNumber = async () => {
+    setBuying(true);
+    try {
+      const { data } = await api.post('/admin/twilio/available-numbers', { countryCode: 'GB', limit: 1 });
+      const num = data.numbers?.[0]?.phoneNumber;
+      if (num) {
+        const res = await api.post('/admin/twilio/purchase', { phoneNumber: num });
+        onChange({ ...value, twilioNumber: res.data.phoneNumber });
+      }
+    } catch { /* leave for manual entry */ }
+    finally { setBuying(false); }
+  };
+  const pick = (p: { placeId: string; description: string }) => {
+    pickedRef.current = true;
+    const nm = p.description.split(',')[0]?.trim() || p.description;
+    onChange({ ...value, name: nm, googlePlaceId: p.placeId });
+    setShow(false);
+    setPredictions([]);
+  };
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold text-slate-500">Branch {index + 2}</span>
+        <button type="button" onClick={onRemove} className="text-xs font-medium text-red-500 hover:underline">Remove</button>
+      </div>
+      <div className="relative">
+        <input
+          type="text"
+          value={value.name}
+          onChange={(e) => onChange({ ...value, name: e.target.value, googlePlaceId: null })}
+          placeholder="Branch name — or search Google"
+          className="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
+        />
+        {value.googlePlaceId && <p className="mt-1 text-xs text-emerald-600">✓ Google-linked — details will autofill</p>}
+        {show && predictions.length > 0 && (
+          <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+            {predictions.map((p) => (
+              <li key={p.placeId}>
+                <button type="button" onClick={() => pick(p)} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-violet-50">{p.description}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="mt-2 flex items-end gap-2">
+        <div className="flex-1">
+          <label className="mb-1 block text-xs font-medium text-slate-600">Twilio number</label>
+          <input
+            type="text"
+            value={value.twilioNumber ?? ''}
+            onChange={(e) => onChange({ ...value, twilioNumber: e.target.value })}
+            placeholder="+44… or click Buy new"
+            className="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
+          />
+        </div>
+        <button type="button" onClick={buyNumber} disabled={buying}
+          className="rounded-md border border-violet-300 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50">
+          {buying ? 'Buying…' : 'Buy new'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 type TwilioNumber = {
   phoneNumber: string;
@@ -21,7 +111,43 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [step, setStep] = useState<'form' | 'search' | 'purchase'>('form');
   const [businessName, setBusinessName] = useState('');
   const [branchName, setBranchName] = useState('');
+  // Google Places autofill
+  const [googlePlaceId, setGooglePlaceId] = useState<string | null>(null);
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [predictions, setPredictions] = useState<{ placeId: string; description: string }[]>([]);
+  const [showPredictions, setShowPredictions] = useState(false);
+  const [placeSearching, setPlaceSearching] = useState(false);
+  // Additional branches (multi-branch onboarding) — same business + manager, billed together.
+  const [extraBranches, setExtraBranches] = useState<ExtraBranch[]>([]);
   const [userEmail, setUserEmail] = useState('');
+  // Attach to an existing user, or create a new one.
+  const [userMode, setUserMode] = useState<'new' | 'existing'>('new');
+  const [existingUserId, setExistingUserId] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [showUserResults, setShowUserResults] = useState(false);
+  const usersQuery = useQuery({
+    queryKey: ['admin-users-for-onboard'],
+    queryFn: async () => {
+      const { data } = await api.get('/admin/users');
+      return (data.users ?? []) as { id: string; email: string }[];
+    },
+    enabled: isOpen,
+  });
+  // New business, or add branches to an existing one.
+  const [businessMode, setBusinessMode] = useState<'new' | 'existing'>('new');
+  const [existingBusinessId, setExistingBusinessId] = useState('');
+  const [bizSearch, setBizSearch] = useState('');
+  const [showBiz, setShowBiz] = useState(false);
+  const businessesQuery = useQuery({
+    queryKey: ['admin-businesses-for-onboard'],
+    queryFn: async () => {
+      const { data } = await api.get('/admin/businesses');
+      return ((data.businesses ?? []) as { id: string; name: string; branches?: unknown[] }[])
+        .map((b) => ({ id: b.id, name: b.name, branchCount: b.branches?.length ?? 0 }));
+    },
+    enabled: isOpen && businessMode === 'existing',
+  });
+  const selectedExistingBiz = (businessesQuery.data ?? []).find((b) => b.id === existingBusinessId);
   const [twilioNumber, setTwilioNumber] = useState('');
   const [manualNumber, setManualNumber] = useState('');
   const [useManualEntry, setUseManualEntry] = useState(false);
@@ -33,6 +159,10 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [includedMinutes, setIncludedMinutes] = useState('400');
   const [costPerMinute, setCostPerMinute] = useState('0.25');
   const [vatRatePct, setVatRatePct] = useState('20');
+  // Messaging (Connect) pricing — optional; blank = not sold.
+  const [messagingSubscription, setMessagingSubscription] = useState('');
+  const [includedMessages, setIncludedMessages] = useState('');
+  const [costPerMessage, setCostPerMessage] = useState('0.25');
   // Which LiveKit dispatch agent the new garage should be routed to. Default
   // matches the marketing site's self-serve default (RMB-Assist on account 2)
   // so quick-onboard doesn't require a trip into Agent Configurations -> Routing.
@@ -46,6 +176,35 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [agreementCentres, setAgreementCentres] = useState('1');
   const [agreementLicences, setAgreementLicences] = useState<('assist' | 'automate' | 'connect')[]>(['assist']);
   const [agreementGoLive, setAgreementGoLive] = useState('');
+
+  // Debounced Google Places type-ahead (proxied through the backend — no browser key).
+  const placePickedRef = useRef(false);
+  useEffect(() => {
+    if (placePickedRef.current) { placePickedRef.current = false; return; }
+    const q = placeQuery.trim();
+    if (q.length < 3) { setPredictions([]); return; }
+    setPlaceSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/admin/places-autocomplete', { params: { q } });
+        setPredictions(data.predictions || []);
+        setShowPredictions(true);
+      } catch { setPredictions([]); }
+      finally { setPlaceSearching(false); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [placeQuery]);
+
+  const pickPlace = (p: { placeId: string; description: string }) => {
+    placePickedRef.current = true;
+    setGooglePlaceId(p.placeId);
+    setPlaceQuery(p.description);
+    const namePart = p.description.split(',')[0]?.trim() || p.description;
+    setBusinessName((prev) => prev || namePart);
+    setBranchName((prev) => prev || namePart);
+    setShowPredictions(false);
+    setPredictions([]);
+  };
 
   const searchNumbersMutation = useMutation({
     mutationFn: async () => {
@@ -81,17 +240,66 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const onboardMutation = useMutation({
     mutationFn: async () => {
       const finalNumber = useManualEntry ? manualNumber : twilioNumber;
+      // One cost per branch applies to every branch; agreement = cost-per-branch × count.
+      const validExtra = extraBranches.filter((b) => b.name.trim());
+      const totalBranches = 1 + validExtra.length;
+
+      // Existing business: add branches via the batch endpoint (no new business/user); they
+      // bill on the business's existing mandate. Optionally raise an updated agreement.
+      if (businessMode === 'existing') {
+        const branch1Number = useManualEntry ? manualNumber : twilioNumber;
+        const allBranches = [
+          { name: branchName.trim(), googlePlaceId, twilioNumber: branch1Number },
+          ...validExtra.map((b) => ({ name: b.name.trim(), googlePlaceId: b.googlePlaceId, twilioNumber: b.twilioNumber })),
+        ].filter((b) => b.name);
+        const resp = await api.post(`/admin/businesses/${existingBusinessId}/branches/batch`, {
+          userId: existingUserId || undefined,
+          branches: allBranches.map((b) => ({
+            name: b.name,
+            googlePlaceId: b.googlePlaceId || undefined,
+            twilioNumber: b.twilioNumber || undefined,
+            subscriptionCostGbp: Number(subscriptionCost) || undefined,
+            includedMinutes: Number(includedMinutes),
+            costPerMinuteGbp: Number(costPerMinute),
+            vatRate: Number(vatRatePct) / 100,
+            messagingSubscriptionCostGbp: messagingSubscription ? Number(messagingSubscription) : undefined,
+            includedMessages: includedMessages ? Number(includedMessages) : undefined,
+            costPerMessageGbp: costPerMessage ? Number(costPerMessage) : undefined,
+            agentScript,
+          })),
+        });
+        if (sendAgreement && existingUserId) {
+          const newTotal = (selectedExistingBiz?.branchCount ?? 0) + allBranches.length;
+          const draft = await api.post('/admin/agreements/draft', {
+            userId: existingUserId,
+            businessId: existingBusinessId,
+            clientName: bizSearch.trim(),
+            setupFeeGbp: Number(agreementSetupFee) || 0,
+            licenceFeeGbp: Number(subscriptionCost),
+            centresCount: newTotal,
+            licences: agreementLicences,
+            goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
+          });
+          await api.post(`/admin/agreements/${draft.data.agreement.id}/send`);
+        }
+        return resp.data;
+      }
+
       const { data } = await api.post('/admin/onboard', {
         businessName,
         branchName,
         twilioNumber: finalNumber || undefined,
-        userEmail,
-        userRole: 'USER',
+        ...(userMode === 'existing' && existingUserId ? { existingUserId } : { userEmail }),
+        userRole: 'MANAGER', // first user for a business is its manager (billing + team + branches)
         subscriptionCostGbp: Number(subscriptionCost),
         includedMinutes: Number(includedMinutes),
         costPerMinuteGbp: Number(costPerMinute),
         vatRate: Number(vatRatePct) / 100,
+        messagingSubscriptionCostGbp: messagingSubscription ? Number(messagingSubscription) : undefined,
+        includedMessages: includedMessages ? Number(includedMessages) : undefined,
+        costPerMessageGbp: costPerMessage ? Number(costPerMessage) : undefined,
         agentScript,
+        googlePlaceId: googlePlaceId || undefined,
       });
 
       if (sendAgreement) {
@@ -101,11 +309,32 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
           clientName: businessName.trim(),
           setupFeeGbp: Number(agreementSetupFee) || 0,
           licenceFeeGbp: Number(subscriptionCost),
-          centresCount: Number(agreementCentres) || 1,
+          centresCount: validExtra.length > 0 ? totalBranches : (Number(agreementCentres) || 1),
           licences: agreementLicences,
           goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
         });
         await api.post(`/admin/agreements/${draft.data.agreement.id}/send`);
+      }
+
+      // Multi-branch: create the extra branches under the SAME business, granting the new
+      // manager access to each so they bill together on the business's mandate.
+      if (validExtra.length) {
+        await api.post(`/admin/businesses/${data.business.id}/branches/batch`, {
+          userId: data.user.id,
+          branches: validExtra.map((b) => ({
+            name: b.name.trim(),
+            googlePlaceId: b.googlePlaceId || undefined,
+            twilioNumber: b.twilioNumber || undefined,
+            subscriptionCostGbp: Number(subscriptionCost),
+            includedMinutes: Number(includedMinutes),
+            costPerMinuteGbp: Number(costPerMinute),
+            vatRate: Number(vatRatePct) / 100,
+            messagingSubscriptionCostGbp: messagingSubscription ? Number(messagingSubscription) : undefined,
+            includedMessages: includedMessages ? Number(includedMessages) : undefined,
+            costPerMessageGbp: costPerMessage ? Number(costPerMessage) : undefined,
+            agentScript,
+          })),
+        });
       }
 
       return data;
@@ -122,6 +351,14 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     setBusinessName('');
     setBranchName('');
     setUserEmail('');
+    setUserMode('new');
+    setExistingUserId('');
+    setUserSearch('');
+    setShowUserResults(false);
+    setBusinessMode('new');
+    setExistingBusinessId('');
+    setBizSearch('');
+    setShowBiz(false);
     setTwilioNumber('');
     setManualNumber('');
     setUseManualEntry(false);
@@ -137,6 +374,12 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     setAgreementSetupFee('0');
     setAgreementCentres('1');
     setAgreementLicences(['assist']);
+    setExtraBranches([]);
+    setPlaceQuery('');
+    setGooglePlaceId(null);
+    setMessagingSubscription('');
+    setIncludedMessages('');
+    setCostPerMessage('0.25');
     setAgreementGoLive('');
     setStep('form');
   };
@@ -150,8 +393,10 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     e.preventDefault();
     setError('');
 
-    if (!businessName.trim() || !branchName.trim() || !userEmail.trim()) {
-      setError('Please fill in all required fields');
+    const missingBusiness = businessMode === 'new' ? !businessName.trim() : !existingBusinessId;
+    const missingUser = businessMode === 'existing' ? !existingUserId : (userMode === 'new' ? !userEmail.trim() : !existingUserId);
+    if (missingBusiness || !branchName.trim() || missingUser) {
+      setError(businessMode === 'existing' ? 'Select the business, a branch name, and the user to grant access.' : 'Please fill in all required fields');
       return;
     }
 
@@ -197,7 +442,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
         </button>
 
         <h2 className="mb-6 text-2xl font-bold text-slate-900">
-          {step === 'form' && 'Onboard New Business'}
+          {step === 'form' && (businessMode === 'existing' ? 'Add Branches' : 'Onboard New Business')}
           {step === 'search' && 'Select Phone Number'}
           {step === 'purchase' && 'Purchase Number'}
         </h2>
@@ -210,18 +455,89 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
         {step === 'form' && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
+            {/* New business, or add branches to an existing one */}
+            <div className="inline-flex rounded-md border border-slate-300 p-0.5 text-sm">
+              <button type="button" onClick={() => setBusinessMode('new')}
+                className={`rounded px-3 py-1 font-medium ${businessMode === 'new' ? 'bg-violet-600 text-white' : 'text-slate-600'}`}>New business</button>
+              <button type="button" onClick={() => { setBusinessMode('existing'); setUserMode('existing'); }}
+                className={`rounded px-3 py-1 font-medium ${businessMode === 'existing' ? 'bg-violet-600 text-white' : 'text-slate-600'}`}>Existing business</button>
+            </div>
+            {businessMode === 'existing' && (
+              <div className="relative">
+                <label className="block text-sm font-medium text-slate-600 mb-1">Business *</label>
+                <input
+                  type="text"
+                  value={bizSearch}
+                  onChange={(e) => { setExistingBusinessId(''); setBizSearch(e.target.value); setShowBiz(true); }}
+                  onFocus={() => setShowBiz(true)}
+                  placeholder="Search existing businesses…"
+                  className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                />
+                {existingBusinessId && <p className="mt-1 text-xs text-emerald-600">✓ New branches are added to this business &amp; bill on its existing mandate{selectedExistingBiz ? ` (currently ${selectedExistingBiz.branchCount} branch${selectedExistingBiz.branchCount === 1 ? '' : 'es'})` : ''}.</p>}
+                {showBiz && bizSearch.trim() && !existingBusinessId && (
+                  <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                    {(() => {
+                      const m = (businessesQuery.data ?? []).filter((b) => b.name.toLowerCase().includes(bizSearch.trim().toLowerCase()));
+                      if (!m.length) return <li className="px-3 py-2 text-sm text-slate-400">No matching businesses</li>;
+                      return m.slice(0, 8).map((b) => (
+                        <li key={b.id}>
+                          <button type="button" onClick={() => { setExistingBusinessId(b.id); setBizSearch(b.name); setShowBiz(false); }}
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-violet-50">{b.name} <span className="text-slate-400">· {b.branchCount} branch{b.branchCount === 1 ? '' : 'es'}</span></button>
+                        </li>
+                      ));
+                    })()}
+                  </ul>
+                )}
+              </div>
+            )}
+            {/* Find on Google — autofills address, phone, hours, greeting & FAQs */}
+            <div className="relative">
               <label className="block text-sm font-medium text-slate-600 mb-1">
-                Business Name *
+                Find on Google <span className="font-normal text-slate-400">— autofills the agent config</span>
               </label>
               <input
                 type="text"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
+                value={placeQuery}
+                onChange={(e) => { setGooglePlaceId(null); setPlaceQuery(e.target.value); }}
+                onFocus={() => predictions.length > 0 && setShowPredictions(true)}
                 className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
-                placeholder="Acme Garage Ltd"
+                placeholder="Search the garage's name on Google…"
               />
+              {googlePlaceId && (
+                <p className="mt-1 text-xs text-emerald-600">✓ Linked — address, phone, opening hours &amp; FAQs will be pulled from Google.</p>
+              )}
+              {placeSearching && !googlePlaceId && <p className="mt-1 text-xs text-slate-400">Searching…</p>}
+              {showPredictions && predictions.length > 0 && (
+                <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+                  {predictions.map((p) => (
+                    <li key={p.placeId}>
+                      <button
+                        type="button"
+                        onClick={() => pickPlace(p)}
+                        className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-violet-50"
+                      >
+                        {p.description}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
+
+            {businessMode === 'new' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">
+                  Business Name *
+                </label>
+                <input
+                  type="text"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                  placeholder="Acme Garage Ltd"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">
@@ -326,25 +642,70 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
             <div className="border-t border-slate-300 pt-4">
               <h3 className="text-sm font-semibold text-slate-600 mb-3">User Account</h3>
-              
+
+              <div className="mb-3 inline-flex rounded-md border border-slate-300 p-0.5 text-sm">
+                <button type="button" onClick={() => setUserMode('new')}
+                  className={`rounded px-3 py-1 font-medium ${userMode === 'new' ? 'bg-violet-600 text-white' : 'text-slate-600'}`}>New user</button>
+                <button type="button" onClick={() => setUserMode('existing')}
+                  className={`rounded px-3 py-1 font-medium ${userMode === 'existing' ? 'bg-violet-600 text-white' : 'text-slate-600'}`}>Existing user</button>
+              </div>
+
               <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    Email *
-                  </label>
-                  <input
-                    type="email"
-                    value={userEmail}
-                    onChange={(e) => setUserEmail(e.target.value)}
-                    className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
-                    placeholder="manager@business.com"
-                    autoComplete="email"
-                    required
-                  />
-                  <p className="mt-1 text-xs text-slate-500">
-                    Login credentials will be sent to this email address
-                  </p>
-                </div>
+                {userMode === 'new' ? (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">
+                      Email *
+                    </label>
+                    <input
+                      type="email"
+                      value={userEmail}
+                      onChange={(e) => setUserEmail(e.target.value)}
+                      className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                      placeholder="manager@business.com"
+                      autoComplete="email"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      A new manager account is created and login credentials are emailed here.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <label className="block text-sm font-medium text-slate-600 mb-1">
+                      Existing user *
+                    </label>
+                    <input
+                      type="text"
+                      value={userSearch}
+                      onChange={(e) => { setExistingUserId(''); setUserSearch(e.target.value); setShowUserResults(true); }}
+                      onFocus={() => setShowUserResults(true)}
+                      placeholder="Search users by email…"
+                      className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                    />
+                    {existingUserId && <p className="mt-1 text-xs text-emerald-600">✓ Selected</p>}
+                    {showUserResults && userSearch.trim() && !existingUserId && (
+                      <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                        {(() => {
+                          const matches = (usersQuery.data ?? []).filter((u) => u.email.toLowerCase().includes(userSearch.trim().toLowerCase()));
+                          if (matches.length === 0) return <li className="px-3 py-2 text-sm text-slate-400">No matching users</li>;
+                          return matches.slice(0, 8).map((u) => (
+                            <li key={u.id}>
+                              <button
+                                type="button"
+                                onClick={() => { setExistingUserId(u.id); setUserSearch(u.email); setShowUserResults(false); }}
+                                className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-violet-50"
+                              >
+                                {u.email}
+                              </button>
+                            </li>
+                          ));
+                        })()}
+                      </ul>
+                    )}
+                    <p className="mt-1 text-xs text-slate-500">
+                      This business is attached to the chosen account (granted manager access). No new login is created.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -357,7 +718,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">
-                    Monthly subscription (£) *
+                    Monthly subscription (£ per branch) *
                   </label>
                   <input
                     type="number"
@@ -420,6 +781,34 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                 </div>
               </div>
 
+              <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold text-slate-500 mb-2">Messaging (Connect) — optional</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Messaging sub (£/mo)</label>
+                    <input type="number" step="0.01" min="0" value={messagingSubscription}
+                      onChange={(e) => setMessagingSubscription(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
+                      placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Included messages</label>
+                    <input type="number" step="1" min="0" value={includedMessages}
+                      onChange={(e) => setIncludedMessages(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
+                      placeholder="500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Cost per message (£)</label>
+                    <input type="number" step="0.01" min="0" value={costPerMessage}
+                      onChange={(e) => setCostPerMessage(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
+                      placeholder="0.25" />
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">Leave the subscription blank if they&rsquo;re not on Connect. Applies to all branches.</p>
+              </div>
+
               <div className="mt-3">
                 <label className="block text-sm font-medium text-slate-600 mb-1">
                   Routing — LiveKit agent
@@ -439,6 +828,32 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                   Sets the dispatch routing for this garage so you don&rsquo;t need to open Agent Configurations after onboarding.
                 </p>
               </div>
+            </div>
+
+            {/* Additional branches — multi-branch onboarding */}
+            <div className="border-t border-slate-300 pt-4">
+              <h3 className="text-sm font-semibold text-slate-600 mb-1">Additional branches</h3>
+              <p className="text-xs text-slate-500 mb-3">
+                Same business &amp; manager, billed together on one mandate. Every branch uses the monthly subscription above (cost per branch); each just needs its name / Google listing for autofill (address, hours, FAQs).
+              </p>
+              <div className="space-y-3">
+                {extraBranches.map((b, i) => (
+                  <BranchRow
+                    key={i}
+                    index={i}
+                    value={b}
+                    onChange={(v) => setExtraBranches((prev) => prev.map((x, xi) => (xi === i ? v : x)))}
+                    onRemove={() => setExtraBranches((prev) => prev.filter((_, xi) => xi !== i))}
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setExtraBranches((prev) => [...prev, { name: '', googlePlaceId: null }])}
+                className="mt-3 inline-flex items-center gap-1 rounded-md border border-violet-300 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-700 hover:bg-violet-100"
+              >
+                + Add another branch
+              </button>
             </div>
 
             <div className="border-t border-slate-300 pt-4">

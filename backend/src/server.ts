@@ -20,11 +20,14 @@ import billingActivationRouter from './routes/billing-activation.js';
 import customerBillingRouter from './routes/customer-billing.js';
 import socialConnectionsRouter from './routes/social-connections.js';
 import oauthRouter from './routes/oauth.js';
+import connectSignupRouter from './routes/connect-signup.js';
+import connectBillingRouter from './routes/connect-billing.js';
 import smsRouter from './routes/sms.js';
 import widgetRouter from './routes/widget.js';
 import chatRouter from './routes/chat.js';
 import conversationsRouter from './routes/conversations.js';
 import outboundRouter from './routes/outbound.js';
+import outboundCallsRouter from './routes/outbound-calls.js';
 import templatesRouter from './routes/templates.js';
 import metaWhatsappWebhook from './routes/webhooks/meta-whatsapp.js';
 import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
@@ -42,6 +45,7 @@ import supportRouter from './routes/support.js';
 import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
+import { initConnectTrialCron } from './utils/connectTrialCron.js';
 import { startArrearsSweep } from './utils/arrears.js';
 import billingStatusRouter from './routes/billing-status.js';
 import publicProspectRouter from './routes/public-prospect.js';
@@ -123,11 +127,14 @@ app.use('/api', billingStatusRouter);
 app.use('/api', publicProspectRouter);
 app.use('/api', socialConnectionsRouter);
 app.use('/api', oauthRouter);
+app.use('/api/public/connect-signup', connectSignupRouter);
+app.use('/api', connectBillingRouter);
 app.use('/api', smsRouter);
 app.use('/api', widgetRouter);
 app.use('/api', chatRouter);
 app.use('/api', conversationsRouter);
 app.use('/api', outboundRouter);
+app.use('/api', outboundCallsRouter);
 app.use('/api', featureAnnouncementRouter);
 app.use('/api', usersRouter);
 app.use('/api', publicSignupRouter);
@@ -147,6 +154,19 @@ app.use('/webhooks', voiceRouter);
 
 app.use(errorHandler);
 
+// Last-resort process guards. An async route handler that rejects without going
+// through next(err) bypasses the Express errorHandler above and, under Node 20,
+// terminates the process — which pm2 then restarts. A single bad request (e.g. a
+// support-chat upsert with a stale userId) can therefore crash-loop the whole
+// backend, taking down calls, chat and WhatsApp for every garage and wiping the
+// in-memory chat-delay reply timers. Log loudly and keep serving instead.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+
 app.listen(port, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Server listening on port ${port}`);
@@ -154,6 +174,7 @@ app.listen(port, '0.0.0.0', () => {
 
   // Initialize scheduled report jobs
   initializeScheduledReports();
+  initConnectTrialCron();
 
   // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.
   startArrearsSweep();

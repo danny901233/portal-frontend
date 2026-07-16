@@ -754,6 +754,36 @@ const completeOnboardingSchema = z.object({
   existingUserId: z.string().optional(), // attach the new business to an existing user instead of creating one
   userPassword: z.string().min(8).optional(),
   userRole: z.enum(['USER', 'MANAGER']).optional().default('USER'),
+  // Create the account but DON'T email the customer their login yet. Used by the sales-led
+  // flow: the agreement has to be signed and the agent built (we fetch the garage's
+  // GarageHive/Tyresoft credentials by hand) before the customer has anything to log in to.
+  // Invite them later with POST /admin/garages/:garageId/invite, which regenerates the
+  // password — so we never have to store the plaintext one for days.
+  // Defaults false: existing callers keep today's send-immediately behaviour.
+  deferWelcomeEmail: z.boolean().optional().default(false),
+  // The EXISTING HighLevel opportunity this deal belongs to, picked by staff in the modal from
+  // GET /admin/highlevel/opportunities. Stored so the portal can move the deal's stage as it
+  // progresses. Deliberately never auto-created: a customer usually already has several
+  // opportunities, and minting another would pollute the sales pipeline.
+  ghlOpportunityId: z.string().trim().max(100).optional(),
+  // When does billing start? Three shapes, all already supported by the billing engine:
+  //   neither field            -> bill from the mandate (confirm-mandate sets the cycle)
+  //   trialEndDate             -> free until that date; activateTrialEndedGarages starts the
+  //                               cycle the day it expires
+  //   requiresBookingActivation-> free until N confirmed bookings; trackConfirmedBooking starts
+  //                               the cycle on the Nth
+  // payment.ts deliberately leaves the cycle null at mandate time for the latter two — the
+  // activation event sets it later. That's the design, not a bug.
+  // How this customer pays. Sets Business.billingMethod, which drives the payment gate:
+  //   directdebit -> GoCardless mandate at first login (the default, and every legacy customer)
+  //   stripe_card -> Stripe Checkout at first login, billed monthly by Stripe
+  //   invoice     -> NO payment gate at all; we invoice + they bank transfer (e.g. In'n'out)
+  billingMethod: z.enum(['directdebit', 'stripe_card', 'invoice']).optional().default('directdebit'),
+  // Days, not a date — that's how a trial is actually agreed ("30 days free"). Converted to
+  // Garage.trialEndDate below; activateTrialEndedGarages starts billing the day it expires.
+  trialDays: z.number().int().min(1).max(365).optional(),
+  requiresBookingActivation: z.boolean().optional(),
+  bookingsRequiredForActivation: z.number().int().min(1).max(100).optional(),
   subscriptionCostGbp: z.number().positive().max(10000),
   includedMinutes: z.number().int().min(0).max(100000),
   costPerMinuteGbp: z.number().min(0).max(100),
@@ -817,7 +847,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
 
     // 1. Create business
     const business = await prisma.business.create({
-      data: { name: parsed.data.businessName },
+      data: { name: parsed.data.businessName, billingMethod: parsed.data.billingMethod },
     });
 
     // 2. Create branch/garage with billing configuration so it's immediately billable.
@@ -835,6 +865,19 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         ...(parsed.data.includedMessages != null ? { includedMessages: parsed.data.includedMessages } : {}),
         ...(parsed.data.costPerMessageGbp != null ? { costPerMessageGbp: parsed.data.costPerMessageGbp } : {}),
         ...((parsed.data.messagingSubscriptionCostGbp ?? 0) > 0 ? { hasMessagingAccess: true } : {}),
+        // Deferred = this garage is entering the sales-led onboarding pipeline. Otherwise keep
+        // today's semantics: created and invited in one go, i.e. already live.
+        onboardingStage: parsed.data.deferWelcomeEmail ? 'awaiting_agreement' : 'live',
+        ...(parsed.data.ghlOpportunityId ? { ghlOpportunityId: parsed.data.ghlOpportunityId } : {}),
+        ...(parsed.data.trialDays
+          ? { trialEndDate: new Date(Date.now() + parsed.data.trialDays * 24 * 60 * 60 * 1000) }
+          : {}),
+        ...(parsed.data.requiresBookingActivation
+          ? {
+              requiresBookingActivation: true,
+              bookingsRequiredForActivation: parsed.data.bookingsRequiredForActivation ?? 4,
+            }
+          : {}),
       },
     });
 
@@ -952,26 +995,38 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
           email: onboardEmail,
           passwordHash,
           mustChangePassword: true,
-          mustSetupPayment: true, // ENABLED for all new users
+          // Invoice customers have nothing to set up — they pay by bank transfer against an
+          // emailed invoice, so gating their login on a mandate/card they'll never provide would
+          // just lock them out of their own portal.
+          mustSetupPayment: parsed.data.billingMethod !== 'invoice',
           garageAccessIds: [garage.id],
           role: parsed.data.userRole,
           branchRoles: { [garage.id]: 'MANAGER' },
         },
       });
 
-      // 7. Send welcome email with login credentials (new users only).
-      const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
-      await sendWelcomeEmail({
-        to: onboardEmail,
-        businessName: parsed.data.businessName,
-        branchName: parsed.data.branchName,
-        email: onboardEmail,
-        password: actualPassword,
-        portalUrl,
-      }).catch((error) => {
-        console.error('Failed to send welcome email:', error);
-        // Don't fail the onboarding if email fails
-      });
+      // 7. Send welcome email with login credentials (new users only) — unless deferred.
+      if (parsed.data.deferWelcomeEmail) {
+        // Nothing is emailed and no plaintext password is kept anywhere: /invite mints a fresh
+        // one when the customer is actually ready to be let in.
+        console.log(
+          `[ONBOARD] welcome email DEFERRED for ${onboardEmail} — garage ${garage.id} is at ` +
+          `onboardingStage=awaiting_agreement. Invite with POST /admin/garages/${garage.id}/invite.`,
+        );
+      } else {
+        const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+        await sendWelcomeEmail({
+          to: onboardEmail,
+          businessName: parsed.data.businessName,
+          branchName: parsed.data.branchName,
+          email: onboardEmail,
+          password: actualPassword,
+          portalUrl,
+        }).catch((error) => {
+          console.error('Failed to send welcome email:', error);
+          // Don't fail the onboarding if email fails
+        });
+      }
     }
 
     res.status(201).json({

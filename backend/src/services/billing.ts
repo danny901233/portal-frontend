@@ -1,6 +1,8 @@
 import { prisma } from '../db.js';
 import { createRequire } from 'module';
 import { syncBusinessBillingFromUser, resolveChargeMandate } from '../utils/billingSync.js';
+import { setOnboardingStage } from '../utils/onboardingStage.js';
+import { resolveBillingUser } from '../utils/billingUser.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -379,20 +381,19 @@ export async function trackConfirmedBooking(garageId: string) {
 
     console.log(`🎉 Garage ${garage.name} reached ${garage.bookingsRequiredForActivation} bookings - subscription activated!`);
 
-    // Set billing cycle start date for the user if not already set
-    const user = await prisma.user.findFirst({
-      where: {
-        garageAccessIds: {
-          has: garageId,
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        billingCycleStartDate: true,
-        nextBillingDate: true,
-      },
+    // Activation is what makes a "free until X bookings" deal live: the product has demonstrably
+    // worked and billing starts. No-ops for garages already at 'live' (i.e. everyone not in the
+    // sales-led pipeline).
+    void setOnboardingStage(garageId, 'live', {
+      monetaryValueGbp: garage.subscriptionCostGbp ?? undefined,
+      reason: `reached ${garage.bookingsRequiredForActivation} confirmed bookings`,
     });
+
+    // Start the billing cycle on the MANDATE HOLDER. A bare findFirst here used to return
+    // whichever user Postgres felt like — measured on live data that's a different person from
+    // the payer on 8 of 46 garages — and findUsersDueForBilling only selects users WITH a
+    // mandate, so dates on anyone else are dead and the customer is silently never invoiced.
+    const user = await resolveBillingUser(garageId);
 
     if (user && !user.billingCycleStartDate) {
       // Set nextBillingDate to now so user gets billed immediately (not 1 month later)
@@ -446,20 +447,12 @@ export async function activateTrialEndedGarages() {
   const results = [];
 
   for (const garage of garages) {
-    // Find user with this garage
-    const user = await prisma.user.findFirst({
-      where: {
-        garageAccessIds: {
-          has: garage.id,
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        billingCycleStartDate: true,
-        nextBillingDate: true,
-      },
-    });
+    // Same as trackConfirmedBooking: only the MANDATE HOLDER can actually be billed, because
+    // findUsersDueForBilling selects on gocardlessMandateId != null. A bare findFirst here used
+    // to return whichever user Postgres felt like — measured on live data that's a different
+    // person from the payer on 8 of 46 garages — and dates on a non-payer are never picked up,
+    // so the trial ends and the customer is silently never invoiced.
+    const user = await resolveBillingUser(garage.id);
 
     if (user && !user.billingCycleStartDate) {
       // Start billing cycle from when trial ended

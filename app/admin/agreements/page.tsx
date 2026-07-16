@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import OnboardingPipeline from './OnboardingPipeline';
 import { useRouter } from 'next/navigation';
 import { isReceptionMateStaff } from '../../lib/auth';
 import api from '../../lib/api';
@@ -34,6 +35,7 @@ export default function AdminAgreementsPage() {
   const [search, setSearch] = useState('');
 
   // Mark-external dialog
+  const [tab, setTab] = useState<'agreements' | 'pipeline'>('agreements');
   const [markFor, setMarkFor] = useState<AdminAgreement | null>(null);
   const [externalRef, setExternalRef] = useState('');
   const [externalDate, setExternalDate] = useState('');
@@ -114,7 +116,28 @@ export default function AdminAgreementsPage() {
         </p>
       </header>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex gap-1 border-b border-slate-200">
+        {([
+          ['agreements', 'Agreements'],
+          ['pipeline', 'Onboarding pipeline'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={
+              tab === key
+                ? 'border-b-2 border-brand-600 px-4 py-2 text-sm font-semibold text-brand-700'
+                : 'border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700'
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'pipeline' ? <OnboardingPipeline /> : null}
+
+      <div className={tab === 'agreements' ? 'flex flex-wrap items-center gap-3' : 'hidden'}>
         <input
           type="search"
           placeholder="Search by client name or email"
@@ -140,7 +163,7 @@ export default function AdminAgreementsPage() {
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className={tab === 'agreements' ? 'overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm' : 'hidden'}>
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr>

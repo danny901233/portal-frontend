@@ -83,6 +83,29 @@ function SetupPaymentContent() {
     }
   };
 
+  // Card rail: a manually-onboarded customer whose Business.billingMethod is 'stripe_card'.
+  // Stripe Checkout at the price agreed on their contract, then straight into the setup wizard —
+  // the same destination confirm-mandate sends a DD customer to.
+  const cardCheckoutMutation = useMutation({
+    mutationFn: async () => {
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (!token) throw new Error('Not authenticated');
+      const response = await fetch('/internal-api/payment/card-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Could not start the card checkout');
+      }
+      return response.json();
+    },
+    onSuccess: (data: { url: string }) => {
+      window.location.href = data.url;
+    },
+    onError: (error: Error) => setError(error.message),
+  });
+
   const createMandateMutation = useMutation({
     mutationFn: async () => {
       const token = localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -116,7 +139,28 @@ function SetupPaymentContent() {
     },
   });
 
-  const handleSetupPayment = () => {
+  // Ask the server which rail this customer is on rather than guessing. Defaults to
+  // directdebit server-side, so anyone predating billingMethod behaves exactly as before.
+  const handleSetupPayment = async () => {
+    setError(null);
+    try {
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      const res = await fetch('/internal-api/payment/method', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const { billingMethod } = await res.json();
+      if (billingMethod === 'stripe_card') {
+        cardCheckoutMutation.mutate();
+        return;
+      }
+    } catch {
+      // Rail lookup failed — fall through to Direct Debit, which is what everyone was on before
+      // this existed. Better to show the wrong-but-working flow than a dead button.
+    }
+    return handleSetupPaymentDirectDebit();
+  };
+
+  const handleSetupPaymentDirectDebit = () => {
     setError(null);
     createMandateMutation.mutate();
   };

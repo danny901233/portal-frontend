@@ -2,10 +2,9 @@
 // the lead-capture route (Automate/Connect enquiries) and the public-signup
 // route (Assist accounts) to push contacts + opportunities into HL.
 //
-// The pipeline + stage IDs aren't in env vars because the team thinks in
-// names ("Onboarding Newest", "Live and £££££"). We resolve names → IDs on
-// first use and cache them for the process lifetime; if names change in HL,
-// restart pm2 to pick up the new IDs.
+// Pipeline + stage IDs are pinned via env vars (see below). NB: this comment used to claim
+// we resolved stage NAMES to ids at runtime and cached them — we don't, and haven't for a
+// long time. Everything is env-pinned.
 
 const GHL_PIT = process.env.GHL_API_KEY ?? '';
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID ?? '';
@@ -21,6 +20,18 @@ const PIPELINE_ID     = process.env.GHL_PIPELINE_ID     ?? '';
 const SIGNUP_STAGE_ID = process.env.GHL_SIGNUP_STAGE_ID ?? '';
 const LEAD_STAGE_ID   = process.env.GHL_LEAD_STAGE_ID   ?? '';
 const TRIAL_STAGE_ID  = process.env.GHL_TRIAL_STAGE_ID  ?? '';
+// Sales-led (Direct Debit) onboarding, after the deal closes and before it's live. These reuse
+// the stages the "Onboarding Newest" pipeline already had — the team's own vocabulary — rather
+// than inventing parallel ones:
+//   GHL_AWAITING_CREDENTIALS_STAGE_ID — "Awaiting Integration Credentials" (signed; we're chasing
+//                                        the garage's GarageHive/Tyresoft credentials)
+//   GHL_AGENT_BUILT_STAGE_ID          — "Agent Account Setup, awaiting go live date"
+//   GHL_INVITED_STAGE_ID              — "Invited — awaiting DD mandate" (login sent; they still
+//                                        owe us a setup wizard + Direct Debit mandate)
+// All optional: every call site guards on the id being set, so an unset stage simply no-ops.
+const AWAITING_CREDENTIALS_STAGE_ID = process.env.GHL_AWAITING_CREDENTIALS_STAGE_ID ?? '';
+const AGENT_BUILT_STAGE_ID          = process.env.GHL_AGENT_BUILT_STAGE_ID          ?? '';
+const INVITED_STAGE_ID              = process.env.GHL_INVITED_STAGE_ID              ?? '';
 // New self-serve signups land here on details-submit (before they sign + pay), then move
 // to "Free trial live" once the account is created. Defaults to the live stage id.
 const ABANDONED_STAGE_ID = process.env.GHL_ABANDONED_STAGE_ID ?? '81307e40-9210-47e4-9898-7f1a18ce8ee7';
@@ -31,6 +42,10 @@ export const TRIAL_LIVE_STAGE_ID = TRIAL_STAGE_ID;
 // The "Enquiry Received & Demo Links sent" stage a non-Assist lead moves to (it passes
 // through Abandoned checkout first, per the get-started flow).
 export const ENQUIRY_STAGE_ID = LEAD_STAGE_ID;
+// Sales-led onboarding stages. Empty string when unset → callers skip the update.
+export const HL_AWAITING_CREDENTIALS_STAGE_ID = AWAITING_CREDENTIALS_STAGE_ID;
+export const HL_AGENT_BUILT_STAGE_ID = AGENT_BUILT_STAGE_ID;
+export const HL_INVITED_STAGE_ID = INVITED_STAGE_ID;
 
 const HEADERS = {
   Authorization: `Bearer ${GHL_PIT}`,
@@ -201,6 +216,117 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
 // Move an existing opportunity to a different stage (and optionally update its
 // value). Used to promote a trial opportunity to "Live and £££" on conversion.
 // Tolerant: logs + returns false on failure, never throws.
+export interface OpportunityCandidate {
+  id: string;
+  name: string;
+  monetaryValue: number | null;
+  pipelineStageId: string | null;
+  status: string | null;
+  contactId: string;
+  contactEmail: string | null;
+  contactName: string | null;
+}
+
+/**
+ * Find the HighLevel opportunities that might belong to a garage we're onboarding, so staff can
+ * pick the right one instead of us guessing.
+ *
+ * Why a picker and not an auto-match: a customer routinely has MORE THAN ONE contact and MORE
+ * THAN ONE opportunity in HL, and the portal's own contact often has no email at all — the
+ * get-started garage-search step upserts a contact from the Google PHONE number, so the
+ * portal-created opportunity hangs off an email-less contact while a separate, email-bearing
+ * contact holds the "Book a demo" opportunity. Matching on email alone therefore returns the
+ * WRONG opportunity with total confidence. (Verified on a live account: 2 contacts, 3
+ * opportunities, and the £-bearing one is on the contact WITHOUT the email.)
+ *
+ * So: search by email AND phone, return every opportunity across every matching contact, and let
+ * the human choose. Never creates anything.
+ */
+export async function findOpportunityCandidates(args: {
+  email?: string | null;
+  phone?: string | null;
+}): Promise<OpportunityCandidate[]> {
+  if (!highlevelConfigured()) return [];
+  const queries = [args.email, args.phone].map((q) => (q || '').trim()).filter(Boolean);
+  if (!queries.length) return [];
+
+  // 1. contacts matching either identifier
+  const contacts = new Map<string, { email: string | null; name: string | null }>();
+  for (const q of queries) {
+    try {
+      const res = await fetch(
+        `${GHL_BASE_URL}/contacts/?locationId=${GHL_LOCATION_ID}&query=${encodeURIComponent(q)}`,
+        { headers: HEADERS },
+      );
+      if (!res.ok) continue;
+      const json: any = await res.json();
+      for (const c of json.contacts ?? []) {
+        if (c?.id) contacts.set(c.id, { email: c.email ?? null, name: c.contactName ?? c.firstName ?? null });
+      }
+    } catch (err) {
+      console.error('[HL] contact search failed for', q, err);
+    }
+  }
+  if (!contacts.size) return [];
+
+  // 2. every opportunity on each of those contacts
+  const out: OpportunityCandidate[] = [];
+  const seen = new Set<string>();
+  for (const [contactId, c] of contacts) {
+    try {
+      const res = await fetch(
+        `${GHL_BASE_URL}/opportunities/search?location_id=${GHL_LOCATION_ID}&contact_id=${contactId}`,
+        { headers: HEADERS },
+      );
+      if (!res.ok) continue;
+      const json: any = await res.json();
+      for (const o of json.opportunities ?? []) {
+        if (!o?.id || seen.has(o.id)) continue;
+        seen.add(o.id);
+        out.push({
+          id: o.id,
+          name: o.name ?? '(unnamed)',
+          monetaryValue: typeof o.monetaryValue === 'number' ? o.monetaryValue : null,
+          pipelineStageId: o.pipelineStageId ?? null,
+          status: o.status ?? null,
+          contactId,
+          contactEmail: c.email,
+          contactName: c.name,
+        });
+      }
+    } catch (err) {
+      console.error('[HL] opportunity search failed for contact', contactId, err);
+    }
+  }
+  return out;
+}
+
+/** One opportunity by id — used to guarantee a suggested/known opportunity appears in the
+ *  picker even when the contact search wouldn't have surfaced it. */
+export async function fetchOpportunity(id: string): Promise<OpportunityCandidate | null> {
+  if (!highlevelConfigured() || !id) return null;
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/opportunities/${id}`, { headers: HEADERS });
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    const o = json.opportunity ?? json;
+    if (!o?.id) return null;
+    return {
+      id: o.id,
+      name: o.name ?? '(unnamed)',
+      monetaryValue: typeof o.monetaryValue === 'number' ? o.monetaryValue : null,
+      pipelineStageId: o.pipelineStageId ?? null,
+      status: o.status ?? null,
+      contactId: o.contactId ?? o.contact?.id ?? '',
+      contactEmail: o.contact?.email ?? null,
+      contactName: o.contact?.name ?? null,
+    };
+  } catch (err) {
+    console.error('[HL] fetchOpportunity failed for', id, err);
+    return null;
+  }
+}
+
 export async function updateOpportunity(
   opportunityId: string,
   args: { stageId?: string; monetaryValueGbp?: number; status?: string },

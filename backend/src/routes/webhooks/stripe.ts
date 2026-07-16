@@ -14,6 +14,7 @@ import { Router } from 'express';
 import express from 'express';
 import Stripe from 'stripe';
 import { prisma } from '../../db.js';
+import { setOnboardingStageForUser } from '../../utils/onboardingStage.js';
 import { sendWelcomeEmail, sendEmail, sendArrearsWarningEmail } from '../../utils/email.js';
 import { ARREARS_GRACE_DAYS } from '../../utils/arrears.js';
 import { getStripeClient, STRIPE_TRIAL_DAYS } from '../../services/stripe.js';
@@ -198,6 +199,29 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
     console.log(`[STRIPE_WEBHOOK] Connect paid + unlocked: garage ${meta.garageId}`);
     return;
   }
+  // Sales-led card rail: a manually-onboarded customer who pays by card rather than Direct
+  // Debit has just completed checkout. Clear the payment gate and record the subscription.
+  // NB: no billing cycle dates are set — Stripe bills this subscription itself. The GoCardless
+  // cron can't touch them either, since findUsersDueForBilling requires a mandate they'll never
+  // have. That's what stops a card customer being double-billed.
+  if (meta.kind === 'card-billing' && meta.garageId && meta.userId) {
+    await prisma.garage.update({
+      where: { id: meta.garageId },
+      data: {
+        stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null,
+        stripeSubscriptionId: typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null,
+        subscriptionActivatedAt: new Date(),
+        accessRestricted: false,
+        paymentFailedAt: null,
+      },
+    });
+    await prisma.user.update({ where: { id: meta.userId }, data: { mustSetupPayment: false } });
+    // Mirror of what confirm-mandate does for DD: the onboarding is finished.
+    void setOnboardingStageForUser(meta.userId, 'live', { reason: 'card payment set up' });
+    console.log(`[STRIPE_WEBHOOK] card-billing set up: garage ${meta.garageId}`);
+    return;
+  }
+
   if (meta.kind !== 'assist-trial' || !meta.garageId || !meta.userId) return;
   const garage = await prisma.garage.findUnique({
     where: { id: meta.garageId },

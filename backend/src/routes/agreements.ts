@@ -21,6 +21,7 @@ import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail } from '../utils/email.js';
 import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS } from '../services/stripe.js';
@@ -330,6 +331,28 @@ async function finaliseSignature(opts: {
       ? [prisma.signLinkToken.update({ where: { id: opts.consumeTokenId }, data: { consumedAt: now } })]
       : []),
   ]);
+
+  // Signed => the deal moves on: we now chase the garage's GarageHive/Tyresoft credentials and
+  // build the agent. Resolve the garage from the agreement's business (the agreement is the
+  // business-level contract); fall back to the signer's first garage for older rows without one.
+  void (async () => {
+    // The agreement is a BUSINESS-level contract (hence centresCount), so move every branch of
+    // that business that's still in the pipeline. setOnboardingStage skips anything already
+    // 'live', so this can't disturb existing branches of an expanding customer.
+    const garageIds = agreement.businessId
+      ? (await prisma.garage.findMany({ where: { businessId: agreement.businessId }, select: { id: true } })).map((g) => g.id)
+      : [];
+    // Fall back to the signer's own garage for older agreements with no businessId.
+    if (!garageIds.length && user?.garageAccessIds?.[0]) garageIds.push(user.garageAccessIds[0]);
+    // Deal value is the whole contract; it belongs on the opportunity once, not once per branch.
+    const dealValue = (agreement.licenceFeeGbp ?? 0) * (agreement.centresCount ?? 1);
+    for (const garageId of garageIds) {
+      await setOnboardingStage(garageId, 'awaiting_credentials', {
+        monetaryValueGbp: dealValue,
+        reason: 'agreement signed',
+      });
+    }
+  })();
 
   // Fire-and-forget copies to both parties so a slow PDF render + email send
   // doesn't delay the success response to the customer.

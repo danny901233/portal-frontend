@@ -120,6 +120,30 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   // Additional branches (multi-branch onboarding) — same business + manager, billed together.
   const [extraBranches, setExtraBranches] = useState<ExtraBranch[]>([]);
   const [userEmail, setUserEmail] = useState('');
+  // HighLevel opportunity linking. Staff PICK from candidates we fetch — there's nowhere in the
+  // HL UI to copy an opportunity id from, and matching on email alone silently returns the wrong
+  // one (customers routinely have several opportunities, and the portal's own contact often has
+  // no email on it — the £-bearing opportunity hangs off THAT one).
+  const [ghlCandidates, setGhlCandidates] = useState<
+    { id: string; name: string; monetaryValue: number | null; contactEmail: string | null }[]
+  >([]);
+  const [ghlOpportunityId, setGhlOpportunityId] = useState('');
+  // Optional: HL contacts created by our own get-started flow have a phone but NO email, so an
+  // email-only search misses the opportunity that actually carries the deal value.
+  const [ghlSearchPhone, setGhlSearchPhone] = useState('');
+  const [ghlSuggestedSource, setGhlSuggestedSource] = useState<string | null>(null);
+  // When billing starts. 'mandate' is today's behaviour and stays the default — the other two
+  // are free periods the billing engine already supports but the modal never offered.
+  const [billingStart, setBillingStart] = useState<'mandate' | 'trial' | 'bookings'>('mandate');
+  // Days, not a date: "30" is how these deals are actually agreed, and it saves staff working out
+  // what date that lands on. Converted to trialEndDate on submit.
+  const [trialDays, setTrialDays] = useState('30');
+  const [activationBookings, setActivationBookings] = useState('4');
+  // How they pay. Direct Debit is the default and what nearly every customer is on.
+  const [paymentMethod, setPaymentMethod] = useState<'directdebit' | 'stripe_card' | 'invoice'>('directdebit');
+
+  const [ghlLoading, setGhlLoading] = useState(false);
+  const [ghlSearched, setGhlSearched] = useState(false);
   // Attach to an existing user, or create a new one.
   const [userMode, setUserMode] = useState<'new' | 'existing'>('new');
   const [existingUserId, setExistingUserId] = useState('');
@@ -172,6 +196,43 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
   // Service agreement
   const [sendAgreement, setSendAgreement] = useState(true);
+
+  const searchGhl = async () => {
+    if (!userEmail && !ghlSearchPhone) return;
+    setGhlLoading(true);
+    setGhlSearched(true);
+    try {
+      const qs = new URLSearchParams();
+      if (userEmail) qs.set('email', userEmail);
+      if (ghlSearchPhone) qs.set('phone', ghlSearchPhone);
+      const { data } = await api.get<{
+        candidates: typeof ghlCandidates;
+        suggestedId: string | null;
+        suggestedSource: string | null;
+      }>(`/admin/highlevel/opportunities?${qs.toString()}`);
+      setGhlCandidates(data.candidates ?? []);
+      setGhlSuggestedSource(data.suggestedSource ?? null);
+      // Marketing-site leads: we already stored the opportunity when the lead landed, so
+      // pre-select it. Only overwrite an untouched selection — never stomp a staff choice.
+      if (data.suggestedId && !ghlOpportunityId) setGhlOpportunityId(data.suggestedId);
+    } catch {
+      setGhlCandidates([]);
+      setGhlSuggestedSource(null);
+    } finally {
+      setGhlLoading(false);
+    }
+  };
+
+  // Auto-look-up once we have an email and the agreement section is in play. Most deals come from
+  // the marketing site, where we already hold the opportunity id — nobody should have to search
+  // for something we know.
+  useEffect(() => {
+    if (!sendAgreement || !userEmail || ghlSearched) return;
+    const t = setTimeout(() => void searchGhl(), 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendAgreement, userEmail]);
+
   const [agreementSetupFee, setAgreementSetupFee] = useState('0');
   const [agreementCentres, setAgreementCentres] = useState('1');
   const [agreementLicences, setAgreementLicences] = useState<('assist' | 'automate' | 'connect')[]>(['assist']);
@@ -300,6 +361,22 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
         costPerMessageGbp: costPerMessage ? Number(costPerMessage) : undefined,
         agentScript,
         googlePlaceId: googlePlaceId || undefined,
+        // Sending an agreement means this is a sales-led deal: create the account but DON'T email
+        // the customer their login yet. They get invited from the onboarding pipeline once the
+        // agreement is signed and we've built the agent (which needs credentials we fetch from
+        // GarageHive/Tyresoft by hand). The invite mints a fresh password at that point.
+        deferWelcomeEmail: sendAgreement,
+        ghlOpportunityId: ghlOpportunityId || undefined,
+        billingMethod: paymentMethod,
+        ...(billingStart === 'trial' && Number(trialDays) > 0
+          ? { trialDays: Number(trialDays) }
+          : {}),
+        ...(billingStart === 'bookings'
+          ? {
+              requiresBookingActivation: true,
+              bookingsRequiredForActivation: Number(activationBookings) || 4,
+            }
+          : {}),
       });
 
       if (sendAgreement) {
@@ -857,6 +934,102 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
             </div>
 
             <div className="border-t border-slate-300 pt-4">
+              <h3 className="mb-1 text-sm font-semibold text-slate-600">How do they pay?</h3>
+              <div className="space-y-2">
+                {([
+                  ['directdebit', 'Direct Debit', 'They set up a GoCardless mandate when they first log in.'],
+                  ['stripe_card', 'Card', 'They enter card details when they first log in; Stripe bills monthly.'],
+                  ['invoice', 'Invoice', 'We email an invoice and they pay by bank transfer. No payment step at login.'],
+                ] as const).map(([key, label, hint]) => (
+                  <label key={key} className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="radio"
+                      name="paymentMethod"
+                      checked={paymentMethod === key}
+                      onChange={() => setPaymentMethod(key)}
+                      className="mt-1 border-slate-300 text-brand-600 focus:ring-brand-600"
+                    />
+                    <span>
+                      <span className="text-sm text-slate-700">{label}</span>
+                      <span className="block text-xs text-slate-500">{hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {paymentMethod === 'invoice' ? (
+                <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  They&rsquo;ll never be asked to set up payment in the portal, and won&rsquo;t appear in
+                  Direct Debit chasing. Invoicing them is a manual job.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="border-t border-slate-300 pt-4">
+              <h3 className="mb-1 text-sm font-semibold text-slate-600">When does billing start?</h3>
+              <div className="space-y-2">
+                {([
+                  ['mandate', 'Bill from when they set up payment', 'Standard. The cycle starts the day they complete payment setup.'],
+                  ['trial', 'Free trial until a date', 'Billing starts automatically the day the trial expires.'],
+                  ['bookings', 'Free until N confirmed bookings', 'Billing starts on the Nth booking — they only pay once it has demonstrably worked.'],
+                ] as const).map(([key, label, hint]) => (
+                  <label key={key} className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="radio"
+                      name="billingStart"
+                      checked={billingStart === key}
+                      onChange={() => setBillingStart(key)}
+                      className="mt-1 border-slate-300 text-brand-600 focus:ring-brand-600"
+                    />
+                    <span>
+                      <span className="text-sm text-slate-700">{label}</span>
+                      <span className="block text-xs text-slate-500">{hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              {billingStart === 'trial' ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    value={trialDays}
+                    onChange={(e) => setTrialDays(e.target.value)}
+                    className="w-20 rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900"
+                  />
+                  <span className="text-xs text-slate-500">
+                    days free
+                    {Number(trialDays) > 0
+                      ? ` — billing starts ${new Date(Date.now() + Number(trialDays) * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
+                      : ''}
+                  </span>
+                </div>
+              ) : null}
+              {billingStart === 'bookings' ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={activationBookings}
+                    onChange={(e) => setActivationBookings(e.target.value)}
+                    className="w-20 rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900"
+                  />
+                  <span className="text-xs text-slate-500">confirmed bookings before billing starts</span>
+                </div>
+              ) : null}
+
+              {billingStart !== 'mandate' && paymentMethod !== 'invoice' ? (
+                <p className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  They&rsquo;ll still set up their{' '}
+                  {paymentMethod === 'stripe_card' ? 'card' : 'Direct Debit'} at sign-in — nothing is
+                  collected until the free period ends.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="border-t border-slate-300 pt-4">
               <div className="flex items-center justify-between mb-1">
                 <h3 className="text-sm font-semibold text-slate-600">Service agreement</h3>
                 <label className="inline-flex items-center gap-2 text-xs text-slate-600">
@@ -872,6 +1045,71 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
               <p className="mb-3 text-xs text-slate-500">
                 We&rsquo;ll generate a draft and email the customer a magic-link to sign. Monthly licence fee defaults to the subscription above.
               </p>
+
+              {sendAgreement && (
+                <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <strong>The customer will NOT get their login yet.</strong> The account is created
+                  silently and the deal enters the onboarding pipeline. Once the agreement is signed
+                  and you&rsquo;ve built the agent, invite them from{' '}
+                  <span className="font-medium">Admin &rsaquo; Agreements &rsaquo; Pipeline</span> —
+                  that&rsquo;s what emails their login.
+                </p>
+              )}
+
+              {sendAgreement && (
+                <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-600">HighLevel opportunity</label>
+                    <button
+                      type="button"
+                      onClick={() => void searchGhl()}
+                      disabled={ghlLoading || (!userEmail && !ghlSearchPhone)}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                    >
+                      {ghlLoading ? 'Searching…' : 'Find opportunities'}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Link the opportunity your team is already working, so the portal can move it
+                    through the pipeline as the deal progresses. We never create a new one.
+                  </p>
+                  <input
+                    type="tel"
+                    value={ghlSearchPhone}
+                    onChange={(e) => setGhlSearchPhone(e.target.value)}
+                    placeholder="Also search by phone (optional) — finds contacts with no email"
+                    className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900"
+                  />
+                  {ghlSuggestedSource && ghlOpportunityId ? (
+                    <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                      Matched automatically from {ghlSuggestedSource} — change it below if that&rsquo;s wrong.
+                    </p>
+                  ) : null}
+                  {ghlSearched && !ghlLoading ? (
+                    ghlCandidates.length ? (
+                      <select
+                        value={ghlOpportunityId}
+                        onChange={(e) => setGhlOpportunityId(e.target.value)}
+                        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                      >
+                        <option value="">Don&rsquo;t link an opportunity</option>
+                        {ghlCandidates.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                            {typeof c.monetaryValue === 'number' ? ` — £${c.monetaryValue}` : ''}
+                            {c.contactEmail ? ` (${c.contactEmail})` : ' (no email on contact)'}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <p className="mt-2 text-xs text-amber-700">
+                        No opportunities found for that email/phone. You can link it later from the
+                        onboarding pipeline.
+                      </p>
+                    )
+                  ) : null}
+                </div>
+              )}
 
               {sendAgreement && (
                 <div className="grid grid-cols-2 gap-3">

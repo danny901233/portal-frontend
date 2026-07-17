@@ -7,6 +7,7 @@ import { prisma } from '../db.js';
 import { sendEmail } from '../utils/email.js';
 import { TEMPLATE_VERSION } from '../services/agreementTemplate.js';
 import { pushSignupToHighlevel, updateContact } from '../services/highlevel.js';
+import { getStripeClient, stripeConfigured } from '../services/stripe.js';
 import { ensureAdminAccessToGarage } from './admin.js';
 import { fetchPlaceDetails } from '../utils/googlePlaces.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
@@ -59,6 +60,37 @@ export async function createAccountFromPending(
   if (pending.createdGarageId) {
     const g = await prisma.garage.findUnique({ where: { id: pending.createdGarageId }, select: { id: true, name: true } });
     return g ? { garageId: g.id, garageName: g.name, userEmail: pending.email } : null;
+  }
+
+  // --- no card, no account -------------------------------------------------------------------
+  // Ask Stripe, every time. The only public caller (/public/signup-complete) proves nothing but
+  // possession of an id the customer already has, so this is the single thing standing between
+  // "signed the agreement" and "free account with the payment gate turned off".
+  if (!pending.stripeCustomerId) {
+    console.error(
+      `[PUBLIC_SIGNUP] refusing to create an account for ${pending.email} — no Stripe customer on the pending row, so no card was ever started`,
+    );
+    return null;
+  }
+  if (stripeConfigured()) {
+    try {
+      const cards = await getStripeClient().paymentMethods.list({
+        customer: pending.stripeCustomerId,
+        type: 'card',
+        limit: 1,
+      });
+      if (!cards.data.length) {
+        console.error(
+          `[PUBLIC_SIGNUP] refusing to create an account for ${pending.email} — Stripe customer ${pending.stripeCustomerId} has no card attached`,
+        );
+        return null;
+      }
+    } catch (err) {
+      // Fail CLOSED. A Stripe outage delaying one signup is recoverable; handing out an
+      // unbilled account because we couldn't check is not.
+      console.error(`[PUBLIC_SIGNUP] card check failed for ${pending.email} — refusing to create the account:`, err);
+      return null;
+    }
   }
 
   const businessName = pending.businessName;
@@ -207,11 +239,34 @@ router.post('/public-signup', async (req: Request, res: Response) => {
         where: { id: pending.id },
         data: { name: name ?? pending.name, email: normalizedEmail, contactPhone: phone ?? pending.contactPhone, product: 'assist', status: 'pending' },
       });
-      // Enrich the existing Abandoned-checkout HL contact with the real name + email + phone
-      // (replaces the placeholder from the garage-search step) — updates by id, no duplicate.
+      // The garage-search step deliberately creates nothing in HighLevel (it has no email, and a
+      // phone-only contact is a guaranteed duplicate). So this is normally where the contact is
+      // born — with an email, which lets HighLevel match any existing "talk to us" contact for
+      // the same garage instead of making a second one.
       if (pending.ghlContactId) {
+        // Already linked (an older row, or the enrich step ran) — update by id, never upsert.
         void updateContact(pending.ghlContactId, { name: name || businessName, email: normalizedEmail, phone: phone || undefined })
           .catch((e) => console.error('[PUBLIC_SIGNUP] HL contact enrich failed:', e));
+      } else {
+        const pr = pending;
+        void pushSignupToHighlevel({
+          name: name || businessName,
+          email: normalizedEmail,
+          phone: phone || pr.phoneNumber || undefined,
+          companyName: businessName,
+          website: pr.websiteUrl ?? undefined,
+          source: 'website-getstarted-assist',
+          tags: ['website-signup', 'abandoned-checkout', 'assist'],
+          opportunityName: `${businessName} — Assist`,
+          kind: 'abandoned',
+        }).then((r) => {
+          if (r.opportunityId || r.contactId) {
+            return prisma.pendingSignup.update({
+              where: { id: pr.id },
+              data: { ghlOpportunityId: r.opportunityId, ghlContactId: r.contactId },
+            });
+          }
+        }).catch((e) => console.error('[PUBLIC_SIGNUP] HL contact create failed:', e));
       }
     } else {
       const place = googlePlaceId ? await fetchPlaceDetails(googlePlaceId) : null;

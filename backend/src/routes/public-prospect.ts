@@ -62,14 +62,14 @@ async function syncProspectToHl(pending: {
       phone: realPhone,
       website: pending.websiteUrl ?? undefined,
     });
-  } else {
-    // First contact for this prospect. HL needs a phone OR email; if we have neither yet (no
-    // Google phone, no email until the next step), use a UNIQUE placeholder email so the
-    // opportunity is still created from just the business name. It's overwritten on enrich.
-    const placeholderEmail = !realEmail && !realPhone ? `prospect-${pending.id}@pending.receptionmate.co.uk` : undefined;
+  } else if (realEmail) {
+    // First contact for this prospect, and only ever WITH an email. Email is the one key shared
+    // by every form we run, so creating on anything else (a Google phone, a placeholder address)
+    // produces a contact nothing can ever match — which is exactly how one garage ended up as
+    // two contacts with the money on the wrong one.
     const contact = await upsertContact({
       name: pending.name || pending.businessName,
-      email: realEmail || placeholderEmail,
+      email: realEmail,
       phone: realPhone,
       companyName: pending.businessName,
       website: pending.websiteUrl ?? undefined,
@@ -77,6 +77,9 @@ async function syncProspectToHl(pending: {
       tags: ['website-signup', 'abandoned-checkout'],
     });
     contactId = contact.contactId;
+  } else {
+    // No email yet — nothing safe to create. Do nothing rather than plant a duplicate.
+    return { opportunityId: pending.ghlOpportunityId, contactId: null };
   }
 
   let opportunityId = pending.ghlOpportunityId;
@@ -118,18 +121,11 @@ router.post('/public/prospect', async (req: Request, res: Response) => {
       },
     });
 
-    // Fire the abandoned-checkout opportunity (best-effort; won't block the response).
-    void syncProspectToHl(pending)
-      .then(({ opportunityId, contactId }) => {
-        if (opportunityId || contactId) {
-          return prisma.pendingSignup.update({
-            where: { id: pending.id },
-            data: { ghlOpportunityId: opportunityId, ghlContactId: contactId },
-          });
-        }
-      })
-      .catch((e) => console.error('[PROSPECT] HL abandoned opp failed:', e));
-
+    // Deliberately NO HighLevel sync here. At this point we know the garage but not the person,
+    // so the only key available is the Google phone number — and a phone-only contact can never
+    // be matched by the email-keyed upsert every other form uses, which guaranteed a duplicate
+    // contact per garage and left the £ on whichever one had no email. The contact is created
+    // once we have an email (see /public-signup), which is also the point it becomes chaseable.
     return res.json({ ok: true, prospectId: pending.id, signToken });
   } catch (err) {
     console.error('[PROSPECT] create failed:', err);

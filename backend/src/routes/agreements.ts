@@ -952,6 +952,96 @@ router.post('/admin/agreements/:id/mark-external', authenticate, requireAdmin, a
  * GET /api/admin/agreements
  * List agreements for staff dashboard.
  */
+/**
+ * GET /api/admin/agreements/:id/view
+ *
+ * The exact document — the signed HTML snapshot where one exists, else the live render of the
+ * stored terms. Returned as a full HTML page so staff can read (and print) the actual contract,
+ * not just its status. The snapshot has always been kept; nothing ever served it until now.
+ */
+router.get('/admin/agreements/:id/view', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const agreement = await prisma.agreement.findUnique({ where: { id: req.params.id }, include: { user: true } });
+  if (!agreement) return res.status(404).send('Agreement not found');
+
+  const html = agreement.templateSnapshot && agreement.templateSnapshot.length > 0
+    ? agreement.templateSnapshot
+    : buildSnapshot({
+        type: agreement.type,
+        clientName: agreement.clientName,
+        setupFeeGbp: agreement.setupFeeGbp,
+        licenceFeeGbp: agreement.licenceFeeGbp,
+        messagingFeeGbp: agreement.messagingFeeGbp,
+        freeTrialDays: agreement.freeTrialDays,
+        freeUntilBookings: agreement.freeUntilBookings,
+        centresCount: agreement.centresCount,
+        licences: agreement.licences,
+        goLiveDate: agreement.goLiveDate,
+      });
+
+  const banner = agreement.signedAt
+    ? `Signed by ${agreement.signedByName ?? '—'} on ${new Date(agreement.signedAt).toLocaleString('en-GB')} · v${agreement.version}`
+    : `Status: ${agreement.status} · not yet signed · v${agreement.version}`;
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.send(`<!doctype html><html><head><meta charset="utf-8">
+    <title>Agreement — ${agreement.clientName}</title><style>${AGREEMENT_CSS}
+    body{margin:0;padding:24px;background:#f1f2f9}
+    .rm-view-bar{max-width:820px;margin:0 auto 16px;padding:10px 16px;border-radius:10px;
+      background:#eef0fe;border:1px solid #dde0fd;color:#281eb0;font:13px/1.5 -apple-system,sans-serif}
+    .rm-view-doc{max-width:820px;margin:0 auto;background:#fff;padding:32px;border-radius:10px}
+    @media print{.rm-view-bar{display:none}.rm-view-doc{box-shadow:none;padding:0}body{padding:0;background:#fff}}
+    </style></head><body>
+    <div class="rm-view-bar">${banner}</div>
+    <div class="rm-view-doc">${html}</div></body></html>`);
+});
+
+/**
+ * GET /api/admin/agreements/:id/pdf
+ *
+ * The signed PDF, regenerated on demand from the same snapshot + audit trail that was emailed at
+ * signing — so it's byte-for-byte the document the customer holds, available any time.
+ */
+router.get('/admin/agreements/:id/pdf', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const agreement = await prisma.agreement.findUnique({ where: { id: req.params.id }, include: { user: true } });
+  if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+
+  const pdf = await renderAgreementPdf({
+    bodyHtml: agreement.templateSnapshot || null,
+    clientName: agreement.clientName,
+    setupFeeGbp: agreement.setupFeeGbp,
+    messagingFeeGbp: agreement.messagingFeeGbp,
+    licenceFeeGbp: agreement.licenceFeeGbp,
+    freeTrialDays: agreement.freeTrialDays,
+    freeUntilBookings: agreement.freeUntilBookings,
+    centresCount: agreement.centresCount,
+    licences: agreement.licences as LicenceTier[],
+    goLiveDate: agreement.goLiveDate,
+    effectiveDate: agreement.signedAt,
+    signedByName: agreement.signedByName ?? '',
+    signedByPosition: '',
+    signatureImage: agreement.signatureImage,
+    audit: {
+      agreementId: agreement.id,
+      templateVersion: agreement.version,
+      sentToEmail: agreement.sentToEmail,
+      sentToSms: agreement.sentToSms,
+      sentAt: agreement.sentAt,
+      firstViewedAt: agreement.firstViewedAt,
+      lastViewedAt: agreement.lastViewedAt,
+      viewCount: agreement.viewCount,
+      viewedFromIp: agreement.viewedFromIp,
+      viewedUserAgent: agreement.viewedUserAgent,
+      signedFromIp: agreement.signedFromIp,
+      signedUserAgent: agreement.signedUserAgent,
+      signerEmail: agreement.signedByEmail,
+    },
+  });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="ReceptionMate-Agreement-${slugify(agreement.clientName)}.pdf"`);
+  return res.send(pdf);
+});
+
 router.get('/admin/agreements', authenticate, requireAdmin, async (req: Request, res: Response) => {
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
   const agreements = await prisma.agreement.findMany({

@@ -1,8 +1,8 @@
 export default function TermsAndConditionsPage() {
   return (
-    <div className="min-h-screen bg-slate-950 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-white py-12 px-4 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-2xl shadow-slate-900/40">
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10">
           <div className="mb-8">
             <img
               src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
@@ -11,13 +11,13 @@ export default function TermsAndConditionsPage() {
             />
           </div>
 
-          <h1 className="mb-8 text-center text-3xl font-bold text-slate-100">
+          <h1 className="mb-8 text-center text-3xl font-bold text-slate-900">
             Terms and Conditions
           </h1>
 
-          <div className="space-y-6 text-slate-300">
+          <div className="space-y-6 text-slate-600">
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">1. Introduction</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">1. Introduction</h2>
               <p className="leading-relaxed">
                 These Terms and Conditions govern your use of ReceptionMate's AI-powered voice reception services 
                 (the "Service"). By accessing or using our Service, you agree to be bound by these Terms.
@@ -25,7 +25,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">2. Service Description</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">2. Service Description</h2>
               <p className="leading-relaxed">
                 ReceptionMate provides AI-powered telephone reception and booking services for automotive service 
                 businesses. The Service includes call handling, appointment booking, message taking, and integration 
@@ -34,7 +34,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">3. Account Registration</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">3. Account Registration</h2>
               <p className="leading-relaxed mb-2">
                 To use the Service, you must:
               </p>
@@ -47,7 +47,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">4. Subscription and Payment</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">4. Subscription and Payment</h2>
               <p className="leading-relaxed mb-2">
                 Our Service operates on a subscription basis:
               </p>
@@ -61,7 +61,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">5. Cancellation and Refunds</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">5. Cancellation and Refunds</h2>
               <p className="leading-relaxed mb-2">
                 You may cancel your subscription at any time:
               </p>
@@ -74,7 +74,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">6. Service Level and Availability</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">6. Service Level and Availability</h2>
               <p className="leading-relaxed mb-2">
                 We strive to provide reliable service but cannot guarantee:
               </p>
@@ -90,7 +90,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">7. Data and Privacy</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">7. Data and Privacy</h2>
               <p className="leading-relaxed mb-2">
                 Your use of the Service involves:
               </p>
@@ -107,7 +107,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">8. Acceptable Use</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">8. Acceptable Use</h2>
               <p className="leading-relaxed mb-2">
                 You agree not to:
               </p>
@@ -121,7 +121,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">9. Intellectual Property</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">9. Intellectual Property</h2>
               <p className="leading-relaxed">
                 All intellectual property rights in the Service, including software, designs, trademarks, and 
                 content, remain the property of ReceptionMate or its licensors. You receive only a limited 
@@ -130,7 +130,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">10. Limitation of Liability</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">10. Limitation of Liability</h2>
               <p className="leading-relaxed">
                 To the maximum extent permitted by law, ReceptionMate shall not be liable for any indirect, 
                 incidental, consequential, or punitive damages arising from your use of the Service. Our total 
@@ -140,7 +140,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">11. Modifications to Terms</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">11. Modifications to Terms</h2>
               <p className="leading-relaxed">
                 We may modify these Terms at any time by posting updated terms on this page. Continued use of 
                 the Service after changes constitutes acceptance of the modified Terms. We will notify you of 
@@ -149,7 +149,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">12. Termination</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">12. Termination</h2>
               <p className="leading-relaxed">
                 We may suspend or terminate your access to the Service immediately if you breach these Terms, 
                 fail to pay fees, or engage in fraudulent or abusive behavior. Upon termination, you must cease 
@@ -158,7 +158,7 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">13. Governing Law</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">13. Governing Law</h2>
               <p className="leading-relaxed">
                 These Terms are governed by the laws of England and Wales. Any disputes shall be subject to the 
                 exclusive jurisdiction of the courts of England and Wales.
@@ -166,18 +166,18 @@ export default function TermsAndConditionsPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-semibold text-slate-100">14. Contact Information</h2>
+              <h2 className="mb-3 text-xl font-semibold text-slate-900">14. Contact Information</h2>
               <p className="leading-relaxed">
                 For questions about these Terms, please contact us at:
               </p>
-              <div className="mt-2 rounded-lg bg-slate-800/50 p-4">
-                <p className="font-medium text-slate-100">ReceptionMate</p>
-                <p>Email: <a href="mailto:admin@receptionmate.ai" className="text-sky-400 hover:text-sky-300">admin@receptionmate.ai</a></p>
-                <p>Website: <a href="https://portal.receptionmate.co.uk" className="text-sky-400 hover:text-sky-300">portal.receptionmate.co.uk</a></p>
+              <div className="mt-2 rounded-lg bg-slate-50 p-4">
+                <p className="font-medium text-slate-900">ReceptionMate</p>
+                <p>Email: <a href="mailto:admin@receptionmate.ai" className="text-brand-600 hover:text-brand-700">admin@receptionmate.ai</a></p>
+                <p>Website: <a href="https://portal.receptionmate.co.uk" className="text-brand-600 hover:text-brand-700">portal.receptionmate.co.uk</a></p>
               </div>
             </section>
 
-            <div className="mt-8 border-t border-slate-700 pt-6 text-center text-sm text-slate-400">
+            <div className="mt-8 border-t border-slate-300 pt-6 text-center text-sm text-slate-500">
               <p>Last updated: February 25, 2026</p>
               <p className="mt-2">© 2026 ReceptionMate. All rights reserved.</p>
             </div>
@@ -186,7 +186,7 @@ export default function TermsAndConditionsPage() {
           <div className="mt-8 text-center">
             <a
               href="/login"
-              className="inline-block rounded-lg bg-sky-500 px-6 py-3 text-sm font-semibold text-white transition-transform hover:bg-sky-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              className="inline-block rounded-lg bg-brand-600 px-6 py-3 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
             >
               Back to Portal
             </a>

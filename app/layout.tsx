@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
+import Script from "next/script";
 import "./globals.css";
 import Providers from "./providers";
 import AppShell from "./components/AppShell";
@@ -8,6 +9,15 @@ import AppShell from "./components/AppShell";
 export const metadata: Metadata = {
   title: "ReceptionMate Portal",
   description: "Operational dashboard for AI call logs",
+};
+
+// viewport-fit=cover makes the iOS safe-area insets resolve to real values so
+// the fixed bottom nav clears the home indicator / rounded corners instead of
+// being clipped (env(safe-area-inset-*) is 0 without this).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({
@@ -25,6 +35,7 @@ export default async function RootLayout({
       <html lang="en">
         <head>
           <style>{`
+            :root, html, body { color-scheme: light !important; background: transparent !important; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { overflow: hidden; }
           `}</style>
@@ -37,6 +48,14 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
+        {/* Google tag (gtag.js) — Google Ads conversion tracking */}
+        <Script src="https://www.googletagmanager.com/gtag/js?id=AW-16449651971" strategy="afterInteractive" />
+        <Script id="gtag-init" strategy="afterInteractive">{`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'AW-16449651971');
+        `}</Script>
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>

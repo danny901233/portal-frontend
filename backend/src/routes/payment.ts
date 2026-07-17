@@ -4,6 +4,9 @@ import { z } from 'zod';
 import { createRequire } from 'module';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { syncBusinessBillingFromUser } from '../utils/billingSync.js';
+import { getStripeClient } from '../services/stripe.js';
+import { setOnboardingStageForUser } from '../utils/onboardingStage.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -28,6 +31,100 @@ const getGocardlessClient = () => {
 };
 
 // POST /api/payment/create-mandate-flow
+// Which rail is this customer on? The gate (/setup-payment) asks before deciding what to show.
+// Sourced from the BUSINESS — the paying entity — not the user.
+router.get('/payment/method', authenticate, async (req: Request, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { garageAccessIds: true },
+    });
+    const garage = user?.garageAccessIds?.length
+      ? await prisma.garage.findFirst({
+          where: { id: { in: user.garageAccessIds } },
+          select: { business: { select: { billingMethod: true } } },
+        })
+      : null;
+    // Default to directdebit: that's the historical behaviour and every existing customer's rail.
+    return res.json({ billingMethod: garage?.business?.billingMethod ?? 'directdebit' });
+  } catch (e) {
+    console.error('[PAYMENT] method lookup failed:', e);
+    return res.json({ billingMethod: 'directdebit' });
+  }
+});
+
+// Card rail: a Stripe Checkout for THIS garage's agreed monthly fee.
+//
+// Deliberately builds the price inline from garage.subscriptionCostGbp rather than reusing a
+// fixed Stripe price id: sales-led deals are individually priced (£399, £200, whatever was
+// agreed on the contract), so a hardcoded price — which is what the Connect paywall uses — would
+// charge the wrong amount. VAT is added here because subscriptionCostGbp is stored ex-VAT.
+router.post('/payment/card-checkout', authenticate, async (req: Request, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { id: true, email: true, garageAccessIds: true },
+    });
+    if (!user?.garageAccessIds?.length) return res.status(400).json({ error: 'no_garage' });
+
+    const garage = await prisma.garage.findFirst({
+      where: { id: { in: user.garageAccessIds } },
+      select: {
+        id: true,
+        name: true,
+        subscriptionCostGbp: true,
+        vatRate: true,
+        stripeCustomerId: true,
+        business: { select: { billingMethod: true } },
+      },
+    });
+    if (!garage) return res.status(404).json({ error: 'garage_not_found' });
+    if (garage.business?.billingMethod !== 'stripe_card') {
+      // Refuse rather than quietly charge a card customer who isn't one — the rail is set by staff
+      // on the Business and this endpoint must not be a way around it.
+      return res.status(400).json({ error: 'not_a_card_customer', billingMethod: garage.business?.billingMethod });
+    }
+    if (!garage.subscriptionCostGbp || garage.subscriptionCostGbp <= 0) {
+      return res.status(400).json({ error: 'no_subscription_price_configured' });
+    }
+
+    const gross = Math.round(garage.subscriptionCostGbp * (1 + (garage.vatRate ?? 0.2)) * 100);
+    const stripe = getStripeClient();
+    const metadata: Record<string, string> = {
+      kind: 'card-billing',
+      garageId: garage.id,
+      userId: user.id,
+      businessName: garage.name.slice(0, 100),
+    };
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      ...(garage.stripeCustomerId ? { customer: garage.stripeCustomerId } : { customer_email: user.email }),
+      line_items: [
+        {
+          price_data: {
+            currency: 'gbp',
+            product_data: { name: `ReceptionMate — ${garage.name}` },
+            unit_amount: gross,
+            recurring: { interval: 'month' },
+          },
+          quantity: 1,
+        },
+      ],
+      payment_method_collection: 'always',
+      subscription_data: { metadata },
+      metadata,
+      success_url: `${process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk'}/calls?showSetup=true`,
+      cancel_url: `${process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk'}/setup-payment`,
+    });
+    console.log(`[PAYMENT] card checkout for ${garage.name}: £${(gross / 100).toFixed(2)}/mo incl VAT`);
+    return res.json({ url: session.url });
+  } catch (e: any) {
+    console.error('[PAYMENT] card checkout failed:', e?.message);
+    return res.status(500).json({ error: 'checkout_failed' });
+  }
+});
+
 router.post('/payment/create-mandate-flow', authenticate, async (req: Request, res: Response) => {
   try {
     if (!req.user) {
@@ -129,7 +226,22 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       },
     });
 
-    // Determine if billing should start now or wait for activation/trial end
+    // Belt-and-braces: set billing dates whenever the user has at least one garage
+    // that isn't gated by trial/booking-activation — regardless of whether the
+    // subscription cost is non-zero yet. Historically, gating on `subscriptionCostGbp > 0`
+    // here meant any customer who completed Direct Debit before the admin finished
+    // pricing-config (Speedy Spanners, VRS Midlands) ended up with billingCycleStartDate
+    // and nextBillingDate permanently null and invisible to the scheduler. Onboarding
+    // now requires pricing up-front, but this widened guard ensures any future edge case
+    // still gets a billing cycle assigned.
+    const hasBillableGarage = garages.some(g => {
+      const inTrial = g.trialEndDate && g.trialEndDate > now;
+      const needsActivation = g.requiresBookingActivation;
+      return !inTrial && !needsActivation;
+    });
+
+    // Separate flag for whether to actually charge the first month — only true when
+    // there's at least one garage with a real subscription cost.
     const hasActiveGarages = garages.some(g => {
       const inTrial = g.trialEndDate && g.trialEndDate > now;
       const needsActivation = g.requiresBookingActivation;
@@ -139,11 +251,13 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
     let billingCycleStartDate: Date | null = null;
     let nextBillingDate: Date | null = null;
 
-    // Only set billing dates if there are active garages (no trial, no activation needed)
-    if (hasActiveGarages) {
+    if (hasBillableGarage) {
       billingCycleStartDate = now;
       nextBillingDate = new Date(now);
       nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+    }
+
+    if (hasActiveGarages) {
 
       // Generate first invoices for active garages
       const activeGarages = garages.filter(g => {
@@ -168,6 +282,7 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
           data: {
             garageId: garage.id,
             businessId: garage.businessId,
+            userId: user.id,
             periodStart: now,
             periodEnd: nextBillingDate!,
             minutesUsed: 0,
@@ -246,6 +361,25 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
         nextBillingDate: nextBillingDate,
       },
     });
+    await syncBusinessBillingFromUser(user.id); // Phase A: mirror mandate onto the business
+
+    // Mandate done => the onboarding is finished for a straight DD deal. This is the Direct Debit
+    // mirror of what the Stripe webhook does for card customers. Garages on a trial or
+    // booking-activation aren't live yet — their billing starts on a later event — so they park
+    // at mandate_pending and trackConfirmedBooking / activateTrialEndedGarages finishes the job.
+    void (async () => {
+      const pending = await prisma.garage.findFirst({
+        where: {
+          id: { in: user.garageAccessIds ?? [] },
+          onboardingStage: { not: 'live' },
+          OR: [{ requiresBookingActivation: true }, { trialEndDate: { gt: new Date() } }],
+        },
+        select: { id: true },
+      });
+      await setOnboardingStageForUser(user.id, pending ? 'mandate_pending' : 'live', {
+        reason: 'Direct Debit mandate confirmed',
+      });
+    })();
 
     res.json({
       success: true,
@@ -401,6 +535,7 @@ router.post('/payment/confirm-mandate-update', authenticate, async (req: Request
         mustSetupPayment: false,
       },
     });
+    await syncBusinessBillingFromUser(user.id); // Phase A: mirror mandate onto the business
 
     console.log(`Updated mandate for user ${user.id}: ${oldMandateId} → ${newMandateId}`);
 

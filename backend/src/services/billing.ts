@@ -1,5 +1,8 @@
 import { prisma } from '../db.js';
 import { createRequire } from 'module';
+import { syncBusinessBillingFromUser, resolveChargeMandate } from '../utils/billingSync.js';
+import { setOnboardingStage } from '../utils/onboardingStage.js';
+import { resolveBillingUser } from '../utils/billingUser.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -33,12 +36,14 @@ const getGocardlessClient = () => {
 export interface UsageSummary {
   minutesUsed: number;
   smsCount: number;
+  notificationSmsCount: number; // messaging-notification SMS sent, billed £0.20 each
 }
 
 export interface BillingCalculation {
   subscriptionAmount: number; // in pence
   minutesAmount: number;
   smsAmount: number;
+  messagingAmount: number;
   subtotal: number;
   vatAmount: number;
   total: number;
@@ -51,6 +56,10 @@ export interface BillingCalculation {
     smsCount: number;
     costPerSmsGbp: number;
     vatRate: number;
+    messagingSubscriptionCostGbp: number;
+    messagingMessagesCount: number;
+    includedMessages: number;
+    costPerMessageGbp: number;
   };
 }
 
@@ -79,8 +88,19 @@ export async function calculateUsage(
   const totalSeconds = calls.reduce((sum, call) => sum + call.durationSeconds, 0);
   const minutesUsed = Math.ceil(totalSeconds / 60);
 
-  // Calculate SMS count
+  // Calculate SMS count (booking-link SMS)
   const smsCount = await prisma.smsBookingLink.count({
+    where: {
+      garageId,
+      createdAt: {
+        gte: periodStart,
+        lte: periodEnd,
+      },
+    },
+  });
+
+  // Messaging-notification SMS actually sent this period (billed £0.20 each)
+  const notificationSmsCount = await prisma.messagingNotificationSms.count({
     where: {
       garageId,
       createdAt: {
@@ -93,6 +113,7 @@ export async function calculateUsage(
   return {
     minutesUsed,
     smsCount,
+    notificationSmsCount,
   };
 }
 
@@ -110,6 +131,9 @@ export async function calculateBilling(
       includedMinutes: true,
       costPerMinuteGbp: true,
       vatRate: true,
+      messagingSubscriptionCostGbp: true,
+      includedMessages: true,
+      costPerMessageGbp: true,
     },
   });
 
@@ -120,12 +144,19 @@ export async function calculateBilling(
   // Calculate overage minutes
   const overageMinutes = Math.max(0, usage.minutesUsed - garage.includedMinutes);
 
+  // Calculate messaging overage
+  const messagingMessagesCount = (usage as any).messagingMessagesCount ?? 0;
+  const overageMessages = Math.max(0, messagingMessagesCount - (garage.includedMessages ?? 0));
+  const messagingSubscriptionAmount = Math.round((garage.messagingSubscriptionCostGbp ?? 0) * 100);
+  const messagingOverageAmount = Math.round(overageMessages * (garage.costPerMessageGbp ?? 0) * 100);
+  const messagingAmount = messagingSubscriptionAmount + messagingOverageAmount;
+
   // Calculate amounts in pence for precision
   const subscriptionAmount = Math.round(garage.subscriptionCostGbp * 100);
   const minutesAmount = Math.round(overageMinutes * garage.costPerMinuteGbp * 100);
   const smsAmount = Math.round(usage.smsCount * 0.99 * 100); // £0.99 per SMS
 
-  const subtotal = subscriptionAmount + minutesAmount + smsAmount;
+  const subtotal = subscriptionAmount + minutesAmount + smsAmount + messagingAmount;
   const vatAmount = Math.round(subtotal * garage.vatRate);
   const total = subtotal + vatAmount;
 
@@ -133,6 +164,7 @@ export async function calculateBilling(
     subscriptionAmount,
     minutesAmount,
     smsAmount,
+    messagingAmount,
     subtotal,
     vatAmount,
     total,
@@ -145,6 +177,10 @@ export async function calculateBilling(
       smsCount: usage.smsCount,
       costPerSmsGbp: 0.99,
       vatRate: garage.vatRate,
+      messagingSubscriptionCostGbp: garage.messagingSubscriptionCostGbp ?? 0,
+      messagingMessagesCount,
+      includedMessages: garage.includedMessages ?? 0,
+      costPerMessageGbp: garage.costPerMessageGbp ?? 0,
     },
   };
 }
@@ -345,20 +381,19 @@ export async function trackConfirmedBooking(garageId: string) {
 
     console.log(`🎉 Garage ${garage.name} reached ${garage.bookingsRequiredForActivation} bookings - subscription activated!`);
 
-    // Set billing cycle start date for the user if not already set
-    const user = await prisma.user.findFirst({
-      where: {
-        garageAccessIds: {
-          has: garageId,
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        billingCycleStartDate: true,
-        nextBillingDate: true,
-      },
+    // Activation is what makes a "free until X bookings" deal live: the product has demonstrably
+    // worked and billing starts. No-ops for garages already at 'live' (i.e. everyone not in the
+    // sales-led pipeline).
+    void setOnboardingStage(garageId, 'live', {
+      monetaryValueGbp: garage.subscriptionCostGbp ?? undefined,
+      reason: `reached ${garage.bookingsRequiredForActivation} confirmed bookings`,
     });
+
+    // Start the billing cycle on the MANDATE HOLDER. A bare findFirst here used to return
+    // whichever user Postgres felt like — measured on live data that's a different person from
+    // the payer on 8 of 46 garages — and findUsersDueForBilling only selects users WITH a
+    // mandate, so dates on anyone else are dead and the customer is silently never invoiced.
+    const user = await resolveBillingUser(garageId);
 
     if (user && !user.billingCycleStartDate) {
       // Set nextBillingDate to now so user gets billed immediately (not 1 month later)
@@ -369,6 +404,7 @@ export async function trackConfirmedBooking(garageId: string) {
           nextBillingDate: now, // Bill immediately when activation threshold reached
         },
       });
+      await syncBusinessBillingFromUser(user.id); // Phase A: mirror cycle dates onto the business
 
       console.log(`✓ Billing cycle started for ${user.email} - first billing on ${now.toISOString().split('T')[0]}`);
     }
@@ -411,20 +447,12 @@ export async function activateTrialEndedGarages() {
   const results = [];
 
   for (const garage of garages) {
-    // Find user with this garage
-    const user = await prisma.user.findFirst({
-      where: {
-        garageAccessIds: {
-          has: garage.id,
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        billingCycleStartDate: true,
-        nextBillingDate: true,
-      },
-    });
+    // Same as trackConfirmedBooking: only the MANDATE HOLDER can actually be billed, because
+    // findUsersDueForBilling selects on gocardlessMandateId != null. A bare findFirst here used
+    // to return whichever user Postgres felt like — measured on live data that's a different
+    // person from the payer on 8 of 46 garages — and dates on a non-payer are never picked up,
+    // so the trial ends and the customer is silently never invoiced.
+    const user = await resolveBillingUser(garage.id);
 
     if (user && !user.billingCycleStartDate) {
       // Start billing cycle from when trial ended
@@ -438,6 +466,7 @@ export async function activateTrialEndedGarages() {
           nextBillingDate: trialEndDate, // Bill immediately when trial ends
         },
       });
+      await syncBusinessBillingFromUser(user.id); // Phase A: mirror cycle dates onto the business
 
       results.push({
         garageId: garage.id,
@@ -456,16 +485,25 @@ export async function activateTrialEndedGarages() {
 }
 
 /**
- * Find users who are due for billing (nextBillingDate is today or in the past)
- * Anniversary billing - users are billed on the same day each month as signup
+ * Find users who are due for billing.
+ * Submits 3 working days early so GoCardless collects on the actual billing date.
  */
 export async function findUsersDueForBilling() {
   const now = new Date();
 
+  // Add 3 working days to today so payment lands on the billing date
+  const lookAhead = new Date(now);
+  let daysAdded = 0;
+  while (daysAdded < 3) {
+    lookAhead.setDate(lookAhead.getDate() + 1);
+    const day = lookAhead.getDay();
+    if (day !== 0 && day !== 6) daysAdded++; // skip weekends
+  }
+
   const users = await prisma.user.findMany({
     where: {
       nextBillingDate: {
-        lte: now,
+        lte: lookAhead,
       },
       gocardlessMandateId: {
         not: null,
@@ -498,6 +536,7 @@ export async function generateInvoicesForUser(userId: string) {
       billingCycleStartDate: true,
       nextBillingDate: true,
       garageAccessIds: true,
+      gocardlessMandateId: true,
     },
   });
 
@@ -531,6 +570,10 @@ export async function generateInvoicesForUser(userId: string) {
           bookingsRequiredForActivation: true,
           activationBookingsCount: true,
           subscriptionActivatedAt: true,
+          hasMessagingAccess: true,
+          messagingSubscriptionCostGbp: true,
+          includedMessages: true,
+          costPerMessageGbp: true,
         },
       });
 
@@ -584,33 +627,67 @@ export async function generateInvoicesForUser(userId: string) {
       const overageMinutes = Math.max(0, usage.minutesUsed - garage.includedMinutes);
       const minutesAmount = Math.round(overageMinutes * garage.costPerMinuteGbp * 100);
       const smsAmount = Math.round(usage.smsCount * 0.99 * 100);
+      // Messaging-notification SMS: £0.20 each (only SMS notifications are chargeable).
+      const notificationSmsAmount = Math.round(usage.notificationSmsCount * 0.2 * 100);
 
-      const subtotal = subscriptionAmount + minutesAmount + smsAmount;
+      // Messaging subscription (webchat / WhatsApp). Billed like the voice subscription: a flat
+      // monthly fee for garages with messaging access, suppressed while booking-activation is
+      // pending. Previously this was omitted entirely, so messaging garages (e.g. EAC Telford,
+      // Elite Landrover at £250/mo) were silently under-billed. Per-message overage stays 0 until
+      // message usage is metered in calculateUsage.
+      const messagingSubscriptionAmount =
+        !needsBookingActivation && garage.hasMessagingAccess
+          ? Math.round((garage.messagingSubscriptionCostGbp || 0) * 100)
+          : 0;
+
+      const subtotal = subscriptionAmount + minutesAmount + smsAmount + notificationSmsAmount + messagingSubscriptionAmount;
       const vatAmount = Math.round(subtotal * garage.vatRate);
       const total = subtotal + vatAmount;
 
-      // Create invoice
-      const invoice = await prisma.invoice.create({
-        data: {
-          garageId,
-          businessId: garage.businessId,
-          periodStart,
-          periodEnd,
-          minutesUsed: usage.minutesUsed,
-          minutesIncluded: garage.includedMinutes,
-          smsCount: usage.smsCount,
-          subscriptionAmount,
-          minutesAmount,
-          smsAmount,
-          subtotal,
-          vatAmount,
-          total,
-          subscriptionCostGbp: garage.subscriptionCostGbp,
-          costPerMinuteGbp: garage.costPerMinuteGbp,
-          vatRate: garage.vatRate,
-          status: 'draft',
-        },
+      // Anti-double-bill: never re-bill a period that's already paid or has a payment in flight.
+      // (The historic duplicate invoices — e.g. St Johns charged twice for Apr–May — came from
+      // re-billing the same period.)
+      const alreadyBilled = await prisma.invoice.findFirst({
+        where: { garageId, periodStart, periodEnd, status: { in: ['paid', 'pending'] } },
       });
+      if (alreadyBilled) {
+        console.log(`Garage ${garage.name} already has a ${alreadyBilled.status} invoice for ${periodStart.toISOString().slice(0,10)}→${periodEnd.toISOString().slice(0,10)}, skipping`);
+        results.push({ garageId, garageName: garage.name, success: true, message: 'Already billed for this period' });
+        continue;
+      }
+
+      const invoiceData = {
+        garageId,
+        businessId: garage.businessId,
+        periodStart,
+        periodEnd,
+        minutesUsed: usage.minutesUsed,
+        minutesIncluded: garage.includedMinutes,
+        smsCount: usage.smsCount,
+        notificationSmsCount: usage.notificationSmsCount,
+        subscriptionAmount,
+        minutesAmount,
+        smsAmount,
+        notificationSmsAmount,
+        messagingSubscriptionAmount,
+        subtotal,
+        vatAmount,
+        total,
+        subscriptionCostGbp: garage.subscriptionCostGbp,
+        costPerMinuteGbp: garage.costPerMinuteGbp,
+        vatRate: garage.vatRate,
+        status: 'draft',
+      };
+
+      // Idempotent: if a previous run left a draft/failed invoice for this exact period (e.g. a
+      // charge that errored and wasn't retried), reuse and refresh it instead of creating a
+      // duplicate row.
+      const existingUnpaid = await prisma.invoice.findFirst({
+        where: { garageId, periodStart, periodEnd, status: { in: ['draft', 'failed'] } },
+      });
+      const invoice = existingUnpaid
+        ? await prisma.invoice.update({ where: { id: existingUnpaid.id }, data: invoiceData })
+        : await prisma.invoice.create({ data: invoiceData });
 
       // Store invoice for later combined charging
       invoicesToCharge.push({
@@ -640,30 +717,48 @@ export async function generateInvoicesForUser(userId: string) {
   }
 
   // Create ONE combined GoCardless payment for all invoices
+  let chargeSucceeded = false;
   if (invoicesToCharge.length > 0) {
     try {
       const totalAmount = invoicesToCharge.reduce((sum, item) => sum + item.total, 0);
 
-      // Get user with mandate
-      const userWithMandate = await prisma.user.findFirst({
-        where: {
-          garageAccessIds: {
-            hasSome: user.garageAccessIds,
-          },
-          gocardlessMandateId: {
-            not: null,
-          },
-        },
-      });
-
-      if (!userWithMandate || !userWithMandate.gocardlessMandateId) {
+      // Charge the user being billed against their OWN mandate.
+      // Previously this did a findFirst across any user with overlapping garage access,
+      // which non-deterministically picked staff/admin mandates instead of the customer's.
+      if (!user.gocardlessMandateId) {
         throw new Error('No valid mandate found');
       }
 
       const client = getGocardlessClient();
 
-      // Create single combined payment
-      const payment = await client.payments.create({
+      // charge_date has to satisfy TWO GoCardless rules. Breaking either throws a
+      // ValidationFailedError, and before 30 Jun that silently orphaned the whole month:
+      //   1. It can't be in the past — happens when a run lands on/after the billing date
+      //      (e.g. VWGS, 11 Jun for a 10 Jun date).
+      //   2. It can't be before the mandate's next_possible_charge_date — Direct Debit needs
+      //      ~3 working days' notice. findUsersDueForBilling looks 3 working days ahead using a
+      //      naive weekday count that knows nothing about bank holidays or GoCardless's own
+      //      submission cutoffs, so the billing date regularly lands inside that notice window
+      //      (Promotive, 30 Jun: asked for 2 Jul when the earliest legal date was 3 Jul).
+      // So: collect ON the billing date when that's legal, otherwise on the earliest date
+      // GoCardless will accept. Omitting charge_date also lets GoCardless choose, which is the
+      // fallback when the billing date has passed or the mandate can't be read.
+      const todayStr = new Date().toISOString().split('T')[0];
+      const billingDateStr = periodEnd.toISOString().split('T')[0];
+      // Phase B: charge the BUSINESS's mandate (falls back to the user's).
+      const chargeMandate = await resolveChargeMandate(invoicesToCharge[0]?.invoice?.businessId, user.gocardlessMandateId);
+
+      let nextPossibleStr: string | null = null;
+      try {
+        const mandate: any = await client.mandates.find(chargeMandate);
+        nextPossibleStr = mandate?.next_possible_charge_date ?? null;
+      } catch (mandateError) {
+        console.warn(
+          `[BILLING] Could not read next_possible_charge_date for ${chargeMandate}; letting GoCardless pick the date:`,
+          mandateError instanceof Error ? mandateError.message : mandateError,
+        );
+      }
+      const paymentArgs: any = {
         amount: totalAmount,
         currency: 'GBP',
         description: `ReceptionMate - ${invoicesToCharge.length} branch${invoicesToCharge.length > 1 ? 'es' : ''}`,
@@ -673,9 +768,23 @@ export async function generateInvoicesForUser(userId: string) {
           period_end: periodEnd.toISOString(),
         },
         links: {
-          mandate: userWithMandate.gocardlessMandateId,
+          mandate: chargeMandate,
         },
-      });
+      };
+      if (billingDateStr > todayStr) {
+        if (nextPossibleStr && billingDateStr < nextPossibleStr) {
+          paymentArgs.charge_date = nextPossibleStr;
+          console.log(
+            `[BILLING] ${user.email}: billing date ${billingDateStr} is inside the Direct Debit ` +
+            `notice window (earliest chargeable ${nextPossibleStr}); collecting on ${nextPossibleStr}.`,
+          );
+        } else {
+          paymentArgs.charge_date = billingDateStr;
+        }
+      }
+
+      // Create single combined payment
+      const payment = await client.payments.create(paymentArgs);
 
       // Update all invoices with the same payment ID
       for (const item of invoicesToCharge) {
@@ -687,6 +796,7 @@ export async function generateInvoicesForUser(userId: string) {
           },
         });
       }
+      chargeSucceeded = true;
 
       // Log details
       const breakdown = invoicesToCharge.map(item =>
@@ -706,6 +816,14 @@ export async function generateInvoicesForUser(userId: string) {
 
     } catch (paymentError) {
       console.error(`Failed to create combined payment:`, paymentError);
+      // Mark the invoices FAILED (not leave them as draft) so the failure is visible and the
+      // amount can be retried/collected — previously a failed charge left a silent draft.
+      for (const item of invoicesToCharge) {
+        await prisma.invoice.update({
+          where: { id: item.invoice.id },
+          data: { status: 'failed' },
+        }).catch(() => {});
+      }
       results.forEach(r => {
         if (r.success && !r.error) {
           (r as any).charged = false;
@@ -715,25 +833,32 @@ export async function generateInvoicesForUser(userId: string) {
     }
   }
 
-  // Update user's next billing date (anniversary billing - same day next month)
-  const newNextBillingDate = new Date(user.nextBillingDate);
-  newNextBillingDate.setMonth(newNextBillingDate.getMonth() + 1);
+  // Advance the billing cycle ONLY when we actually collected (or there was nothing to charge —
+  // e.g. trial or a skipped garage). Previously this advanced unconditionally, so a FAILED charge
+  // still moved the cycle forward and the uncollected month was silently orphaned (St Johns, VWGS).
+  let resolvedNextBillingDate = user.nextBillingDate;
+  if (chargeSucceeded || invoicesToCharge.length === 0) {
+    const newNextBillingDate = new Date(user.nextBillingDate);
+    newNextBillingDate.setMonth(newNextBillingDate.getMonth() + 1);
+    resolvedNextBillingDate = newNextBillingDate;
 
-  // Update billing dates
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      billingCycleStartDate: user.nextBillingDate, // Move cycle start forward
-      nextBillingDate: newNextBillingDate,
-    },
-  });
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        billingCycleStartDate: user.nextBillingDate, // Move cycle start forward
+        nextBillingDate: newNextBillingDate,
+      },
+    });
+  } else {
+    console.warn(`[BILLING] Not advancing billing date for ${user.email} — charge failed; period ${periodStart.toISOString().slice(0,10)}→${periodEnd.toISOString().slice(0,10)} will be retried.`);
+  }
 
   return {
     userId: user.id,
     userEmail: user.email,
     periodStart,
     periodEnd,
-    nextBillingDate: newNextBillingDate,
+    nextBillingDate: resolvedNextBillingDate,
     results,
   };
 }
@@ -903,6 +1028,9 @@ export async function createPaymentForInvoice(invoiceId: string) {
     description: `ReceptionMate Invoice ${invoice.id.slice(0, 8)} - ${invoice.garage.name}`,
   });
 
+  // Phase B: charge the BUSINESS's mandate (falls back to the user's).
+  const chargeMandate = await resolveChargeMandate(invoice.businessId, user.gocardlessMandateId);
+
   // Create payment (amount in pence as string)
   const payment = await client.payments.create({
     amount: amountInPence,
@@ -915,7 +1043,7 @@ export async function createPaymentForInvoice(invoiceId: string) {
       // Note: GoCardless only allows 3 metadata properties max
     },
     links: {
-      mandate: user.gocardlessMandateId,
+      mandate: chargeMandate,
     },
   });
 

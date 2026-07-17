@@ -1,76 +1,44 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-(async () => {
-  try {
-    // Try as string
-    let call = await prisma.call.findUnique({
-      where: { id: '60625714' },
-      include: {
-        garage: {
-          select: {
-            name: true,
-            id: true,
-            agentConfiguration: {
-              select: {
-                weeklyOpeningHours: true
-              }
-            }
-          }
-        }
-      }
-    });
+async function main() {
+  const callId = '32189816';
+  const c = await prisma.call.findFirst({
+    where: { id: { contains: callId } },
+    select: { id: true, createdAt: true, garageId: true, customerPhone: true, customerName: true, registrationNumber: true, durationSeconds: true, callType: true, confirmedBooking: true, summary: true, transcript: true },
+  });
+  if (!c) { console.log('(call not found)'); return; }
 
-    if (!call) {
-      console.log('Call 60625714 not found. Searching for similar IDs...');
-      const similarCalls = await prisma.call.findMany({
-        where: {
-          id: {
-            contains: '6062571'
-          }
-        },
-        select: {
-          id: true,
-          createdAt: true,
-          customerPhone: true
-        },
-        take: 10,
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
-      console.log('Similar call IDs found:', similarCalls.length);
-      similarCalls.forEach(c => {
-        console.log(`  - ID: ${c.id}, Phone: ${c.customerPhone}, Created: ${c.createdAt}`);
-      });
-      process.exit(1);
+  const g = await prisma.garage.findUnique({
+    where: { id: c.garageId },
+    select: {
+      name: true,
+      agentConfiguration: {
+        select: { agentScript: true, agentType: true, allowBookings: true, bookingLeadTimeDays: true, voice: true, greetingLine: true, integrationProvider: true },
+      },
+    },
+  });
+
+  console.log(`\n=== Call ${c.id} ===`);
+  console.log(`Time: ${c.createdAt.toISOString()}`);
+  console.log(`Garage: ${g?.name}`);
+  console.log(`agentScript: ${g?.agentConfiguration?.agentScript}`);
+  console.log(`agentType: ${g?.agentConfiguration?.agentType}`);
+  console.log(`allowBookings: ${g?.agentConfiguration?.allowBookings}`);
+  console.log(`bookingLeadTimeDays: ${g?.agentConfiguration?.bookingLeadTimeDays}`);
+  console.log(`integrationProvider: ${g?.agentConfiguration?.integrationProvider}`);
+  console.log(`voice: ${g?.agentConfiguration?.voice}`);
+  console.log(`greetingLine: "${g?.agentConfiguration?.greetingLine}"`);
+  console.log('');
+  console.log(`Duration: ${c.durationSeconds}s | callType: ${c.callType} | confirmedBooking: ${c.confirmedBooking}`);
+  console.log(`Customer: ${c.customerName} | Phone: ${c.customerPhone} | Reg: ${c.registrationNumber}`);
+  console.log(`Summary: ${(c.summary||'').slice(0, 400)}`);
+  console.log('');
+  if (Array.isArray(c.transcript)) {
+    console.log(`Transcript (${c.transcript.length} turns):`);
+    for (const t of c.transcript) {
+      console.log(`  [${t.timestamp?.toFixed?.(2) ?? '?'}] ${t.speaker || t.role}: ${(t.text||'').slice(0, 200)}`);
     }
-
-    console.log('\n=== CALL DETAILS ===');
-    console.log('Call ID:', call.id);
-    console.log('Garage:', call.garage?.name);
-    console.log('Garage ID:', call.garage?.id);
-    console.log('Phone:', call.customerPhone);
-    console.log('Duration:', call.durationSeconds, 'seconds');
-    console.log('Room:', call.roomName);
-    console.log('Created:', call.createdAt);
-
-    console.log('\n=== GARAGE OPENING HOURS ===');
-    console.log(JSON.stringify(call.garage?.agentConfiguration?.weeklyOpeningHours, null, 2));
-
-    console.log('\n=== TRANSCRIPT (searching for opening hours mentions) ===');
-    const transcript = call.transcript ? JSON.parse(JSON.stringify(call.transcript)) : [];
-    transcript.forEach((msg, idx) => {
-      const text = msg.text || '';
-      // Look for mentions of opening hours, time, open, close
-      if (text.match(/open|close|hour|am|pm|7|8|45/i)) {
-        console.log(`[${idx}] [${msg.speaker}]: ${text}`);
-      }
-    });
-
-  } catch (error) {
-    console.error('Error:', error.message);
-  } finally {
-    await prisma.$disconnect();
   }
-})();
+}
+main().catch(e=>{console.error(e);process.exit(1);}).finally(()=>prisma.$disconnect());

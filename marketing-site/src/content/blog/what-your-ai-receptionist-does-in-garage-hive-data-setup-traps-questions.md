@@ -3,6 +3,7 @@ title: "What your AI receptionist does in Garage Hive: data, setup traps, questi
 description: "A plain‑English look at how AI receptionists book into Garage Hive, the data they write, setup pitfalls to avoid, and the exact questions to ask any vendor."
 publishedAt: 2026-07-06
 author: auto
+topicKey: "garage-hive-integration"
 tags: ["Garage Hive", "AI receptionist", "Integrations"]
 heroImage: "/blog/what-your-ai-receptionist-does-in-garage-hive-data-setup-traps-questions.png"
 heroImageAlt: "Illustration for \"What your AI receptionist does in Garage Hive: data, setup traps, questions\""

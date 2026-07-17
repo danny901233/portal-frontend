@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { fetchCalls, submitCallFeedback, downloadNegativeFeedbackCsv } from '../lib/api';
 import { getGarageId } from '../lib/auth';
@@ -792,6 +793,12 @@ export default function CallsPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold text-slate-100">Call Activity</h1>
         <p className="text-sm text-slate-400">Monitor interactions from your ReceptionMate AI voice agent.</p>
+      </div>
+
+      {/* Tabs: inbound (this page) / outbound calls */}
+      <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900/60 p-1 text-sm">
+        <span className="rounded-md bg-sky-500 px-4 py-1.5 font-semibold text-white">Inbound</span>
+        <Link href="/outbound-calls" className="rounded-md px-4 py-1.5 font-medium text-slate-400 hover:text-slate-200">Outbound</Link>
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 shadow-lg shadow-slate-950/40">

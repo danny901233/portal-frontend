@@ -3,6 +3,7 @@ title: "MOT season call surges: capacity planning and when AI receptionists pay"
 description: "Practical steps for UK garages to handle MOT-season call spikes: diary setup, booking patterns, staffing, and how AI receptionists earn their keep fastest."
 publishedAt: 2026-06-26
 author: auto
+topicKey: "mot-season"
 tags: ["MOT", "Call handling", "Capacity planning"]
 heroImage: "/blog/mot-season-call-surges-capacity-planning-and-when-ai-receptionists-pay.png"
 heroImageAlt: "Illustration for \"MOT season call surges: capacity planning and when AI receptionists pay\""

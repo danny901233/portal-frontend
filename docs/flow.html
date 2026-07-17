@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>ReceptionMate — How a lead becomes a customer</title>
+<style>
+  /* ---- page ---------------------------------------------------------------- */
+  @page { size: A4; margin: 0; }
+
+  :root {
+    --brand: #3426cf;
+    --brand-dk: #281eb0;
+    --brand-50: #eef0fe;
+    --brand-100: #dde0fd;
+
+    /* neutrals, biased very slightly toward the brand indigo rather than pure grey */
+    --ink-900: #14142b;
+    --ink-700: #3a3a55;
+    --ink-500: #6b6b86;
+    --ink-400: #9494ab;
+    --ink-200: #e2e2ec;
+    --ink-100: #eeeef4;
+    --paper: #ffffff;
+    --paper-2: #f7f7fb;
+
+    /* actor accents — information design, deliberately not the brand accent */
+    --hl: #b45309;         /* HighLevel */
+    --hl-bg: #fef6e7;
+    --hl-bd: #f6dfb8;
+    --money: #04785c;      /* Stripe / GoCardless */
+    --money-bg: #e6f6f1;
+    --money-bd: #b9e5d8;
+    --warn: #b4234b;
+    --warn-bg: #fdeef2;
+    --warn-bd: #f6ccd8;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    font-family: "Avenir Next", "Avenir", -apple-system, sans-serif;
+    color: var(--ink-700);
+    font-size: 10.2pt;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 12mm 15mm 10mm;
+    page-break-after: always;
+    position: relative;
+    background: var(--paper);
+  }
+  .page:last-child { page-break-after: auto; }
+
+  /* ---- cover --------------------------------------------------------------- */
+  .cover {
+    background: var(--brand);
+    color: #fff;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .cover-inner { padding: 24mm 18mm 0; }
+  .cover-main { padding: 0 18mm; margin-top: auto; }  /* anchors the title block low */
+  .cover img { width: 42mm; height: auto; display: block; }
+  .cover h1 {
+    font-size: 34pt;
+    line-height: 1.06;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0;
+    max-width: 150mm;
+    text-wrap: balance;
+  }
+  .cover .sub {
+    font-size: 12.5pt;
+    line-height: 1.45;
+    color: rgba(255,255,255,.82);
+    margin-top: 7mm;
+    max-width: 128mm;
+    font-weight: 400;
+  }
+  .cover-routes {
+    margin-top: 12mm;
+    margin-bottom: 18mm;
+    display: flex;
+    gap: 4mm;
+  }
+  .cover-route {
+    border: 1px solid rgba(255,255,255,.32);
+    border-radius: 3mm;
+    padding: 4mm 5mm;
+    flex: 1;
+  }
+  .cover-route b { display: block; font-size: 11pt; font-weight: 600; }
+  .cover-route span { font-size: 8.4pt; color: rgba(255,255,255,.7); }
+  .cover-foot {
+    padding: 0 18mm 16mm;
+    font-size: 8.6pt;
+    color: rgba(255,255,255,.62);
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid rgba(255,255,255,.18);
+    padding-top: 5mm;
+    margin: 0 18mm 16mm;
+  }
+
+  /* ---- running header / footer --------------------------------------------- */
+  .rh {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 1px solid var(--ink-200);
+    padding-bottom: 2.5mm; margin-bottom: 5mm;
+  }
+  .rh .t { font-size: 8pt; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--brand); }
+  .rh .n { font-size: 8pt; color: var(--ink-400); }
+
+  h2 {
+    font-size: 17.5pt; font-weight: 700; color: var(--ink-900);
+    letter-spacing: -0.015em; margin: 0 0 2mm; text-wrap: balance;
+  }
+  h2 .lede { display: block; font-size: 10.5pt; font-weight: 400; color: var(--ink-500); margin-top: 2.5mm; line-height: 1.5; }
+  h3 {
+    font-size: 11.5pt; font-weight: 600; color: var(--ink-900);
+    margin: 6mm 0 2.5mm; letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 3mm; }
+  strong { color: var(--ink-900); font-weight: 600; }
+
+  .mono { font-family: "Menlo", monospace; font-size: 8.2pt; }
+
+  /* ---- the flow spine ------------------------------------------------------- */
+  .flow { margin-top: 5mm; }
+  .node {
+    display: grid;
+    grid-template-columns: 7mm 1fr 62mm;
+    gap: 0 5mm;
+    page-break-inside: avoid;
+  }
+  .rail { position: relative; }
+  .rail .dot {
+    width: 7mm; height: 7mm; border-radius: 50%;
+    background: var(--brand); color: #fff;
+    font-size: 8pt; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; z-index: 2;
+  }
+  .rail .line {
+    position: absolute; left: 3.35mm; top: 7mm; bottom: -1mm;
+    width: 0.3mm; background: var(--ink-200);
+  }
+  .node:last-child .rail .line { display: none; }
+
+  .body { padding-bottom: 4.2mm; }
+  .body .hd { font-size: 10.8pt; font-weight: 600; color: var(--ink-900); margin-bottom: 1.5mm; }
+  .body p { font-size: 9.4pt; line-height: 1.5; margin: 0 0 2mm; color: var(--ink-700); }
+
+  .chips { display: flex; gap: 2mm; margin-bottom: 2mm; flex-wrap: wrap; }
+  .chip {
+    font-size: 6.9pt; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+    padding: 0.9mm 2.2mm; border-radius: 1mm; white-space: nowrap;
+  }
+  .chip-you   { background: var(--brand); color: #fff; }
+  .chip-auto  { background: var(--ink-100); color: var(--ink-500); }
+  .chip-cust  { background: var(--brand-50); color: var(--brand-dk); border: 0.3mm solid var(--brand-100); }
+  .chip-money { background: var(--money-bg); color: var(--money); border: 0.3mm solid var(--money-bd); }
+
+  /* right rail: what HighLevel sees */
+  .hl {
+    background: var(--hl-bg); border: 0.3mm solid var(--hl-bd);
+    border-radius: 2mm; padding: 3mm 3.5mm; align-self: start;
+    margin-bottom: 3mm;   /* stacked rails must not butt together */
+    page-break-inside: avoid;
+  }
+  .hl .k {
+    font-size: 6.6pt; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--hl); margin-bottom: 1.5mm;
+  }
+  .hl .v { font-size: 8.4pt; line-height: 1.45; color: #6b3a06; }
+  .hl .stage {
+    display: inline-block; background: #fff; border: 0.3mm solid var(--hl-bd);
+    border-radius: 1mm; padding: 0.6mm 1.6mm; font-weight: 600; color: #7c4408;
+    font-size: 7.9pt; margin-top: 1mm;
+  }
+  .hl.none { background: var(--paper-2); border-color: var(--ink-200); }
+  .hl.none .k { color: var(--ink-400); }
+  .hl.none .v { color: var(--ink-400); }
+
+  /* ---- callouts ------------------------------------------------------------- */
+  .note {
+    border-left: 1mm solid var(--brand); background: var(--brand-50);
+    padding: 2.8mm 4mm; border-radius: 0 2mm 2mm 0; margin: 3.5mm 0;
+    font-size: 9.2pt; page-break-inside: avoid;
+  }
+  .note b { color: var(--brand-dk); }
+  .watch {
+    border-left: 1mm solid var(--warn); background: var(--warn-bg);
+    padding: 3mm 4mm; border-radius: 0 2mm 2mm 0; margin: 4mm 0;
+    font-size: 9.2pt; page-break-inside: avoid;
+  }
+  .watch b { color: var(--warn); }
+
+  /* ---- tables --------------------------------------------------------------- */
+  table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm; font-size: 9pt; }
+  th {
+    text-align: left; font-size: 7pt; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-400);
+    border-bottom: 0.4mm solid var(--ink-200); padding: 0 2mm 1.8mm 0;
+  }
+  td { padding: 2.2mm 2mm 2.2mm 0; border-bottom: 0.25mm solid var(--ink-100); vertical-align: top; }
+  td:last-child, th:last-child { padding-right: 0; }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* ---- route cards (the map) ------------------------------------------------ */
+  .map { display: flex; flex-direction: column; gap: 3mm; margin-top: 4mm; }
+  .route {
+    border: 0.3mm solid var(--ink-200); border-radius: 3mm; overflow: hidden;
+    page-break-inside: avoid;
+  }
+  .route-hd {
+    background: var(--paper-2); padding: 2.8mm 4mm;
+    border-bottom: 0.3mm solid var(--ink-200);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 4mm;
+  }
+  .route-hd b { font-size: 12pt; color: var(--ink-900); font-weight: 600; }
+  .route-hd .price { font-size: 9.4pt; color: var(--ink-500); white-space: nowrap; }
+  .route-hd .price em { font-style: normal; color: var(--ink-900); font-weight: 600; }
+  .route-bd { padding: 3mm 4mm; }
+  .route-bd p { font-size: 9.2pt; margin: 0 0 2.5mm; }
+  .steps { display: flex; align-items: center; gap: 1.6mm; flex-wrap: wrap; margin-top: 1mm; }
+  .step {
+    font-size: 7.8pt; background: var(--brand-50); color: var(--brand-dk);
+    border: 0.25mm solid var(--brand-100); border-radius: 1mm; padding: 1mm 2mm; font-weight: 500;
+  }
+  .step.staff { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
+  .arrow { color: var(--ink-400); font-size: 8pt; }
+
+  /* 2x2 rather than one row: four chips plus labels do not fit across 180mm without
+     breaking the labels mid-phrase. */
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5mm 8mm; margin-top: 4mm; padding-top: 3mm; border-top: 0.3mm solid var(--ink-200); }
+  .legend div { display: flex; align-items: center; gap: 2mm; font-size: 8.4pt; color: var(--ink-500); white-space: nowrap; }
+
+  .pfoot {
+    position: absolute; bottom: 8mm; left: 15mm; right: 15mm;
+    display: flex; justify-content: space-between;
+    font-size: 7.4pt; color: var(--ink-400);
+    border-top: 0.25mm solid var(--ink-100); padding-top: 2mm;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<section class="page cover">
+  <div class="cover-inner">
+    <img src="{{LOGO}}" alt="ReceptionMate">
+  </div>
+  <div class="cover-main">
+    <h1>How a lead becomes a customer</h1>
+    <p class="sub">
+      Every route from the first campaign email to a garage that's live and paying — what the system
+      does on its own, what you have to do, and what HighLevel sees at each step.
+    </p>
+    <div class="cover-routes">
+      <div class="cover-route"><b>Assist</b><span>Self-serve · card · 14-day trial</span></div>
+      <div class="cover-route"><b>Connect</b><span>Self-serve · card · 30-day trial</span></div>
+      <div class="cover-route"><b>Automate</b><span>Demo led · Direct Debit</span></div>
+    </div>
+  </div>
+  <div class="cover-foot">
+    <span>Internal staff reference · 16 July 2026</span>
+    <span>ReceptionMate Ltd</span>
+  </div>
+</section>
+
+<!-- ============================ THE MAP ============================ -->
+<section class="page">
+  <div class="rh"><span class="t">The three routes</span><span class="n">01</span></div>
+  <h2>There are three ways in
+    <span class="lede">Two are self-serve and pay by card. One is sold on a demo call and pays by Direct
+    Debit. The route decides who chases them, how they pay, and whether they sign anything.</span>
+  </h2>
+
+  <div class="map">
+    <div class="route">
+      <div class="route-hd">
+        <b>Assist</b>
+        <span class="price"><em>£200</em> + VAT / month · £240 charged</span>
+      </div>
+      <div class="route-bd">
+        <p>AI receptionist answering calls. The garage finds themselves on <span class="mono">/get-started</span>,
+          signs online, adds a card, and gets 14 days free. 400 minutes included, then 25p a minute.</p>
+        <div class="steps">
+          <span class="step">Finds their garage</span><span class="arrow">→</span>
+          <span class="step">Signs online</span><span class="arrow">→</span>
+          <span class="step">Adds card</span><span class="arrow">→</span>
+          <span class="step">14-day trial</span><span class="arrow">→</span>
+          <span class="step">Charged, live</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="route">
+      <div class="route-hd">
+        <b>Connect</b>
+        <span class="price"><em>£250</em> + VAT / month · £300 charged</span>
+      </div>
+      <div class="route-bd">
+        <p>Website chat. The garage signs up on <span class="mono">/mot</span> with a code texted to their
+          mobile, and is inside the portal within a minute — no card, nothing signed. 30 days free, then a
+          paywall asks for a card. 500 conversations included, then 20p each.</p>
+        <div class="steps">
+          <span class="step">Enters details</span><span class="arrow">→</span>
+          <span class="step">Texted a code</span><span class="arrow">→</span>
+          <span class="step">Straight in, 30 days free</span><span class="arrow">→</span>
+          <span class="step">Paywall</span><span class="arrow">→</span>
+          <span class="step">Adds card, live</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="route">
+      <div class="route-hd">
+        <b>Automate</b>
+        <span class="price">Priced per deal · Direct Debit</span>
+      </div>
+      <div class="route-bd">
+        <p>The full integration with Garage Hive or Tyresoft — books jobs straight into their diary. Always
+          starts with a demo call. We set the price, send an agreement, build the agent, then invite them in.
+          Optional one-off setup fee.</p>
+        <div class="steps">
+          <span class="step">Demo call</span><span class="arrow">→</span>
+          <span class="step staff">You onboard + send agreement</span><span class="arrow">→</span>
+          <span class="step">They sign + pay setup fee</span><span class="arrow">→</span>
+          <span class="step staff">You build the agent</span><span class="arrow">→</span>
+          <span class="step staff">You invite</span><span class="arrow">→</span>
+          <span class="step">Direct Debit, live</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>The rule that decides everything:</b> self-serve always pays by <b>card</b> (Stripe). Anything we sell
+    on a demo call pays by <b>Direct Debit</b> unless you deliberately change it. A customer is on one rail
+    or the other — never card for one thing and Direct Debit for another.
+  </div>
+
+  <h3 style="margin-top:5mm">Who actually does the work</h3>
+  <table style="margin-bottom:0">
+    <thead><tr><th style="width:24%">Route</th><th style="width:34%">Runs itself</th><th>Needs a person</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Assist</strong></td><td>Account, trial, billing, going live</td><td>Nothing. Signed but no card = no account, so chase them as a lead.</td></tr>
+      <tr><td><strong>Connect</strong></td><td>Account, trial, paywall, going live</td><td>Nothing.</td></tr>
+      <tr><td><strong>Automate</strong></td><td>Agreement, setup-fee invoice, stage moves, billing, HighLevel</td><td>Onboard them, set the price, get the credentials, build the agent, then two buttons.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="legend">
+    <div><span class="chip chip-cust">Customer</span> the garage does it</div>
+    <div><span class="chip chip-auto">Auto</span> the system does it</div>
+    <div><span class="chip chip-you">You</span> a person here must act</div>
+    <div><span class="chip chip-money">Money</span> Stripe or GoCardless</div>
+  </div>
+
+  <div class="pfoot"><span>How a lead becomes a customer</span><span>Internal · page 1</span></div>
+</section>
+
+<!-- ============================ THE SITE ============================ -->
+<section class="page">
+  <div class="rh"><span class="t">Campaign → website</span><span class="n">02</span></div>
+  <h2>What happens before they fill anything in
+    <span class="lede">This part is the same for Assist and Connect. Nothing reaches HighLevel until we
+    have an email address — everything before that is us listening, not recording.</span>
+  </h2>
+
+  <div class="flow">
+    <div class="node">
+      <div class="rail"><div class="dot">1</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-you">You</span></div>
+        <div class="hd">The campaign goes out</div>
+        <p>Cold outreach from HighLevel — email or SMS to a list. This is the one part of the journey that
+          lives entirely in HighLevel, and the only place we do outbound.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel</div>
+        <div class="v">Contacts imported and sequenced. Nothing is created by us yet.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">2</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span></div>
+        <div class="hd">They land on the site and search for their garage</div>
+        <p>On <span class="mono">/get-started</span> (Assist) or <span class="mono">/mot</span> (Connect) they
+          start typing their business name and pick themselves from a Google list. We pull their address,
+          phone and website from Google in the background.</p>
+      </div>
+      <div class="hl none">
+        <div class="k">HighLevel</div>
+        <div class="v">Nothing. We hold their details, but create no contact — an email is the only key
+          worth filing them under.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">3</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span></div>
+        <div class="hd">They type their name, email and mobile</div>
+        <p>Now we know who they actually are — but we still don't file anything until they press the
+          button. Half-typed forms aren't leads.</p>
+      </div>
+      <div class="hl none">
+        <div class="k">HighLevel</div>
+        <div class="v">Still nothing until they submit — typing an address into a box isn't a lead.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">4</div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span></div>
+        <div class="hd">They submit — and this is when HighLevel first hears about them</div>
+        <p>Now we have an email, so we file them. From here Assist and Connect behave completely
+          differently — follow the next two pages.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel — first contact</div>
+        <div class="v">
+          A contact is created <b>keyed on their email</b>, and an opportunity opens:
+          <span class="stage">Abandoned checkout</span>
+          <div style="margin-top:1.5mm">Named “<i>Garage — Assist</i>”, with <b>no value</b> until they pay.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>“Abandoned checkout” means they gave us an email and didn't finish.</b> That's a real lead you can
+    chase — a name, an address, and a garage that got most of the way. Someone who only browsed never reaches
+    HighLevel at all.
+  </div>
+
+  <div class="watch">
+    <b>Older records may be doubled up.</b> Until July 2026 the garage-search step filed a contact against the
+    <b>Google phone number</b> before it knew an email, and the “talk to us” form filed another against the
+    <b>email</b> — nothing joined them, so a garage that did both exists twice, with the money sometimes on the
+    one <em>without</em> an email. New signups can't do this any more, but the old duplicates are still in
+    there. It's why the portal makes you <b>pick</b> the opportunity from a list rather than matching it for
+    you — on an older garage, don't assume the first hit is right.
+  </div>
+
+  <div class="pfoot"><span>How a lead becomes a customer</span><span>Internal · page 2</span></div>
+</section>
+
+<!-- ============================ ASSIST ============================ -->
+<section class="page">
+  <div class="rh"><span class="t">Route 1 — Assist · self-serve</span><span class="n">03</span></div>
+  <h2>Assist: they do all of it themselves
+    <span class="lede">£200 + VAT a month (£240 charged), 400 minutes included then 25p a minute.
+    No one at ReceptionMate needs to touch this — the only reason to look is if it stalls.</span>
+  </h2>
+
+  <div class="flow">
+    <div class="node">
+      <div class="rail"><div class="dot">5</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span><span class="chip chip-auto">Auto</span></div>
+        <div class="hd">They finish the Assist form</div>
+        <p>We email them a private link to their agreement straight away, and show it on screen.
+          The link is good for <b>14 days</b>.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel</div>
+        <div class="v">Opportunity renamed “<i>Garage — Assist</i>”, still in
+          <span class="stage">Abandoned checkout</span></div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">6</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span></div>
+        <div class="hd">They sign the agreement online</div>
+        <p>Name, position and a drawn signature. We record the time, their IP address and their device
+          against it. <b>No account exists yet</b> — nothing has been created but a signature.</p>
+      </div>
+      <div class="hl none">
+        <div class="k">HighLevel</div>
+        <div class="v">No move. Signing alone doesn't count — the card does.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">7</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span><span class="chip chip-money">Stripe</span></div>
+        <div class="hd">They add a card — and this is the moment they become real</div>
+        <p><b>Nothing is charged.</b> The card is stored and the 14-day trial starts. The instant it's
+          accepted their account is built: business, garage, agent, login and a signed agreement on file.
+          They're sent to choose their own password. No card means no account — the system checks with
+          Stripe rather than taking the browser's word for it.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel — the important one</div>
+        <div class="v">Opportunity moves to
+          <span class="stage">Free trial live</span>
+          <div style="margin-top:1.5mm">and is <b>set to £200</b> — the first time it carries any value.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">8</div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-auto">Auto</span><span class="chip chip-money">Stripe</span></div>
+        <div class="hd">Day 14 — the first real payment</div>
+        <p>Stripe charges <b>£240</b> to the saved card and renews monthly. If they never added a card the
+          trial simply expires and nothing happens.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel</div>
+        <div class="v">Opportunity moves to
+          <span class="stage">Live and £££££</span>
+          <div style="margin-top:1.5mm">at £200. Only fires on a payment that actually clears.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>What to watch:</b> someone who signed but never added a card is stuck at step 7 forever — signed
+    contract, no account, no trial, and their opportunity still sitting in <b>Abandoned checkout</b>. That's
+    the one worth chasing by hand.
+  </div>
+
+  <div class="pfoot"><span>How a lead becomes a customer</span><span>Internal · page 3</span></div>
+</section>
+
+<!-- ============================ CONNECT ============================ -->
+<section class="page">
+  <div class="rh"><span class="t">Route 2 — Connect · self-serve</span><span class="n">04</span></div>
+  <h2>Connect: in the door in under a minute
+    <span class="lede">£250 + VAT a month (£300 charged), 500 conversations included then 20p each.
+    The fastest route we have — and the loosest.</span>
+  </h2>
+
+  <div class="flow">
+    <div class="node">
+      <div class="rail"><div class="dot">5</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span></div>
+        <div class="hd">They enter their details on <span class="mono">/mot</span></div>
+        <p>Business, name, email and mobile. We text a verification code to that mobile.</p>
+      </div>
+      <div class="hl none">
+        <div class="k">HighLevel</div>
+        <div class="v">Nothing until the code is confirmed.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">6</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span><span class="chip chip-auto">Auto</span></div>
+        <div class="hd">They type the code and they're straight in</div>
+        <p>The account is built and they're logged in automatically — no password to set, <b>no card</b>,
+          <b>nothing signed</b>. The code texted to their mobile is the only thing standing between a stranger
+          and a free account. Their 30 free days start now.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel</div>
+        <div class="v">Opportunity created at <b>£250</b> and lands in
+          <span class="stage">Free trial live</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">7</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-auto">Auto</span></div>
+        <div class="hd">Day 30 — the shutters come down</div>
+        <p>The trial ends and their portal is locked behind a paywall. Chat keeps working; they just can't
+          use the portal until they pay.</p>
+      </div>
+      <div class="hl none">
+        <div class="k">HighLevel</div>
+        <div class="v">No move — they're still <span class="stage">Free trial live</span> until they pay.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">8</div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span><span class="chip chip-money">Stripe</span></div>
+        <div class="hd">They add a card at the paywall</div>
+        <p>Stripe takes <b>£300</b> and renews monthly. The portal unlocks immediately.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel</div>
+        <div class="v">Opportunity moves to
+          <span class="stage">Live and £££££</span> at £250.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="watch">
+    <b>Connect customers never sign anything.</b> Assist signs an agreement before it gets an account;
+    Connect gets an account, a free month and a live chat widget on the strength of a texted code alone.
+    Worth knowing before you promise a Connect customer anything contractual — there's no contract to point at.
+  </div>
+
+  <div class="note">
+    <b>Briefly wrong in HighLevel:</b> a Connect signup touches <b>Live and £££££</b> for a split second
+    before being corrected to <b>Free trial live</b>. If you ever build an automation on “Live and £££££”, it
+    will fire on every Connect trial. Don't.
+  </div>
+
+  <div class="pfoot"><span>How a lead becomes a customer</span><span>Internal · page 4</span></div>
+</section>
+
+<!-- ============================ AUTOMATE 1 ============================ -->
+<section class="page">
+  <div class="rh"><span class="t">Route 3 — Automate · demo led</span><span class="n">05</span></div>
+  <h2>Automate: the one we actually run
+    <span class="lede">Sold on a demo call, priced per deal, paid by Direct Debit. This is the route with
+    real work in it — six of these steps need a person.</span>
+  </h2>
+
+  <div class="flow">
+    <div class="node">
+      <div class="rail"><div class="dot">1</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span></div>
+        <div class="hd">They ask to talk to us</div>
+        <p>Any “talk to us” form on the site. The team gets an email and a text immediately.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel</div>
+        <div class="v">Contact created from their <b>email</b>, opportunity opens in
+          <span class="stage">Enquiry Received &amp; Demo Links sent</span>
+          <div style="margin-top:1.5mm">No value on it.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">2</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-you">You</span></div>
+        <div class="hd">Demo call</div>
+        <p>Book it, run it, agree a price. Move the opportunity through the demo stages in HighLevel yourself —
+          the portal doesn't know about any of this yet.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel — you move these</div>
+        <div class="v">
+          <span class="stage">Demo Call Booked</span>
+          <span class="stage">Demo Call Completed</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">3</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-you">You</span></div>
+        <div class="hd">Onboard them in the portal — <span class="mono">Admin → Quick Onboard</span></div>
+        <p>Every commercial decision is made here: the monthly price, any setup fee, how they pay (Direct
+          Debit, card or invoice), and whether they get a free trial or free-until-X-bookings.</p>
+        <p>Tick <b>send agreement</b> and the account is created <b>silently</b> — no welcome email, no login.
+          Deliberate: that comes later, once the agent works. Pick their opportunity from the dropdown, or
+          nothing you do from here reaches HighLevel.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel</div>
+        <div class="v">You link the opportunity here. Set <span class="stage">Contract Sent</span> yourself —
+          the portal deliberately leaves this one alone.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">4</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-auto">Auto</span></div>
+        <div class="hd">The agreement goes out</div>
+        <p>A branded email with a private link, good for 14 days. You can send it to a <b>different address</b>
+          than the portal login — the director signs, the manager uses the system — and <b>text it</b> too.
+          Whoever opens the link can sign; the address it went to is printed on the signed PDF. The Agreements
+          screen shows when they opened it, how often, and from where.</p>
+      </div>
+      <div class="hl none">
+        <div class="k">HighLevel</div>
+        <div class="v">No automatic move. Sending is yours to record.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">5</div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span><span class="chip chip-money">Stripe</span></div>
+        <div class="hd">They sign — and four things happen at once</div>
+        <p>They land on a payment page for the <b>setup fee</b> (if the deal has one) — card button plus our
+          bank details. It's <b>due then and there, on signing</b>, exactly as the agreement says. The invoice
+          is emailed with a PDF, both sides get the signed agreement with its audit trail, and the deal moves
+          on by itself. An unpaid fee won't block the build — but it's due now, so chase it now.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel — automatic</div>
+        <div class="v">Opportunity moves to
+          <span class="stage">Awaiting Integration Credentials</span>
+          <div style="margin-top:1.5mm">and is set to <b>the monthly price × number of branches</b> — the real
+            deal value, set once, here.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pfoot"><span>How a lead becomes a customer</span><span>Internal · page 5</span></div>
+</section>
+
+<!-- ============================ AUTOMATE 2 ============================ -->
+<section class="page">
+  <div class="rh"><span class="t">Route 3 — Automate · continued</span><span class="n">06</span></div>
+  <h2>From signature to live
+    <span class="lede">Everything from here runs off two buttons on the onboarding pipeline card.</span>
+  </h2>
+
+  <div class="flow">
+    <div class="node">
+      <div class="rail"><div class="dot">6</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-you">You</span></div>
+        <div class="hd">Get the integration credentials</div>
+        <p>Contact Garage Hive or Tyresoft and ask for the garage's credentials. This happens on the phone and
+          by email — the portal can't do it for you, which is why there's a button rather than magic.</p>
+        <p>When they arrive, hit <b>Credentials received</b>. The date is stamped on the card so you can see
+          how long it took.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel — automatic</div>
+        <div class="v">Moves to
+          <span class="stage">Agent Account Setup, awaiting go live date</span></div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">7</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-you">You</span></div>
+        <div class="hd">Build the agent, then send the welcome email</div>
+        <p>Set up and test the agent. Only when it genuinely works, hit <b>Send welcome email</b> — that's the
+          first the customer hears since they signed.</p>
+        <p>It sends their login with the standard starting password, which they're forced to change the first
+          time they log in. The portal <b>refuses to send it twice</b>, and refuses entirely once they've
+          logged in and set their own password — it can't lock a customer out by accident.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel — automatic</div>
+        <div class="v">Moves to
+          <span class="stage">Invited — awaiting DD mandate</span></div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">8</div><div class="line"></div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span></div>
+        <div class="hd">They log in and set themselves up</div>
+        <p>They choose a password, then run the setup wizard — voice, opening hours, greeting, FAQs.</p>
+      </div>
+      <div class="hl none">
+        <div class="k">HighLevel</div>
+        <div class="v">No move. Still <span class="stage">Invited</span> until the mandate lands.</div>
+      </div>
+    </div>
+
+    <div class="node">
+      <div class="rail"><div class="dot">9</div></div>
+      <div class="body">
+        <div class="chips"><span class="chip chip-cust">Customer</span><span class="chip chip-money">GoCardless</span></div>
+        <div class="hd">They set up the Direct Debit — and they're live</div>
+        <p>30 seconds through GoCardless. Billing starts on whatever basis you chose at step 3: straight away,
+          at the end of a free trial, or after their Nth confirmed booking.</p>
+      </div>
+      <div class="hl">
+        <div class="k">HighLevel — automatic</div>
+        <div class="v">Moves to
+          <span class="stage">Live and £££££</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Multi-branch groups:</b> the agreement covers the whole business, so signing moves <b>every</b> branch
+    at once, and one Direct Debit covers all of them on a single monthly invoice with each branch itemised.
+    Branches that are already live are never touched.
+  </div>
+
+  <div class="watch">
+    <b>If the mandate never arrives, they're never billed.</b> A garage sitting in <b>Invited</b> has a login,
+    a working agent and no way to pay us. That stage is the one to chase.
+  </div>
+
+  <div class="pfoot"><span>How a lead becomes a customer</span><span>Internal · page 6</span></div>
+</section>
+
+<!-- ============================ REFERENCE ============================ -->
+<section class="page">
+  <div class="rh"><span class="t">Reference</span><span class="n">07</span></div>
+  <h2>The numbers, and the stages
+    <span class="lede">Everything on this page was read from the live system, not from a price list.</span>
+  </h2>
+
+  <h3>What we charge</h3>
+  <table>
+    <thead><tr><th style="width:19%">Product</th><th style="width:15%">Monthly</th><th style="width:15%">Charged</th><th style="width:17%">Included</th><th>Then</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Assist</strong></td><td class="num">£200 + VAT</td><td class="num">£240</td><td>400 minutes</td><td>25p per minute</td></tr>
+      <tr><td><strong>Connect</strong></td><td class="num">£250 + VAT</td><td class="num">£300</td><td>500 conversations</td><td>20p per conversation</td></tr>
+      <tr><td><strong>Automate</strong></td><td colspan="4">Priced per deal at Quick Onboard, plus an optional one-off setup fee. Direct Debit unless you say otherwise.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Free periods</h3>
+  <table>
+    <thead><tr><th style="width:19%">Route</th><th style="width:15%">Free for</th><th>What happens at the end</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Assist</strong></td><td class="num">14 days</td><td>Card already held — charged automatically. No card, no charge, trial dies quietly.</td></tr>
+      <tr><td><strong>Connect</strong></td><td class="num">30 days</td><td>Portal locks behind a paywall until they add a card.</td></tr>
+      <tr><td><strong>Automate</strong></td><td>Your choice</td><td>Bill immediately, after a set number of days, or after their Nth booking.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>The pipeline: which stages we set, and which you set</h3>
+  <table>
+    <thead><tr><th style="width:44%">Stage in “Onboarding Newest”</th><th style="width:16%">Set by</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td>Abandoned checkout</td><td>Automatic</td><td>They picked their garage from the Google list</td></tr>
+      <tr><td>Enquiry Received &amp; Demo Links sent</td><td>Automatic</td><td>They used a “talk to us” form</td></tr>
+      <tr><td>Demo Call Booked / Completed</td><td><strong>You</strong></td><td>By hand, around the call</td></tr>
+      <tr><td>Contract Sent</td><td><strong>You</strong></td><td>By hand, when you send the agreement</td></tr>
+      <tr><td>Awaiting Integration Credentials</td><td>Automatic</td><td>They signed</td></tr>
+      <tr><td>Agent Account Setup, awaiting go live date</td><td>Automatic</td><td>You clicked <em>Credentials received</em></td></tr>
+      <tr><td>Invited — awaiting DD mandate</td><td>Automatic</td><td>You clicked <em>Send welcome email</em></td></tr>
+      <tr><td>Free trial live</td><td>Automatic</td><td>Assist card added, or Connect signup</td></tr>
+      <tr><td>Live and £££££</td><td>Automatic</td><td>First payment cleared, or Direct Debit set up</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>Portal drives, HighLevel reflects.</b> Once a deal is in the portal, don't drag its opportunity around
+    by hand — the buttons do it. If the two ever disagree about whether a garage is live, <b>the portal is
+    right</b>.
+  </div>
+
+  <div class="pfoot"><span>How a lead becomes a customer</span><span>Internal · page 7</span></div>
+</section>
+
+<!-- ============================ GOTCHAS ============================ -->
+<section class="page">
+  <div class="rh"><span class="t">Things that catch people out</span><span class="n">08</span></div>
+  <h2>Read this bit
+    <span class="lede">None of these are broken exactly. They're just the places where what you'd assume and
+    what actually happens part company.</span>
+  </h2>
+
+  <h3>Older garages may be in HighLevel twice</h3>
+  <p>Until July 2026 signup filed a contact against the <b>Google phone</b> before it knew an email, while the
+    “talk to us” form filed one against the <b>email</b> — and nothing joined them. Those garages are in there
+    twice, sometimes with the money on the one without an email. New signups can't do this; the old ones are
+    still there. When the portal asks you to pick an opportunity, <b>read the list</b>.</p>
+
+  <h3>Nothing is recorded until they hand over an email</h3>
+  <p>Browsing, searching for your garage, typing half a form — none of it reaches HighLevel. An opportunity
+    exists only once someone submits an email, which is also the first moment they're worth chasing.</p>
+
+  <h3>HighLevel failing is silent</h3>
+  <p>Every update we send is fire-and-forget. If HighLevel is down or the record has gone, nothing throws,
+    nothing retries and nobody's told — the portal carries on and the CRM quietly drifts. The portal is always
+    the truth; HighLevel is a convenience.</p>
+
+  <h3>A garage with no linked opportunity is invisible</h3>
+  <p>Skip the dropdown at Quick Onboard and everything still works — the agreement, the invoice, going live —
+    but not one of it appears in HighLevel. You can link it later on the pipeline card.</p>
+
+  <h3>Signing an Assist deal isn't a sale</h3>
+  <p>The card creates the account, and we check with Stripe that one really exists before building anything —
+    signing alone gets nobody in. Someone who signed and never added a card has a contract on file,
+    <b>no account</b>, and an opportunity still in <b>Abandoned checkout</b>. A sales chase, not a support
+    problem.</p>
+
+  <h3>“Invited” is where money goes to die</h3>
+  <p>An Automate garage in <b>Invited</b> has a login and a working agent, and no way of paying us. Nothing
+    chases them automatically. Watch that stage.</p>
+
+  <h3>The setup fee is due on signing, but gates nothing</h3>
+  <p>Agreement and invoice both say due on signing — no 14-day terms. But nothing stops an unpaid customer:
+    the agent still gets built, they still go live. Deliberate, so a slow accounts department can't stall a
+    build — which means nobody chases it but you.</p>
+
+  <div style="margin-top:9mm; padding-top:4mm; border-top:0.3mm solid var(--ink-200); font-size:8.4pt; color:var(--ink-400);">
+    <b style="color:var(--ink-500)">Verified 16 July 2026.</b> Prices were read from Stripe, stages from
+    HighLevel, and every flow from the running code — not from a price list or anyone's memory. If you find it
+    disagrees with reality, reality wins: tell Dan.
+  </div>
+
+  <div class="pfoot"><span>How a lead becomes a customer</span><span>Internal · page 8</span></div>
+</section>
+
+</body>
+</html>

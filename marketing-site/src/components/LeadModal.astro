@@ -199,18 +199,30 @@ const c = {
   const tierLabelEl = document.getElementById('lead-modal-tier');
 
   if (modal && form) {
-    const open = (source, tier) => {
+    const open = (source, tier, prefill) => {
       sourceInput.value = source || 'website';
       tierLabelEl.textContent = tier || 'ReceptionMate';
       errorEl.classList.add('hidden');
       successEl.classList.add('hidden');
       form.classList.remove('hidden');
       form.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"]').forEach((el) => { el.value = ''; });
+      // Optional prefill (e.g. a garage picked from a Places search box).
+      if (prefill && prefill.company) {
+        const companyEl = document.getElementById('lead-modal-company');
+        if (companyEl) companyEl.value = prefill.company;
+      }
       modal.classList.remove('hidden');
       modal.classList.add('flex');
       document.body.style.overflow = 'hidden';
       setTimeout(() => document.getElementById('lead-modal-name')?.focus(), 50);
     };
+
+    // Allow any page to open the modal programmatically, optionally prefilled:
+    //   window.dispatchEvent(new CustomEvent('rm:lead-open', { detail: { source, tier, company } }))
+    window.addEventListener('rm:lead-open', (e) => {
+      const d = e.detail || {};
+      open(d.source, d.tier, d);
+    });
 
     const close = () => {
       modal.classList.add('hidden');

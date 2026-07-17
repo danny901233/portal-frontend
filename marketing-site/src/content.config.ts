@@ -25,6 +25,9 @@ const blog = defineCollection({
     // Path is relative to /public e.g. "/blog/my-slug.jpg".
     heroImage: z.string().optional(),
     heroImageAlt: z.string().optional(),
+    // Which topic pillar the generator used — drives even topic rotation so
+    // the same pillar isn't picked repeatedly. Optional (older posts lack it).
+    topicKey: z.string().optional(),
   }),
 });
 

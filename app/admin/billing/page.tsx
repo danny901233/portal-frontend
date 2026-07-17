@@ -108,7 +108,7 @@ export default function BillingDashboardPage() {
 
   if (!isStaff) {
     return (
-      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
         Access denied - staff only
       </div>
     );
@@ -156,15 +156,15 @@ export default function BillingDashboardPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'paid':
-        return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+        return 'text-emerald-700 bg-emerald-50 border-emerald-300';
       case 'pending':
-        return 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+        return 'text-amber-700 bg-amber-50 border-amber-300';
       case 'draft':
-        return 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+        return 'text-slate-500 bg-slate-500/10 border-slate-500/30';
       case 'failed':
-        return 'text-rose-400 bg-rose-500/10 border-rose-500/30';
+        return 'text-rose-700 bg-rose-50 border-rose-300';
       default:
-        return 'text-slate-400 bg-slate-500/10 border-slate-500/30';
+        return 'text-slate-500 bg-slate-500/10 border-slate-500/30';
     }
   };
 
@@ -173,18 +173,18 @@ export default function BillingDashboardPage() {
       <header>
         <button
           onClick={() => router.push('/admin')}
-          className="text-sm text-slate-400 hover:text-slate-300 mb-2"
+          className="text-sm text-slate-500 hover:text-slate-600 mb-2"
         >
           ← Back to Admin
         </button>
-        <h1 className="text-2xl font-semibold text-slate-50">Billing Dashboard</h1>
-        <p className="text-sm text-slate-400">
+        <h1 className="text-2xl font-semibold text-slate-900">Billing Dashboard</h1>
+        <p className="text-sm text-slate-500">
           Manage subscription billing, usage, and invoices
         </p>
       </header>
 
       {feedback && (
-        <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+        <div className="rounded-lg border border-brand-200 bg-brand-100 px-4 py-3 text-sm text-brand-700">
           {feedback}
         </div>
       )}
@@ -202,33 +202,33 @@ export default function BillingDashboardPage() {
             {usersWithoutMandateQuery.data.users.map((user: any) => (
               <div
                 key={user.id}
-                className="rounded-lg border border-red-500/30 bg-slate-900/40 p-4"
+                className="rounded-lg border border-red-500/30 bg-white p-4"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium text-slate-100">{user.email}</div>
-                      <span className="rounded-full border border-slate-600 bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                      <div className="text-sm font-medium text-slate-900">{user.email}</div>
+                      <span className="rounded-full border border-slate-300 bg-slate-700 px-2 py-0.5 text-xs text-slate-600">
                         {user.role}
                       </span>
                     </div>
                     <div className="mt-2 space-y-1">
                       {user.garages.map((garage: any) => (
-                        <div key={garage.id} className="text-xs text-slate-300">
+                        <div key={garage.id} className="text-xs text-slate-600">
                           • {garage.name} - £{garage.cost}/month
                         </div>
                       ))}
                     </div>
-                    <div className="mt-2 text-xs text-slate-400">
+                    <div className="mt-2 text-xs text-slate-500">
                       Created: {formatDate(user.createdAt)}
                     </div>
                   </div>
                   <div className="ml-4 flex flex-col items-end gap-2">
                     <div className="text-right">
-                      <div className="text-lg font-semibold text-slate-100">
+                      <div className="text-lg font-semibold text-slate-900">
                         £{user.totalMonthlyCost}
                       </div>
-                      <div className="text-xs text-slate-400">per month</div>
+                      <div className="text-xs text-slate-500">per month</div>
                     </div>
                     <button
                       onClick={() => handleRequestDirectDebit(user.id, user.email)}
@@ -262,46 +262,46 @@ export default function BillingDashboardPage() {
 
       {/* Pending Billing Activation Section */}
       {pendingBillingQuery.data?.users && pendingBillingQuery.data.users.length > 0 && (
-        <section className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-6">
+        <section className="rounded-2xl border border-amber-300 bg-amber-50 p-6">
           <h2 className="text-lg font-semibold text-amber-100 mb-4">
             ⏳ Pending Billing Activation ({pendingBillingQuery.data.users.length})
           </h2>
-          <p className="text-sm text-amber-200/80 mb-4">
+          <p className="text-sm text-amber-800/80 mb-4">
             These users have set up Direct Debit but billing hasn't started yet. Activate when they're ready to be charged.
           </p>
           <div className="space-y-3">
             {pendingBillingQuery.data.users.map((user: any) => (
               <div
                 key={user.id}
-                className="rounded-lg border border-amber-500/30 bg-slate-900/40 p-4"
+                className="rounded-lg border border-amber-300 bg-white p-4"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <div className="text-sm font-medium text-slate-100">{user.email}</div>
-                      <span className="rounded-full border border-slate-600 bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                      <div className="text-sm font-medium text-slate-900">{user.email}</div>
+                      <span className="rounded-full border border-slate-300 bg-slate-700 px-2 py-0.5 text-xs text-slate-600">
                         {user.role}
                       </span>
                     </div>
                     <div className="mt-2 space-y-1">
                       {user.garages.map((garage: any) => (
-                        <div key={garage.id} className="text-xs text-slate-300">
+                        <div key={garage.id} className="text-xs text-slate-600">
                           • {garage.name} - £{garage.cost}/month
-                          {garage.inTrial && <span className="text-amber-400"> (In Trial)</span>}
-                          {garage.needsActivation && <span className="text-amber-400"> (Needs Activation)</span>}
+                          {garage.inTrial && <span className="text-amber-700"> (In Trial)</span>}
+                          {garage.needsActivation && <span className="text-amber-700"> (Needs Activation)</span>}
                         </div>
                       ))}
                     </div>
-                    <div className="mt-2 text-xs text-slate-400">
+                    <div className="mt-2 text-xs text-slate-500">
                       Mandate ID: {user.mandateId} • Created: {formatDate(user.createdAt)}
                     </div>
                   </div>
                   <div className="ml-4 flex flex-col items-end gap-2">
                     <div className="text-right">
-                      <div className="text-lg font-semibold text-slate-100">
+                      <div className="text-lg font-semibold text-slate-900">
                         £{user.totalMonthlyCost}
                       </div>
-                      <div className="text-xs text-slate-400">per month</div>
+                      <div className="text-xs text-slate-500">per month</div>
                     </div>
                     {user.canActivateBilling ? (
                       <button
@@ -312,7 +312,7 @@ export default function BillingDashboardPage() {
                         {activateBillingMutation.isPending ? 'Activating...' : 'Activate Billing'}
                       </button>
                     ) : (
-                      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                      <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                         Cannot activate yet
                       </div>
                     )}
@@ -325,58 +325,58 @@ export default function BillingDashboardPage() {
       )}
 
       {/* Monthly Billing Section */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <h2 className="text-lg font-semibold text-slate-100 mb-4">Monthly Billing</h2>
+      <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900 mb-4">Monthly Billing</h2>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-300">
+              <p className="text-sm text-slate-600">
                 {usersDueQuery.isLoading ? (
                   'Checking for users due...'
                 ) : usersDueQuery.data?.users.length === 0 ? (
                   'No users are due for billing today'
                 ) : (
                   <>
-                    <span className="font-semibold text-slate-100">
+                    <span className="font-semibold text-slate-900">
                       {usersDueQuery.data?.users.length || 0}
                     </span>{' '}
                     {usersDueQuery.data?.users.length === 1 ? 'user is' : 'users are'} due for billing
                   </>
                 )}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 Billing runs monthly from each customer's mandate setup date
               </p>
             </div>
             <button
               onClick={handleProcessMonthlyBilling}
               disabled={processMonthlyMutation.isPending || !usersDueQuery.data?.users.length}
-              className="rounded-md bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:opacity-60"
+              className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
             >
               {processMonthlyMutation.isPending ? 'Processing...' : 'Process Monthly Billing'}
             </button>
           </div>
 
           {usersDueQuery.data?.users && usersDueQuery.data.users.length > 0 && (
-            <div className="border-t border-slate-700 pt-4">
-              <h3 className="text-sm font-medium text-slate-300 mb-3">Users Due for Billing</h3>
+            <div className="border-t border-slate-300 pt-4">
+              <h3 className="text-sm font-medium text-slate-600 mb-3">Users Due for Billing</h3>
               <div className="space-y-2">
                 {usersDueQuery.data.users.map((user: any) => (
                   <div
                     key={user.id}
-                    className="rounded-lg border border-slate-700 bg-slate-800/50 p-3"
+                    className="rounded-lg border border-slate-300 bg-slate-50 p-3"
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-sm font-medium text-slate-100">{user.email}</div>
-                        <div className="text-xs text-slate-400 mt-1">
+                        <div className="text-sm font-medium text-slate-900">{user.email}</div>
+                        <div className="text-xs text-slate-500 mt-1">
                           {user.garages.length} {user.garages.length === 1 ? 'branch' : 'branches'} •{' '}
                           Next billing: {formatDate(user.nextBillingDate)}
                         </div>
                       </div>
                       <div className="text-right">
                         {user.garages.map((garage: any) => (
-                          <div key={garage.id} className="text-xs text-slate-300">
+                          <div key={garage.id} className="text-xs text-slate-600">
                             {garage.name}
                           </div>
                         ))}
@@ -391,20 +391,20 @@ export default function BillingDashboardPage() {
       </section>
 
       {/* Garages Section */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <h2 className="text-lg font-semibold text-slate-100 mb-4">Garages</h2>
+      <section className="rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-slate-900 mb-4">Garages</h2>
         {garagesQuery.isLoading ? (
-          <div className="text-sm text-slate-400">Loading garages...</div>
+          <div className="text-sm text-slate-500">Loading garages...</div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             {garagesQuery.data?.garages.map((garage) => (
               <div
                 key={garage.id}
-                className="rounded-lg border border-slate-700 bg-slate-800/50 p-4 cursor-pointer hover:border-slate-600 transition"
+                className="rounded-lg border border-slate-300 bg-slate-50 p-4 cursor-pointer hover:border-slate-300 transition"
                 onClick={() => router.push(`/admin/billing/${garage.id}`)}
               >
-                <div className="font-medium text-slate-100">{garage.name}</div>
-                <div className="text-xs text-slate-400 mt-1">Click to configure billing</div>
+                <div className="font-medium text-slate-900">{garage.name}</div>
+                <div className="text-xs text-slate-500 mt-1">Click to configure billing</div>
               </div>
             ))}
           </div>
@@ -412,13 +412,13 @@ export default function BillingDashboardPage() {
       </section>
 
       {/* Invoices Section */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-100">Invoices</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Invoices</h2>
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
           >
             <option value="all">All Statuses</option>
             <option value="draft">Draft</option>
@@ -429,16 +429,16 @@ export default function BillingDashboardPage() {
         </div>
 
         {invoicesQuery.isLoading ? (
-          <div className="text-sm text-slate-400">Loading invoices...</div>
+          <div className="text-sm text-slate-500">Loading invoices...</div>
         ) : invoicesQuery.data?.invoices.length === 0 ? (
-          <div className="text-sm text-slate-400 text-center py-8">
+          <div className="text-sm text-slate-500 text-center py-8">
             No invoices found. Generate invoices to get started.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="border-b border-slate-700">
-                <tr className="text-left text-xs text-slate-400">
+              <thead className="border-b border-slate-300">
+                <tr className="text-left text-xs text-slate-500">
                   <th className="pb-3 font-medium">Garage</th>
                   <th className="pb-3 font-medium">Period</th>
                   <th className="pb-3 font-medium">Usage</th>
@@ -451,19 +451,19 @@ export default function BillingDashboardPage() {
                 {invoicesQuery.data?.invoices.map((invoice) => (
                   <tr
                     key={invoice.id}
-                    className="border-b border-slate-800 hover:bg-slate-800/30 cursor-pointer"
+                    className="border-b border-slate-200 hover:bg-slate-50 cursor-pointer"
                     onClick={() => router.push(`/admin/billing/invoices/${invoice.id}`)}
                   >
-                    <td className="py-3 text-slate-100">
+                    <td className="py-3 text-slate-900">
                       {invoice.garage?.name || invoice.garageId}
                     </td>
-                    <td className="py-3 text-slate-300">
+                    <td className="py-3 text-slate-600">
                       {formatDate(invoice.periodStart)} - {formatDate(invoice.periodEnd)}
                     </td>
-                    <td className="py-3 text-slate-300">
+                    <td className="py-3 text-slate-600">
                       {invoice.minutesUsed}min, {invoice.smsCount} SMS
                     </td>
-                    <td className="py-3 text-slate-100 font-medium">
+                    <td className="py-3 text-slate-900 font-medium">
                       {formatCurrency(invoice.total)}
                     </td>
                     <td className="py-3">
@@ -479,7 +479,7 @@ export default function BillingDashboardPage() {
                             handleChargeInvoice(invoice.id);
                           }}
                           disabled={chargeMutation.isPending}
-                          className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-60"
+                          className="text-xs text-brand-600 hover:text-brand-700 disabled:opacity-60"
                         >
                           Charge
                         </button>

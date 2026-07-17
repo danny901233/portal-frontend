@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getGarageId, getUserBranchRoles } from '../lib/auth';
+import { getGarageId, getUserBranchRoles, isReceptionMateStaff } from '../lib/auth';
+import { ALL_ASSIGNED_BRANCHES_IDENTIFIER } from '../lib/branchScope';
 import type { GarageSummary } from '../types';
 import { fetchGarages } from '../lib/api';
 import {
@@ -16,12 +17,40 @@ import {
 import InvoiceTable from './components/InvoiceTable';
 import BillingInfoForm from './components/BillingInfoForm';
 import MandateStatusCard from './components/MandateStatusCard';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 export default function BillingPage() {
-  const [selectedGarageId, setSelectedGarageId] = useState<string>('all');
+  const lang = useLang();
+  const c = {
+    en: {
+      loading: 'Loading billing information...',
+      pleaseWait: 'Please wait',
+      title: 'Billing',
+      subtitle: 'Manage your invoices, billing information, and payment method',
+      viewInvoicesFor: 'View invoices for:',
+      allBranches: 'All Branches',
+      invoices: 'Invoices',
+    },
+    fr: {
+      loading: 'Chargement des informations de facturation...',
+      pleaseWait: 'Veuillez patienter',
+      title: 'Facturation',
+      subtitle: 'Gérez vos factures, vos informations de facturation et votre moyen de paiement',
+      viewInvoicesFor: 'Afficher les factures pour :',
+      allBranches: 'Toutes les agences',
+      invoices: 'Factures',
+    },
+  }[lang];
+  const [selectedGarageId, setSelectedGarageId] = useState<string>(() => {
+    const navGarage = getGarageId();
+    if (!navGarage || navGarage === ALL_ASSIGNED_BRANCHES_IDENTIFIER) return 'all';
+    return navGarage;
+  });
   const [businessInfo, setBusinessInfo] = useState<BusinessBillingInfo | null>(null);
 
-  // Get managed garages
+  const isStaffUser = useMemo(() => isReceptionMateStaff(), []);
+
+  // Get managed garages (for non-staff manager users)
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
@@ -37,38 +66,50 @@ export default function BillingPage() {
     queryFn: fetchGarages,
   });
 
-  // Filter to only managed garages
+  // Staff see all garages; managers see only their assigned ones
   const managedGarages = useMemo(() => {
     if (!garagesQuery.data?.garages) return [];
+    if (isStaffUser) return garagesQuery.data.garages;
     return garagesQuery.data.garages.filter((garage) =>
       managedGarageIds.includes(garage.id)
     );
-  }, [garagesQuery.data, managedGarageIds]);
+  }, [garagesQuery.data, managedGarageIds, isStaffUser]);
 
-  // Set initial garage selection
+  // Keep billing in sync with navbar garage selection (including live changes)
   useEffect(() => {
-    if (managedGarages.length > 0 && selectedGarageId === 'all') {
-      const storedGarageId = getGarageId();
-      if (storedGarageId && managedGarageIds.includes(storedGarageId)) {
-        setSelectedGarageId(storedGarageId);
-      } else if (managedGarages.length === 1) {
-        setSelectedGarageId(managedGarages[0].id);
+    const syncGarage = () => {
+      const navGarage = getGarageId();
+      if (!navGarage || navGarage === ALL_ASSIGNED_BRANCHES_IDENTIFIER) {
+        setSelectedGarageId('all');
+      } else {
+        setSelectedGarageId(navGarage);
       }
+    };
+    syncGarage();
+    window.addEventListener('storage', syncGarage);
+    return () => window.removeEventListener('storage', syncGarage);
+  }, []);
+
+  // For manager users with one branch and nothing selected, default to it
+  useEffect(() => {
+    if (!isStaffUser && managedGarages.length === 1 && selectedGarageId === 'all') {
+      setSelectedGarageId(managedGarages[0].id);
     }
-  }, [managedGarages, managedGarageIds, selectedGarageId]);
+  }, [managedGarages, isStaffUser, selectedGarageId]);
 
   // Fetch invoices
   const invoicesQuery = useQuery<Invoice[]>({
     queryKey: ['customer-invoices', selectedGarageId],
     queryFn: () =>
       fetchCustomerInvoices(selectedGarageId === 'all' ? undefined : selectedGarageId),
-    enabled: selectedGarageId !== 'all' || managedGarageIds.length > 0,
+    enabled: isStaffUser ? selectedGarageId !== 'all' : (selectedGarageId !== 'all' || managedGarageIds.length > 0),
   });
 
   // Fetch business info
   const businessInfoQuery = useQuery<BusinessBillingInfo>({
-    queryKey: ['business-billing-info'],
-    queryFn: fetchBusinessBillingInfo,
+    queryKey: ['business-billing-info', selectedGarageId],
+    queryFn: () => fetchBusinessBillingInfo(selectedGarageId === 'all' ? undefined : selectedGarageId),
+    enabled: selectedGarageId !== 'all',
   });
 
   // Fetch mandate status
@@ -96,8 +137,8 @@ export default function BillingPage() {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
         <div className="space-y-2 text-center">
-          <div className="text-xl font-semibold text-slate-100">Loading billing information...</div>
-          <div className="text-sm text-slate-400">Please wait</div>
+          <div className="text-xl font-semibold text-slate-900">{c.loading}</div>
+          <div className="text-sm text-slate-500">{c.pleaseWait}</div>
         </div>
       </div>
     );
@@ -107,22 +148,22 @@ export default function BillingPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-slate-100">Billing</h1>
-        <p className="mt-1 text-slate-400">
-          Manage your invoices, billing information, and payment method
+        <h1 className="text-3xl font-bold text-slate-900">{c.title}</h1>
+        <p className="mt-1 text-slate-500">
+          {c.subtitle}
         </p>
       </div>
 
-      {/* Branch Selector */}
-      {managedGarages.length > 1 && (
+      {/* Branch Selector — only shown when on All Branches in navbar */}
+      {managedGarages.length > 1 && selectedGarageId === 'all' && (
         <div className="flex items-center gap-4">
-          <label className="text-sm font-medium text-slate-300">View invoices for:</label>
+          <label className="text-sm font-medium text-slate-600">{c.viewInvoicesFor}</label>
           <select
             value={selectedGarageId}
             onChange={(e) => setSelectedGarageId(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
-            <option value="all">All Branches</option>
+            <option value="all">{c.allBranches}</option>
             {managedGarages.map((garage) => (
               <option key={garage.id} value={garage.id}>
                 {garage.name}
@@ -134,13 +175,13 @@ export default function BillingPage() {
 
       {/* Invoices Section */}
       <div>
-        <h2 className="mb-4 text-xl font-semibold text-slate-100">Invoices</h2>
+        <h2 className="mb-4 text-xl font-semibold text-slate-900">{c.invoices}</h2>
         <InvoiceTable invoices={invoicesQuery.data || []} />
       </div>
 
       {/* Billing Information */}
       {businessInfo && (
-        <BillingInfoForm businessInfo={businessInfo} onUpdate={handleBusinessInfoUpdate} />
+        <BillingInfoForm businessInfo={businessInfo} onUpdate={handleBusinessInfoUpdate} garageId={selectedGarageId === 'all' ? undefined : selectedGarageId} />
       )}
 
       {/* Direct Debit */}

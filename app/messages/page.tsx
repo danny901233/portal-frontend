@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
 import ConversationTaggingPanel from '../components/ConversationTaggingPanel';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface Message {
   id: string;
@@ -12,6 +13,9 @@ interface Message {
   content: string;
   createdAt: string;
   platform?: string;
+  mediaUrl?: string;
+  mediaType?: string;
+  staffUserEmail?: string | null;
 }
 
 interface Conversation {
@@ -37,12 +41,67 @@ interface Conversation {
   conversationIds?: string[];
 }
 
+interface ToolCall {
+  id: string;
+  toolName: string;
+  agentType: string;
+  args: unknown;
+  result: unknown;
+  success: boolean;
+  errorMessage?: string | null;
+  durationMs?: number | null;
+  createdAt: string;
+}
+
 interface ConversationDetail extends Conversation {
   garage: {
     id: string;
     name: string;
   };
+  toolCalls?: ToolCall[];
   withinMessagingWindow?: boolean;
+}
+
+// Inline AI tool-call marker shown in the thread — ✓/✗ + tool name, click to expand args/result.
+function ToolCallChip({ call }: { call: ToolCall }) {
+  const [open, setOpen] = useState(false);
+  const ok = call.success;
+  const lang = useLang();
+  const c = {
+    en: { toolCall: 'AI tool call', error: 'error', args: 'args', result: 'result' },
+    fr: { toolCall: 'Appel outil IA', error: 'erreur', args: 'args', result: 'résultat' },
+  }[lang];
+  return (
+    <div className="flex justify-center my-1">
+      <div className="w-full max-w-md">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            'w-full flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-mono transition-colors',
+            ok
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+              : 'bg-red-50 border-red-200 text-red-800 hover:bg-red-100'
+          )}
+          title={c.toolCall}
+        >
+          <span>{ok ? '✓' : '✗'}</span>
+          <span className="font-semibold">{call.toolName}</span>
+          <span className="opacity-60">{call.agentType}</span>
+          {typeof call.durationMs === 'number' && <span className="opacity-60">{call.durationMs}ms</span>}
+          <span className="ml-auto opacity-50">{open ? '▲' : '▼'}</span>
+        </button>
+        {open && (
+          <div className="mt-1 rounded-md border border-slate-200 bg-slate-900 text-slate-100 p-2 text-[11px] font-mono overflow-x-auto">
+            {!ok && call.errorMessage && <div className="text-red-300 mb-1">{c.error}: {call.errorMessage}</div>}
+            <div className="text-slate-400">{c.args}</div>
+            <pre className="whitespace-pre-wrap break-all mb-2">{JSON.stringify(call.args, null, 2)}</pre>
+            <div className="text-slate-400">{c.result}</div>
+            <pre className="whitespace-pre-wrap break-all">{JSON.stringify(call.result, null, 2)}</pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // Platform SVG Logo Components
@@ -77,6 +136,131 @@ const PLATFORM_COLORS = {
 };
 
 export default function MessagesPage() {
+  const lang = useLang();
+  const c = {
+    en: {
+      loadingConversations: 'Loading conversations...',
+      failedSendMessage: 'Failed to send message',
+      selectImageType: 'Please select a JPEG, PNG, or WebP image.',
+      imageTooLarge: 'Image must be under 16MB.',
+      failedSendImage: 'Failed to send image',
+      failedToggleAgent: 'Failed to toggle agent',
+      failedToggleFlag: 'Failed to toggle flag',
+      justNow: 'Just now',
+      minsAgo: (n: number) => `${n}m ago`,
+      hoursAgo: (n: number) => `${n}h ago`,
+      daysAgo: (n: number) => `${n}d ago`,
+      pausedIndefinitely: 'Paused indefinitely',
+      resumingSoon: 'Resuming soon',
+      resumesInHour: 'Resumes in 1 hour',
+      resumesInHours: (n: number) => `Resumes in ${n} hours`,
+      resumesInDay: 'Resumes in 1 day',
+      resumesInDays: (n: number) => `Resumes in ${n} days`,
+      title: 'Messages',
+      subtitle: 'Manage all customer conversations in one place',
+      connectPlatforms: 'Connect Platforms',
+      searchPlaceholder: 'Search conversations...',
+      allPlatforms: 'All Platforms',
+      tabActive: 'ACTIVE',
+      tabNeedsAttention: 'NEEDS ATTENTION',
+      tabResolved: 'RESOLVED',
+      noNeedAttention: 'No conversations need attention',
+      noActiveConversations: 'No active conversations',
+      noResolvedConversations: 'No resolved conversations',
+      noMessages: 'No messages',
+      unknown: 'Unknown',
+      lead: 'Lead',
+      selectConversation: 'Select a conversation to view messages',
+      agentPaused: 'Agent Paused',
+      agentPausedUntil: (until: string) => `Agent Paused • ${until}`,
+      agentActive: 'Agent Active',
+      removeFlag: 'Remove flag',
+      flagForAttention: 'Flag for attention',
+      flagged: 'Flagged',
+      flag: 'Flag',
+      toggleTagsPanel: 'Toggle tags panel',
+      tags: 'Tags',
+      resumeAgent: 'Resume Agent',
+      pauseAgent: 'Pause Agent',
+      pause2h: 'Pause for 2 hours',
+      pause4h: 'Pause for 4 hours',
+      pause8h: 'Pause for 8 hours',
+      pause24h: 'Pause for 24 hours',
+      resolve: 'Resolve',
+      reopen: 'Reopen',
+      windowExpiredTitle: '24-Hour Messaging Window Expired',
+      windowExpiredBody: 'You can no longer send messages to this customer. They must initiate contact again.',
+      previewAlt: 'Preview',
+      attachImage: 'Attach image',
+      addCaption: 'Add a caption (optional)',
+      writeMessage: 'Write a message',
+      sending: 'Sending...',
+      send: 'Send',
+      sharedImageAlt: 'Shared image',
+      fullSizeAlt: 'Full size',
+    },
+    fr: {
+      loadingConversations: 'Chargement des conversations...',
+      failedSendMessage: "Échec de l'envoi du message",
+      selectImageType: 'Veuillez sélectionner une image JPEG, PNG ou WebP.',
+      imageTooLarge: "L'image doit faire moins de 16 Mo.",
+      failedSendImage: "Échec de l'envoi de l'image",
+      failedToggleAgent: "Échec de la modification de l'agent",
+      failedToggleFlag: 'Échec de la modification du signalement',
+      justNow: "À l'instant",
+      minsAgo: (n: number) => `il y a ${n} min`,
+      hoursAgo: (n: number) => `il y a ${n} h`,
+      daysAgo: (n: number) => `il y a ${n} j`,
+      pausedIndefinitely: 'En pause indéfiniment',
+      resumingSoon: 'Reprise imminente',
+      resumesInHour: 'Reprise dans 1 heure',
+      resumesInHours: (n: number) => `Reprise dans ${n} heures`,
+      resumesInDay: 'Reprise dans 1 jour',
+      resumesInDays: (n: number) => `Reprise dans ${n} jours`,
+      title: 'Messages',
+      subtitle: 'Gérez toutes les conversations clients au même endroit',
+      connectPlatforms: 'Connecter des plateformes',
+      searchPlaceholder: 'Rechercher des conversations...',
+      allPlatforms: 'Toutes les plateformes',
+      tabActive: 'ACTIVES',
+      tabNeedsAttention: 'À TRAITER',
+      tabResolved: 'RÉSOLUES',
+      noNeedAttention: 'Aucune conversation à traiter',
+      noActiveConversations: 'Aucune conversation active',
+      noResolvedConversations: 'Aucune conversation résolue',
+      noMessages: 'Aucun message',
+      unknown: 'Inconnu',
+      lead: 'Prospect',
+      selectConversation: 'Sélectionnez une conversation pour voir les messages',
+      agentPaused: 'Agent en pause',
+      agentPausedUntil: (until: string) => `Agent en pause • ${until}`,
+      agentActive: 'Agent actif',
+      removeFlag: 'Retirer le signalement',
+      flagForAttention: 'Signaler pour attention',
+      flagged: 'Signalée',
+      flag: 'Signaler',
+      toggleTagsPanel: 'Afficher/masquer le panneau des étiquettes',
+      tags: 'Étiquettes',
+      resumeAgent: "Reprendre l'agent",
+      pauseAgent: "Mettre l'agent en pause",
+      pause2h: 'Pause de 2 heures',
+      pause4h: 'Pause de 4 heures',
+      pause8h: 'Pause de 8 heures',
+      pause24h: 'Pause de 24 heures',
+      resolve: 'Résoudre',
+      reopen: 'Rouvrir',
+      windowExpiredTitle: 'Fenêtre de messagerie de 24 heures expirée',
+      windowExpiredBody: "Vous ne pouvez plus envoyer de messages à ce client. Il doit reprendre contact.",
+      previewAlt: 'Aperçu',
+      attachImage: 'Joindre une image',
+      addCaption: 'Ajouter une légende (facultatif)',
+      writeMessage: 'Écrire un message',
+      sending: 'Envoi...',
+      send: 'Envoyer',
+      sharedImageAlt: 'Image partagée',
+      fullSizeAlt: 'Plein écran',
+    },
+  }[lang];
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<ConversationDetail | null>(null);
@@ -89,15 +273,93 @@ export default function MessagesPage() {
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [showPauseDropdown, setShowPauseDropdown] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showTaggingPanel, setShowTaggingPanel] = useState(false);
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean | null>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [sendingImage, setSendingImage] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  // "Train Bot" modal — opened from the thumbs-down on an AI reply. Lets the user
+  // correct the answer and save it as an FAQ so the agent answers it right next time.
+  const [trainModal, setTrainModal] = useState<{ question: string; answer: string } | null>(null);
+  const [trainAnswer, setTrainAnswer] = useState('');
+  const [trainQuestion, setTrainQuestion] = useState('');
+  const [trainSaving, setTrainSaving] = useState(false);
+  const [trainDone, setTrainDone] = useState(false);
 
+  const openTrainModal = (aiMessage: Message) => {
+    // Prefill the question with the customer's most recent message before this reply.
+    const msgs = selectedConversation?.messages ?? [];
+    const idx = msgs.findIndex((m) => m.id === aiMessage.id);
+    let question = '';
+    for (let i = idx - 1; i >= 0; i--) {
+      if (msgs[i].role === 'user' && msgs[i].content && msgs[i].content !== '[Image]') {
+        question = msgs[i].content;
+        break;
+      }
+    }
+    setTrainQuestion(question);
+    setTrainAnswer(aiMessage.content);
+    setTrainDone(false);
+    setTrainModal({ question, answer: aiMessage.content });
+  };
+
+  const submitTrain = async () => {
+    const garageId = getGarageId();
+    const token = getSessionToken();
+    if (!garageId || !trainQuestion.trim() || !trainAnswer.trim()) return;
+    setTrainSaving(true);
+    try {
+      const res = await fetch(`/api/garages/${garageId}/train-faq`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ question: trainQuestion.trim(), answer: trainAnswer.trim() }),
+      });
+      if (res.ok) {
+        setTrainDone(true);
+        setTimeout(() => setTrainModal(null), 1200);
+      }
+    } catch {
+      // swallow — keep the modal open so they can retry
+    } finally {
+      setTrainSaving(false);
+    }
+  };
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Tracks whether the user is at (or very near) the bottom of the thread.
+  // Updated on scroll. Used to decide whether polling updates should force-
+  // scroll to the newest message or leave the user where they are back-reading.
+  const isAtBottomRef = useRef(true);
+
+  const handleMessagesScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const threshold = 100; // px from bottom counts as "at bottom"
+    isAtBottomRef.current =
+      container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+  };
+
+  // When a conversation is opened (or switched), always jump to the newest
+  // message. Reset the at-bottom tracker so subsequent polling updates behave
+  // correctly.
   useLayoutEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
-  }, [selectedConversation?.messages]);
+    isAtBottomRef.current = true;
+  }, [selectedConversation?.id]);
+
+  // On new message polling updates, only auto-scroll if the user was already
+  // at the bottom — respect the user's position if they're back-reading.
+  useLayoutEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    if (isAtBottomRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [selectedConversation?.messages?.length]);
 
   useEffect(() => {
     const garageId = getGarageId();
@@ -231,10 +493,83 @@ export default function MessagesPage() {
       await fetchConversations();
     } catch (error) {
       console.error('Error sending message:', error);
-      alert('Failed to send message');
+      alert(c.failedSendMessage);
     } finally {
       setSending(false);
     }
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert(c.selectImageType);
+      return;
+    }
+    if (file.size > 16 * 1024 * 1024) {
+      alert(c.imageTooLarge);
+      return;
+    }
+    setSelectedImage(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const cancelImage = () => {
+    setSelectedImage(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  };
+
+  const sendImage = async () => {
+    if (!selectedConversation || !selectedImage) return;
+    setSendingImage(true);
+    try {
+      const token = getSessionToken();
+      const formData = new FormData();
+      formData.append('image', selectedImage);
+      if (messageInput.trim()) formData.append('caption', messageInput.trim());
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/messages/image`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        }
+      );
+      if (!response.ok) throw new Error('Failed to send image');
+
+      cancelImage();
+      setMessageInput('');
+      await fetchConversationDetail(selectedConversation.id);
+      await fetchConversations();
+    } catch (error) {
+      console.error('Error sending image:', error);
+      alert(c.failedSendImage);
+    } finally {
+      setSendingImage(false);
+    }
+  };
+
+  const getSignedMediaUrl = async (url: string): Promise<string> => {
+    try {
+      const token = getSessionToken();
+      const resp = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/media/signed-url?url=${encodeURIComponent(url)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!resp.ok) return url;
+      const data = await resp.json();
+      return data.signedUrl || url;
+    } catch {
+      return url;
+    }
+  };
+
+  const openLightbox = async (mediaUrl: string) => {
+    const signed = await getSignedMediaUrl(mediaUrl);
+    setLightboxUrl(signed);
   };
 
   const updateConversationStatus = async (status: string) => {
@@ -297,7 +632,7 @@ export default function MessagesPage() {
       await fetchConversations();
     } catch (error) {
       console.error('Error toggling agent:', error);
-      alert('Failed to toggle agent');
+      alert(c.failedToggleAgent);
     }
   };
 
@@ -334,7 +669,30 @@ export default function MessagesPage() {
       await fetchConversations();
     } catch (error) {
       console.error('Error toggling flag:', error);
-      alert('Failed to toggle flag');
+      alert(c.failedToggleFlag);
+    }
+  };
+
+  const markAsUnread = async () => {
+    if (!selectedConversation) return;
+    try {
+      const token = getSessionToken();
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ unreadCount: 1 }),
+        }
+      );
+      if (!response.ok) throw new Error('Failed to mark as unread');
+      setSelectedConversation({ ...selectedConversation, unreadCount: 1 });
+      await fetchConversations();
+    } catch (error) {
+      console.error('Error marking as unread:', error);
     }
   };
 
@@ -363,11 +721,11 @@ export default function MessagesPage() {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    if (diffMins < 1) return c.justNow;
+    if (diffMins < 60) return c.minsAgo(diffMins);
+    if (diffHours < 24) return c.hoursAgo(diffHours);
+    if (diffDays < 7) return c.daysAgo(diffDays);
+    return date.toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB');
   };
 
   const getInitials = (name: string) => {
@@ -385,14 +743,14 @@ export default function MessagesPage() {
     const diffHours = Math.ceil(diffMs / (60 * 60 * 1000));
 
     // Check if it's an indefinite pause (very far in the future)
-    if (diffHours > 8760) return 'Paused indefinitely'; // More than 1 year
+    if (diffHours > 8760) return c.pausedIndefinitely; // More than 1 year
 
-    if (diffHours < 1) return 'Resuming soon';
-    if (diffHours === 1) return 'Resumes in 1 hour';
-    if (diffHours < 24) return `Resumes in ${diffHours} hours`;
+    if (diffHours < 1) return c.resumingSoon;
+    if (diffHours === 1) return c.resumesInHour;
+    if (diffHours < 24) return c.resumesInHours(diffHours);
     const diffDays = Math.ceil(diffHours / 24);
-    if (diffDays === 1) return 'Resumes in 1 day';
-    return `Resumes in ${diffDays} days`;
+    if (diffDays === 1) return c.resumesInDay;
+    return c.resumesInDays(diffDays);
   };
 
   const filteredConversations = conversations.filter(conv => {
@@ -408,7 +766,7 @@ export default function MessagesPage() {
   if (loading || hasMessagingAccess === null) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-slate-400">Loading conversations...</div>
+        <div className="text-slate-500">{c.loadingConversations}</div>
       </div>
     );
   }
@@ -419,36 +777,31 @@ export default function MessagesPage() {
 
   return (
     <div className="space-y-4">
-      {/* Header with Integrations Button */}
-      <div className="flex items-center justify-between">
+      {/* Header. Channel connections now live under Agent Setup > Messaging
+          (previously an "Integrations" button here). */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">Messages</h1>
-          <p className="text-sm text-slate-400 mt-1">Manage all customer conversations in one place</p>
+          <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
+          <p className="text-sm text-slate-500 mt-1">{c.subtitle}</p>
         </div>
-        <button
-          onClick={() => router.push('/integrations')}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors border border-slate-700"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          <span className="text-sm font-medium">Connect Platforms</span>
-        </button>
       </div>
 
-      <div className="flex h-[calc(100vh-220px)] gap-0">
-        {/* Left Sidebar - Conversations List */}
-        <div className="w-96 bg-slate-900/40 border border-slate-800 rounded-l-lg flex flex-col">
+      <div className="flex flex-col md:flex-row h-[calc(100dvh-13rem)] md:h-[calc(100vh-220px)] gap-0">
+        {/* Left Sidebar - Conversations List (single-pane on mobile: hidden once a chat is open) */}
+        <div className={cn(
+          'w-full md:w-96 flex-1 min-h-0 md:flex-none md:h-auto md:max-h-none bg-white border border-slate-200 rounded-2xl md:rounded-l-2xl md:rounded-tr-none md:rounded-br-none flex-col shadow-sm shadow-slate-900/5',
+          selectedConversation ? 'hidden md:flex' : 'flex'
+        )}>
           {/* Search and Filters */}
-          <div className="p-4 border-b border-slate-800">
+          <div className="p-4 border-b border-slate-200">
           <div className="flex gap-2 mb-4">
             <div className="relative flex-1">
               <input
                 type="text"
-                placeholder="Search conversations..."
+                placeholder={c.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full px-4 py-2 pl-10 bg-white border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
               />
               <svg className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -459,7 +812,7 @@ export default function MessagesPage() {
             <div className="relative">
               <button
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                className="p-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-slate-100 transition-colors"
+                className="p-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-500 hover:text-slate-900 transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -472,7 +825,7 @@ export default function MessagesPage() {
                     className="fixed inset-0 z-10"
                     onClick={() => setShowFilterDropdown(false)}
                   />
-                  <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20">
+                  <div className="absolute right-0 mt-2 w-48 bg-slate-100 border border-slate-300 rounded-lg shadow-xl z-20">
                     <div className="p-2">
                       <button
                         onClick={() => {
@@ -482,11 +835,11 @@ export default function MessagesPage() {
                         className={cn(
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'all'
-                            ? 'bg-purple-600 text-white'
-                            : 'text-slate-300 hover:bg-slate-700'
+                            ? 'bg-brand-600 text-white'
+                            : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
-                        <span className="flex-1">All Platforms</span>
+                        <span className="flex-1">{c.allPlatforms}</span>
                         {platformFilter === 'all' && (
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -502,7 +855,7 @@ export default function MessagesPage() {
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'whatsapp'
                             ? 'bg-green-600 text-white'
-                            : 'text-slate-300 hover:bg-slate-700'
+                            : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
                         <WhatsAppIcon />
@@ -522,7 +875,7 @@ export default function MessagesPage() {
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'facebook'
                             ? 'bg-blue-600 text-white'
-                            : 'text-slate-300 hover:bg-slate-700'
+                            : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
                         <FacebookIcon />
@@ -541,8 +894,8 @@ export default function MessagesPage() {
                         className={cn(
                           'w-full text-left px-3 py-2 rounded text-sm transition-colors flex items-center gap-2',
                           platformFilter === 'instagram'
-                            ? 'bg-purple-600 text-white'
-                            : 'text-slate-300 hover:bg-slate-700'
+                            ? 'bg-brand-600 text-white'
+                            : 'text-slate-600 hover:bg-slate-700'
                         )}
                       >
                         <InstagramIcon />
@@ -561,19 +914,19 @@ export default function MessagesPage() {
           </div>
 
           {/* Active / Needs Attention / Resolved Tabs */}
-          <div className="flex gap-4 border-b border-slate-700">
+          <div className="flex gap-4 border-b border-slate-300">
             <button
               onClick={() => setViewMode('active')}
               className={cn(
                 'pb-2 px-1 text-sm font-medium transition-colors relative',
                 viewMode === 'active'
-                  ? 'text-green-400'
-                  : 'text-slate-500 hover:text-slate-300'
+                  ? 'text-brand-600'
+                  : 'text-slate-500 hover:text-slate-600'
               )}
             >
-              ACTIVE
+              {c.tabActive}
               {viewMode === 'active' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-400" />
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600" />
               )}
             </button>
             <button
@@ -582,10 +935,10 @@ export default function MessagesPage() {
                 'pb-2 px-1 text-sm font-medium transition-colors relative',
                 viewMode === 'needsAttention'
                   ? 'text-orange-400'
-                  : 'text-slate-500 hover:text-slate-300'
+                  : 'text-slate-500 hover:text-slate-600'
               )}
             >
-              NEEDS ATTENTION
+              {c.tabNeedsAttention}
               {viewMode === 'needsAttention' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-400" />
               )}
@@ -595,11 +948,11 @@ export default function MessagesPage() {
               className={cn(
                 'pb-2 px-1 text-sm font-medium transition-colors relative',
                 viewMode === 'resolved'
-                  ? 'text-slate-400'
-                  : 'text-slate-500 hover:text-slate-300'
+                  ? 'text-slate-500'
+                  : 'text-slate-500 hover:text-slate-600'
               )}
             >
-              RESOLVED
+              {c.tabResolved}
               {viewMode === 'resolved' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-400" />
               )}
@@ -611,7 +964,11 @@ export default function MessagesPage() {
         <div className="flex-1 overflow-y-auto">
           {filteredConversations.length === 0 ? (
             <div className="p-4 text-center text-slate-500 text-sm">
-              No {viewMode === 'needsAttention' ? 'conversations need attention' : `${viewMode} conversations`}
+              {viewMode === 'needsAttention'
+                ? c.noNeedAttention
+                : viewMode === 'resolved'
+                ? c.noResolvedConversations
+                : c.noActiveConversations}
             </div>
           ) : (
             filteredConversations.map((conv) => (
@@ -619,84 +976,102 @@ export default function MessagesPage() {
                 key={conv.id}
                 onClick={() => fetchConversationDetail(conv.id)}
                 className={cn(
-                  'p-4 border-b border-slate-800 cursor-pointer transition-colors hover:bg-slate-800/40',
-                  selectedConversation?.id === conv.id && 'bg-slate-800/60',
-                  conv.needsAttention && 'border-l-4 border-l-orange-500'
+                  'relative flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-3.5 transition-colors hover:bg-slate-50',
+                  selectedConversation?.id === conv.id && 'bg-slate-50',
                 )}
               >
-                <div className="flex items-start gap-3">
-                  <div className={cn(
-                    'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium flex-shrink-0',
-                    PLATFORM_COLORS[conv.platform as keyof typeof PLATFORM_COLORS]
-                  )}>
-                    {getInitials(conv.customerName || conv.customerPhone || conv.customerId || 'UK')}
+                {conv.needsAttention && (
+                  <span aria-hidden className="absolute inset-y-2.5 left-0 w-1 rounded-r-full bg-orange-500" />
+                )}
+                <div className={cn(
+                  'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-2',
+                  conv.platform === 'whatsapp' ? 'bg-emerald-100 text-emerald-800 ring-emerald-200' :
+                  conv.platform === 'facebook' ? 'bg-blue-100 text-blue-800 ring-blue-200' :
+                  conv.platform === 'instagram' ? 'bg-pink-100 text-pink-800 ring-pink-200' :
+                  'bg-slate-100 text-slate-500 ring-slate-200'
+                )}>
+                  {getInitials(conv.customerName || conv.customerPhone || conv.customerId || 'UK')}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="truncate text-[15px] font-semibold text-slate-900">
+                      {conv.customerName || conv.customerPhone || conv.customerId || c.unknown}
+                    </h3>
+                    <span className="shrink-0 text-xs text-slate-400">{formatTime(conv.lastMessageAt)}</span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-1">
-                      <h3 className="font-medium text-slate-100 text-sm truncate">
-                        {conv.customerName || conv.customerPhone || conv.customerId || 'Unknown'}
-                      </h3>
-                      <span className="text-xs text-slate-500 ml-2 flex-shrink-0">{formatTime(conv.lastMessageAt)}</span>
-                    </div>
-                    <p className="text-xs text-slate-400 truncate mb-2">
-                      {conv.messages[0]?.content || 'No messages'}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {/* Show all platforms if merged */}
-                      {conv.platforms && conv.platforms.length > 1 ? (
-                        <div className="flex gap-1">
+                  {conv.customerPhone && conv.customerName && (
+                    <p className="truncate text-[11px] text-slate-400">+{conv.customerPhone}</p>
+                  )}
+                  <p className="mt-0.5 truncate text-[13px] text-slate-500">
+                    {conv.messages[0]?.content || c.noMessages}
+                  </p>
+                  {(conv.platforms && conv.platforms.length > 1) || conv.unreadCount > 0 ? (
+                    <div className="mt-1.5 flex items-center gap-2">
+                      {conv.platforms && conv.platforms.length > 1 && (
+                        <div className="flex gap-1.5">
                           {conv.platforms.map((p) => {
                             const IconComponent = PLATFORM_ICONS[p as keyof typeof PLATFORM_ICONS];
                             return IconComponent ? (
                               <span key={p} className={cn(
-                                'p-1 rounded',
-                                p === 'whatsapp' && 'text-green-400',
-                                p === 'facebook' && 'text-blue-400',
-                                p === 'instagram' && 'text-purple-400'
+                                p === 'whatsapp' && 'text-emerald-600',
+                                p === 'facebook' && 'text-blue-600',
+                                p === 'instagram' && 'text-pink-600'
                               )}>
                                 <IconComponent />
                               </span>
                             ) : null;
                           })}
                         </div>
-                      ) : (
-                        <span className={cn(
-                          'text-xs px-2 py-0.5 rounded-full',
-                          conv.platform === 'whatsapp' && 'bg-green-500/20 text-green-300',
-                          conv.platform === 'facebook' && 'bg-blue-500/20 text-blue-300',
-                          conv.platform === 'instagram' && 'bg-purple-500/20 text-purple-300'
-                        )}>
-                          Lead
-                        </span>
                       )}
                       {conv.unreadCount > 0 && (
-                        <span className="w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
+                        <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-600 px-1.5 text-xs font-semibold text-white">
                           {conv.unreadCount}
                         </span>
                       )}
                     </div>
-                  </div>
+                  ) : null}
                 </div>
               </div>
             ))
           )}
         </div>
+        {/* Platform legend */}
+        <div className="border-t border-slate-100 bg-slate-50 px-3 py-2">
+          <div className="flex items-center justify-around text-[10px] font-medium uppercase tracking-widest text-slate-400">
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> WhatsApp</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> Facebook</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-pink-500" /> Instagram</span>
+          </div>
+        </div>
       </div>
 
-      {/* Right Panel - Conversation Detail */}
-      <div className="flex-1 bg-slate-900/40 border border-l-0 border-slate-800 rounded-r-lg flex flex-col">
+      {/* Right Panel - Conversation Detail (single-pane on mobile: shown only when a chat is open) */}
+      <div className={cn(
+        'flex-1 min-h-0 md:h-auto bg-white border border-slate-200 md:border-t md:border-l-0 rounded-2xl md:rounded-b-none md:rounded-l-none md:rounded-r-2xl flex-col shadow-sm shadow-slate-900/5',
+        selectedConversation ? 'flex' : 'hidden md:flex'
+      )}>
         {!selectedConversation ? (
           <div className="flex-1 flex items-center justify-center text-slate-500">
             <div className="text-center">
               <div className="text-4xl mb-4">💬</div>
-              <div>Select a conversation to view messages</div>
+              <div>{c.selectConversation}</div>
             </div>
           </div>
         ) : (
           <>
             {/* Conversation Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+            <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedConversation(null)}
+                  className="md:hidden -ml-1 rounded-full p-1 text-slate-500 transition-colors hover:bg-slate-100"
+                  aria-label="Back to conversations"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-6 w-6">
+                    <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 0 1 0 1.06L9.08 10l3.71 3.71a.75.75 0 1 1-1.06 1.06l-4.24-4.24a.75.75 0 0 1 0-1.06l4.24-4.24a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+                  </svg>
+                </button>
                 <div className={cn(
                   'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium',
                   PLATFORM_COLORS[selectedConversation.platform as keyof typeof PLATFORM_COLORS]
@@ -704,14 +1079,17 @@ export default function MessagesPage() {
                   {getInitials(selectedConversation.customerName || selectedConversation.customerPhone || selectedConversation.customerId || 'UK')}
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-slate-100">
+                  <h2 className="text-base font-semibold text-slate-900">
                     {selectedConversation.customerName ||
                      selectedConversation.customerPhone ||
                      selectedConversation.customerId ||
-                     'Unknown'}
+                     c.unknown}
                   </h2>
+                  {selectedConversation.customerPhone && selectedConversation.customerName && (
+                    <p className="text-xs text-slate-400">+{selectedConversation.customerPhone}</p>
+                  )}
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1 text-xs text-slate-400">
+                    <div className="flex items-center gap-1 text-xs text-slate-500">
                       {(() => {
                         const IconComponent = PLATFORM_ICONS[selectedConversation.platform as keyof typeof PLATFORM_ICONS];
                         return IconComponent ? <IconComponent /> : null;
@@ -730,194 +1108,305 @@ export default function MessagesPage() {
                       <span>
                         {selectedConversation.agentPaused ? (
                           selectedConversation.agentPausedUntil ? (
-                            `Agent Paused • ${formatPauseTime(selectedConversation.agentPausedUntil)}`
+                            c.agentPausedUntil(formatPauseTime(selectedConversation.agentPausedUntil))
                           ) : (
-                            'Agent Paused'
+                            c.agentPaused
                           )
                         ) : (
-                          'Agent Active'
+                          c.agentActive
                         )}
                       </span>
                     </div>
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={toggleFlag}
-                  className={cn(
-                    'px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5',
-                    selectedConversation.needsAttention
-                      ? 'bg-orange-600 hover:bg-orange-700 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
-                  )}
-                  title={selectedConversation.needsAttention ? 'Remove flag' : 'Flag for attention'}
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clipRule="evenodd" />
-                  </svg>
-                  {selectedConversation.needsAttention ? 'Flagged' : 'Flag'}
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Status chip: shows current agent state */}
+                {selectedConversation.agentPaused ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700 ring-1 ring-orange-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+                    {c.agentPaused}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    {c.agentActive}
+                  </span>
+                )}
 
-                <button
-                  onClick={() => setShowTaggingPanel(!showTaggingPanel)}
-                  className={cn(
-                    'px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5',
-                    showTaggingPanel
-                      ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
-                  )}
-                  title="Toggle tags panel"
-                >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                  </svg>
-                  Tags
-                </button>
-
-                {/* Pause Agent Button with Dropdown */}
+                {/* Primary action: Pause / Resume */}
                 {selectedConversation.agentPaused ? (
                   <button
                     onClick={() => toggleAgent()}
-                    className="px-3 py-1.5 text-sm rounded-md transition-colors bg-green-600 hover:bg-green-700 text-white"
+                    className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:border-emerald-500"
                   >
-                    Resume Agent
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    {c.resumeAgent}
                   </button>
                 ) : (
                   <div className="relative">
                     <button
                       onClick={() => setShowPauseDropdown(!showPauseDropdown)}
-                      className="px-3 py-1.5 text-sm rounded-md transition-colors bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-1"
+                      className="inline-flex items-center gap-1 rounded-md border border-orange-300 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:border-orange-500"
                     >
-                      Pause Agent
-                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 9v6m-4.5 0V9M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {c.pauseAgent}
+                      <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                       </svg>
                     </button>
-
                     {showPauseDropdown && (
                       <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setShowPauseDropdown(false)}
-                        />
-                        <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20">
-                          <div className="p-2">
-                            <button
-                              onClick={() => toggleAgent(2)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-700 transition-colors"
-                            >
-                              Pause for 2 hours
-                            </button>
-                            <button
-                              onClick={() => toggleAgent(4)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-700 transition-colors"
-                            >
-                              Pause for 4 hours
-                            </button>
-                            <button
-                              onClick={() => toggleAgent(8)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-700 transition-colors"
-                            >
-                              Pause for 8 hours
-                            </button>
-                            <button
-                              onClick={() => toggleAgent(24)}
-                              className="w-full text-left px-3 py-2 rounded text-sm text-slate-300 hover:bg-slate-700 transition-colors"
-                            >
-                              Pause for 24 hours
-                            </button>
-                          </div>
+                        <div className="fixed inset-0 z-10" onClick={() => setShowPauseDropdown(false)} />
+                        <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg shadow-slate-900/10 z-20">
+                          <button onClick={() => toggleAgent(2)} className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">{c.pause2h}</button>
+                          <button onClick={() => toggleAgent(4)} className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">{c.pause4h}</button>
+                          <button onClick={() => toggleAgent(8)} className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">{c.pause8h}</button>
+                          <button onClick={() => toggleAgent(24)} className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50">{c.pause24h}</button>
                         </div>
                       </>
                     )}
                   </div>
                 )}
-                {selectedConversation.status === 'active' ? (
+
+                {/* Kebab menu: Unread, Flag, Tags, Resolve */}
+                <div className="relative">
                   <button
-                    onClick={() => updateConversationStatus('resolved')}
-                    className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors"
+                    onClick={() => setShowMoreMenu(!showMoreMenu)}
+                    className="rounded-md border border-slate-300 bg-white p-1.5 text-slate-600 hover:border-slate-500 hover:text-slate-900"
+                    title="More actions"
                   >
-                    Resolve
+                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                    </svg>
                   </button>
-                ) : (
-                  <button
-                    onClick={() => updateConversationStatus('active')}
-                    className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors"
-                  >
-                    Reopen
-                  </button>
-                )}
+                  {showMoreMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowMoreMenu(false)} />
+                      <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg shadow-slate-900/10 z-20">
+                        <button
+                          onClick={() => { setShowMoreMenu(false); markAsUnread(); }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                        >
+                          <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+                          Mark as unread
+                        </button>
+                        <button
+                          onClick={() => { setShowMoreMenu(false); toggleFlag(); }}
+                          className={cn(
+                            'flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-50',
+                            selectedConversation.needsAttention ? 'text-orange-700' : 'text-slate-700'
+                          )}
+                        >
+                          <svg className={cn('h-4 w-4', selectedConversation.needsAttention ? 'text-orange-500' : 'text-slate-400')} fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clipRule="evenodd" /></svg>
+                          {selectedConversation.needsAttention ? c.removeFlag : c.flagForAttention}
+                        </button>
+                        <button
+                          onClick={() => { setShowMoreMenu(false); setShowTaggingPanel(!showTaggingPanel); }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                        >
+                          <svg className="h-4 w-4 text-slate-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg>
+                          {c.tags}
+                        </button>
+                        <div className="my-1 h-px bg-slate-100" />
+                        {selectedConversation.status === 'active' ? (
+                          <button
+                            onClick={() => { setShowMoreMenu(false); updateConversationStatus('resolved'); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            {c.resolve}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => { setShowMoreMenu(false); updateConversationStatus('active'); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-brand-700 hover:bg-brand-50"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                            {c.reopen}
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Messages */}
-            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-950/20">
-              {selectedConversation.messages?.filter((message) => !message.content?.startsWith('[Context:')).map((message) => (
+            <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-50">
+              {(() => {
+                const msgItems = (selectedConversation.messages || [])
+                  .filter((message) => !message.content?.startsWith('[Context:'))
+                  .map((m) => ({ kind: 'message' as const, at: m.createdAt, m }));
+                const toolItems = (selectedConversation.toolCalls || [])
+                  .map((t) => ({ kind: 'tool' as const, at: t.createdAt, t }));
+                const timeline = [...msgItems, ...toolItems].sort(
+                  (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()
+                );
+                return timeline.map((item) =>
+                  item.kind === 'tool' ? (
+                    <ToolCallChip key={`tc-${item.t.id}`} call={item.t} />
+                  ) : (
+                    (() => {
+                      const message = item.m;
+                      return (
                 <div
                   key={message.id}
                   className={cn('flex flex-col', message.role === 'user' ? 'items-start' : 'items-end')}
                 >
-                  {/* Platform badge */}
-                  {message.platform && (
-                    <div className="text-xs text-slate-500 mb-1 flex items-center gap-1">
-                      {(() => {
-                        const IconComponent = PLATFORM_ICONS[message.platform as keyof typeof PLATFORM_ICONS];
-                        return IconComponent ? <IconComponent /> : null;
-                      })()}
-                      <span>{message.platform}</span>
-                    </div>
-                  )}
+                  {/* Sender label: ✨ AI for the agent, the staff member's name for a
+                      human reply, or the channel for the customer's message. */}
+                  <div className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+                    {(() => {
+                      const IconComponent = message.platform
+                        ? PLATFORM_ICONS[message.platform as keyof typeof PLATFORM_ICONS]
+                        : null;
+                      const plat = message.platform
+                        ? message.platform.charAt(0).toUpperCase() + message.platform.slice(1)
+                        : '';
+                      let who = '';
+                      let isAi = false;
+                      if (message.role !== 'user') {
+                        if (message.staffUserEmail) {
+                          const local = message.staffUserEmail.split('@')[0];
+                          who = local.charAt(0).toUpperCase() + local.slice(1);
+                        } else {
+                          who = 'AI';
+                          isAi = true;
+                        }
+                      }
+                      const label = [who, plat].filter(Boolean).join(' · ');
+                      if (!label && !IconComponent) return null;
+                      return (
+                        <>
+                          {isAi && <span aria-hidden>✨</span>}
+                          {IconComponent ? <IconComponent /> : null}
+                          <span>{label}</span>
+                        </>
+                      );
+                    })()}
+                  </div>
                   <div
                     className={cn(
-                      'max-w-md px-4 py-2 rounded-lg',
+                      'max-w-md px-4 py-2.5',
                       message.role === 'user'
-                        ? 'bg-slate-800 text-slate-100'
-                        : 'bg-purple-600 text-white'
+                        ? 'rounded-2xl rounded-bl-md border border-slate-200 bg-white text-slate-900 shadow-sm'
+                        : 'rounded-2xl rounded-br-md bg-brand-600 text-white shadow-sm shadow-brand-600/20'
                     )}
                   >
-                    <p className="text-sm">{message.content}</p>
+                    {message.mediaUrl && message.mediaType?.startsWith('image/') && (
+                      <img
+                        src={message.mediaUrl}
+                        alt={c.sharedImageAlt}
+                        className="max-w-full max-h-64 rounded-md mb-2 cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => openLightbox(message.mediaUrl!)}
+                        onError={(e) => {
+                          const img = e.target as HTMLImageElement;
+                          if (!img.dataset.retried) {
+                            img.dataset.retried = 'true';
+                            getSignedMediaUrl(message.mediaUrl!).then(url => { img.src = url; });
+                          }
+                        }}
+                      />
+                    )}
+                    {message.content && message.content !== '[Image]' && (
+                      <p className="text-sm">{message.content}</p>
+                    )}
                     <p className={cn('text-xs mt-1', message.role === 'user' ? 'text-slate-500' : 'text-purple-200')}>
                       {formatTime(message.createdAt)}
                     </p>
                   </div>
+                  {/* Thumbs-down on AI replies — opens the "Train Bot" editor so the
+                      garage can correct the answer and save it as an FAQ. */}
+                  {message.role !== 'user' && !message.staffUserEmail && message.content && message.content !== '[Image]' && (
+                    <button
+                      type="button"
+                      onClick={() => openTrainModal(message)}
+                      title="Answer not right? Train the agent"
+                      className="mt-1 flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7.5 15h2.25m8.024-9.75c.011.05.028.1.052.148.591 1.2.924 2.55.924 3.977a8.96 8.96 0 01-.999 4.125m.023-8.25c-.076-.365.183-.75.575-.75h.908c.889 0 1.713.518 1.972 1.368.339 1.11.521 2.287.521 3.507 0 1.553-.295 3.036-.831 4.398C20.613 14.547 19.833 15 19 15h-1.053c-.472 0-.745-.556-.5-.96a8.95 8.95 0 00.303-.54m.023-8.25H16.48a4.5 4.5 0 01-1.423-.23l-3.114-1.04a4.5 4.5 0 00-1.423-.23H6.504c-1.036 0-1.875.84-1.875 1.875v.75c0 1.036.84 1.875 1.875 1.875h1.079L7.5 15z" />
+                      </svg>
+                      <span>Improve answer</span>
+                    </button>
+                  )}
                 </div>
-              ))}
+                      );
+                    })()
+                  )
+                );
+              })()}
             </div>
 
             {/* Message Input */}
             {selectedConversation.status === 'active' && (
-              <div className="p-4 border-t border-slate-800">
+              <div className="p-4 border-t border-slate-200">
                 {selectedConversation.withinMessagingWindow === false && ['whatsapp', 'facebook', 'instagram'].includes(selectedConversation.platform) ? (
                   <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3 text-center">
-                    <p className="text-sm text-orange-400 font-medium">24-Hour Messaging Window Expired</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      You can no longer send messages to this customer. They must initiate contact again.
+                    <p className="text-sm text-orange-400 font-medium">{c.windowExpiredTitle}</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {c.windowExpiredBody}
                     </p>
                   </div>
                 ) : (
                   <>
-                    <div className="flex gap-2">
+                    {imagePreview && (
+                      <div className="mb-3 relative inline-block">
+                        <img src={imagePreview} alt={c.previewAlt} className="max-h-32 rounded-lg border border-slate-300" />
+                        <button
+                          onClick={cancelImage}
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs"
+                        >
+                          X
+                        </button>
+                      </div>
+                    )}
+                    <div className="rounded-xl border border-slate-300 bg-white transition focus-within:border-brand-600 focus-within:ring-1 focus-within:ring-brand-600">
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleImageSelect}
+                        className="hidden"
+                      />
                       <input
                         type="text"
                         value={messageInput}
                         onChange={(e) => setMessageInput(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                        placeholder="Write a message"
+                        onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (selectedImage ? sendImage() : sendMessage())}
+                        placeholder={selectedImage ? c.addCaption : c.writeMessage}
                         maxLength={1600}
-                        className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        disabled={sending}
+                        className="w-full border-0 bg-transparent px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-0"
+                        disabled={sending || sendingImage}
                       />
-                      <button
-                        onClick={sendMessage}
-                        disabled={sending || !messageInput.trim()}
-                        className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {sending ? 'Sending...' : 'Send'}
-                      </button>
-                    </div>
-                    <div className="text-right text-xs text-slate-500 mt-1">
-                      {messageInput.length} / 1600
+                      <div className="flex items-center justify-between border-t border-slate-100 px-2 py-1.5">
+                        <button
+                          onClick={() => imageInputRef.current?.click()}
+                          disabled={sending || sendingImage}
+                          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                          title={c.attachImage}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[11px] tabular-nums text-slate-400">{messageInput.length} / 1600</span>
+                          <button
+                            onClick={selectedImage ? sendImage : sendMessage}
+                            disabled={(sending || sendingImage) || (!selectedImage && !messageInput.trim())}
+                            className="inline-flex items-center gap-1 rounded-md bg-brand-600 hover:bg-brand-700 px-4 py-1.5 text-xs font-semibold text-white shadow-sm shadow-brand-600/20 transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:bg-brand-200"
+                          >
+                            {sendingImage ? c.sending : sending ? c.sending : c.send}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </>
                 )}
@@ -951,6 +1440,88 @@ export default function MessagesPage() {
         />
       )}
       </div>
+
+      {/* Image Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-8"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white text-2xl hover:text-slate-600"
+            onClick={() => setLightboxUrl(null)}
+          >
+            X
+          </button>
+          <img
+            src={lightboxUrl}
+            alt={c.fullSizeAlt}
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {/* Train Bot — correct an AI answer and save it as an FAQ */}
+      {trainModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !trainSaving && setTrainModal(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-slate-900">Improve this answer</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Edit the answer and save it as an FAQ — the agent will use it for similar questions next time.
+            </p>
+
+            <label className="mt-4 block text-sm font-medium text-slate-700">Question</label>
+            <textarea
+              value={trainQuestion}
+              onChange={(e) => setTrainQuestion(e.target.value)}
+              rows={2}
+              placeholder="What the customer asked"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            />
+
+            <label className="mt-3 block text-sm font-medium text-slate-700">Answer</label>
+            <textarea
+              value={trainAnswer}
+              onChange={(e) => setTrainAnswer(e.target.value)}
+              rows={4}
+              placeholder="The correct answer the agent should give"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            />
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              {trainDone ? (
+                <span className="text-sm font-medium text-emerald-600">Saved ✓ Agent trained</span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setTrainModal(null)}
+                    disabled={trainSaving}
+                    className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitTrain}
+                    disabled={trainSaving || !trainQuestion.trim() || !trainAnswer.trim()}
+                    className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {trainSaving ? 'Saving…' : 'Train agent'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

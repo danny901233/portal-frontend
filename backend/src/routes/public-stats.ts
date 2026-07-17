@@ -67,6 +67,8 @@ router.get('/public/recent-calls', async (_req: Request, res: Response) => {
       const description = describeCall(call.callType, call.confirmedBooking, call.confirmedBookingCategory);
       const agent = agentNameFromVoice(call.garage?.agentConfiguration?.voice ?? null);
       if (!city || !description) continue; // skip if we can't compose a good line
+      // Defence in depth: never emit a garage / business name as the "city".
+      if (looksLikeBusinessName(city) || cityIsGarageName(city, call.garage?.name)) continue;
 
       // De-dupe runs of the exact same line so the ticker doesn't look stuck
       const key = `${agent}|${city}|${description}`;
@@ -130,6 +132,25 @@ const UK_COUNTIES = new Set([
   'worcestershire', 'wrexham',
 ]);
 
+// Business / garage-name words. A "city" candidate containing any of these is a
+// garage or business name, NOT a town — and we must NEVER leak garage names
+// (strict privacy requirement). An ampersand is also a strong business-name tell
+// ("C&G Auto Repairs") that real UK place names never contain.
+const BUSINESS_WORD_RE =
+  /\b(auto|autos|automotive|autocentre|autocentres|repair|repairs|garage|garages|motor|motors|motoring|service|services|servicing|tyre|tyres|mot|mots|vehicle|vehicles|bodyshop|coachworks|mechanic|mechanics|workshop|spares|accident|recovery|ltd|limited|llp|company|centre|center|specialist|specialists|crash|car|cars)\b/i;
+function looksLikeBusinessName(s: string): boolean {
+  return /&/.test(s) || BUSINESS_WORD_RE.test(s);
+}
+
+// Hard backstop: the extracted "city" must not be a fragment of the garage's own
+// name. This over-skips garages named after their town (e.g. "Telford Autos" in
+// Telford), but that's the SAFE failure mode — we drop the row rather than ever
+// risk naming a garage. The fallback pool keeps the ticker populated.
+function cityIsGarageName(city: string, garageName: string | null | undefined): boolean {
+  if (!garageName) return false;
+  return garageName.toLowerCase().includes(city.toLowerCase()) && city.length >= 3;
+}
+
 function extractCity(address: string | null): string | null {
   if (!address) return null;
   const postcodeRe = /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b/i;
@@ -147,6 +168,7 @@ function extractCity(address: string | null): string | null {
     if (STREET_RE.test(candidate)) continue; // ends in a street word
     if (/^(unit|suite|flat|building|block)\b/i.test(candidate)) continue;
     if (UK_COUNTIES.has(candidate.toLowerCase())) continue; // skip county names
+    if (looksLikeBusinessName(candidate)) continue; // NEVER return a garage/business name
     return toTitleCase(candidate);
   }
   return null;

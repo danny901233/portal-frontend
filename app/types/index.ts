@@ -40,6 +40,9 @@ export interface CallRecord {
   capturedRevenue?: number | null;
   bookingDetails?: string | null;
   createdAt: string;
+  // Set by the backend when the owning garage is in arrears: caller identity, summary,
+  // transcript and recording have been withheld; only date + tag are populated.
+  restricted?: boolean;
 }
 
 export interface GarageSummary {
@@ -88,6 +91,10 @@ export interface CallFeedbackResponse {
 
 export interface GaragesResponse {
   garages: GarageSummary[];
+  // The server's CURRENT answer, not whatever the browser cached at login. Optional so a
+  // response from an older backend still type-checks.
+  role?: UserRole;
+  branchRoles?: BranchRolesMap;
 }
 
 export interface AdminGarageAgentConfiguration {
@@ -172,6 +179,14 @@ export type AgentType = 'assist' | 'automate';
 
 export type VoiceOption = 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia';
 
+export interface DataCollectionField {
+  key: string;
+  label: string;
+  active: boolean;
+  required: boolean;
+  instruction?: string | null;
+}
+
 export interface GarageHiveSettings {
   instanceUrl: string;
   apiKey: string;
@@ -189,6 +204,8 @@ export interface TsService {
   name: string;
   pricingType: 'fixed' | 'engine-size';
   price?: number;
+  // Numeric Tyresoft API serviceID — needed for the agent to book this service.
+  tsServiceId?: string | number;
 }
 
 export interface TyresoftSettings {
@@ -197,13 +214,39 @@ export interface TyresoftSettings {
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
-  tsChannelId?: string;
+  tsChannelId?: number;
   tsServices?: TsService[];
   pricingRules?: Record<string, PricingBracket[]>;
+  // Metadata about the most recent Services.csv upload. Written by the backend
+  // CSV import endpoint; the Training tab uses it to show "Currently using …".
+  tsServicesUpload?: {
+    fileName: string;
+    uploadedAt: string;
+    services: number;
+    brackets: number;
+  };
+  // Per-garage tyre markup. The agent applies this to the raw Tyresoft supplier
+  // price before quoting. type='flat' = £X added per tyre. type='percent' = X%
+  // added. Stored in integrationProviderConfig as tyreMarkupFlat or
+  // tyreMarkupPercent (top-level, where the deployed agent reads it).
+  tyreMarkupType?: 'flat' | 'percent';
+  tyreMarkupValue?: string;
+  // Numeric mirrors surfaced by the backend GET response (the deployed agent
+  // reads these). The form itself only edits type/value.
+  tyreMarkupFlat?: number;
+  tyreMarkupPercent?: number;
+}
+
+export interface HubspotSettings {
+  enabled: boolean;
+  apiToken: string;
+  ownerId: string;
+  inboxEmail: string;
 }
 
 export interface AgentConfiguration {
   branchName: string;
+  agentName?: string;
   phoneNumber: string;
   emailAddress: string;
   branchAddress: string;
@@ -215,6 +258,8 @@ export interface AgentConfiguration {
   responseSpeed: ResponseSpeed;
   interruptionSensitivity: number;
   allowFastFitOnly: boolean;
+  callerRecognitionEnabled?: boolean;
+  advisoryUpsellsEnabled?: boolean;
   enableDropOffBookings: boolean;
   dropOffMessage: string;
   dropOffExcludeServices: string[];
@@ -222,12 +267,47 @@ export interface AgentConfiguration {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings: TyresoftSettings;
+  hubspotSettings: HubspotSettings;
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
   enableSmsBookingLinks: boolean;
+  transferNumber: string;
+  humanEscalation?: boolean;
+  // Messaging (chat) agent: whether it may hand a chat over to a human, and an
+  // optional bespoke message to send when handoff is turned off. Independent of
+  // the voice-side humanEscalation so a garage can allow phone transfers while
+  // keeping chat fully AI-handled (or vice versa).
+  messagingHumanHandoff?: boolean;
+  messagingHandoffMessage?: string | null;
+  messagingNotifyScope?: 'off' | 'escalated' | 'all';
+  messagingNotifyEmail?: boolean;
+  messagingNotifySms?: boolean;
+  messagingNotifyPhone?: string | null;
   allowBookings: boolean;
   bookingLeadTimeDays: number;
   voice: VoiceOption;
+  dataCollectionFields?: DataCollectionField[] | null;
+  customRules?: CustomRule[] | null;
+}
+
+// Free-text behaviour rules per garage (injected at the very top of the agent
+// prompt). Each rule is a short sentence the agent must obey, e.g. "For air-con
+// services tell callers to just turn up — no booking needed." Inactive rules
+// are ignored by the agent.
+export interface CustomRule {
+  text: string;
+  active: boolean;
+}
+
+// Jodie-style per-garage toggleable data-collection fields (consumed by RMB agents).
+// Each entry tells the agent: ask for this info, mark it required if so flagged,
+// and use the instruction as a how-to hint in the prompt.
+export interface DataCollectionField {
+  key: string;
+  label: string;
+  active: boolean;
+  required: boolean;
+  instruction?: string | null;
 }
 
 export interface AgentConfigurationResponse {
@@ -282,6 +362,10 @@ export interface BillingConfig {
   bookingsRequiredForActivation: number;
   activationBookingsCount: number;
   subscriptionActivatedAt: string | null;
+  hasMessagingAccess?: boolean;
+  messagingSubscriptionCostGbp?: number;
+  includedMessages?: number;
+  costPerMessageGbp?: number;
 }
 
 export interface UsageSummary {

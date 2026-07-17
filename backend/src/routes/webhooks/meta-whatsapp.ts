@@ -2,8 +2,13 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
-import { routeChatMessage } from '../../services/chatAgentRouter.js';
+import { notifyMessaging } from '../../services/messagingNotifications.js';
+import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
+import { scheduleHumanReply } from '../../services/chatDelay.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
+import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 
@@ -102,35 +107,51 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
         });
 
         if (!connection) {
-          // Self-heal: OAuth flow sometimes stores the wrong phone number ID (e.g. WABA ID or
-          // first number on account instead of the correct one). If there's exactly one active
-          // WhatsApp connection whose stored ID doesn't match, update it automatically.
-          const fallback = await prisma.socialMediaConnection.findFirst({
-            where: { platform: 'whatsapp', isActive: true },
-            include,
-          });
-
-          if (!fallback) {
-            console.log(`No garage found for WhatsApp phone_number_id: ${phoneNumberId}`);
-            continue;
-          }
-
-          console.log(`[WhatsApp] Auto-correcting phone_number_id: ${fallback.whatsappPhoneNumberId} → ${phoneNumberId}`);
-          await prisma.socialMediaConnection.update({
-            where: { id: fallback.id },
-            data: { whatsappPhoneNumberId: phoneNumberId },
-          });
-          connection = { ...fallback, whatsappPhoneNumberId: phoneNumberId };
+          // No active connection matches this phone number ID — ignore the message.
+          // NOTE: this used to "self-heal" by hijacking the first active WhatsApp connection
+          // and overwriting its whatsappPhoneNumberId to the incoming one. That was safe with a
+          // single connection, but with multiple it CORRUPTS a random garage's number — it
+          // scrambled MMH / ops / ReceptionMate on 2026-07-02. Never auto-rewrite; just skip.
+          console.log(`No active WhatsApp connection for phone_number_id: ${phoneNumberId} — ignoring.`);
+          continue;
         }
 
         // Process each message
         for (const message of value.messages) {
           const customerPhone = message.from;
-          const messageText = message.text?.body;
+          let messageText = message.text?.body;
           const messageType = message.type;
 
-          if (messageType !== 'text' || !messageText) {
+          // Reject stale messages (older than 5 minutes) — prevents Meta replay of queued messages
+          const msgTimestamp = message.timestamp ? parseInt(message.timestamp, 10) * 1000 : null;
+          if (msgTimestamp && Date.now() - msgTimestamp > 5 * 60 * 1000) {
+            console.log(`[WhatsApp] Ignoring stale message from ${customerPhone} (age: ${Math.round((Date.now() - msgTimestamp) / 60000)}min)`);
+            continue;
+          }
+
+          if (messageType !== 'text' && messageType !== 'image') {
             console.log(`Unsupported WhatsApp message type: ${messageType}`);
+            continue;
+          }
+
+          // ── OPS ASSISTANT (internal) ─────────────────────────────────────────
+          // A message from an allow-listed ReceptionMate admin number, sent TO the
+          // dedicated ops/diagnostics line, is handled by the internal diagnostics agent,
+          // NOT the customer receptionist. Scoped to the ops number so that an admin can
+          // still message a *customer* garage's WhatsApp (e.g. to test it) and reach that
+          // garage's agent. Isolated: guarded + try/catch + `continue`; failures swallowed.
+          const OPS_PHONE_ID = process.env.OPS_WHATSAPP_PHONE_NUMBER_ID || '565650793296121';
+          if (messageText && phoneNumberId === OPS_PHONE_ID && isWhatsappAdmin(customerPhone)) {
+            try {
+              await handleAdminOpsMessage({
+                from: customerPhone,
+                text: messageText,
+                phoneNumberId,
+                accessToken: connection.accessToken,
+              });
+            } catch (err) {
+              console.error('[WhatsApp Ops] handler error:', err);
+            }
             continue;
           }
 
@@ -154,7 +175,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
 
           // Check if this is a reply to an outbound campaign — phone may be stored with or without +
           const phoneVariants = [customerPhone, `+${customerPhone}`, customerPhone.replace(/^\+/, '')];
-          const outboundContact = await prisma.outboundContact.findFirst({
+          const allOutboundContacts = await prisma.outboundContact.findMany({
             where: {
               garageId: connection.garageId,
               phone: { in: phoneVariants },
@@ -162,6 +183,12 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             },
             orderBy: { createdAt: 'desc' },
           });
+          // Prefer the contact the customer most likely read (read > delivered > sent), then most recent
+          const statusPriority = ['read', 'delivered', 'sent'];
+          const outboundContact = statusPriority.flatMap(s => allOutboundContacts.filter(c => c.status === s))[0] ?? null;
+          if (allOutboundContacts.length > 1) {
+            console.warn(`[WhatsApp] Multiple active outbound contacts for ${customerPhone} — picked status=${outboundContact?.status} campaignId=${outboundContact?.campaignId}`);
+          }
 
           if (!conversation) {
             // Create new conversation
@@ -241,7 +268,10 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               });
             }
 
-            // Seed sessionState so the agent knows the registration without asking
+            // Seed sessionState so the agent knows the registration without asking.
+            // Also reset booking fields so old session state from a previous flow
+            // (e.g. step=NEED_CONTACT from a different vehicle's conversation) doesn't
+            // cause the agent to skip the booking flow and ask for phone instead.
             await prisma.$executeRawUnsafe(
               `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
               JSON.stringify({
@@ -250,14 +280,41 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 ...(reg && { outboundRegistration: reg }),
                 outboundServiceType: outboundContact.messageType || 'mot',
                 ...(dueDate && { outboundDueDate: dueDate }),
+                // Vehicle is already known from the CSV — trust it, skip VRN confirmation.
+                // Start at need_service so the agent greets + upsells, then goes straight
+                // to timeslot selection. GH session is initialised later by handleSelectService.
+                step: 'need_service',
+                vrn: reg || null,
+                vrnConfirmed: !!(reg),
+                sessionId: null,
+                vehicleMake: null,
+                vehicleModel: null,
+                servicesAvailable: null,
+                serviceSelectedName: null,
+                serviceSelectedId: null,
+                servicePrice: null,
+                timeslotsAvailable: null,
+                bookingDate: null,
+                bookingTime: null,
               }),
               conversation.id,
             );
+
+            const seedResult = await prisma.$queryRawUnsafe<Array<{ sessionState: any }>>(
+              `SELECT "sessionState" FROM "ChatConversation" WHERE id = $1`,
+              conversation.id
+            );
+            console.log(`[WhatsApp] Seed verify — step: ${seedResult[0]?.sessionState?.step}, vrn: ${seedResult[0]?.sessionState?.vrn}, convId: ${conversation.id}`);
 
             await prisma.outboundContact.update({
               where: { id: outboundContact.id },
               data: { status: 'replied', conversationId: conversation.id },
             });
+
+            // Invalidate the in-memory session cache so getChatAgentResponse
+            // picks up the freshly-seeded outbound state from the DB instead of
+            // using a stale cached session from a previous conversation.
+            invalidateSessionCache(conversation.id);
 
             console.log(`[WhatsApp] Outbound reply from ${customerPhone} — message saved, session seeded with reg=${reg}`);
           }
@@ -272,14 +329,75 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             }
           }
 
+          // Handle image messages — download from Graph API and upload to S3
+          let mediaUrl: string | null = null;
+          let mediaType: string | null = null;
+          if (messageType === 'image') {
+            try {
+              const imageInfo = message.image;
+              const mediaId = imageInfo?.id;
+              const caption = imageInfo?.caption || '';
+              if (mediaId) {
+                const mediaResp = await axios.get(`https://graph.facebook.com/v21.0/${mediaId}`, {
+                  headers: { Authorization: `Bearer ${connection.accessToken}` },
+                });
+                const downloadUrl = mediaResp.data.url;
+                const mimeType = mediaResp.data.mime_type || 'image/jpeg';
+
+                const imageResp = await axios.get(downloadUrl, {
+                  headers: { Authorization: `Bearer ${connection.accessToken}` },
+                  responseType: 'arraybuffer',
+                });
+
+                const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+                const s3Key = `chat-media/${connection.garageId}/${conversation.id}/${randomUUID()}.${ext}`;
+                const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+                const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+                const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+                const s3Bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
+
+                if (awsAccessKey && awsSecretKey) {
+                  const s3 = new S3Client({
+                    region: awsRegion,
+                    credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+                  });
+                  await s3.send(new PutObjectCommand({
+                    Bucket: s3Bucket,
+                    Key: s3Key,
+                    Body: Buffer.from(imageResp.data),
+                    ContentType: mimeType,
+                  }));
+                  mediaUrl = `https://${s3Bucket}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
+                  mediaType = mimeType;
+                  console.log(`[WhatsApp] Image uploaded to S3: ${s3Key}`);
+                }
+                if (caption) {
+                  messageText = caption;
+                }
+              }
+            } catch (imgErr) {
+              console.error('[WhatsApp] Failed to download/upload image:', imgErr);
+            }
+          }
+
           // Save customer message
           await prisma.chatMessage.create({
             data: {
               conversationId: conversation.id,
               role: 'user',
-              content: messageText,
+              content: messageText || (mediaUrl ? '[Image]' : ''),
+              mediaUrl,
+              mediaType,
               metaMid: metaMid ?? null,
             },
+          });
+
+          // Messaging notifications (scope 'all') — alert the garage about the new
+          // inbound message. No-op unless enabled. Fire-and-forget.
+          void notifyMessaging({
+            conversationId: conversation.id,
+            event: 'inbound',
+            preview: messageText || (mediaUrl ? '[Image]' : ''),
           });
 
           // Check if agent pause has expired and auto-resume
@@ -296,47 +414,22 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             }
           }
 
-          // Only send agent response if agent is not paused
+          // Only send agent response if agent is not paused and there's text to process
           // Note: We always respond to incoming messages as they're within the 24-hour window
-          if (!isAgentPaused) {
-            // Get AI response — router selects the correct agent based on agentScript
-            const agentResponse = await routeChatMessage(
-              connection.garageId,
-              messageText,
-              conversation.id
-            );
-
-            // Save AI response
-            await prisma.chatMessage.create({
-              data: {
-                conversationId: conversation.id,
-                role: 'assistant',
-                content: agentResponse.content,
-              },
+          const agentText = messageText || (mediaUrl ? '[Customer sent an image]' : null);
+          if (!isAgentPaused && agentText) {
+            // Human-like delayed reply: acks the webhook instantly, shows "seen"/"typing…",
+            // then sends after a weighted-random delay — batching any messages that arrive
+            // during the wait into one reply. (Kill switch: env CHAT_HUMAN_DELAY=off.)
+            scheduleHumanReply({
+              garageId: connection.garageId,
+              conversationId: conversation.id,
+              phoneNumberId,
+              customerPhone,
+              accessToken: connection.accessToken,
+              agentText,
+              metaMid,
             });
-
-            // Send response via WhatsApp
-            try {
-              await axios.post(
-                `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-                {
-                  messaging_product: 'whatsapp',
-                  to: customerPhone,
-                  type: 'text',
-                  text: { body: agentResponse.content },
-                },
-                {
-                  headers: {
-                    Authorization: `Bearer ${connection.accessToken}`,
-                    'Content-Type': 'application/json',
-                  },
-                }
-              );
-              console.log(`WhatsApp message sent to ${customerPhone}`);
-            } catch (sendError: any) {
-              const metaError = sendError?.response?.data;
-              console.error(`[WhatsApp] SEND FAILED to ${customerPhone}:`, JSON.stringify(metaError ?? sendError?.message));
-            }
           } else {
             console.log(`Agent paused for conversation ${conversation.id}, no automatic response sent`);
           }

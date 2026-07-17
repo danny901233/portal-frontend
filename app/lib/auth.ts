@@ -89,6 +89,23 @@ export const setGarages = (garages: { id: string; name: string }[]) => {
   localStorage.setItem(GARAGES_STORAGE_KEY, JSON.stringify(garages));
 };
 
+/** Refresh the cached branch roles. Until this existed they could only be set by logging in —
+ *  which is why a newly-assigned branch stayed invisible. */
+export const setBranchRoles = (branchRoles: BranchRolesMap) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  localStorage.setItem(USER_BRANCH_ROLES_KEY, JSON.stringify(branchRoles));
+};
+
+/** Refresh the cached role, for the same reason. */
+export const setUserRole = (role: UserRole) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  localStorage.setItem(USER_ROLE_STORAGE_KEY, role);
+};
+
 export const getUserEmail = () => {
   if (typeof window === 'undefined') {
     return null;

@@ -103,6 +103,37 @@ export default function AdminAgreementsPage() {
     );
   }, [agreements, search]);
 
+  // Open the signed document in a new tab. Fetched with the auth token, then shown as a blob URL
+  // (the endpoint is admin-only, so a bare link wouldn't carry the token).
+  const viewAgreement = async (a: AdminAgreement) => {
+    try {
+      const res = await api.get(`/admin/agreements/${a.id}/view`, { responseType: 'text' });
+      const blob = new Blob([res.data as string], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not open the agreement');
+    }
+  };
+
+  // Download the signed PDF, regenerated from the stored snapshot.
+  const downloadAgreement = async (a: AdminAgreement) => {
+    try {
+      const res = await api.get(`/admin/agreements/${a.id}/pdf`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ReceptionMate-Agreement-${a.clientName.replace(/[^a-z0-9]+/gi, '-')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not download the PDF');
+    }
+  };
+
   const openSend = (a: AdminAgreement) => {
     setSendFor(a);
     // Default to whoever it went to last, else the account holder — resending after a bounce
@@ -307,6 +338,20 @@ export default function AdminAgreementsPage() {
                   <Td className="text-xs text-slate-500">{fmtDate(a.createdAt)}</Td>
                   <Td>
                     <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => viewAgreement(a)}
+                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        View
+                      </button>
+                      {(a.status === 'signed' || a.status === 'externally_signed') && (
+                        <button
+                          onClick={() => downloadAgreement(a)}
+                          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Download PDF
+                        </button>
+                      )}
                       {(a.status === 'draft' || a.status === 'sent') && (
                         <>
                           <button

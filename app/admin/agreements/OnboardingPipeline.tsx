@@ -25,14 +25,42 @@ interface PipelineRow {
   customerEmail: string | null;
   customerUserId: string | null;
   welcomeEmailSentAt: string | null;
+  // { "<stage>": "<ISO>" } — when the garage entered each stage.
+  onboardingStageAt: Record<string, string> | null;
   hasMandate: boolean;
-  agreement: { id: string; status: string; licences: string[]; licenceFeeGbp: number; signedAt: string | null } | null;
+  agreement: {
+    id: string;
+    status: string;
+    licences: string[];
+    licenceFeeGbp: number;
+    signedAt: string | null;
+    sentAt: string | null;
+    sentToEmail: string | null;
+    firstViewedAt: string | null;
+    lastViewedAt: string | null;
+    viewCount: number;
+  } | null;
   agentType: string | null;
   agentScript: string | null;
   integrationProvider: string | null;
   ghlOpportunityId: string | null;
   bookingActivation: { done: number; required: number } | null;
   trialEndDate: string | null;
+}
+
+// "3d ago" beats a raw timestamp for the question this page answers: is this deal stuck?
+function since(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+function on(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 const STAGE_LABEL: Record<Stage, string> = {
@@ -61,6 +89,14 @@ const NEXT_ACTION: Partial<Record<Stage, { label: string; stage: Stage; hint: st
   agent_built: { label: 'Send welcome email', stage: 'invited', hint: 'Emails their login — do this once the agent works' },
 };
 
+// axios hides the useful text in err.response.data.error; its own message is just "Request
+// failed with status code 409". Our guards explain exactly what happened and what to do instead,
+// so always prefer the server's.
+function serverError(err: unknown, fallback: string) {
+  const e = err as { response?: { data?: { error?: string } }; message?: string };
+  return e?.response?.data?.error || e?.message || fallback;
+}
+
 export default function OnboardingPipeline() {
   const [rows, setRows] = useState<PipelineRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +110,7 @@ export default function OnboardingPipeline() {
       setRows(data.rows ?? []);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load the pipeline');
+      setError(serverError(err, 'Failed to load the pipeline'));
     } finally {
       setLoading(false);
     }
@@ -90,7 +126,7 @@ export default function OnboardingPipeline() {
       await api.post(`/admin/garages/${row.garageId}/stage`, { stage });
       await load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to move the deal');
+      alert(serverError(err, 'Failed to move the deal'));
     } finally {
       setBusy(null);
     }
@@ -103,7 +139,7 @@ export default function OnboardingPipeline() {
       await api.post(`/admin/garages/${row.garageId}/invite`, {});
       await load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to send the invite');
+      alert(serverError(err, 'Failed to send the invite'));
     } finally {
       setBusy(null);
     }
@@ -116,7 +152,7 @@ export default function OnboardingPipeline() {
       await api.post(`/admin/request-direct-debit/${row.customerUserId}`, {});
       alert(`Direct Debit setup link emailed to ${row.customerEmail}.`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to send the Direct Debit request');
+      alert(serverError(err, 'Failed to send the Direct Debit request'));
     } finally {
       setBusy(null);
     }
@@ -197,11 +233,47 @@ export default function OnboardingPipeline() {
             </div>
 
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-100 pt-3 text-xs sm:grid-cols-4">
-              <Fact label="Agreement" value={row.agreement ? `${row.agreement.status} · £${row.agreement.licenceFeeGbp}/mo` : '—'} warn={!row.agreement} />
+              <Fact
+                label="Agreement"
+                value={
+                  row.agreement
+                    ? `${row.agreement.status} · £${row.agreement.licenceFeeGbp}/mo${
+                        row.agreement.signedAt ? ` · signed ${on(row.agreement.signedAt)}` : ''
+                      }`
+                    : 'not sent'
+                }
+                warn={!row.agreement}
+              />
+              <Fact
+                label="Sent"
+                value={row.agreement?.sentAt ? `${on(row.agreement.sentAt)} · ${since(row.agreement.sentAt)}` : 'not sent'}
+                warn={!row.agreement?.sentAt}
+              />
+              <Fact
+                label="Opened"
+                value={
+                  row.agreement?.firstViewedAt
+                    ? `${since(row.agreement.firstViewedAt)}${row.agreement.viewCount > 1 ? ` · ${row.agreement.viewCount}×` : ''}`
+                    : row.agreement?.sentAt
+                      ? 'not opened yet'
+                      : '—'
+                }
+                warn={Boolean(row.agreement?.sentAt && !row.agreement?.firstViewedAt)}
+              />
               <Fact label="Direct Debit" value={row.hasMandate ? 'mandate live' : 'not set up'} warn={!row.hasMandate} />
               <Fact
-                label="Invited"
-                value={row.welcomeEmailSentAt ? new Date(row.welcomeEmailSentAt).toLocaleDateString('en-GB') : 'not yet'}
+                label="Credentials received"
+                value={
+                  // Stamped when staff clicked "Credentials received", which moves the garage to
+                  // agent_built — so that stage's entry time is the click time.
+                  row.onboardingStageAt?.agent_built
+                    ? `${on(row.onboardingStageAt.agent_built)} · ${since(row.onboardingStageAt.agent_built)}`
+                    : 'not yet'
+                }
+              />
+              <Fact
+                label="Welcome email"
+                value={row.welcomeEmailSentAt ? `${on(row.welcomeEmailSentAt)} · ${since(row.welcomeEmailSentAt)}` : 'not sent'}
               />
               <Fact
                 label="HighLevel"

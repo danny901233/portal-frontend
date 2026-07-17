@@ -14,7 +14,7 @@
 // in clauses 9, 12, 13 are mis-numbered) are intentional — they mirror the
 // source document verbatim. Fix the source, then bump TEMPLATE_VERSION here.
 
-export const TEMPLATE_VERSION = '1.2';
+export const TEMPLATE_VERSION = '1.4';
 
 export type LicenceTier = 'assist' | 'automate' | 'connect';
 
@@ -22,27 +22,57 @@ export const LICENCE_DETAILS: Record<LicenceTier, { name: string; description: s
   assist: {
     name: 'Assist',
     description:
-      'AI voice agent that catches calls, captures booking requests and notifies your team. Includes 400 minutes; £0.25 per connected minute thereafter. Excludes diary integration.',
+      'AI voice agent that catches calls, captures booking requests and notifies your team. Includes 400 minutes per branch; £0.25 per connected minute thereafter. Excludes diary integration.',
   },
   automate: {
     name: 'Automate',
     description:
-      'AI voice agent integrated with your diary so calls become confirmed bookings. Includes 600 minutes; £0.25 per connected minute thereafter.',
+      'AI voice agent integrated with your diary so calls become confirmed bookings. Includes 600 minutes per branch; £0.25 per connected minute thereafter.',
   },
   connect: {
     name: 'Connect',
     description:
-      'AI messaging agent (web chat, WhatsApp, Facebook, Instagram). Includes 500 AI messaging conversations; £0.25 per message thereafter. SMS charged separately at £0.25 per message.',
+      'AI messaging agent (web chat, WhatsApp, Facebook, Instagram). Includes 500 AI messaging conversations per branch; £0.25 per message thereafter. SMS charged separately at £0.25 per message.',
   },
 };
+
+/**
+ * What each licence includes, PER BRANCH. Billing measures every branch against its own
+ * allowance, so these are per-branch numbers and the contract totals them explicitly rather than
+ * leaving the customer to guess whether they pool.
+ */
+const LICENCE_USAGE: Record<LicenceTier, { terms: string; minutes?: number; messages?: number }> = {
+  automate: {
+    minutes: 600,
+    terms:
+      'The <strong>Automate</strong> licence includes <strong>600 minutes</strong> of AI-handled calls <strong>per branch</strong>; £0.25 per connected minute applies thereafter.',
+  },
+  assist: {
+    minutes: 400,
+    terms:
+      'The <strong>Assist</strong> licence includes <strong>400 minutes</strong> of AI-handled calls <strong>per branch</strong>; £0.25 per connected minute applies thereafter. Assist <strong>excludes</strong> diary integration.',
+  },
+  connect: {
+    messages: 500,
+    terms:
+      'The <strong>Connect</strong> licence includes <strong>500</strong> AI messaging conversations <strong>per branch</strong>; £0.25 per message applies thereafter. SMS charges are separate and not included within the messaging allowance; SMS messages are charged at £0.25 per message.',
+  },
+};
+
+const NUM = new Intl.NumberFormat('en-GB');
 
 export interface AgreementInputs {
   clientName: string;
   setupFeeGbp: number;
-  licenceFeeGbp: number;       // per centre per month
+  licenceFeeGbp: number;       // per centre per month — the VOICE licence
+  messagingFeeGbp?: number;    // per centre per month — the Connect messaging licence, if any
   centresCount: number;
   licences: LicenceTier[];
   goLiveDate: Date | null;
+  // What free period was sold. Both absent = none, and the contract then says nothing about a
+  // trial — it used to promise everyone 14 days regardless of what was agreed.
+  freeTrialDays?: number | null;      // a free trial of N days
+  freeUntilBookings?: number | null;  // free until the Nth confirmed booking
   effectiveDate: Date | null;  // set when signed
   signedByName?: string | null;
   signedByPosition?: string | null;
@@ -54,16 +84,90 @@ const FMT_DATE = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'long
 
 const fmtDate = (d: Date | null) => (d ? FMT_DATE.format(d) : '—');
 
+/**
+ * How the free period is described, or null when none was sold.
+ *
+ * Three shapes, mirroring what staff pick at onboarding: nothing, a number of days, or a number
+ * of confirmed bookings. The last isn't a period of time at all, so it can't share wording with
+ * the other two.
+ */
+function freePeriod(inputs: AgreementInputs): {
+  /** e.g. "a 14-day free trial" — goes in the list of what the Agreement comprises. */
+  noun: string;
+  /** e.g. "the free trial" — for referring back to it. */
+  ref: string;
+  /** When the first fee lands, in words. */
+  firstCharge: string;
+  /** The cancel-at-no-cost sentence. */
+  cancel: string;
+} | null {
+  const days = inputs.freeTrialDays ?? 0;
+  const bookings = inputs.freeUntilBookings ?? 0;
+  if (days > 0) {
+    return {
+      noun: `a <strong>${days}-day free trial</strong>`,
+      ref: 'the free trial',
+      firstCharge: `The first monthly Licence Fee is charged on day <strong>${days + 1}</strong> unless the Client cancels during the free trial, in which case no charge is made.`,
+      cancel: `During the free trial the Client may cancel at any time at no cost and shall not be charged.`,
+    };
+  }
+  if (bookings > 0) {
+    const b = `<strong>${bookings}</strong> confirmed booking${bookings === 1 ? '' : 's'}`;
+    return {
+      noun: `a <strong>free period</strong> continuing until the Services have produced ${b} for the Client (the &ldquo;Free Period&rdquo;)`,
+      ref: 'the Free Period',
+      firstCharge: `The first monthly Licence Fee is charged once the Services have produced ${b}; if that does not occur, no Licence Fee is charged.`,
+      cancel: `During the Free Period the Client may cancel at any time at no cost and shall not be charged.`,
+    };
+  }
+  return null;
+}
+
 /** Renders the full agreement HTML with commercial terms substituted in. */
 export function renderAgreementHtml(inputs: AgreementInputs): string {
   const licenceList = inputs.licences
     .map((l) => `<li><strong>${LICENCE_DETAILS[l].name}</strong> — ${LICENCE_DETAILS[l].description}</li>`)
     .join('');
 
-  const monthlyTotal = inputs.licenceFeeGbp * inputs.centresCount;
+  // The deal can carry two licences at different prices — e.g. Automate £399 + Connect £125 per
+  // branch. Billing raises them as separate lines per branch, so the contract totals the same way.
+  const free = freePeriod(inputs);
+
+  // Only the licences they bought — this used to list all three, so an Automate customer read
+  // the Assist terms as though they applied.
+  const usageList = inputs.licences.map((l) => `<li>${LICENCE_USAGE[l].terms}</li>`).join('');
+
+  // With more than one branch, spell out the totals AND that they don't pool. This is the exact
+  // point a customer and an overage invoice fall out.
+  const totalMinutes = inputs.licences.reduce((n, l) => n + (LICENCE_USAGE[l].minutes ?? 0), 0) * inputs.centresCount;
+  const totalMessages = inputs.licences.reduce((n, l) => n + (LICENCE_USAGE[l].messages ?? 0), 0) * inputs.centresCount;
+  const totals = [
+    totalMinutes ? `<strong>${NUM.format(totalMinutes)} minutes</strong>` : null,
+    totalMessages ? `<strong>${NUM.format(totalMessages)} messaging conversations</strong>` : null,
+  ].filter(Boolean);
+  const allowanceNote =
+    inputs.centresCount > 1 && totals.length
+      ? `<p>Across the <strong>${inputs.centresCount}</strong> branches onboarded under this Agreement that is
+      ${totals.join(' and ')} in total. Allowances are <strong>per branch and are not pooled</strong>: each
+      branch's allowance applies to that branch alone, and unused allowance is not transferable between
+      branches or carried into the following month.</p>`
+      : `<p>Allowances are per branch and are not carried into the following month.</p>`;
+  const messagingFee = inputs.messagingFeeGbp ?? 0;
+  const perBranch = inputs.licenceFeeGbp + messagingFee;
+  const monthlyTotal = perBranch * inputs.centresCount;
   const setupFeeStr = inputs.setupFeeGbp > 0 ? GBP.format(inputs.setupFeeGbp) : '£0 (waived)';
   const licenceFeeStr = GBP.format(inputs.licenceFeeGbp);
+  const messagingFeeStr = GBP.format(messagingFee);
+  const perBranchStr = GBP.format(perBranch);
   const monthlyTotalStr = GBP.format(monthlyTotal);
+
+  // With one fee, say it plainly. With two, itemise — a customer must be able to read the
+  // contract and reconcile it line-by-line against the invoice.
+  const feeSentence = messagingFee > 0
+    ? `the subscription fees shall be <strong>${licenceFeeStr}</strong> per month per branch for the
+       voice licence and <strong>${messagingFeeStr}</strong> per month per branch for the Connect
+       messaging licence — <strong>${perBranchStr}</strong> per branch per month in total`
+    : `the subscription fee shall be <strong>${licenceFeeStr}</strong> per month per branch`;
 
   return `
 <article class="rm-agreement">
@@ -109,8 +213,16 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
     <h2>3. Term</h2>
     <p><strong>3.1</strong> This Agreement shall commence on the agreed &ldquo;Go Live&rdquo; date${
       inputs.goLiveDate ? ` (<strong>${fmtDate(inputs.goLiveDate)}</strong>)` : ''
-    } and shall comprise: (a) a <strong>14-day free trial</strong>; (b) an initial fixed term of <strong>three (3) months</strong> (the &ldquo;Proof Period&rdquo;) commencing at the end of the free trial; and (c) upon expiry of the Proof Period, a <strong>minimum term of twelve (12) months</strong> (the &ldquo;Contract Term&rdquo;) into which this Agreement shall automatically continue.</p>
-    <p><strong>3.2</strong> During the free trial the Client may cancel at any time at no cost and shall not be charged. After the free trial the Client is committed to the Proof Period and the subsequent Contract Term and may terminate only in accordance with Clause 13.</p>
+    } and shall comprise: ${
+      free
+        ? `(a) ${free.noun}; (b) an initial fixed term of <strong>three (3) months</strong> (the &ldquo;Proof Period&rdquo;) commencing at the end of ${free.ref}; and (c) upon expiry of the Proof Period, a <strong>minimum term of twelve (12) months</strong> (the &ldquo;Contract Term&rdquo;) into which this Agreement shall automatically continue.`
+        : `(a) an initial fixed term of <strong>three (3) months</strong> (the &ldquo;Proof Period&rdquo;); and (b) upon expiry of the Proof Period, a <strong>minimum term of twelve (12) months</strong> (the &ldquo;Contract Term&rdquo;) into which this Agreement shall automatically continue.`
+    }</p>
+    <p><strong>3.2</strong> ${
+      free
+        ? `${free.cancel} After ${free.ref} the Client is committed to the Proof Period and the subsequent Contract Term and may terminate only in accordance with Clause 13.`
+        : `The Client is committed to the Proof Period and the subsequent Contract Term and may terminate only in accordance with Clause 13.`
+    }</p>
     <p><strong>3.3</strong> At the end of the Contract Term, and at the end of each subsequent term, this Agreement shall renew automatically for a further fixed term of twelve (12) months unless either Party gives not less than thirty (30) days&rsquo; written notice before the end of the then-current term.</p>
 
     <p>The Provider shall:</p>
@@ -126,28 +238,33 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
   <section>
     <h2>5. Fees and Payment</h2>
     <p><strong>5.1 Setup Fee.</strong> A setup fee of <strong>${setupFeeStr}</strong> is due upon signing this Agreement.</p>
+    ${
+      free
+        ? `<p>
+      <strong>5.2 Free Period.</strong> ${
+        inputs.freeTrialDays
+          ? `The first <strong>${inputs.freeTrialDays}</strong> days from the Go Live date are provided <strong>free of charge</strong>.`
+          : `The Services are provided <strong>free of charge</strong> until ${free.ref} ends.`
+      } The Client&rsquo;s payment method is securely authorised upon signing, but
+      <strong>no charge is taken during ${free.ref}</strong>. ${free.firstCharge}
+    </p>`
+        : `<p>
+      <strong>5.2 Commencement of Charges.</strong> No free period applies under this Agreement. The first
+      monthly Licence Fee is charged upon completion of payment setup, and monthly thereafter.
+    </p>`
+    }
     <p>
-      <strong>5.2 Free Trial.</strong> The first fourteen (14) days from the Go Live date are provided
-      <strong>free of charge</strong>. The Client&rsquo;s payment card is securely authorised upon signing, but
-      <strong>no charge is taken during the free trial</strong>. The first monthly Licence Fee is charged on the
-      fifteenth (15th) day unless the Client cancels during the free trial, in which case no charge is made.
-    </p>
-    <p>
-      <strong>5.3 Licence Fee.</strong> Following the 14-day free trial, the subscription fee shall be
-      <strong>${licenceFeeStr}</strong> per month per branch, payable monthly in advance throughout the Proof
-      Period and the Contract Term. The number of branches being onboarded under this Agreement is
-      <strong>${inputs.centresCount}</strong>, giving a total monthly subscription of
+      <strong>5.3 Licence Fee.</strong> ${free ? `Following ${free.ref}, ` : 'From the Commencement Date, '}${feeSentence}, payable monthly
+      in advance throughout the Proof Period and the Contract Term. The number of branches being onboarded
+      under this Agreement is <strong>${inputs.centresCount}</strong>, giving a total monthly subscription of
       <strong>${monthlyTotalStr}</strong> exclusive of VAT.
     </p>
     <p>The licences included under this Agreement are:</p>
     <ul>${licenceList}</ul>
 
     <p><strong>5.4 Usage Charges.</strong></p>
-    <ul>
-      <li>The <strong>Automate</strong> licence includes 600 minutes of AI-handled calls; £0.25 per connected minute applies after the initial 600 minutes.</li>
-      <li>The <strong>Assist</strong> licence includes 400 minutes of AI-handled calls; £0.25 per connected minute applies after the initial 400 minutes. Assist <strong>excludes</strong> diary integration.</li>
-      <li>The <strong>Connect</strong> licence includes 500 AI messaging conversations; £0.25 per message applies thereafter. SMS charges are separate and not included within the messaging allowance; SMS messages are charged at £0.25 per message.</li>
-    </ul>
+    <ul>${usageList}</ul>
+    ${allowanceNote}
 
     <p><strong>5.5</strong> All fees are exclusive of VAT and payable within 14 days of invoice.</p>
   </section>
@@ -207,7 +324,7 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
 
   <section>
     <h2>13. Termination</h2>
-    <p><strong>13.1</strong> The Client may cancel at any time during the 14-day free trial at no cost. Thereafter the Client is committed to the Proof Period and the Contract Term and may not terminate for convenience during those periods. Should the Client cease to use the Services, or seek to exit, before the end of the then-current committed term other than for cause, the remaining Licence Fees for that term shall remain payable.</p>
+    <p><strong>13.1</strong> ${free ? `The Client may cancel at any time during ${free.ref} at no cost. Thereafter the` : 'The'} Client is committed to the Proof Period and the Contract Term and may not terminate for convenience during those periods. Should the Client cease to use the Services, or seek to exit, before the end of the then-current committed term other than for cause, the remaining Licence Fees for that term shall remain payable.</p>
     <p><strong>13.2</strong> Following the Contract Term, and during any subsequent renewal term, either Party may terminate on not less than thirty (30) days&rsquo; written notice given before the end of the then-current term, in accordance with Clause 3.3.</p>
     <p><strong>13.3</strong> Either Party may terminate immediately if the other Party commits a material breach that remains unremedied after 10 days of written notice, or upon the other Party&rsquo;s insolvency.</p>
   </section>

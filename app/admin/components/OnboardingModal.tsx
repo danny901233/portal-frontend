@@ -179,6 +179,13 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [availableNumbers, setAvailableNumbers] = useState<TwilioNumber[]>([]);
   const [selectedNumber, setSelectedNumber] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  // axios puts the useful text in err.response.data.error and its own "Request failed with status
+  // code 409" in err.message. Always prefer the server's — our 409s explain exactly what to do.
+  const serverError = (err: unknown, fallback: string) => {
+    const e = err as { response?: { data?: { error?: string; details?: unknown } }; message?: string };
+    return e?.response?.data?.error || e?.message || fallback;
+  };
   const [subscriptionCost, setSubscriptionCost] = useState('');
   const [includedMinutes, setIncludedMinutes] = useState('400');
   const [costPerMinute, setCostPerMinute] = useState('0.25');
@@ -237,6 +244,84 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [agreementCentres, setAgreementCentres] = useState('1');
   const [agreementLicences, setAgreementLicences] = useState<('assist' | 'automate' | 'connect')[]>(['assist']);
   const [agreementGoLive, setAgreementGoLive] = useState('');
+  const [previewing, setPreviewing] = useState(false);
+  // Optional extras for the sign link, mirroring the Agreements page's Send dialog: text it as
+  // well as emailing it, and/or send it to someone other than the portal account holder (the
+  // director signs, the manager uses the system).
+  const [agreementSms, setAgreementSms] = useState('');
+  const [agreementToEmail, setAgreementToEmail] = useState('');
+
+  /** Optional recipient overrides for the sign link. Empty fields mean "as normal". */
+  const agreementSendOptions = () => {
+    const body: { toEmail?: string; toSms?: string } = {};
+    if (agreementToEmail.trim()) body.toEmail = agreementToEmail.trim();
+    if (agreementSms.trim()) body.toSms = agreementSms.trim();
+    return body;
+  };
+
+  /** Warn if the text failed — the email still went, so this must not read like a total failure. */
+  const reportSmsResult = (res: { data?: { smsError?: string | null } }) => {
+    if (res?.data?.smsError) alert(res.data.smsError);
+  };
+
+  /** The free period the contract should describe, derived from the billing-start radio. */
+  const agreementFreePeriod = () => ({
+    freeTrialDays: billingStart === 'trial' && Number(trialDays) > 0 ? Number(trialDays) : null,
+    freeUntilBookings: billingStart === 'bookings' ? (Number(activationBookings) || 4) : null,
+  });
+
+  /**
+   * Render the exact agreement these terms would produce, without creating anything. Opens in a
+   * new tab so it can be read or printed. The endpoint persists nothing — a draft would gate the
+   * customer's login, and checking the wording shouldn't cost them that.
+   */
+  const previewAgreement = async () => {
+    setPreviewing(true);
+    try {
+      // Match what the real draft will send: an existing business counts its current branches
+      // plus the new ones; a new business counts this branch plus any extras.
+      const added = extraBranches.filter((b) => b.name.trim()).length + 1;
+      const branches = businessMode === 'new'
+        ? (added > 1 ? added : (Number(agreementCentres) || 1))
+        : (selectedExistingBiz?.branchCount ?? 0) + added;
+      const res = await api.post('/admin/agreements/preview', {
+        clientName: (businessMode === 'new' ? businessName : bizSearch).trim() || 'The Client',
+        setupFeeGbp: Number(agreementSetupFee) || 0,
+        licenceFeeGbp: Number(subscriptionCost) || 0,
+        messagingFeeGbp: Number(messagingSubscription) || 0,
+        ...agreementFreePeriod(),
+        centresCount: branches > 1 ? branches : (Number(agreementCentres) || 1),
+        licences: agreementLicences,
+        goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
+      });
+      const w = window.open('', '_blank');
+      if (!w) {
+        alert('Your browser blocked the preview window — allow pop-ups for the portal.');
+        return;
+      }
+      const { html, css, summary } = res.data as {
+        html: string; css: string;
+        summary: { perBranchGbp: number; centresCount: number; monthlyTotalGbp: number };
+      };
+      const gbp = (n: number) => `£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8">
+        <title>Agreement preview — not sent</title><style>${css}
+        body{margin:0;padding:24px;background:#f1f2f9}
+        .rm-preview-bar{max-width:820px;margin:0 auto 16px;padding:12px 16px;border-radius:10px;
+          background:#fff7e6;border:1px solid #f6dfb8;color:#7c4408;font:14px/1.5 -apple-system,sans-serif}
+        .rm-preview-doc{max-width:820px;margin:0 auto;background:#fff;padding:32px;border-radius:10px}
+        </style></head><body>
+        <div class="rm-preview-bar"><b>Preview only — nothing has been created or sent.</b><br>
+          ${gbp(summary.perBranchGbp)} per branch × ${summary.centresCount} =
+          <b>${gbp(summary.monthlyTotalGbp)}/month</b> ex VAT.</div>
+        <div class="rm-preview-doc">${html}</div></body></html>`);
+      w.document.close();
+    } catch (err) {
+      alert(serverError(err, 'Could not render the preview'));
+    } finally {
+      setPreviewing(false);
+    }
+  };
 
   // Debounced Google Places type-ahead (proxied through the backend — no browser key).
   const placePickedRef = useRef(false);
@@ -337,11 +422,13 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
             clientName: bizSearch.trim(),
             setupFeeGbp: Number(agreementSetupFee) || 0,
             licenceFeeGbp: Number(subscriptionCost),
+            messagingFeeGbp: Number(messagingSubscription) || 0,
+            ...agreementFreePeriod(),
             centresCount: newTotal,
             licences: agreementLicences,
             goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
           });
-          await api.post(`/admin/agreements/${draft.data.agreement.id}/send`);
+          reportSmsResult(await api.post(`/admin/agreements/${draft.data.agreement.id}/send`, agreementSendOptions()));
         }
         return resp.data;
       }
@@ -386,11 +473,13 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
           clientName: businessName.trim(),
           setupFeeGbp: Number(agreementSetupFee) || 0,
           licenceFeeGbp: Number(subscriptionCost),
+          messagingFeeGbp: Number(messagingSubscription) || 0,
+          ...agreementFreePeriod(),
           centresCount: validExtra.length > 0 ? totalBranches : (Number(agreementCentres) || 1),
           licences: agreementLicences,
           goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
         });
-        await api.post(`/admin/agreements/${draft.data.agreement.id}/send`);
+        reportSmsResult(await api.post(`/admin/agreements/${draft.data.agreement.id}/send`, agreementSendOptions()));
       }
 
       // Multi-branch: create the extra branches under the SAME business, granting the new
@@ -421,7 +510,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
       onSuccess();
       onClose();
     },
-    onError: (err) => setError(err instanceof Error ? err.message : 'Onboarding failed'),
+    onError: (err) => setError(serverError(err, 'Onboarding failed')),
   });
 
   const resetForm = () => {
@@ -1165,6 +1254,55 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                       onChange={(e) => setAgreementGoLive(e.target.value)}
                       className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
                     />
+                  </div>
+
+                  <div className="col-span-2 flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
+                    <p className="text-xs text-slate-500">
+                      {Number(messagingSubscription) > 0
+                        ? `£${Number(subscriptionCost) || 0} voice + £${Number(messagingSubscription)} Connect = £${(Number(subscriptionCost) || 0) + Number(messagingSubscription)} per branch, per month.`
+                        : 'Read the exact contract before the customer does — nothing is created or sent.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={previewAgreement}
+                      disabled={previewing || !(Number(subscriptionCost) > 0)}
+                      className="shrink-0 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+                    >
+                      {previewing ? 'Rendering…' : 'Preview agreement'}
+                    </button>
+                  </div>
+
+                  <div className="col-span-2 grid grid-cols-2 gap-3 border-t border-slate-200 pt-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">
+                        Send the link to <span className="font-normal text-slate-400">(optional)</span>
+                      </label>
+                      <input
+                        type="email"
+                        value={agreementToEmail}
+                        onChange={(e) => setAgreementToEmail(e.target.value)}
+                        placeholder={userEmail || 'the login email'}
+                        className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">
+                        {agreementToEmail.trim()
+                          ? 'Whoever opens the link can sign. Their login is unchanged.'
+                          : 'Leave blank to send to the login email above.'}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">
+                        Also text it to <span className="font-normal text-slate-400">(optional)</span>
+                      </label>
+                      <input
+                        type="tel"
+                        value={agreementSms}
+                        onChange={(e) => setAgreementSms(e.target.value)}
+                        placeholder="07700 900123"
+                        className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">Texts the same link. The email is sent either way.</p>
+                    </div>
                   </div>
                 </div>
               )}

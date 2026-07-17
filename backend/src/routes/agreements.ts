@@ -23,8 +23,10 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import { sendEmail } from '../utils/email.js';
-import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS } from '../services/stripe.js';
+import { sendEmail, sendAgreementSignEmail } from '../utils/email.js';
+import { sendCustomerSms, toE164UK } from '../utils/sms.js';
+import { createSetupFeeInvoice, emailSetupFeeInvoice } from '../services/setupFeeInvoice.js';
+import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS, getStripeClient } from '../services/stripe.js';
 import {
   renderAgreementHtml,
   TEMPLATE_VERSION,
@@ -52,6 +54,14 @@ const draftSchema = z.object({
   clientName: z.string().min(1).max(200),
   setupFeeGbp: z.number().nonnegative().default(0),
   licenceFeeGbp: z.number().nonnegative(),
+  // The Connect per-branch fee, when the deal has one. Separate from licenceFeeGbp (voice)
+  // because billing raises them as two lines per branch — a contract quoting one blended figure
+  // can't be reconciled against the invoice.
+  messagingFeeGbp: z.number().nonnegative().default(0),
+  // The free period actually sold. Omit both for "billing starts at payment setup" — the
+  // contract then says nothing about a trial rather than promising a hardcoded 14 days.
+  freeTrialDays: z.number().int().positive().max(365).optional().nullable(),
+  freeUntilBookings: z.number().int().positive().max(1000).optional().nullable(),
   centresCount: z.number().int().positive().default(1),
   licences: z.array(z.enum(LICENCE_VALUES)).min(1).default(['assist']),
   goLiveDate: z.string().datetime().optional().nullable(),
@@ -84,6 +94,9 @@ function buildSnapshot(agreement: {
   clientName: string;
   setupFeeGbp: number;
   licenceFeeGbp: number;
+  messagingFeeGbp?: number;
+  freeTrialDays?: number | null;
+  freeUntilBookings?: number | null;
   centresCount: number;
   licences: string[];
   goLiveDate: Date | null;
@@ -101,6 +114,9 @@ function buildSnapshot(agreement: {
     clientName: agreement.clientName,
     setupFeeGbp: agreement.setupFeeGbp,
     licenceFeeGbp: agreement.licenceFeeGbp,
+    messagingFeeGbp: agreement.messagingFeeGbp,
+    freeTrialDays: agreement.freeTrialDays,
+    freeUntilBookings: agreement.freeUntilBookings,
     centresCount: agreement.centresCount,
     licences: agreement.licences as LicenceTier[],
     goLiveDate: agreement.goLiveDate,
@@ -178,6 +194,36 @@ router.get('/agreements/me/pending', authenticate, async (req: Request, res: Res
  * Does NOT consume the token — that happens at POST sign.
  */
 router.get('/agreements/sign/:token', async (req: Request, res: Response) => {
+  // Audit: they've opened it. Fire-and-forget — never let a tracking write stop someone reading
+  // their own contract. Keeps first + last + a count, so "opened 3 times over two days" is
+  // answerable, and the IP/UA of the FIRST open (the one that matters evidentially).
+  void (async () => {
+    try {
+      const tok = await prisma.signLinkToken.findUnique({
+        where: { token: req.params.token },
+        select: { agreementId: true },
+      });
+      if (!tok?.agreementId) return;
+      const now = new Date();
+      const existing = await prisma.agreement.findUnique({
+        where: { id: tok.agreementId },
+        select: { firstViewedAt: true },
+      });
+      await prisma.agreement.update({
+        where: { id: tok.agreementId },
+        data: {
+          lastViewedAt: now,
+          viewCount: { increment: 1 },
+          ...(existing?.firstViewedAt
+            ? {}
+            : { firstViewedAt: now, viewedFromIp: clientIp(req), viewedUserAgent: req.headers['user-agent'] ?? null }),
+        },
+      });
+    } catch (err) {
+      console.error('[AGREEMENT] view tracking failed (non-fatal):', err);
+    }
+  })();
+
   const tokenRow = await prisma.signLinkToken.findUnique({
     where: { token: req.params.token },
     include: { user: true },
@@ -388,6 +434,26 @@ async function finaliseSignature(opts: {
   const checkoutClientSecret: string | null = null;
   const passwordSetupToken: string | null = null;
 
+  // A setup fee is "due upon signing" per the agreement text, so raise its invoice now and hand
+  // the card link straight back — the customer gets a pay page instead of being told to watch
+  // their inbox. Awaited (not fire-and-forget) because the sign page needs payUrl in THIS
+  // response; it's one insert plus one Stripe call. The PDF render + email are fired separately
+  // so they can't slow signing down.
+  //
+  // Never fires for self-serve: those hardcode setupFeeGbp: 0, and createSetupFeeInvoice returns
+  // null at 0. Wrapped in try/catch because a billing hiccup must not fail a signature — the
+  // contract is signed either way and the fee can be chased.
+  let setupFee: { invoiceNumber: string; grossPence: number; payUrl: string | null } | null = null;
+  try {
+    const fee = await createSetupFeeInvoice(agreement.id);
+    if (fee) {
+      setupFee = { invoiceNumber: fee.invoiceNumber, grossPence: fee.grossPence, payUrl: fee.payUrl };
+      void emailSetupFeeInvoice(fee);
+    }
+  } catch (err) {
+    console.error(`[SETUP-FEE] raising the invoice for agreement ${agreement.id} failed:`, err);
+  }
+
   // After signing: tell the frontend what the next gate is so it can route
   // straight into DD setup or the dashboard without bouncing through /login.
   const nextStep: 'payment' | 'dashboard' = user?.mustSetupPayment ? 'payment' : 'dashboard';
@@ -398,6 +464,9 @@ async function finaliseSignature(opts: {
     // When set, the marketing-flow customer should enter their card (Stripe Payment Element)
     // to start the trial — the sign page mounts the form with this SetupIntent client_secret.
     checkoutClientSecret,
+    // Present only when the agreement carried a setup fee: the sign page turns this into a
+    // "pay your setup fee" step with a card button and our bank details.
+    setupFee,
     // After the card is confirmed, the self-serve customer is sent to /reset-password?token=this
     // to set their own password, then logs in — no welcome email needed to get into the portal.
     passwordSetupToken,
@@ -514,9 +583,26 @@ async function sendSignedCopies(args: {
     clientName: string;
     setupFeeGbp: number;
     licenceFeeGbp: number;
+    messagingFeeGbp: number;
+    freeTrialDays?: number | null;
+    freeUntilBookings?: number | null;
     centresCount: number;
     licences: string[];
     goLiveDate: Date | null;
+    // Audit trail for the PDF's final page. Optional so the partnership path and any older
+    // caller still type-check; missing values print "Not recorded" rather than being hidden.
+    id?: string;
+    version?: string;
+    sentToEmail?: string | null;
+    sentToSms?: string | null;
+    sentAt?: Date | null;
+    firstViewedAt?: Date | null;
+    lastViewedAt?: Date | null;
+    viewCount?: number | null;
+    viewedFromIp?: string | null;
+    viewedUserAgent?: string | null;
+    signedFromIp?: string | null;
+    signedUserAgent?: string | null;
   };
   snapshot: string;
   signedByName: string;
@@ -557,9 +643,15 @@ async function sendSignedCopies(args: {
       };
     } else {
       const pdfBuffer = await renderAgreementPdf({
+        // The exact HTML they signed. The PDF renders THIS rather than its own copy of the
+        // clauses — which is how the two came to state different contract terms.
+        bodyHtml: args.snapshot,
         clientName: args.agreement.clientName,
         setupFeeGbp: args.agreement.setupFeeGbp,
+        messagingFeeGbp: args.agreement.messagingFeeGbp,
         licenceFeeGbp: args.agreement.licenceFeeGbp,
+        freeTrialDays: args.agreement.freeTrialDays,
+        freeUntilBookings: args.agreement.freeUntilBookings,
         centresCount: args.agreement.centresCount,
         licences: args.agreement.licences as LicenceTier[],
         goLiveDate: args.agreement.goLiveDate,
@@ -567,6 +659,23 @@ async function sendSignedCopies(args: {
         signedByName: args.signedByName,
         signedByPosition: args.signedByPosition,
         signatureImage: args.signatureImage,
+        // Final page: the delivery/open/sign chain. Agreements predating this tracking have
+        // nulls, and the page prints "Not recorded" rather than inventing history.
+        audit: {
+          agreementId: args.agreement.id,
+          templateVersion: args.agreement.version,
+          sentToEmail: args.agreement.sentToEmail,
+          sentToSms: args.agreement.sentToSms,
+          sentAt: args.agreement.sentAt,
+          firstViewedAt: args.agreement.firstViewedAt,
+          lastViewedAt: args.agreement.lastViewedAt,
+          viewCount: args.agreement.viewCount,
+          viewedFromIp: args.agreement.viewedFromIp,
+          viewedUserAgent: args.agreement.viewedUserAgent,
+          signedFromIp: args.agreement.signedFromIp,
+          signedUserAgent: args.agreement.signedUserAgent,
+          signerEmail: args.signerEmail,
+        },
       });
       attachment = {
         filename: `ReceptionMate-Agreement-${slugify(args.clientName)}.pdf`,
@@ -619,6 +728,9 @@ router.post('/admin/agreements/draft', authenticate, requireAdmin, async (req: R
       businessId: parsed.data.businessId,
       clientName: parsed.data.clientName,
       setupFeeGbp: parsed.data.setupFeeGbp,
+      messagingFeeGbp: parsed.data.messagingFeeGbp,
+      freeTrialDays: parsed.data.freeTrialDays ?? null,
+      freeUntilBookings: parsed.data.freeUntilBookings ?? null,
       licenceFeeGbp: parsed.data.licenceFeeGbp,
       centresCount: parsed.data.centresCount,
       licences: parsed.data.licences,
@@ -632,10 +744,119 @@ router.post('/admin/agreements/draft', authenticate, requireAdmin, async (req: R
 });
 
 /**
+ * GET /api/agreements/setup-fee/status?session_id=cs_...
+ *
+ * What the /agreement/paid page asks after Stripe redirects. Unauthenticated by design: the
+ * payer often has no login yet, and the session id is the unguessable capability. Returns only
+ * what the payer already knows — their own invoice number, amount and whether it's paid.
+ *
+ * The webhook (not the redirect) is what marks an invoice paid, so 'pending' here is a normal
+ * transient state right after payment; the page polls briefly.
+ */
+router.get('/agreements/setup-fee/status', async (req: Request, res: Response) => {
+  const sessionId = typeof req.query.session_id === 'string' ? req.query.session_id : null;
+  if (!sessionId || !sessionId.startsWith('cs_')) {
+    return res.json({ status: 'unknown', invoiceNumber: null, grossPence: null, clientName: null, payUrl: null });
+  }
+  const invoice = await prisma.invoice.findFirst({
+    where: { kind: 'setup_fee', stripeCheckoutSessionId: sessionId },
+    select: { status: true, invoiceNumber: true, total: true, agreementId: true },
+  });
+  if (!invoice) {
+    return res.json({ status: 'unknown', invoiceNumber: null, grossPence: null, clientName: null, payUrl: null });
+  }
+
+  // Only hand back a retry link when it's actually unpaid, and only Stripe's own hosted url.
+  let payUrl: string | null = null;
+  if (invoice.status !== 'paid' && stripeConfigured()) {
+    try {
+      const session = await getStripeClient().checkout.sessions.retrieve(sessionId);
+      // An expired or already-completed session's url is useless — don't offer a dead button.
+      payUrl = session.status === 'open' ? session.url : null;
+    } catch {
+      payUrl = null;
+    }
+  }
+
+  const agreement = invoice.agreementId
+    ? await prisma.agreement.findUnique({ where: { id: invoice.agreementId }, select: { clientName: true } })
+    : null;
+
+  return res.json({
+    status: invoice.status === 'paid' ? 'paid' : 'pending',
+    invoiceNumber: invoice.invoiceNumber,
+    grossPence: invoice.total,
+    clientName: agreement?.clientName ?? null,
+    payUrl,
+  });
+});
+
+const previewSchema = draftSchema.omit({ userId: true, businessId: true });
+
+/**
+ * POST /api/admin/agreements/preview
+ *
+ * Render the agreement from draft terms and return the HTML — no Agreement row, no sign token,
+ * no email, nothing persisted. Deliberately side-effect free: creating a draft immediately gates
+ * that customer's login, so "let me read the wording first" must not cost them anything.
+ */
+router.post('/admin/agreements/preview', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const parsed = previewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid terms', details: parsed.error.flatten() });
+  }
+  const d = parsed.data;
+  const html = renderAgreementHtml({
+    clientName: d.clientName,
+    setupFeeGbp: d.setupFeeGbp,
+    licenceFeeGbp: d.licenceFeeGbp,
+    messagingFeeGbp: d.messagingFeeGbp,
+    freeTrialDays: d.freeTrialDays ?? null,
+    freeUntilBookings: d.freeUntilBookings ?? null,
+    centresCount: d.centresCount,
+    licences: d.licences as LicenceTier[],
+    goLiveDate: d.goLiveDate ? new Date(d.goLiveDate) : null,
+    effectiveDate: null,
+    signedByName: null,
+    signedByPosition: null,
+    signatureImage: null,
+  });
+
+  // Computed the same way the contract computes it, so the UI can't quote a total the document
+  // disagrees with.
+  const perBranch = d.licenceFeeGbp + d.messagingFeeGbp;
+  return res.json({
+    html,
+    css: AGREEMENT_CSS,
+    version: TEMPLATE_VERSION,
+    summary: {
+      voicePerBranchGbp: d.licenceFeeGbp,
+      messagingPerBranchGbp: d.messagingFeeGbp,
+      perBranchGbp: perBranch,
+      centresCount: d.centresCount,
+      monthlyTotalGbp: perBranch * d.centresCount,
+      setupFeeGbp: d.setupFeeGbp,
+    },
+  });
+});
+
+/**
  * POST /api/admin/agreements/:id/send
  * Send the magic-link sign email to the customer.
  */
+const sendOptionsSchema = z.object({
+  // Send the link to a different address than the portal account holder — the signer is often
+  // not the portal user. Doesn't touch their login.
+  toEmail: z.string().trim().email().max(254).optional(),
+  // Also text the link. Optional; the email is always sent.
+  toSms: z.string().trim().max(30).optional(),
+});
+
 router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const opts = sendOptionsSchema.safeParse(req.body ?? {});
+  if (!opts.success) {
+    return res.status(400).json({ error: 'toEmail must be a valid email address.' });
+  }
   const agreement = await prisma.agreement.findUnique({
     where: { id: req.params.id },
     include: { user: true },
@@ -648,31 +869,46 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
   const token = await issueSignLinkToken(agreement.userId, agreement.id);
   const signUrl = `${PORTAL_URL}/agreement/sign?token=${encodeURIComponent(token)}`;
 
-  const subject = 'Your ReceptionMate service agreement is ready to sign';
-  const html = `
-    <div style="font-family:Inter,system-ui,sans-serif;max-width:560px;margin:0 auto;color:#0f172a;">
-      <h2 style="color:#3426cf;margin:0 0 12px;">Hi ${escapeForEmail(agreement.clientName)},</h2>
-      <p>Your ReceptionMate service agreement is ready. Click the button below to review the terms and sign — it should only take a minute.</p>
-      <p style="text-align:center;margin:28px 0;">
-        <a href="${signUrl}" style="display:inline-block;background:#3426cf;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;">Review and sign</a>
-      </p>
-      <p style="color:#475569;font-size:14px;">This link is valid for 14 days. If you have any questions, reply to this email.</p>
-      <p style="margin-top:32px;color:#64748b;font-size:13px;">— The ReceptionMate team</p>
-    </div>
-  `;
-  const text = `Your ReceptionMate service agreement is ready to sign.\n\nReview and sign here: ${signUrl}\n\nThis link is valid for 14 days.\n\n— The ReceptionMate team`;
-
-  const sent = await sendEmail({ to: [agreement.user.email], subject, html, text });
+  const recipient = opts.data.toEmail || agreement.user.email;
+  const sent = await sendAgreementSignEmail({
+    to: recipient,
+    clientName: agreement.clientName,
+    signUrl,
+  });
   if (!sent) {
-    return res.status(500).json({ error: 'Failed to send email' });
+    return res.status(500).json({ error: `Failed to send the email to ${recipient}` });
+  }
+
+  // Optional: text the same link. Best-effort — the email is the delivery that matters, so a
+  // bad number reports back rather than failing the send.
+  let smsTo: string | null = null;
+  let smsError: string | null = null;
+  if (opts.data.toSms) {
+    if (!toE164UK(opts.data.toSms)) {
+      smsError = `"${opts.data.toSms}" isn't a valid mobile number — the email was still sent.`;
+    } else {
+      smsTo = await sendCustomerSms(
+        opts.data.toSms,
+        `Your ReceptionMate agreement is ready to sign: ${signUrl} (link valid 14 days)`,
+      );
+      if (!smsTo) smsError = `The email was sent, but the text to ${opts.data.toSms} failed.`;
+    }
   }
 
   await prisma.agreement.update({
     where: { id: agreement.id },
-    data: { status: 'sent' },
+    data: {
+      status: 'sent',
+      // Record WHERE it went and WHEN — the first link in the audit chain. Resending overwrites,
+      // which is correct: the live link is the one that matters, and the audit page should show
+      // where the SIGNED link actually went.
+      sentToEmail: recipient,
+      sentToSms: smsTo,
+      sentAt: new Date(),
+    },
   });
 
-  return res.json({ success: true, signUrl });
+  return res.json({ success: true, signUrl, sentToEmail: recipient, sentToSms: smsTo, smsError });
 });
 
 /**

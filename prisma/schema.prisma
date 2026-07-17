@@ -65,6 +65,10 @@ model Garage {
   // Set when the customer is actually invited (welcome email with login details), which happens
   // AFTER the agent is built — not at account-creation time.
   welcomeEmailSentAt     DateTime?
+  // { "<stage>": "<ISO>" } — when the garage ENTERED each stage. Written by setOnboardingStage,
+  // so it covers every transition without a column per stage. First entry wins; re-entering a
+  // stage doesn't overwrite it.
+  onboardingStageAt      Json?
 
   // Widget Customization
   widgetLogoUrl      String?
@@ -275,10 +279,31 @@ model Agreement {
   // Commercial terms (the placeholders from the PDF)
   clientName    String // matches the business name at the time of issue
   setupFeeGbp   Float     @default(0)
-  licenceFeeGbp Float // £ per centre per month
+  licenceFeeGbp Float // £ per centre per month — the VOICE licence (Assist or Automate)
+  // £ per centre per month for the Connect messaging licence, when the deal includes one. Kept
+  // separate from licenceFeeGbp because billing raises them as two lines per branch, and a
+  // contract that merges them can't be reconciled against an invoice that doesn't.
+  messagingFeeGbp Float @default(0)
+
+  // What free period was actually sold, so the contract can describe it instead of promising a
+  // hardcoded 14 days to everyone. Both null = no free period; billing starts at payment setup.
+  freeTrialDays     Int? // a free trial of N days
+  freeUntilBookings Int? // free until the Nth confirmed booking
   centresCount  Int       @default(1)
   licences      String[]  @default(["assist"]) // any of: assist, automate, connect
   goLiveDate    DateTime?
+
+  // Delivery + open audit. Together with the signature block below this is what makes the
+  // chain evidential: sent to THIS address at THIS time, opened from THIS IP, signed from THIS
+  // IP. Printed on the last page of the signed PDF.
+  sentToEmail     String?
+  sentToSms       String?   // E.164, set only when staff also texted the link
+  sentAt          DateTime?
+  firstViewedAt   DateTime?
+  lastViewedAt    DateTime?
+  viewCount       Int       @default(0)
+  viewedFromIp    String?
+  viewedUserAgent String?
 
   // Rendered content snapshot — the exact HTML they saw at sign time
   templateSnapshot String @db.Text
@@ -710,6 +735,24 @@ model Invoice {
   costPerMinuteGbp    Float
   vatRate             Float
 
+  // What this invoice is for. 'subscription' = the monthly usage/subscription invoice (i.e.
+  // every invoice raised before setup fees existed). 'setup_fee' = a one-off fee due on signing
+  // an agreement; those have no billing period, so periodStart/periodEnd are both set to the
+  // signing date rather than made nullable — 45 call sites read them as non-null.
+  kind String @default("subscription") // subscription, setup_fee
+
+  // Human-facing invoice number, e.g. INV-SETUP-0007. Null on subscription invoices, which have
+  // never had one. @unique matches the DB index Invoice_invoiceNumber_key.
+  invoiceNumber String? @unique
+
+  // Set on setup_fee invoices: the agreement the fee is for, and the idempotency key — one
+  // setup-fee invoice per agreement, so re-signing can't raise a second one.
+  agreementId String?
+
+  // Set when a Stripe Checkout session is raised, so the webhook can find this invoice again to
+  // mark it paid.
+  stripeCheckoutSessionId String?
+
   // Status
   status String @default("draft") // draft, pending, paid, failed, cancelled
 
@@ -729,6 +772,8 @@ model Invoice {
   @@index([garageId, periodStart])
   @@index([businessId, periodStart])
   @@index([status])
+  @@index([agreementId])
+  @@index([kind])
 }
 
 // A self-serve Assist signup that has NOT yet become a real account. Created when the

@@ -50,13 +50,23 @@ export async function setOnboardingStage(
   try {
     const garage = await prisma.garage.findUnique({
       where: { id: garageId },
-      select: { id: true, name: true, onboardingStage: true, ghlOpportunityId: true },
+      select: { id: true, name: true, onboardingStage: true, ghlOpportunityId: true, onboardingStageAt: true },
     });
     if (!garage) return;
     if (garage.onboardingStage === 'live') return; // already onboarded — not ours to touch
     if (garage.onboardingStage === stage) return; // no-op
 
-    await prisma.garage.update({ where: { id: garageId }, data: { onboardingStage: stage } });
+    // Record WHEN this stage was entered. Merge rather than replace: the map is the garage's
+    // whole history, and an earlier stage's time must survive later moves. Guarded above by the
+    // same-stage early return, so this only ever writes a stage's FIRST entry.
+    const stampedAt = {
+      ...((garage.onboardingStageAt as Record<string, string> | null) ?? {}),
+      [stage]: new Date().toISOString(),
+    };
+    await prisma.garage.update({
+      where: { id: garageId },
+      data: { onboardingStage: stage, onboardingStageAt: stampedAt },
+    });
     console.log(
       `[PIPELINE] ${garage.name}: ${garage.onboardingStage} -> ${stage}${opts?.reason ? ` (${opts.reason})` : ''}`,
     );

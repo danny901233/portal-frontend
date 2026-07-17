@@ -196,6 +196,8 @@ function AgreementSignInner() {
   // Set once a public-signup customer has signed: holds the SetupIntent client_secret so we render
   // the Stripe card form (custom Payment Element) in-page instead of redirecting to stripe.com.
   const [cardClientSecret, setCardClientSecret] = useState<string | null>(null);
+  // Returned by the sign call when the agreement carried a setup fee: { invoiceNumber, grossPence, payUrl }.
+  const [setupFee, setSetupFee] = useState<{ invoiceNumber: string; grossPence: number; payUrl: string | null } | null>(null);
   // One-time token to set their own password after the card (custom flow → no welcome-email reliance).
   const [cardResetToken, setCardResetToken] = useState<string | null>(null);
   // Deferred-account flow: the account is created only after the card, via this pending id.
@@ -224,6 +226,10 @@ function AgreementSignInner() {
         ? await signAgreementByToken(token, payload)
         : await signAgreement(agreement.id, payload);
       setDone(true);
+      // A setup fee turns the success screen into a pay screen. Read before the Stripe-trial
+      // branch below returns early — the two never coexist (self-serve fees are always 0), but
+      // reading it first keeps that independent of branch order.
+      setSetupFee((result as { setupFee?: { invoiceNumber: string; grossPence: number; payUrl: string | null } | null }).setupFee ?? null);
       // Public-signup customers (magic-link path) enter their card on this page via Stripe's
       // Payment Element to start the 14-day trial — no redirect. The backend returns the
       // SetupIntent client_secret; stashing it flips the success screen into the card form.
@@ -290,7 +296,59 @@ function AgreementSignInner() {
             </div>
           </div>
 
-          {token && cardClientSecret ? (
+          {setupFee ? (
+            <div className="mt-6">
+              <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-brand-700">Setup fee</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-900">
+                      £{(setupFee.grossPence / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <span className="ml-1 text-sm font-medium text-slate-500">inc VAT</span>
+                    </p>
+                  </div>
+                  <p className="text-xs text-slate-500">Invoice {setupFee.invoiceNumber}</p>
+                </div>
+                <p className="mt-2 text-sm text-slate-600">
+                  This is due now, on signing. Pay by card below, or by bank transfer using the details
+                  underneath — a copy of the invoice is on its way to your inbox either way.
+                </p>
+
+                {setupFee.payUrl ? (
+                  <a
+                    href={setupFee.payUrl}
+                    className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-brand-600/30 hover:bg-brand-700 transition"
+                  >
+                    Pay by card
+                    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd"/></svg>
+                  </a>
+                ) : null}
+
+                <div className="mt-4 rounded-xl bg-white/70 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Or pay by bank transfer</p>
+                  <dl className="mt-2 space-y-1 text-sm">
+                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Account name</dt><dd className="font-medium text-slate-900">ReceptionMate Ltd</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Sort code</dt><dd className="font-medium text-slate-900">23-01-20</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Account number</dt><dd className="font-medium text-slate-900">49981874</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-slate-500">Reference</dt><dd className="font-medium text-slate-900">{setupFee.invoiceNumber}</dd></div>
+                  </dl>
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl bg-slate-50 p-5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{c.whatHappensNext}</p>
+                <ol className="mt-3 space-y-3 text-sm text-slate-700">
+                  <NextStep n={1} title={c.step1Title} body={c.step1Body} />
+                  <NextStep n={2} title={c.step2Title} body={c.step2Body} />
+                  <NextStep n={3} title={c.step3Title} body={c.step3Body} />
+                  <NextStep n={4} title={c.step4Title} body={c.step4Body} />
+                </ol>
+              </div>
+              <p className="mt-3 text-center text-xs text-slate-500">
+                Questions? <a href="mailto:hello@receptionmate.co.uk" className="underline">hello@receptionmate.co.uk</a>.
+              </p>
+            </div>
+          ) : token && cardClientSecret ? (
             <div className="mt-6">
               <h2 className="text-sm font-semibold text-slate-900">Start your 14-day free trial</h2>
               <p className="mt-1 text-xs text-slate-500">

@@ -687,11 +687,15 @@ const RM_BRAND = '#3426cf';       // brand-600 (primary indigo)
 const RM_BRAND_DARK = '#281eb0';  // brand-700
 
 /**
- * Shared branded shell for arrears emails: white card on light grey, an indigo header
+ * Shared branded shell for transactional emails: white card on light grey, an indigo header
  * band carrying the ReceptionMate logo, and a consistent footer. Callers pass the inner
- * body HTML. Keeps every arrears email on-brand with the portal.
+ * body HTML. Keeps every email on-brand with the portal / marketing site.
+ *
+ * (Was arrearsEmailShell — nothing about it is arrears-specific, and the agreement email needs
+ * the same shell. NB sendWelcomeEmail still uses an older dark-navy template with a logo on the
+ * WordPress site; that one is stale and should be migrated here too.)
  */
-const arrearsEmailShell = (bodyHtml: string): string => `
+const brandedEmailShell = (bodyHtml: string): string => `
 <!DOCTYPE html>
 <html>
 <head>
@@ -748,7 +752,7 @@ export const sendArrearsCallNoticeEmail = async (
     minute: '2-digit',
   });
 
-  const html = arrearsEmailShell(`
+  const html = brandedEmailShell(`
           <tr>
             <td style="padding: 36px 32px 8px; text-align: center;">
               <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">📞 We handled a call for you</h1>
@@ -838,7 +842,7 @@ export const sendArrearsWarningEmail = async (
     return false;
   }
 
-  const html = arrearsEmailShell(`
+  const html = brandedEmailShell(`
           <tr>
             <td style="padding: 36px 32px 8px; text-align: center;">
               <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">⚠️ We couldn't take your payment</h1>
@@ -1130,84 +1134,36 @@ interface WelcomeEmailData {
 
 export const sendWelcomeEmail = async (data: WelcomeEmailData): Promise<boolean> => {
   const { to, businessName, branchName, email, password, portalUrl } = data;
+  const esc = (v: string) =>
+    String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to ReceptionMate</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #09203c;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #09203c;">
-    <tr>
-      <td style="padding: 40px 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1a3a52; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-          <tr>
-            <td style="padding: 0; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="text-align: center; padding: 24px 32px 8px;">
-                    <img src="https://receptionmate.co.uk/wp-content/uploads/2024/12/receptionmate-light-1-1024x292.png" alt="ReceptionMate" style="height: 40px; width: auto; display: inline-block;" />
-                  </td>
-                </tr>
-                <tr>
-                  <td style="text-align: center; padding: 8px 32px 32px;">
-                    <h2 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">
-                      Welcome to ReceptionMate!
-                    </h2>
-                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
-                      Your account has been created
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
+  const html = brandedEmailShell(`
           <tr>
             <td style="padding: 32px;">
-              <p style="margin: 0 0 20px; font-size: 16px; color: #cbd5e1; line-height: 1.6;">
-                Hi there,
-              </p>
-
-              <p style="margin: 0 0 20px; font-size: 16px; color: #cbd5e1; line-height: 1.6;">
-                Your ReceptionMate account has been set up for <strong style="color: #ffffff;">${businessName}</strong> - <strong style="color: #ffffff;">${branchName}</strong>.
+              <h1 style="margin: 0 0 20px; font-size: 22px; font-weight: 700; color: #1a1a2e;">Your ReceptionMate account is ready</h1>
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #4a4a68;">Hi there,</p>
+              <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #4a4a68;">
+                Your AI receptionist is built and your account is set up for
+                <strong style="color: #1a1a2e;">${esc(businessName)}</strong> — <strong style="color: #1a1a2e;">${esc(branchName)}</strong>.
+                Here's how to log in.
               </p>
 
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
-                    <h3 style="margin: 0 0 16px; font-size: 16px; font-weight: 600; color: #ffffff;">
-                      Your Login Credentials
-                    </h3>
+                  <td style="padding: 20px; background-color: #f7f7fb; border: 1px solid #e6e7f2; border-radius: 10px;">
+                    <h2 style="margin: 0 0 14px; font-size: 15px; font-weight: 600; color: #1a1a2e;">Your login details</h2>
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                       <tr>
-                        <td style="padding: 8px 0; font-size: 14px; color: #94a3b8; width: 120px;">Email:</td>
-                        <td style="padding: 8px 0; font-size: 14px; color: #ffffff; font-weight: 500;">${email}</td>
+                        <td style="padding: 6px 0; font-size: 14px; color: #8b90b0; width: 90px;">Email</td>
+                        <td style="padding: 6px 0; font-size: 14px; color: #1a1a2e; font-weight: 500;">${esc(email)}</td>
                       </tr>
                       <tr>
-                        <td style="padding: 8px 0; font-size: 14px; color: #94a3b8;">Password:</td>
-                        <td style="padding: 8px 0; font-size: 14px; color: #ffffff; font-weight: 500; font-family: 'Courier New', monospace;">${password}</td>
+                        <td style="padding: 6px 0; font-size: 14px; color: #8b90b0;">Password</td>
+                        <td style="padding: 6px 0; font-size: 14px; color: #1a1a2e; font-weight: 600; font-family: 'Courier New', monospace;">${esc(password)}</td>
                       </tr>
                     </table>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="margin: 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-                <strong style="color: #fbbf24;">⚠️ Important:</strong> You will be required to change your password when you first log in.
-              </p>
-
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
-                    <h3 style="margin: 0 0 12px; font-size: 16px; font-weight: 600; color: #ffffff;">
-                      💳 Set Up Direct Debit
-                    </h3>
-                    <p style="margin: 0; font-size: 14px; color: #cbd5e1; line-height: 1.6;">
-                      After logging in, you'll need to complete your Direct Debit mandate to activate your service. This ensures uninterrupted access to ReceptionMate.
+                    <p style="margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: #8b90b0;">
+                      You'll be asked to choose your own password the first time you log in.
                     </p>
                   </td>
                 </tr>
@@ -1215,62 +1171,114 @@ export const sendWelcomeEmail = async (data: WelcomeEmailData): Promise<boolean>
 
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
-                  <td style="text-align: center; padding: 20px 0;">
-                    <a href="${portalUrl}/login" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
-                      Log In to Portal
-                    </a>
+                  <td style="text-align: center; padding: 24px 0;">
+                    <a href="${portalUrl}/login" style="display: inline-block; padding: 14px 32px; background-color: ${RM_BRAND}; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px;">Log in to your portal</a>
                   </td>
                 </tr>
               </table>
 
-              <p style="margin: 20px 0 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-                If you have any questions or need assistance, please don't hesitate to contact our support team at <a href="mailto:hello@receptionmate.co.uk" style="color: #8b5cf6; text-decoration: none;">hello@receptionmate.co.uk</a>
+              <p style="margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: #4a4a68;">
+                <strong style="color: #1a1a2e;">Two things to do once you're in:</strong>
+              </p>
+              <p style="margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: #4a4a68;">
+                <strong style="color: #1a1a2e;">1. Finish your setup</strong> — check your opening hours, greeting and FAQs so your receptionist answers the way you want.
+              </p>
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4a4a68;">
+                <strong style="color: #1a1a2e;">2. Set up your Direct Debit</strong> — this activates your service.
+              </p>
+
+              <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #8b90b0;">
+                Any questions, just reply to this email or contact <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>.
               </p>
             </td>
-          </tr>
+          </tr>`);
 
-          <tr>
-            <td style="padding: 24px; background-color: #0d2739; border-top: 1px solid #1e4a66;">
-              <p style="margin: 0; font-size: 12px; color: #64748b; text-align: center;">
-                This is an automated email from ReceptionMate<br/>
-                © ${new Date().getFullYear()} ReceptionMate. All rights reserved.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-`;
+  const text = `Hi there,
 
-  const text = `
-Welcome to ReceptionMate!
+Your AI receptionist is built and your account is set up for ${businessName} — ${branchName}.
 
-Your account has been created for ${businessName} - ${branchName}.
-
-Your Login Credentials:
+Your login details
 Email: ${email}
 Password: ${password}
 
-⚠️ Important: You will be required to change your password when you first log in.
+You'll be asked to choose your own password the first time you log in.
 
-💳 Set Up Direct Debit
-After logging in, you'll need to complete your Direct Debit mandate to activate your service. This ensures uninterrupted access to ReceptionMate.
+Log in: ${portalUrl}/login
 
-Log in to the portal: ${portalUrl}/login
+Two things to do once you're in:
+1. Finish your setup — check your opening hours, greeting and FAQs.
+2. Set up your Direct Debit — this activates your service.
 
-If you have any questions or need assistance, please contact our support team at hello@receptionmate.co.uk
-
----
-This is an automated email from ReceptionMate
+Any questions, just reply to this email or contact hello@receptionmate.co.uk.
 `;
 
   return sendEmail({
     to: [to],
-    subject: `Welcome to ReceptionMate - Your Login Credentials`,
+    subject: 'Your ReceptionMate account is ready',
     html,
     text,
   });
+};
+
+export interface AgreementSignEmailData {
+  to: string;
+  clientName: string;
+  signUrl: string;
+}
+
+/**
+ * "Your agreement is ready to sign" — the first email a sales-led customer receives from us, so
+ * it uses the shared branded shell (white card, indigo header, logo).
+ *
+ * Deliberately does NOT restate the commercial terms: they're in the agreement being opened, and
+ * duplicating them here just adds a second place to keep correct.
+ */
+export const sendAgreementSignEmail = async (data: AgreementSignEmailData): Promise<boolean> => {
+  const { to, clientName, signUrl } = data;
+  const esc = (v: string) =>
+    String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const html = brandedEmailShell(`
+          <tr>
+            <td style="padding: 32px;">
+              <h1 style="margin: 0 0 20px; font-size: 22px; font-weight: 700; color: #1a1a2e;">Your agreement is ready to sign</h1>
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #4a4a68;">Hi ${esc(clientName)},</p>
+              <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.6; color: #4a4a68;">
+                Your ReceptionMate service agreement is ready. Have a read through and sign it online — it takes about a minute, and there's nothing to print or scan.
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="text-align: center; padding: 4px 0 24px;">
+                    <a href="${signUrl}" style="display: inline-block; padding: 14px 32px; background-color: ${RM_BRAND}; color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px;">Review and sign</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.6; color: #8b90b0;">
+                This link is valid for 14 days and is unique to you — please don't forward it.
+              </p>
+              <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #4a4a68;">
+                <strong style="color: #1a1a2e;">What happens next:</strong> once you've signed, we'll set up your integration and build your AI receptionist. We'll email your login details as soon as it's ready — nothing needed from you in the meantime.
+              </p>
+              <p style="margin: 24px 0 0; font-size: 14px; line-height: 1.6; color: #8b90b0;">
+                Any questions, just reply to this email or contact <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>.
+              </p>
+            </td>
+          </tr>`);
+
+  const text = `Hi ${clientName},
+
+Your ReceptionMate service agreement is ready to sign.
+
+Review and sign here: ${signUrl}
+
+This link is valid for 14 days and is unique to you — please don't forward it.
+
+What happens next: once you've signed, we'll set up your integration and build your AI receptionist. We'll email your login details as soon as it's ready.
+
+Any questions, reply to this email or contact hello@receptionmate.co.uk
+
+— The ReceptionMate team
+`;
+
+  return sendEmail({ to: [to], subject: 'Your ReceptionMate agreement is ready to sign', html, text });
 };

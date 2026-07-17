@@ -179,6 +179,30 @@ async function handleSetupIntentSucceeded(si: Stripe.SetupIntent): Promise<void>
 // ── legacy hosted Stripe Checkout path — kept for any in-flight hosted sessions ──
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const meta = session.metadata || {};
+  // One-off setup fee paid by card. Checked FIRST and returns early: this is the only
+  // mode:'payment' session we create, and if it fell through to the branches below it would be
+  // mistaken for a signup and try to provision a Twilio number.
+  if (meta.kind === 'setup-fee' && meta.invoiceId) {
+    const inv = await prisma.invoice.findUnique({
+      where: { id: meta.invoiceId },
+      select: { id: true, status: true, invoiceNumber: true, total: true },
+    });
+    if (!inv) {
+      console.warn(`[STRIPE_WEBHOOK] setup-fee session for unknown invoice ${meta.invoiceId}`);
+      return;
+    }
+    // Idempotent: Stripe retries, and a second delivery must not move paidAt.
+    if (inv.status === 'paid') {
+      console.log(`[STRIPE_WEBHOOK] setup fee ${inv.invoiceNumber} already paid — ignoring retry`);
+      return;
+    }
+    await prisma.invoice.update({
+      where: { id: inv.id },
+      data: { status: 'paid', paidAt: new Date() },
+    });
+    console.log(`[STRIPE_WEBHOOK] setup fee ${inv.invoiceNumber} PAID by card (£${(inv.total / 100).toFixed(2)})`);
+    return;
+  }
   // Connect trial->paid: card added on the paywall. Record the subscription and UNLOCK.
   if (meta.kind === 'connect-billing' && meta.garageId) {
     const cg = await prisma.garage.update({

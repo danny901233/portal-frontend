@@ -1,11 +1,20 @@
 // PDF renderer for the signed service agreement.
 //
-// Uses pdfkit (already a dependency for invoice PDFs). The clause text is
-// duplicated here rather than parsed from the HTML — when the contract is
-// updated in agreementTemplate.ts, update this file too and bump TEMPLATE_VERSION.
+// Uses pdfkit (already a dependency for invoice PDFs). The clause text is NOT duplicated here —
+// it is rendered from the agreement HTML, which is the single source of the contract's words.
+//
+// It used to be duplicated, with a comment instructing whoever edited the contract to update
+// both files. They didn't, and nobody noticed: the HTML came to say a 3-month Proof Period then
+// a 12-month minimum term with no termination for convenience, while this file still said "a
+// rolling monthly term" that either party could leave after 3 months. Customers signed one
+// contract and were emailed another — and the PDF is the copy they keep.
+//
+// Where possible the caller passes the SIGNED SNAPSHOT, so the PDF is literally the document
+// they agreed to. Absent one, the HTML is generated from the same canonical template.
 
 import PDFDocument from 'pdfkit';
-import { LICENCE_DETAILS, type LicenceTier } from './agreementTemplate.js';
+import { LICENCE_DETAILS, renderAgreementHtml, type LicenceTier } from './agreementTemplate.js';
+import { blocksFromAgreementHtml, type Block, type Run } from './agreementBlocks.js';
 
 // Logo lives on GHL CDN — fetched once on first render and cached for the
 // lifetime of the process so PDF rendering stays in-memory + fast.
@@ -24,6 +33,7 @@ export interface AgreementPdfInputs {
   clientName: string;
   setupFeeGbp: number;
   licenceFeeGbp: number;
+  messagingFeeGbp?: number;
   centresCount: number;
   licences: LicenceTier[];
   goLiveDate: Date | null;
@@ -31,6 +41,31 @@ export interface AgreementPdfInputs {
   signedByName: string;
   signedByPosition: string;
   signatureImage?: string | null; // PNG data URL — embedded under the signer name
+  /**
+   * The exact HTML the customer signed (Agreement.templateSnapshot). When present the PDF renders
+   * THIS, so the emailed copy is the document they actually agreed to — not a re-render that
+   * might reflect a template edited since. Absent, the HTML is generated from the same template.
+   */
+  bodyHtml?: string | null;
+  freeTrialDays?: number | null;
+  freeUntilBookings?: number | null;
+  // Audit trail, printed on the final page. All optional: older agreements pre-date the tracking
+  // and should print "not recorded" rather than pretend to know.
+  audit?: {
+    sentToEmail?: string | null;
+    sentToSms?: string | null;
+    sentAt?: Date | null;
+    firstViewedAt?: Date | null;
+    lastViewedAt?: Date | null;
+    viewCount?: number | null;
+    viewedFromIp?: string | null;
+    viewedUserAgent?: string | null;
+    signedFromIp?: string | null;
+    signedUserAgent?: string | null;
+    signerEmail?: string | null;
+    agreementId?: string | null;
+    templateVersion?: string | null;
+  } | null;
 }
 
 const BRAND = '#3426cf';
@@ -58,6 +93,7 @@ export async function renderAgreementPdf(inputs: AgreementPdfInputs): Promise<Bu
 
     try {
       drawDocument(doc, inputs, logo);
+      if (inputs.audit) drawAuditPage(doc, inputs);
       doc.end();
     } catch (err) {
       reject(err);
@@ -67,8 +103,11 @@ export async function renderAgreementPdf(inputs: AgreementPdfInputs): Promise<Bu
 
 function drawDocument(doc: PDFKit.PDFDocument, inputs: AgreementPdfInputs, logo: Buffer | null) {
   const setupFeeStr = inputs.setupFeeGbp > 0 ? GBP.format(inputs.setupFeeGbp) : '£0 (waived)';
+  // Mirrors the HTML template: voice + Connect are separate per-branch lines, as billed.
+  const messagingFee = inputs.messagingFeeGbp ?? 0;
   const licenceFeeStr = GBP.format(inputs.licenceFeeGbp);
-  const monthlyTotalStr = GBP.format(inputs.licenceFeeGbp * inputs.centresCount);
+  const messagingFeeStr = GBP.format(messagingFee);
+  const monthlyTotalStr = GBP.format((inputs.licenceFeeGbp + messagingFee) * inputs.centresCount);
 
   // ---------- Header ----------
   if (logo) {
@@ -93,132 +132,69 @@ function drawDocument(doc: PDFKit.PDFDocument, inputs: AgreementPdfInputs, logo:
   hr(doc);
 
   // ---------- Sections ----------
-  section(doc, 'Introduction');
-  para(doc,
-    `This agreement outlines the terms of a strategic partnership between `,
-    [
-      { text: 'ReceptionMate Ltd', bold: true },
-      { text: ' (the "Provider") and ' },
-      { text: inputs.clientName, bold: true },
-      { text: ' (the "Client") regarding the provision of ReceptionMate’s AI-powered handling services.' },
-    ],
-  );
-
-  section(doc, '1. Definitions');
-  para(doc, 'In this Agreement, the following terms shall have the meanings set out below:');
-  bulletList(doc, [
-    ['"Services"', ' means the ReceptionMate AI Agent and related software components provided by the Provider on a subscription basis for call answering and enquiry handling.'],
-    ['"Platform"', ' means the cloud-based ReceptionMate system made available via web, telephony, and API integration.'],
-    ['"Authorised Users"', ' means the Client’s employees or representatives who are permitted to use the Services.'],
-    ['"Client Data"', ' means any data, audio, transcripts, or information inputted by the Client or its customers during use of the Services.'],
-    ['"Initial Period"', ' means the initial three-month period during which the Services are provided.'],
-    ['"Effective Date"', ' means the date of the last signature below.'],
-  ]);
-
-  section(doc, '2. Purpose and scope');
-  para(doc, 'The Provider agrees to supply, and the Client agrees to subscribe to, the ReceptionMate AI Agent Services for use in managing inbound customer enquiries, bookings, and related communications in connection with the Client’s automotive operations.');
-
-  section(doc, '3. Term');
-  numbered(doc, '3.1', `This Agreement shall commence on the agreed "Go Live" date${inputs.goLiveDate ? ` (${fmtDate(inputs.goLiveDate)})` : ''} and continue for a rolling monthly term.`);
-  numbered(doc, '3.2', 'After the Initial Period, the Agreement shall renew automatically on a monthly rolling basis unless terminated in accordance with Clause 13.');
-  para(doc, 'The Provider shall:');
-  alphaList(doc, [
-    'Host and maintain access to the ReceptionMate Platform;',
-    'Provide AI voice agents for inbound call handling, booking management, and data capture;',
-    'Integrate the Platform with the Client’s diary or garage management system, where technically feasible;',
-    'Provide support and performance reporting; and',
-    'Ensure the Services are available 24 hours a day, subject to scheduled maintenance.',
-  ]);
-
-  section(doc, '5. Fees and Payment');
-  numberedRich(doc, '5.1', [
-    { text: 'Setup Fee.', bold: true },
-    { text: ` A setup fee of ` },
-    { text: setupFeeStr, bold: true },
-    { text: ' is due upon signing this Agreement.' },
-  ]);
-  numberedRich(doc, '5.2', [
-    { text: 'Licence Fee.', bold: true },
-    { text: ` The subscription fee shall be ` },
-    { text: licenceFeeStr, bold: true },
-    { text: ` per month per centre, payable monthly in advance. The number of centres being onboarded under this Agreement is ` },
-    { text: String(inputs.centresCount), bold: true },
-    { text: ', giving a total monthly subscription of ' },
-    { text: monthlyTotalStr, bold: true },
-    { text: ' exclusive of VAT.' },
-  ]);
-
-  para(doc, 'The licences included under this Agreement are:');
-  bulletList(doc,
-    inputs.licences.map((l) => [LICENCE_DETAILS[l].name, ' — ' + LICENCE_DETAILS[l].description])
-  );
-
-  numberedRich(doc, '5.3', [{ text: 'Usage Charges.', bold: true }]);
-  alphaList(doc, [
-    'The Automate licence includes 600 minutes of AI-handled calls; £0.25 per connected minute applies after the initial 600 minutes.',
-    'The Assist licence includes 400 minutes of AI-handled calls; £0.25 per connected minute applies after the initial 400 minutes. Assist excludes diary integration.',
-    'The Connect licence includes 500 AI messaging conversations; £0.25 per message applies thereafter. SMS charges are separate and not included within the messaging allowance; SMS messages are charged at £0.25 per message.',
-  ]);
-  numbered(doc, '5.4', 'All fees are exclusive of VAT and payable within 14 days of invoice.');
-
-  section(doc, '6. Late Payment');
-  numbered(doc, '6.1', 'All invoices issued by the Provider are payable within fourteen (14) days of the invoice date unless otherwise agreed in writing; payment is made by Direct Debit.');
-  numbered(doc, '6.2', 'If any undisputed amount remains unpaid after the due date, the Provider may:');
-  alphaList(doc, [
-    'charge interest on the outstanding sum at a rate of 4% per annum above the Bank of England base rate, accruing daily from the due date until payment is received in full; and',
-    'recover from the Client all reasonable costs of collection, including legal fees.',
-  ]);
-  numbered(doc, '6.3', 'If payment remains outstanding for more than thirty (30) days, the Provider reserves the right, upon giving at least five (5) days’ written notice, to suspend or restrict access to the Services until all overdue amounts are settled.');
-  numbered(doc, '6.4', 'Suspension of the Services for non-payment shall not relieve the Client of its obligation to pay the outstanding sums, nor extend any agreed subscription term.');
-  numbered(doc, '6.5', 'If payment remains outstanding for more than sixty (60) days, the Provider may treat the non-payment as a material breach and terminate this Agreement in accordance with Clause 13 (Termination).');
-
-  section(doc, '7. Client Obligations');
-  para(doc, 'The Client shall:');
-  alphaList(doc, [
-    'Provide accurate business information, service lists, and booking rules required for setup;',
-    'Ensure call routing and telephony settings are correctly configured to forward missed calls to the AI agent;',
-    'Provide feedback and performance data during the term;',
-    'Comply with applicable laws relating to the use of the Services.',
-  ]);
-
-  section(doc, '8. Intellectual Property');
-  para(doc, 'All intellectual property rights in the ReceptionMate Platform, AI models, and related software remain the exclusive property of the Provider.');
-  para(doc, 'The Client is granted a limited, non-exclusive, non-transferable licence to use the Services for its internal business purposes only.');
-
-  section(doc, '9. Data Protection');
-  numbered(doc, '9.1', 'Both Parties shall comply with the UK GDPR and the Data Protection Act 2018.');
-  numbered(doc, '9.2', 'The Provider acts as a Data Processor and will process Client Data solely for the purpose of providing the Services.');
-  numbered(doc, '9.3', 'The Provider shall implement appropriate technical and organisational measures to safeguard Client Data and shall not share it with third parties except as necessary to deliver the Services or as required by law.');
-
-  section(doc, '10. Confidentiality');
-  para(doc, 'Each Party undertakes to keep confidential all proprietary or confidential information disclosed by the other Party and to use such information only for the purposes of fulfilling this Agreement.');
-
-  section(doc, '11. Case Study Consent');
-  para(doc, 'The Client grants the Provider permission to reference its name, logo, and monetary results in case studies, marketing materials, and presentations to prospective clients, provided that no personally identifiable information or sensitive data is disclosed.');
-
-  section(doc, '12. Limitation of Liability');
-  numbered(doc, '12.1', 'The Provider’s total liability under this Agreement shall not exceed the total fees paid by the Client during the preceding three (3) months.');
-  numbered(doc, '12.2', 'Neither Party shall be liable for any indirect, special, or consequential losses including loss of profit, revenue, or goodwill.');
-
-  section(doc, '13. Termination');
-  numbered(doc, '13.1', 'Either Party may terminate this Agreement:');
-  alphaList(doc, [
-    'At any time after the Initial Period of 3 months. After this time, 30 days’ written notice is required.',
-  ]);
-  numbered(doc, '13.2', 'Either Party may terminate immediately if the other Party commits a material breach that remains unremedied after 10 days of written notice.');
-
-  section(doc, '14. Force Majeure');
-  para(doc, 'Neither Party shall be liable for any failure or delay caused by circumstances beyond its reasonable control, including acts of God, network failures, or telecommunications outages.');
-
-  section(doc, '15. Entire Agreement');
-  para(doc, 'This Agreement constitutes the entire understanding between the Parties and supersedes all prior proposals or discussions relating to its subject matter.');
-  para(doc, 'Any amendment must be made in writing and signed by authorised representatives of both Parties.');
-
-  section(doc, '16. Governing Law and Jurisdiction');
-  para(doc, 'This Agreement shall be governed by and construed in accordance with the laws of England and Wales, and the Parties submit to the exclusive jurisdiction of the courts of England and Wales.');
+  // ---------- the contract itself ----------
+  // Rendered from the HTML rather than retyped here. This is the whole point: one copy of the
+  // words. Prefer the signed snapshot; otherwise generate from the canonical template.
+  const bodyHtml = inputs.bodyHtml || renderAgreementHtml({
+    clientName: inputs.clientName,
+    setupFeeGbp: inputs.setupFeeGbp,
+    licenceFeeGbp: inputs.licenceFeeGbp,
+    messagingFeeGbp: inputs.messagingFeeGbp,
+    freeTrialDays: inputs.freeTrialDays,
+    freeUntilBookings: inputs.freeUntilBookings,
+    centresCount: inputs.centresCount,
+    licences: inputs.licences,
+    goLiveDate: inputs.goLiveDate,
+    effectiveDate: inputs.effectiveDate,
+    signedByName: inputs.signedByName,
+    signedByPosition: inputs.signedByPosition,
+  });
+  drawBlocks(doc, blocksFromAgreementHtml(bodyHtml));
 
   // ---------- Signatures ----------
   signatureBlocks(doc, inputs);
+}
+
+// ---------- rendering the parsed contract ----------
+
+/** Draw a run sequence as one paragraph, preserving bold/italic exactly as the HTML has it. */
+function richPara(doc: PDFKit.PDFDocument, runs: Run[]) {
+  if (!runs.length) return;
+  ensureRoom(doc, 40);
+  doc.fillColor(INK).fontSize(10.5);
+  runs.forEach((r, i) => {
+    const last = i === runs.length - 1;
+    doc.font(r.bold ? 'Helvetica-Bold' : r.italic ? 'Helvetica-Oblique' : 'Helvetica')
+       .text(r.text, { continued: !last, lineGap: 2, paragraphGap: last ? 4 : 0 });
+  });
+}
+
+function richList(doc: PDFKit.PDFDocument, items: Run[][], marker: (i: number) => string) {
+  doc.fillColor(INK).fontSize(10.5);
+  items.forEach((runs, i) => {
+    ensureRoom(doc, 24);
+    const indent = doc.page.margins.left + 22;
+    doc.font('Helvetica').text(marker(i), doc.page.margins.left + 4, doc.y, { width: 18, continued: false });
+    doc.moveUp();
+    // First run starts at the indent; the rest continue inline.
+    runs.forEach((r, j) => {
+      const last = j === runs.length - 1;
+      const font = r.bold ? 'Helvetica-Bold' : r.italic ? 'Helvetica-Oblique' : 'Helvetica';
+      if (j === 0) doc.font(font).text(r.text, indent, doc.y, { continued: !last, lineGap: 2, paragraphGap: last ? 3 : 0 });
+      else doc.font(font).text(r.text, { continued: !last, lineGap: 2, paragraphGap: last ? 3 : 0 });
+    });
+  });
+}
+
+function drawBlocks(doc: PDFKit.PDFDocument, blocks: Block[]) {
+  for (const b of blocks) {
+    switch (b.t) {
+      case 'heading': section(doc, b.text); break;
+      case 'para': richPara(doc, b.runs); break;
+      case 'bullets': richList(doc, b.items, () => '•'); break;
+      case 'alpha': richList(doc, b.items, (i) => `(${String.fromCharCode(97 + i)})`); break;
+    }
+  }
 }
 
 // ---------- low-level drawing helpers ----------
@@ -378,4 +354,90 @@ function drawSignatureCard(
 
   doc.fillColor(INK).fontSize(10).font('Helvetica-Bold').text('Date: ', x + padding, y + height - padding - 12, { continued: true });
   doc.font('Helvetica').text(s.date);
+}
+
+
+/**
+ * Final page: the audit trail. Deliberately plain and dense — this page exists to be read in a
+ * dispute, not to look nice. Anything we don't know prints "Not recorded" rather than being
+ * silently omitted, so a gap is visible instead of invisible.
+ */
+function drawAuditPage(doc: PDFKit.PDFDocument, inputs: AgreementPdfInputs) {
+  const a = inputs.audit!;
+  doc.addPage();
+
+  const fmt = (d?: Date | null) =>
+    d
+      ? new Date(d).toLocaleString('en-GB', {
+          day: '2-digit', month: 'long', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          timeZone: 'Europe/London',
+        }) + ' (UK time)'
+      : 'Not recorded';
+  const val = (v?: string | number | null) => (v === null || v === undefined || v === '' ? 'Not recorded' : String(v));
+
+  doc.fillColor(BRAND).fontSize(16).font('Helvetica-Bold').text('Signature audit trail');
+  doc.moveDown(0.3);
+  doc
+    .fillColor(MUTED)
+    .fontSize(9)
+    .font('Helvetica')
+    .text(
+      'An automatically generated record of how this agreement was delivered, opened and signed. ' +
+        'Times are UK local. IP addresses are as seen by our servers at the time of each event.',
+      { width: 483 },
+    );
+  doc.moveDown(1);
+
+  const rows: [string, string][] = [
+    ['Agreement reference', val(a.agreementId)],
+    ['Template version', val(a.templateVersion)],
+    ['—1', ''],
+    ['Sent to', val(a.sentToEmail)],
+    ['Also texted to', val(a.sentToSms)],
+    ['Sent at', fmt(a.sentAt)],
+    ['—2', ''],
+    ['First opened', fmt(a.firstViewedAt)],
+    ['Opened from IP', val(a.viewedFromIp)],
+    ['Opened using', val(a.viewedUserAgent)],
+    ['Last opened', fmt(a.lastViewedAt)],
+    ['Times opened', val(a.viewCount)],
+    ['—3', ''],
+    ['Signed by', `${inputs.signedByName}${inputs.signedByPosition ? ', ' + inputs.signedByPosition : ''}`],
+    ['Signer email', val(a.signerEmail)],
+    ['Signed at', fmt(inputs.effectiveDate)],
+    ['Signed from IP', val(a.signedFromIp)],
+    ['Signed using', val(a.signedUserAgent)],
+  ];
+
+  const left = 56;
+  const labelW = 130;
+  const valueW = 353;
+  let y = doc.y;
+
+  for (const [label, value] of rows) {
+    if (label.startsWith('—')) {
+      doc.moveTo(left, y + 4).lineTo(left + labelW + valueW, y + 4).strokeColor(BORDER).lineWidth(0.5).stroke();
+      y += 12;
+      continue;
+    }
+    doc.fillColor(MUTED).fontSize(9).font('Helvetica-Bold').text(label, left, y, { width: labelW });
+    const h = doc.heightOfString(value, { width: valueW, align: 'left' });
+    doc.fillColor(INK).fontSize(9).font('Helvetica').text(value, left + labelW, y, { width: valueW });
+    y += Math.max(h, 12) + 6;
+  }
+
+  doc.moveDown(1);
+  doc
+    .fillColor(MUTED)
+    .fontSize(8)
+    .font('Helvetica-Oblique')
+    .text(
+      'This page is generated from ReceptionMate\'s records at the time the signed copy was issued. ' +
+        'The agreement text reproduced in this document is the exact version presented to the signer, ' +
+        'captured at the moment of signing.',
+      left,
+      y + 8,
+      { width: labelW + valueW },
+    );
 }

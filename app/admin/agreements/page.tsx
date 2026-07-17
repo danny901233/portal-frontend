@@ -13,7 +13,8 @@ type AdminAgreement = {
   status: 'draft' | 'sent' | 'signed' | 'externally_signed' | 'voided';
   clientName: string;
   setupFeeGbp: number;
-  licenceFeeGbp: number;
+  licenceFeeGbp: number;   // voice, per branch
+  messagingFeeGbp: number; // Connect, per branch
   centresCount: number;
   licences: string[];
   goLiveDate: string | null;
@@ -22,8 +23,30 @@ type AdminAgreement = {
   externallySignedAt: string | null;
   externalSignatureRef: string | null;
   createdAt: string;
+  // Delivery + open tracking (recorded from /send and the sign page).
+  sentToEmail: string | null;
+  sentAt: string | null;
+  firstViewedAt: string | null;
+  lastViewedAt: string | null;
+  viewCount: number;
+  viewedFromIp: string | null;
   user: { email: string };
 };
+
+// "14 Jul, 09:02" — short enough for a table, precise enough to chase from.
+function shortDateTime(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function sinceLabel(iso: string | null): string {
+  if (!iso) return '';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
 
 export default function AdminAgreementsPage() {
   const router = useRouter();
@@ -32,6 +55,10 @@ export default function AdminAgreementsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [sendFor, setSendFor] = useState<AdminAgreement | null>(null);
+  const [sendEmail, setSendEmail] = useState('');
+  const [sendSms, setSendSms] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
   // Mark-external dialog
@@ -76,13 +103,32 @@ export default function AdminAgreementsPage() {
     );
   }, [agreements, search]);
 
-  const resend = async (id: string) => {
-    setBusyId(id);
+  const openSend = (a: AdminAgreement) => {
+    setSendFor(a);
+    // Default to whoever it went to last, else the account holder — resending after a bounce
+    // shouldn't make staff retype the corrected address.
+    setSendEmail(a.sentToEmail || a.user.email);
+    setSendSms('');
+    setSendError(null);
+  };
+
+  const submitSend = async () => {
+    if (!sendFor) return;
+    setBusyId(sendFor.id);
+    setSendError(null);
     try {
-      await api.post(`/admin/agreements/${id}/send`);
+      const body: { toEmail?: string; toSms?: string } = {};
+      // Only send toEmail when it actually differs — keeps the common case on the server default.
+      if (sendEmail.trim() && sendEmail.trim() !== sendFor.user.email) body.toEmail = sendEmail.trim();
+      if (sendSms.trim()) body.toSms = sendSms.trim();
+      const res = await api.post(`/admin/agreements/${sendFor.id}/send`, body);
+      // The email is the delivery that counts; a failed text is reported, not fatal.
+      if (res.data?.smsError) alert(res.data.smsError);
+      setSendFor(null);
       await load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to resend');
+      const e = err as { response?: { data?: { error?: string } } };
+      setSendError(e.response?.data?.error || 'Failed to send');
     } finally {
       setBusyId(null);
     }
@@ -170,6 +216,7 @@ export default function AdminAgreementsPage() {
               <Th>Client</Th>
               <Th>Email</Th>
               <Th>Status</Th>
+              <Th>Viewed</Th>
               <Th>Terms</Th>
               <Th>Signed</Th>
               <Th>Created</Th>
@@ -179,13 +226,13 @@ export default function AdminAgreementsPage() {
           <tbody className="divide-y divide-slate-100">
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-500">
                   Loading…
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-500">
                   No agreements match these filters.
                 </td>
               </tr>
@@ -199,8 +246,54 @@ export default function AdminAgreementsPage() {
                   <Td>{a.user.email}</Td>
                   <Td><StatusPill status={a.status} /></Td>
                   <Td>
-                    <div className="text-slate-900">{formatGbp(a.licenceFeeGbp)}/centre/mo</div>
-                    <div className="text-xs text-slate-500">{a.setupFeeGbp > 0 ? `Setup ${formatGbp(a.setupFeeGbp)}` : 'No setup fee'}</div>
+                    {a.firstViewedAt ? (
+                      <div>
+                        <div className="font-medium text-emerald-700">
+                          Opened {sinceLabel(a.firstViewedAt)}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {shortDateTime(a.firstViewedAt)}
+                          {a.viewCount > 1 ? ` · ${a.viewCount}×` : ''}
+                          {a.viewedFromIp ? ` · ${a.viewedFromIp}` : ''}
+                        </div>
+                      </div>
+                    ) : a.status === 'sent' ? (
+                      <div>
+                        <div className="font-medium text-amber-700">Not opened yet</div>
+                        <div className="text-xs text-slate-500">
+                          {a.sentAt ? `sent ${sinceLabel(a.sentAt)}` : 'sent date unknown'}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </Td>
+                  <Td>
+                    {(() => {
+                      // The deal can carry two licences at different per-branch prices, across
+                      // several branches. Show what it's worth per month, then how it's made up —
+                      // this used to show the voice fee alone and understate every Connect deal.
+                      const messaging = a.messagingFeeGbp ?? 0;
+                      const perBranch = a.licenceFeeGbp + messaging;
+                      const monthly = perBranch * a.centresCount;
+                      return (
+                        <>
+                          <div className="font-medium text-slate-900">{formatGbp(monthly)}/mo</div>
+                          <div className="text-xs text-slate-500">
+                            {formatGbp(perBranch)}/branch
+                            {a.centresCount > 1 ? ` × ${a.centresCount} branches` : ''}
+                          </div>
+                          {messaging > 0 ? (
+                            <div className="text-xs text-slate-500">
+                              {formatGbp(a.licenceFeeGbp)} voice + {formatGbp(messaging)} Connect
+                            </div>
+                          ) : null}
+                          <div className="text-xs text-slate-500">
+                            {a.setupFeeGbp > 0 ? `Setup ${formatGbp(a.setupFeeGbp)}` : 'No setup fee'}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </Td>
                   <Td className="text-xs text-slate-500">
                     {a.signedAt ? (
@@ -217,7 +310,7 @@ export default function AdminAgreementsPage() {
                       {(a.status === 'draft' || a.status === 'sent') && (
                         <>
                           <button
-                            onClick={() => resend(a.id)}
+                            onClick={() => openSend(a)}
                             disabled={busyId === a.id}
                             className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                           >
@@ -239,6 +332,79 @@ export default function AdminAgreementsPage() {
           </tbody>
         </table>
       </div>
+
+      {sendFor ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-slate-900">
+              {sendFor.status === 'sent' ? 'Resend agreement' : 'Send agreement'}
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              <strong>{sendFor.clientName}</strong> · £{sendFor.licenceFeeGbp}/mo. The link is valid for
+              14&nbsp;days; sending again replaces any previous link.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Send to
+                </label>
+                <input
+                  type="email"
+                  value={sendEmail}
+                  onChange={(e) => setSendEmail(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                />
+                {sendEmail.trim() && sendEmail.trim() !== sendFor.user.email ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Different to the portal login ({sendFor.user.email}). Whoever opens this link can sign
+                    for {sendFor.clientName} — their address is recorded on the signed PDF. The login itself
+                    is unchanged.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">The portal account holder.</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Also text it to <span className="normal-case text-slate-400">(optional)</span>
+                </label>
+                <input
+                  type="tel"
+                  value={sendSms}
+                  onChange={(e) => setSendSms(e.target.value)}
+                  placeholder="07700 900123"
+                  className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Texts the same link. The email is sent either way.
+                </p>
+              </div>
+
+              {sendError ? (
+                <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{sendError}</div>
+              ) : null}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setSendFor(null)}
+                className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitSend}
+                disabled={busyId === sendFor.id || !sendEmail.trim()}
+                className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                {busyId === sendFor.id ? 'Sending…' : sendSms.trim() ? 'Send email + text' : 'Send email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {markFor ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

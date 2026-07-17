@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
-import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../db.js';
@@ -26,6 +25,10 @@ import { findOpportunityCandidates, fetchOpportunity, highlevelConfigured } from
 // ---------------------------------------------------------------------------
 
 const router = Router();
+
+// The standard starting password, same as admin.ts / public-signup.ts / onboarding.ts. Always
+// paired with mustChangePassword: true — the customer sets their own on first login.
+const DEFAULT_PASSWORD = 'Nomoremissedcalls';
 
 const STAGES = [
   'awaiting_agreement',
@@ -117,9 +120,11 @@ router.post(
       });
     }
 
-    // Mint a fresh password NOW rather than replaying one stored at onboard time. The account may
-    // have been created days ago; we never keep plaintext, so we can't "resend the same one".
-    const password = `RM-${randomBytes(6).toString('base64url')}`;
+    // Reset to the standard starting password and send that. The account may have been created
+    // days ago and we never keep plaintext, so the password is always (re)set here rather than
+    // replayed. mustChangePassword below is what secures the account — they choose their own on
+    // first login, and the guard above refuses to run at all once they have.
+    const password = DEFAULT_PASSWORD;
     const passwordHash = await bcrypt.hash(password, 10);
     await prisma.user.update({
       where: { id: user.id },
@@ -210,6 +215,7 @@ router.get('/admin/onboarding-pipeline', authenticate, requireAdmin, async (_req
       id: true,
       name: true,
       onboardingStage: true,
+      onboardingStageAt: true,
       welcomeEmailSentAt: true,
       ghlOpportunityId: true,
       requiresBookingActivation: true,
@@ -228,7 +234,19 @@ router.get('/admin/onboarding-pipeline', authenticate, requireAdmin, async (_req
       const agreement = await prisma.agreement.findFirst({
         where: { businessId: g.businessId ?? undefined },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, status: true, licences: true, licenceFeeGbp: true, signedAt: true },
+        select: {
+          id: true,
+          status: true,
+          licences: true,
+          licenceFeeGbp: true,
+          signedAt: true,
+          // Dates staff actually chase on: when it went out, and whether they've opened it.
+          sentAt: true,
+          sentToEmail: true,
+          firstViewedAt: true,
+          lastViewedAt: true,
+          viewCount: true,
+        },
       });
       const cfg = Array.isArray(g.agentConfiguration) ? g.agentConfiguration[0] : g.agentConfiguration;
       return {
@@ -240,6 +258,7 @@ router.get('/admin/onboarding-pipeline', authenticate, requireAdmin, async (_req
         customerEmail: user?.email ?? null,
         customerUserId: user?.id ?? null,
         welcomeEmailSentAt: g.welcomeEmailSentAt,
+        onboardingStageAt: g.onboardingStageAt,
         hasMandate: Boolean(g.business?.gocardlessMandateId),
         agreement,
         agentType: cfg?.agentType ?? null,

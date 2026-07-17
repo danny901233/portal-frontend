@@ -143,3 +143,70 @@ export async function createAssistTrialSubscription(args: CreateCheckoutSessionA
 
   return { clientSecret: si.client_secret, subscriptionId: subscription.id, customerId: customer.id };
 }
+
+
+// --- one-off setup fee ------------------------------------------------------------------------
+
+export interface SetupFeeCheckoutArgs {
+  invoiceId: string;
+  invoiceNumber: string;
+  agreementId: string;
+  garageId: string;
+  garageName: string;
+  customerEmail: string;
+  /** Gross, in pence — VAT already included. */
+  amountPence: number;
+  stripeCustomerId?: string | null;
+}
+
+/**
+ * A Checkout session for a one-off setup fee.
+ *
+ * mode:'payment', not 'subscription' — this is a single charge and must never create a recurring
+ * one. Inline price_data because the amount is whatever was agreed on that agreement, not a
+ * fixed catalogue Price.
+ *
+ * The returned url is safe to hand to anyone holding the agreement: Stripe hosts the card form,
+ * so no card data touches us.
+ */
+export async function createSetupFeeCheckoutSession(args: SetupFeeCheckoutArgs): Promise<Stripe.Checkout.Session> {
+  const stripe = getStripeClient();
+  const portal = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+
+  // Read by handleCheckoutCompleted. invoiceId is what lets the webhook mark the right invoice
+  // paid without guessing.
+  const metadata: Record<string, string> = {
+    kind: 'setup-fee',
+    invoiceId: args.invoiceId,
+    invoiceNumber: args.invoiceNumber,
+    agreementId: args.agreementId,
+    garageId: args.garageId,
+  };
+
+  return stripe.checkout.sessions.create({
+    mode: 'payment',
+    payment_method_types: ['card'],
+    ...(args.stripeCustomerId ? { customer: args.stripeCustomerId } : { customer_email: args.customerEmail }),
+    line_items: [
+      {
+        price_data: {
+          currency: 'gbp',
+          product_data: {
+            name: `ReceptionMate setup fee — ${args.garageName}`,
+            description: `Invoice ${args.invoiceNumber}`,
+          },
+          unit_amount: args.amountPence, // gross; VAT is included rather than added by Stripe
+        },
+        quantity: 1,
+      },
+    ],
+    payment_intent_data: { metadata },
+    metadata,
+    // Both land on /agreement/paid, which asks the backend what actually happened rather than
+    // trusting the redirect — reaching success_url doesn't guarantee the payment cleared, and a
+    // cancel still needs to show the bank details and a retry. {CHECKOUT_SESSION_ID} is
+    // substituted by Stripe; the session id is the unguessable key the status endpoint reads.
+    success_url: `${portal}/agreement/paid?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${portal}/agreement/paid?session_id={CHECKOUT_SESSION_ID}`,
+  });
+}

@@ -28,11 +28,13 @@ import {
   isReceptionMateStaff,
   setGarageId,
   setGarages,
+  setBranchRoles,
+  setUserRole,
 } from '../lib/auth';
 import { fetchGarages, fetchPendingAgreement, fetchNotificationCounts, fetchArrearsStatus } from '../lib/api';
 import { setAppBadge } from '../lib/badge';
 import { fetchOnboardingStatus } from '../lib/onboarding';
-import type { GarageSummary } from '../types';
+import type { BranchRolesMap, GarageSummary } from '../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
 
 /** Client-only viewport check so we can place the branch bar in the mobile drawer vs the desktop top bar. */
@@ -112,7 +114,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setMobileNavOpen(false);
   }, [pathname]);
   const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
-  const branchRoles = useMemo(() => getUserBranchRoles(), []);
+  // State, not a mount-time memo: the server hands us the live answer on every load, and the
+  // branch switcher filters by this — so it has to be able to change.
+  const [branchRoles, setBranchRolesState] = useState<BranchRolesMap>(() => getUserBranchRoles());
   const managedGarageIds = useMemo(
     () =>
       Object.entries(branchRoles)
@@ -199,24 +203,31 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setIsStaffUser(isReceptionMateStaff());
     setIsAdminUser(isManager());
 
+    // Paint from the cache first so there's no flash of an empty switcher...
     if (storedGarages.length > 0) {
       setGaragesState(storedGarages);
-      if (!storedGarages.some((garage) => garage.id === storedGarageId)) {
-        const fallbackId = storedGarages[0]?.id;
-        if (fallbackId) {
-          setGarageId(fallbackId);
-          setGarageIdState(fallbackId);
-        }
-      }
       setIsReady(true);
-      return;
     }
 
+    // ...then ALWAYS ask the server. This cache was previously trusted forever — refreshed only
+    // when empty — so a branch you were given never appeared, and one taken away never left.
     try {
       const response = await fetchGarages();
       const list = response.garages ?? [];
       setGaragesState(list);
       setGarages(list);
+
+      // The switcher filters the list BY branchRoles, so a stale copy of those hides branches
+      // just as effectively as a stale list does.
+      if (response.branchRoles) {
+        setBranchRolesState(response.branchRoles);
+        setBranchRoles(response.branchRoles);
+      }
+      if (response.role) {
+        setUserRole(response.role);
+        setIsStaffUser(response.role === 'RECEPTIONMATE_STAFF');
+        setIsAdminUser(response.role === 'MANAGER');
+      }
 
       if (list.length > 0 && !list.some((garage) => garage.id === storedGarageId)) {
         const fallbackId = list[0]?.id;

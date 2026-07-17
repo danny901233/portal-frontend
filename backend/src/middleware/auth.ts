@@ -18,7 +18,7 @@ declare module 'express-serve-static-core' {
   }
 }
 
-export const authenticate = (req: Request, res: Response, next: NextFunction) => {
+export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ error: 'Authorization header missing' });
@@ -29,17 +29,46 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
     return res.status(401).json({ error: 'Token missing' });
   }
 
+  let decoded: JwtPayload;
   try {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       throw new Error('JWT_SECRET is not configured');
     }
-    const decoded = jwt.verify(token, secret) as JwtPayload;
-    req.user = decoded;
-    next();
+    decoded = jwt.verify(token, secret) as JwtPayload;
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+
+  // The token proves WHO they are. It must not decide WHAT they can see: it lives for 7 days,
+  // so a token minted before someone was given a branch hides it until they next log in, and a
+  // token minted before their access was REVOKED keeps working for a week. Read the current
+  // answer instead — one primary-key lookup. Same reasoning as requireManagerLive below.
+  //
+  // Staff are deliberately skipped: login expands their garageIds to every garage on the estate,
+  // which is not what their own garageAccessIds holds, and the API-key user has no DB row at all.
+  if (decoded.role !== 'RECEPTIONMATE_STAFF') {
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: { role: true, garageAccessIds: true, branchRoles: true },
+      });
+      if (!dbUser) {
+        // Deleted since the token was issued.
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+      decoded.role = dbUser.role as JwtPayload['role'];
+      decoded.garageIds = Array.isArray(dbUser.garageAccessIds) ? dbUser.garageAccessIds : [];
+      decoded.branchRoles = (dbUser.branchRoles as Record<string, BranchRole> | null) ?? {};
+    } catch (err) {
+      // Fail closed: a database blip must not silently fall back to a stale token's permissions.
+      console.error('[AUTH] could not refresh access from the database:', err);
+      return res.status(500).json({ error: 'Authorization check failed' });
+    }
+  }
+
+  req.user = decoded;
+  next();
 };
 
 export const authenticateApiKey = (req: Request, res: Response, next: NextFunction) => {

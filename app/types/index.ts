@@ -91,6 +91,10 @@ export interface CallFeedbackResponse {
 
 export interface GaragesResponse {
   garages: GarageSummary[];
+  // The server's CURRENT answer, not whatever the browser cached at login. Optional so a
+  // response from an older backend still type-checks.
+  role?: UserRole;
+  branchRoles?: BranchRolesMap;
 }
 
 export interface AdminGarageAgentConfiguration {

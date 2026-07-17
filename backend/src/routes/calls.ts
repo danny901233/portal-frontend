@@ -1638,13 +1638,19 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
       const garages = await prisma.garage.findMany({
         orderBy: { name: 'asc' },
       });
-      return res.json({ garages: garages.map((garage) => ({ id: garage.id, name: garage.name })) });
+      return res.json({
+        garages: garages.map((garage) => ({ id: garage.id, name: garage.name })),
+        role: req.user.role,
+        branchRoles: req.user.branchRoles ?? {},
+      });
     }
 
     // Regular users see only their assigned garages
+    // req.user is hydrated from the DB by authenticate(), so this is the CURRENT answer, not
+    // whatever was true when they logged in.
     const allowedGarages = resolveAllowedGarages(req.user);
     if (allowedGarages.length === 0) {
-      return res.json({ garages: [] });
+      return res.json({ garages: [], role: req.user?.role, branchRoles: req.user?.branchRoles ?? {} });
     }
 
     const garages = await prisma.garage.findMany({
@@ -1652,7 +1658,13 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
       orderBy: { name: 'asc' },
     });
 
-    res.json({ garages: garages.map((garage) => ({ id: garage.id, name: garage.name })) });
+    // branchRoles rides along so the browser can refresh its cached copy — the branch switcher
+    // filters the list by it, and until now it could only be updated by logging in again.
+    res.json({
+      garages: garages.map((garage) => ({ id: garage.id, name: garage.name })),
+      role: req.user?.role,
+      branchRoles: req.user?.branchRoles ?? {},
+    });
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       console.error('Failed to fetch garages', error);

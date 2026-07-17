@@ -25,10 +25,10 @@ export default function ObservabilityPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-100">
+        <h1 className="text-3xl font-bold text-slate-900">
           Observability Dashboard
         </h1>
-        <p className="mt-2 text-sm text-slate-400">
+        <p className="mt-2 text-sm text-slate-500">
           Performance metrics, tool usage, and error analysis across all branches
         </p>
         <div className="mt-2 inline-flex items-center rounded-md bg-red-900/20 px-2 py-1 text-xs font-medium text-red-400 ring-1 ring-inset ring-red-600/20">

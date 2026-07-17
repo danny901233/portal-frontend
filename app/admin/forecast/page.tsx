@@ -43,7 +43,7 @@ export default function BillingForecastPage() {
 
   if (!isStaff) {
     return (
-      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm text-amber-200">
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
         Access denied - staff only
       </div>
     );
@@ -179,56 +179,56 @@ export default function BillingForecastPage() {
           <div>
             <button
               onClick={() => router.push('/admin')}
-              className="text-sm text-slate-400 hover:text-slate-300 mb-2"
+              className="text-sm text-slate-500 hover:text-slate-600 mb-2"
             >
               ← Back to Admin
             </button>
-            <h1 className="text-2xl font-semibold text-slate-50">Billing Forecast</h1>
-            <p className="text-sm text-slate-400">Monthly revenue calendar</p>
+            <h1 className="text-2xl font-semibold text-slate-900">Billing Forecast</h1>
+            <p className="text-sm text-slate-500">Monthly revenue calendar</p>
           </div>
           <div className="text-right">
             <button
               onClick={exportToCSV}
-              className="mb-3 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-semibold transition-colors border border-emerald-500/30"
+              className="mb-3 px-4 py-2 bg-emerald-50 hover:bg-emerald-50 text-emerald-700 rounded-lg text-sm font-semibold transition-colors border border-emerald-300"
             >
               📊 Export CSV
             </button>
-            <p className="text-sm text-slate-400">Expected Monthly Revenue</p>
-            <p className="text-2xl font-bold text-emerald-400">{formatCurrency(totalMonthlyRevenue)}</p>
+            <p className="text-sm text-slate-500">Expected Monthly Revenue</p>
+            <p className="text-2xl font-bold text-emerald-700">{formatCurrency(totalMonthlyRevenue)}</p>
           </div>
         </header>
 
         {/* Calendar Navigation */}
-        <div className="mb-6 flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="mb-6 flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4">
           <button
             onClick={goToPreviousMonth}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700"
+            className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-700"
           >
             ← Previous
           </button>
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-slate-100">{monthName}</h2>
+            <h2 className="text-lg font-semibold text-slate-900">{monthName}</h2>
             <button
               onClick={goToToday}
-              className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-semibold text-sky-400 hover:bg-sky-500/20"
+              className="rounded-lg border border-brand-200 bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-100"
             >
               Today
             </button>
           </div>
           <button
             onClick={goToNextMonth}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-700"
+            className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-700"
           >
             Next →
           </button>
         </div>
 
         {/* Calendar Grid */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
           {/* Day headers */}
           <div className="grid grid-cols-7 gap-2 mb-2">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-              <div key={day} className="text-center text-xs font-semibold text-slate-400 py-2">
+              <div key={day} className="text-center text-xs font-semibold text-slate-500 py-2">
                 {day}
               </div>
             ))}
@@ -260,17 +260,17 @@ export default function BillingForecastPage() {
                   <div
                     className={`
                       h-full rounded-lg border p-2 transition-all
-                      ${isToday ? 'border-sky-500/50 bg-sky-500/5' : 'border-slate-700/50 bg-slate-800/40'}
-                      ${hasBilling ? 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10' : 'hover:bg-slate-800'}
+                      ${isToday ? 'border-brand-600/50 bg-brand-100' : 'border-slate-300/50 bg-slate-50'}
+                      ${hasBilling ? 'border-emerald-300 bg-emerald-50 hover:bg-emerald-50' : 'hover:bg-slate-100'}
                     `}
                   >
                     <div className="flex flex-col h-full">
-                      <span className={`text-sm font-semibold ${isToday ? 'text-sky-400' : 'text-slate-300'}`}>
+                      <span className={`text-sm font-semibold ${isToday ? 'text-brand-600' : 'text-slate-600'}`}>
                         {day}
                       </span>
                       {hasBilling && (
                         <div className="mt-auto">
-                          <span className="text-[10px] font-semibold text-emerald-400">
+                          <span className="text-[10px] font-semibold text-emerald-700">
                             {formatCurrency(billingEntry.totalRevenue)}
                           </span>
                           <div className="text-[9px] text-slate-500 mt-0.5">
@@ -283,24 +283,24 @@ export default function BillingForecastPage() {
 
                   {/* Hover tooltip */}
                   {hoveredDay === day && hasBilling && (
-                    <div className="absolute z-50 left-0 top-full mt-2 w-72 rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl">
-                      <div className="mb-2 flex items-center justify-between border-b border-slate-700 pb-2">
-                        <span className="text-sm font-semibold text-slate-200">
+                    <div className="absolute z-50 left-0 top-full mt-2 w-72 rounded-lg border border-slate-300 bg-white p-3 shadow-xl">
+                      <div className="mb-2 flex items-center justify-between border-b border-slate-300 pb-2">
+                        <span className="text-sm font-semibold text-slate-700">
                           {day}{day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th'} of the month
                         </span>
-                        <span className="text-sm font-bold text-emerald-400">
+                        <span className="text-sm font-bold text-emerald-700">
                           {formatCurrency(billingEntry.totalRevenue)}
                         </span>
                       </div>
                       <div className="space-y-2 max-h-64 overflow-y-auto">
                         {billingEntry.businesses.map((business, idx) => (
                           <div key={idx} className="text-xs">
-                            <p className="font-semibold text-slate-300 mb-1">{business.businessName}</p>
+                            <p className="font-semibold text-slate-600 mb-1">{business.businessName}</p>
                             <div className="pl-3 space-y-1">
                               {business.branches.map((branch, branchIdx) => (
-                                <div key={branchIdx} className="flex items-center justify-between text-slate-400">
+                                <div key={branchIdx} className="flex items-center justify-between text-slate-500">
                                   <span>{branch.branchName}</span>
-                                  <span className="text-emerald-400">{formatCurrency(branch.subscriptionCost)}</span>
+                                  <span className="text-emerald-700">{formatCurrency(branch.subscriptionCost)}</span>
                                 </div>
                               ))}
                             </div>
@@ -316,25 +316,25 @@ export default function BillingForecastPage() {
         </div>
 
         {/* Summary by billing day */}
-        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-          <h3 className="text-lg font-semibold text-slate-100 mb-4">Billing Schedule Summary</h3>
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">Billing Schedule Summary</h3>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from(billingByDay.entries())
               .sort(([a], [b]) => a - b)
               .map(([day, entry]) => (
                 <div
                   key={day}
-                  className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-3"
+                  className="rounded-lg border border-slate-300/50 bg-slate-50 p-3"
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-slate-200">
+                    <span className="text-sm font-semibold text-slate-700">
                       {day}{day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th'}
                     </span>
-                    <span className="text-sm font-bold text-emerald-400">
+                    <span className="text-sm font-bold text-emerald-700">
                       {formatCurrency(entry.totalRevenue)}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500">
                     {entry.businesses.length} customer{entry.businesses.length !== 1 ? 's' : ''}
                   </p>
                 </div>

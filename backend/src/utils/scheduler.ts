@@ -3,6 +3,11 @@ import { generateWeeklyReports, generateMonthlyReports } from './reportGenerator
 import { processMonthlyBilling } from '../services/billing.js';
 import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
 import { refreshTemplateToken } from '../services/metaTemplateToken.js';
+import { syncGocardlessPayments } from '../services/gocardlessSync.js';
+import { syncNegativeFeedbackToExcel } from '../services/feedbackExcelSync.js';
+import { sendInoInvoice } from '../services/inoInvoice.js';
+import { runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
+import { processQueuedCampaigns } from '../services/outboundSend.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 
@@ -67,6 +72,42 @@ export const initializeScheduledReports = (): void => {
 
   console.log('✓ Automatic monthly billing scheduled: Daily at 9:00 AM (UK time)');
 
+  // In'n'out Autocentres invoice: 1st of each month at 9:00 AM. They pay by their own Direct
+  // Debit against an emailed invoice (not GoCardless), so we raise + email the combined 4-branch
+  // invoice (subscription + previous month's minutes + VAT) to their accounts team.
+  cron.schedule('0 9 1 * *', async () => {
+    console.log("Running In'n'out monthly invoice job...");
+    try {
+      const ok = await sendInoInvoice();
+      console.log(`✓ In'n'out invoice job completed (sent=${ok})`);
+    } catch (error) {
+      console.error("❌ In'n'out invoice job failed:", error);
+    }
+  }, {
+    timezone: 'Europe/London', // UK timezone
+  });
+
+  console.log("✓ In'n'out invoice scheduled: 1st of month at 9:00 AM (UK time)");
+
+  // Garage Hive service/MOT reminders: every day at 9:00 AM. For each garage with
+  // an enabled Garage Hive connection, pull vehicles due in N days and send the
+  // reminder campaign. Delivery/read/reply tracking then flows via the WhatsApp
+  // webhook. Runs once daily so each vehicle is caught as it crosses the N-day mark.
+  cron.schedule('0 9 * * *', async () => {
+    console.log('Running daily Garage Hive reminder job...');
+    try {
+      const results = await runDailyGarageHiveReminders();
+      const totalSent = results.reduce((n, r) => n + (r.sent ?? 0), 0);
+      console.log(`✓ Garage Hive reminders completed: ${results.length} garage(s), ${totalSent} message(s) sent`);
+    } catch (error) {
+      console.error('❌ Garage Hive reminder job failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London', // UK timezone
+  });
+
+  console.log('✓ Garage Hive reminders scheduled: Daily at 9:00 AM (UK time)');
+
   // Invoice preview emails: Every day at 10:00 AM (10 days before billing)
   cron.schedule('0 10 * * *', async () => {
     console.log('Running invoice preview email check...');
@@ -129,4 +170,54 @@ export const initializeScheduledReports = (): void => {
     
     console.log('✓ Feature announcement scheduled: March 7, 2026 at 8:00 AM (UK time)');
   }
+
+  // Daily GoCardless payment sync: Every day at 8:00 AM
+  cron.schedule('0 8 * * *', async () => {
+    console.log('[GC Sync] Running daily GoCardless payment sync...');
+    try {
+      await syncGocardlessPayments();
+    } catch (error) {
+      console.error('[GC Sync] Daily sync failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London',
+  });
+
+  console.log('✓ GoCardless payment sync scheduled: Daily at 8:00 AM (UK time)');
+
+  // Negative feedback → OneDrive Excel sync: Every 2 hours
+  cron.schedule('0 */2 * * *', async () => {
+    console.log('[FEEDBACK-SYNC] Running negative feedback Excel sync...');
+    try {
+      const result = await syncNegativeFeedbackToExcel();
+      if (result.appended > 0) {
+        console.log(`[FEEDBACK-SYNC] ✓ Appended ${result.appended} rows, ${result.skipped} already synced`);
+      } else {
+        console.log('[FEEDBACK-SYNC] ✓ No new rows to sync');
+      }
+    } catch (error) {
+      console.error('[FEEDBACK-SYNC] ❌ Sync failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London',
+  });
+
+  console.log('✓ Negative feedback Excel sync scheduled: Every 2 hours (UK time)');
+
+  // Outbound campaign queue processor: Every 30 minutes
+  // Picks up campaigns with status='queued' whose resumeAt has passed and sends the next batch
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const result = await processQueuedCampaigns();
+      if (result.processed > 0) {
+        console.log(`[OUTBOUND-CRON] Processed ${result.processed} queued campaign(s)`);
+      }
+    } catch (error) {
+      console.error('[OUTBOUND-CRON] Queue processor failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London',
+  });
+
+  console.log('✓ Outbound campaign queue processor scheduled: Every 30 minutes');
 };

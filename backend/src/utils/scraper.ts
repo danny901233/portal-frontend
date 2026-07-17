@@ -147,33 +147,50 @@ const extractHours = ($: ReturnType<typeof load>) => {
   return hours.slice(0, 14);
 };
 
-const MIN_PARAGRAPH_LENGTH = 60;
-const MAX_KNOWLEDGE_CHUNKS = 10;
-const MAX_CHUNK_LENGTH = 750;
+const MIN_PARAGRAPH_LENGTH = 40; // for prose <p>; shorter structured items use MIN_ITEM_LENGTH
+const MIN_ITEM_LENGTH = 15; // headings, list items, table cells, leaf div/span (e.g. "150 miles a night")
+const MAX_KNOWLEDGE_CHUNKS = 14;
+const MAX_CHUNK_LENGTH = 900;
 
+// Skip boilerplate/chrome so we don't ingest nav menus, cookie bars, buttons, etc.
+const SKIP_ANCESTORS = 'nav,header,footer,script,style,noscript,button,form,select';
+
+// Extract the meaningful text of a page. Older sites use <p>/<li>, but modern ones
+// (MMH included) put key facts — mileage, deposit, "what's included" — in headings,
+// accordion divs and stat tiles. We therefore read semantic text elements AND leaf
+// div/span nodes (leaf-only, so a container's text isn't captured alongside its
+// children and duplicated), with a low length floor so short facts survive.
 const extractParagraphs = ($: ReturnType<typeof load>) => {
-  const sections = ['main p', 'main li', 'body p', 'body li'];
+  const root = $('main').length ? $('main') : $('article').length ? $('article') : $('body');
   const seen = new Set<string>();
   const paragraphs: string[] = [];
 
-  for (const selector of sections) {
-    $(selector).each((_, element) => {
-      const text = normaliseLine($(element).text());
-      if (text.length < MIN_PARAGRAPH_LENGTH) {
-        return;
-      }
-      if (seen.has(text)) {
-        return;
-      }
-      seen.add(text);
-      paragraphs.push(text);
-    });
-    if (paragraphs.length >= MAX_KNOWLEDGE_CHUNKS * 2) {
-      break;
+  const consider = (raw: string, min: number) => {
+    const text = normaliseLine(raw);
+    if (text.length < min || seen.has(text)) {
+      return;
     }
-  }
+    seen.add(text);
+    paragraphs.push(text);
+  };
 
-  return paragraphs;
+  root.find('h1,h2,h3,h4,p,li,td,th,dd,dt,blockquote,figcaption').each((_, element) => {
+    const $el = $(element);
+    if ($el.closest(SKIP_ANCESTORS).length) {
+      return;
+    }
+    consider($el.text(), $el.is('p,blockquote') ? MIN_PARAGRAPH_LENGTH : MIN_ITEM_LENGTH);
+  });
+
+  root.find('div,span').each((_, element) => {
+    const $el = $(element);
+    if ($el.children().length > 0 || $el.closest(SKIP_ANCESTORS).length) {
+      return;
+    }
+    consider($el.text(), MIN_ITEM_LENGTH);
+  });
+
+  return paragraphs.slice(0, MAX_KNOWLEDGE_CHUNKS * 3);
 };
 
 const buildKnowledgeChunks = (paragraphs: string[]) => {

@@ -133,8 +133,16 @@ router.post('/verify', async (req, res) => {
     }
 
     // 3. Business
+    // Self-serve pays by Stripe card, never Direct Debit — mark the rail at creation so the
+    // payment gate and mandate-chasing never treat this customer as a DD account.
     const business = await prisma.business.create({
-      data: { name: businessName, contactName: name, contactEmail: email, contactPhone: mobile },
+      data: {
+        name: businessName,
+        contactName: name,
+        contactEmail: email,
+        contactPhone: mobile,
+        billingMethod: 'stripe_card',
+      },
     });
 
     // 4. Garage — Connect-only: messaging ON, 1-month trial, no voice provisioning.

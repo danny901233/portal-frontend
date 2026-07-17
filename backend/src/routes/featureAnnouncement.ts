@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { sendEmail } from '../utils/email.js';
 import { PrismaClient } from '@prisma/client';
+import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -199,8 +200,13 @@ Support: support@receptionmate.co.uk
 `;
 };
 
-router.post('/send-feature-announcement', async (req: Request, res: Response) => {
+router.post('/send-feature-announcement', authenticate, async (req: Request, res: Response) => {
   try {
+    // Only RECEPTIONMATE_STAFF can send announcements
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      return res.status(403).json({ error: 'Staff access required' });
+    }
+
     const { testEmail, sendToAll }: FeatureAnnouncementRequest = req.body;
 
     if (!testEmail && !sendToAll) {

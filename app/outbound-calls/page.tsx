@@ -6,7 +6,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getGarageId } from "../lib/auth";
+import { getGarageId, isReceptionMateStaff } from "../lib/auth";
 import {
   getOutboundCallerId,
   startCallerIdVerification,
@@ -43,6 +43,9 @@ export default function OutboundCallsPage() {
   const [dialErr, setDialErr] = useState<string | null>(null);
 
   const [logs, setLogs] = useState<LogRow[]>([]);
+  // Outbound calling is a ReceptionMate-staff-only tool for now.
+  const [isStaff, setIsStaff] = useState(false);
+  useEffect(() => { setIsStaff(isReceptionMateStaff()); }, []);
 
   const loadLogs = useCallback((gid: string) => {
     fetchOutboundCallLogs(gid).then((r) => setLogs(r.logs)).catch(() => {});
@@ -94,6 +97,18 @@ export default function OutboundCallsPage() {
   }, [garageId, toNumber, agentPhone, loadLogs]);
 
   const inputCls = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-slate-50 disabled:opacity-60";
+
+  // Outbound calling is staff-only for now — customers who reach this URL directly see nothing actionable.
+  if (!isStaff) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold text-slate-900">Call Activity</h1>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
+          Outbound calling isn&apos;t available on your account.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

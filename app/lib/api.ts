@@ -823,52 +823,6 @@ export const sendAdminSupportReply = async (id: string, body: string): Promise<{
 export const markAdminSupportRead = async (id: string): Promise<void> => {
   await api.post(`/api/admin/support/${id}/read`);
 };
-// Outbound calling — verified caller ID (the garage's own number) + click-to-call
-// ---------------------------------------------------------------------------
-export const getOutboundCallerId = async (
-  garageId: string
-): Promise<{ number: string | null; verified: boolean }> => {
-  const { data } = await api.get(`/api/outbound-calls/caller-id`, { params: { garageId } });
-  return data;
-};
-
-export const startCallerIdVerification = async (
-  garageId: string,
-  number: string
-): Promise<{ validationCode?: string; alreadyVerified?: boolean; number: string }> => {
-  const { data } = await api.post(`/api/outbound-calls/caller-id/start`, { garageId, number });
-  return data;
-};
-
-export const checkCallerIdStatus = async (
-  garageId: string
-): Promise<{ verified: boolean; number: string | null }> => {
-  const { data } = await api.get(`/api/outbound-calls/caller-id/status`, { params: { garageId } });
-  return data;
-};
-
-export const placeOutboundCall = async (
-  garageId: string,
-  to: string,
-  agentPhone: string
-): Promise<{ success: boolean; callSid: string }> => {
-  const { data } = await api.post(`/api/outbound-calls/dial`, { garageId, to, agentPhone });
-  return data;
-};
-
-export const fetchOutboundCallLogs = async (
-  garageId: string
-): Promise<{ logs: Array<{ id: string; toNumber: string; callerId: string; agentPhone: string; status: string; durationSeconds: number | null; createdAt: string }> }> => {
-  const { data } = await api.get(`/api/outbound-calls/logs`, { params: { garageId } });
-  return data;
-};
-
-export const fetchVoiceToken = async (
-  garageId: string
-): Promise<{ token: string; identity: string }> => {
-  const { data } = await api.get(`/api/outbound-calls/token`, { params: { garageId } });
-  return data;
-};
 
 // ---------------------------------------------------------------------------
 // Outbound calling — verified caller ID (the garage's own number) + click-to-call

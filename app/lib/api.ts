@@ -823,6 +823,8 @@ export const sendAdminSupportReply = async (id: string, body: string): Promise<{
 export const markAdminSupportRead = async (id: string): Promise<void> => {
   await api.post(`/api/admin/support/${id}/read`);
 };
+
+// ---------------------------------------------------------------------------
 // Outbound calling — verified caller ID (the garage's own number) + click-to-call
 // ---------------------------------------------------------------------------
 export const getOutboundCallerId = async (

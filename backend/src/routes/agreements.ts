@@ -924,7 +924,7 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
             `\n\n${connectUrl}\n\n(Link valid 14 days.)`;
           await sendEmail({
             to: ['dantyldesley@hotmail.co.uk'],
-            subject: `Connect ${agreement.clientName} to ReceptionMate (GarageHive)`,
+            subject: `New ReceptionMate onboard: ${agreement.clientName}`,
             text: ghText,
             html:
               `<p>${agreement.clientName} is being onboarded to ReceptionMate Automate.</p>` +

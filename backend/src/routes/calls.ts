@@ -470,6 +470,7 @@ router.post('/calls', async (req: Request, res: Response) => {
           createdAt: new Date(),
           branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
           recordingUrl: payload.recordingUrl ?? null,
+          transcript: (payload.transcript ?? []).filter((t: any) => t.speaker && t.text).map((t: any) => ({ speaker: t.speaker, text: t.text })),
         }, hubspotSettings).catch((err: unknown) => {
           console.error('[HUBSPOT] Failed to log call:', err);
         });

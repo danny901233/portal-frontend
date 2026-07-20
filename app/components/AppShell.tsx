@@ -50,7 +50,7 @@ function useIsMobile() {
   return isMobile;
 }
 
-const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo']);
+const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/connect-garagehive']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {

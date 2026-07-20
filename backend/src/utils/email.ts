@@ -695,7 +695,7 @@ const RM_BRAND_DARK = '#281eb0';  // brand-700
  * the same shell. NB sendWelcomeEmail still uses an older dark-navy template with a logo on the
  * WordPress site; that one is stale and should be migrated here too.)
  */
-const brandedEmailShell = (bodyHtml: string): string => `
+export const brandedEmailShell = (bodyHtml: string): string => `
 <!DOCTYPE html>
 <html>
 <head>

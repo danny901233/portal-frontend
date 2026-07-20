@@ -48,11 +48,11 @@ function ConnectInner() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg,#3426cf,#251aa6)', padding: 20, fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ background: '#fff', borderRadius: 20, padding: '38px 32px', maxWidth: 440, width: '100%', boxShadow: '0 30px 70px rgba(15,23,42,.35)' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#3426cf', borderRadius: 16, padding: '16px 22px', marginBottom: 20 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#3426cf', borderRadius: 18, padding: '22px 30px', marginBottom: 22 }}>
           <img
             src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
             alt="ReceptionMate"
-            style={{ height: 44, width: 'auto', display: 'block' }}
+            style={{ height: 130, width: 'auto', display: 'block' }}
           />
         </div>
 

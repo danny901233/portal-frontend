@@ -23,7 +23,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import { sendEmail, sendAgreementSignEmail } from '../utils/email.js';
+import { sendEmail, sendAgreementSignEmail, brandedEmailShell } from '../utils/email.js';
 import { signConnectToken, businessUsesGarageHive } from '../services/garageHiveConnect.js';
 import { sendCustomerSms, toE164UK } from '../utils/sms.js';
 import { createSetupFeeInvoice, emailSetupFeeInvoice } from '../services/setupFeeInvoice.js';
@@ -922,14 +922,21 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
             `${agreement.clientName} is being onboarded to ReceptionMate Automate.\n\n` +
             `Open this link and paste the garage's GarageHive instance — that's all that's needed:` +
             `\n\n${connectUrl}\n\n(Link valid 14 days.)`;
+          const ghBody =
+            `<tr><td style="padding: 32px;">` +
+            `<h1 style="margin:0 0 16px;font-size:20px;color:#0f172a;font-weight:700;">New ReceptionMate onboard</h1>` +
+            `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${agreement.clientName}</strong> is being onboarded to ReceptionMate Automate.</p>` +
+            `<p style="margin:0 0 24px;font-size:15px;line-height:1.55;color:#475569;">Open the link below and paste the garage's GarageHive <strong>instance</strong> — that's all that's needed.</p>` +
+            `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;"><tr><td style="border-radius:11px;background:#3426cf;">` +
+            `<a href="${connectUrl}" style="display:inline-block;padding:14px 30px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:11px;">Connect GarageHive diary</a>` +
+            `</td></tr></table>` +
+            `<p style="margin:22px 0 0;font-size:12px;color:#94a3b8;text-align:center;word-break:break-all;">Or paste this link: <a href="${connectUrl}" style="color:#3426cf;">${connectUrl}</a><br/>Link valid 14 days.</p>` +
+            `</td></tr>`;
           await sendEmail({
             to: ['dantyldesley@hotmail.co.uk'],
             subject: `New ReceptionMate onboard: ${agreement.clientName}`,
             text: ghText,
-            html:
-              `<p>${agreement.clientName} is being onboarded to ReceptionMate Automate.</p>` +
-              `<p>Open this link and paste the garage's GarageHive <strong>instance</strong> — that's all that's needed:</p>` +
-              `<p><a href="${connectUrl}">${connectUrl}</a></p><p style="color:#64748b">(Link valid 14 days.)</p>`,
+            html: brandedEmailShell(ghBody),
           });
         }
       } catch (e) {

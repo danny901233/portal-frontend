@@ -920,16 +920,15 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
           const connectUrl = `${PORTAL_URL}/connect-garagehive?token=${encodeURIComponent(ghToken)}`;
           const ghText =
             `${agreement.clientName} is being onboarded to ReceptionMate Automate.\n\n` +
-            `Open this link and paste the garage's GarageHive instance — that's all that's needed. ` +
-            `We match the branch(es) by name and connect the diary automatically:\n\n${connectUrl}\n\n(Link valid 14 days.)`;
+            `Open this link and paste the garage's GarageHive instance — that's all that's needed:` +
+            `\n\n${connectUrl}\n\n(Link valid 14 days.)`;
           await sendEmail({
             to: ['dantyldesley@hotmail.co.uk'],
             subject: `Connect ${agreement.clientName} to ReceptionMate (GarageHive)`,
             text: ghText,
             html:
               `<p>${agreement.clientName} is being onboarded to ReceptionMate Automate.</p>` +
-              `<p>Open this link and paste the garage's GarageHive <strong>instance</strong> — that's all that's needed. ` +
-              `We match the branch(es) by name and connect the diary automatically:</p>` +
+              `<p>Open this link and paste the garage's GarageHive <strong>instance</strong> — that's all that's needed:</p>` +
               `<p><a href="${connectUrl}">${connectUrl}</a></p><p style="color:#64748b">(Link valid 14 days.)</p>`,
           });
         }

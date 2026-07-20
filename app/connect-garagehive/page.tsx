@@ -48,8 +48,12 @@ function ConnectInner() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(160deg,#3426cf,#251aa6)', padding: 20, fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ background: '#fff', borderRadius: 20, padding: '38px 32px', maxWidth: 440, width: '100%', boxShadow: '0 30px 70px rgba(15,23,42,.35)' }}>
-        <div style={{ display: 'inline-flex', background: '#3426cf', borderRadius: 16, padding: '14px 18px', marginBottom: 20 }}>
-          <span style={{ color: '#fff', fontWeight: 800, fontSize: 18 }}>ReceptionMate</span>
+        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#3426cf', borderRadius: 16, padding: '16px 22px', marginBottom: 20 }}>
+          <img
+            src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
+            alt="ReceptionMate"
+            style={{ height: 44, width: 'auto', display: 'block' }}
+          />
         </div>
 
         {phase === 'loading' && <p style={{ color: '#5b6b82' }}>Checking your link…</p>}
@@ -65,8 +69,7 @@ function ConnectInner() {
           <>
             <h1 style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', margin: '0 0 6px' }}>Connect GarageHive diary</h1>
             <p style={{ color: '#5b6b82', fontSize: 14, margin: '0 0 20px', lineHeight: 1.5 }}>
-              For <strong>{businessName}</strong>. Enter the GarageHive <strong>instance</strong> and we&apos;ll connect
-              the diary automatically — matching every branch for you.
+              For <strong>{businessName}</strong>. Enter the GarageHive <strong>instance</strong> below.
             </p>
             {error && <div style={{ background: '#fef2f2', color: '#b91c1c', borderRadius: 10, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>{error}</div>}
             <label style={{ fontSize: 13, fontWeight: 600, color: '#334155', display: 'block', marginBottom: 6 }}>GarageHive instance</label>
@@ -75,7 +78,7 @@ function ConnectInner() {
               value={instance}
               onChange={(e) => setInstance(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && instance.trim()) submit(); }}
-              placeholder="e.g. inoplus"
+              placeholder="Instance name"
               style={{ width: '100%', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 11, fontSize: 15, boxSizing: 'border-box', marginBottom: 14 }}
             />
             <button

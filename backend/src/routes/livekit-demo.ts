@@ -66,7 +66,12 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   // auto-join. Best-effort: if dispatch hiccups we still return the token, but log loudly since
   // without the agent the room is silent.
   const httpUrl = LIVEKIT_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
-  const agentName = process.env.DEMO_AGENT_NAME || 'demo-agent';
+  // 'demo-agent-v2': a stale self-hosted worker (unknown host) is still registered under the old
+  // 'demo-agent' name running pre-scenario code, so dispatching 'demo-agent' round-robins ~half of
+  // /partsdemo calls to it and they answer as a garage. Our self-hosted EC2 container registers
+  // 'demo-agent-v2'; dispatch here so every call reaches it. Revert to 'demo-agent' once the stale
+  // worker is found and killed.
+  const agentName = process.env.DEMO_AGENT_NAME || 'demo-agent-v2';
   try {
     const dispatchClient = new AgentDispatchClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
     await dispatchClient.createDispatch(roomName, agentName, {

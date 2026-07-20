@@ -933,7 +933,7 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
             `<p style="margin:22px 0 0;font-size:12px;color:#94a3b8;text-align:center;word-break:break-all;">Or paste this link: <a href="${connectUrl}" style="color:#3426cf;">${connectUrl}</a><br/>Link valid 14 days.</p>` +
             `</td></tr>`;
           await sendEmail({
-            to: ['dantyldesley@hotmail.co.uk'],
+            to: ['mareks.kirilovics@garagehive.co.uk'],
             subject: `New ReceptionMate onboard: ${agreement.clientName}`,
             text: ghText,
             html: brandedEmailShell(ghBody),

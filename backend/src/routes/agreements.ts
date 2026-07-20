@@ -24,7 +24,7 @@ import { prisma } from '../db.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail, sendAgreementSignEmail, brandedEmailShell } from '../utils/email.js';
-import { signConnectToken, businessUsesGarageHive, announceGoLiveIfReady } from '../services/garageHiveConnect.js';
+import { signConnectToken, businessUsesGarageHive, announceGoLiveIfReady, sendGarageHiveGettingReady } from '../services/garageHiveConnect.js';
 import { sendCustomerSms, toE164UK } from '../utils/sms.js';
 import { createSetupFeeInvoice, emailSetupFeeInvoice } from '../services/setupFeeInvoice.js';
 import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS, getStripeClient } from '../services/stripe.js';
@@ -399,7 +399,9 @@ async function finaliseSignature(opts: {
         reason: 'agreement signed',
       });
       // If GarageHive already connected the diary, signing is the last piece — go live + email them.
-      await announceGoLiveIfReady(garageId).catch(() => {});
+      // Otherwise, give the garage the heads-up to set up their GarageHive "Other" package early.
+      const wentLive = await announceGoLiveIfReady(garageId).catch(() => false);
+      if (!wentLive) await sendGarageHiveGettingReady(garageId).catch(() => {});
     }
   })();
 

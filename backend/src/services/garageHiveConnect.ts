@@ -130,6 +130,49 @@ export const placeTestBooking = async (
   }
 };
 
+// Getting-ready heads-up: sent to the garage when they SIGN (the earliest reliable touchpoint),
+// so they have time to set up the GarageHive "Other" service package before they go live. Only
+// while still waiting to connect — once connected they're going live and the "You're live" email
+// carries the same instruction. Idempotent via a gettingReadyEmailedAt flag in the config JSON.
+export const sendGarageHiveGettingReady = async (garageId: string): Promise<boolean> => {
+  const garage = await prisma.garage.findUnique({
+    where: { id: garageId },
+    select: { id: true, name: true, agentConfiguration: { select: { integrationProviderConfig: true, agentScript: true } } },
+  });
+  if (!garage || garage.agentConfiguration?.agentScript !== 'receptionmate-agent-v3') return false; // not a GarageHive garage
+  const ipc = (garage.agentConfiguration?.integrationProviderConfig && typeof garage.agentConfiguration.integrationProviderConfig === 'object')
+    ? (garage.agentConfiguration.integrationProviderConfig as Record<string, unknown>)
+    : {};
+  if (ipc.customerId) return false; // already connected — the "You're live" email covers it
+  if (ipc.gettingReadyEmailedAt) return false; // once only
+
+  const users = await prisma.user.findMany({
+    where: { garageAccessIds: { has: garageId }, role: { not: 'RECEPTIONMATE_STAFF' } },
+    select: { email: true, branchRoles: true },
+  });
+  const manager = users.find((u) => (u.branchRoles as Record<string, string> | null)?.[garageId] === 'MANAGER') || users[0];
+  if (!manager?.email) return false;
+
+  await prisma.agentConfiguration.update({ where: { garageId }, data: { integrationProviderConfig: { ...ipc, gettingReadyEmailedAt: new Date().toISOString() } } });
+  const body =
+    `<tr><td style="padding: 32px;">` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">Getting ${garage.name} ready</h1>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Thanks for signing. Your ReceptionMate agent books straight into your <strong>existing Garage Hive online booking system</strong> — nothing new to learn, and your diary stays exactly as it is.</p>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">One thing to set up in Garage Hive while we finish your agent: add an <strong>“Other”</strong> service package, so the agent can book custom jobs that don't match a standard service. Garage Hive's guide walks you through it — <a href="${GH_OTHER_GUIDE_URL}" style="color:#3426cf;font-weight:600;">How to set up an “Other” service package</a>.</p>` +
+    `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">Do this whenever suits — we'll email you again the moment your agent is live.</p>` +
+    `</td></tr>`;
+  void sendEmail({
+    to: [manager.email],
+    subject: `Getting ${garage.name} ready on ReceptionMate`,
+    text:
+      `Thanks for signing. Your ReceptionMate agent books straight into your existing Garage Hive online booking system.\n\n` +
+      `One thing to set up in Garage Hive while we finish your agent: add an "Other" service package so the agent can book custom jobs. ` +
+      `Garage Hive's guide: ${GH_OTHER_GUIDE_URL}\n\nDo this whenever suits — we'll email you again the moment your agent is live.`,
+    html: brandedEmailShell(body),
+  });
+  return true;
+};
+
 // Auto go-live convergence: a GarageHive garage is "live" once BOTH tracks are done — the
 // agreement is signed AND the diary is connected. Whichever finishes last calls this; the first
 // time both are true we email the garage "you're live" and mark them live. Idempotent via a

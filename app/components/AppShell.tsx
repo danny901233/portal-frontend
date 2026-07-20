@@ -532,6 +532,18 @@ export default function AppShell({ children }: { children: ReactNode }) {
                       We&apos;re finishing your setup — connecting your booking diary. We&apos;ll email you as
                       soon as you&apos;re connected and your agent is live.
                     </p>
+                    <p className="mt-1.5 text-amber-800">
+                      While you wait, get ahead: your agent books into your existing GarageHive diary — add an{' '}
+                      <a
+                        href="https://garagehive-co.slite.com/app/docs/YzHdXMeW8CwmE3/How-to-Set-Up-an-Other-Service-Package-for-Custom-Online-Bookings"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold underline"
+                      >
+                        &ldquo;Other&rdquo; service package
+                      </a>{' '}
+                      so it can book custom jobs.
+                    </p>
                   </div>
                 </div>
               )}

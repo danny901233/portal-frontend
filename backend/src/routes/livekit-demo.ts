@@ -29,6 +29,9 @@ const TOKEN_TTL_SECONDS = 30 * 60;
 // Voices the demo agent can use — the /demo picker sends a key; we validate against this
 // allowlist so a caller can't inject an arbitrary value into the dispatch metadata.
 const DEMO_VOICES = new Set(['leah', 'tom', 'sophie', 'gemma', 'isobel', 'fraser']);
+// Which demo persona to run: the garage receptionist ('booking') or the trade parts counter
+// ('parts'). Validated here so a caller can't inject arbitrary values into the dispatch metadata.
+const DEMO_SCENARIOS = new Set(['booking', 'parts']);
 
 router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
@@ -37,6 +40,8 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
 
   const requested = String(req.body?.voice ?? '').toLowerCase();
   const voice = DEMO_VOICES.has(requested) ? requested : 'leah';
+  const requestedScenario = String(req.body?.scenario ?? '').toLowerCase();
+  const scenario = DEMO_SCENARIOS.has(requestedScenario) ? requestedScenario : 'booking';
 
   const roomName = `demo-${randomBytes(8).toString('hex')}`;
   const identity = `visitor-${randomBytes(4).toString('hex')}`;
@@ -65,7 +70,7 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   try {
     const dispatchClient = new AgentDispatchClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
     await dispatchClient.createDispatch(roomName, agentName, {
-      metadata: JSON.stringify({ kind: 'web-demo', voice }),
+      metadata: JSON.stringify({ kind: 'web-demo', voice, scenario }),
     });
   } catch (err) {
     console.error(`[demo] failed to dispatch "${agentName}" into ${roomName}:`, err);

@@ -13,6 +13,7 @@ import { sendAgentConfigWebhook } from '../routes/config.js';
 import { sendEmail, brandedEmailShell } from '../utils/email.js';
 
 const GH_BASE = 'https://onlinebooking.garagehive.co.uk/api/external-booking';
+const PORTAL_URL = (process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '');
 
 // ---- Stateless connect-link token (no DB row / migration) ------------------
 // A signed { businessId, exp } — the emailed link carries this so GarageHive can open the form
@@ -134,7 +135,7 @@ export const placeTestBooking = async (
 export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> => {
   const garage = await prisma.garage.findUnique({
     where: { id: garageId },
-    select: { id: true, name: true, businessId: true, agentConfiguration: { select: { integrationProviderConfig: true, agentScript: true } } },
+    select: { id: true, name: true, businessId: true, twilioNumber: true, agentConfiguration: { select: { integrationProviderConfig: true, agentScript: true } } },
   });
   if (!garage) return false;
   const ipc = (garage.agentConfiguration?.integrationProviderConfig && typeof garage.agentConfiguration.integrationProviderConfig === 'object')
@@ -157,16 +158,22 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
   });
   const manager = users.find((u) => (u.branchRoles as Record<string, string> | null)?.[garageId] === 'MANAGER') || users[0];
   if (manager?.email) {
+    const number = garage.twilioNumber || 'your ReceptionMate number';
     const body =
       `<tr><td style="padding: 32px;">` +
       `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">You're live 🎉</h1>` +
       `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${garage.name}</strong> is now connected to your GarageHive diary.</p>` +
-      `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">Your ReceptionMate agent is live — it answers your calls and books straight into your diary. Nothing more for you to do.</p>` +
+      `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Your agent is live and ready to be connected to your phone system. If you haven't already, please <a href="${PORTAL_URL}" style="color:#3426cf;font-weight:600;">log in to the portal</a> to customise your agent, then set up call forwarding on your line to your ReceptionMate number:</p>` +
+      `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;"><tr><td style="background:#f1f2f9;border-radius:10px;padding:14px 26px;text-align:center;"><span style="font-size:22px;font-weight:800;color:#3426cf;letter-spacing:0.5px;">${number}</span></td></tr></table>` +
       `</td></tr>`;
     void sendEmail({
       to: [manager.email],
       subject: `${garage.name} is live on ReceptionMate`,
-      text: `${garage.name} is now connected to your GarageHive diary. Your ReceptionMate agent is live — it answers your calls and books straight into your diary.`,
+      text:
+        `${garage.name} is now connected to your GarageHive diary.\n\n` +
+        `Your agent is live and ready to be connected to your phone system. If you haven't already, ` +
+        `log in to the portal (${PORTAL_URL}) to customise your agent, then set up call forwarding on ` +
+        `your line to your ReceptionMate number: ${number}.`,
       html: brandedEmailShell(body),
     });
   }

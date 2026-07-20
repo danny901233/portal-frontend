@@ -5,10 +5,61 @@
 import { Router, Request, Response } from 'express';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { prisma } from '../db.js';
-import { resolveSharedGhApiKey, ghInit, matchBranch } from '../services/garageHiveConnect.js';
+import { resolveSharedGhApiKey, ghInit, matchBranch, verifyConnectToken, autoConnectBusiness } from '../services/garageHiveConnect.js';
 import { sendAgentConfigWebhook } from './config.js';
+import { sendEmail } from '../utils/email.js';
 
 const router = Router();
+
+// ---- PUBLIC, token-gated (no login) — the link emailed to GarageHive -------
+// GET /api/garagehive-connect/validate?token=... -> confirm the link + show who it's for.
+router.get('/garagehive-connect/validate', async (req: Request, res: Response) => {
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
+  const businessId = verifyConnectToken(token);
+  if (!businessId) return res.status(401).json({ ok: false, error: 'This link is invalid or has expired.' });
+  const business = await prisma.business.findUnique({ where: { id: businessId }, select: { name: true } });
+  return res.json({ ok: true, businessName: business?.name ?? 'this business' });
+});
+
+// POST /api/garagehive-connect/submit { token, instance } -> auto-match every branch & connect.
+// GarageHive only supplies the instance; we resolve the branches and wire the diary.
+router.post('/garagehive-connect/submit', async (req: Request, res: Response) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+  const instance = typeof req.body?.instance === 'string' ? req.body.instance.trim() : '';
+  const businessId = verifyConnectToken(token);
+  if (!businessId) return res.status(401).json({ ok: false, error: 'This link is invalid or has expired.' });
+  if (!instance) return res.status(400).json({ ok: false, error: 'Please enter the GarageHive instance.' });
+
+  const result = await autoConnectBusiness(businessId, instance);
+  if (!result.ok) return res.status(400).json({ ok: false, error: result.error });
+
+  // Notify us: what connected, and anything we couldn't confidently match (needs a staff pick).
+  const business = await prisma.business.findUnique({ where: { id: businessId }, select: { name: true } });
+  const lines = [
+    `GarageHive connect submitted for ${business?.name ?? businessId} (instance "${instance}").`,
+    '',
+    `Connected (${result.connected.length}):`,
+    ...result.connected.map((c) => `  ✓ ${c.garageName} → location ${c.locationId}`),
+  ];
+  if (result.flagged.length) {
+    lines.push('', `NEEDS A STAFF PICK (${result.flagged.length}) — open Agreements → Connect GarageHive to finish:`);
+    lines.push(...result.flagged.map((f) => `  ⚠ ${f.garageName} (best guess ${f.matchedLocationId ?? 'none'}, ${f.confidence})`));
+  }
+  const summaryText = lines.join('\n');
+  void sendEmail({
+    to: ['dantyldesley@hotmail.co.uk'],
+    subject: `GarageHive connect — ${business?.name ?? 'garage'}`,
+    text: summaryText,
+    html: `<pre style="font-family:inherit;white-space:pre-wrap">${summaryText.replace(/</g, '&lt;')}</pre>`,
+  });
+
+  return res.json({
+    ok: true,
+    connectedCount: result.connected.length,
+    flaggedCount: result.flagged.length,
+    businessName: business?.name ?? 'your garage',
+  });
+});
 
 // POST /api/admin/garagehive/preview  { businessId, instance }
 // Runs /init and auto-matches every branch of the business. No writes — just the proposed mapping

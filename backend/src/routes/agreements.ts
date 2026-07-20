@@ -24,6 +24,7 @@ import { prisma } from '../db.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail, sendAgreementSignEmail } from '../utils/email.js';
+import { signConnectToken, businessUsesGarageHive } from '../services/garageHiveConnect.js';
 import { sendCustomerSms, toE164UK } from '../utils/sms.js';
 import { createSetupFeeInvoice, emailSetupFeeInvoice } from '../services/setupFeeInvoice.js';
 import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS, getStripeClient } from '../services/stripe.js';
@@ -907,6 +908,36 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
       sentAt: new Date(),
     },
   });
+
+  // GarageHive garages: also email the diary-connect link so GarageHive can paste the instance and
+  // we auto-wire every branch. Best-effort, fire-and-forget — never blocks or fails the send.
+  if (agreement.businessId) {
+    const businessId = agreement.businessId;
+    void (async () => {
+      try {
+        if (await businessUsesGarageHive(businessId)) {
+          const ghToken = signConnectToken(businessId);
+          const connectUrl = `${PORTAL_URL}/connect-garagehive?token=${encodeURIComponent(ghToken)}`;
+          const ghText =
+            `${agreement.clientName} is being onboarded to ReceptionMate Automate.\n\n` +
+            `Open this link and paste the garage's GarageHive instance — that's all that's needed. ` +
+            `We match the branch(es) by name and connect the diary automatically:\n\n${connectUrl}\n\n(Link valid 14 days.)`;
+          await sendEmail({
+            to: ['dantyldesley@hotmail.co.uk'],
+            subject: `Connect ${agreement.clientName} to ReceptionMate (GarageHive)`,
+            text: ghText,
+            html:
+              `<p>${agreement.clientName} is being onboarded to ReceptionMate Automate.</p>` +
+              `<p>Open this link and paste the garage's GarageHive <strong>instance</strong> — that's all that's needed. ` +
+              `We match the branch(es) by name and connect the diary automatically:</p>` +
+              `<p><a href="${connectUrl}">${connectUrl}</a></p><p style="color:#64748b">(Link valid 14 days.)</p>`,
+          });
+        }
+      } catch (e) {
+        console.error('[GH-CONNECT] send-link hook failed:', e);
+      }
+    })();
+  }
 
   return res.json({ success: true, signUrl, sentToEmail: recipient, sentToSms: smsTo, smsError });
 });

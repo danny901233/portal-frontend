@@ -7,9 +7,102 @@
 // instance (e.g. In'n'out under "inoplus") it returns them all, and we pick the right branch for
 // each Garage record by matching the garage's own name/address — because WE know which branch we
 // onboarded (from the agreement + garage records) and GarageHive does not.
+import { createHmac, timingSafeEqual } from 'crypto';
 import { prisma } from '../db.js';
+import { sendAgentConfigWebhook } from '../routes/config.js';
 
 const GH_BASE = 'https://onlinebooking.garagehive.co.uk/api/external-booking';
+
+// ---- Stateless connect-link token (no DB row / migration) ------------------
+// A signed { businessId, exp } — the emailed link carries this so GarageHive can open the form
+// without a login. HMAC over JWT_SECRET; single-use isn't enforced because re-submitting the same
+// instance is idempotent (it re-derives and re-writes the same config).
+const TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+export const signConnectToken = (businessId: string): string => {
+  const secret = process.env.JWT_SECRET || '';
+  const payload = Buffer.from(JSON.stringify({ b: businessId, exp: Date.now() + TOKEN_TTL_MS })).toString('base64url');
+  const sig = createHmac('sha256', secret).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+};
+export const verifyConnectToken = (token: string): string | null => {
+  const secret = process.env.JWT_SECRET || '';
+  const [payload, sig] = (token || '').split('.');
+  if (!payload || !sig) return null;
+  const expected = createHmac('sha256', secret).update(payload).digest('base64url');
+  try {
+    const a = Buffer.from(sig, 'base64url');
+    const b = Buffer.from(expected, 'base64url');
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+    const { b: businessId, exp } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (typeof businessId !== 'string' || typeof exp !== 'number' || Date.now() > exp) return null;
+    return businessId;
+  } catch {
+    return null;
+  }
+};
+
+// "Uses GarageHive" = at least one branch runs the GarageHive/v3 agent (selected at signup).
+export const businessUsesGarageHive = async (businessId: string): Promise<boolean> => {
+  const garages = await prisma.garage.findMany({ where: { businessId }, select: { id: true } });
+  if (!garages.length) return false;
+  const hit = await prisma.agentConfiguration.findFirst({
+    where: { garageId: { in: garages.map((g) => g.id) }, agentScript: 'receptionmate-agent-v3' },
+    select: { garageId: true },
+  });
+  return !!hit;
+};
+
+// Write one branch's GarageHive config and push it to the agent (DynamoDB).
+const connectGarageToLocation = async (garageId: string, instance: string, apiKey: string, locationId: string) => {
+  const garage = await prisma.garage.findUnique({
+    where: { id: garageId },
+    select: { name: true, agentConfiguration: { select: { integrationProviderConfig: true } } },
+  });
+  if (!garage) throw new Error('garage not found');
+  const existing = (garage.agentConfiguration?.integrationProviderConfig && typeof garage.agentConfiguration.integrationProviderConfig === 'object')
+    ? (garage.agentConfiguration.integrationProviderConfig as Record<string, unknown>)
+    : {};
+  const integrationProviderConfig = { ...existing, apiKey, customerId: instance, locationId };
+  await prisma.agentConfiguration.upsert({
+    where: { garageId },
+    update: { integrationProvider: 'garage_hive', integrationProviderConfig, agentType: 'automate', agentScript: 'receptionmate-agent-v3' },
+    create: { garageId, branchName: garage.name, integrationProvider: 'garage_hive', integrationProviderConfig, agentType: 'automate', agentScript: 'receptionmate-agent-v3' },
+  });
+  await sendAgentConfigWebhook(garageId);
+};
+
+// The public flow's workhorse: instance in → auto-match every branch → connect the confident ones,
+// flag the ambiguous ones for a human. GarageHive never picks a branch.
+export const autoConnectBusiness = async (
+  businessId: string,
+  instance: string,
+): Promise<{ ok: boolean; error?: string; instance: string;
+  connected: Array<{ garageId: string; garageName: string; locationId: string }>;
+  flagged: Array<{ garageId: string; garageName: string; matchedLocationId: number | null; confidence: string }>; }> => {
+  const apiKey = await resolveSharedGhApiKey();
+  if (!apiKey) return { ok: false, error: 'No shared GarageHive API key', instance, connected: [], flagged: [] };
+  const garages = await prisma.garage.findMany({
+    where: { businessId },
+    select: { id: true, name: true, agentConfiguration: { select: { branchAddress: true } } },
+    orderBy: { name: 'asc' },
+  });
+  if (!garages.length) return { ok: false, error: 'No garages for this business', instance, connected: [], flagged: [] };
+  const init = await ghInit(instance, apiKey);
+  if (!init.ok) return { ok: false, error: `GarageHive did not accept instance "${instance}"`, instance, connected: [], flagged: [] };
+
+  const connected: Array<{ garageId: string; garageName: string; locationId: string }> = [];
+  const flagged: Array<{ garageId: string; garageName: string; matchedLocationId: number | null; confidence: string }> = [];
+  for (const g of garages) {
+    const m = matchBranch(g.name, g.agentConfiguration?.branchAddress || '', init.locations);
+    if (m.locationId != null && (m.confidence === 'auto' || m.confidence === 'high')) {
+      await connectGarageToLocation(g.id, instance, apiKey, String(m.locationId));
+      connected.push({ garageId: g.id, garageName: g.name, locationId: String(m.locationId) });
+    } else {
+      flagged.push({ garageId: g.id, garageName: g.name, matchedLocationId: m.locationId, confidence: m.confidence });
+    }
+  }
+  return { ok: true, instance, connected, flagged };
+};
 
 export type GhLocation = { id: number; name: string; address: string };
 

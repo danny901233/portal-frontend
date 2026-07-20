@@ -1656,12 +1656,28 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
     const garages = await prisma.garage.findMany({
       where: { id: { in: allowedGarages } },
       orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        agentConfiguration: { select: { agentType: true, agentScript: true, integrationProviderConfig: true } },
+      },
     });
 
     // branchRoles rides along so the browser can refresh its cached copy — the branch switcher
     // filters the list by it, and until now it could only be updated by logging in again.
     res.json({
-      garages: garages.map((garage) => ({ id: garage.id, name: garage.name })),
+      garages: garages.map((garage) => {
+        // A garage set up as GarageHive Automate but with no diary credentials yet is "awaiting
+        // GarageHive" — the portal shows a waiting banner until the diary is connected.
+        const ipc = (garage.agentConfiguration?.integrationProviderConfig && typeof garage.agentConfiguration.integrationProviderConfig === 'object')
+          ? (garage.agentConfiguration.integrationProviderConfig as Record<string, unknown>)
+          : {};
+        const awaitingGarageHive =
+          garage.agentConfiguration?.agentType === 'automate' &&
+          garage.agentConfiguration?.agentScript === 'receptionmate-agent-v3' &&
+          !ipc.customerId;
+        return { id: garage.id, name: garage.name, awaitingGarageHive };
+      }),
       role: req.user?.role,
       branchRoles: req.user?.branchRoles ?? {},
     });

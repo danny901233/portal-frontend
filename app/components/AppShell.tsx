@@ -522,7 +522,21 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="flex min-w-0 flex-1 flex-col">
             {/* Desktop: top bar. Mobile: this lives in the drawer instead. */}
             {!isMobile && navbar}
-            <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6">{children}</main>
+            <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6">
+              {garages.find((g) => g.id === garageId)?.awaitingGarageHive && (
+                <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                  <span className="text-lg leading-none">⏳</span>
+                  <div className="text-sm text-amber-900">
+                    <p className="font-semibold">Waiting to be connected to GarageHive</p>
+                    <p className="mt-0.5 text-amber-800">
+                      We&apos;re finishing your setup — connecting your booking diary. We&apos;ll email you as
+                      soon as you&apos;re connected and your agent is live.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {children}
+            </main>
           </div>
           {/* Floating "Need help?" chat with the RM team — only renders when authed */}
           <SupportChatWidget />

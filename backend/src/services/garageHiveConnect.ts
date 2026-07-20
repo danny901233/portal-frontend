@@ -10,6 +10,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { prisma } from '../db.js';
 import { sendAgentConfigWebhook } from '../routes/config.js';
+import { sendEmail, brandedEmailShell } from '../utils/email.js';
 
 const GH_BASE = 'https://onlinebooking.garagehive.co.uk/api/external-booking';
 
@@ -126,6 +127,52 @@ export const placeTestBooking = async (
   }
 };
 
+// Auto go-live convergence: a GarageHive garage is "live" once BOTH tracks are done — the
+// agreement is signed AND the diary is connected. Whichever finishes last calls this; the first
+// time both are true we email the garage "you're live" and mark them live. Idempotent via a
+// goLiveEmailedAt flag stored in the config JSON (no migration, no agent resync needed).
+export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> => {
+  const garage = await prisma.garage.findUnique({
+    where: { id: garageId },
+    select: { id: true, name: true, businessId: true, agentConfiguration: { select: { integrationProviderConfig: true, agentScript: true } } },
+  });
+  if (!garage) return false;
+  const ipc = (garage.agentConfiguration?.integrationProviderConfig && typeof garage.agentConfiguration.integrationProviderConfig === 'object')
+    ? (garage.agentConfiguration.integrationProviderConfig as Record<string, unknown>)
+    : {};
+  const connected = !!ipc.customerId && !!ipc.locationId && garage.agentConfiguration?.agentScript === 'receptionmate-agent-v3';
+  if (!connected || ipc.goLiveEmailedAt) return false;
+  const signed = garage.businessId
+    ? await prisma.agreement.findFirst({ where: { businessId: garage.businessId, status: { in: ['signed', 'externally_signed'] } }, select: { id: true } })
+    : null;
+  if (!signed) return false;
+
+  // Mark announced (JSON flag only — the agent doesn't need it, so no DynamoDB resync) + go live.
+  await prisma.agentConfiguration.update({ where: { garageId }, data: { integrationProviderConfig: { ...ipc, goLiveEmailedAt: new Date().toISOString() } } });
+  await prisma.garage.update({ where: { id: garageId }, data: { onboardingStage: 'live' } }).catch(() => {});
+
+  const users = await prisma.user.findMany({
+    where: { garageAccessIds: { has: garageId }, role: { not: 'RECEPTIONMATE_STAFF' } },
+    select: { email: true, branchRoles: true },
+  });
+  const manager = users.find((u) => (u.branchRoles as Record<string, string> | null)?.[garageId] === 'MANAGER') || users[0];
+  if (manager?.email) {
+    const body =
+      `<tr><td style="padding: 32px;">` +
+      `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">You're live 🎉</h1>` +
+      `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${garage.name}</strong> is now connected to your GarageHive diary.</p>` +
+      `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">Your ReceptionMate agent is live — it answers your calls and books straight into your diary. Nothing more for you to do.</p>` +
+      `</td></tr>`;
+    void sendEmail({
+      to: [manager.email],
+      subject: `${garage.name} is live on ReceptionMate`,
+      text: `${garage.name} is now connected to your GarageHive diary. Your ReceptionMate agent is live — it answers your calls and books straight into your diary.`,
+      html: brandedEmailShell(body),
+    });
+  }
+  return true;
+};
+
 // The public flow's workhorse: instance in → auto-match every branch → connect the confident ones,
 // flag the ambiguous ones for a human. GarageHive never picks a branch.
 export const autoConnectBusiness = async (
@@ -154,6 +201,8 @@ export const autoConnectBusiness = async (
       // Prove the diary works: place a marked test booking into this branch's location.
       const testBooking = await placeTestBooking(instance, apiKey, m.locationId);
       connected.push({ garageId: g.id, garageName: g.name, locationId: String(m.locationId), testBooking });
+      // If they've already signed, this was the last piece — go live + email the garage.
+      await announceGoLiveIfReady(g.id).catch(() => {});
     } else {
       flagged.push({ garageId: g.id, garageName: g.name, matchedLocationId: m.locationId, confidence: m.confidence });
     }

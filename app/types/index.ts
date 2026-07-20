@@ -48,6 +48,9 @@ export interface CallRecord {
 export interface GarageSummary {
   id: string;
   name: string;
+  // Set up as GarageHive Automate but the diary isn't connected yet — the portal shows a
+  // "waiting to be connected" banner until GarageHive submits the instance.
+  awaitingGarageHive?: boolean;
 }
 
 export type BranchRole = 'MANAGER' | 'USER';

@@ -14,6 +14,8 @@ import { sendEmail, brandedEmailShell } from '../utils/email.js';
 
 const GH_BASE = 'https://onlinebooking.garagehive.co.uk/api/external-booking';
 const PORTAL_URL = (process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '');
+// GarageHive's own guide for adding the "Other" service package the agent needs to book custom jobs.
+const GH_OTHER_GUIDE_URL = 'https://garagehive-co.slite.com/app/docs/YzHdXMeW8CwmE3/How-to-Set-Up-an-Other-Service-Package-for-Custom-Online-Bookings';
 
 // ---- Stateless connect-link token (no DB row / migration) ------------------
 // A signed { businessId, exp } — the emailed link carries this so GarageHive can open the form
@@ -164,7 +166,8 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
       `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">You're live 🎉</h1>` +
       `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${garage.name}</strong> is now connected to your GarageHive diary.</p>` +
       `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Your agent is live and ready to be connected to your phone system. If you haven't already, please <a href="${PORTAL_URL}" style="color:#3426cf;font-weight:600;">log in to the portal</a> to customise your agent, then set up call forwarding on your line to your ReceptionMate number:</p>` +
-      `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;"><tr><td style="background:#f1f2f9;border-radius:10px;padding:14px 26px;text-align:center;"><span style="font-size:22px;font-weight:800;color:#3426cf;letter-spacing:0.5px;">${number}</span></td></tr></table>` +
+      `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr><td style="background:#f1f2f9;border-radius:10px;padding:14px 26px;text-align:center;"><span style="font-size:22px;font-weight:800;color:#3426cf;letter-spacing:0.5px;">${number}</span></td></tr></table>` +
+      `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">One last thing in Garage Hive: add an <strong>“Other”</strong> service package so the agent can book custom jobs. Garage Hive's guide walks you through it — <a href="${GH_OTHER_GUIDE_URL}" style="color:#3426cf;font-weight:600;">How to set up an “Other” service package</a>.</p>` +
       `</td></tr>`;
     void sendEmail({
       to: [manager.email],
@@ -173,7 +176,9 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
         `${garage.name} is now connected to your GarageHive diary.\n\n` +
         `Your agent is live and ready to be connected to your phone system. If you haven't already, ` +
         `log in to the portal (${PORTAL_URL}) to customise your agent, then set up call forwarding on ` +
-        `your line to your ReceptionMate number: ${number}.`,
+        `your line to your ReceptionMate number: ${number}.\n\n` +
+        `One last thing in Garage Hive: add an "Other" service package so the agent can book custom jobs. ` +
+        `Garage Hive's guide walks you through it: ${GH_OTHER_GUIDE_URL}`,
       html: brandedEmailShell(body),
     });
   }

@@ -39,7 +39,15 @@ router.post('/garagehive-connect/submit', async (req: Request, res: Response) =>
     `GarageHive connect submitted for ${business?.name ?? businessId} (instance "${instance}").`,
     '',
     `Connected (${result.connected.length}):`,
-    ...result.connected.map((c) => `  ✓ ${c.garageName} → location ${c.locationId}`),
+    ...result.connected.map((c) => {
+      const tb = c.testBooking;
+      const tbStr = tb
+        ? (tb.ok
+            ? `\n     ↳ test booking placed (${tb.service} @ ${tb.when}, id ${tb.bookingId}) — please cancel in GarageHive`
+            : `\n     ↳ ⚠ test booking FAILED: ${tb.error}`)
+        : '';
+      return `  ✓ ${c.garageName} → location ${c.locationId}${tbStr}`;
+    }),
   ];
   if (result.flagged.length) {
     lines.push('', `NEEDS A STAFF PICK (${result.flagged.length}) — open Agreements → Connect GarageHive to finish:`);
@@ -47,7 +55,7 @@ router.post('/garagehive-connect/submit', async (req: Request, res: Response) =>
   }
   const summaryText = lines.join('\n');
   void sendEmail({
-    to: ['dantyldesley@hotmail.co.uk'],
+    to: ['dan@receptionmate.co.uk'],
     subject: `GarageHive connect — ${business?.name ?? 'garage'}`,
     text: summaryText,
     html: `<pre style="font-family:inherit;white-space:pre-wrap">${summaryText.replace(/</g, '&lt;')}</pre>`,

@@ -71,13 +71,68 @@ const connectGarageToLocation = async (garageId: string, instance: string, apiKe
   await sendAgentConfigWebhook(garageId);
 };
 
+// Place a marked test booking to PROVE the diary connection works end-to-end (not just that the
+// credentials were accepted). Reg V20ALA, the first bookable service, the first available slot, and
+// a "please cancel" note. Mirrors the voice agent's proven set-contact-info payload (salutation/
+// last_name/city are required by GarageHive even though contact_info_fields doesn't list them).
+export const placeTestBooking = async (
+  instance: string,
+  apiKey: string,
+  locationId: number,
+): Promise<{ ok: boolean; bookingId?: number; service?: string; when?: string; error?: string }> => {
+  const H = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  const base = `${GH_BASE}/${encodeURIComponent(instance)}`;
+  const post = async (path: string, body: unknown) => {
+    const r = await fetch(`${base}/${path}`, { method: 'POST', headers: H, body: JSON.stringify(body) });
+    return { status: r.status, data: (await r.json().catch(() => null)) as any };
+  };
+  const get = async (path: string) => {
+    const r = await fetch(`${base}/${path}`, { headers: H });
+    return { status: r.status, data: (await r.json().catch(() => null)) as any };
+  };
+  try {
+    const init = await post('init', { locationId });
+    const sid = init.data?.booking?.session_id || init.data?.session_id;
+    if (!sid) return { ok: false, error: 'init returned no session' };
+    await post(`${sid}/set-vehicle-info`, { registration_no: 'V20ALA', reg_no_country: 'GB', location_id: locationId });
+    const svc = await get(`${sid}/list-services`);
+    const first = svc.data?.services?.[0];
+    if (!first?.service_price_id) return { ok: false, error: 'no bookable services returned' };
+    await post(`${sid}/set-services`, { servicePriceIDs: [first.service_price_id] });
+    const ts = await get(`${sid}/list-timeslots`);
+    const slots = (ts.data?.timeslots && typeof ts.data.timeslots === 'object') ? ts.data.timeslots : {};
+    const date = Object.keys(slots)[0];
+    const time = date ? slots[date]?.[0] : undefined;
+    if (!date || !time) return { ok: false, error: 'no timeslots available' };
+    await post(`${sid}/set-timeslot`, { bookingDate: date, bookingTime: time });
+    const fin = await post(`${sid}/set-contact-info`, {
+      contact_salutation: 10,
+      contact_name: 'ReceptionMate',
+      contact_last_name: 'Test',
+      contact_number: '01234567890',
+      contact_address: 'ReceptionMate test',
+      contact_address2: '',
+      contact_city: 'Test',
+      contact_postcode: 'SW1A 1AA',
+      vehicle_mileage: 10000,
+      notes: 'receptionmate test booking please cancel',
+    });
+    if (fin.status < 200 || fin.status >= 300) {
+      return { ok: false, error: `finalise HTTP ${fin.status}: ${JSON.stringify(fin.data).slice(0, 200)}` };
+    }
+    return { ok: true, bookingId: fin.data?.booking?.id, service: first.name, when: `${date} ${time}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'test booking failed' };
+  }
+};
+
 // The public flow's workhorse: instance in → auto-match every branch → connect the confident ones,
 // flag the ambiguous ones for a human. GarageHive never picks a branch.
 export const autoConnectBusiness = async (
   businessId: string,
   instance: string,
 ): Promise<{ ok: boolean; error?: string; instance: string;
-  connected: Array<{ garageId: string; garageName: string; locationId: string }>;
+  connected: Array<{ garageId: string; garageName: string; locationId: string; testBooking?: { ok: boolean; bookingId?: number; service?: string; when?: string; error?: string } }>;
   flagged: Array<{ garageId: string; garageName: string; matchedLocationId: number | null; confidence: string }>; }> => {
   const apiKey = await resolveSharedGhApiKey();
   if (!apiKey) return { ok: false, error: 'No shared GarageHive API key', instance, connected: [], flagged: [] };
@@ -90,13 +145,15 @@ export const autoConnectBusiness = async (
   const init = await ghInit(instance, apiKey);
   if (!init.ok) return { ok: false, error: `GarageHive did not accept instance "${instance}"`, instance, connected: [], flagged: [] };
 
-  const connected: Array<{ garageId: string; garageName: string; locationId: string }> = [];
+  const connected: Array<{ garageId: string; garageName: string; locationId: string; testBooking?: { ok: boolean; bookingId?: number; service?: string; when?: string; error?: string } }> = [];
   const flagged: Array<{ garageId: string; garageName: string; matchedLocationId: number | null; confidence: string }> = [];
   for (const g of garages) {
     const m = matchBranch(g.name, g.agentConfiguration?.branchAddress || '', init.locations);
     if (m.locationId != null && (m.confidence === 'auto' || m.confidence === 'high')) {
       await connectGarageToLocation(g.id, instance, apiKey, String(m.locationId));
-      connected.push({ garageId: g.id, garageName: g.name, locationId: String(m.locationId) });
+      // Prove the diary works: place a marked test booking into this branch's location.
+      const testBooking = await placeTestBooking(instance, apiKey, m.locationId);
+      connected.push({ garageId: g.id, garageName: g.name, locationId: String(m.locationId), testBooking });
     } else {
       flagged.push({ garageId: g.id, garageName: g.name, matchedLocationId: m.locationId, confidence: m.confidence });
     }

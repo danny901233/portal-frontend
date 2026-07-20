@@ -5,6 +5,7 @@ import OnboardingPipeline from './OnboardingPipeline';
 import { useRouter } from 'next/navigation';
 import { isReceptionMateStaff } from '../../lib/auth';
 import api from '../../lib/api';
+import ConnectGarageHiveModal from '../components/ConnectGarageHiveModal';
 
 type AdminAgreement = {
   id: string;
@@ -64,6 +65,7 @@ export default function AdminAgreementsPage() {
   // Mark-external dialog
   const [tab, setTab] = useState<'agreements' | 'pipeline'>('agreements');
   const [markFor, setMarkFor] = useState<AdminAgreement | null>(null);
+  const [connectFor, setConnectFor] = useState<AdminAgreement | null>(null);
   const [externalRef, setExternalRef] = useState('');
   const [externalDate, setExternalDate] = useState('');
 
@@ -344,6 +346,14 @@ export default function AdminAgreementsPage() {
                       >
                         View
                       </button>
+                      {a.licences.includes('automate') && (
+                        <button
+                          onClick={() => setConnectFor(a)}
+                          className="rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                        >
+                          Connect GarageHive
+                        </button>
+                      )}
                       {(a.status === 'signed' || a.status === 'externally_signed') && (
                         <button
                           onClick={() => downloadAgreement(a)}
@@ -496,6 +506,14 @@ export default function AdminAgreementsPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {connectFor ? (
+        <ConnectGarageHiveModal
+          agreementId={connectFor.id}
+          clientName={connectFor.clientName}
+          onClose={() => setConnectFor(null)}
+        />
       ) : null}
     </div>
   );

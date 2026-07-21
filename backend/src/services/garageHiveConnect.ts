@@ -57,10 +57,53 @@ export const businessUsesGarageHive = async (businessId: string): Promise<boolea
 };
 
 // Write one branch's GarageHive config and push it to the agent (DynamoDB).
+// Ensure the garage's inbound calls reach the GarageHive agent on LiveKit Account 1. The config
+// switch alone isn't enough: a garage migrating from Assist (Account 2) either has no Account-1
+// trunk at all (→ calls ring out) or an Account-1 dispatch rule still pointing at the old agent.
+// update-agent fixes an existing rule; a 404 means no rule yet, so provision creates the trunk+rule.
+const ensureAccount1SipDispatch = async (garageId: string, garageName: string, twilioNumber: string | null) => {
+  const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
+  if (!onboardingUrl) {
+    console.warn('[GH-CONNECT] ONBOARDING_SERVICE_URL not set — skipping SIP provisioning for', garageId);
+    return;
+  }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (process.env.ONBOARDING_SECRET) headers['x-onboarding-secret'] = process.env.ONBOARDING_SECRET;
+  const agentName = 'receptionmate-agent-v3';
+  try {
+    const upd = await fetch(`${onboardingUrl}/update-agent`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ garageId, agentName, account: 'account1' }),
+    });
+    if (upd.ok) {
+      console.log(`[GH-CONNECT] Account-1 dispatch rule updated -> ${agentName} for ${garageId}`);
+      return;
+    }
+    if (upd.status !== 404) {
+      console.error('[GH-CONNECT] update-agent failed', upd.status, await upd.text().catch(() => ''));
+      return;
+    }
+    // 404 -> no Account-1 trunk/rule yet (fresh Assist migration). Create it.
+    if (!twilioNumber) {
+      console.error('[GH-CONNECT] no twilioNumber — cannot provision Account-1 SIP for', garageId);
+      return;
+    }
+    const prov = await fetch(`${onboardingUrl}/provision`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ garageId, garageName, twilioNumber, agentName, account: 'account1', triggeredAt: new Date().toISOString() }),
+    });
+    console.log(`[GH-CONNECT] Account-1 SIP provisioned (${prov.status}) for ${garageId}`);
+  } catch (err) {
+    console.error('[GH-CONNECT] ensureAccount1SipDispatch failed for', garageId, err);
+  }
+};
+
 const connectGarageToLocation = async (garageId: string, instance: string, apiKey: string, locationId: string) => {
   const garage = await prisma.garage.findUnique({
     where: { id: garageId },
-    select: { name: true, agentConfiguration: { select: { integrationProviderConfig: true } } },
+    select: { name: true, twilioNumber: true, agentConfiguration: { select: { integrationProviderConfig: true } } },
   });
   if (!garage) throw new Error('garage not found');
   const existing = (garage.agentConfiguration?.integrationProviderConfig && typeof garage.agentConfiguration.integrationProviderConfig === 'object')
@@ -73,6 +116,8 @@ const connectGarageToLocation = async (garageId: string, instance: string, apiKe
     create: { garageId, branchName: garage.name, integrationProvider: 'garage_hive', integrationProviderConfig, agentType: 'automate', agentScript: 'receptionmate-agent-v3' },
   });
   await sendAgentConfigWebhook(garageId);
+  // Make sure inbound calls actually reach the GarageHive agent on Account 1 (see helper above).
+  await ensureAccount1SipDispatch(garageId, garage.name, garage.twilioNumber);
 };
 
 // Place a marked test booking to PROVE the diary connection works end-to-end (not just that the

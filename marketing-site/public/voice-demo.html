@@ -151,6 +151,18 @@
   body.embed .feats,
   body.embed .replay{display:none;}
   body.embed .phone{width:300px;height:600px;padding:10px;border-radius:44px;}
+
+  .playbtn{position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);z-index:35;width:78px;height:78px;
+    border-radius:50%;border:none;cursor:pointer;background:rgba(255,255,255,.16);
+    box-shadow:0 10px 34px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.28) inset;display:grid;place-items:center;
+    transition:.15s;animation:pbpulse 2.2s ease-out infinite;}
+  .playbtn:hover{background:rgba(255,255,255,.28);}
+  .playbtn svg{width:34px;height:34px;fill:#fff;margin-left:5px;}
+  .playbtn.hidden{display:none;animation:none;}
+  @keyframes pbpulse{0%{box-shadow:0 10px 34px rgba(0,0,0,.4),0 0 0 0 rgba(255,255,255,.4);}70%{box-shadow:0 10px 34px rgba(0,0,0,.4),0 0 0 18px rgba(255,255,255,0);}100%{box-shadow:0 10px 34px rgba(0,0,0,.4),0 0 0 0 rgba(255,255,255,0);}}
+  .playhint{position:absolute;top:calc(52% + 58px);left:50%;transform:translateX(-50%);z-index:35;color:rgba(255,255,255,.8);
+    font-size:12px;font-weight:600;letter-spacing:.02em;white-space:nowrap;}
+  .playhint.hidden{display:none;}
 </style>
 </head>
 <body>
@@ -161,17 +173,9 @@
       <span class="logo"><img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate logo" /></span>
       <b>ReceptionMate <span>Voice</span></b>
     </div>
-    <div><span class="pill"><span class="dot"></span><span id="pillText">Voice demo · garage phones the parts counter</span></span></div>
-    <h1 id="hTitle">Your parts line, answered every time — by an AI that <em>knows parts</em>.</h1>
-    <p id="hSub">Trade calls don't wait. ReceptionMate picks up every call to your branch, identifies the part from the reg, quotes live stock and price, upsells the related lines and books it onto the van — so no order rings out to voicemail.</p>
-  </div>
-
-  <div class="scenario-picker">
-    <span class="tabs-label"><svg viewBox="0 0 24 24"><path d="M12 16l-6-8h12z"/></svg>Pick a scenario</span>
-    <div class="tabs" id="tabs">
-      <button data-s="order" class="active">Parts order by phone</button>
-      <button data-s="afterhours">After-hours call captured</button>
-    </div>
+    <div><span class="pill"><span class="dot"></span><span id="pillText">Real recorded call · parts counter</span></span></div>
+    <h1 id="hTitle">Hear a real call, answered by an AI that <em>knows parts</em>.</h1>
+    <p id="hSub">This is an actual recorded call to ReceptionMate's parts line — press play. It identifies the parts from the reg, quotes a few brands, offers the related line, and books it onto the van. No script, no edits.</p>
   </div>
 
   <div class="stage">
@@ -184,6 +188,9 @@
   <div class="phone">
     <div class="screen callscreen">
       <div class="notch"></div>
+      <button class="playbtn" id="playbtn" aria-label="Play the recorded call"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+      <div class="playhint" id="playhint">Play the recorded call</div>
+      <audio id="callAudio" preload="auto" src="voice-demo-call.mp3"></audio>
 
       <div class="cstatus">
         <span id="clock">9:41</span>
@@ -200,8 +207,8 @@
           <div class="cav"><img src="data:image/png;base64,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" alt="LKQ" /></div>
         </div>
         <div class="cname">LKQ Parts</div>
-        <div class="csub" id="csub">Millbrook branch · trade line</div>
-        <div class="ctimer" id="ctimer">Incoming call…</div>
+        <div class="csub" id="csub">trade parts line</div>
+        <div class="ctimer" id="ctimer">Recorded call</div>
       </div>
 
       <div class="cspeak">
@@ -231,23 +238,17 @@
 
   <button class="replay" id="replay" style="display:none;">
     <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a5 5 0 11-5 5H5a7 7 0 107-7z"/></svg>
-    Replay the call
+    Play again
   </button>
 
   <p class="foot">
-    A trade customer phones your branch; <b>ReceptionMate</b> answers as your parts counter, identifies the part from the reg, checks stock and price, upsells the related lines and books the delivery — your team only ever sees the confirmed order. This is a scripted demo; the live transcript is captioned in real time on a real call.
+    A <b>real recorded call</b> to ReceptionMate's parts line — audio and transcript are exactly as they happened, nothing scripted. It identifies the parts from the reg, quotes a few brands, offers the related line and books it onto the van — your team only ever sees the confirmed order.
     <br><span class="powered"><span class="d">R</span>Powered by ReceptionMate Voice</span>
   </p>
 
 <script>
   const IS_EMBED = new URLSearchParams(location.search).has('embed');
   if (IS_EMBED) document.body.classList.add('embed');
-  const ONLY = new URLSearchParams(location.search).get('only');
-  if (ONLY) {
-    document.querySelectorAll('#tabs button').forEach(b => { if (b.dataset.s !== ONLY) b.remove(); });
-    const picker = document.querySelector('.scenario-picker');
-    if (picker) picker.style.display = 'none';
-  }
   function postHeight(){
     if(!IS_EMBED) return;
     try{ parent.postMessage({ rmDemoHeight: Math.ceil(document.body.getBoundingClientRect().height) }, '*'); }catch(e){}
@@ -259,7 +260,7 @@
     document.getElementById('clock').textContent=hh+':'+String(m).padStart(2,'0');}
   setClock();setInterval(setClock,30000);
 
-  // build waveform bars with organic heights/delays
+  // waveform bars
   const wave=document.getElementById('wave');
   (function(){ let html=''; for(let i=0;i<22;i++){ const h=(10+Math.round(Math.random()*16)); const d=(Math.random()*0.6).toFixed(2);
     html+=`<i style="height:${h}px;animation-delay:${d}s"></i>`; } wave.innerHTML=html; })();
@@ -269,114 +270,81 @@
   const ctimer=document.getElementById('ctimer');
   const ctrans=document.getElementById('ctrans');
   const replay=document.getElementById('replay');
-  const pillText=document.getElementById('pillText');
-  const hTitle=document.getElementById('hTitle');
-  const hSub=document.getElementById('hSub');
-  const csub=document.getElementById('csub');
+  const playbtn=document.getElementById('playbtn');
+  const playhint=document.getElementById('playhint');
+  const audio=document.getElementById('callAudio');
 
-  const SCENARIOS = {
-    order: {
-      pill:"Voice demo · garage phones the parts counter",
-      title:"Your parts line, answered every time — by an AI that <em>knows parts</em>.",
-      sub:"Trade calls don't wait. ReceptionMate picks up every call to your branch, identifies the part from the reg, quotes live stock and price, upsells the related lines and books it onto the van — so no order rings out to voicemail.",
-      csub:"Millbrook branch · trade line",
-      thread:[
-        {who:'caller', t:"Morning — need front discs and pads for a 2018 Ford Focus one-litre EcoBoost. Reg's Bravo Victor one-eight, Kilo X-ray Golf."},
-        {who:'agent', t:"Morning! Focus 1.0 EcoBoost, front discs and pads — I've a few in: Comline at £46.90, Bosch at £62.40, or Brembo at £74.50, all plus VAT for the pair. Which would you like?"},
-        {who:'caller', t:"Bosch'll do. Can you get them over to us today?"},
-        {who:'agent', t:"Course — they'll go on the two o'clock van, with you about half two. Anything else while it's on the ticket?"},
-        {who:'caller', t:"Yeah, oil and filter for the same car."},
-        {who:'agent', t:"Five litres of the Ford-spec 5W-20 and a filter, £28.90 plus VAT — added. So that's the Bosch discs and pads plus oil and filter, <b>£91.30 plus VAT</b> on your trade account, delivered about half two. Shall I confirm?"},
-        {who:'caller', t:"Go on then, confirm it."},
-        {who:'agent', t:"Done — order <b>EC-48213</b> confirmed, out on the two o'clock van to Millbrook Motors. I'll text you when the driver's ten minutes away. Cheers!"},
-      ],
-    },
-    afterhours: {
-      pill:"Voice demo · after-hours call captured",
-      title:"The call that used to hit voicemail — <em>now it's an order</em>.",
-      sub:"Half your trade calls land when the counter's shut or flat out. ReceptionMate answers anyway — takes the part, quotes the price, books collection or delivery and confirms it, so the order's waiting when you open.",
-      csub:"Millbrook branch · after hours",
-      thread:[
-        {who:'caller', t:"Hi — are you still open? After a timing belt kit for a VW Golf, sixteen-plate, 1.6 TDI."},
-        {who:'agent', t:"We've just shut for the evening, but I can still get this sorted. Golf 1.6 TDI, timing belt kit — I've Dayco at £54.20, Gates at £61.80, or the INA kit at £68.40, all plus VAT. Any preference?"},
-        {who:'caller', t:"INA. Do I need the water pump as well?"},
-        {who:'agent', t:"Would you like the water pump as well? The INA kit with pump is £96.20 plus VAT."},
-        {who:'caller', t:"Go on, add it. When can I collect?"},
-        {who:'agent', t:"I'll have it on the trade counter for you from seven. Order <b>EC-48260</b>, INA timing belt and water pump kit, <b>£96.20 plus VAT</b> to Millbrook Motors. Want a text when it's ready?"},
-        {who:'caller', t:"Perfect, yeah."},
-        {who:'agent', t:"Done — booked, and you'll get a text at seven. Have a good evening!"},
-      ],
-    },
-  };
-
+  // Real recorded call (ReceptionMate Demo, call cmrud438i028vq3jzlbroupi2). Timestamps are the
+  // per-turn offsets logged with the transcript, so the captions land in sync with the audio.
   const NAME = { agent:'LKQ Parts', caller:'Caller' };
-  let current='order';
-  let timers=[];
-  let tick=null, secs=0;
-  const t=(fn,ms)=>{const id=setTimeout(fn,ms);timers.push(id);return id;};
-  const clearAll=()=>{timers.forEach(clearTimeout);timers=[];};
+  const TURNS = [
+    {t:4.51,  who:'agent',  text:"Good morning, thanks for calling LKQ, Sophie speaking \u2014 how can I help?"},
+    {t:9.9,   who:'caller', text:"I need to order a set of front brake pads and a drop link for an Evoke."},
+    {t:14.77, who:'agent',  text:"Sure, I can help with that. Could you give me the vehicle registration for the Evoke?"},
+    {t:18.61, who:'caller', text:"V \u2014 two \u2014 zero \u2014 A \u2014 L \u2014 A."},
+    {t:22.4,  who:'agent',  text:"That's Victor two zero Alpha Lima Alpha \u2014 is that correct?"},
+    {t:24.56, who:'caller', text:"Yes."},
+    {t:28.36, who:'agent',  text:"Which garage is it \u2014 or have you got your account number?"},
+    {t:31.09, who:'caller', text:"It's the ReceptionMate branch."},
+    {t:43.02, who:'agent',  text:"Starting with the front brake pads \u2014 Comline at forty-six ninety, Bosch at sixty-two forty, or Brembo at seventy-four fifty, all plus VAT for the pair. Which would you like?"},
+    {t:45.44, who:'caller', text:"Bosch, please."},
+    {t:53.33, who:'agent',  text:"For the drop link, I've got Moog at twenty-eight ninety or Delphi at thirty-two fifty, plus VAT. Which brand do you want?"},
+    {t:56.66, who:'caller', text:"Delphi, please."},
+    {t:58.03, who:'agent',  text:"Do you want discs as well?"},
+    {t:61.04, who:'caller', text:"No, thank you."},
+    {t:65.21, who:'agent',  text:"Will this be collected from the counter, or delivered on the van?"},
+    {t:67.59, who:'caller', text:"Delivered on the van, please."},
+    {t:78.71, who:'agent',  text:"That's Bosch front brake pads and a Delphi drop link, on the van for you. Total is one hundred and six pounds eighty, order number Echo-Charlie four eight one zero nine. Anything else for you today?"},
+    {t:80.79, who:'caller', text:"That's it, thank you."},
+    {t:85.26, who:'agent',  text:"Thank you for calling LKQ. Have a good day. Goodbye."},
+  ];
 
-  function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
-  function startTimer(){ secs=0; ctimer.innerHTML='<span class="live"></span>'+fmt(0);
-    tick=setInterval(()=>{ secs++; ctimer.innerHTML='<span class="live"></span>'+fmt(secs); },1000); }
-  function stopTimer(){ if(tick){clearInterval(tick);tick=null;} }
+  function fmt(s){ s=Math.max(0,Math.floor(s||0)); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
 
   function setSpeaking(who){
-    if(!who){ wave.className='wave'; chead.classList.remove('speaking'); clabel.textContent='…'; return; }
+    if(!who){ wave.className='wave'; chead.classList.remove('speaking'); return; }
     wave.className='wave active '+who;
     chead.classList.toggle('speaking', who==='agent');
     clabel.textContent = who==='agent' ? 'LKQ Parts speaking' : 'Caller speaking';
   }
   function addTurn(m){
     const el=document.createElement('div'); el.className='tturn '+m.who;
-    el.innerHTML='<span class="who">'+NAME[m.who]+'</span>'+m.t;
+    const who=document.createElement('span'); who.className='who'; who.textContent=NAME[m.who];
+    el.appendChild(who); el.appendChild(document.createTextNode(m.text));
     ctrans.appendChild(el);
     while(ctrans.children.length>7) ctrans.removeChild(ctrans.firstChild);
   }
+  function curIndex(ct){ let idx=-1; for(let i=0;i<TURNS.length;i++){ if(TURNS[i].t<=ct) idx=i; else break; } return idx; }
 
-  function run(){
-    clearAll(); stopTimer(); ctrans.innerHTML=''; replay.style.display='none';
-    ctimer.textContent='Incoming call…'; clabel.textContent='Connecting…';
-    wave.className='wave'; chead.classList.add('speaking'); // ringing pulse
-    const thread=SCENARIOS[current].thread;
-    let clock=1300;
-    t(()=>{ chead.classList.remove('speaking'); startTimer(); clabel.textContent='Connected'; },clock);
-    clock=1900;
-    thread.forEach((m)=>{
-      const dur=Math.min(2700, 650+m.t.length*17);
-      t(()=>setSpeaking(m.who), clock);
-      t(()=>addTurn(m), clock+dur);
-      t(()=>setSpeaking(null), clock+dur+150);
-      clock+=dur+750;
-    });
-    t(()=>{ stopTimer(); setSpeaking(null); clabel.textContent='Order booked ✓'; ctimer.innerHTML='Call ended · '+fmt(secs); },clock+200);
-    if (IS_EMBED) {
-      t(run, clock + 4200);
-    } else {
-      t(()=>{replay.style.display='inline-flex';},clock+700);
-    }
-  }
+  let shown=0;
+  function reset(){ ctrans.innerHTML=''; shown=0; setSpeaking(null); clabel.textContent='Tap play to hear the call'; ctimer.textContent='Recorded call'; }
 
-  function switchTo(key){
-    if(!SCENARIOS[key]) return;
-    current=key;
-    const s=SCENARIOS[key];
-    pillText.textContent=s.pill;
-    hTitle.innerHTML=s.title;
-    hSub.innerHTML=s.sub;
-    csub.textContent=s.csub;
-    document.querySelectorAll('#tabs button').forEach(b=>{
-      b.classList.toggle('active', b.dataset.s===key);
-    });
-    run();
-  }
-
-  document.getElementById('tabs').addEventListener('click',(e)=>{
-    const btn=e.target.closest('button');
-    if(btn) switchTo(btn.dataset.s);
+  audio.addEventListener('timeupdate', ()=>{
+    const ct=audio.currentTime;
+    ctimer.innerHTML='<span class="live"></span>'+fmt(ct);
+    while(shown<TURNS.length && TURNS[shown].t<=ct){ addTurn(TURNS[shown]); shown++; }
+    const idx=curIndex(ct);
+    if(ct < TURNS[0].t){ setSpeaking(null); clabel.textContent='Connecting\u2026'; }
+    else setSpeaking(idx>=0 ? TURNS[idx].who : null);
   });
-  replay.addEventListener('click',run);
-  switchTo('order');
+  audio.addEventListener('ended', ()=>{
+    setSpeaking(null); clabel.textContent='Order booked \u2713';
+    ctimer.innerHTML='Call ended \u00b7 '+fmt(audio.duration);
+    replay.style.display='inline-flex';
+    playbtn.classList.remove('hidden'); playhint.classList.remove('hidden'); playhint.textContent='Play again';
+  });
+
+  function play(){
+    ctrans.innerHTML=''; shown=0; setSpeaking(null);
+    playbtn.classList.add('hidden'); playhint.classList.add('hidden');
+    replay.style.display='none';
+    clabel.textContent='Connecting\u2026'; ctimer.innerHTML='<span class="live"></span>00:00';
+    try{ audio.currentTime=0; }catch(e){}
+    audio.play().catch(()=>{ playbtn.classList.remove('hidden'); playhint.classList.remove('hidden'); });
+  }
+  playbtn.addEventListener('click', play);
+  replay.addEventListener('click', play);
+  reset();
   setTimeout(postHeight, 400);
 </script>
 </body>

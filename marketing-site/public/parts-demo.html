@@ -406,25 +406,28 @@
   }
   function trim(){while(chat.children.length>8){chat.removeChild(chat.firstChild);} }
 
+  // Pacing — deliberately unhurried so you can talk over each reply as it lands.
+  // Bump readGap (pause after each message) to slow it further.
+  const PACE = { startDelay:1100, readGap:2800, outLead:1500, typeMin:900, typePerChar:22, typeMax:3400 };
   function run(){
     clearAll();chat.innerHTML='';waStatus.textContent=UI.online;replay.style.display='none';
     addEncryption();
     const thread=SCENARIOS[current].thread;
-    let clock=900;
+    let clock=PACE.startDelay;
     thread.forEach((m)=>{
       if(m.who==='in'){
         t(()=>{waStatus.textContent=UI.typing;typing();},clock);
-        clock+=Math.min(2400, 700+m.t.length*20);
+        clock+=Math.min(PACE.typeMax, PACE.typeMin+m.t.length*PACE.typePerChar);
         t(()=>{rmTyping();waStatus.textContent=UI.online;bubble(m);},clock);
-        clock+=900;
+        clock+=PACE.readGap;
       }else{
-        clock+=700;
+        clock+=PACE.outLead;
         t(()=>bubble(m),clock);
-        clock+=900;
+        clock+=PACE.readGap;
       }
     });
     if (IS_EMBED) {
-      t(run, clock + 3500);
+      t(run, clock + 4500);
     } else {
       t(()=>{replay.style.display='inline-flex';},clock+400);
     }

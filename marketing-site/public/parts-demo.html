@@ -139,6 +139,53 @@
     .feats{width:min(360px,90vw);}
   }
 
+  /* ---- Voice-agent scenario: real recorded call over a call-screen UI ---- */
+  .screen.voice{background:radial-gradient(120% 80% at 50% -10%, #2a2196 0%, #1d1a72 42%, #13104a 78%, #0d0b33 100%);}
+  .screen.voice .wa-top,.screen.voice .chat,.screen.voice .wa-input{display:none;}
+  .voicecall{display:none;position:absolute;inset:0;flex-direction:column;height:100%;padding:52px 16px 14px;color:#fff;z-index:20;}
+  .screen.voice .voicecall{display:flex;}
+  .vstatus{position:absolute;top:0;left:0;right:0;z-index:30;display:flex;justify-content:space-between;align-items:center;
+    color:#fff;font-size:12.5px;font-weight:600;padding:14px 22px 0;height:40px;}
+  .vstatus .r{display:flex;gap:6px;align-items:center;} .vstatus svg{fill:#fff;}
+  .chead{display:flex;flex-direction:column;align-items:center;text-align:center;flex-shrink:0;}
+  .cav-wrap{position:relative;width:66px;height:66px;margin-bottom:12px;}
+  .cav{position:absolute;inset:0;border-radius:50%;background:#fff;overflow:hidden;display:grid;place-items:center;box-shadow:0 6px 18px rgba(0,0,0,.35);z-index:2;}
+  .cav img{width:82%;height:82%;object-fit:contain;display:block;}
+  .cav-ring{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(145,154,246,.85);opacity:0;z-index:1;}
+  .chead.speaking .cav-ring{animation:ring 1.4s ease-out infinite;}
+  @keyframes ring{0%{opacity:.7;transform:scale(1);}100%{opacity:0;transform:scale(1.9);}}
+  .cname{font-size:20px;font-weight:700;letter-spacing:-.02em;}
+  .csub{font-size:12px;color:rgba(255,255,255,.55);margin-top:3px;}
+  .ctimer{margin-top:9px;font-size:13px;font-weight:600;color:rgba(255,255,255,.9);display:inline-flex;align-items:center;gap:6px;height:18px;font-variant-numeric:tabular-nums;}
+  .ctimer .live{width:7px;height:7px;border-radius:50%;background:#34d399;animation:blip 1.6s infinite;}
+  @keyframes blip{0%{box-shadow:0 0 0 0 rgba(52,211,153,.5);}70%{box-shadow:0 0 0 6px rgba(52,211,153,0);}100%{box-shadow:0 0 0 0 rgba(52,211,153,0);}}
+  .cspeak{display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:14px;flex-shrink:0;height:56px;justify-content:center;}
+  .clabel{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.5);transition:.2s;height:14px;}
+  .wave{display:flex;align-items:center;gap:3px;height:26px;}
+  .wave i{width:3px;height:22px;border-radius:2px;background:rgba(255,255,255,.22);transform:scaleY(.32);transform-origin:center;transition:background .2s;}
+  .wave.active i{animation:wv .7s ease-in-out infinite;}
+  .wave.active.agent i{background:#919af6;} .wave.active.caller i{background:rgba(255,255,255,.75);}
+  @keyframes wv{0%,100%{transform:scaleY(.3);}50%{transform:scaleY(1);}}
+  .ctrans{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;gap:7px;padding:12px 2px 6px;overflow:hidden;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 26px);mask-image:linear-gradient(to bottom,transparent,#000 26px);}
+  .tturn{max-width:88%;padding:8px 11px 9px;border-radius:13px;font-size:13px;line-height:1.42;opacity:0;transform:translateY(8px) scale(.98);animation:vpop .32s cubic-bezier(.2,.8,.3,1) forwards;}
+  @keyframes vpop{to{opacity:1;transform:translateY(0) scale(1);}}
+  .tturn .who{display:block;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px;}
+  .tturn.agent{align-self:flex-start;background:rgba(100,112,237,.24);border:1px solid rgba(145,154,246,.32);color:#eef0fe;border-bottom-left-radius:4px;}
+  .tturn.agent .who{color:#bcc1fa;}
+  .tturn.caller{align-self:flex-end;background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.16);color:#f4f6ff;border-bottom-right-radius:4px;}
+  .tturn.caller .who{color:rgba(255,255,255,.6);}
+  .cctrls{display:grid;grid-template-columns:repeat(4,1fr);gap:12px 8px;padding:10px 10px 4px;flex-shrink:0;}
+  .cbtn{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;color:rgba(255,255,255,.7);}
+  .cbtn .ic{width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.13);display:grid;place-items:center;}
+  .cbtn .ic svg{width:22px;height:22px;fill:#fff;opacity:.92;}
+  .cbtn.end{grid-column:2 / span 2;flex-direction:row;justify-content:center;} .cbtn.end .ic{background:#ef4444;box-shadow:0 6px 16px rgba(239,68,68,.4);}
+  .playbtn{position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);z-index:35;width:78px;height:78px;border-radius:50%;border:none;cursor:pointer;background:rgba(255,255,255,.16);box-shadow:0 10px 34px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.28) inset;display:grid;place-items:center;transition:.15s;animation:pbpulse 2.2s ease-out infinite;}
+  .playbtn:hover{background:rgba(255,255,255,.28);} .playbtn svg{width:34px;height:34px;fill:#fff;margin-left:5px;}
+  .playbtn.hidden{display:none;animation:none;}
+  @keyframes pbpulse{0%{box-shadow:0 10px 34px rgba(0,0,0,.4),0 0 0 0 rgba(255,255,255,.4);}70%{box-shadow:0 10px 34px rgba(0,0,0,.4),0 0 0 18px rgba(255,255,255,0);}100%{box-shadow:0 10px 34px rgba(0,0,0,.4),0 0 0 0 rgba(255,255,255,0);}}
+  .playhint{position:absolute;top:calc(52% + 58px);left:50%;transform:translateX(-50%);z-index:35;color:rgba(255,255,255,.8);font-size:12px;font-weight:600;white-space:nowrap;}
+  .playhint.hidden{display:none;}
+
   body.embed{min-height:0;padding:20px 12px 26px;gap:14px;background:transparent;}
   body.embed .blob{display:none;}
   body.embed .hdr,
@@ -166,6 +213,7 @@
     <div class="tabs" id="tabs">
       <button data-s="order" class="active">Parts order + delivery</button>
       <button data-s="lookup">Reg lookup + stock check</button>
+      <button data-s="voice">Voice agent</button>
     </div>
   </div>
 
@@ -216,6 +264,35 @@
         <div class="send"><svg viewBox="0 0 24 24"><path d="M3 20l18-8L3 4v6l12 2-12 2z"/></svg></div>
       </div>
 
+      <div class="voicecall" id="voicecall">
+        <div class="vstatus">
+          <span id="vclock">9:41</span>
+          <span class="r">
+            <svg viewBox="0 0 18 12" width="16" height="12"><rect x="0" y="7" width="2.6" height="5" rx=".6"/><rect x="4" y="5" width="2.6" height="7" rx=".6"/><rect x="8" y="2.6" width="2.6" height="9.4" rx=".6"/><rect x="12" y="0" width="2.6" height="12" rx=".6"/></svg>
+            <svg viewBox="0 0 18 12" width="16" height="12"><path d="M9 2c2.2 0 4.2.9 5.7 2.3l-1.3 1.3A6 6 0 009 4a6 6 0 00-4.4 1.9L3.3 4.3A8 8 0 019 2z"/><circle cx="9" cy="9.3" r="1.5"/></svg>
+            <svg viewBox="0 0 26 12" width="24" height="12"><rect x="1" y="1" width="21" height="10" rx="3" fill="none" stroke="#fff" stroke-opacity=".55"/><rect x="2.5" y="2.5" width="17.5" height="7" rx="1.5"/><rect x="23.2" y="4" width="2" height="4" rx="1" fill-opacity=".55"/></svg>
+          </span>
+        </div>
+        <div class="chead" id="chead">
+          <div class="cav-wrap"><div class="cav-ring"></div><div class="cav"><img alt="LKQ"></div></div>
+          <div class="cname">LKQ Parts</div>
+          <div class="csub">trade parts line</div>
+          <div class="ctimer" id="ctimer">Recorded call</div>
+        </div>
+        <div class="cspeak"><span class="clabel" id="clabel">Tap play to hear the call</span><div class="wave" id="wave"></div></div>
+        <div class="ctrans" id="ctrans"></div>
+        <div class="cctrls">
+          <div class="cbtn"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3zm5-3a5 5 0 01-10 0H5a7 7 0 006 6.9V21h2v-2.1A7 7 0 0019 12h-2z"/></svg></span>mute</div>
+          <div class="cbtn"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="5" cy="5" r="1.6"/><circle cx="12" cy="5" r="1.6"/><circle cx="19" cy="5" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="19" r="1.6"/><circle cx="12" cy="19" r="1.6"/><circle cx="19" cy="19" r="1.6"/></svg></span>keypad</div>
+          <div class="cbtn"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9H4zm12.5 3a4.5 4.5 0 00-2.5-4v8a4.5 4.5 0 002.5-4zM14 2.2v2.1a7 7 0 010 15.4v2.1a9 9 0 000-19.6z"/></svg></span>speaker</div>
+          <div class="cbtn"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 12a5 5 0 10-5-5 5 5 0 005 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5zm7-9v2h-2v2h2v2h2V9h2V7h-2V5z"/></svg></span>add</div>
+          <div class="cbtn end"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 9c-2.4 0-4.7.4-6.8 1.1-.6.2-1 .8-1 1.4v2.3c0 .5.4 1 .9 1 .2 0 .4-.1.6-.2l2.6-1.7c.3-.2.5-.5.5-.9v-1.4c1.5-.4 3-.5 3.7-.5s2.2.1 3.7.5v1.4c0 .4.2.7.5.9l2.6 1.7c.2.1.4.2.6.2.5 0 .9-.5.9-1v-2.3c0-.6-.4-1.2-1-1.4C16.7 9.4 14.4 9 12 9z" transform="rotate(135 12 12)"/></svg></span></div>
+        </div>
+        <button class="playbtn" id="playbtn" aria-label="Play the recorded call"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+        <div class="playhint" id="playhint">Play the recorded call</div>
+      </div>
+      <audio id="callAudio" preload="auto" src="voice-demo-call.mp3"></audio>
+
     </div>
   </div>
 
@@ -253,7 +330,9 @@
   window.addEventListener('resize', postHeight);
 
   function setClock(){const d=new Date();let h=d.getHours(),m=d.getMinutes();const hh=((h+11)%12)+1;
-    document.getElementById('clock').textContent=hh+':'+String(m).padStart(2,'0');}
+    const t=hh+':'+String(m).padStart(2,'0');
+    const a=document.getElementById('clock'); if(a) a.textContent=t;
+    const b=document.getElementById('vclock'); if(b) b.textContent=t;}
   setClock();setInterval(setClock,30000);
 
   const chat=document.getElementById('chat');
@@ -296,6 +375,12 @@
         {who:'out',t:"Stick it on the van 👍", at:"14:14"},
         {who:'in', t:"Sorted ✅ Order <b>#EC-48260</b> — INA timing belt + water pump kit, £96.20 + VAT, on the next van to Millbrook Motors, with you inside the hour. I'll ping you when it's close.", at:"14:15"},
       ],
+    },
+    voice: {
+      pill:"Real recorded call · voice agent",
+      title:"The same agent, on the phone — hear a <em>real call</em>.",
+      sub:"Press play: an actual recorded call to ReceptionMate's voice agent. Same job as the chat — it reads the reg, quotes a few brands, offers the related line and books it onto the van. No script, no edits.",
+      voice:true,
     },
   };
 
@@ -345,6 +430,79 @@
     }
   }
 
+  // ---- Voice-agent scenario: real recorded call (ReceptionMate Demo, cmrud438i028vq3jzlbroupi2) ----
+  const screenEl=document.querySelector('.screen');
+  const audio=document.getElementById('callAudio');
+  const wave=document.getElementById('wave');
+  const chead=document.getElementById('chead');
+  const clabel=document.getElementById('clabel');
+  const ctimer=document.getElementById('ctimer');
+  const ctrans=document.getElementById('ctrans');
+  const playbtn=document.getElementById('playbtn');
+  const playhint=document.getElementById('playhint');
+  // waveform bars
+  (function(){ let html=''; for(let i=0;i<22;i++){ const h=(10+Math.round(Math.random()*16)); const d=(Math.random()*0.6).toFixed(2);
+    html+=`<i style="height:${h}px;animation-delay:${d}s"></i>`; } wave.innerHTML=html; })();
+  // reuse the LKQ wordmark from the WhatsApp avatar for the call avatar
+  (function(){ const s=document.querySelector('.wa-av img'), c=document.querySelector('#voicecall .cav img'); if(s&&c) c.src=s.src; })();
+
+  const VNAME={agent:'LKQ Parts',caller:'Caller'};
+  // timestamps = per-turn offsets logged with the transcript; lead them a little (caller lines are
+  // logged when speech-to-text finalises, i.e. after they finish) so captions don't lag the audio.
+  const LEAD={agent:0.5,caller:1.4};
+  const TURNS=[
+    {t:4.51,  who:'agent',  text:"Good morning, thanks for calling LKQ, Sophie speaking — how can I help?"},
+    {t:9.9,   who:'caller', text:"I need to order a set of front brake pads and a drop link for an Evoque."},
+    {t:14.77, who:'agent',  text:"Sure, I can help with that. Could you give me the vehicle registration for the Evoque?"},
+    {t:18.61, who:'caller', text:"V — two — zero — A — L — A."},
+    {t:22.4,  who:'agent',  text:"That's Victor two zero Alpha Lima Alpha — is that correct?"},
+    {t:24.56, who:'caller', text:"Yes."},
+    {t:28.36, who:'agent',  text:"Which garage is it — or have you got your account number?"},
+    {t:31.09, who:'caller', text:"It's the ReceptionMate branch."},
+    {t:43.02, who:'agent',  text:"Starting with the front brake pads — Comline at forty-six ninety, Bosch at sixty-two forty, or Brembo at seventy-four fifty, all plus VAT for the pair. Which would you like?"},
+    {t:45.44, who:'caller', text:"Bosch, please."},
+    {t:53.33, who:'agent',  text:"For the drop link, I've got Moog at twenty-eight ninety or Delphi at thirty-two fifty, plus VAT. Which brand do you want?"},
+    {t:56.66, who:'caller', text:"Delphi, please."},
+    {t:58.03, who:'agent',  text:"Do you want discs as well?"},
+    {t:61.04, who:'caller', text:"No, thank you."},
+    {t:65.21, who:'agent',  text:"Will this be collected from the counter, or delivered on the van?"},
+    {t:67.59, who:'caller', text:"Delivered on the van, please."},
+    {t:78.71, who:'agent',  text:"That's Bosch front brake pads and a Delphi drop link, on the van for you. Total is one hundred and six pounds eighty, order number Echo-Charlie four eight one zero nine. Anything else for you today?"},
+    {t:80.79, who:'caller', text:"That's it, thank you."},
+    {t:85.26, who:'agent',  text:"Thank you for calling LKQ. Have a good day. Goodbye."},
+  ];
+  const vcue=(m)=>m.t-LEAD[m.who];
+  function vfmt(s){s=Math.max(0,Math.floor(s||0));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+  function vsetSpeaking(who){ if(!who){wave.className='wave';chead.classList.remove('speaking');return;}
+    wave.className='wave active '+who; chead.classList.toggle('speaking',who==='agent');
+    clabel.textContent=who==='agent'?'LKQ Parts speaking':'Caller speaking'; }
+  function vaddTurn(m){ const el=document.createElement('div');el.className='tturn '+m.who;
+    const w=document.createElement('span');w.className='who';w.textContent=VNAME[m.who];
+    el.appendChild(w);el.appendChild(document.createTextNode(m.text)); ctrans.appendChild(el);
+    while(ctrans.children.length>7)ctrans.removeChild(ctrans.firstChild); }
+  function vcurIndex(ct){let idx=-1;for(let i=0;i<TURNS.length;i++){if(vcue(TURNS[i])<=ct)idx=i;else break;}return idx;}
+  let vshown=0;
+  function voiceReset(){ ctrans.innerHTML='';vshown=0;vsetSpeaking(null);
+    clabel.textContent='Tap play to hear the call';ctimer.textContent='Recorded call';
+    playbtn.classList.remove('hidden');playhint.classList.remove('hidden');playhint.textContent='Play the recorded call';
+    try{audio.pause();audio.currentTime=0;}catch(e){} }
+  function stopVoice(){ try{audio.pause();audio.currentTime=0;}catch(e){} vshown=0; }
+  audio.addEventListener('timeupdate',()=>{ if(audio.paused) return; const ct=audio.currentTime;
+    ctimer.innerHTML='<span class="live"></span>'+vfmt(ct);
+    while(vshown<TURNS.length&&vcue(TURNS[vshown])<=ct){vaddTurn(TURNS[vshown]);vshown++;}
+    const idx=vcurIndex(ct);
+    if(ct<vcue(TURNS[0])){vsetSpeaking(null);clabel.textContent='Connecting…';}
+    else vsetSpeaking(idx>=0?TURNS[idx].who:null); });
+  audio.addEventListener('ended',()=>{ vsetSpeaking(null);clabel.textContent='Order booked ✓';
+    ctimer.innerHTML='Call ended · '+vfmt(audio.duration);
+    playbtn.classList.remove('hidden');playhint.classList.remove('hidden');playhint.textContent='Play again'; });
+  function voicePlay(){ ctrans.innerHTML='';vshown=0;vsetSpeaking(null);
+    playbtn.classList.add('hidden');playhint.classList.add('hidden');
+    clabel.textContent='Connecting…';ctimer.innerHTML='<span class="live"></span>00:00';
+    try{audio.currentTime=0;}catch(e){}
+    audio.play().catch(()=>{playbtn.classList.remove('hidden');playhint.classList.remove('hidden');}); }
+  playbtn.addEventListener('click',voicePlay);
+
   function switchTo(key){
     if(!SCENARIOS[key]) return;
     current=key;
@@ -355,7 +513,17 @@
     document.querySelectorAll('#tabs button').forEach(b=>{
       b.classList.toggle('active', b.dataset.s===key);
     });
-    run();
+    if(s.voice){
+      clearAll();                      // stop the chat engine
+      screenEl.classList.add('voice');
+      replay.style.display='none';
+      voiceReset();
+    } else {
+      stopVoice();
+      screenEl.classList.remove('voice');
+      run();
+    }
+    setTimeout(postHeight, 300);
   }
 
   document.getElementById('tabs').addEventListener('click',(e)=>{
@@ -364,7 +532,7 @@
   });
   waStatus.textContent=UI.online;
   replay.addEventListener('click',run);
-  switchTo('order');
+  switchTo(ONLY && SCENARIOS[ONLY] ? ONLY : 'order');
   setTimeout(postHeight, 400);
 </script>
 </body>

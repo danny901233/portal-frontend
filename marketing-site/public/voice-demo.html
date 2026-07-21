@@ -279,8 +279,8 @@
   const NAME = { agent:'LKQ Parts', caller:'Caller' };
   const TURNS = [
     {t:4.51,  who:'agent',  text:"Good morning, thanks for calling LKQ, Sophie speaking \u2014 how can I help?"},
-    {t:9.9,   who:'caller', text:"I need to order a set of front brake pads and a drop link for an Evoke."},
-    {t:14.77, who:'agent',  text:"Sure, I can help with that. Could you give me the vehicle registration for the Evoke?"},
+    {t:9.9,   who:'caller', text:"I need to order a set of front brake pads and a drop link for an Evoque."},
+    {t:14.77, who:'agent',  text:"Sure, I can help with that. Could you give me the vehicle registration for the Evoque?"},
     {t:18.61, who:'caller', text:"V \u2014 two \u2014 zero \u2014 A \u2014 L \u2014 A."},
     {t:22.4,  who:'agent',  text:"That's Victor two zero Alpha Lima Alpha \u2014 is that correct?"},
     {t:24.56, who:'caller', text:"Yes."},
@@ -314,7 +314,12 @@
     ctrans.appendChild(el);
     while(ctrans.children.length>7) ctrans.removeChild(ctrans.firstChild);
   }
-  function curIndex(ct){ let idx=-1; for(let i=0;i<TURNS.length;i++){ if(TURNS[i].t<=ct) idx=i; else break; } return idx; }
+  // Transcript timestamps are when each turn was LOGGED \u2014 for the caller that's when speech-to-text
+  // finalises (i.e. AFTER they finish talking), so show lines a little early. Bigger lead for caller
+  // turns than agent turns. Tune these two numbers if it still feels off.
+  const LEAD = { agent:0.5, caller:1.4 };
+  const cue = (m)=> m.t - LEAD[m.who];
+  function curIndex(ct){ let idx=-1; for(let i=0;i<TURNS.length;i++){ if(cue(TURNS[i])<=ct) idx=i; else break; } return idx; }
 
   let shown=0;
   function reset(){ ctrans.innerHTML=''; shown=0; setSpeaking(null); clabel.textContent='Tap play to hear the call'; ctimer.textContent='Recorded call'; }
@@ -322,9 +327,9 @@
   audio.addEventListener('timeupdate', ()=>{
     const ct=audio.currentTime;
     ctimer.innerHTML='<span class="live"></span>'+fmt(ct);
-    while(shown<TURNS.length && TURNS[shown].t<=ct){ addTurn(TURNS[shown]); shown++; }
+    while(shown<TURNS.length && cue(TURNS[shown])<=ct){ addTurn(TURNS[shown]); shown++; }
     const idx=curIndex(ct);
-    if(ct < TURNS[0].t){ setSpeaking(null); clabel.textContent='Connecting\u2026'; }
+    if(ct < cue(TURNS[0])){ setSpeaking(null); clabel.textContent='Connecting\u2026'; }
     else setSpeaking(idx>=0 ? TURNS[idx].who : null);
   });
   audio.addEventListener('ended', ()=>{

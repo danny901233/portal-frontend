@@ -322,7 +322,8 @@ async function provisionBranchTwilio(opts: { garageId: string; garageName: strin
   const agentName = opts.agentScript === 'tyresoft-agent' ? 'tyresoft-agent'
     : opts.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3'
       : opts.agentScript === 'MMH-agent' ? 'MMH-agent'
-        : 'receptionmate-agent';
+        : opts.agentScript === 'bookar-agent' ? 'bookar-agent'
+          : 'receptionmate-agent';
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (process.env.ONBOARDING_SECRET) headers['x-onboarding-secret'] = process.env.ONBOARDING_SECRET;
   const resp = await fetch(`${onboardingUrl}/provision`, {
@@ -943,7 +944,9 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
             ? 'receptionmate-agent-v3'
             : agentConfig?.agentScript === 'MMH-agent'
               ? 'MMH-agent'
-              : 'receptionmate-agent';
+              : agentConfig?.agentScript === 'bookar-agent'
+                ? 'bookar-agent'
+                : 'receptionmate-agent';
       const onboardingSecret = process.env.ONBOARDING_SECRET;
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };

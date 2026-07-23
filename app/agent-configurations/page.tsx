@@ -256,7 +256,7 @@ const buildAgentTypeOptions = (lang: 'en' | 'fr'): AgentTypeOption[] =>
         { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
       ];
 
-type AgentScriptOption = { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent'; label: string; description: string };
+type AgentScriptOption = { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent'; label: string; description: string };
 const buildAgentScriptOptions = (lang: 'en' | 'fr'): AgentScriptOption[] =>
   lang === 'fr'
     ? [
@@ -266,6 +266,7 @@ const buildAgentScriptOptions = (lang: 'en' | 'fr'): AgentScriptOption[] =>
         { value: 'Assist-agent', label: 'RMB-Assist (Compte 2)', description: 'Nouvel agent en mode assist sur le deuxième compte LiveKit Cloud — prise de message uniquement, voix ElevenLabs, prend en charge customRules + dataCollectionFields par garage' },
         { value: 'GarageHive-agent', label: 'RMB-GarageHive', description: 'Nouvel agent de réservation + prise de message GarageHive sur le deuxième compte LiveKit Cloud — flux de réservation complet, voix ElevenLabs, prend en charge customRules + dataCollectionFields par garage' },
         { value: 'MMH-agent', label: 'Agent MMH (Midlands Motorhome Hire)', description: "Agent de réservation de location de camping-cars (Outdoorsy/Wheelbase) sur le projet LiveKit new-gh-agent. Route via LIVEKIT_SIP_DOMAIN_MMH — n'utilisez pas le provisionnement SIP standard pour ce garage." },
+        { value: 'bookar-agent', label: 'Agent Bookar (Vitara Commerce)', description: "Agent de prise de rendez-vous pour les garages utilisant Bookar (système de gestion Vitara Commerce). Sur le projet LiveKit dédié « bookar deploy » — flux de réservation complet via l'API Partner de Bookar. Route via LIVEKIT_SIP_DOMAIN_BOOKAR — n'utilisez pas le provisionnement SIP standard." },
       ]
     : [
         { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
@@ -274,6 +275,7 @@ const buildAgentScriptOptions = (lang: 'en' | 'fr'): AgentScriptOption[] =>
         { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on the second LiveKit Cloud account — message-taking only, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
         { value: 'GarageHive-agent', label: 'RMB-GarageHive', description: 'New GarageHive booking + take-message agent on the second LiveKit Cloud account — full booking flow, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
         { value: 'MMH-agent', label: 'MMH Agent (Midlands Motorhome Hire)', description: 'Dedicated motorhome-hire booking agent (Outdoorsy/Wheelbase) on the new-gh-agent LiveKit project. Routes via LIVEKIT_SIP_DOMAIN_MMH — do not use the standard SIP provisioning for this garage.' },
+        { value: 'bookar-agent', label: 'Bookar Agent (Vitara Commerce)', description: 'Garage-appointments agent for garages running Bookar (Vitara Commerce garage management). On the dedicated "bookar deploy" LiveKit project — full booking flow via Bookar Partner API. Routes via LIVEKIT_SIP_DOMAIN_BOOKAR — do not use the standard SIP provisioning for this garage.' },
       ];
 const maskSecretValue = (value: string, lang: 'en' | 'fr' = 'en') => {
   if (!value) {
@@ -2464,7 +2466,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}

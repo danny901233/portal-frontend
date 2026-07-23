@@ -272,7 +272,7 @@ export interface AgentConfiguration {
   tyresoftSettings: TyresoftSettings;
   hubspotSettings: HubspotSettings;
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
   humanEscalation?: boolean;

@@ -278,7 +278,7 @@ export const upsertAgentConfigurationSchema = z.object({
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
   agentType: z.enum(['assist', 'automate']).optional(),
-  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'Assist-agent', 'GarageHive-agent', 'MMH-agent']).optional(),
+  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'Assist-agent', 'GarageHive-agent', 'MMH-agent', 'bookar-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
   // Messaging (chat) agent settings — without these, z.object() strips them on save.

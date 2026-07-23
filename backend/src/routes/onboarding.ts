@@ -384,7 +384,9 @@ router.post('/onboarding/create-business', authenticateApiKey, async (req, res) 
             ? 'receptionmate-agent-v3'
             : agentConfig?.agentScript === 'MMH-agent'
               ? 'MMH-agent'
-              : 'receptionmate-agent';
+              : agentConfig?.agentScript === 'bookar-agent'
+                ? 'bookar-agent'
+                : 'receptionmate-agent';
 
         const response = await fetch(`${onboardingUrl}/provision`, {
           method: 'POST',

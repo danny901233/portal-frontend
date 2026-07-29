@@ -1229,6 +1229,21 @@ function buildSystemPrompt(
 
   let prompt = `You are ${who} at ${branchName}, a UK vehicle service centre. ${config.greetingLine || ''}\n\n`;
 
+  // ── Current date & time (London) — mirrors chatAgentV2 pattern ───────────
+  // Without this the LLM defaults to its training cutoff and picks past dates
+  // for "next week" queries. Same block chatAgentV2 uses at line ~3034.
+  const nowLondon = new Date().toLocaleString('en-GB', {
+    timeZone: 'Europe/London',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  prompt += `Current date and time: ${nowLondon}\n\n`;
+
   // ── Voice ─────────────────────────────────────────────────────────────
   prompt += `HOW YOU TALK — like a real person texting, NOT an essay:\n`;
   prompt += `- Keep every reply to ONE short sentence. Never a paragraph — a real person wouldn't.\n`;

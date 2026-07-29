@@ -23,10 +23,12 @@ import {
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 import {
+  cloneBookarSettings,
   cloneGarageHiveSettings,
   cloneHubspotSettings,
   cloneTyresoftSettings,
   cloneWeeklyOpeningHours,
+  createDefaultBookarSettings,
   createDefaultGarageHiveSettings,
   createDefaultHubspotSettings,
   createDefaultTyresoftSettings,
@@ -34,6 +36,7 @@ import {
 } from '../utils/types.js';
 import type {
   AgentConfigurationPayload,
+  BookarSettings,
   GarageHiveSettings,
   HubspotSettings,
   IntegrationProvider,
@@ -112,7 +115,37 @@ const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings: BookarSettings } => {
+  // Bookar agent takes priority — check agentScript first regardless of integrationProvider.
+  // Same pattern as Tyresoft (below): the chat + voice agents both read creds
+  // from integrationProviderConfig, supporting both nested { bookar: {...} }
+  // and flat { bookarClientId, ... } shapes for backward compat with any
+  // hand-edited older configs.
+  if (agentScript === 'bookar-agent') {
+    if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+      const raw = rawSettings as Record<string, unknown>;
+      const src = (typeof raw.bookar === 'object' && raw.bookar !== null && !Array.isArray(raw.bookar))
+        ? (raw.bookar as Record<string, unknown>)
+        : raw;
+      return {
+        integrationProvider: 'none',
+        garageHiveSettings: createDefaultGarageHiveSettings(),
+        tyresoftSettings: createDefaultTyresoftSettings(),
+        bookarSettings: cloneBookarSettings({
+          bookarClientId: typeof src.bookarClientId === 'string' ? src.bookarClientId : (typeof src.clientId === 'string' ? src.clientId : ''),
+          bookarClientSecret: typeof src.bookarClientSecret === 'string' ? src.bookarClientSecret : (typeof src.clientSecret === 'string' ? src.clientSecret : ''),
+          bookarApiBase: typeof src.bookarApiBase === 'string' ? src.bookarApiBase : (typeof src.apiBase === 'string' ? src.apiBase : ''),
+        }),
+      };
+    }
+    return {
+      integrationProvider: 'none',
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: createDefaultBookarSettings(),
+    };
+  }
+
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
     if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
@@ -158,12 +191,14 @@ const parseIntegrationSettings = (
           ...(typeof raw.tyreMarkupFlat === 'number' ? { tyreMarkupFlat: raw.tyreMarkupFlat } : {}),
           ...(typeof raw.tyreMarkupPercent === 'number' ? { tyreMarkupPercent: raw.tyreMarkupPercent } : {}),
         }),
+        bookarSettings: createDefaultBookarSettings(),
       };
     }
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: createDefaultBookarSettings(),
     };
   }
 
@@ -174,6 +209,7 @@ const parseIntegrationSettings = (
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: createDefaultBookarSettings(),
     };
   }
 
@@ -182,6 +218,7 @@ const parseIntegrationSettings = (
       integrationProvider: 'garage_hive',
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: createDefaultBookarSettings(),
     };
   }
 
@@ -203,6 +240,7 @@ const parseIntegrationSettings = (
       locationId: typeof ghRecord.locationId === 'string' ? ghRecord.locationId : '',
     }),
     tyresoftSettings: createDefaultTyresoftSettings(),
+    bookarSettings: createDefaultBookarSettings(),
   };
 };
 
@@ -848,6 +886,7 @@ router.put(
     });
 
     const rawTyresoft = data.tyresoftSettings ?? {};
+    const rawBookar = data.bookarSettings ?? {};
     // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
     // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
     // Build hubspot sub-object to merge into integrationProviderConfig
@@ -974,7 +1013,24 @@ router.put(
     };
 
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
+      resolvedAgentScript === 'bookar-agent' && (rawBookar.bookarClientId || rawBookar.bookarClientSecret)
+        ? {
+            // Bookar creds live at the top level of integrationProviderConfig
+            // (mirrors Tyresoft's flat shape — bookarClient.ts also supports the
+            // nested { bookar: {...} } form for hand-edited configs).
+            bookarClientId: typeof rawBookar.bookarClientId === 'string' ? rawBookar.bookarClientId.trim() : '',
+            bookarClientSecret: typeof rawBookar.bookarClientSecret === 'string' ? rawBookar.bookarClientSecret.trim() : '',
+            bookarApiBase: typeof rawBookar.bookarApiBase === 'string' ? rawBookar.bookarApiBase.trim() : '',
+            ...hubspotPayload,
+          }
+        : resolvedAgentScript === 'bookar-agent' && existingConfig?.integrationProviderConfig
+        ? {
+            // Preserve existing Bookar creds if the form arrives without them
+            // (e.g. someone edited unrelated fields — mirrors Tyresoft's pattern).
+            ...(existingConfig.integrationProviderConfig as object),
+            ...hubspotPayload,
+          }
+        : resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
             tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',

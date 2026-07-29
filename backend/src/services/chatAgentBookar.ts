@@ -1326,6 +1326,7 @@ function buildSystemPrompt(
     prompt += `HARD RULES:\n`;
     prompt += `- NEVER quote a price without a live bk_list_services call for THIS vehicle in THIS conversation.\n`;
     prompt += `- NEVER claim a booking is confirmed until bk_create_booking has returned success.\n`;
+    prompt += `- NEVER call bk_create_booking twice in one conversation. If a booking has already been created in this session (session.bookingReference is set) and the customer wants a different slot, use bk_reschedule_booking with that reference — do NOT create a second booking.\n`;
     prompt += `- NEVER re-run bk_lookup_vehicle for a VRM already captured in this session.\n`;
     prompt += `- NEVER ask for information already saved in the active session (see below).\n`;
     prompt += `- If the customer wants a service that isn't in the bk_list_services result, do NOT try to force it — use bk_take_message so a human can follow up.\n`;

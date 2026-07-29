@@ -182,6 +182,27 @@ export const createDefaultGarageHiveSettings = (): GarageHiveSettings => ({
   locationId: '',
 });
 
+// Bookar (Vitara Commerce) per-garage credentials — stored in
+// integrationProviderConfig JSONB (same field Tyresoft + GarageHive use).
+// One credential per branch: apiBase defaults to https://partners.bookar.app.
+export type BookarSettings = {
+  bookarClientId: string;
+  bookarClientSecret: string;
+  bookarApiBase: string;
+};
+
+export const createDefaultBookarSettings = (): BookarSettings => ({
+  bookarClientId: '',
+  bookarClientSecret: '',
+  bookarApiBase: '',
+});
+
+export const cloneBookarSettings = (settings?: BookarSettings | null): BookarSettings => ({
+  bookarClientId: typeof settings?.bookarClientId === 'string' ? settings.bookarClientId : '',
+  bookarClientSecret: typeof settings?.bookarClientSecret === 'string' ? settings.bookarClientSecret : '',
+  bookarApiBase: typeof settings?.bookarApiBase === 'string' ? settings.bookarApiBase : '',
+});
+
 export const cloneGarageHiveSettings = (settings?: GarageHiveSettings | null): GarageHiveSettings => ({
   instanceUrl: typeof settings?.instanceUrl === 'string' ? settings.instanceUrl : '',
   apiKey: typeof settings?.apiKey === 'string' ? settings.apiKey : '',
@@ -232,6 +253,7 @@ export type AgentConfigurationPayload = {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings?: TyresoftSettings;
+  bookarSettings?: BookarSettings;
   hubspotSettings?: HubspotSettings;
   agentType: AgentType;
   agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent';

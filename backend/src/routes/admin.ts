@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, authenticateApiKey, requireAdmin } from '../middleware/auth.js';
+import { accountForAgentScript } from '../utils/agentAccount.js';
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 import { fetchPlaceDetails, placesAutocomplete } from '../utils/googlePlaces.js';
@@ -323,7 +324,10 @@ async function provisionBranchTwilio(opts: { garageId: string; garageName: strin
     : opts.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3'
       : opts.agentScript === 'MMH-agent' ? 'MMH-agent'
         : opts.agentScript === 'bookar-agent' ? 'bookar-agent'
-          : 'receptionmate-agent';
+          : opts.agentScript === 'Assist-agent' ? 'Assist-agent'
+            : opts.agentScript === 'GarageHive-agent' ? 'GarageHive-agent'
+              : 'receptionmate-agent';
+  const account = accountForAgentScript(opts.agentScript);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (process.env.ONBOARDING_SECRET) headers['x-onboarding-secret'] = process.env.ONBOARDING_SECRET;
   const resp = await fetch(`${onboardingUrl}/provision`, {
@@ -336,6 +340,7 @@ async function provisionBranchTwilio(opts: { garageId: string; garageName: strin
       contactEmail: opts.contactEmail || undefined,
       twilioNumber: opts.twilioNumber,
       agentName,
+      account,
       triggeredAt: new Date().toISOString(),
     }),
   });
@@ -475,7 +480,7 @@ router.post('/admin/garages/:garageId/activate', authenticateApiKey, requireAdmi
 
   const onboardingEndpoint = process.env.ONBOARDING_SERVICE_URL;
   const onboardingSecret = process.env.ONBOARDING_SECRET;
-  
+
   if (!onboardingEndpoint) {
     console.warn('ONBOARDING_SERVICE_URL is not configured');
     return res.status(202).json({
@@ -484,6 +489,13 @@ router.post('/admin/garages/:garageId/activate', authenticateApiKey, requireAdmi
     });
   }
 
+  // Look up the garage's agentScript so we can tell onboarding-service which
+  // LiveKit account to provision on (Assist/GarageHive live on account2).
+  // Without this, the trunk lands on account1 by default and voice fails
+  // silently on Account 2 tenants.
+  const agentScript = garage.agentConfiguration?.agentScript ?? null;
+  const account = accountForAgentScript(agentScript);
+
   const payload = {
     garageId,
     garageName: garage.name,
@@ -491,6 +503,8 @@ router.post('/admin/garages/:garageId/activate', authenticateApiKey, requireAdmi
     contactEmail: null,
     contactPhone: null,
     twilioNumber: normalizedTwilioNumber,
+    agentName: agentScript || 'receptionmate-agent',
+    account,
     triggeredAt: new Date().toISOString(),
   };
 
@@ -946,7 +960,12 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
               ? 'MMH-agent'
               : agentConfig?.agentScript === 'bookar-agent'
                 ? 'bookar-agent'
-                : 'receptionmate-agent';
+                : agentConfig?.agentScript === 'Assist-agent'
+                  ? 'Assist-agent'
+                  : agentConfig?.agentScript === 'GarageHive-agent'
+                    ? 'GarageHive-agent'
+                    : 'receptionmate-agent';
+      const account = accountForAgentScript(agentConfig?.agentScript);
       const onboardingSecret = process.env.ONBOARDING_SECRET;
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -964,6 +983,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
           contactEmail: parsed.data.userEmail,
           twilioNumber: parsed.data.twilioNumber,
           agentName,
+          account,
           triggeredAt: new Date().toISOString(),
         }),
       });

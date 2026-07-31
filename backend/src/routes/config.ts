@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { requireManagerLive } from '../middleware/auth.js';
+import { accountForAgentScript } from '../utils/agentAccount.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import multer from 'multer';
@@ -785,6 +786,10 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
 
   try {
     const agentName = agentScript;
+    // Route to the LiveKit account this agent actually lives on. Without
+    // this, Assist/GarageHive dispatch updates land on account1 (default)
+    // instead of account2 and the dispatch rule change silently no-ops.
+    const account = accountForAgentScript(agentScript);
 
     const onboardingSecret = process.env.ONBOARDING_SECRET;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -792,7 +797,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
       headers['x-onboarding-secret'] = onboardingSecret;
     }
 
-    console.log(`[UPDATE_SIP] Updating dispatch rule for garage ${garageId} to agent: ${agentName}`);
+    console.log(`[UPDATE_SIP] Updating dispatch rule for garage ${garageId} to agent: ${agentName} on ${account}`);
 
     await fetch(`${onboardingUrl}/update-agent`, {
       method: 'POST',
@@ -800,6 +805,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
       body: JSON.stringify({
         garageId,
         agentName,
+        account,
       }),
     });
   } catch (error) {

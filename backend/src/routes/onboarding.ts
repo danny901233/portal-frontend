@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import twilio from 'twilio';
 import { prisma } from '../db.js';
 import { authenticateApiKey, authenticate } from '../middleware/auth.js';
+import { accountForAgentScript } from '../utils/agentAccount.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 import { fetchWebsiteInfo } from '../utils/scraper.js';
 import type { Prisma } from '@prisma/client';
@@ -386,7 +387,12 @@ router.post('/onboarding/create-business', authenticateApiKey, async (req, res) 
               ? 'MMH-agent'
               : agentConfig?.agentScript === 'bookar-agent'
                 ? 'bookar-agent'
-                : 'receptionmate-agent';
+                : agentConfig?.agentScript === 'Assist-agent'
+                  ? 'Assist-agent'
+                  : agentConfig?.agentScript === 'GarageHive-agent'
+                    ? 'GarageHive-agent'
+                    : 'receptionmate-agent';
+        const account = accountForAgentScript(agentConfig?.agentScript);
 
         const response = await fetch(`${onboardingUrl}/provision`, {
           method: 'POST',
@@ -398,6 +404,7 @@ router.post('/onboarding/create-business', authenticateApiKey, async (req, res) 
             contactEmail,
             twilioNumber,
             agentName,
+            account,
             triggeredAt: new Date().toISOString(),
           }),
         });
@@ -592,7 +599,12 @@ router.post('/onboarding/complete', authenticateApiKey, async (req, res) => {
             branchName: branchData.name,
             contactEmail: userData.email,
             twilioNumber,
+            // Public signup flow only ever creates default-script garages
+            // (customers pick their agent later via the portal). Default =
+            // 'receptionmate-agent' which lives on account1, so no account
+            // override needed here. Left explicit for clarity.
             agentName: 'receptionmate-agent',
+            account: 'account1' as const,
             triggeredAt: new Date().toISOString(),
           }),
         });

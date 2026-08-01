@@ -281,10 +281,16 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               // We seed only what the reminder actually told us. Bookar's bk_lookup_vehicle
               // will fill in make/model on the first tool call; leaving vehicle undefined
               // lets it do that.
+              //
+              // customerPhone is deliberately NOT seeded from outboundContact.phone —
+              // Bookar's booking API rejects phones >11 digits (no E.164/international
+              // support). outboundContact.phone can be any format (E.164 with '+',
+              // country-code-prefixed, UK 07... etc). Leaving it empty forces the agent
+              // to ask + validate via bk_save_customer_details before bk_create_booking,
+              // which is the only path guaranteed to yield a phone Bookar accepts.
               seedPayload = {
                 ...(reg && { vrm: reg }),
                 customerName: outboundContact.customerName || '',
-                customerPhone: outboundContact.phone || '',
                 customerEmail: '',
                 selectedServiceIds: [],
                 bookingConfirmed: false,

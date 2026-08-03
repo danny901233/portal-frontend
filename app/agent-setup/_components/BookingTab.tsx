@@ -36,11 +36,15 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       fastFitHint:
         'If on, the agent only offers quick services (tyres, oil, basics) — full diagnostic / engine work is escalated.',
       callerRecLabel: 'Caller recognition',
-      callerRecHint:
+      callerRecHintGH:
         'On an inbound call, look the caller’s number up in Garage Hive and confirm the vehicle on file (“is it still the Focus?”) instead of asking for the reg. Needs Garage Hive connected.',
+      callerRecHintBookar:
+        'On an inbound call, look the caller’s number up in Bookar and greet them by name if they’re a returning customer. Needs the caller’s number on file in Bookar.',
       advisoryLabel: 'Advisory upsells',
-      advisoryHint:
+      advisoryHintGH:
         'When a customer books, the agent checks Garage Hive for outstanding health-check advisories on their vehicle and offers to add them. Needs Garage Hive connected.',
+      advisoryHintBookar:
+        'When a customer books, the agent checks Bookar for outstanding health-check advisories on their vehicle and offers to add them to the same visit. Needs advisories recorded against the vehicle in Bookar.',
     },
     fr: {
       title: 'Comportement de réservation',
@@ -65,11 +69,15 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       fastFitHint:
         "Si activé, l'agent ne propose que des prestations rapides (pneus, vidange, entretien de base) — les diagnostics complets / travaux moteur sont escaladés.",
       callerRecLabel: "Reconnaissance de l'appelant",
-      callerRecHint:
+      callerRecHintGH:
         "Lors d'un appel entrant, rechercher le numéro de l'appelant dans Garage Hive et confirmer le véhicule au dossier (« est-ce toujours la Focus ? ») au lieu de demander l'immatriculation. Nécessite Garage Hive connecté.",
+      callerRecHintBookar:
+        "Lors d'un appel entrant, rechercher le numéro de l'appelant dans Bookar et le saluer par son nom s'il s'agit d'un client existant. Nécessite le numéro de l'appelant enregistré dans Bookar.",
       advisoryLabel: 'Ventes additionnelles de recommandations',
-      advisoryHint:
+      advisoryHintGH:
         "Lorsqu'un client réserve, l'agent vérifie dans Garage Hive les recommandations de contrôle en attente sur son véhicule et propose de les ajouter. Nécessite Garage Hive connecté.",
+      advisoryHintBookar:
+        "Lorsqu'un client réserve, l'agent vérifie dans Bookar les recommandations de contrôle en attente sur son véhicule et propose de les ajouter à la même visite. Nécessite des recommandations enregistrées contre le véhicule dans Bookar.",
     },
   }[lang];
   const [allowBookings, setAllowBookings] = useState(config.allowBookings ?? false);
@@ -248,13 +256,13 @@ export default function BookingTab({ config, save, isSaving }: Props) {
           </div>
           <Toggle
             label={c.callerRecLabel}
-            hint={c.callerRecHint.replace('Garage Hive', integrationName)}
+            hint={isBookarAgent ? c.callerRecHintBookar : c.callerRecHintGH}
             checked={callerRecognitionEnabled}
             onChange={setCallerRecognitionEnabled}
           />
           <Toggle
             label={c.advisoryLabel}
-            hint={c.advisoryHint.replace('Garage Hive', integrationName)}
+            hint={isBookarAgent ? c.advisoryHintBookar : c.advisoryHintGH}
             checked={advisoryUpsellsEnabled}
             onChange={setAdvisoryUpsellsEnabled}
           />

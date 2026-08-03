@@ -491,7 +491,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       function: {
         name: 'bk_lookup_vehicle',
         description:
-          'Look up a vehicle by registration plate. MUST be called before quoting any price. Returns make/model/mot_expiry/on_file + any advisories the garage has recorded. Also reveals whether the vehicle is on file at this branch — if it is, greet the caller by acknowledging the vehicle rather than re-collecting it. If response includes `advisories_upsell` and `advisories_pitch`, use `advisories_pitch` verbatim to offer the advisories as an add-on when the customer picks a service; if they accept, include those items in the booking.',
+          'Look up a vehicle by registration plate. MUST be called before quoting any price. Returns make/model/mot_expiry/on_file + any advisories the garage has recorded. Also reveals whether the vehicle is on file at this branch — if it is, greet the caller by acknowledging the vehicle rather than re-collecting it. If response includes `advisories_upsell` and `advisories_pitch`, use `advisories_pitch` as example wording (adapt for natural flow) to offer the advisories as an add-on IN THE SAME REPLY as the price quote for the service they picked; if they accept, include those items in the booking.',
         parameters: {
           type: 'object',
           properties: {
@@ -813,9 +813,14 @@ async function executeTool(
                 const formatted = items.map((a) =>
                   a.price ? `${a.description} (about £${Math.round(a.price)})` : a.description,
                 );
+                // Example wording — the LLM adapts this into natural chat English (past
+                // tense, adds articles, weaves into same reply as the price quote).
+                // Dan's preferred style: "Last time the vehicle was in, it was advised
+                // that the X — would you like that sorted too whilst the vehicle is in
+                // with us?" — blend into the same reply as the price, not a separate turn.
                 advisoriesPitch =
-                  `By the way — when we last had your vehicle in we advised ${formatted.join(', ')}. ` +
-                  `Would you like that sorted at the same time?`;
+                  `Last time the vehicle was in, we advised ${formatted.map(f => `the ${f.toLowerCase()}`).join(' and ')} ` +
+                  `— would you like that sorted too whilst the vehicle is in with us?`;
                 session.advisoryText = formatted.join('; ');
                 session.advisoryOffered = true;
               }
@@ -1371,7 +1376,7 @@ function buildSystemPrompt(
     prompt += `2. NAME: If we don't already have a name, ask for it in one short sentence.\n`;
     prompt += `3. REG: Ask for their vehicle registration. Once you have it, call bk_lookup_vehicle. Read back the make/model naturally, e.g. "I can see that's a 2019 Ford Focus — is that right?" If mot_expiry is present, weave it in naturally if relevant.\n`;
     prompt += `4. SERVICES: Call bk_list_services with the same VRM. Quote prices ONLY from the returned list — never invent, estimate or carry over a price from memory. If the customer asks for a service NOT in the returned list (e.g. wheel alignment but the list only has MOT/Service), do NOT invent it — apologise briefly and fall back to bk_take_message so the team can help.\n`;
-    prompt += `4b. ADVISORY UPSELL: If bk_lookup_vehicle returned \`advisories_upsell\` + \`advisories_pitch\`, offer them as an add-on ONCE — send the \`advisories_pitch\` string verbatim as its own message right after the customer picks a service. If they say yes, include those items in the booking alongside their main service. If they say no or ignore it, drop the upsell and move on — do NOT re-pitch.\n`;
+    prompt += `4b. ADVISORY UPSELL: If bk_lookup_vehicle returned \`advisories_upsell\` + \`advisories_pitch\`, offer them as an add-on ONCE — WEAVE the pitch into the SAME reply as the price quote for the service they picked, so it feels like one natural thought (not two separate messages). Use \`advisories_pitch\` as a wording guide but adapt it for natural flow. Preferred style: past-tense, uses "the [item]", ends with "would you like that sorted too whilst the vehicle is in with us?". If they say yes, include those items in the booking alongside their main service. If they say no or ignore it, drop the upsell and move on — do NOT re-pitch.\n`;
     prompt += `5. AVAILABILITY: Once the customer picks a service, call bk_list_availability with the chosen service_ids. Offer 1 or 2 slots naturally — don't dump the whole list.\n`;
     prompt += `6. SLOT: When the customer picks a slot, IMMEDIATELY call bk_confirm_slot with the exact date + time from the availability result.\n`;
     prompt += `7. EMAIL + PHONE: Ask for an email (required for Bookar's confirmation) and confirm the phone. Call bk_save_customer_details as soon as you have any missing pieces — you can call it multiple times.\n`;

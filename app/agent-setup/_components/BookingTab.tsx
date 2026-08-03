@@ -128,10 +128,16 @@ export default function BookingTab({ config, save, isSaving }: Props) {
     });
   };
 
-  // Caller recognition + advisory upsells only apply to the Garage Hive agent.
+  // Caller recognition + advisory upsells apply to the Garage Hive AND Bookar agents.
+  // Bookar's Caller Recognition landed in bookar-agent 2026-08-03 (portal-frontend#341).
+  // Advisory Upsells for Bookar still WIP (portal-frontend#342) — toggle stores in DB
+  // but agent doesn't consume it yet.
   const isGarageHiveAgent = ['receptionmate-agent-v3', 'GarageHive-agent'].includes(
     config.agentScript,
   );
+  const isBookarAgent = config.agentScript === 'bookar-agent';
+  const supportsRecAndAdvisory = isGarageHiveAgent || isBookarAgent;
+  const integrationName = isBookarAgent ? 'Bookar' : 'Garage Hive';
 
   // The GarageHive (Automate) agent always books against the live diary and ignores this
   // toggle — it only applies to Assist garages. Flag that clearly so it isn't mistaken for
@@ -235,20 +241,20 @@ export default function BookingTab({ config, save, isSaving }: Props) {
         onChange={setAllowFastFitOnly}
       />
 
-      {isGarageHiveAgent && (
+      {supportsRecAndAdvisory && (
         <>
           <div className="mt-6 border-t border-slate-200 pt-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Garage Hive</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{integrationName}</p>
           </div>
           <Toggle
             label={c.callerRecLabel}
-            hint={c.callerRecHint}
+            hint={c.callerRecHint.replace('Garage Hive', integrationName)}
             checked={callerRecognitionEnabled}
             onChange={setCallerRecognitionEnabled}
           />
           <Toggle
             label={c.advisoryLabel}
-            hint={c.advisoryHint}
+            hint={c.advisoryHint.replace('Garage Hive', integrationName)}
             checked={advisoryUpsellsEnabled}
             onChange={setAdvisoryUpsellsEnabled}
           />

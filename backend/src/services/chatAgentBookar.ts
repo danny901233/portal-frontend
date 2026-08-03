@@ -101,6 +101,12 @@ interface BookarSessionState {
   // Manage-existing flow (caller quoted a reference)
   existingBookingRef?: string;
 
+  // Advisory upsells (VHC) — outstanding health-check advisories on the vehicle,
+  // offered to the customer as an add-on to the booking. Mirrors GH chat pattern
+  // (chatAgentV2.ts:117-124). Only populated when the garage has advisoryUpsellsEnabled.
+  advisoryOffered?: boolean;                      // fire-once guard — don't re-pitch same call
+  advisoryText?: string;                          // "brake pads (about £120); wipers (about £30)"
+
   // Fallback
   lastTakeMessage?: string;                       // if we bailed out of the flow into message-taking
 
@@ -485,7 +491,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       function: {
         name: 'bk_lookup_vehicle',
         description:
-          'Look up a vehicle by registration plate. MUST be called before quoting any price. Returns make/model/mot_expiry/on_file + any advisories the garage has recorded. Also reveals whether the vehicle is on file at this branch — if it is, greet the caller by acknowledging the vehicle rather than re-collecting it.',
+          'Look up a vehicle by registration plate. MUST be called before quoting any price. Returns make/model/mot_expiry/on_file + any advisories the garage has recorded. Also reveals whether the vehicle is on file at this branch — if it is, greet the caller by acknowledging the vehicle rather than re-collecting it. If response includes `advisories_upsell` and `advisories_pitch`, use `advisories_pitch` verbatim to offer the advisories as an add-on when the customer picks a service; if they accept, include those items in the booking.',
         parameters: {
           type: 'object',
           properties: {
@@ -784,9 +790,45 @@ async function executeTool(
             .trim();
           if (linkedName && !session.customerName) session.customerName = linkedName;
         }
+        // Advisory upsell — mirrors GH pattern (garageHiveBc.ts:getVehicleAdvisories +
+        // chatAgentV2.ts:606-626). Server-side gated on advisoryUpsellsEnabled toggle,
+        // so the LLM literally can't pitch anything unless the garage opted in.
+        // Fire-once per session via session.advisoryOffered.
+        let advisoriesUpsell: Array<{ description: string; price?: number }> | undefined;
+        let advisoriesPitch: string | undefined;
+        try {
+          const advisories = Array.isArray(vehicle.advisories) ? vehicle.advisories : [];
+          if (!session.advisoryOffered && advisories.length > 0) {
+            const cfg = await prisma.agentConfiguration.findUnique({
+              where: { garageId },
+              select: { advisoryUpsellsEnabled: true },
+            });
+            if (cfg?.advisoryUpsellsEnabled) {
+              const items = advisories.slice(0, 4).map((a: any) => ({
+                description: String(a.description || a.text || a.title || '').trim(),
+                price: typeof a.price === 'number' && a.price > 0 ? a.price : undefined,
+              })).filter((x: { description: string }) => x.description);
+              if (items.length > 0) {
+                advisoriesUpsell = items;
+                const formatted = items.map((a) =>
+                  a.price ? `${a.description} (about £${Math.round(a.price)})` : a.description,
+                );
+                advisoriesPitch =
+                  `By the way — when we last had your vehicle in we advised ${formatted.join(', ')}. ` +
+                  `Would you like that sorted at the same time?`;
+                session.advisoryText = formatted.join('; ');
+                session.advisoryOffered = true;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[BOOKAR_AGENT] advisory upsell lookup failed:', e);
+        }
+
         await saveSession(conversationId, session);
         console.log(
-          `[BOOKAR_AGENT] lookupVehicle OK: ${vrm} → ${make} ${model} onFile=${vehicle.on_file} mot=${vehicle.mot_expiry || 'n/a'}`,
+          `[BOOKAR_AGENT] lookupVehicle OK: ${vrm} → ${make} ${model} onFile=${vehicle.on_file} mot=${vehicle.mot_expiry || 'n/a'}` +
+            (advisoriesUpsell ? ` advisoriesPitched=${advisoriesUpsell.length}` : ''),
         );
         // Return a slimmed-down view — the LLM doesn't need every advisory field,
         // just the highlights it might read back to the customer.
@@ -798,6 +840,9 @@ async function executeTool(
           mot_expiry: vehicle.mot_expiry,
           on_file: !!vehicle.on_file,
           advisories_count: vehicle.advisories?.length ?? 0,
+          // Only present when garage has advisoryUpsellsEnabled=true AND vehicle has open advisories.
+          // When present, LLM MUST use advisories_pitch verbatim to offer them as an add-on.
+          ...(advisoriesUpsell?.length ? { advisories_upsell: advisoriesUpsell, advisories_pitch: advisoriesPitch } : {}),
           recent_history: (vehicle.history || []).slice(0, 3).map((h) => ({
             date: h.date,
             service: h.service,
@@ -1326,6 +1371,7 @@ function buildSystemPrompt(
     prompt += `2. NAME: If we don't already have a name, ask for it in one short sentence.\n`;
     prompt += `3. REG: Ask for their vehicle registration. Once you have it, call bk_lookup_vehicle. Read back the make/model naturally, e.g. "I can see that's a 2019 Ford Focus — is that right?" If mot_expiry is present, weave it in naturally if relevant.\n`;
     prompt += `4. SERVICES: Call bk_list_services with the same VRM. Quote prices ONLY from the returned list — never invent, estimate or carry over a price from memory. If the customer asks for a service NOT in the returned list (e.g. wheel alignment but the list only has MOT/Service), do NOT invent it — apologise briefly and fall back to bk_take_message so the team can help.\n`;
+    prompt += `4b. ADVISORY UPSELL: If bk_lookup_vehicle returned \`advisories_upsell\` + \`advisories_pitch\`, offer them as an add-on ONCE — send the \`advisories_pitch\` string verbatim as its own message right after the customer picks a service. If they say yes, include those items in the booking alongside their main service. If they say no or ignore it, drop the upsell and move on — do NOT re-pitch.\n`;
     prompt += `5. AVAILABILITY: Once the customer picks a service, call bk_list_availability with the chosen service_ids. Offer 1 or 2 slots naturally — don't dump the whole list.\n`;
     prompt += `6. SLOT: When the customer picks a slot, IMMEDIATELY call bk_confirm_slot with the exact date + time from the availability result.\n`;
     prompt += `7. EMAIL + PHONE: Ask for an email (required for Bookar's confirmation) and confirm the phone. Call bk_save_customer_details as soon as you have any missing pieces — you can call it multiple times.\n`;

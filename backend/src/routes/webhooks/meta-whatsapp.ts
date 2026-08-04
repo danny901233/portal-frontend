@@ -5,12 +5,37 @@ import { prisma } from '../../db.js';
 import { notifyMessaging } from '../../services/messagingNotifications.js';
 import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
 import { scheduleHumanReply } from '../../services/chatDelay.js';
+import { sendEmail } from '../../utils/email.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
 import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 
 const router = Router();
+
+// Connect free-trial conversation cap. After this many WhatsApp conversations on the free month,
+// the trial ends (accessRestricted=true → card paywall) and the agent pauses until they add a card.
+const CONNECT_TRIAL_CONVO_CAP = Number(process.env.CONNECT_TRIAL_CONVO_CAP ?? 500);
+
+async function notifyConnectCapReached(garageId: string): Promise<void> {
+  const g = await prisma.garage.findUnique({
+    where: { id: garageId },
+    select: { name: true, business: { select: { contactEmail: true } } },
+  });
+  let email = g?.business?.contactEmail || null;
+  if (!email) {
+    const u = await prisma.user.findFirst({ where: { garageAccessIds: { has: garageId } }, select: { email: true } });
+    email = u?.email || null;
+  }
+  if (!email) return;
+  const portal = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+  await sendEmail({
+    to: [email],
+    subject: `You’ve used your ${CONNECT_TRIAL_CONVO_CAP} free Connect conversations`,
+    text: `You've used your ${CONNECT_TRIAL_CONVO_CAP} free Connect conversations, so your AI has paused. Add a card to continue: ${portal}/dashboard`,
+    html: `<div style="font-family:Inter,system-ui,sans-serif;max-width:560px;margin:0 auto;color:#0f172a;"><h2 style="color:#3426cf;">Your ${CONNECT_TRIAL_CONVO_CAP} free conversations are used up</h2><p>Hi ${g?.name || 'there'},</p><p>Your ReceptionMate Connect free month included ${CONNECT_TRIAL_CONVO_CAP} WhatsApp conversations, and you've now used them — so your AI has paused. Add a card to switch it back on: £250 + VAT a month, cancel anytime.</p><p style="text-align:center;margin:28px 0;"><a href="${portal}/dashboard" style="display:inline-block;background:#3426cf;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;">Add my card</a></p><p style="color:#64748b;font-size:13px;">— The ReceptionMate team</p></div>`,
+  }).catch((e) => console.error('[CONNECT_CAP] email failed', e));
+}
 
 // GET /api/webhooks/meta-whatsapp - Webhook verification
 router.get('/meta-whatsapp', (req: Request, res: Response) => {
@@ -449,7 +474,26 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
           // Only send agent response if agent is not paused and there's text to process
           // Note: We always respond to incoming messages as they're within the 24-hour window
           const agentText = messageText || (mediaUrl ? '[Customer sent an image]' : null);
-          if (!isAgentPaused && agentText) {
+
+          // Connect free-trial cap: once a garage on the free month exceeds CONNECT_TRIAL_CONVO_CAP
+          // conversations, end the trial (accessRestricted → card paywall) and pause the agent. Only
+          // Connect garages still on the free month (in trial, no card) are metered.
+          let trialCapReached = false;
+          const gg = connection.garage;
+          if (gg?.accessRestricted) {
+            trialCapReached = true; // already locked (cap hit earlier, or the time-based trial ended)
+          } else if (gg?.hasMessagingAccess && gg?.trialEndDate && new Date(gg.trialEndDate).getTime() > Date.now() && !gg?.stripeSubscriptionId) {
+            const convoCount = await prisma.chatConversation.count({ where: { garageId: connection.garageId } });
+            if (convoCount > CONNECT_TRIAL_CONVO_CAP) {
+              trialCapReached = true;
+              await prisma.garage.update({ where: { id: connection.garageId }, data: { accessRestricted: true } })
+                .catch((e) => console.error('[CONNECT_CAP] lock failed', e));
+              void notifyConnectCapReached(connection.garageId);
+              console.log(`[CONNECT_CAP] garage ${connection.garageId} exceeded ${CONNECT_TRIAL_CONVO_CAP} conversations — trial ended + locked`);
+            }
+          }
+
+          if (!isAgentPaused && agentText && !trialCapReached) {
             // Human-like delayed reply: acks the webhook instantly, shows "seen"/"typing…",
             // then sends after a weighted-random delay — batching any messages that arrive
             // during the wait into one reply. (Kill switch: env CHAT_HUMAN_DELAY=off.)

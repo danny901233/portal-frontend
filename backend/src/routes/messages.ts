@@ -26,7 +26,7 @@ router.get(
 
       const garage = await prisma.garage.findUnique({
         where: { id: garageId },
-        select: { id: true, name: true, hasMessagingAccess: true, hasVoiceAccess: true },
+        select: { id: true, name: true, hasMessagingAccess: true, hasVoiceAccess: true, trialEndDate: true },
       });
 
       if (!garage) {
@@ -40,6 +40,8 @@ router.get(
         success: true,
         hasMessagingAccess: garage.hasMessagingAccess,
         hasVoiceAccess: garage.hasVoiceAccess,
+        // Connect trial end — powers the customer-facing countdown + pre-expiry card nudge.
+        trialEndDate: garage.trialEndDate,
       });
     } catch (error) {
       console.error('Failed to check messaging access:', error);

@@ -267,6 +267,9 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean>(false);
   const [hasVoiceAccess, setHasVoiceAccess] = useState<boolean>(true);
+  const [trialEndDate, setTrialEndDate] = useState<string | null>(null);
+  const [voiceInterestSent, setVoiceInterestSent] = useState<'' | 'add' | 'learn'>('');
+  const [addCardLoading, setAddCardLoading] = useState<boolean>(false);
   // Mobile-only: collapse the lower analytics (charts + tag spotlight) behind a
   // toggle so the phone dashboard is scannable. Desktop always shows everything.
   const [showMoreInsights, setShowMoreInsights] = useState<boolean>(false);
@@ -340,6 +343,7 @@ export default function DashboardPage() {
           const data = await response.json();
           setHasMessagingAccess(data.hasMessagingAccess || false);
           setHasVoiceAccess(data.hasVoiceAccess !== false);
+          setTrialEndDate(data.trialEndDate ?? null);
         }
       } catch (error) {
         console.error('Error checking messaging access:', error);
@@ -708,6 +712,45 @@ export default function DashboardPage() {
     }
   };
 
+  // ── Connect trial countdown + voice upsell (Connect-only garages) ─────────
+  const trialDaysLeft = trialEndDate
+    ? Math.max(0, Math.ceil((new Date(trialEndDate).getTime() - Date.now()) / 86400000))
+    : null;
+  const inTrial = trialDaysLeft !== null && trialDaysLeft > 0;
+
+  const handleAddCard = async () => {
+    if (!selectedGarageId) return;
+    setAddCardLoading(true);
+    try {
+      const token = getSessionToken();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ garageId: selectedGarageId }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+      else setAddCardLoading(false);
+    } catch {
+      setAddCardLoading(false);
+    }
+  };
+
+  const handleVoiceInterest = async (intent: 'add' | 'learn') => {
+    if (!selectedGarageId) return;
+    setVoiceInterestSent(intent); // optimistic — feels instant
+    try {
+      const token = getSessionToken();
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/voice-interest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ garageId: selectedGarageId, intent }),
+      });
+    } catch {
+      /* keep the "we'll be in touch" state; the log line captures the intent too */
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -838,6 +881,55 @@ export default function DashboardPage() {
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
+        </div>
+      )}
+
+      {/* Connect trial countdown + pre-expiry card nudge */}
+      {inTrial && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-amber-900">
+                {trialDaysLeft} {trialDaysLeft === 1 ? 'day' : 'days'} left in your free month
+              </p>
+              <p className="text-xs text-amber-700">Add a card to keep Connect running — you won&rsquo;t be charged until your free month ends.</p>
+            </div>
+          </div>
+          <button
+            onClick={handleAddCard}
+            disabled={addCardLoading}
+            className="shrink-0 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:opacity-60"
+          >
+            {addCardLoading ? 'Opening…' : 'Add card'}
+          </button>
+        </div>
+      )}
+
+      {/* Add-voice upsell — shown to Connect-only garages (voice UI otherwise hidden) */}
+      {hasVoiceAccess === false && (
+        <div className="overflow-hidden rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-600 text-white">
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" /></svg>
+              </span>
+              <div>
+                <p className="text-base font-bold text-slate-900">Add voice — catch your missed calls too</p>
+                <p className="mt-1 text-sm text-slate-600">Connect handles your WhatsApp leads. Add voice and the same AI answers your phone, books customers in, and takes messages — so no call goes unanswered.</p>
+              </div>
+            </div>
+            {voiceInterestSent ? (
+              <p className="shrink-0 self-start rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200 sm:self-auto">✓ We&rsquo;ll be in touch</p>
+            ) : (
+              <div className="flex shrink-0 gap-2">
+                <button onClick={() => handleVoiceInterest('add')} className="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">Add voice</button>
+                <button onClick={() => handleVoiceInterest('learn')} className="rounded-full border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">Find out more</button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { getStripeClient } from '../services/stripe.js';
+import { sendEmail } from '../utils/email.js';
 
 // ---------------------------------------------------------------------------
 // Connect trial → paid. When a Connect garage's free month ends without a card,
@@ -57,6 +58,33 @@ router.post('/connect/checkout', authenticate, async (req: Request, res: Respons
   } catch (e: any) {
     console.error('[CONNECT_BILLING] checkout failed:', e?.message);
     return res.status(500).json({ error: 'checkout_failed' });
+  }
+});
+
+// A Connect garage expresses interest in adding voice (Assist/Automate). Voice needs a
+// number provisioned + agent config, so we don't self-serve it — we notify staff to follow
+// up. intent: 'add' (ready to add) | 'learn' (wants to find out more).
+router.post('/connect/voice-interest', authenticate, async (req: Request, res: Response) => {
+  const { garageId, intent } = req.body || {};
+  const user = req.user;
+  if (!garageId) return res.status(400).json({ error: 'missing_garageId' });
+  const allowed = user?.role === 'RECEPTIONMATE_STAFF' || (Array.isArray(user?.garageIds) && user!.garageIds!.includes(garageId));
+  if (!allowed) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const garage = await prisma.garage.findUnique({ where: { id: garageId }, select: { name: true } });
+    const wants = intent === 'add' ? 'is ready to ADD voice' : 'wants to find out more about voice';
+    const line = `${garage?.name || garageId} (${user!.email}) ${wants}.`;
+    await sendEmail({
+      to: ['hello@receptionmate.co.uk'],
+      subject: `Connect → Voice interest: ${garage?.name || garageId}`,
+      text: `${line}\n\ngarageId: ${garageId}\nintent: ${intent || 'learn'}\nuserId: ${user!.userId}`,
+      html: `<p>${line}</p><p>garageId: ${garageId}<br>intent: ${intent || 'learn'}<br>userId: ${user!.userId}</p>`,
+    });
+    console.log(`[CONNECT_VOICE_INTEREST] ${garageId} intent=${intent} by ${user!.email}`);
+    return res.json({ success: true });
+  } catch (e: any) {
+    console.error('[CONNECT_VOICE_INTEREST] failed:', e?.message);
+    return res.status(500).json({ error: 'notify_failed' });
   }
 });
 

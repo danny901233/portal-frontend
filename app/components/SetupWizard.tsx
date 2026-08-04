@@ -25,7 +25,7 @@ export default function SetupWizard({ isOpen, agentType, onComplete, hasVoiceAcc
   const c = {
     en: {
       heading: 'Let’s set up your AI agent',
-      subheading: 'A few minutes now → fewer missed calls later.',
+      subheading: 'A few minutes now → fewer missed leads later.',
       welcome: (tier: string) => (
         <>
           Welcome aboard. You&rsquo;ve been provisioned with our <strong>{tier}</strong> tier.
@@ -45,7 +45,7 @@ export default function SetupWizard({ isOpen, agentType, onComplete, hasVoiceAcc
     },
     fr: {
       heading: 'Configurons votre agent IA',
-      subheading: 'Quelques minutes maintenant → moins d’appels manqués plus tard.',
+      subheading: 'Quelques minutes maintenant → moins de prospects manqués plus tard.',
       welcome: (tier: string) => (
         <>
           Bienvenue à bord. Vous avez été provisionné avec notre offre <strong>{tier}</strong>.

@@ -191,7 +191,9 @@ function AgreementSignInner() {
     []
   );
 
-  const monthlyTotal = agreement ? agreement.licenceFeeGbp * agreement.centresCount : 0;
+  const monthlyTotal = agreement
+    ? (agreement.licenceFeeGbp + (agreement.messagingFeeGbp ?? 0)) * agreement.centresCount
+    : 0;
 
   // Set once a public-signup customer has signed: holds the SetupIntent client_secret so we render
   // the Stripe card form (custom Payment Element) in-page instead of redirecting to stripe.com.
@@ -411,7 +413,14 @@ function AgreementSignInner() {
         </div>
         <dl className="grid grid-cols-1 gap-x-6 gap-y-3 p-5 sm:grid-cols-3">
           <SummaryItem label={c.centres} value={String(agreement.centresCount)} />
-          <SummaryItem label={c.licenceFee} value={`${formatGbp(agreement.licenceFeeGbp)}${c.perCentrePerMo}`} />
+          <SummaryItem
+            label={c.licenceFee}
+            value={
+              (agreement.messagingFeeGbp ?? 0) > 0
+                ? `${formatGbp(agreement.licenceFeeGbp)} voice + ${formatGbp(agreement.messagingFeeGbp ?? 0)} Connect`
+                : `${formatGbp(agreement.licenceFeeGbp)}${c.perCentrePerMo}`
+            }
+          />
           <SummaryItem label={c.setupFee} value={agreement.setupFeeGbp > 0 ? formatGbp(agreement.setupFeeGbp) : c.waived} />
           <SummaryItem label={c.monthlyTotal} value={`${formatGbp(monthlyTotal)} + VAT`} />
           <SummaryItem label={c.licences} value={agreement.licences.map(capitalise).join(', ')} />

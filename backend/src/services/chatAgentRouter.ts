@@ -3,6 +3,7 @@ import { getChatAgentResponse as getGHResponse } from './chatAgentV2.js';
 import { getTyresoftChatResponse } from './chatAgentTyresoft.js';
 import { getAssistChatResponse } from './chatAgentAssist.js';
 import { getMMHChatResponse } from './chatAgentMMH.js';
+import { getBookarChatResponse } from './chatAgentBookar.js';
 
 interface ChatAgentResponse {
   content: string;
@@ -78,6 +79,10 @@ export async function routeChatMessage(
   return withConvLock(conversationId, async () => {
     if (agentScript === 'MMH-agent') {
       return getMMHChatResponse(garageId, message, conversationId, seedContact);
+    }
+
+    if (agentScript === 'bookar-agent') {
+      return getBookarChatResponse(garageId, message, conversationId, seedContact);
     }
 
     if (agentScript === 'tyresoft-agent') {

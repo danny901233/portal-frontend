@@ -224,6 +224,11 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             const reg = outboundContact.registration?.toUpperCase() || null;
             const dueDate = outboundContact.motDueDate || outboundContact.serviceDueDate || null;
             const nameParts = (outboundContact.customerName || '').trim().split(/\s+/);
+            const agentCfg = await prisma.agentConfiguration.findUnique({
+              where: { garageId: connection.garageId },
+              select: { branchName: true, agentScript: true },
+            });
+            const agentScript = agentCfg?.agentScript || null;
 
             // Reconstruct the original outbound message so it appears in the conversation view
             let outboundMessageText: string | null = null;
@@ -233,10 +238,6 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 const tmpl = await prisma.messageTemplate.findUnique({ where: { id: campaign.messageTemplateId } });
                 if (tmpl) {
                   const varMap = (campaign.variableMapping as Record<string, string>) || {};
-                  const agentCfg = await prisma.agentConfiguration.findUnique({
-                    where: { garageId: connection.garageId },
-                    select: { branchName: true },
-                  });
                   const contactFields: Record<string, string> = {
                     customer_name: nameParts[0] || outboundContact.customerName,
                     full_name: outboundContact.customerName,
@@ -268,21 +269,42 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               });
             }
 
-            // Seed sessionState so the agent knows the registration without asking.
-            // Also reset booking fields so old session state from a previous flow
-            // (e.g. step=NEED_CONTACT from a different vehicle's conversation) doesn't
-            // cause the agent to skip the booking flow and ask for phone instead.
-            await prisma.$executeRawUnsafe(
-              `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
-              JSON.stringify({
+            // Seed sessionState in the SHAPE the destination chat agent expects.
+            // Bookar and the GH-family agents (chatAgentV2) read completely different
+            // keys from sessionState (vrm vs vrn, customerName vs customerNameFirst/Last).
+            // Without this branch, replies to outbound reminders on a bookar-agent garage
+            // land as if the caller never got the reminder, and the agent asks for the reg
+            // from scratch.
+            let seedPayload: Record<string, unknown>;
+            if (agentScript === 'bookar-agent') {
+              // Bookar shape (see BookarSessionState in services/chatAgentBookar.ts).
+              // We seed only what the reminder actually told us. Bookar's bk_lookup_vehicle
+              // will fill in make/model on the first tool call; leaving vehicle undefined
+              // lets it do that.
+              //
+              // customerPhone is deliberately NOT seeded from outboundContact.phone —
+              // Bookar's booking API rejects phones >11 digits (no E.164/international
+              // support). outboundContact.phone can be any format (E.164 with '+',
+              // country-code-prefixed, UK 07... etc). Leaving it empty forces the agent
+              // to ask + validate via bk_save_customer_details before bk_create_booking,
+              // which is the only path guaranteed to yield a phone Bookar accepts.
+              seedPayload = {
+                ...(reg && { vrm: reg }),
+                customerName: outboundContact.customerName || '',
+                customerEmail: '',
+                selectedServiceIds: [],
+                bookingConfirmed: false,
+              };
+            } else {
+              // GH-family agents (receptionmate-agent-v3, Assist-agent, GarageHive-agent,
+              // tyresoft-agent). Keep the original GH-shaped seed — chatAgentV2 reads
+              // step=need_service + vrn/vrnConfirmed to skip the VRN prompt.
+              seedPayload = {
                 customerNameFirst: nameParts[0] || '',
                 customerNameLast: nameParts.slice(1).join(' ') || '',
                 ...(reg && { outboundRegistration: reg }),
                 outboundServiceType: outboundContact.messageType || 'mot',
                 ...(dueDate && { outboundDueDate: dueDate }),
-                // Vehicle is already known from the CSV — trust it, skip VRN confirmation.
-                // Start at need_service so the agent greets + upsells, then goes straight
-                // to timeslot selection. GH session is initialised later by handleSelectService.
                 step: 'need_service',
                 vrn: reg || null,
                 vrnConfirmed: !!(reg),
@@ -296,7 +318,12 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 timeslotsAvailable: null,
                 bookingDate: null,
                 bookingTime: null,
-              }),
+              };
+            }
+
+            await prisma.$executeRawUnsafe(
+              `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+              JSON.stringify(seedPayload),
               conversation.id,
             );
 
@@ -304,7 +331,12 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               `SELECT "sessionState" FROM "ChatConversation" WHERE id = $1`,
               conversation.id
             );
-            console.log(`[WhatsApp] Seed verify — step: ${seedResult[0]?.sessionState?.step}, vrn: ${seedResult[0]?.sessionState?.vrn}, convId: ${conversation.id}`);
+            const s = seedResult[0]?.sessionState || {};
+            console.log(
+              `[WhatsApp] Seed verify — agent=${agentScript || 'unknown'} ` +
+              `vrm=${s.vrm ?? '-'} vrn=${s.vrn ?? '-'} step=${s.step ?? '-'} ` +
+              `customerName=${s.customerName ?? '-'} convId=${conversation.id}`
+            );
 
             await prisma.outboundContact.update({
               where: { id: outboundContact.id },
@@ -316,7 +348,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             // using a stale cached session from a previous conversation.
             invalidateSessionCache(conversation.id);
 
-            console.log(`[WhatsApp] Outbound reply from ${customerPhone} — message saved, session seeded with reg=${reg}`);
+            console.log(`[WhatsApp] Outbound reply from ${customerPhone} — message saved, session seeded (agent=${agentScript || 'unknown'}) with reg=${reg}`);
           }
 
           // Deduplicate — skip if this Meta message ID was already processed

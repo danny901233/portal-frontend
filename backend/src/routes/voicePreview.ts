@@ -66,7 +66,7 @@ router.post(
             text,
             // Multilingual model for French so the accent/pronunciation is
             // correct; keep the English-only model for English previews.
-            model_id: isFrench ? 'eleven_multilingual_v2' : 'eleven_monolingual_v1',
+            model_id: isFrench ? 'eleven_multilingual_v2' : 'eleven_v3',
             voice_settings: {
               stability: 0.5,
               similarity_boost: 0.5,

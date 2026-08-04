@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { requireManagerLive } from '../middleware/auth.js';
+import { accountForAgentScript } from '../utils/agentAccount.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import multer from 'multer';
@@ -23,10 +24,12 @@ import {
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 import {
+  cloneBookarSettings,
   cloneGarageHiveSettings,
   cloneHubspotSettings,
   cloneTyresoftSettings,
   cloneWeeklyOpeningHours,
+  createDefaultBookarSettings,
   createDefaultGarageHiveSettings,
   createDefaultHubspotSettings,
   createDefaultTyresoftSettings,
@@ -34,6 +37,7 @@ import {
 } from '../utils/types.js';
 import type {
   AgentConfigurationPayload,
+  BookarSettings,
   GarageHiveSettings,
   HubspotSettings,
   IntegrationProvider,
@@ -112,7 +116,37 @@ const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings: BookarSettings } => {
+  // Bookar agent takes priority — check agentScript first regardless of integrationProvider.
+  // Same pattern as Tyresoft (below): the chat + voice agents both read creds
+  // from integrationProviderConfig, supporting both nested { bookar: {...} }
+  // and flat { bookarClientId, ... } shapes for backward compat with any
+  // hand-edited older configs.
+  if (agentScript === 'bookar-agent') {
+    if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+      const raw = rawSettings as Record<string, unknown>;
+      const src = (typeof raw.bookar === 'object' && raw.bookar !== null && !Array.isArray(raw.bookar))
+        ? (raw.bookar as Record<string, unknown>)
+        : raw;
+      return {
+        integrationProvider: 'none',
+        garageHiveSettings: createDefaultGarageHiveSettings(),
+        tyresoftSettings: createDefaultTyresoftSettings(),
+        bookarSettings: cloneBookarSettings({
+          bookarClientId: typeof src.bookarClientId === 'string' ? src.bookarClientId : (typeof src.clientId === 'string' ? src.clientId : ''),
+          bookarClientSecret: typeof src.bookarClientSecret === 'string' ? src.bookarClientSecret : (typeof src.clientSecret === 'string' ? src.clientSecret : ''),
+          bookarApiBase: typeof src.bookarApiBase === 'string' ? src.bookarApiBase : (typeof src.apiBase === 'string' ? src.apiBase : ''),
+        }),
+      };
+    }
+    return {
+      integrationProvider: 'none',
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: createDefaultBookarSettings(),
+    };
+  }
+
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
     if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
@@ -158,12 +192,14 @@ const parseIntegrationSettings = (
           ...(typeof raw.tyreMarkupFlat === 'number' ? { tyreMarkupFlat: raw.tyreMarkupFlat } : {}),
           ...(typeof raw.tyreMarkupPercent === 'number' ? { tyreMarkupPercent: raw.tyreMarkupPercent } : {}),
         }),
+        bookarSettings: createDefaultBookarSettings(),
       };
     }
     return {
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: createDefaultBookarSettings(),
     };
   }
 
@@ -174,6 +210,7 @@ const parseIntegrationSettings = (
       integrationProvider: 'none',
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: createDefaultBookarSettings(),
     };
   }
 
@@ -182,6 +219,7 @@ const parseIntegrationSettings = (
       integrationProvider: 'garage_hive',
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: createDefaultBookarSettings(),
     };
   }
 
@@ -203,6 +241,7 @@ const parseIntegrationSettings = (
       locationId: typeof ghRecord.locationId === 'string' ? ghRecord.locationId : '',
     }),
     tyresoftSettings: createDefaultTyresoftSettings(),
+    bookarSettings: createDefaultBookarSettings(),
   };
 };
 
@@ -274,6 +313,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       config.agentScript === 'Assist-agent' ? 'Assist-agent' :
       config.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       config.agentScript === 'MMH-agent' ? 'MMH-agent' :
+      config.agentScript === 'bookar-agent' ? 'bookar-agent' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
@@ -306,7 +346,7 @@ const extraAgentFields = (configuration: PrismaAgentConfiguration | null) => {
   };
 };
 
-const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
+export const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
   if (!configuration) {
     return { ...sanitizeConfigForResponse(defaultConfiguration), ...extraAgentFields(null) };
   }
@@ -351,6 +391,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       configuration.agentScript === 'Assist-agent' ? 'Assist-agent' :
       configuration.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       configuration.agentScript === 'MMH-agent' ? 'MMH-agent' :
+      configuration.agentScript === 'bookar-agent' ? 'bookar-agent' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent'
@@ -386,7 +427,7 @@ const serializeKnowledgeDocument = (document: PrismaKnowledgeDocument) => ({
 
 type SerializedKnowledgeDocument = ReturnType<typeof serializeKnowledgeDocument>;
 
-const loadKnowledgeBase = async (garageId: string): Promise<SerializedKnowledgeDocument[]> => {
+export const loadKnowledgeBase = async (garageId: string): Promise<SerializedKnowledgeDocument[]> => {
   const documents = await prisma.agentKnowledgeDocument.findMany({
     where: { garageId },
     orderBy: [{ createdAt: 'asc' }],
@@ -736,7 +777,7 @@ export const autoIngestWebsiteKnowledge = async (garageId: string, url: string):
   }
 };
 
-const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent') => {
+const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent') => {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
   if (!onboardingUrl) {
     console.log('[UPDATE_SIP] No onboarding service URL configured');
@@ -745,6 +786,10 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
 
   try {
     const agentName = agentScript;
+    // Route to the LiveKit account this agent actually lives on. Without
+    // this, Assist/GarageHive dispatch updates land on account1 (default)
+    // instead of account2 and the dispatch rule change silently no-ops.
+    const account = accountForAgentScript(agentScript);
 
     const onboardingSecret = process.env.ONBOARDING_SECRET;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -752,7 +797,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
       headers['x-onboarding-secret'] = onboardingSecret;
     }
 
-    console.log(`[UPDATE_SIP] Updating dispatch rule for garage ${garageId} to agent: ${agentName}`);
+    console.log(`[UPDATE_SIP] Updating dispatch rule for garage ${garageId} to agent: ${agentName} on ${account}`);
 
     await fetch(`${onboardingUrl}/update-agent`, {
       method: 'POST',
@@ -760,6 +805,7 @@ const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionma
       body: JSON.stringify({
         garageId,
         agentName,
+        account,
       }),
     });
   } catch (error) {
@@ -805,7 +851,7 @@ router.put(
 
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : 'receptionmate-agent';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : 'receptionmate-agent';
 
     // Only staff can change which agent serves the garage; everyone else keeps the saved script.
     if (!canEditAgentType) {
@@ -813,7 +859,7 @@ router.put(
         where: { garageId },
         select: { agentScript: true },
       });
-      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : 'receptionmate-agent';
+      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : 'receptionmate-agent';
     }
 
     // agentType is DERIVED from the agent script — the script is the single source of truth.
@@ -846,6 +892,7 @@ router.put(
     });
 
     const rawTyresoft = data.tyresoftSettings ?? {};
+    const rawBookar = data.bookarSettings ?? {};
     // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
     // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
     // Build hubspot sub-object to merge into integrationProviderConfig
@@ -972,7 +1019,24 @@ router.put(
     };
 
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
+      resolvedAgentScript === 'bookar-agent' && (rawBookar.bookarClientId || rawBookar.bookarClientSecret)
+        ? {
+            // Bookar creds live at the top level of integrationProviderConfig
+            // (mirrors Tyresoft's flat shape — bookarClient.ts also supports the
+            // nested { bookar: {...} } form for hand-edited configs).
+            bookarClientId: typeof rawBookar.bookarClientId === 'string' ? rawBookar.bookarClientId.trim() : '',
+            bookarClientSecret: typeof rawBookar.bookarClientSecret === 'string' ? rawBookar.bookarClientSecret.trim() : '',
+            bookarApiBase: typeof rawBookar.bookarApiBase === 'string' ? rawBookar.bookarApiBase.trim() : '',
+            ...hubspotPayload,
+          }
+        : resolvedAgentScript === 'bookar-agent' && existingConfig?.integrationProviderConfig
+        ? {
+            // Preserve existing Bookar creds if the form arrives without them
+            // (e.g. someone edited unrelated fields — mirrors Tyresoft's pattern).
+            ...(existingConfig.integrationProviderConfig as object),
+            ...hubspotPayload,
+          }
+        : resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
             tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
@@ -1077,6 +1141,12 @@ router.put(
       // (agentScript='MMH-agent' -> LIVEKIT_SIP_DOMAIN_MMH). Re-provisioning here would create a
       // stray/incorrect rule in the fleet project, so skip it.
       console.log('[UPDATE_AGENT] Skipping dispatch rule update for MMH-agent (routing via voice.ts to new-gh-agent project)');
+    } else if (resolvedAgentScript === 'bookar-agent') {
+      // Bookar sits on its own dedicated 'bookar deploy' LiveKit project (subdomain
+      // bookar-yw3ukuz1), which the onboarding service does NOT manage. Same pattern as
+      // MMH — voice.ts routes agentScript='bookar-agent' via LIVEKIT_SIP_DOMAIN_BOOKAR.
+      // Re-provisioning here would create a stray rule in the fleet project.
+      console.log('[UPDATE_AGENT] Skipping dispatch rule update for bookar-agent (routing via voice.ts to bookar deploy project)');
     } else if (existingConfig && existingConfig.agentScript !== resolvedAgentScript && garageRecord?.twilioNumber) {
       console.log('[UPDATE_AGENT] Updating SIP dispatch rule for garage', garageId, 'to agent:', resolvedAgentScript);
       void updateSipDispatchRule(garageId, resolvedAgentScript);

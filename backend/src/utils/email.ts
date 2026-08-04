@@ -14,6 +14,9 @@ interface EmailOptions {
   html: string;
   text: string;
   attachments?: EmailAttachment[];
+  // Optional override sender (e.g. HubSpot inbox threads send FROM the contact's email).
+  // Falls back to the provider's configured from address when unset.
+  from?: string;
 }
 
 const getMailgunConfig = () => {
@@ -61,7 +64,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
 
   if (hasAttachments) {
     const form = new FormData();
-    form.set('from', config.from);
+    form.set('from', options.from ?? config.from);
     form.set('to', options.to.join(', '));
     form.set('subject', options.subject);
     form.set('text', options.text);
@@ -77,7 +80,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     // FormData will set its own multipart Content-Type with the boundary
   } else {
     const form = new URLSearchParams();
-    form.set('from', config.from);
+    form.set('from', options.from ?? config.from);
     form.set('to', options.to.join(', '));
     form.set('subject', options.subject);
     form.set('text', options.text);
@@ -118,7 +121,7 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
   });
 
   await transport.sendMail({
-    from: config.from,
+    from: options.from ?? config.from,
     to: options.to.join(', '),
     subject: options.subject,
     text: options.text,

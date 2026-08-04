@@ -265,7 +265,7 @@ export async function handleAdminOpsMessage(opts: {
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: `${SYSTEM}\nToday's date is ${new Date().toISOString().slice(0, 10)}. Resolve relative periods ("June", "this month", "last week", "the 29th") against it, in UK local time. For any "how many / who has the most / per garage" question, call booking_stats — never count from call lists. For "were there any calls on <date>" / calls on a specific day, call list_recent_calls with on_date (UK local) and report its count field — never infer a specific date by eyeballing a recency list.` },
     ...prior.map((t) => ({ role: t.role, content: t.content } as OpenAI.Chat.Completions.ChatCompletionMessageParam)),
-    { role: 'user', content: text },
+    { role: 'user' as const, content: text },
   ];
 
   let final = '';
@@ -275,6 +275,7 @@ export async function handleAdminOpsMessage(opts: {
     messages.push(msg);
     if (msg.tool_calls && msg.tool_calls.length) {
       for (const tc of msg.tool_calls) {
+        if (tc.type !== 'function') continue;
         let result: unknown;
         try { result = await runTool(tc.function.name, JSON.parse(tc.function.arguments || '{}')); }
         catch (e) { result = { error: (e as Error).message }; }
@@ -287,7 +288,7 @@ export async function handleAdminOpsMessage(opts: {
   }
   if (!final) final = "Sorry — I couldn't work that out. Try naming the garage or a call id.";
 
-  history.set(from, [...prior, { role: 'user', content: text }, { role: 'assistant', content: final }].slice(-HIST_MAX));
+  history.set(from, [...prior, { role: 'user' as const, content: text }, { role: 'assistant' as const, content: final }].slice(-HIST_MAX));
   console.log(`[WhatsApp Ops] replying to ${from} (${final.length} chars)`);
   try {
     await sendWhatsApp(phoneNumberId, accessToken, from, final);

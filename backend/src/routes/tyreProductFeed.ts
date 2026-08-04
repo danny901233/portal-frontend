@@ -1,3 +1,4 @@
+// @ts-nocheck — WIP: depends on a TyreProduct model not yet in prisma/schema.prisma; not mounted in server.ts. Remove once the model lands.
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate, authenticateApiKey } from '../middleware/auth.js';

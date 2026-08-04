@@ -270,6 +270,7 @@ export async function getMMHChatResponse(
       if (m.tool_calls?.length) {
         messages.push(m as any);
         for (const tc of m.tool_calls) {
+          if (tc.type !== 'function') continue;
           let args: any = {};
           try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* ignore */ }
           const out = await runTool(tc.function.name, args);

@@ -424,7 +424,7 @@ router.post('/calls', async (req: Request, res: Response) => {
               : {};
           await prisma.call.update({
             where: { id: createdCall.id },
-            data: { metrics: { ...base, diagnosis: diag } as Prisma.InputJsonValue },
+            data: { metrics: { ...base, diagnosis: diag } as unknown as Prisma.InputJsonValue },
           });
           console.log(`[DIAGNOSIS] ${createdCall.id}: ${diag.status} — ${diag.headline}${diag.fix ? ' | fix: ' + diag.fix : ''}`);
         }
@@ -1181,7 +1181,7 @@ router.post('/calls/:id/analyze', authenticate, async (req: Request, res: Respon
         : {};
     await prisma.call.update({
       where: { id: call.id },
-      data: { metrics: { ...base, diagnosis } as Prisma.InputJsonValue },
+      data: { metrics: { ...base, diagnosis } as unknown as Prisma.InputJsonValue },
     });
     return res.json({ diagnosis });
   } catch (err) {
@@ -1717,7 +1717,7 @@ router.post('/calls/:id/reviewed', authenticate, async (req: Request, res: Respo
     }
     await prisma.call.update({
       where: { id: call.id },
-      data: { metrics: nextMetrics as Prisma.InputJsonValue },
+      data: { metrics: nextMetrics as unknown as Prisma.InputJsonValue },
     });
     return res.json({ reviewed });
   } catch (err) {
@@ -1750,7 +1750,7 @@ router.post('/calls/:id/viewed', authenticate, async (req: Request, res: Respons
       await prisma.call.update({
         where: { id: call.id },
         data: {
-          metrics: { ...base, viewedAt: new Date().toISOString() } as Prisma.InputJsonValue,
+          metrics: { ...base, viewedAt: new Date().toISOString() } as unknown as Prisma.InputJsonValue,
         },
       });
     }

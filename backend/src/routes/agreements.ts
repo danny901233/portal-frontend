@@ -1091,7 +1091,35 @@ router.get('/admin/agreements', authenticate, requireAdmin, async (req: Request,
     include: { user: { select: { email: true } } },
     take: 200,
   });
-  return res.json({ agreements });
+
+  // Flag which businesses are already wired to their GarageHive diary, so the admin UI can show
+  // "connected" instead of a live "Connect GarageHive" button once the instance is in.
+  const businessIds = [...new Set(agreements.map((a) => a.businessId).filter((b): b is string => !!b))];
+  const connectedBusinessIds = new Set<string>();
+  if (businessIds.length) {
+    const garages = await prisma.garage.findMany({
+      where: { businessId: { in: businessIds } },
+      select: { id: true, businessId: true },
+    });
+    const garageToBusiness = new Map(garages.map((g) => [g.id, g.businessId]));
+    const configs = await prisma.agentConfiguration.findMany({
+      where: { garageId: { in: garages.map((g) => g.id) }, integrationProvider: 'garage_hive' },
+      select: { garageId: true, integrationProviderConfig: true },
+    });
+    for (const c of configs) {
+      const ipc = (c.integrationProviderConfig && typeof c.integrationProviderConfig === 'object')
+        ? (c.integrationProviderConfig as Record<string, unknown>)
+        : {};
+      const bId = garageToBusiness.get(c.garageId);
+      if (bId && ipc.customerId) connectedBusinessIds.add(bId);
+    }
+  }
+
+  const withFlags = agreements.map((a) => ({
+    ...a,
+    garageHiveConnected: a.businessId ? connectedBusinessIds.has(a.businessId) : false,
+  }));
+  return res.json({ agreements: withFlags });
 });
 
 function escapeForEmail(s: string): string {

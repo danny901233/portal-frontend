@@ -32,6 +32,36 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const prettyDay = (iso: string) => { const [, m, d] = iso.split('-'); return `${weekdayOf(iso)} ${+d} ${MONTHS[+m - 1]}`; };
 
+// Free (bookable) windows within a period, from the live MMH calendar. A window needs at least
+// one overnight (start !== end). Shared by "what dates are free" and the auto-suggest-alternatives.
+async function freeWindows(from: string, to: string): Promise<Array<[string, string]>> {
+  const { data: d } = await axios.get(`${MMH_API}/api/calendar`,
+    { params: { date_from: from, date_to: to }, timeout: 35000 });
+  const full = new Set<string>(d.full || []);
+  const today = new Date(isoOf(new Date()) + 'T00:00:00');
+  const start = new Date(from + 'T00:00:00'), end = new Date(to + 'T00:00:00');
+  const windows: Array<[string, string]> = [];
+  let cur: [string, string] | null = null;
+  for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
+    const iso = isoOf(dt);
+    const ok = !full.has(iso) && dt >= today;
+    if (ok) { if (!cur) cur = [iso, iso]; else cur[1] = iso; }
+    else if (cur) { windows.push(cur); cur = null; }
+  }
+  if (cur) windows.push(cur);
+  return windows.filter(w => w[0] !== w[1]);
+}
+
+// Nearest available windows around a requested (unavailable) range, as a friendly text list.
+async function nearbyFreeText(reqFrom: string, reqTo: string): Promise<string> {
+  const shift = (iso: string, days: number) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + days); return isoOf(d); };
+  const today = isoOf(new Date());
+  let from = shift(reqFrom, -5); if (from < today) from = today;
+  const to = shift(reqTo, 35);
+  const w = await freeWindows(from, to);
+  return w.slice(0, 4).map(x => `${prettyDay(x[0])}–${prettyDay(x[1])}`).join(', ');
+}
+
 function buildSystemPrompt(
   config: any,
   knowledge: Array<{ title?: string | null; content: string }>,
@@ -98,7 +128,8 @@ ${isFirstReply ? `\nThis is your FIRST message — open with a warm, casual gree
 CHECKING DATES:
 - If they give specific dates → use check_availability.
 - If they ask "what have you got in July", "next available", "any free weekends", "something in the summer" → use find_available_dates over the relevant range (a whole month, or the next ~3 months for "next available"). Then suggest a couple of options conversationally.
-- We're CLOSED SUNDAYS for pick-ups/drop-offs (a hire can still run over a Sunday). If they pick a Sunday to collect/return, gently suggest another day.
+- If their exact dates aren't free, NEVER just reply "no availability" — check_availability hands you the nearest free windows; say those dates aren't available, but if they're flexible you've got those, and warmly offer the closest.
+- We're CLOSED SUNDAYS for pick-ups/drop-offs (a hire can still run over a Sunday). If they pick a Sunday to collect or return, DON'T call it "unavailable" — explain we don't do pick-ups or drop-offs on a Sunday, and suggest the Saturday before or Monday after.
 
 BOOKING:
 1. Confirm dates are free (and the price) with check_availability.
@@ -155,9 +186,22 @@ function tools(): OpenAI.Chat.ChatCompletionTool[] {
 async function runTool(name: string, args: any): Promise<string> {
   try {
     if (name === 'check_availability') {
+      // We don't do Sunday pick-ups or drop-offs — explain that rather than calling it "unavailable".
+      const isSun = (iso: string) => weekdayOf(iso) === 'Sunday';
+      const fromSun = isSun(args.date_from), toSun = isSun(args.date_to);
+      if (fromSun || toSun) {
+        const which = fromSun && toSun ? 'Both the pick-up and drop-off are on a Sunday'
+          : fromSun ? 'The pick-up date is a Sunday' : 'The drop-off date is a Sunday';
+        return `SUNDAY: ${which}, and we don't do pick-ups or drop-offs on a Sunday (a hire can still run OVER a Sunday, just not start or end on one). Kindly explain we don't allow Sunday pick-ups/drop-offs, and suggest the Saturday before or the Monday after instead, then re-check.`;
+      }
       const { data: d } = await axios.get(`${MMH_API}/api/availability`,
         { params: { date_from: args.date_from, date_to: args.date_to }, timeout: 35000 });
-      if (!d.available || !(d.vans || []).length) return 'NOT AVAILABLE for those dates — suggest another range or use find_available_dates.';
+      if (!d.available || !(d.vans || []).length) {
+        const alts = await nearbyFreeText(args.date_from, args.date_to);
+        return alts
+          ? `NOT AVAILABLE for those exact dates. Nearest available windows: ${alts}. Do NOT just say "no availability" — tell them those dates aren't free, but if they're flexible you've got these, and warmly offer the closest option(s).`
+          : 'NOT AVAILABLE for those dates, and nothing free nearby — apologise and suggest they try a different month.';
+      }
       const v = d.vans[0];
       const min = (d.min_nights && d.min_nights > d.requested_nights)
         ? ` Their ${d.requested_nights}-night dates are under the ${d.min_nights}-night minimum, so charged for ${d.min_nights} nights (£${v.hire}). Mention kindly.`
@@ -166,22 +210,7 @@ async function runTool(name: string, args: any): Promise<string> {
     }
 
     if (name === 'find_available_dates') {
-      const { data: d } = await axios.get(`${MMH_API}/api/calendar`,
-        { params: { date_from: args.date_from, date_to: args.date_to }, timeout: 35000 });
-      const full = new Set<string>(d.full || []);
-      const start = new Date(args.date_from + 'T00:00:00');
-      const end = new Date(args.date_to + 'T00:00:00');
-      const today = new Date(isoOf(new Date()) + 'T00:00:00');
-      const windows: Array<[string, string]> = [];
-      let cur: [string, string] | null = null;
-      for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
-        const iso = isoOf(dt);
-        const ok = !full.has(iso) && dt >= today;
-        if (ok) { if (!cur) cur = [iso, iso]; else cur[1] = iso; }
-        else if (cur) { windows.push(cur); cur = null; }
-      }
-      if (cur) windows.push(cur);
-      const usable = windows.filter(w => w[0] !== w[1]); // need at least a 1-night gap
+      const usable = await freeWindows(args.date_from, args.date_to);
       if (!usable.length) return 'FULLY BOOKED in that period — suggest a different month.';
       const txt = usable.map(w => `${prettyDay(w[0])}–${prettyDay(w[1])}`).join(', ');
       return `FREE date ranges: ${txt}. (No Sunday pick-ups/drop-offs, but a hire can run over one.) Offer a couple of these conversationally.`;

@@ -32,6 +32,7 @@ type AdminAgreement = {
   viewCount: number;
   viewedFromIp: string | null;
   user: { email: string };
+  garageHiveConnected?: boolean;
 };
 
 // "14 Jul, 09:02" — short enough for a table, precise enough to chase from.
@@ -347,12 +348,21 @@ export default function AdminAgreementsPage() {
                         View
                       </button>
                       {a.licences.includes('automate') && (
-                        <button
-                          onClick={() => setConnectFor(a)}
-                          className="rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-                        >
-                          Connect GarageHive
-                        </button>
+                        a.garageHiveConnected ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+                            title="GarageHive diary connected"
+                          >
+                            ✓ GarageHive connected
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setConnectFor(a)}
+                            className="rounded-md border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                          >
+                            Connect GarageHive
+                          </button>
+                        )
                       )}
                       {(a.status === 'signed' || a.status === 'externally_signed') && (
                         <button

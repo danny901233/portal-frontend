@@ -268,7 +268,7 @@ export default function DashboardPage() {
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean>(false);
   const [hasVoiceAccess, setHasVoiceAccess] = useState<boolean>(true);
   const [trialEndDate, setTrialEndDate] = useState<string | null>(null);
-  const [voiceInterestSent, setVoiceInterestSent] = useState<'' | 'add' | 'learn'>('');
+  const [addVoiceLoading, setAddVoiceLoading] = useState<boolean>(false);
   const [addCardLoading, setAddCardLoading] = useState<boolean>(false);
   // Mobile-only: collapse the lower analytics (charts + tag spotlight) behind a
   // toggle so the phone dashboard is scannable. Desktop always shows everything.
@@ -736,18 +736,21 @@ export default function DashboardPage() {
     }
   };
 
-  const handleVoiceInterest = async (intent: 'add' | 'learn') => {
+  const handleAddVoice = async () => {
     if (!selectedGarageId) return;
-    setVoiceInterestSent(intent); // optimistic — feels instant
+    setAddVoiceLoading(true);
     try {
       const token = getSessionToken();
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/voice-interest`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/add-voice`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ garageId: selectedGarageId, intent }),
+        body: JSON.stringify({ garageId: selectedGarageId }),
       });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+      else setAddVoiceLoading(false);
     } catch {
-      /* keep the "we'll be in touch" state; the log line captures the intent too */
+      setAddVoiceLoading(false);
     }
   };
 
@@ -908,8 +911,10 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Add-voice upsell — shown to Connect-only garages (voice UI otherwise hidden) */}
-      {hasVoiceAccess === false && (
+      {/* Add-voice upsell — Connect-only garages in the 2nd half of the free trial. Offered late so
+          the free voice window (until the Connect trial ends) stays ≈ the standard 14-day Assist
+          trial AND both bill together on one invoice. */}
+      {hasVoiceAccess === false && inTrial && (trialDaysLeft ?? 99) <= 15 && (
         <div className="overflow-hidden rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
@@ -918,17 +923,13 @@ export default function DashboardPage() {
               </span>
               <div>
                 <p className="text-base font-bold text-slate-900">Add voice — catch your missed calls too</p>
-                <p className="mt-1 text-sm text-slate-600">Connect handles your WhatsApp leads. Add voice and the same AI answers your phone, books customers in, and takes messages — so no call goes unanswered.</p>
+                <p className="mt-1 text-sm text-slate-600">Connect handles your WhatsApp leads. Add voice and the same AI answers your phone, books customers in, and takes messages — <span className="font-medium text-slate-700">free for the rest of your trial, then on one bill with Connect.</span></p>
               </div>
             </div>
-            {voiceInterestSent ? (
-              <p className="shrink-0 self-start rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200 sm:self-auto">✓ We&rsquo;ll be in touch</p>
-            ) : (
-              <div className="flex shrink-0 gap-2">
-                <button onClick={() => handleVoiceInterest('add')} className="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">Add voice</button>
-                <button onClick={() => handleVoiceInterest('learn')} className="rounded-full border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">Find out more</button>
-              </div>
-            )}
+            <div className="flex shrink-0 gap-2">
+              <button onClick={handleAddVoice} disabled={addVoiceLoading} className="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60">{addVoiceLoading ? 'Opening…' : 'Add voice'}</button>
+              <a href="/demo" target="_blank" rel="noopener noreferrer" className="grid place-items-center rounded-full border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">Find out more</a>
+            </div>
           </div>
         </div>
       )}

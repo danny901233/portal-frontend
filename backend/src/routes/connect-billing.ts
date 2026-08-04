@@ -3,7 +3,6 @@ import type { Request, Response } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { getStripeClient } from '../services/stripe.js';
-import { sendEmail } from '../utils/email.js';
 
 // ---------------------------------------------------------------------------
 // Connect trial → paid. When a Connect garage's free month ends without a card,
@@ -17,6 +16,7 @@ import { sendEmail } from '../utils/email.js';
 const router = Router();
 const PORTAL_URL = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
 const CONNECT_PRICE_ID = process.env.STRIPE_CONNECT_PRICE_ID;
+const ASSIST_PRICE_ID = process.env.STRIPE_ASSIST_PRICE_ID;
 
 router.post('/connect/checkout', authenticate, async (req: Request, res: Response) => {
   const { garageId } = req.body || {};
@@ -61,30 +61,58 @@ router.post('/connect/checkout', authenticate, async (req: Request, res: Respons
   }
 });
 
-// A Connect garage expresses interest in adding voice (Assist/Automate). Voice needs a
-// number provisioned + agent config, so we don't self-serve it — we notify staff to follow
-// up. intent: 'add' (ready to add) | 'learn' (wants to find out more).
-router.post('/connect/voice-interest', authenticate, async (req: Request, res: Response) => {
-  const { garageId, intent } = req.body || {};
+// Self-serve: a Connect garage in the SECOND HALF of its free trial adds voice (Assist).
+// One subscription, two items (Connect + Assist), with trial_end aligned to the existing
+// Connect trialEndDate — so both bill together on ONE invoice when the free month ends.
+// On payment the Stripe webhook (kind='connect-add-voice') flips agentScript→Assist-agent,
+// sets hasVoiceAccess, and provisions a number + the Assist agent on Account 2.
+router.post('/connect/add-voice', authenticate, async (req: Request, res: Response) => {
+  const { garageId } = req.body || {};
   const user = req.user;
   if (!garageId) return res.status(400).json({ error: 'missing_garageId' });
   const allowed = user?.role === 'RECEPTIONMATE_STAFF' || (Array.isArray(user?.garageIds) && user!.garageIds!.includes(garageId));
   if (!allowed) return res.status(403).json({ error: 'forbidden' });
+  if (!CONNECT_PRICE_ID || !ASSIST_PRICE_ID) {
+    console.error('[CONNECT_ADD_VOICE] price ids not configured');
+    return res.status(500).json({ error: 'price_not_configured' });
+  }
   try {
-    const garage = await prisma.garage.findUnique({ where: { id: garageId }, select: { name: true } });
-    const wants = intent === 'add' ? 'is ready to ADD voice' : 'wants to find out more about voice';
-    const line = `${garage?.name || garageId} (${user!.email}) ${wants}.`;
-    await sendEmail({
-      to: ['hello@receptionmate.co.uk'],
-      subject: `Connect → Voice interest: ${garage?.name || garageId}`,
-      text: `${line}\n\ngarageId: ${garageId}\nintent: ${intent || 'learn'}\nuserId: ${user!.userId}`,
-      html: `<p>${line}</p><p>garageId: ${garageId}<br>intent: ${intent || 'learn'}<br>userId: ${user!.userId}</p>`,
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      select: { id: true, name: true, stripeCustomerId: true, trialEndDate: true, hasVoiceAccess: true },
     });
-    console.log(`[CONNECT_VOICE_INTEREST] ${garageId} intent=${intent} by ${user!.email}`);
-    return res.json({ success: true });
+    if (!garage) return res.status(404).json({ error: 'garage_not_found' });
+    if (garage.hasVoiceAccess) return res.status(400).json({ error: 'already_has_voice' });
+
+    // Align the shared trial end to the Connect trial so both items bill together. The upsell is
+    // only shown in the trial's 2nd half, so trialEndDate is always comfortably in the future.
+    const trialEnd = garage.trialEndDate ? Math.floor(garage.trialEndDate.getTime() / 1000) : undefined;
+
+    const stripe = getStripeClient();
+    const metadata: Record<string, string> = {
+      kind: 'connect-add-voice',
+      garageId: garage.id,
+      userId: user!.userId,
+      businessName: garage.name.slice(0, 100),
+    };
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      ...(garage.stripeCustomerId ? { customer: garage.stripeCustomerId } : { customer_email: user!.email }),
+      line_items: [
+        { price: CONNECT_PRICE_ID, quantity: 1 },
+        { price: ASSIST_PRICE_ID, quantity: 1 },
+      ],
+      payment_method_collection: 'always',
+      subscription_data: { metadata, ...(trialEnd ? { trial_end: trialEnd } : {}) },
+      metadata,
+      success_url: `${PORTAL_URL}/dashboard?voice_added=1`,
+      cancel_url: `${PORTAL_URL}/dashboard`,
+    });
+    return res.json({ url: session.url });
   } catch (e: any) {
-    console.error('[CONNECT_VOICE_INTEREST] failed:', e?.message);
-    return res.status(500).json({ error: 'notify_failed' });
+    console.error('[CONNECT_ADD_VOICE] checkout failed:', e?.message);
+    return res.status(500).json({ error: 'checkout_failed' });
   }
 });
 

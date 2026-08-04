@@ -223,6 +223,36 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
     console.log(`[STRIPE_WEBHOOK] Connect paid + unlocked: garage ${meta.garageId}`);
     return;
   }
+  // Connect garage self-serve added voice (Assist) mid-trial. One subscription now covers both
+  // Connect + Assist (aligned trial_end). Flip the voice routing to the Assist agent (Account 2),
+  // unlock voice, record the subscription, then provision the number + agent.
+  if (meta.kind === 'connect-add-voice' && meta.garageId) {
+    const g = await prisma.garage.findUnique({
+      where: { id: meta.garageId },
+      select: { id: true, name: true, twilioNumber: true },
+    });
+    if (!g) return;
+    // agentType stays 'assist' (Connect garages already are); only agentScript changes → routes
+    // calls to the Assist voice agent on Account 2. Messaging (chat, by agentType) is untouched.
+    await prisma.agentConfiguration
+      .update({ where: { garageId: g.id }, data: { agentScript: 'Assist-agent', agentType: 'assist' } })
+      .catch((e) => console.error('[STRIPE_WEBHOOK] add-voice config update failed', e));
+    await prisma.garage.update({
+      where: { id: g.id },
+      data: {
+        stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null,
+        stripeSubscriptionId: typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null,
+        hasVoiceAccess: true,
+        accessRestricted: false,
+      },
+    });
+    const u = meta.userId ? await prisma.user.findUnique({ where: { id: meta.userId }, select: { email: true } }) : null;
+    if (!g.twilioNumber && u?.email) {
+      await provisionGarageAccount({ id: g.id, name: g.name }, u.email);
+    }
+    console.log(`[STRIPE_WEBHOOK] connect-add-voice: voice added + provisioned for garage ${meta.garageId}`);
+    return;
+  }
   // Sales-led card rail: a manually-onboarded customer who pays by card rather than Direct
   // Debit has just completed checkout. Clear the payment gate and record the subscription.
   // NB: no billing cycle dates are set — Stripe bills this subscription itself. The GoCardless

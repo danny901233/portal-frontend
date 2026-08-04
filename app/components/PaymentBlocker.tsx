@@ -10,16 +10,20 @@ export default function PaymentBlocker({
   garageName,
   onLogout,
   variant = 'arrears',
+  trialReason = 'time',
   onAddCard,
   busy = false,
 }: {
   garageName?: string | null;
   onLogout: () => void;
   variant?: 'arrears' | 'trial-ended';
+  trialReason?: 'time' | 'cap';
   onAddCard?: () => void;
   busy?: boolean;
 }) {
   const trial = variant === 'trial-ended';
+  // 'cap' = they used up the 500 free conversations before the month ended; 'time' = month expired.
+  const cap = trial && trialReason === 'cap';
 
   return (
     <div className="fixed inset-0 z-[100] flex min-h-screen items-center justify-center bg-[#09203c] p-6">
@@ -27,7 +31,7 @@ export default function PaymentBlocker({
         <div className={`px-8 py-8 text-center ${trial ? 'bg-gradient-to-br from-brand-500 to-brand-700' : 'bg-gradient-to-br from-amber-500 to-amber-600'}`}>
           <div className="mb-2 text-4xl">{trial ? '✨' : '🔒'}</div>
           <h1 className="text-2xl font-semibold text-white">
-            {trial ? 'Your free month has ended' : 'Your account is in arrears'}
+            {trial ? (cap ? 'You’ve used your free conversations' : 'Your free month has ended') : 'Your account is in arrears'}
           </h1>
           {garageName ? <p className="mt-1 text-sm text-white/90">{garageName}</p> : null}
         </div>
@@ -36,8 +40,9 @@ export default function PaymentBlocker({
           {trial ? (
             <>
               <p className="text-base leading-relaxed">
-                Your ReceptionMate Connect free month is over, so your AI has paused. Add a card to
-                switch it straight back on and keep messaging your customers on WhatsApp.
+                {cap
+                  ? 'You’ve used all 500 of your free Connect conversations, so your AI has paused. Add a card to switch it straight back on and keep messaging your customers on WhatsApp.'
+                  : 'Your ReceptionMate Connect free month is over, so your AI has paused. Add a card to switch it straight back on and keep messaging your customers on WhatsApp.'}
               </p>
               <div className="rounded-lg border border-[#1e4a66] bg-[#0d2739] p-5 text-sm leading-relaxed text-slate-300">
                 <strong className="text-white">£250 + VAT a month</strong>, including 500 conversation

@@ -85,6 +85,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [trialEndDate, setTrialEndDate] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isMobile = useIsMobile();
   const [addCardBusy, setAddCardBusy] = useState(false);
@@ -389,6 +390,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           console.log('[MESSAGING] Setting hasMessagingAccess to:', hasAccess);
           setHasMessagingAccess(hasAccess);
           setHasVoiceAccess(accessData.hasVoiceAccess !== false);
+          setTrialEndDate(accessData.trialEndDate ?? null);
 
           // If has access, fetch needs attention count
           if (hasAccess) {
@@ -486,6 +488,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       garageName={garages.find((g) => g.id === garageId)?.name}
       onLogout={handleLogout}
       variant={hasVoiceAccess === false ? 'trial-ended' : 'arrears'}
+      trialReason={trialEndDate && new Date(trialEndDate).getTime() > Date.now() ? 'cap' : 'time'}
       onAddCard={handleConnectAddCard}
       busy={addCardBusy}
     />

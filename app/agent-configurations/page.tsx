@@ -242,12 +242,11 @@ const agentTypeOptions: { value: AgentType; label: string; description: string }
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
-const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'poole-agent' | 'MMH-agent'; label: string; description: string }[] = [
+const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'poole-agent'; label: string; description: string }[] = [
   { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
   { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture' },
   { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre centre integration with inventory management' },
   { value: 'poole-agent', label: 'Poole Agent', description: 'Poole/AutoSage booking system integration' },
-  { value: 'MMH-agent', label: 'MMH Agent', description: 'Midlands Motorhome Hire — Outdoorsy/Wheelbase integration' },
 ];
 const maskSecretValue = (value: string) => {
   if (!value) {
@@ -1904,7 +1903,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'MMH-agent',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'poole-agent',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}

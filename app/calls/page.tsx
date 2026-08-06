@@ -3,12 +3,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import { Calendar, Filter, Phone, PhoneCall, Search, ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import { fetchCalls, submitCallFeedback } from '../lib/api';
 import { getGarageId } from '../lib/auth';
+import { Skeleton } from '../components/Skeleton';
 import {
   TRACKED_TAGS,
+  TAG_COLORS,
   getCallTagLabel,
   getCallTagStyle,
+  normaliseCallTag,
 } from '../lib/callTags';
 import { FEEDBACK_OPTIONS } from '../lib/callFeedback';
 import { cn } from '../lib/utils';
@@ -81,7 +85,15 @@ const deriveCallerName = (call: CallRecord): string => {
     }
   }
 
-  const sentenceMatch = summary.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:called|spoke|Phone)/i);
+  const theCallerMatch = summary.match(/^The caller,?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s/i);
+  if (theCallerMatch) {
+    const candidate = theCallerMatch[1].trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const sentenceMatch = summary.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:called|spoke|Phone|contacted|requested|inquired)/i);
   if (sentenceMatch) {
     const candidate = sentenceMatch[1].trim();
     if (candidate && !/^the caller$/i.test(candidate)) {
@@ -775,24 +787,64 @@ export default function CallsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold text-slate-100">Call Activity</h1>
-        <p className="text-sm text-slate-400">Monitor interactions from your ReceptionMate AI voice agent.</p>
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/25">
+          <PhoneCall className="h-5 w-5" />
+        </div>
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-100">Call Activity</h1>
+          <p className="text-sm text-slate-400">Monitor interactions from your ReceptionMate AI voice agent.</p>
+        </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 shadow-lg shadow-slate-950/40">
-        <div className="border-b border-slate-800 px-5 py-3 text-xs uppercase tracking-wide text-slate-400">
-          Recent Calls
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 shadow-lg shadow-slate-950/40 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 md:px-5">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+            <Filter className="h-3.5 w-3.5 text-slate-500" />
+            Recent Calls
+          </div>
+          <span className="text-[11px] uppercase tracking-wide text-slate-500">
+            {query.isLoading
+              ? 'Loading…'
+              : `${displayedCalls.length} result${displayedCalls.length === 1 ? '' : 's'}`}
+          </span>
         </div>
 
-        <div className="flex flex-col gap-3 border-b border-slate-800 bg-slate-900/50 px-5 py-4 text-sm text-slate-300 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">Call Tag</span>
+        {/* Filter section — mobile-first */}
+        <div className="space-y-3 border-b border-slate-800 bg-slate-900/40 p-3 md:p-4">
+          {/* Search — full width with icon */}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              type="search"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder='Search calls — try "MOT" AND (booking OR estimate)'
+              title="Supports AND, OR, NOT and quoted phrases"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950/80 py-2 pl-9 pr-9 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Filter row — tag dropdown + dates */}
+          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr] sm:gap-3">
+            <div className="space-y-1">
+              <label className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Tag
+              </label>
               <select
                 value={callTagFilter}
                 onChange={(event) => setCallTagFilter(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
               >
                 {callTagOptions.map((type) => (
                   <option key={type} value={type}>
@@ -800,60 +852,199 @@ export default function CallsPage() {
                   </option>
                 ))}
               </select>
-            </label>
-
-            <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">From</span>
+            </div>
+            <div className="space-y-1">
+              <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <Calendar className="h-3 w-3" />
+                From
+              </label>
               <input
                 type="date"
                 value={startDateInput}
                 onChange={(event) => setStartDateInput(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
               />
-            </label>
-
-            <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">To</span>
+            </div>
+            <div className="space-y-1">
+              <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <Calendar className="h-3 w-3" />
+                To
+              </label>
               <input
                 type="date"
                 value={endDateInput}
                 onChange={(event) => setEndDateInput(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
                 min={startDateInput || undefined}
               />
-            </label>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-slate-500">Search</span>
-              <input
-                type="search"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder={'e.g. "MOT" AND (booking OR estimate)'}
-                title="Supports AND, OR, NOT and quoted phrases"
-                className="w-56 rounded-md border border-slate-700 bg-slate-900/80 px-3 py-1 text-sm text-slate-100 focus:border-sky-500 focus:outline-none"
-              />
-            </label>
-            {filtersActive ? (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="text-xs font-medium text-sky-400 hover:text-sky-300"
-              >
-                Clear filters
-              </button>
-            ) : null}
-            <span className="text-xs uppercase tracking-wide text-slate-500">
-              {query.isLoading
-                ? 'Loading…'
-                : `${displayedCalls.length} result${displayedCalls.length === 1 ? '' : 's'}`}
-            </span>
-          </div>
+          {filtersActive && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex items-center gap-1 text-xs font-medium text-sky-400 hover:text-sky-300"
+            >
+              <X className="h-3 w-3" />
+              Clear filters
+            </button>
+          )}
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Mobile card list */}
+        <div className="space-y-2.5 p-3 md:hidden">
+          {query.isLoading ? (
+            Array.from({ length: 5 }).map((_, i) => (
+              <div key={`mskeleton-${i}`} className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                <div className="absolute left-0 top-0 h-full w-1 bg-slate-700" />
+                <div className="flex items-start justify-between gap-3 pl-2">
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-3 w-32" />
+                    <Skeleton className="h-2.5 w-24" />
+                  </div>
+                  <Skeleton className="h-5 w-14 rounded-full" />
+                </div>
+                <div className="mt-3 space-y-1.5 pl-2">
+                  <Skeleton className="h-2.5 w-full" />
+                  <Skeleton className="h-2.5 w-3/4" />
+                </div>
+                <div className="mt-3 flex items-center gap-2 pl-2">
+                  <Skeleton className="h-8 w-20 rounded-md" />
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                </div>
+              </div>
+            ))
+          ) : displayedCalls.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-700 px-4 py-10 text-center">
+              <PhoneCall className="h-7 w-7 text-slate-500" />
+              <p className="text-sm font-medium text-slate-200">No calls found</p>
+              <p className="text-xs text-slate-500">Adjust filters or widen your search query.</p>
+            </div>
+          ) : (
+            displayedCalls.map((call) => {
+              const callerName = deriveCallerName(call);
+              const callerNumberRaw = deriveCallerNumber(call);
+              const formattedNumber = formatPhoneNumber(callerNumberRaw);
+              const callTag = renderCallTag(call.callType);
+              const normTag = normaliseCallTag(call.callType);
+              const accentColor = TAG_COLORS[normTag] || TAG_COLORS.other;
+              const rating = ratings[call.id] ?? null;
+              const upActive = rating === 'up';
+              const downActive = rating === 'down';
+              const ratingDisabled = isSavingFeedback && pendingFeedbackCallId === call.id;
+              const thumbMobileClass =
+                'inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500';
+              return (
+                <article
+                  key={`mcard-${call.id}`}
+                  className="group relative overflow-hidden rounded-xl border border-slate-800 bg-gradient-to-b from-slate-900/70 to-slate-900/40 shadow-sm shadow-black/20 transition-colors active:bg-slate-900"
+                >
+                  {/* Tag accent stripe */}
+                  <div className="absolute left-0 top-0 h-full w-1" style={{ background: accentColor }} aria-hidden />
+
+                  <div className="p-4 pl-5">
+                    <header className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-base font-semibold tracking-tight text-slate-50">{callerName}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-slate-400">
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="h-3 w-3 text-slate-500" />
+                            {formattedNumber}
+                          </span>
+                          <span className="text-slate-700">•</span>
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="h-3 w-3 text-slate-500" />
+                            {formatDate(call.createdAt)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="shrink-0">{callTag}</div>
+                    </header>
+
+                    {call.summary?.trim() && (
+                      <p className="mt-3 line-clamp-2 rounded-md bg-slate-950/40 px-3 py-2 text-[12px] leading-relaxed text-slate-300">
+                        {call.summary.trim()}
+                      </p>
+                    )}
+
+                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-800/80 pt-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleViewDetails(call.id)}
+                          className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-300 transition-colors hover:border-sky-500/60 hover:text-sky-200"
+                        >
+                          Details
+                        </button>
+                        {call.summary?.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => handleSummaryOpen(call.id)}
+                            className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-300 transition-colors hover:border-sky-500/60 hover:text-sky-200"
+                          >
+                            Summary
+                          </button>
+                        )}
+                        {call.recordingUrl ? (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-medium text-emerald-300">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                            Recording
+                          </span>
+                        ) : call.customerPhone ? (
+                          <button
+                            type="button"
+                            onClick={() => handleLoadRecording(call.id)}
+                            disabled={loadingRecordings.has(call.id)}
+                            className="rounded-md border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-[11px] font-medium text-slate-300 hover:border-slate-500 disabled:opacity-50"
+                          >
+                            {loadingRecordings.has(call.id) ? '…' : 'Load rec.'}
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleRatingClick(call.id, 'up')}
+                          disabled={ratingDisabled}
+                          className={cn(
+                            thumbMobileClass,
+                            ratingDisabled && 'opacity-60',
+                            upActive
+                              ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300 shadow-inner shadow-emerald-500/30'
+                              : 'border-slate-700 bg-slate-900/60 text-slate-500 hover:border-emerald-400/60 hover:text-emerald-300',
+                          )}
+                          aria-label="Rate call positively"
+                        >
+                          <ThumbsUp className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRatingClick(call.id, 'down')}
+                          disabled={ratingDisabled}
+                          className={cn(
+                            thumbMobileClass,
+                            ratingDisabled && 'opacity-60',
+                            downActive
+                              ? 'border-rose-400 bg-rose-500/15 text-rose-300 shadow-inner shadow-rose-500/30'
+                              : 'border-slate-700 bg-slate-900/60 text-slate-500 hover:border-rose-400/60 hover:text-rose-300',
+                          )}
+                          aria-label="Rate call negatively"
+                        >
+                          <ThumbsDown className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-full divide-y divide-slate-800 text-sm">
             <thead className="bg-slate-900/80 text-xs uppercase tracking-widest text-slate-400">
               <tr>
@@ -869,11 +1060,18 @@ export default function CallsPage() {
             </thead>
             <tbody className="divide-y divide-slate-800/80">
               {query.isLoading ? (
-                <tr>
-                  <td colSpan={8} className="px-5 py-10 text-center text-slate-400">
-                    Loading calls…
-                  </td>
-                </tr>
+                Array.from({ length: 8 }).map((_, rowIdx) => (
+                  <tr key={`skeleton-${rowIdx}`}>
+                    <td className="px-5 py-4"><Skeleton className="h-3 w-28" /></td>
+                    <td className="px-5 py-4"><Skeleton className="h-3 w-24" /></td>
+                    <td className="px-5 py-4"><Skeleton className="h-3 w-32" /></td>
+                    <td className="px-5 py-4"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                    <td className="px-5 py-4"><Skeleton className="h-7 w-20 rounded-md" /></td>
+                    <td className="px-5 py-4"><Skeleton className="h-3 w-full max-w-[280px]" /></td>
+                    <td className="px-5 py-4"><Skeleton className="h-3 w-16" /></td>
+                    <td className="px-5 py-4"><Skeleton className="h-7 w-14 rounded-md" /></td>
+                  </tr>
+                ))
               ) : displayedCalls.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-5 py-10 text-center text-slate-400">

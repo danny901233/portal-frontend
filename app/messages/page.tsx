@@ -2,9 +2,11 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowLeft, Inbox, Link2 } from 'lucide-react';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
 import ConversationTaggingPanel from '../components/ConversationTaggingPanel';
+import { Skeleton } from '../components/Skeleton';
 
 interface Message {
   id: string;
@@ -12,6 +14,8 @@ interface Message {
   content: string;
   createdAt: string;
   platform?: string;
+  mediaUrl?: string;
+  mediaType?: string;
 }
 
 interface Conversation {
@@ -86,6 +90,9 @@ export default function MessagesPage() {
   const [messageInput, setMessageInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [showPauseDropdown, setShowPauseDropdown] = useState(false);
@@ -207,26 +214,43 @@ export default function MessagesPage() {
   };
 
   const sendMessage = async () => {
-    if (!selectedConversation || !messageInput.trim()) return;
+    if (!selectedConversation || (!messageInput.trim() && !selectedFile)) return;
 
     setSending(true);
     try {
       const token = getSessionToken();
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/messages`,
-        {
+      let fetchOptions: RequestInit;
+
+      let url: string;
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append('image', selectedFile);
+        if (messageInput.trim()) formData.append('caption', messageInput);
+        fetchOptions = {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        };
+        url = `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/messages/image`;
+      } else {
+        fetchOptions = {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ content: messageInput }),
-        }
-      );
+        };
+        url = `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/messages`;
+      }
+
+      const response = await fetch(url, fetchOptions);
 
       if (!response.ok) throw new Error('Failed to send message');
 
       setMessageInput('');
+      setSelectedFile(null);
+      setFilePreview(null);
       await fetchConversationDetail(selectedConversation.id);
       await fetchConversations();
     } catch (error) {
@@ -235,6 +259,23 @@ export default function MessagesPage() {
     } finally {
       setSending(false);
     }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Only image files are supported');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image must be under 10MB');
+      return;
+    }
+    setSelectedFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setFilePreview(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
   const updateConversationStatus = async (status: string) => {
@@ -420,25 +461,27 @@ export default function MessagesPage() {
   return (
     <div className="space-y-4">
       {/* Header with Integrations Button */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-100">Messages</h1>
-          <p className="text-sm text-slate-400 mt-1">Manage all customer conversations in one place</p>
+      <div className="flex flex-col gap-3 border-b border-slate-800/60 pb-4 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-50">Messages</h1>
+          <p className="mt-1 text-sm text-slate-400">Manage all customer conversations in one place.</p>
         </div>
         <button
           onClick={() => router.push('/integrations')}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg transition-colors border border-slate-700"
+          className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-slate-100 transition-colors hover:border-slate-500 hover:bg-slate-800 md:self-auto md:px-4"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          <span className="text-sm font-medium">Connect Platforms</span>
+          <Link2 className="h-4 w-4" />
+          <span className="text-sm font-medium">Connect platforms</span>
         </button>
       </div>
 
-      <div className="flex h-[calc(100vh-220px)] gap-0">
-        {/* Left Sidebar - Conversations List */}
-        <div className="w-96 bg-slate-900/40 border border-slate-800 rounded-l-lg flex flex-col">
+      <div className="flex h-[calc(100vh-200px)] flex-col gap-0 md:h-[calc(100vh-220px)] md:flex-row">
+        {/* Left Sidebar - Conversations List (full width on mobile when no conversation selected) */}
+        <div className={cn(
+          'w-full bg-slate-900/40 border border-slate-800 flex flex-col md:w-96 md:rounded-l-lg',
+          'rounded-lg',
+          selectedConversation ? 'hidden md:flex' : 'flex',
+        )}>
           {/* Search and Filters */}
           <div className="p-4 border-b border-slate-800">
           <div className="flex gap-2 mb-4">
@@ -609,9 +652,33 @@ export default function MessagesPage() {
 
         {/* Conversations List */}
         <div className="flex-1 overflow-y-auto">
-          {filteredConversations.length === 0 ? (
-            <div className="p-4 text-center text-slate-500 text-sm">
-              No {viewMode === 'needsAttention' ? 'conversations need attention' : `${viewMode} conversations`}
+          {loading ? (
+            <div className="divide-y divide-slate-800/60">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-start gap-3 p-4">
+                  <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Skeleton className="h-3 w-32" />
+                      <Skeleton className="h-2.5 w-10" />
+                    </div>
+                    <Skeleton className="h-2.5 w-full" />
+                    <Skeleton className="h-2.5 w-3/4" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredConversations.length === 0 ? (
+            <div className="rm-empty mx-4 my-6">
+              <Inbox className="h-7 w-7 text-slate-500" />
+              <p className="text-sm font-medium text-slate-200">
+                {viewMode === 'needsAttention'
+                  ? 'No conversations need attention'
+                  : `No ${viewMode} conversations`}
+              </p>
+              <p className="text-xs text-slate-500">
+                New customer messages will appear here as they come in.
+              </p>
             </div>
           ) : (
             filteredConversations.map((conv) => (
@@ -683,8 +750,12 @@ export default function MessagesPage() {
         </div>
       </div>
 
-      {/* Right Panel - Conversation Detail */}
-      <div className="flex-1 bg-slate-900/40 border border-l-0 border-slate-800 rounded-r-lg flex flex-col">
+      {/* Right Panel - Conversation Detail (full width on mobile when conversation selected) */}
+      <div className={cn(
+        'flex-1 bg-slate-900/40 border border-slate-800 flex flex-col',
+        'rounded-lg md:rounded-l-none md:rounded-r-lg md:border-l-0',
+        selectedConversation ? 'flex' : 'hidden md:flex',
+      )}>
         {!selectedConversation ? (
           <div className="flex-1 flex items-center justify-center text-slate-500">
             <div className="text-center">
@@ -695,10 +766,18 @@ export default function MessagesPage() {
         ) : (
           <>
             {/* Conversation Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            <div className="border-b border-slate-800 p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedConversation(null)}
+                  className="-ml-1 shrink-0 rounded-lg p-1.5 text-slate-300 hover:bg-slate-800 hover:text-slate-100 md:hidden"
+                  aria-label="Back to conversations"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
                 <div className={cn(
-                  'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium',
+                  'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0',
                   PLATFORM_COLORS[selectedConversation.platform as keyof typeof PLATFORM_COLORS]
                 )}>
                   {getInitials(selectedConversation.customerName || selectedConversation.customerPhone || selectedConversation.customerId || 'UK')}
@@ -742,18 +821,18 @@ export default function MessagesPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
                 <button
                   onClick={toggleFlag}
                   className={cn(
-                    'px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5',
+                    'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors md:px-3 md:text-sm',
                     selectedConversation.needsAttention
                       ? 'bg-orange-600 hover:bg-orange-700 text-white'
                       : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
                   )}
                   title={selectedConversation.needsAttention ? 'Remove flag' : 'Flag for attention'}
                 >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clipRule="evenodd" />
                   </svg>
                   {selectedConversation.needsAttention ? 'Flagged' : 'Flag'}
@@ -762,14 +841,14 @@ export default function MessagesPage() {
                 <button
                   onClick={() => setShowTaggingPanel(!showTaggingPanel)}
                   className={cn(
-                    'px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5',
+                    'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors md:px-3 md:text-sm',
                     showTaggingPanel
                       ? 'bg-purple-600 hover:bg-purple-700 text-white'
                       : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
                   )}
                   title="Toggle tags panel"
                 >
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="h-3.5 w-3.5 shrink-0 md:h-4 md:w-4" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                   </svg>
                   Tags
@@ -779,17 +858,19 @@ export default function MessagesPage() {
                 {selectedConversation.agentPaused ? (
                   <button
                     onClick={() => toggleAgent()}
-                    className="px-3 py-1.5 text-sm rounded-md transition-colors bg-green-600 hover:bg-green-700 text-white"
+                    className="shrink-0 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 md:px-3 md:text-sm"
                   >
-                    Resume Agent
+                    <span className="hidden md:inline">Resume Agent</span>
+                    <span className="md:hidden">Resume</span>
                   </button>
                 ) : (
-                  <div className="relative">
+                  <div className="relative shrink-0">
                     <button
                       onClick={() => setShowPauseDropdown(!showPauseDropdown)}
-                      className="px-3 py-1.5 text-sm rounded-md transition-colors bg-orange-600 hover:bg-orange-700 text-white flex items-center gap-1"
+                      className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-700 md:px-3 md:text-sm"
                     >
-                      Pause Agent
+                      <span className="hidden md:inline">Pause Agent</span>
+                      <span className="md:hidden">Pause</span>
                       <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                       </svg>
@@ -836,14 +917,14 @@ export default function MessagesPage() {
                 {selectedConversation.status === 'active' ? (
                   <button
                     onClick={() => updateConversationStatus('resolved')}
-                    className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors"
+                    className="shrink-0 rounded-md bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-600 md:px-3 md:text-sm"
                   >
                     Resolve
                   </button>
                 ) : (
                   <button
                     onClick={() => updateConversationStatus('active')}
-                    className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors"
+                    className="shrink-0 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700 md:px-3 md:text-sm"
                   >
                     Reopen
                   </button>
@@ -852,37 +933,73 @@ export default function MessagesPage() {
             </div>
 
             {/* Messages */}
-            <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-slate-950/20">
-              {selectedConversation.messages?.filter((message) => !message.content?.startsWith('[Context:')).map((message) => (
-                <div
-                  key={message.id}
-                  className={cn('flex flex-col', message.role === 'user' ? 'items-start' : 'items-end')}
-                >
-                  {/* Platform badge */}
-                  {message.platform && (
-                    <div className="text-xs text-slate-500 mb-1 flex items-center gap-1">
-                      {(() => {
-                        const IconComponent = PLATFORM_ICONS[message.platform as keyof typeof PLATFORM_ICONS];
-                        return IconComponent ? <IconComponent /> : null;
-                      })()}
-                      <span>{message.platform}</span>
-                    </div>
-                  )}
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 min-h-0 overflow-y-auto bg-gradient-to-b from-slate-950/40 via-slate-950/20 to-slate-950/40 p-4 space-y-3"
+            >
+              {selectedConversation.messages?.filter((message) => !message.content?.startsWith('[Context:')).map((message) => {
+                const isUser = message.role === 'user';
+                const PlatformIcon = message.platform
+                  ? PLATFORM_ICONS[message.platform as keyof typeof PLATFORM_ICONS]
+                  : null;
+                return (
                   <div
-                    className={cn(
-                      'max-w-md px-4 py-2 rounded-lg',
-                      message.role === 'user'
-                        ? 'bg-slate-800 text-slate-100'
-                        : 'bg-purple-600 text-white'
-                    )}
+                    key={message.id}
+                    className={cn('flex flex-col gap-1', isUser ? 'items-start' : 'items-end')}
                   >
-                    <p className="text-sm">{message.content}</p>
-                    <p className={cn('text-xs mt-1', message.role === 'user' ? 'text-slate-500' : 'text-purple-200')}>
-                      {formatTime(message.createdAt)}
-                    </p>
+                    <div
+                      className={cn(
+                        'max-w-[85%] text-sm shadow-sm md:max-w-md',
+                        message.mediaUrl ? 'overflow-hidden rounded-2xl' : 'rounded-2xl px-3.5 py-2.5',
+                        isUser
+                          ? 'rounded-bl-md border border-slate-800 bg-slate-800/70 text-slate-100'
+                          : 'rounded-br-md bg-gradient-to-br from-purple-500 via-purple-600 to-purple-700 text-white shadow-md shadow-purple-900/30',
+                      )}
+                    >
+                      {message.mediaUrl ? (
+                        <>
+                          <a
+                            href={`/internal-api/conversations/media/${message.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <img
+                              src={`/internal-api/conversations/media/${message.id}`}
+                              alt="Shared image"
+                              className="max-h-64 max-w-full cursor-pointer object-contain"
+                              loading="lazy"
+                            />
+                          </a>
+                          {message.content && message.content !== '[Image]' && (
+                            <p className="px-3.5 py-2 text-sm leading-relaxed">{message.content}</p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="leading-relaxed">{message.content}</p>
+                      )}
+                    </div>
+                    <div
+                      className={cn(
+                        'flex items-center gap-1.5 px-1 text-[10px] text-slate-500',
+                        isUser ? 'flex-row' : 'flex-row-reverse',
+                      )}
+                    >
+                      {!isUser && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-purple-200">
+                          AI
+                        </span>
+                      )}
+                      {PlatformIcon && (
+                        <span className="inline-flex items-center gap-1">
+                          <PlatformIcon />
+                        </span>
+                      )}
+                      <span>·</span>
+                      <span>{formatTime(message.createdAt)}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Message Input */}
@@ -897,20 +1014,48 @@ export default function MessagesPage() {
                   </div>
                 ) : (
                   <>
+                    {filePreview && (
+                      <div className="mb-2 relative inline-block">
+                        <img src={filePreview} alt="Preview" className="max-h-32 rounded-lg border border-slate-700" />
+                        <button
+                          onClick={() => { setSelectedFile(null); setFilePreview(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                          className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                     <div className="flex gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                      />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={sending}
+                        className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors disabled:opacity-50"
+                        title="Attach image"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        </svg>
+                      </button>
                       <input
                         type="text"
                         value={messageInput}
                         onChange={(e) => setMessageInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                        placeholder="Write a message"
+                        placeholder={selectedFile ? 'Add a caption (optional)' : 'Write a message'}
                         maxLength={1600}
                         className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
                         disabled={sending}
                       />
                       <button
                         onClick={sendMessage}
-                        disabled={sending || !messageInput.trim()}
+                        disabled={sending || (!messageInput.trim() && !selectedFile)}
                         className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {sending ? 'Sending...' : 'Send'}

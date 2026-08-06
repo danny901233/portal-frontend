@@ -172,13 +172,60 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
               }
             }
             if (found) break;
-          } catch (wabaErr) {
-            console.log(`[OAuth] Could not fetch WABAs for business "${business.name}"`);
+          } catch (wabaErr: any) {
+            const errDetail = wabaErr?.response?.data ? JSON.stringify(wabaErr.response.data) : wabaErr?.message;
+            console.log(`[OAuth] Could not fetch WABAs for business "${business.name}": ${errDetail}`);
+          }
+        }
+
+        // Fallback: if business-level discovery failed, check WABAs from token's granular_scopes
+        if (!found) {
+          console.log('[OAuth] Business-level discovery failed — trying granular_scopes fallback');
+          try {
+            const debugResp = await axios.get('https://graph.facebook.com/v18.0/debug_token', {
+              params: { input_token: accessToken, access_token: accessToken },
+            });
+            const granularScopes: any[] = debugResp.data?.data?.granular_scopes || [];
+            const wbmScope = granularScopes.find((s: any) => s.scope === 'whatsapp_business_management');
+            const wabaIds: string[] = wbmScope?.target_ids || [];
+            console.log(`[OAuth] Found ${wabaIds.length} WABA(s) from granular_scopes:`, wabaIds);
+
+            for (const wabaId of wabaIds) {
+              try {
+                const phoneResponse = await axios.get(`https://graph.facebook.com/v18.0/${wabaId}/phone_numbers`, {
+                  params: { access_token: accessToken },
+                });
+                const phones: any[] = phoneResponse.data.data || [];
+                if (phones.length > 0) {
+                  const phone = phones[0];
+                  connectionData.whatsappPhoneNumberId = phone.id;
+                  connectionData.pageId = wabaId;
+                  connectionData.accountName = phone.display_phone_number || phone.verified_name || '';
+                  console.log(`[OAuth] Granular fallback: WABA ${wabaId}, phone ${phone.id} (${connectionData.accountName})`);
+
+                  try {
+                    await axios.post(`https://graph.facebook.com/v18.0/${wabaId}/subscribed_apps`, null, {
+                      params: { access_token: accessToken },
+                    });
+                    console.log(`[OAuth] Subscribed WABA ${wabaId} to app webhooks`);
+                  } catch (subErr: any) {
+                    console.error('[OAuth] Failed to subscribe WABA to webhooks:', subErr?.response?.data ?? subErr?.message);
+                  }
+
+                  found = true;
+                  break;
+                }
+              } catch (phoneErr: any) {
+                console.log(`[OAuth] Could not fetch phones for WABA ${wabaId}: ${phoneErr?.response?.data ? JSON.stringify(phoneErr.response.data) : phoneErr?.message}`);
+              }
+            }
+          } catch (debugErr: any) {
+            console.log('[OAuth] Granular scope fallback failed:', debugErr?.message);
           }
         }
 
         if (!found) {
-          console.log('[OAuth] No WhatsApp phone numbers found across any business - pending_setup');
+          console.log('[OAuth] No WhatsApp phone numbers found — pending_setup');
           connectionData.whatsappPhoneNumberId = 'pending_setup';
         }
       } catch (wabError) {

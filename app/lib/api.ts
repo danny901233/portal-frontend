@@ -427,6 +427,8 @@ export interface OutboundCampaign {
   totalContacts: number;
   sentCount: number;
   sentAt?: string | null;
+  resumeAt?: string | null;
+  tierLimit?: number;
   messageTemplateId?: string | null;
   variableMapping?: Record<string, string> | null;
   createdAt: string;

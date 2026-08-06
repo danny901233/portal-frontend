@@ -1,14 +1,254 @@
 @import "tailwindcss";
 
-:root {
-  color-scheme: dark;
+/* ============================================================
+   ReceptionMatized design tokens (Jodie-inspired)
+   These override Tailwind v4's defaults so every existing
+   slate/blue/border utility across the portal picks up the
+   refined look automatically.
+   ============================================================ */
+@theme {
+  /* Brand colors and palette are preserved (Tailwind defaults).
+     We only lift the radius scale to match the more rounded
+     "Jodie-like" feel without touching color hues. */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
 }
 
+:root {
+  color-scheme: dark;
+
+  /* Semantic tokens map to Tailwind's existing slate/blue defaults
+     so brand color stays exactly as it is. New components can
+     reference these without changing existing utilities. */
+  --rm-bg:           var(--color-slate-950);
+  --rm-bg-elevated:  color-mix(in oklab, var(--color-slate-900) 70%, transparent);
+  --rm-card:         var(--color-slate-900);
+  --rm-card-hover:   var(--color-slate-800);
+  --rm-border:       color-mix(in oklab, var(--color-slate-800) 65%, transparent);
+  --rm-border-strong:color-mix(in oklab, var(--color-slate-700) 80%, transparent);
+  --rm-text:         var(--color-slate-100);
+  --rm-muted:        var(--color-slate-400);
+  --rm-subtle:       var(--color-slate-500);
+  --rm-primary:      var(--color-blue-500);
+  --rm-primary-soft: color-mix(in oklab, var(--color-blue-500) 18%, transparent);
+}
+
+/* ============================================================
+   Page chrome
+   ============================================================ */
 body {
   @apply min-h-screen bg-slate-950 text-slate-100 antialiased;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  background:
+    radial-gradient(1200px 600px at 15% -10%, color-mix(in oklab, var(--color-slate-800) 35%, transparent), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, color-mix(in oklab, var(--color-slate-900) 25%, transparent), transparent 60%),
+    var(--color-slate-950);
+  background-attachment: fixed;
 }
 
 a {
   @apply text-sky-400 transition-colors hover:text-sky-300;
+}
+
+/* Subtle scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rm-border-strong) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--rm-border-strong);
+  border-radius: 999px;
+}
+
+/* ============================================================
+   Global polish for existing utility patterns
+   These rules quietly soften every existing slate-* element
+   without requiring per-component changes.
+   ============================================================ */
+
+/* Soften every border-slate-800 wherever it appears */
+.border-slate-800 {
+  border-color: var(--rm-border) !important;
+}
+
+/* Lift cards slightly with subtle inner highlight + drop shadow.
+   Uses default slate hues — only adds depth, no hue shift. */
+[class*="bg-slate-900/60"],
+[class*="bg-slate-900/50"] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-slate-900) 70%, transparent),
+    color-mix(in oklab, var(--color-slate-950) 65%, transparent)
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 1px 2px rgb(0 0 0 / 0.25);
+  backdrop-filter: blur(8px);
+}
+
+/* Form controls — consistent dark backgrounds, no hue change */
+input[type="text"],
+input[type="search"],
+input[type="email"],
+input[type="number"],
+input[type="password"],
+input[type="date"],
+input[type="time"],
+input[type="url"],
+input[type="tel"],
+textarea,
+select {
+  background: color-mix(in oklab, var(--color-slate-950) 80%, var(--color-slate-900)) !important;
+  border-color: var(--rm-border) !important;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none !important;
+  border-color: var(--color-blue-500) !important;
+  box-shadow: 0 0 0 3px var(--rm-primary-soft) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--rm-subtle);
+}
+
+/* Buttons — pick up softer hover/focus by default */
+button {
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+}
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--rm-primary-soft);
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Headings get tighter tracking and better hierarchy */
+h1 { letter-spacing: -0.02em; }
+h2 { letter-spacing: -0.015em; }
+h3 { letter-spacing: -0.01em; }
+
+/* ============================================================
+   Utility classes new components can opt into
+   ============================================================ */
+.rm-card {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-slate-900) 85%, transparent),
+    color-mix(in oklab, var(--color-slate-950) 80%, transparent)
+  );
+  border: 1px solid var(--rm-border);
+  border-radius: 1rem;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 1px 2px rgb(0 0 0 / 0.25);
+  backdrop-filter: blur(8px);
+}
+.rm-card:hover {
+  border-color: var(--rm-border-strong);
+}
+
+.rm-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--rm-border);
+}
+
+.rm-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1.5rem;
+  border: 1px dashed var(--rm-border);
+  border-radius: 1rem;
+  color: var(--rm-muted);
+  text-align: center;
+}
+
+.rm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid var(--rm-border);
+  background: color-mix(in oklab, var(--color-slate-900) 60%, transparent);
+}
+
+/* ============================================================
+   Skeleton shimmer
+   ============================================================ */
+.rm-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--color-slate-800) 50%, var(--color-slate-900));
+  isolation: isolate;
+}
+.rm-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--color-slate-700) 35%, transparent) 50%,
+    transparent 100%
+  );
+  animation: rm-shimmer-slide 1.4s ease-in-out infinite;
+}
+@keyframes rm-shimmer-slide {
+  100% { transform: translateX(100%); }
+}
+
+/* ============================================================
+   Toast entrance animation
+   ============================================================ */
+.rm-toast {
+  animation: rm-toast-in 200ms ease-out;
+}
+@keyframes rm-toast-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ============================================================
+   Sticky save bar — slides up when shown
+   ============================================================ */
+.rm-sticky-save {
+  animation: rm-sticky-up 220ms ease-out;
+}
+@keyframes rm-sticky-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }

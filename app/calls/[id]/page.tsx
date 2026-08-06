@@ -240,7 +240,15 @@ const deriveCallerName = (call: CallRecord): string => {
     }
   }
 
-  const sentenceMatch = summary.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:called|spoke|Phone)/i);
+  const theCallerMatch = summary.match(/^The caller,?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s/i);
+  if (theCallerMatch) {
+    const candidate = theCallerMatch[1].trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const sentenceMatch = summary.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:called|spoke|Phone|contacted|requested|inquired)/i);
   if (sentenceMatch) {
     const candidate = sentenceMatch[1].trim();
     if (candidate && !/^the caller$/i.test(candidate)) {

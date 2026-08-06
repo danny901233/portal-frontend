@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { Clock3, Phone, Tag } from 'lucide-react';
 import { downloadConfirmedBookingsCsv, fetchCalls } from '../lib/api';
 import type { CallRecord, ConfirmedBookingCategory } from '../types';
 import { cn } from '../lib/utils';
@@ -14,6 +15,7 @@ import {
 } from '../lib/callTags';
 import MessageStatsWidget from '../components/MessageStatsWidget';
 import SmsStatsWidget from '../components/SmsStatsWidget';
+import { Skeleton } from '../components/Skeleton';
 import { getSessionToken } from '../lib/auth';
 
 type CallTypeTag = (typeof TRACKED_TAGS)[number] | 'other';
@@ -456,33 +458,35 @@ export default function DashboardPage() {
             Monitor call performance, booking conversion, and sentiment at a glance.
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-          <div className="flex flex-col text-sm">
-            <label className="mb-1 text-xs uppercase tracking-wide text-slate-400">Start date</label>
-            <input
-              type="date"
-              value={startDate}
-              max={endDate}
-              onChange={(event) => handleStartChange(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
-            />
+        <div className="flex w-full flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3 md:w-auto md:flex-row md:flex-wrap md:items-end md:gap-4 md:p-4">
+          <div className="grid grid-cols-2 gap-3 md:flex md:items-end md:gap-4">
+            <div className="flex flex-col text-sm">
+              <label className="mb-1 text-xs uppercase tracking-wide text-slate-400">Start date</label>
+              <input
+                type="date"
+                value={startDate}
+                max={endDate}
+                onChange={(event) => handleStartChange(event.target.value)}
+                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+              />
+            </div>
+            <div className="flex flex-col text-sm">
+              <label className="mb-1 text-xs uppercase tracking-wide text-slate-400">End date</label>
+              <input
+                type="date"
+                value={endDate}
+                min={startDate}
+                max={formatDateInput(new Date())}
+                onChange={(event) => handleEndChange(event.target.value)}
+                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+              />
+            </div>
           </div>
-          <div className="flex flex-col text-sm">
-            <label className="mb-1 text-xs uppercase tracking-wide text-slate-400">End date</label>
-            <input
-              type="date"
-              value={endDate}
-              min={startDate}
-              max={formatDateInput(new Date())}
-              onChange={(event) => handleEndChange(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
-            />
-          </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
             <button
               type="button"
               onClick={applyTodayRange}
-              className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
+              className="rounded-full border border-slate-700 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-200 transition hover:border-sky-400 hover:text-sky-200 md:px-3 md:text-xs"
             >
               Today
             </button>
@@ -491,7 +495,7 @@ export default function DashboardPage() {
                 key={range.label}
                 type="button"
                 onClick={() => applyQuickRange(range.days)}
-                className="rounded-full border border-slate-700 px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
+                className="rounded-full border border-slate-700 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-slate-200 transition hover:border-sky-400 hover:text-sky-200 md:px-3 md:text-xs"
               >
                 Last {range.label}
               </button>
@@ -517,22 +521,22 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="relative overflow-hidden rounded-3xl border border-emerald-500/40 bg-slate-950 px-8 py-10 shadow-[0_25px_60px_-20px_rgba(16,185,129,0.65)]">
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/40 bg-slate-950 px-5 py-6 shadow-[0_25px_60px_-20px_rgba(16,185,129,0.65)] sm:rounded-3xl sm:px-8 sm:py-10">
         <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 via-sky-500/15 to-purple-500/20" aria-hidden />
         <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-emerald-400/20 blur-3xl" aria-hidden />
-        <div className="relative grid gap-6 sm:grid-cols-2 sm:items-center">
-          <div className="space-y-3">
-            <span className="text-sm uppercase tracking-[0.35em] text-emerald-200/80">Captured Revenue</span>
-            <div className="text-5xl font-semibold text-emerald-100">
+        <div className="relative grid gap-5 sm:grid-cols-2 sm:items-center sm:gap-6">
+          <div className="space-y-2 sm:space-y-3">
+            <span className="text-[11px] uppercase tracking-[0.35em] text-emerald-200/80 sm:text-sm">Captured Revenue</span>
+            <div className="text-4xl font-semibold text-emerald-100 sm:text-5xl">
               {loading ? '—' : formatCurrency(bookingRevenueTotal)}
             </div>
-            <p className="mt-2 max-w-lg text-sm text-emerald-100/80">
+            <p className="mt-1 max-w-lg text-sm text-emerald-100/80 sm:mt-2">
               Total value of confirmed bookings within the selected window.
             </p>
           </div>
-          <div className="flex flex-col gap-4 rounded-3xl border border-emerald-400/50 bg-emerald-500/15 px-8 py-8 text-left shadow-inner shadow-emerald-900/40">
-            <div className="text-base uppercase tracking-[0.25em] text-emerald-200/80">Confirmed bookings</div>
-            <div className="text-4xl font-semibold text-emerald-100">
+          <div className="flex flex-col gap-2 border-t border-emerald-400/30 pt-5 sm:gap-4 sm:rounded-3xl sm:border sm:border-emerald-400/50 sm:bg-emerald-500/15 sm:px-8 sm:py-8 sm:pt-8 sm:shadow-inner sm:shadow-emerald-900/40">
+            <div className="text-[11px] uppercase tracking-[0.25em] text-emerald-200/80 sm:text-base">Confirmed bookings</div>
+            <div className="text-3xl font-semibold text-emerald-100 sm:text-4xl">
               {loading ? '—' : callTypeCounts['confirmed booking'] ?? 0}
             </div>
             <p className="max-w-sm text-sm text-emerald-100/75">
@@ -543,25 +547,30 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl bg-gradient-to-br from-sky-500/10 via-sky-500/5 to-sky-500/0 p-5 shadow-sm ring-1 ring-sky-500/20">
-          <div className="text-xs uppercase tracking-wide text-slate-300">Total calls</div>
-          <div className="mt-3 text-3xl font-semibold text-sky-100">{loading ? '—' : totalCalls}</div>
-          <p className="mt-2 text-xs text-slate-400">
-            All calls captured within the selected date range.
-          </p>
-        </div>
-        <div className="rounded-2xl bg-gradient-to-br from-purple-500/10 via-purple-500/5 to-purple-500/0 p-5 shadow-sm ring-1 ring-purple-500/20">
-          <div className="text-xs uppercase tracking-wide text-slate-300">Total duration</div>
-          <div className="mt-3 text-3xl font-semibold text-purple-100">{loading ? '—' : formatDuration(totalDurationSeconds)}</div>
-          <p className="mt-2 text-xs text-slate-400">
-            Combined call time for all calls in this period.
-          </p>
-        </div>
-        <div className="rounded-2xl bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-amber-500/0 p-5 shadow-sm ring-1 ring-amber-500/20">
-          <div className="text-xs uppercase tracking-wide text-slate-300">Top call tag</div>
-          <div className="mt-3 text-3xl font-semibold text-amber-100">{loading ? '—' : mostCommonTagLabel}</div>
-          <p className="mt-2 text-xs text-slate-400">Most frequent call classification in the selected window.</p>
-        </div>
+        <KpiTile
+          icon={<Phone className="h-4 w-4" />}
+          accent="sky"
+          label="Total calls"
+          value={totalCalls.toString()}
+          hint="All calls captured within the selected date range."
+          loading={loading}
+        />
+        <KpiTile
+          icon={<Clock3 className="h-4 w-4" />}
+          accent="violet"
+          label="Total duration"
+          value={formatDuration(totalDurationSeconds)}
+          hint="Combined call time for all calls in this period."
+          loading={loading}
+        />
+        <KpiTile
+          icon={<Tag className="h-4 w-4" />}
+          accent="amber"
+          label="Top call tag"
+          value={mostCommonTagLabel}
+          hint="Most frequent call classification in the selected window."
+          loading={loading}
+        />
       </div>
 
       {hasMessagingAccess && selectedGarageId && (
@@ -774,6 +783,55 @@ export default function DashboardPage() {
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+type KpiAccent = 'sky' | 'violet' | 'amber' | 'emerald' | 'rose';
+
+const KPI_ACCENT: Record<KpiAccent, { dot: string; iconBg: string; iconText: string }> = {
+  sky: { dot: 'bg-sky-400', iconBg: 'bg-sky-500/15', iconText: 'text-sky-300' },
+  violet: { dot: 'bg-violet-400', iconBg: 'bg-violet-500/15', iconText: 'text-violet-300' },
+  amber: { dot: 'bg-amber-400', iconBg: 'bg-amber-500/15', iconText: 'text-amber-300' },
+  emerald: { dot: 'bg-emerald-400', iconBg: 'bg-emerald-500/15', iconText: 'text-emerald-300' },
+  rose: { dot: 'bg-rose-400', iconBg: 'bg-rose-500/15', iconText: 'text-rose-300' },
+};
+
+function KpiTile({
+  icon,
+  accent,
+  label,
+  value,
+  hint,
+  loading,
+}: {
+  icon: React.ReactNode;
+  accent: KpiAccent;
+  label: string;
+  value: string;
+  hint: string;
+  loading: boolean;
+}) {
+  const tone = KPI_ACCENT[accent];
+  return (
+    <div className="rm-card p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className={cn('flex h-7 w-7 items-center justify-center rounded-lg', tone.iconBg, tone.iconText)}>
+            {icon}
+          </span>
+          <span className="text-xs uppercase tracking-[0.16em] text-slate-400">{label}</span>
+        </div>
+        <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} />
+      </div>
+      <div className="mt-4">
+        {loading ? (
+          <Skeleton className="h-9 w-24" />
+        ) : (
+          <p className="text-[2rem] font-semibold tabular-nums leading-none text-slate-50">{value}</p>
+        )}
+      </div>
+      <p className="mt-3 text-xs text-slate-400">{hint}</p>
     </div>
   );
 }

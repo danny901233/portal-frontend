@@ -118,7 +118,7 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
         paymentId = payment.id;
         console.log(`✅ Activated billing for ${user.email} - Charged £${totalIncVat.toFixed(2)} inc VAT (Payment ID: ${paymentId})`);
       } catch (error) {
-        console.error('Failed to charge first month subscription:', error);
+        console.error('Failed to charge first month subscription:', error instanceof Error ? error.message : 'Unknown error');
         return res.status(500).json({ error: 'Failed to create payment in GoCardless' });
       }
     }
@@ -176,7 +176,7 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
       garages: activeGarages.map(g => ({ id: g.id, name: g.name, cost: g.subscriptionCostGbp })),
     });
   } catch (error) {
-    console.error('Failed to activate billing:', error);
+    console.error('Failed to activate billing:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to activate billing' });
   }
 });

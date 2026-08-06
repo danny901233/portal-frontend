@@ -167,4 +167,11 @@ export type AgentConfigurationPayload = {
   bookingLeadTimeDays?: number;
   voice?: VoiceOption;
   customRules?: Array<{ text: string; active: boolean }> | null;
+  dataCollectionFields?: Array<{
+    key: string;
+    label: string;
+    active: boolean;
+    required: boolean;
+    instruction?: string | null;
+  }> | null;
 };

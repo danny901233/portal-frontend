@@ -111,6 +111,15 @@ const parseIntegrationSettings = (
           tsPassword: typeof raw.tsPassword === 'string' ? raw.tsPassword : (typeof raw.password === 'string' ? raw.password : ''),
           tsApiKey: typeof raw.tsApiKey === 'string' ? raw.tsApiKey : (typeof raw.apiKey === 'string' ? raw.apiKey : ''),
           tsDepotId: raw.tsDepotId != null ? String(raw.tsDepotId) : (raw.depotId != null ? String(raw.depotId) : ''),
+          tyreMarkupType: raw.tyreMarkupType === 'percent' ? 'percent' : 'flat',
+          tyreMarkupValue:
+            raw.tyreMarkupValue != null && String(raw.tyreMarkupValue) !== ''
+              ? String(raw.tyreMarkupValue)
+              : (raw.tyreMarkupPercent != null && Number(raw.tyreMarkupPercent) > 0
+                  ? String(raw.tyreMarkupPercent)
+                  : (raw.tyreMarkupFlat != null && Number(raw.tyreMarkupFlat) > 0
+                      ? String(raw.tyreMarkupFlat)
+                      : '')),
         }),
       };
     }
@@ -182,6 +191,7 @@ const defaultConfiguration: AgentConfigurationPayload = {
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
+  dataCollectionFields: null,
 };
 const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
@@ -260,6 +270,8 @@ export const buildConfigurationResponse = (configuration: PrismaAgentConfigurati
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
     customRules: Array.isArray((configuration as any).customRules) ? (configuration as any).customRules : null,
+    dataCollectionFields: Array.isArray((configuration as any).dataCollectionFields) ? (configuration as any).dataCollectionFields : null,
+    transferNumber: configuration.transferNumber || null,
     agentScript: (
       configuration.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' :
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
@@ -638,7 +650,7 @@ router.put(
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
     let resolvedAgentType: 'assist' | 'automate' = data.agentType === 'automate' ? 'automate' : 'assist';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'MMH-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : 'receptionmate-agent';
 
     if (!canEditAgentType) {
       const existingConfig = await prisma.agentConfiguration.findUnique({
@@ -646,7 +658,7 @@ router.put(
         select: { agentType: true, agentScript: true },
       });
       resolvedAgentType = existingConfig?.agentType === 'automate' ? 'automate' : 'assist';
-      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : 'receptionmate-agent';
+      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : 'receptionmate-agent';
     }
 
     const normalizedWeeklyOpeningHours = data.weeklyOpeningHours
@@ -689,6 +701,18 @@ router.put(
           return {};
         })();
 
+    // Normalise tyre markup from form { tyreMarkupType, tyreMarkupValue } into
+    // the agent-readable fields tyreMarkupFlat / tyreMarkupPercent. PERCENT wins
+    // over FLAT at agent runtime (see optimised-tyresoft/agent.py _marked_price).
+    const _markupType = rawTyresoft.tyreMarkupType === 'percent' ? 'percent' : 'flat';
+    const _markupValueNum =
+      rawTyresoft.tyreMarkupValue != null && String(rawTyresoft.tyreMarkupValue).trim() !== ''
+        ? Number(rawTyresoft.tyreMarkupValue)
+        : 0;
+    const _markupValid = Number.isFinite(_markupValueNum) && _markupValueNum >= 0;
+    const tyreMarkupFlat = _markupValid && _markupType === 'flat' ? _markupValueNum : 0;
+    const tyreMarkupPercent = _markupValid && _markupType === 'percent' ? _markupValueNum : 0;
+
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
@@ -697,6 +721,12 @@ router.put(
             tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
             tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
             tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
+            // Form fields (the UI reads these on subsequent loads)
+            tyreMarkupType: _markupType,
+            tyreMarkupValue: _markupValid ? String(_markupValueNum) : '',
+            // Agent-readable fields (normalised numbers — what the agent reads)
+            tyreMarkupFlat,
+            tyreMarkupPercent,
             ...hubspotPayload,
           }
         : resolvedAgentScript === 'tyresoft-agent' && existingConfig?.integrationProviderConfig
@@ -741,6 +771,7 @@ router.put(
       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',
       ...(data.customRules !== undefined && { customRules: data.customRules as Prisma.InputJsonValue ?? Prisma.JsonNull }),
+      ...(data.dataCollectionFields !== undefined && { dataCollectionFields: data.dataCollectionFields as Prisma.InputJsonValue ?? Prisma.JsonNull }),
     };
 
     const [configuration, garageRecord] = await Promise.all([

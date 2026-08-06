@@ -61,7 +61,7 @@ router.post('/payment/create-mandate-flow', authenticate, async (req: Request, r
       redirectFlowId: redirectFlow.id,
     });
   } catch (error) {
-    console.error('Failed to create mandate flow:', error);
+    console.error('Failed to create mandate flow:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to initiate payment setup' });
   }
 });
@@ -228,7 +228,7 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
           console.log(`  Breakdown: ${breakdown}`);
           console.log(`  Payment ID: ${payment.id}`);
         } catch (error) {
-          console.error('Failed to charge first month subscription:', error);
+          console.error('Failed to charge first month subscription:', error instanceof Error ? error.message : 'Unknown error');
         }
       }
     } else {
@@ -253,7 +253,7 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       mandateId,
     });
   } catch (error) {
-    console.error('Failed to confirm mandate:', error);
+    console.error('Failed to confirm mandate:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to confirm payment setup' });
   }
 });
@@ -286,7 +286,7 @@ router.get('/payment/mandate-status', authenticate, async (req: Request, res: Re
       requiresSetup: user.mustSetupPayment,
     });
   } catch (error) {
-    console.error('Failed to get mandate status:', error);
+    console.error('Failed to get mandate status:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to get payment status' });
   }
 });
@@ -387,7 +387,7 @@ router.post('/payment/confirm-mandate-update', authenticate, async (req: Request
         await client.mandates.cancel(oldMandateId);
         console.log(`Cancelled old mandate ${oldMandateId} for user ${user.id}`);
       } catch (error) {
-        console.error('Failed to cancel old mandate:', error);
+        console.error('Failed to cancel old mandate:', error instanceof Error ? error.message : 'Unknown error');
         // Continue anyway - new mandate is active
       }
     }
@@ -410,7 +410,7 @@ router.post('/payment/confirm-mandate-update', authenticate, async (req: Request
       mandateId: newMandateId,
     });
   } catch (error) {
-    console.error('Failed to confirm mandate update:', error);
+    console.error('Failed to confirm mandate update:', error instanceof Error ? error.message : 'Unknown error');
     res.status(500).json({ error: 'Failed to complete mandate update' });
   }
 });

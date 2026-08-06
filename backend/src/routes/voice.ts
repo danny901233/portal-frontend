@@ -14,10 +14,11 @@ router.post('/voice', async (req: Request, res: Response) => {
 
   // Fetch garage configuration to log the current agent type (assist vs automate)
   let agentType = 'assist';
+  let agentScript = 'receptionmate-agent';
   try {
     const agentConfig = await prisma.agentConfiguration.findUnique({
       where: { garageId },
-      select: { agentType: true },
+      select: { agentType: true, agentScript: true },
     });
 
     if (!agentConfig) {
@@ -29,6 +30,7 @@ router.post('/voice', async (req: Request, res: Response) => {
     if (agentConfig.agentType === 'automate') {
       agentType = 'automate';
     }
+    agentScript = agentConfig.agentScript;
   } catch (error) {
     console.error('[VOICE] Error loading agent type for garage', garageId, error);
     return res
@@ -36,11 +38,12 @@ router.post('/voice', async (req: Request, res: Response) => {
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Configuration error.</Say><Hangup/></Response>');
   }
 
-  // Always dial the unified LiveKit SIP domain; behaviour differences happen inside the agent codepath
-  const livekitSipDomain =
-    process.env.LIVEKIT_SIP_DOMAIN ||
-    process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
-    process.env.LIVEKIT_SIP_DOMAIN_ASSIST;
+  // Route MMH-agent to its own LiveKit project; all others use the default SIP domain
+  const livekitSipDomain = agentScript === 'MMH-agent'
+    ? process.env.LIVEKIT_SIP_DOMAIN_MMH
+    : (process.env.LIVEKIT_SIP_DOMAIN ||
+       process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
+       process.env.LIVEKIT_SIP_DOMAIN_ASSIST);
 
   if (!livekitSipDomain) {
     return res

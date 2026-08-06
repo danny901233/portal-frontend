@@ -794,11 +794,11 @@ export default function TemplatesPage() {
       ) : (
         <div className="space-y-3">
           {templates.map(t => (
-            <div key={t.id} className="rounded-xl border border-slate-700 bg-slate-800/50 p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h3 className="font-medium text-slate-100">{t.name}</h3>
+            <div key={t.id} className="rounded-xl border border-slate-700 bg-slate-800/50 p-4 sm:p-5">
+              <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="break-words font-medium text-slate-100">{t.name}</h3>
                     <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLORS[t.status] || STATUS_COLORS.draft)}>
                       {t.status}
                     </span>
@@ -818,7 +818,7 @@ export default function TemplatesPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 md:shrink-0">
                   {t.status === 'draft' && (
                     <button
                       onClick={() => handleSubmitToMeta(t.id)}

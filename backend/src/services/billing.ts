@@ -705,7 +705,7 @@ export async function generateInvoicesForUser(userId: string) {
       });
 
     } catch (paymentError) {
-      console.error(`Failed to create combined payment:`, paymentError);
+      console.error(`Failed to create combined payment:`, paymentError instanceof Error ? paymentError.message : 'Unknown error');
       results.forEach(r => {
         if (r.success && !r.error) {
           (r as any).charged = false;

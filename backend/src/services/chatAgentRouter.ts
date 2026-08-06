@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { getChatAgentResponse as getGHResponse } from './chatAgentV2.js';
 import { getTyresoftChatResponse } from './chatAgentTyresoft.js';
+import { getPooleResponse } from './chatAgentPoole.js';
 
 interface ChatAgentResponse {
   content: string;
@@ -36,7 +37,8 @@ async function withConvLock<T>(convId: string, fn: () => Promise<T>): Promise<T>
  * agentScript setting stored in AgentConfiguration.
  *
  *   agentScript === 'tyresoft-agent'  → Tyresoft chat agent
- *   anything else                     → GarageHive chat agent (chatAgentV2)
+ *   agentScript === 'poole-agent'     → Poole/AutoSage chat agent
+ *   anything else                     → GarageHive chat agent (chatAgentV2) [default]
  */
 export async function routeChatMessage(
   garageId: string,
@@ -57,6 +59,10 @@ export async function routeChatMessage(
   return withConvLock(conversationId, async () => {
     if (agentScript === 'tyresoft-agent') {
       return getTyresoftChatResponse(garageId, message, conversationId, seedContact);
+    }
+
+    if (agentScript === 'poole-agent') {
+      return getPooleResponse(garageId, message, conversationId);
     }
 
     // Default: GarageHive (chatAgentV2)

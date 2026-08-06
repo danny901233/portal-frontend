@@ -2206,11 +2206,17 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
         console.log(`[SET_CONTACT] Postcode accepted but no geo data`);
       }
     } catch (error: any) {
-      // 404 = invalid postcode — ask the customer to check it rather than silently saving
       const status = error?.response?.status;
       if (status === 404) {
-        console.log(`[SET_CONTACT] Invalid postcode "${cleanPostcode}" (404), asking customer to retry`);
-        // Don't save — just fall through so the "Need postcode" branch fires again
+        // Check if it's a terminated (decommissioned) postcode — still valid for address purposes
+        const terminated = error?.response?.data?.terminated;
+        if (terminated) {
+          session.contactPostcode = postcode;
+          session.contactCity = terminated.postcode ? terminated.postcode.split(' ')[0] : '';
+          console.log(`[SET_CONTACT] Terminated postcode "${cleanPostcode}" accepted (decommissioned ${terminated.year_terminated})`);
+        } else {
+          console.log(`[SET_CONTACT] Invalid postcode "${cleanPostcode}" (404), asking customer to retry`);
+        }
       } else {
         // Network or other error — accept it and move on
         session.contactPostcode = postcode;

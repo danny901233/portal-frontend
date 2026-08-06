@@ -166,7 +166,7 @@ export const createEmptyWeeklyOpeningHours = (): WeeklyOpeningHours => {
   }, {} as WeeklyOpeningHours);
 };
 
-export type IntegrationProvider = 'none' | 'garage_hive';
+export type IntegrationProvider = 'none' | 'garage_hive' | 'poole';
 
 export type AgentType = 'assist' | 'automate';
 
@@ -177,6 +177,12 @@ export interface GarageHiveSettings {
   apiKey: string;
   customerId: string;
   locationId: string;
+}
+
+export interface PooleSettings {
+  apiKey: string;
+  branchCode: string;
+  workspace?: string;
 }
 
 export interface PricingBracket {
@@ -197,6 +203,8 @@ export interface TyresoftSettings {
   tsPassword: string;
   tsApiKey: string;
   tsDepotId: string;
+  tyreMarkupType?: 'flat' | 'percent';
+  tyreMarkupValue?: string;
   tsChannelId?: number;
   tsServices?: TsService[];
   pricingRules?: Record<string, PricingBracket[]>;
@@ -228,15 +236,28 @@ export interface AgentConfiguration {
   notificationEmails: string[];
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
+  pooleSettings: PooleSettings;
   tyresoftSettings: TyresoftSettings;
   hubspotSettings: HubspotSettings;
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'poole-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
   allowBookings: boolean;
   bookingLeadTimeDays: number;
   voice: VoiceOption;
+  dataCollectionFields?: DataCollectionField[] | null;
+}
+
+// Jodie-style per-garage toggleable data-collection fields (consumed by RMB agents).
+// Each entry tells the agent: ask for this info, mark it required if so flagged,
+// and use the instruction as a how-to hint in the prompt.
+export interface DataCollectionField {
+  key: string;
+  label: string;
+  active: boolean;
+  required: boolean;
+  instruction?: string | null;
 }
 
 export interface AgentConfigurationResponse {

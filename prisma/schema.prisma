@@ -150,7 +150,9 @@ model AgentConfiguration {
   allowBookings     Boolean  @default(false)
   bookingLeadTimeDays Int    @default(1)
   voice             String   @default("leah")
+  transferNumber    String?
   customRules       Json?
+  dataCollectionFields Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
@@ -357,8 +359,10 @@ model OutboundCampaign {
   garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
   name              String
   channel           String   @default("sms") // "sms" | "whatsapp"
-  status            String   @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed"
+  status            String   @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed" | "queued"
   sentAt            DateTime?
+  resumeAt          DateTime?
+  tierLimit         Int      @default(250)
   totalContacts     Int      @default(0)
   sentCount         Int      @default(0)
   messageTemplateId String?  // Optional: ID of MessageTemplate to use

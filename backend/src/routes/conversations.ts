@@ -1,9 +1,15 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import axios from 'axios';
+import multer from 'multer';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -181,14 +187,15 @@ router.post('/conversations/:id/reply', authenticate, async (req: Request, res: 
 // POST /api/conversations/:id/messages  (alias for /reply — used by messages page)
 // ---------------------------------------------------------------------------
 
-router.post('/conversations/:id/messages', authenticate, async (req: Request, res: Response) => {
+router.post('/conversations/:id/messages', authenticate, upload.single('image'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { message, content } = req.body;
-    const text = message ?? content;
+    const text = message ?? content ?? '';
+    const file = req.file;
 
-    if (!text || typeof text !== 'string') {
-      return res.status(400).json({ error: 'message is required' });
+    if ((!text || typeof text !== 'string' || !text.trim()) && !file) {
+      return res.status(400).json({ error: 'message or image is required' });
     }
 
     if (!isManagerOrStaff(req)) {
@@ -202,8 +209,41 @@ router.post('/conversations/:id/messages', authenticate, async (req: Request, re
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    let mediaUrl: string | undefined;
+    let mediaType: string | undefined;
+
+    if (file) {
+      const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+      const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+      const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+      const s3Bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
+
+      if (awsAccessKey && awsSecretKey) {
+        const ext = file.originalname.split('.').pop() || 'jpg';
+        const s3Key = `chat-media/${conversation.garageId}/${id}/${randomUUID()}.${ext}`;
+        const s3Client = new S3Client({
+          region: awsRegion,
+          credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+        });
+        await s3Client.send(new PutObjectCommand({
+          Bucket: s3Bucket,
+          Key: s3Key,
+          Body: file.buffer,
+          ContentType: file.mimetype,
+        }));
+        mediaUrl = `https://${s3Bucket}.s3.${awsRegion}.amazonaws.com/${s3Key}`;
+        mediaType = file.mimetype;
+      }
+    }
+
+    const displayContent = text?.trim() || (file ? '[Image]' : '');
     await prisma.chatMessage.create({
-      data: { conversationId: id, role: 'staff', content: text },
+      data: {
+        conversationId: id,
+        role: 'staff',
+        content: displayContent,
+        ...(mediaUrl ? { mediaUrl, mediaType } : {}),
+      },
     });
 
     await prisma.chatConversation.update({
@@ -211,7 +251,7 @@ router.post('/conversations/:id/messages', authenticate, async (req: Request, re
       data: { agentPaused: true, unreadCount: 0, lastMessageAt: new Date() },
     });
 
-    void sendReplyToChannel(conversation, text).catch((err) =>
+    void sendReplyToChannel(conversation, displayContent, file?.buffer, file?.mimetype, text?.trim() || undefined).catch((err) =>
       console.error(`[CONVERSATIONS] Failed to send reply via ${conversation.platform}:`, err)
     );
 
@@ -287,16 +327,17 @@ async function sendReplyToChannel(
     customerPhone: string | null;
     platformUserId: string | null;
   },
-  message: string
+  message: string,
+  imageBuffer?: Buffer,
+  imageMimeType?: string,
+  caption?: string,
 ): Promise<void> {
   const { platform, garageId, customerPhone, platformUserId } = conversation;
 
   if (platform === 'widget' || platform === 'web') {
-    // Widget — message is already in DB; the client polls for new messages.
     return;
   }
 
-  // Fetch the social media connection for this garage + platform
   const connection = await prisma.socialMediaConnection.findFirst({
     where: { garageId, platform, isActive: true },
   });
@@ -308,6 +349,47 @@ async function sendReplyToChannel(
 
   if (platform === 'whatsapp') {
     if (!customerPhone || !connection.whatsappPhoneNumberId) return;
+
+    if (imageBuffer && imageMimeType) {
+      const FormData = (await import('form-data')).default;
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('type', imageMimeType);
+      form.append('file', imageBuffer, { filename: 'image.jpg', contentType: imageMimeType });
+
+      const mediaResp = await axios.post(
+        `https://graph.facebook.com/v18.0/${connection.whatsappPhoneNumberId}/media`,
+        form,
+        {
+          headers: {
+            Authorization: `Bearer ${connection.accessToken}`,
+            ...form.getHeaders(),
+          },
+          timeout: 30000,
+        }
+      );
+      const mediaId = mediaResp.data.id;
+      console.log(`[CONVERSATIONS] Uploaded WhatsApp media: ${mediaId}`);
+
+      await axios.post(
+        `https://graph.facebook.com/v18.0/${connection.whatsappPhoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          to: customerPhone,
+          type: 'image',
+          image: { id: mediaId, ...(caption ? { caption } : {}) },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${connection.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        }
+      );
+      return;
+    }
+
     await axios.post(
       `https://graph.facebook.com/v18.0/${connection.whatsappPhoneNumberId}/messages`,
       {
@@ -391,5 +473,51 @@ async function sendReplyToChannel(
 
   console.warn(`[CONVERSATIONS] Unsupported platform for reply: ${platform}`);
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/conversations/media/:messageId — proxy S3 chat media via presigned URL
+// ---------------------------------------------------------------------------
+
+router.get('/conversations/media/:messageId', async (req: Request, res: Response) => {
+  try {
+    const { messageId } = req.params;
+
+    const message = await prisma.chatMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message?.mediaUrl) {
+      return res.status(404).send('Media not found');
+    }
+
+    const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+    const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+    const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+    const s3Bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
+
+    if (!awsAccessKey || !awsSecretKey) {
+      return res.status(500).send('S3 not configured');
+    }
+
+    const url = new URL(message.mediaUrl);
+    const s3Key = url.pathname.replace(/^\//, '');
+
+    const s3Client = new S3Client({
+      region: awsRegion,
+      credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+    });
+
+    const signedUrl = await getSignedUrl(
+      s3Client,
+      new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }),
+      { expiresIn: 3600 }
+    );
+
+    return res.redirect(302, signedUrl);
+  } catch (error) {
+    console.error('[CONVERSATIONS] GET /conversations/media/:messageId error:', error);
+    res.status(500).send('Failed to fetch media');
+  }
+});
 
 export default router;

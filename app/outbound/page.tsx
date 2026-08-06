@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Inbox } from 'lucide-react';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
 import {
@@ -13,10 +14,13 @@ import {
 } from '../lib/api';
 import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTemplate } from '../lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '../components/Toast';
+import { Skeleton } from '../components/Skeleton';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-slate-500/20 text-slate-300',
   sending: 'bg-yellow-500/20 text-yellow-300',
+  queued: 'bg-blue-500/20 text-blue-300',
   sent: 'bg-green-500/20 text-green-300',
   processed: 'bg-green-500/20 text-green-300',
   failed: 'bg-red-500/20 text-red-300',
@@ -25,6 +29,7 @@ const STATUS_COLORS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
   sending: 'Sending',
+  queued: 'Queued',
   sent: 'Processed',
   processed: 'Processed',
   failed: 'Failed',
@@ -118,15 +123,15 @@ export default function OutboundPage() {
   const [preview, setPreview] = useState<OutboundContactInput[] | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null); // used for new campaign send only
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [variableMapping, setVariableMapping] = useState<Record<string, string>>({});
   const [selectedCampaign, setSelectedCampaign] = useState<OutboundCampaign | null>(null);
   const [loadingContacts, setLoadingContacts] = useState(false);
 
+  const toast = useToast();
   const showToast = (type: 'success' | 'error', msg: string) => {
-    setToast({ type, msg });
-    setTimeout(() => setToast(null), 4000);
+    if (type === 'success') toast.success(msg);
+    else toast.error(msg);
   };
 
   const { data, isLoading } = useQuery({
@@ -269,18 +274,6 @@ export default function OutboundPage() {
 
   return (
     <div className="space-y-8">
-      {/* Toast */}
-      {toast && (
-        <div
-          className={cn(
-            'fixed bottom-6 right-6 z-50 rounded-lg px-5 py-3 text-sm font-medium shadow-lg',
-            toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white',
-          )}
-        >
-          {toast.msg}
-        </div>
-      )}
-
       <div>
         <h1 className="text-2xl font-semibold text-slate-100">Outbound Messaging</h1>
         <p className="mt-1 text-sm text-slate-400">
@@ -485,66 +478,139 @@ export default function OutboundPage() {
         <h2 className="mb-3 text-base font-semibold text-slate-100">Past Campaigns</h2>
 
         {isLoading ? (
-          <p className="text-sm text-slate-500">Loading campaigns…</p>
+          <div className="overflow-hidden rounded-xl border border-slate-800/60">
+            <div className="grid items-center gap-4 border-b border-slate-800 bg-slate-900/60 px-4 py-3 text-xs uppercase tracking-wide text-slate-400"
+                 style={{ gridTemplateColumns: '3fr 1fr 1fr 1fr 1fr 2fr' }}>
+              <span>Name</span><span>Channel</span><span>Contacts</span><span>Sent rate</span><span>Status</span><span>Date</span>
+            </div>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="grid items-center gap-4 border-b border-slate-800/40 px-4 py-3"
+                   style={{ gridTemplateColumns: '3fr 1fr 1fr 1fr 1fr 2fr' }}>
+                <Skeleton className="h-3 w-40" />
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-3 w-8" />
+                <Skeleton className="h-3 w-12" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            ))}
+          </div>
         ) : campaigns.length === 0 ? (
-          <p className="text-sm text-slate-500">No campaigns yet. Upload a CSV above to get started.</p>
+          <div className="rm-empty">
+            <Inbox className="h-7 w-7 text-slate-500" />
+            <p className="text-sm font-medium text-slate-200">No campaigns yet</p>
+            <p className="text-xs text-slate-500">Upload a CSV above to send your first reminder batch.</p>
+          </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-700">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-800 text-xs text-slate-400">
-                <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Channel</th>
-                  <th className="px-4 py-3">Contacts</th>
-                  <th className="px-4 py-3">Sent Rate</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {campaigns.map((c) => (
-                  <tr
+          <>
+            {/* Mobile card list */}
+            <div className="space-y-2 md:hidden">
+              {campaigns.map((c) => {
+                const rate = c.totalContacts > 0 ? Math.round((c.sentCount / c.totalContacts) * 100) : 0;
+                const rateColor = rate === 100 ? 'text-green-400' : rate >= 50 ? 'text-yellow-400' : 'text-red-400';
+                const showRate = c.status !== 'draft' && c.status !== 'sending';
+                return (
+                  <button
                     key={c.id}
+                    type="button"
                     onClick={() => handleViewResults(c)}
-                    className="cursor-pointer text-slate-300 hover:bg-slate-800/40"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-800/50 p-4 text-left transition-colors active:bg-slate-800"
                   >
-                    <td className="px-4 py-3 font-medium text-slate-100">{c.name}</td>
-                    <td className="px-4 py-3 capitalize">{c.channel}</td>
-                    <td className="px-4 py-3">{c.totalContacts}</td>
-                    <td className="px-4 py-3">
-                      {c.status === 'draft' || c.status === 'sending' ? (
-                        <span className="text-slate-500 text-xs">—</span>
-                      ) : (
-                        (() => {
-                          const rate = c.totalContacts > 0 ? Math.round((c.sentCount / c.totalContacts) * 100) : 0;
-                          const color = rate === 100 ? 'text-green-400' : rate >= 50 ? 'text-yellow-400' : 'text-red-400';
-                          return (
-                            <span className={`text-sm font-medium ${color}`}>
-                              {rate}%
-                              <span className="ml-1 text-xs text-slate-500">({c.sentCount}/{c.totalContacts})</span>
-                            </span>
-                          );
-                        })()
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-100">{c.name}</p>
                       <span
                         className={cn(
-                          'rounded-full px-2 py-0.5 text-xs font-medium',
+                          'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium',
                           STATUS_COLORS[c.status] || 'bg-slate-500/20 text-slate-300',
                         )}
                       >
                         {STATUS_LABELS[c.status] ?? c.status}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-400">
-                      {new Date(c.createdAt).toLocaleDateString('en-GB')}
-                    </td>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+                      <span className="capitalize">{c.channel}</span>
+                      <span>· {c.totalContacts} contacts</span>
+                      <span>· {new Date(c.createdAt).toLocaleDateString('en-GB')}</span>
+                    </div>
+                    {showRate && (
+                      <div className="mt-2">
+                        <span className={cn('text-sm font-medium', rateColor)}>{rate}% sent</span>
+                        <span className="ml-1 text-xs text-slate-500">({c.sentCount}/{c.totalContacts})</span>
+                      </div>
+                    )}
+                    {c.status === 'queued' && c.resumeAt && (
+                      <p className="mt-1 text-[10px] text-blue-400">
+                        Next batch: {new Date(c.resumeAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden overflow-hidden rounded-xl border border-slate-700 md:block">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-800 text-xs text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">Name</th>
+                    <th className="px-4 py-3">Channel</th>
+                    <th className="px-4 py-3">Contacts</th>
+                    <th className="px-4 py-3">Sent Rate</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Date</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {campaigns.map((c) => (
+                    <tr
+                      key={c.id}
+                      onClick={() => handleViewResults(c)}
+                      className="cursor-pointer text-slate-300 hover:bg-slate-800/40"
+                    >
+                      <td className="px-4 py-3 font-medium text-slate-100">{c.name}</td>
+                      <td className="px-4 py-3 capitalize">{c.channel}</td>
+                      <td className="px-4 py-3">{c.totalContacts}</td>
+                      <td className="px-4 py-3">
+                        {c.status === 'draft' || c.status === 'sending' ? (
+                          <span className="text-slate-500 text-xs">—</span>
+                        ) : (
+                          (() => {
+                            const rate = c.totalContacts > 0 ? Math.round((c.sentCount / c.totalContacts) * 100) : 0;
+                            const color = rate === 100 ? 'text-green-400' : rate >= 50 ? 'text-yellow-400' : 'text-red-400';
+                            return (
+                              <span className={`text-sm font-medium ${color}`}>
+                                {rate}%
+                                <span className="ml-1 text-xs text-slate-500">({c.sentCount}/{c.totalContacts})</span>
+                              </span>
+                            );
+                          })()
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-xs font-medium',
+                            STATUS_COLORS[c.status] || 'bg-slate-500/20 text-slate-300',
+                          )}
+                        >
+                          {STATUS_LABELS[c.status] ?? c.status}
+                        </span>
+                        {c.status === 'queued' && c.resumeAt && (
+                          <p className="mt-1 text-[10px] text-blue-400">
+                            Next batch: {new Date(c.resumeAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400">
+                        {new Date(c.createdAt).toLocaleDateString('en-GB')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
@@ -565,10 +631,18 @@ export default function OutboundPage() {
                   {selectedCampaign?.name ?? 'Loading…'}
                 </h2>
                 {selectedCampaign && (
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    {selectedCampaign.sentCount} sent · {selectedCampaign.totalContacts} total ·{' '}
-                    {new Date(selectedCampaign.createdAt).toLocaleDateString('en-GB')}
-                  </p>
+                  <>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      {selectedCampaign.sentCount} sent · {selectedCampaign.totalContacts} total ·{' '}
+                      {new Date(selectedCampaign.createdAt).toLocaleDateString('en-GB')}
+                    </p>
+                    {selectedCampaign.status === 'queued' && selectedCampaign.resumeAt && (
+                      <p className="mt-0.5 text-xs text-blue-400">
+                        Next batch: {new Date(selectedCampaign.resumeAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {' '}({selectedCampaign.totalContacts - selectedCampaign.sentCount} remaining)
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
               <button

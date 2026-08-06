@@ -48,6 +48,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [conversationsNeedingAttention, setConversationsNeedingAttention] = useState(0);
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
   const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Close mobile drawer whenever the route changes
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
@@ -340,8 +346,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
         hasManagerAccess={managedGarageIds.length > 0}
         isManagerUser={isStaffUser || isAdminUser}
         messagesNeedingAttention={messagesNeedingAttention}
+        isMobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <Navbar
           email={userEmail ?? 'Unknown user'}
           userId={userId}
@@ -349,6 +357,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           selectedGarageId={selectedGarageValue}
           allowAllAssignedBranches={allowAllAssignedBranches}
           onSelectGarage={handleSelectGarage}
+          onMenuClick={() => setMobileMenuOpen(true)}
           onLogout={() => {
             clearSession();
             setIsStaffUser(false);
@@ -356,7 +365,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             router.replace('/login');
           }}
         />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
     </div>
   );

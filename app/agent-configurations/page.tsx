@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChangeEvent, FormEvent } from 'react';
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import {
@@ -11,6 +11,14 @@ import {
   updateAgentConfiguration,
 } from '../lib/api';
 import { getGarageId, isReceptionMateStaff } from '../lib/auth';
+import { useToast } from '../components/Toast';
+import StickySaveBar from '../components/StickySaveBar';
+import DataCollectionFieldsSection from './DataCollectionFieldsSection';
+
+// RM Internal: the dataCollectionFields toggle UI is gated to the RM branch
+// garage only during the beta rollout. Once Dan greenlights, drop this gate
+// to expose the feature to every garage's admin UI.
+const RM_BRANCH_GARAGE_ID = 'd51dfa55-15d0-4d60-ad81-c675579d16f6';
 import {
   createEmptyWeeklyOpeningHours,
   WEEKDAY_ORDER,
@@ -22,6 +30,7 @@ import type {
   DayOfWeek,
   HubspotSettings,
   IntegrationProvider,
+  PooleSettings,
   ResponseSpeed,
   TonePreference,
   TyresoftSettings,
@@ -94,6 +103,8 @@ const createEmptyTyresoftSettings = (): TyresoftSettings => ({
   tsPassword: '',
   tsApiKey: '',
   tsDepotId: '',
+  tyreMarkupType: 'flat',
+  tyreMarkupValue: '',
 });
 
 const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): TyresoftSettings => ({
@@ -102,6 +113,19 @@ const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): Tyresoft
   tsPassword: settings?.tsPassword ?? '',
   tsApiKey: settings?.tsApiKey ?? '',
   tsDepotId: settings?.tsDepotId ?? '',
+  tyreMarkupType: settings?.tyreMarkupType ?? 'flat',
+  tyreMarkupValue: settings?.tyreMarkupValue ?? '',
+});
+
+const createEmptyPooleSettings = (): PooleSettings => ({
+  apiKey: '',
+  branchCode: '',
+});
+
+const clonePooleSettings = (settings: PooleSettings | undefined): PooleSettings => ({
+  apiKey: settings?.apiKey ?? '',
+  branchCode: settings?.branchCode ?? '',
+  workspace: settings?.workspace ?? '',
 });
 
 const createEmptyHubspotSettings = (): HubspotSettings => ({
@@ -137,6 +161,7 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   notificationEmails: [],
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
+  pooleSettings: createEmptyPooleSettings(),
   tyresoftSettings: createEmptyTyresoftSettings(),
   hubspotSettings: createEmptyHubspotSettings(),
   agentType: 'assist',
@@ -146,12 +171,29 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   allowBookings: false,
   bookingLeadTimeDays: 1,
   voice: 'leah',
+  dataCollectionFields: null,
 });
 
 const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => ({
   ...config,
+  // Coerce nullable string fields to '' so React inputs stay controlled.
+  // The DB can return null for these (e.g. transferNumber for a never-set garage),
+  // but the AgentConfiguration type declares them as string. Without this, an input
+  // bound to `value={formState.X}` where X is null becomes uncontrolled — user types
+  // but React state doesn't reconcile, save sends the original null, value "disappears"
+  // on refresh. Fix surfaced 2026-06-18 from a transferNumber save bug on Norwich.
+  branchName: config.branchName ?? '',
+  phoneNumber: config.phoneNumber ?? '',
+  emailAddress: config.emailAddress ?? '',
+  branchAddress: config.branchAddress ?? '',
+  websiteUrl: config.websiteUrl ?? '',
+  holidayClosures: config.holidayClosures ?? '',
+  greetingLine: config.greetingLine ?? '',
+  dropOffMessage: config.dropOffMessage ?? '',
+  transferNumber: config.transferNumber ?? '',
   weeklyOpeningHours: cloneWeeklyOpeningHours(config.weeklyOpeningHours),
   garageHiveSettings: cloneGarageHiveSettings(config.garageHiveSettings),
+  pooleSettings: clonePooleSettings(config.pooleSettings),
   tyresoftSettings: cloneTyresoftSettings(config.tyresoftSettings),
   hubspotSettings: cloneHubspotSettings(config.hubspotSettings),
   dropOffExcludeServices: [...(config.dropOffExcludeServices || ['MOT'])],
@@ -188,6 +230,11 @@ const integrationProviderOptions: { value: IntegrationProvider; label: string; d
     label: 'Garage Hive',
     description: 'Let the agent book straight into your Garage Hive diary.',
   },
+  {
+    value: 'poole',
+    label: 'Poole/AutoSage',
+    description: 'Let the agent book straight into your Poole/AutoSage booking system.',
+  },
 ];
 
 const agentTypeOptions: { value: AgentType; label: string; description: string }[] = [
@@ -195,10 +242,12 @@ const agentTypeOptions: { value: AgentType; label: string; description: string }
   { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
 ];
 
-const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent'; label: string; description: string }[] = [
+const agentScriptOptions: { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'poole-agent' | 'MMH-agent'; label: string; description: string }[] = [
   { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
   { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture' },
   { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre centre integration with inventory management' },
+  { value: 'poole-agent', label: 'Poole Agent', description: 'Poole/AutoSage booking system integration' },
+  { value: 'MMH-agent', label: 'MMH Agent', description: 'Midlands Motorhome Hire — Outdoorsy/Wheelbase integration' },
 ];
 const maskSecretValue = (value: string) => {
   if (!value) {
@@ -246,6 +295,7 @@ export default function AgentConfigurationsPage() {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [, startTransition] = useTransition();
   const canEditAgentType = isReceptionMateStaff();
+  const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: ['agent-config', garageId],
@@ -257,19 +307,24 @@ export default function AgentConfigurationsPage() {
     refetchOnWindowFocus: false,
   });
 
+  const toast = useToast();
+
   const mutation = useMutation({
     mutationFn: (payload: AgentConfiguration) =>
       updateAgentConfiguration(payload, garageId ?? undefined),
     onSuccess: (data) => {
+      queryClient.setQueryData(['agent-config', garageId], data);
       setFormState(cloneConfiguration(data.configuration));
       setKnowledgeBase(data.knowledgeBase ?? []);
       setIsEditing(false);
-      setFeedback('Configuration saved and applied to your agent.');
+      setFeedback(null);
+      toast.success('Configuration saved', 'Changes applied to your agent.');
     },
     onError: (error: unknown) => {
       const message =
         error instanceof Error ? error.message : 'Failed to save configuration. Please try again.';
-      setFeedback(message);
+      setFeedback(null);
+      toast.error('Save failed', message);
     },
   });
 
@@ -726,6 +781,23 @@ export default function AgentConfigurationsPage() {
       ...prev,
       tyresoftSettings: {
         ...prev.tyresoftSettings,
+        [field]: value,
+      },
+    }));
+    setFeedback(null);
+  };
+
+  const handlePooleSettingsChange = (
+    field: keyof PooleSettings,
+  ) => (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isEditing || mutation.isPending) {
+      return;
+    }
+    const { value } = event.target;
+    setFormState((prev) => ({
+      ...prev,
+      pooleSettings: {
+        ...prev.pooleSettings,
         [field]: value,
       },
     }));
@@ -1193,6 +1265,17 @@ export default function AgentConfigurationsPage() {
             </div>
           </section>
           </>
+        )}
+
+        {garageId === RM_BRANCH_GARAGE_ID && (
+          <DataCollectionFieldsSection
+            fields={formState.dataCollectionFields ?? null}
+            disabled={mutation.isPending}
+            onChange={(nextFields) => {
+              setFormState((prev) => (prev ? { ...prev, dataCollectionFields: nextFields } : prev));
+              setIsEditing(true);
+            }}
+          />
         )}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
@@ -1821,7 +1904,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'MMH-agent',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}
@@ -1909,6 +1992,39 @@ export default function AgentConfigurationsPage() {
                       className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Tyre markup (added to every tyre price quoted)</span>
+                    <div className="flex gap-2">
+                      <select
+                        value={formState.tyresoftSettings.tyreMarkupType ?? 'flat'}
+                        onChange={(event) => {
+                          if (!isEditing || mutation.isPending) return;
+                          const v = event.target.value as 'flat' | 'percent';
+                          setFormState((prev) => ({
+                            ...prev,
+                            tyresoftSettings: { ...prev.tyresoftSettings, tyreMarkupType: v },
+                          }));
+                          setFeedback(null);
+                        }}
+                        disabled={!isEditing || mutation.isPending}
+                        className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <option value="flat">Flat £ per tyre</option>
+                        <option value="percent">Percentage %</option>
+                      </select>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder={formState.tyresoftSettings.tyreMarkupType === 'percent' ? 'e.g. 5' : 'e.g. 28'}
+                        value={formState.tyresoftSettings.tyreMarkupValue ?? ''}
+                        onChange={handleTyresoftSettingsChange('tyreMarkupValue')}
+                        disabled={!isEditing || mutation.isPending}
+                        className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      />
+                    </div>
+                    <span className="text-xs text-slate-500">Leave blank for no markup (agent quotes raw Tyresoft retail).</span>
+                  </label>
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -1931,6 +2047,16 @@ export default function AgentConfigurationsPage() {
                   <div>
                     <span className="text-xs uppercase tracking-wide text-slate-500">Depot ID</span>
                     <div className="text-slate-100">{formState.tyresoftSettings.tsDepotId || 'Not set'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Tyre Markup</span>
+                    <div className="text-slate-100">
+                      {formState.tyresoftSettings.tyreMarkupValue
+                        ? formState.tyresoftSettings.tyreMarkupType === 'percent'
+                          ? `${formState.tyresoftSettings.tyreMarkupValue}% of retail`
+                          : `£${formState.tyresoftSettings.tyreMarkupValue} per tyre`
+                        : 'Not set'}
+                    </div>
                   </div>
                 </div>
               )}
@@ -2071,6 +2197,99 @@ export default function AgentConfigurationsPage() {
           </div>
         </section>
 
+        {/* Diary Integration — Poole/AutoSage */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
+          <h2 className="text-lg font-semibold text-slate-100">Booking System — Poole/AutoSage</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Connect your Poole/AutoSage booking system so the agent can book appointments directly into your diary.
+          </p>
+          <div className="mt-6 space-y-5">
+            {formState.integrationProvider === 'poole' ? (
+              isEditing ? (
+                <div className="grid gap-5 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 text-sm text-slate-300 md:col-span-2">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">API Key</span>
+                    <input
+                      type="password"
+                      placeholder="API key from Poole/AutoSage"
+                      value={formState.pooleSettings.apiKey}
+                      onChange={handlePooleSettingsChange('apiKey')}
+                      disabled={!isEditing || mutation.isPending}
+                      required={formState.integrationProvider === 'poole'}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-xs text-slate-500">
+                      Stored securely and only visible to you while editing. Found in your Poole/AutoSage account settings.
+                    </span>
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Branch Code</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. RST001"
+                      value={formState.pooleSettings.branchCode}
+                      onChange={handlePooleSettingsChange('branchCode')}
+                      disabled={!isEditing || mutation.isPending}
+                      required={formState.integrationProvider === 'poole'}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-xs text-slate-500">
+                      Your Poole/AutoSage branch code (e.g. RST001, WRT, CG001).
+                    </span>
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-slate-300">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Workspace (Optional)</span>
+                    <input
+                      type="text"
+                      placeholder="Workspace identifier"
+                      value={formState.pooleSettings.workspace || ''}
+                      onChange={handlePooleSettingsChange('workspace')}
+                      disabled={!isEditing || mutation.isPending}
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <span className="text-xs text-slate-500">
+                      Optional workspace identifier if your account uses multiple workspaces.
+                    </span>
+                  </label>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">System</span>
+                      <div className="text-slate-100">Poole/AutoSage</div>
+                    </div>
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">API Key</span>
+                      <div className="text-slate-100">
+                        {maskSecretValue(formState.pooleSettings.apiKey)}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-xs uppercase tracking-wide text-slate-500">Branch Code</span>
+                      <div className="text-slate-100">
+                        {formState.pooleSettings.branchCode || 'Not set'}
+                      </div>
+                    </div>
+                    {formState.pooleSettings.workspace && (
+                      <div>
+                        <span className="text-xs uppercase tracking-wide text-slate-500">Workspace</span>
+                        <div className="text-slate-100">{formState.pooleSettings.workspace}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            ) : (
+              !isEditing && (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                  No booking system configured.
+                </div>
+              )
+            )}
+          </div>
+        </section>
+
         {/* CRM Integration — HubSpot */}
         <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-slate-950/30">
           <h2 className="text-lg font-semibold text-slate-100">CRM Integration</h2>
@@ -2179,6 +2398,20 @@ export default function AgentConfigurationsPage() {
           {query.error instanceof Error ? query.error.message : 'Please try again later.'}
         </div>
       ) : null}
+
+      <StickySaveBar
+        visible={isEditing}
+        saving={mutation.isPending}
+        summary="Review your changes, then save to apply them to your agent."
+        onSave={() => mutation.mutate(formState)}
+        onDiscard={() => {
+          if (query.data) {
+            setFormState(cloneConfiguration(query.data.configuration));
+          }
+          setIsEditing(false);
+          setFeedback(null);
+        }}
+      />
     </div>
   );
 }

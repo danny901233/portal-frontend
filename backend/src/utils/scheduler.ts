@@ -4,6 +4,7 @@ import { processMonthlyBilling } from '../services/billing.js';
 import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
 import { refreshTemplateToken } from '../services/metaTemplateToken.js';
 import { syncGocardlessPayments } from '../services/gocardlessSync.js';
+import { processQueuedCampaigns } from '../routes/outbound.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 
@@ -144,4 +145,21 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ GoCardless payment sync scheduled: Daily at 8:00 AM (UK time)');
+
+  // Outbound campaign queue processor: Every 30 minutes
+  // Picks up campaigns with status='queued' whose resumeAt has passed and sends the next batch
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const result = await processQueuedCampaigns();
+      if (result.processed > 0) {
+        console.log(`[OUTBOUND-CRON] Processed ${result.processed} queued campaign(s)`);
+      }
+    } catch (error) {
+      console.error('[OUTBOUND-CRON] Queue processor failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London',
+  });
+
+  console.log('✓ Outbound campaign queue processor scheduled: Every 30 minutes');
 };

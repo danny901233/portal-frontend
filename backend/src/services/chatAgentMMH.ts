@@ -28,6 +28,15 @@ function getOpenAI(): OpenAI {
 
 interface ChatAgentResponse { content: string; needsHumanAssistance?: boolean; }
 
+async function flagForHuman(conversationId: string): Promise<void> {
+  try {
+    await prisma.chatConversation.update({
+      where: { id: conversationId },
+      data: { needsAttention: true, agentPaused: true },
+    });
+  } catch { /* best-effort */ }
+}
+
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const prettyDay = (iso: string) => { const [, m, d] = iso.split('-'); return `${weekdayOf(iso)} ${+d} ${MONTHS[+m - 1]}`; };
@@ -216,6 +225,7 @@ export async function getMMHChatResponse(
       include: { agentConfiguration: true, knowledgeDocuments: { orderBy: { updatedAt: 'desc' }, take: 20 } },
     });
     if (!garage || !garage.agentConfiguration) {
+      await flagForHuman(conversationId);
       return { content: `Sorry, I'm having trouble just now — please call us on ${PHONE} and we'll help.`, needsHumanAssistance: true };
     }
     const history = await prisma.chatMessage.findMany({
@@ -250,11 +260,14 @@ export async function getMMHChatResponse(
       }
       const content = (m.content || '').trim() || 'Sorry, could you say that again?';
       const needsHuman = /pass (it|this|you|that) (on |over )?to (the|our) team|i'll get someone|call us on/i.test(content);
+      if (needsHuman) await flagForHuman(conversationId);
       return { content, needsHumanAssistance: needsHuman };
     }
+    await flagForHuman(conversationId);
     return { content: `Let me pass you to our team — give us a call on ${PHONE}.`, needsHumanAssistance: true };
   } catch (e: any) {
     console.error('[MMH_CHAT] error:', e?.message);
+    await flagForHuman(conversationId);
     return { content: `Sorry, I'm having a moment — please call us on ${PHONE} and we'll sort it.`, needsHumanAssistance: true };
   }
 }

@@ -44,6 +44,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';
 import billingStatusRouter from './routes/billing-status.js';
+import outboundCallsRouter from './routes/outbound-calls.js';
 import publicProspectRouter from './routes/public-prospect.js';
 
 const app = express();
@@ -120,6 +121,7 @@ app.use('/api', billingRouter);
 app.use('/api', billingActivationRouter);
 app.use('/api/customer/billing', customerBillingRouter);
 app.use('/api', billingStatusRouter);
+app.use('/api', outboundCallsRouter);
 app.use('/api', publicProspectRouter);
 app.use('/api', socialConnectionsRouter);
 app.use('/api', oauthRouter);

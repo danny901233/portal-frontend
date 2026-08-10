@@ -38,6 +38,12 @@ interface CallData {
     failed_tool_calls?: number;
     total_tool_latency_ms?: number;
     avg_llm_latency_ms?: number;
+    latency?: {
+      response_gap_p50_s?: number;
+      response_gap_max_s?: number;
+      slow_responses_over_3s?: number;
+      turns_measured?: number;
+    };
     conversation_metrics?: ConversationMetrics;
     vrn_attempts?: number;
   };
@@ -150,6 +156,15 @@ function getInterruptionCount(call: CallData): number {
   return cm?._interruption_count ?? cm?.interruption_count ?? 0;
 }
 
+// Caller-perceived reply latency in ms. Current (optimised/Gemma) agents emit
+// metrics.latency.response_gap_p50_s (seconds, = end-of-utterance delay + STT + LLM + TTS);
+// fall back to the legacy avg_llm_latency_ms for older calls. See memory: observability-stale-keys.
+function responseGapMs(call: CallData): number {
+  const p50 = call.metrics?.latency?.response_gap_p50_s;
+  if (typeof p50 === 'number') return p50 * 1000;
+  return call.metrics?.avg_llm_latency_ms ?? 0;
+}
+
 function computeFlaggedCalls(callsData: CallData[], config: EvaluatorConfig): FlaggedCall[] {
   const flagged: FlaggedCall[] = [];
 
@@ -159,9 +174,9 @@ function computeFlaggedCalls(callsData: CallData[], config: EvaluatorConfig): Fl
     const failedTools = toolCalls.filter((tc) => !tc.success).length;
 
     if (config.highLatency.enabled) {
-      const latency = call.metrics?.avg_llm_latency_ms ?? 0;
+      const latency = responseGapMs(call);
       if (latency > config.highLatency.threshold) {
-        reasons.push(`LLM latency ${Math.round(latency)}ms > ${config.highLatency.threshold}ms`);
+        reasons.push(`Response gap ${Math.round(latency)}ms > ${config.highLatency.threshold}ms`);
       }
     }
 
@@ -437,8 +452,9 @@ export function ObservabilityDashboard() {
     callsData.forEach((call) => {
       totalCallDuration += call.duration || 0;
 
-      if (call.metrics?.avg_llm_latency_ms !== undefined) {
-        totalLlmLatency += call.metrics.avg_llm_latency_ms;
+      const gap = responseGapMs(call);
+      if (gap > 0) {
+        totalLlmLatency += gap;
         llmLatencyCount++;
       }
 
@@ -1210,7 +1226,7 @@ export function ObservabilityDashboard() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-900/5">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Avg LLM Latency</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">Avg Response Gap</div>
           <div className="mt-2 text-3xl font-bold text-slate-900">
             {stats.avgLlmLatency > 0 ? formatDuration(stats.avgLlmLatency) : '—'}
           </div>

@@ -563,18 +563,18 @@ router.post('/calls', async (req: Request, res: Response) => {
 
         void logCallToHubSpot(
           {
-            customerName: payload.customerName,
-            customerPhone: payload.customerPhone,
+            customerName: payload.customerName ?? null,
+            customerPhone: payload.customerPhone ?? null,
             fromNumber: null,
-            registrationNumber: payload.registrationNumber,
-            summary: payload.summary,
-            bookingDetails: payload.bookingDetails,
+            registrationNumber: payload.registrationNumber ?? null,
+            summary: payload.summary ?? null,
+            bookingDetails: payload.bookingDetails ?? null,
             durationSeconds: actualDuration,
             callType: payload.callType ?? 'unknown',
             confirmedBooking: payload.confirmedBooking ?? false,
             createdAt: new Date(),
             branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
-            recordingUrl: finalRecordingUrl,
+            recordingUrl: finalRecordingUrl ?? null,
             transcript: payload.transcript as any,
           },
           {

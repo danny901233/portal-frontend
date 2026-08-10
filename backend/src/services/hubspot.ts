@@ -251,18 +251,11 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contact
 
   const html = `<div style="font-family:sans-serif">${warningHtml}${detailsHtml}${transcriptHtml}</div>`;
 
-  // Send FROM the contact's email so HubSpot links the inbox thread to the contact
-  const displayName = call.customerName || phone;
-  const fromAddress = contactEmail
-    ? `"${displayName}" <${contactEmail}>`
-    : undefined;
-
   const sent = await sendEmail({
     to: [inboxEmail],
     subject,
     text: warningBanner + text,
     html,
-    from: fromAddress,
   });
 
   if (sent) {

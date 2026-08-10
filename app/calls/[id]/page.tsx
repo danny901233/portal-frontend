@@ -694,7 +694,14 @@ export default function CallDetailPage() {
     | { status?: string; headline?: string; detail?: string; suggestedAction?: string; model?: string;
         generatedAt?: string; rootCause?: string; fix?: string; severity?: string; deepModel?: string }
     | undefined;
-  
+
+  // Latency summary emitted by the current (optimised/Gemma) agents. Surfaced here instead of hidden —
+  // response_gap = what the caller waited for a reply (end-of-utterance delay + STT + LLM + TTS).
+  const latencyStats = (call.metrics as Record<string, unknown> | null | undefined)?.['latency'] as
+    | { response_gap_p50_s?: number; response_gap_max_s?: number; slow_responses_over_3s?: number;
+        turns_measured?: number; llm_ttft_max_s?: number; tts_ttfb_max_s?: number }
+    | undefined;
+
   // Filter transcript based on user role.
   // Sort chronologically so tool calls land INLINE at the point they were invoked. Use a NaN-safe
   // timestamp resolver (older entries use `created_at`, not `timestamp`) and a stable index tie-break,
@@ -877,6 +884,15 @@ export default function CallDetailPage() {
         <MetricCard label={c.callerName} value={callerName} />
         <MetricCard label={c.callerNumber} value={callerNumber} />
       </section>
+
+      {isStaff && latencyStats && (latencyStats.response_gap_p50_s !== undefined || latencyStats.turns_measured) ? (
+        <section className={cn('grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-4', detailTab !== 'details' && 'hidden md:grid')}>
+          <MetricCard label="Response gap (p50)" value={latencyStats.response_gap_p50_s != null ? `${latencyStats.response_gap_p50_s.toFixed(2)}s` : '—'} />
+          <MetricCard label="Response gap (max)" value={latencyStats.response_gap_max_s != null ? `${latencyStats.response_gap_max_s.toFixed(2)}s` : '—'} />
+          <MetricCard label="Slow replies >3s" value={`${latencyStats.slow_responses_over_3s ?? 0} / ${latencyStats.turns_measured ?? 0}`} />
+          <MetricCard label="LLM first-token (max)" value={latencyStats.llm_ttft_max_s != null ? `${latencyStats.llm_ttft_max_s.toFixed(2)}s` : '—'} />
+        </section>
+      ) : null}
 
       {isStaff && metricEntries.length > 0 ? (
         <section className={cn('grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-2 xl:grid-cols-4', detailTab !== 'details' && 'hidden md:grid')}>

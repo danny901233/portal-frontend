@@ -320,6 +320,19 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 selectedServiceIds: [],
                 bookingConfirmed: false,
               };
+            } else if (agentScript === 'poole-agent') {
+              // Poole (AutoSage) shape — see PooleSessionState in services/chatAgentPoole.ts.
+              // Very similar to Bookar's seed; we intentionally do NOT stash bookingRef here
+              // (drafts are created lazily by the agent on first pl_list_services and expire
+              // after 4h, so pre-seeding one from an outbound reminder isn't worth the risk
+              // of it going stale before the customer replies).
+              seedPayload = {
+                ...(reg && { vrm: reg }),
+                customerName: outboundContact.customerName || '',
+                customerEmail: '',
+                selectedServiceIds: [],
+                bookingConfirmed: false,
+              };
             } else {
               // GH-family agents (receptionmate-agent-v3, Assist-agent, GarageHive-agent,
               // tyresoft-agent). Keep the original GH-shaped seed — chatAgentV2 reads

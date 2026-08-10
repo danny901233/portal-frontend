@@ -250,6 +250,16 @@ export interface BookarSettings {
   bookarApiBase: string;
 }
 
+// Poole Software (AutoSage) per-garage credentials — stored in
+// integrationProviderConfig JSONB. One `branchKey` per Poole branch (their
+// API scopes everything to the key via the `Key:` header). `branchCode` is
+// optional but recommended: if sent on B1 create it must match the key's
+// branch, so setting both together surfaces mismatches immediately.
+export interface PooleSettings {
+  branchKey: string;
+  branchCode?: string;
+}
+
 export interface HubspotSettings {
   enabled: boolean;
   apiToken: string;
@@ -281,9 +291,10 @@ export interface AgentConfiguration {
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings: TyresoftSettings;
   bookarSettings?: BookarSettings;
+  pooleSettings?: PooleSettings;
   hubspotSettings: HubspotSettings;
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
   humanEscalation?: boolean;

@@ -4,6 +4,7 @@ import { getTyresoftChatResponse } from './chatAgentTyresoft.js';
 import { getAssistChatResponse } from './chatAgentAssist.js';
 import { getMMHChatResponse } from './chatAgentMMH.js';
 import { getBookarChatResponse } from './chatAgentBookar.js';
+import { getPooleChatResponse } from './chatAgentPoole.js';
 
 interface ChatAgentResponse {
   content: string;
@@ -83,6 +84,10 @@ export async function routeChatMessage(
 
     if (agentScript === 'bookar-agent') {
       return getBookarChatResponse(garageId, message, conversationId, seedContact);
+    }
+
+    if (agentScript === 'poole-agent') {
+      return getPooleChatResponse(garageId, message, conversationId, seedContact);
     }
 
     if (agentScript === 'tyresoft-agent') {

@@ -569,23 +569,55 @@ const messagesAndWebchat: Collection = {
     },
     {
       slug: 'whatsapp-integration',
-      title: 'Connecting WhatsApp',
-      excerpt: 'Receive WhatsApp messages from customers in your portal inbox.',
-      minutes: 4,
+      title: 'Connecting WhatsApp with your existing garage number',
+      excerpt: 'Put your published garage/branch number on WhatsApp so Leah can answer customer messages — step by step.',
+      minutes: 6,
       body: [
-        { type: 'p', text: "Customers can message your business on WhatsApp and Leah will respond — capturing bookings, answering F&Qs, transferring when needed." },
-        { type: 'h', text: 'What you need' },
-        { type: 'ul', items: [
-          'A WhatsApp Business account linked to your phone number.',
-          'Admin access to a Meta Business account.',
-        ]},
-        { type: 'h', text: 'Setup steps' },
+        { type: 'p', text: "Customers increasingly message rather than call. Connecting WhatsApp lets Leah answer those messages on your existing published garage number — the same number customers already have for you — capturing bookings, answering questions and flagging anything that needs your team. Every message lands in the portal Messages tab." },
+        { type: 'callout', tone: 'info', text: "There are two different WhatsApp products. ReceptionMate uses the WhatsApp Business Platform (the official API), not the free WhatsApp Business app you install on a phone. A number can only be on one of the two at a time — this guide moves your number onto the Platform so Leah can use it." },
+
+        { type: 'h', text: 'Step 1 — Free up your number (do this first)' },
+        { type: 'p', text: "Your existing garage number can only be connected if it isn't already signed in to WhatsApp on a phone. This is the step most people miss, and it's the usual reason setup fails." },
         { type: 'ol', items: [
-          'Open Integrations → Messaging in the portal.',
-          'Click Connect WhatsApp.',
-          'You\'ll be redirected to Meta\'s WhatsApp Business setup flow — log in with your Facebook/Meta admin account.',
-          'Pick the WhatsApp Business Account you want to use, select your phone number, and approve our app.',
-          'Send a test message to your number — it should appear in the Messages tab in the portal within seconds.',
+          'Choose the number to use — your main published garage or branch number (the one on Google and your website). Customers then reach Leah on the number they already know.',
+          'Check whether that number is currently used on the WhatsApp app or WhatsApp Business app on any phone — including a staff mobile or the reception handset.',
+          'If it is: open WhatsApp on that phone, back up your chats if you want to keep them (Settings → Chats → Chat backup), then go to Settings → Account → Delete my account and enter the number. This releases the number from WhatsApp.',
+          'Give it a few minutes to clear before moving on.',
+        ]},
+        { type: 'callout', tone: 'warn', text: "If you skip this, verification will fail with an \"already registered\" error. Deleting the WhatsApp account also clears that phone's chat history, so back up anything you want to keep first." },
+
+        { type: 'h', text: "Step 2 — What you'll need" },
+        { type: 'ul', items: [
+          'Your existing garage/branch phone number, freed up as in Step 1.',
+          'The ability to receive a one-time code on that number by SMS or phone call. Landlines are fine — choose the "Call me" option to hear the code read out.',
+          'Admin access to a Facebook / Meta Business account (free to create during setup if you don\'t have one).',
+        ]},
+
+        { type: 'h', text: 'Step 3 — Connect it to ReceptionMate' },
+        { type: 'ol', items: [
+          'In the portal, open Integrations → Messaging.',
+          'Click Connect WhatsApp — you\'ll be handed to Meta\'s official setup.',
+          'Log in with your Facebook / Meta admin account.',
+          'Create (or pick) your Meta Business account, then create a WhatsApp Business Account for your garage.',
+          'Enter your existing garage/branch number as the WhatsApp number.',
+          'Set the display name to your garage or branch name — this is what customers see. Meta reviews it, usually quickly.',
+          'Verify the number: Meta sends a 6-digit code by SMS or voice call to that number. Enter it to confirm you own the line.',
+          'Approve ReceptionMate\'s permission to send and receive messages, then finish.',
+        ]},
+        { type: 'callout', tone: 'info', text: "Hit a snag on verification? Contact support from the Help centre and our team will complete the connection with you — you'll just need the number freed up (Step 1) and someone ready to read back the verification code when we trigger it." },
+
+        { type: 'h', text: "Step 4 — Check it's working" },
+        { type: 'ol', items: [
+          'From a different phone, send a WhatsApp message to your garage number.',
+          'Open the Messages tab in the portal — the message should appear within a few seconds and Leah will reply.',
+        ]},
+        { type: 'callout', tone: 'tip', text: 'Multiple branches? Repeat this for each branch using that branch\'s own published number. Each branch connects its own WhatsApp separately.' },
+
+        { type: 'h', text: 'Good to know' },
+        { type: 'ul', items: [
+          "Once your number is on the Platform, you can't also use the WhatsApp app on that same number — all messages come into the portal instead. If your team currently WhatsApps customers from that number on a phone, those chats will now land in the portal for Leah and your team to handle together.",
+          'Your phone calls are unaffected. WhatsApp and your voice line are separate — connecting WhatsApp doesn\'t change how your calls are forwarded to Leah.',
+          'To message a customer first (outside the 24-hour window after they last messaged you), WhatsApp requires pre-approved templates — see Message templates and Outbound message campaigns.',
         ]},
       ],
     },

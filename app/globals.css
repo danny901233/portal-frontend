@@ -1,14 +1,29 @@
 @import "tailwindcss";
 
+@theme {
+  /* Brand ramp centred on ReceptionMate #3426cf — matches marketing site */
+  --color-brand-50:  #eef0fe;
+  --color-brand-100: #dde0fd;
+  --color-brand-200: #bcc1fa;
+  --color-brand-300: #919af6;
+  --color-brand-400: #6470ed;
+  --color-brand-500: #4640e0;
+  --color-brand-600: #3426cf;
+  --color-brand-700: #281eb0;
+  --color-brand-800: #211c8c;
+  --color-brand-900: #1d1a72;
+  --color-brand-950: #13104a;
+}
+
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
-  @apply min-h-screen bg-slate-950 text-slate-100 antialiased;
+  @apply min-h-screen bg-white text-slate-700 antialiased;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-a {
-  @apply text-sky-400 transition-colors hover:text-sky-300;
-}
+/* Note: no global `a` colour rule — it overrides component-level text colours
+   (e.g. white/slate-400 in the dark sidebar) and breaks contrast. Components
+   set their own link colours via Tailwind classes. */

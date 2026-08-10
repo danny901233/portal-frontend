@@ -114,8 +114,9 @@ export async function sendInvoicePreviewEmail(userId: string) {
     const overageMinutes = Math.max(0, usage.minutesUsed - garage.includedMinutes);
     const minutesAmount = overageMinutes * garage.costPerMinuteGbp;
     const smsAmount = usage.smsCount * 0.99;
+    const notificationSmsAmount = usage.notificationSmsCount * 0.2;
 
-    const subtotal = subscriptionAmount + minutesAmount + smsAmount;
+    const subtotal = subscriptionAmount + minutesAmount + smsAmount + notificationSmsAmount;
     const vatAmount = subtotal * garage.vatRate;
     const total = subtotal + vatAmount;
 
@@ -130,6 +131,8 @@ export async function sendInvoicePreviewEmail(userId: string) {
       minutesCost: minutesAmount,
       smsCount: usage.smsCount,
       smsCost: smsAmount,
+      notificationSmsCount: usage.notificationSmsCount,
+      notificationSmsCost: notificationSmsAmount,
       subtotal,
       vat: vatAmount,
       total,
@@ -203,6 +206,12 @@ function generateInvoicePreviewHtml(
     <tr>
       <td style="padding: 8px 0; color: #475569;">SMS Messages (${g.smsCount} sent)</td>
       <td style="padding: 8px 0; color: #1e293b; text-align: right;">£${g.smsCost.toFixed(2)}</td>
+    </tr>
+    ` : ''}
+    ${g.notificationSmsCount > 0 ? `
+    <tr>
+      <td style="padding: 8px 0; color: #475569;">Notification SMS (${g.notificationSmsCount} @ £0.20)</td>
+      <td style="padding: 8px 0; color: #1e293b; text-align: right;">£${g.notificationSmsCost.toFixed(2)}</td>
     </tr>
     ` : ''}
     <tr>
@@ -325,6 +334,9 @@ function generateInvoicePreviewText(
     }
     if (g.smsCount > 0) {
       text += `SMS Messages (${g.smsCount})           £${g.smsCost.toFixed(2)}\n`;
+    }
+    if (g.notificationSmsCount > 0) {
+      text += `Notification SMS (${g.notificationSmsCount} @ £0.20)   £${g.notificationSmsCost.toFixed(2)}\n`;
     }
     text += `Subtotal                      £${g.subtotal.toFixed(2)}\n`;
     text += `VAT (${g.vatRate}%)                    £${g.vat.toFixed(2)}\n`;

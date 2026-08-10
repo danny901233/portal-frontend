@@ -2,8 +2,16 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { resolveAllowedGarages } from '../utils/auth.js';
 
 const router = Router();
+
+function hasGarageAccess(req: Request, garageId: string): boolean {
+  if (!req.user) return false;
+  const isStaff = req.user.role === 'RECEPTIONMATE_STAFF';
+  if (isStaff) return true;
+  return resolveAllowedGarages(req.user).includes(garageId);
+}
 
 // GET /api/garages/:garageId/social-connections - List all connections for a garage
 router.get(
@@ -12,6 +20,10 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
+
+      if (!hasGarageAccess(req, garageId)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
 
       const connections = await prisma.socialMediaConnection.findMany({
         where: { garageId },
@@ -26,46 +38,6 @@ router.get(
   }
 );
 
-// POST /api/garages/:garageId/social-connections/livechat - Connect LiveChat
-router.post(
-  '/garages/:garageId/social-connections/livechat',
-  authenticate,
-  async (req: Request, res: Response) => {
-    try {
-      const { garageId } = req.params;
-      const { licenseId, entityId, personalAccessToken } = req.body;
-
-      if (!licenseId || !personalAccessToken) {
-        return res.status(400).json({ error: 'licenseId and personalAccessToken are required' });
-      }
-
-      // Upsert the LiveChat connection
-      const connection = await prisma.socialMediaConnection.upsert({
-        where: { garageId_platform: { garageId, platform: 'livechat' } },
-        update: {
-          whatsappPhoneNumberId: String(licenseId),
-          pageId: entityId ? String(entityId) : null,
-          accessToken: personalAccessToken,
-          isActive: true,
-        },
-        create: {
-          garageId,
-          platform: 'livechat',
-          whatsappPhoneNumberId: String(licenseId),
-          pageId: entityId ? String(entityId) : null,
-          accessToken: personalAccessToken,
-          isActive: true,
-        },
-      });
-
-      res.json({ success: true, connection });
-    } catch (error) {
-      console.error('Failed to save LiveChat connection:', error);
-      res.status(500).json({ error: 'Failed to save LiveChat connection' });
-    }
-  }
-);
-
 // DELETE /api/social-connections/:connectionId - Disconnect a platform
 router.delete(
   '/social-connections/:connectionId',
@@ -73,6 +45,19 @@ router.delete(
   async (req: Request, res: Response) => {
     try {
       const { connectionId } = req.params;
+
+      const connection = await prisma.socialMediaConnection.findUnique({
+        where: { id: connectionId },
+        select: { garageId: true },
+      });
+
+      if (!connection) {
+        return res.status(404).json({ error: 'Connection not found' });
+      }
+
+      if (!hasGarageAccess(req, connection.garageId)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
 
       await prisma.socialMediaConnection.delete({
         where: { id: connectionId },

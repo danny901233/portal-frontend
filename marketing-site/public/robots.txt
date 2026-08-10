@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /get-started
+
+Sitemap: https://www.receptionmate.co.uk/sitemap-index.xml

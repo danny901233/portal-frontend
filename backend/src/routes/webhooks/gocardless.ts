@@ -110,9 +110,36 @@ async function handlePaymentEvent(event: any) {
 
   const paymentId = event.links?.payment;
   console.log(`[GoCardless Webhook] Payment ${action}: ${paymentId}`);
+  if (!paymentId) {
+    return;
+  }
 
-  // You can add payment tracking logic here if needed
-  // For now, we just log payment events
+  // Match the GoCardless payment back to the invoice it was raised for (the payment id is stored on
+  // the invoice when the Direct Debit charge is created). GC payment ids ("PM…") never collide with
+  // the Stripe session ids that also live in this column ("cs_…"), so this lookup is safe.
+  const invoice = await prisma.invoice.findFirst({ where: { gocardlessPaymentId: paymentId } });
+  if (!invoice) {
+    console.log(`[GoCardless Webhook] No invoice matched payment ${paymentId} (action=${action})`);
+    return;
+  }
+
+  if (action === 'confirmed' || action === 'paid_out') {
+    if (invoice.status !== 'paid') {
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { status: 'paid', paidAt: new Date() },
+      });
+      console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked PAID (payment ${action})`);
+    }
+  } else if (action === 'failed' || action === 'charged_back' || action === 'late_failure_settled') {
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'failed' } });
+    console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked FAILED (payment ${action})`);
+  } else if (action === 'cancelled') {
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'cancelled' } });
+    console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked CANCELLED (payment ${action})`);
+  } else {
+    console.log(`[GoCardless Webhook] Payment ${action} for invoice ${invoice.id} — no status change`);
+  }
 }
 
 // POST /api/webhooks/gocardless - Receive GoCardless webhook events

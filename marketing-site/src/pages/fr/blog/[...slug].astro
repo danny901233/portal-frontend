@@ -1,0 +1,24 @@
+---
+// French route for /fr/blog/<slug>. Same paths + markup as the English blog
+// post page; Astro.url is /fr/blog/... so getLang() (inside BlogPost) resolves
+// to 'fr', localizing the UI chrome (dates, labels, CTAs). The article body,
+// title, description and tags stay English — translating article content is a
+// separate content task.
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import BlogPost from '../../../components/BlogPost.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ data }) => !data.draft);
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+---
+
+<BaseLayout title={`${post.data.title} — ReceptionMate`} description={post.data.description}>
+  <BlogPost post={post} />
+</BaseLayout>

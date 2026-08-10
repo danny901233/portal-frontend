@@ -5,7 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
+import MobileBottomNav from './MobileBottomNav';
 import SetupWizard from './SetupWizard';
+import SupportChatWidget from './SupportChatWidget';
+import PushRegistration from './PushRegistration';
+import PaymentBlocker from './PaymentBlocker';
 import {
   ALL_ASSIGNED_BRANCHES_IDENTIFIER,
   BranchScopeProvider,
@@ -25,16 +29,44 @@ import {
   setGarageId,
   setGarages,
 } from '../lib/auth';
-import { fetchGarages } from '../lib/api';
+import { fetchGarages, fetchPendingAgreement, fetchNotificationCounts, fetchArrearsStatus } from '../lib/api';
+import { setAppBadge } from '../lib/badge';
 import { fetchOnboardingStatus } from '../lib/onboarding';
 import type { GarageSummary } from '../types';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
-const publicPaths = new Set(['/login', '/reset-password', '/terms']);
+/** Client-only viewport check so we can place the branch bar in the mobile drawer vs the desktop top bar. */
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return isMobile;
+}
+
+const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const lang = useLang();
+  const c = {
+    en: {
+      loading: 'Loading ReceptionMate…',
+      preparing: 'Preparing your dashboard',
+      unknownUser: 'Unknown user',
+    },
+    fr: {
+      loading: 'Chargement de ReceptionMate…',
+      preparing: 'Préparation de votre tableau de bord',
+      unknownUser: 'Utilisateur inconnu',
+    },
+  }[lang];
   const [isReady, setIsReady] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserIdState] = useState<string | null>(null);
@@ -45,7 +77,22 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [branchScope, setBranchScope] = useState<BranchScope>('single');
   const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
   const [messagesNeedingAttention, setMessagesNeedingAttention] = useState(0);
+  const [conversationsNeedingAttention, setConversationsNeedingAttention] = useState(0);
+  const [unreadCalls, setUnreadCalls] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const handleLogout = useCallback(() => {
+    clearSession();
+    setIsStaffUser(false);
+    setUserIdState(null);
+    router.replace('/login');
+  }, [router]);
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
   const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
@@ -68,7 +115,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [garages, managedGarageIdSet, restrictToAssignedBranches]);
   const visibleGarageIds = useMemo(() => visibleGarages.map((garage) => garage.id), [visibleGarages]);
   const allowAllAssignedBranches = useMemo(
-    () => pathname === '/dashboard' && visibleGarageIds.length > 1,
+    () => (pathname === '/dashboard' || pathname === '/observability') && visibleGarageIds.length > 1,
     [pathname, visibleGarageIds.length],
   );
 
@@ -186,6 +233,54 @@ export default function AppShell({ children }: { children: ReactNode }) {
     void bootstrapSession();
   }, [bootstrapSession, shouldShowChrome]);
 
+  // Agreement-sign gate — if the user has an unsigned agreement, force them to
+  // /agreement/sign before they can use the portal. We allow staff to bypass
+  // so they can keep working even if a stale draft exists on their account.
+  useEffect(() => {
+    if (!shouldShowChrome || !isReady || !userId || isStaffUser) return;
+    if (pathname?.startsWith('/agreement/sign')) return;
+
+    let cancelled = false;
+    fetchPendingAgreement()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.agreement) {
+          router.replace('/agreement/sign');
+        }
+      })
+      .catch(() => {
+        /* don't block the portal on a transient agreement check failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldShowChrome, isReady, userId, isStaffUser, pathname, router]);
+
+  // Arrears gate — if the selected garage is locked for non-payment, show the full-screen
+  // payment blocker. Internal staff are never blocked. Polled so an already-open session
+  // locks the moment the 2-day grace elapses.
+  useEffect(() => {
+    if (!shouldShowChrome || !isReady || !garageId || isStaffUser) {
+      setIsLocked(false);
+      return;
+    }
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { lockedGarageIds } = await fetchArrearsStatus();
+        if (!cancelled) setIsLocked(lockedGarageIds.includes(garageId));
+      } catch {
+        /* fail open — never block the portal on a transient status-check error */
+      }
+    };
+    void check();
+    const interval = setInterval(check, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [shouldShowChrome, isReady, garageId, isStaffUser]);
+
   // Check if setup wizard should be shown
   useEffect(() => {
     const checkSetupWizard = async () => {
@@ -288,6 +383,25 @@ export default function AppShell({ children }: { children: ReactNode }) {
           setHasMessagingAccess(false);
           setMessagesNeedingAttention(0);
         }
+
+        // Fetch conversations needing attention (for managers and staff)
+        try {
+          const convParams = new URLSearchParams();
+          if (!isReceptionMateStaff()) {
+            if (garageId) convParams.set('garageId', garageId);
+          }
+          const convResponse = await fetch(
+            `/internal-api/conversations?${convParams.toString()}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (convResponse.ok) {
+            const convData = await convResponse.json() as { conversations: { needsAttention: boolean }[] };
+            const count = (convData.conversations ?? []).filter(c => c.needsAttention).length;
+            setConversationsNeedingAttention(count);
+          }
+        } catch (convErr) {
+          console.error('[CONVERSATIONS] Error fetching count:', convErr);
+        }
       } catch (error) {
         console.error('[MESSAGING] Error fetching messaging data:', error);
         setHasMessagingAccess(false);
@@ -302,43 +416,94 @@ export default function AppShell({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [garageId]);
 
+  // Unread badge counts (bottom-nav badges + native app-icon badge). Re-fetches on navigation
+  // (so opening a call/conversation clears it) and on a 'counts:refresh' event, plus a 30s poll.
+  useEffect(() => {
+    if (!shouldShowChrome || !isReady) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const counts = await fetchNotificationCounts();
+        if (cancelled) return;
+        setUnreadCalls(counts.unreadCalls);
+        setUnreadMessages(counts.unreadMessages);
+        void setAppBadge(counts.unreadCalls + counts.unreadMessages);
+      } catch {
+        /* transient: keep the last known counts */
+      }
+    };
+    void load();
+    const interval = setInterval(load, 30000);
+    window.addEventListener('counts:refresh', load);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('counts:refresh', load);
+    };
+  }, [shouldShowChrome, isReady, pathname]);
+
   const shellContent = !shouldShowChrome ? (
     <>{children}</>
   ) : !isReady ? (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-100">
+    <div className="flex min-h-screen items-center justify-center bg-white text-slate-900">
       <div className="space-y-2 text-center">
-        <div className="text-xl font-semibold">Loading ReceptionMate…</div>
-        <div className="text-sm text-slate-400">Preparing your dashboard</div>
+        <div className="text-xl font-semibold">{c.loading}</div>
+        <div className="text-sm text-slate-500">{c.preparing}</div>
       </div>
     </div>
+  ) : isLocked && !isStaffUser ? (
+    <PaymentBlocker
+      garageName={garages.find((g) => g.id === garageId)?.name}
+      onLogout={handleLogout}
+    />
   ) : (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100">
-      <Sidebar
-        activePath={pathname ?? '/calls'}
-        showAdminLink={isStaffUser}
-        hasMessagingAccess={hasMessagingAccess}
-        hasManagerAccess={managedGarageIds.length > 0}
-        isManagerUser={isStaffUser || isAdminUser}
-        messagesNeedingAttention={messagesNeedingAttention}
-      />
-      <div className="flex flex-1 flex-col">
+    (() => {
+      const navbar = (
         <Navbar
-          email={userEmail ?? 'Unknown user'}
+          email={userEmail ?? c.unknownUser}
           userId={userId}
           garages={visibleGarages}
           selectedGarageId={selectedGarageValue}
           allowAllAssignedBranches={allowAllAssignedBranches}
+          isStaff={isStaffUser}
           onSelectGarage={handleSelectGarage}
-          onLogout={() => {
-            clearSession();
-            setIsStaffUser(false);
-            setUserIdState(null);
-            router.replace('/login');
-          }}
+          onLogout={handleLogout}
         />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
-      </div>
-    </div>
+      );
+      return (
+        <div className="flex min-h-screen bg-[#f4f2ec] text-slate-900 md:bg-slate-50">
+          <Sidebar
+            activePath={pathname ?? '/calls'}
+            showAdminLink={isStaffUser}
+            hasMessagingAccess={hasMessagingAccess}
+            hasManagerAccess={managedGarageIds.length > 0}
+            isManagerUser={isStaffUser || isAdminUser}
+            messagesNeedingAttention={messagesNeedingAttention}
+            garageId={garageId}
+            mobileOpen={mobileNavOpen}
+            onMobileClose={() => setMobileNavOpen(false)}
+            mobileTop={isMobile ? navbar : undefined}
+            onLogout={handleLogout}
+          />
+          <div className="flex min-w-0 flex-1 flex-col">
+            {/* Desktop: top bar. Mobile: this lives in the drawer instead. */}
+            {!isMobile && navbar}
+            <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6">{children}</main>
+          </div>
+          {/* Floating "Need help?" chat with the RM team — only renders when authed */}
+          <SupportChatWidget />
+          {/* Registers this device for push when running inside the mobile app (no-op on web) */}
+          <PushRegistration />
+          {/* Mobile-only bottom tab bar (desktop unchanged) */}
+          <MobileBottomNav
+            hasMessagingAccess={hasMessagingAccess}
+            unreadCalls={unreadCalls}
+            unreadMessages={unreadMessages}
+            onOpenMore={() => setMobileNavOpen(true)}
+          />
+        </div>
+      );
+    })()
   );
 
   return (

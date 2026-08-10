@@ -18,6 +18,10 @@ const activationPayloadSchema = z.object({
   contactPhone: z.string().nullable().optional(),
   twilioNumber: z.string(),
   agentName: z.string().nullable().optional(),
+  // Which LiveKit Cloud project to provision on. Assist/GarageHive garages run on account2
+  // (the RMB-Assist project); everything else defaults to account1. Must match how the portal
+  // voice webhook routes the call, or the number rings into a project with no matching trunk.
+  account: z.enum(['account1', 'account2']).optional().default('account1'),
   triggeredAt: z.string(),
 });
 
@@ -29,16 +33,61 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-// LiveKit SIP client
-console.log('🔧 Initializing LiveKit SIP client with:', {
+// LiveKit SIP clients — keyed by account.
+// "account1" is the original production account (receptionmate-i9q7193z).
+// "account2" is the RMB-Assist account (receptionmate-9dznd24r). Optional —
+// service still boots if Account 2 env vars are missing; only /update-agent
+// + /provision calls that target Account 2 will then fail loudly.
+console.log('🔧 Initializing LiveKit SIP client (account1):', {
   url: process.env.LIVEKIT_URL,
   apiKey: process.env.LIVEKIT_API_KEY?.substring(0, 10) + '...',
 });
-const livekitSipClient = new SipClient(
+const livekitSipClientAccount1 = new SipClient(
   process.env.LIVEKIT_URL!,
   process.env.LIVEKIT_API_KEY!,
   process.env.LIVEKIT_API_SECRET!
 );
+
+let livekitSipClientAccount2: SipClient | null = null;
+if (
+  process.env.LIVEKIT_URL_ACCOUNT2 &&
+  process.env.LIVEKIT_API_KEY_ACCOUNT2 &&
+  process.env.LIVEKIT_API_SECRET_ACCOUNT2
+) {
+  console.log('🔧 Initializing LiveKit SIP client (account2):', {
+    url: process.env.LIVEKIT_URL_ACCOUNT2,
+    apiKey: process.env.LIVEKIT_API_KEY_ACCOUNT2?.substring(0, 10) + '...',
+  });
+  livekitSipClientAccount2 = new SipClient(
+    process.env.LIVEKIT_URL_ACCOUNT2,
+    process.env.LIVEKIT_API_KEY_ACCOUNT2,
+    process.env.LIVEKIT_API_SECRET_ACCOUNT2
+  );
+} else {
+  console.warn(
+    '⚠️ Account 2 LiveKit env vars not set ' +
+    '(LIVEKIT_URL_ACCOUNT2 / LIVEKIT_API_KEY_ACCOUNT2 / LIVEKIT_API_SECRET_ACCOUNT2). ' +
+    'Routes that request account=account2 will return 503.'
+  );
+}
+
+type LiveKitAccount = 'account1' | 'account2';
+
+function getSipClient(account: LiveKitAccount): SipClient {
+  if (account === 'account2') {
+    if (!livekitSipClientAccount2) {
+      throw new Error(
+        'Account 2 LiveKit client is not configured. ' +
+        'Set LIVEKIT_URL_ACCOUNT2 / LIVEKIT_API_KEY_ACCOUNT2 / LIVEKIT_API_SECRET_ACCOUNT2.'
+      );
+    }
+    return livekitSipClientAccount2;
+  }
+  return livekitSipClientAccount1;
+}
+
+// The SIP client is now chosen per-account inside createLiveKitSipTrunk (getSipClient), so a
+// self-serve Assist signup can be provisioned straight onto Account 2.
 
 // Health check endpoint
 app.get('/health', (_req: Request, res: Response) => {
@@ -74,7 +123,8 @@ app.post('/provision', async (req: Request, res: Response) => {
         payload.garageId,
         payload.garageName,
         payload.twilioNumber,
-        payload.agentName ?? undefined
+        payload.agentName ?? undefined,
+        payload.account
       );
       console.log('✅ LiveKit SIP trunk created successfully');
     } catch (error) {
@@ -117,6 +167,10 @@ app.post('/update-agent', async (req: Request, res: Response) => {
     const updateSchema = z.object({
       garageId: z.string().uuid(),
       agentName: z.string(),
+      // Optional, defaults to account1 so existing portal calls remain
+      // backwards-compatible. Set to 'account2' when routing a garage to
+      // the RMB-Assist agent on the second LiveKit Cloud project.
+      account: z.enum(['account1', 'account2']).optional().default('account1'),
     });
 
     const parsed = updateSchema.safeParse(req.body);
@@ -134,25 +188,46 @@ app.post('/update-agent', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid secret' });
     }
 
-    const { garageId, agentName } = parsed.data;
-    console.log(`[UPDATE-AGENT] Updating dispatch rule for garage ${garageId} to agent: ${agentName}`);
+    const { garageId, agentName, account } = parsed.data;
+    console.log(
+      `[UPDATE-AGENT] account=${account} garage=${garageId} → agent: ${agentName}`
+    );
+
+    let sipClient: SipClient;
+    try {
+      sipClient = getSipClient(account);
+    } catch (err) {
+      return res.status(503).json({
+        error: 'Requested LiveKit account is not configured on this onboarding service',
+        message: err instanceof Error ? err.message : 'Unknown error',
+        account,
+      });
+    }
 
     // List all dispatch rules and find the one for this garage
-    const dispatchRules = await livekitSipClient.listSipDispatchRule();
+    const dispatchRules = await sipClient.listSipDispatchRule();
     const targetRule = dispatchRules.find(rule => {
       const metadata = rule.metadata ? JSON.parse(rule.metadata) : {};
       return metadata.garageId === garageId;
     });
 
     if (!targetRule) {
-      console.log(`[UPDATE-AGENT] No dispatch rule found for garage ${garageId}`);
-      return res.status(404).json({ error: 'Dispatch rule not found for this garage' });
+      console.log(
+        `[UPDATE-AGENT] No dispatch rule found for garage ${garageId} on ${account}`
+      );
+      return res.status(404).json({
+        error: 'Dispatch rule not found for this garage on the specified account',
+        account,
+      });
     }
 
-    console.log(`[UPDATE-AGENT] Found rule ${targetRule.sipDispatchRuleId}, current agent: ${targetRule.roomConfig?.agents?.[0]?.agentName}`);
+    console.log(
+      `[UPDATE-AGENT] account=${account} rule=${targetRule.sipDispatchRuleId} ` +
+      `current agent=${targetRule.roomConfig?.agents?.[0]?.agentName}`
+    );
 
     // Update the dispatch rule with new agent name
-    await livekitSipClient.updateSipDispatchRule(
+    await sipClient.updateSipDispatchRule(
       targetRule.sipDispatchRuleId,
       {
         ...targetRule,
@@ -167,13 +242,16 @@ app.post('/update-agent', async (req: Request, res: Response) => {
       } as any
     );
 
-    console.log(`✅ Updated dispatch rule ${targetRule.sipDispatchRuleId} to use agent: ${agentName}`);
+    console.log(
+      `✅ [UPDATE-AGENT] account=${account} rule=${targetRule.sipDispatchRuleId} → ${agentName}`
+    );
 
     res.status(200).json({
       success: true,
       message: 'Agent updated successfully',
       garageId,
       agentName,
+      account,
       dispatchRuleId: targetRule.sipDispatchRuleId,
     });
 
@@ -193,10 +271,12 @@ async function createLiveKitSipTrunk(
   garageId: string,
   garageName: string,
   twilioNumber: string,
-  agentName?: string
+  agentName?: string,
+  account: LiveKitAccount = 'account1'
 ): Promise<void> {
   try {
-    console.log('Creating LiveKit SIP trunk for garage:', garageId);
+    const livekitSipClient = getSipClient(account);
+    console.log(`Creating LiveKit SIP trunk for garage: ${garageId} on ${account}`);
     const dispatchAgentName =
       process.env.LIVEKIT_DISPATCH_AGENT_NAME?.trim() ||
       agentName?.trim() ||

@@ -1,11 +1,19 @@
 import nodemailer from 'nodemailer';
 import type { TranscriptEntry } from './types.js';
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer | string;       // Buffer, or base64-encoded string when `encoding` is set
+  encoding?: 'base64';
+  contentType?: string;           // e.g. 'application/pdf'
+}
+
 interface EmailOptions {
   to: string[];
   subject: string;
   html: string;
   text: string;
+  attachments?: EmailAttachment[];
 }
 
 const getMailgunConfig = () => {
@@ -41,20 +49,47 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     return false;
   }
 
-  const form = new URLSearchParams();
-  form.set('from', config.from);
-  form.set('to', options.to.join(', '));
-  form.set('subject', options.subject);
-  form.set('text', options.text);
-  form.set('html', options.html);
+  // Mailgun accepts either application/x-www-form-urlencoded (no attachments)
+  // or multipart/form-data (with attachments). Use multipart whenever
+  // attachments are present so the file bytes ride through correctly.
+  const hasAttachments = (options.attachments?.length ?? 0) > 0;
+
+  let body: BodyInit;
+  const headers: Record<string, string> = {
+    Authorization: `Basic ${Buffer.from(`api:${config.apiKey}`).toString('base64')}`,
+  };
+
+  if (hasAttachments) {
+    const form = new FormData();
+    form.set('from', config.from);
+    form.set('to', options.to.join(', '));
+    form.set('subject', options.subject);
+    form.set('text', options.text);
+    form.set('html', options.html);
+    for (const att of options.attachments!) {
+      const buf = att.encoding === 'base64' && typeof att.content === 'string'
+        ? Buffer.from(att.content, 'base64')
+        : (att.content as Buffer);
+      const blob = new Blob([new Uint8Array(buf)], { type: att.contentType ?? 'application/octet-stream' });
+      form.append('attachment', blob, att.filename);
+    }
+    body = form;
+    // FormData will set its own multipart Content-Type with the boundary
+  } else {
+    const form = new URLSearchParams();
+    form.set('from', config.from);
+    form.set('to', options.to.join(', '));
+    form.set('subject', options.subject);
+    form.set('text', options.text);
+    form.set('html', options.html);
+    body = form.toString();
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+  }
 
   const response = await fetch(`${config.apiBase}/v3/${config.domain}/messages`, {
     method: 'POST',
-    headers: {
-      Authorization: `Basic ${Buffer.from(`api:${config.apiKey}`).toString('base64')}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: form.toString(),
+    headers,
+    body,
   });
 
   if (!response.ok) {
@@ -88,6 +123,13 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
     subject: options.subject,
     text: options.text,
     html: options.html,
+    attachments: options.attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.encoding === 'base64' && typeof a.content === 'string'
+        ? Buffer.from(a.content, 'base64')
+        : a.content,
+      contentType: a.contentType,
+    })),
   });
 
   return true;
@@ -476,6 +518,390 @@ export const sendCallSummaryEmail = async (
   });
 };
 
+interface PaymentSetupReminderEmailData {
+  branchName: string;
+  summary: string;
+  customerPhone?: string | null;
+  createdAt: string;
+  portalUrl: string;
+}
+
+export const sendPaymentSetupReminderEmail = async (
+  notificationEmails: string[],
+  data: PaymentSetupReminderEmailData,
+): Promise<boolean> => {
+  if (notificationEmails.length === 0) {
+    console.log('No notification emails configured for payment setup reminder');
+    return false;
+  }
+
+  const date = new Date(data.createdAt);
+  const formattedDate = date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Action Required: Set Up Direct Debit</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #09203c;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #09203c;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1a3a52; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="text-align: center; padding: 32px;">
+                    <h2 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">
+                      ⚠️ Action Required: Direct Debit Setup
+                    </h2>
+                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
+                      ${data.branchName}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <tr>
+            <td style="padding: 32px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 0 0 24px; font-size: 16px; line-height: 1.6; color: #e2e8f0;">
+                    <p style="margin: 0 0 16px;">
+                      <strong>Good news!</strong> ReceptionMate handled a call for you on ${formattedDate}.
+                    </p>
+                    <p style="margin: 0 0 16px;">
+                      However, we noticed that your Direct Debit mandate is not currently active. To ensure uninterrupted service and receive full call details, please complete your payment setup.
+                    </p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px; margin-bottom: 24px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <td style="padding-bottom: 0; font-size: 14px; line-height: 1.5; color: #94a3b8;">
+                          <strong style="color: #e2e8f0;">📞 Call Received:</strong> ${formattedDate}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding: 24px 0;">
+                    <div style="background-color: #0d2739; border-left: 4px solid #f59e0b; padding: 16px 20px; border-radius: 4px;">
+                      <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #fbbf24;">
+                        <strong>⚠️ Important:</strong> To continue receiving full call details and maintain uninterrupted service, please set up your Direct Debit mandate as soon as possible.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="text-align: center; padding: 32px 0 0;">
+                    <a href="${data.portalUrl}/login" style="display: inline-block; padding: 16px 32px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);">
+                      Complete Direct Debit Setup
+                    </a>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding: 24px 0 0; font-size: 14px; line-height: 1.6; color: #94a3b8; text-align: center;">
+                    <p style="margin: 0;">
+                      Questions? Contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: #3b82f6; text-decoration: none;">hello@receptionmate.co.uk</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 24px 32px; background-color: #0d2739; border-top: 1px solid #1e4a66;">
+              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #64748b; text-align: center;">
+                This is an automated email from ReceptionMate<br/>
+                © ${new Date().getFullYear()} ReceptionMate. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  const text = `
+⚠️ ACTION REQUIRED: DIRECT DEBIT SETUP
+
+${data.branchName}
+
+Good news! ReceptionMate handled a call for you on ${formattedDate}.
+
+However, we noticed that your Direct Debit mandate is not currently active. To ensure uninterrupted service and receive full call details, please complete your payment setup.
+
+CALL DETAILS:
+📞 Call Received: ${formattedDate}
+
+⚠️ IMPORTANT:
+To continue receiving full call details and maintain uninterrupted service, please set up your Direct Debit mandate as soon as possible.
+
+Complete your setup here: ${data.portalUrl}/login
+
+Questions? Contact us at hello@receptionmate.co.uk
+
+---
+This is an automated email from ReceptionMate
+`;
+
+  return sendEmail({
+    to: notificationEmails,
+    subject: 'ReceptionMate handled a call for you',
+    html,
+    text,
+  });
+};
+
+interface ArrearsCallNoticeEmailData {
+  branchName: string;
+  createdAt: string;
+  portalUrl: string;
+}
+
+// ReceptionMate brand assets for transactional emails (match the portal / marketing site).
+const RM_LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
+const RM_BRAND = '#3426cf';       // brand-600 (primary indigo)
+const RM_BRAND_DARK = '#281eb0';  // brand-700
+
+/**
+ * Shared branded shell for arrears emails: white card on light grey, an indigo header
+ * band carrying the ReceptionMate logo, and a consistent footer. Callers pass the inner
+ * body HTML. Keeps every arrears email on-brand with the portal.
+ */
+const arrearsEmailShell = (bodyHtml: string): string => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f1f2f9;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f1f2f9;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(52,38,207,0.12);">
+          <tr>
+            <td style="padding: 32px; background-color: ${RM_BRAND}; text-align: center;">
+              <img src="${RM_LOGO_URL}" alt="ReceptionMate" height="120" style="height: 120px; width: auto; display: inline-block;" />
+            </td>
+          </tr>
+          ${bodyHtml}
+          <tr>
+            <td style="padding: 24px 32px; background-color: #f7f7fb; border-top: 1px solid #e9eaf5;">
+              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #8b90b0; text-align: center;">
+                This is an automated email from ReceptionMate<br/>
+                © ${new Date().getFullYear()} ReceptionMate. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+/**
+ * Arrears notice — sent instead of the full call summary when a garage is flagged
+ * accessRestricted. Deliberately contains NO call content (no caller, summary, transcript
+ * or recording): it only confirms a call was handled and that the details are on hold
+ * until the account is brought up to date.
+ */
+export const sendArrearsCallNoticeEmail = async (
+  notificationEmails: string[],
+  data: ArrearsCallNoticeEmailData,
+): Promise<boolean> => {
+  if (notificationEmails.length === 0) {
+    console.log('No notification emails configured for arrears call notice');
+    return false;
+  }
+
+  const date = new Date(data.createdAt);
+  const formattedDate = date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const html = arrearsEmailShell(`
+          <tr>
+            <td style="padding: 36px 32px 8px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">📞 We handled a call for you</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b7194;">${data.branchName}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 0;">
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                Your ReceptionMate AI receptionist answered a call for you on <strong>${formattedDate}</strong>.
+              </p>
+              <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                Your account is currently <strong>in arrears</strong>, so the caller's details, the call summary,
+                transcript and recording are <strong>on hold</strong>. As soon as your account is brought up to
+                date, everything will be unlocked in your portal.
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #fff8ec; border: 1px solid #f6dfae; border-radius: 10px; font-size: 14px; line-height: 1.5; color: #8a6417;">
+                    <strong>📞 Call handled:</strong> ${formattedDate}<br/>
+                    <strong>🔒 Details:</strong> locked until your account is up to date
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 28px 32px 4px; text-align: center;">
+              <a href="${data.portalUrl}/login" style="display: inline-block; padding: 14px 30px; background-color: ${RM_BRAND}; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 10px;">
+                Bring my account up to date
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 32px; text-align: center;">
+              <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #8b90b0;">
+                Questions? Contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>
+              </p>
+            </td>
+          </tr>`);
+
+  const text = `
+WE HANDLED A CALL FOR YOU
+
+${data.branchName}
+
+Your ReceptionMate AI receptionist answered a call for you on ${formattedDate}.
+
+Your account is currently IN ARREARS, so the caller's details, the call summary, transcript and recording are on hold. As soon as your account is brought up to date, everything will be unlocked in your portal.
+
+Call handled: ${formattedDate}
+Details: locked until your account is up to date
+
+Bring your account up to date: ${data.portalUrl}/login
+
+Questions? Contact us at hello@receptionmate.co.uk
+
+---
+This is an automated email from ReceptionMate
+`;
+
+  return sendEmail({
+    to: notificationEmails,
+    subject: 'We handled a call for you — account update needed',
+    html,
+    text,
+  });
+};
+
+interface ArrearsWarningEmailData {
+  branchName: string;
+  portalUrl: string;
+  graceDays: number;
+}
+
+/**
+ * Payment-failed warning — sent to the garage (billing + notification emails) as soon
+ * as a Stripe card charge fails. Advises the payment failed, that we'll retry, and that
+ * access will be limited if it isn't brought up to date within the grace window.
+ */
+export const sendArrearsWarningEmail = async (
+  recipients: string[],
+  data: ArrearsWarningEmailData,
+): Promise<boolean> => {
+  if (recipients.length === 0) {
+    console.log('No recipients configured for arrears warning email');
+    return false;
+  }
+
+  const html = arrearsEmailShell(`
+          <tr>
+            <td style="padding: 36px 32px 8px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">⚠️ We couldn't take your payment</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b7194;">${data.branchName}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 0;">
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                We tried to take your ReceptionMate subscription payment but the card was declined.
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #fef3f2; border: 1px solid #fbd5d0; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #7a2b23;">
+                    We'll automatically retry over the next few days. To avoid any interruption, please update your
+                    payment details. If your account isn't brought up to date within <strong>${data.graceDays} days</strong>,
+                    portal access will be limited until payment is received — though your AI receptionist will keep
+                    answering your calls throughout.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 28px 32px 4px; text-align: center;">
+              <a href="${data.portalUrl}/login" style="display: inline-block; padding: 14px 30px; background-color: ${RM_BRAND}; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 10px;">
+                Update my payment details
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 32px; text-align: center;">
+              <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #8b90b0;">
+                Questions? Contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>
+              </p>
+            </td>
+          </tr>`);
+
+  const text = `
+WE COULDN'T TAKE YOUR PAYMENT
+
+${data.branchName}
+
+We tried to take your ReceptionMate subscription payment but the card was declined.
+
+We'll automatically retry over the next few days. To avoid any interruption, please update your payment details. If your account isn't brought up to date within ${data.graceDays} days, portal access will be limited until payment is received — though your AI receptionist will keep answering your calls throughout.
+
+Update your payment details: ${data.portalUrl}/login
+
+Questions? Contact us at hello@receptionmate.co.uk
+
+---
+This is an automated email from ReceptionMate
+`;
+
+  return sendEmail({
+    to: recipients,
+    subject: 'Payment failed — please update your details',
+    html,
+    text,
+  });
+};
+
 interface NegativeFeedbackEmailData {
   branchName: string;
   callId: string;
@@ -605,6 +1031,89 @@ This is an automated alert from ReceptionMate
   return sendEmail({
     to: ['hello@receptionmate.co.uk'],
     subject: `⚠️ Negative Feedback: ${branchName}`,
+    html,
+    text,
+  });
+};
+
+interface NeedsAttentionEmailData {
+  branchName: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  conversationId: string;
+  recentMessages: Array<{ role: string; content: string }>;
+}
+
+export const sendNeedsAttentionEmail = async (
+  notificationEmails: string[],
+  data: NeedsAttentionEmailData,
+): Promise<boolean> => {
+  if (notificationEmails.length === 0) return false;
+
+  const { branchName, customerName, customerPhone, conversationId, recentMessages } = data;
+  const displayName = customerName || customerPhone || 'Unknown customer';
+  const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+
+  const messagesHtml = recentMessages
+    .map(m => {
+      const label = m.role === 'user' ? '👤 Customer' : m.role === 'staff' ? '🧑 Staff' : '🤖 Agent';
+      return `<tr><td style="padding: 8px 0; font-size: 14px; color: #94a3b8;"><strong style="color: #e2e8f0;">${label}:</strong> ${m.content}</td></tr>`;
+    })
+    .join('');
+
+  const messagesText = recentMessages
+    .map(m => {
+      const label = m.role === 'user' ? 'Customer' : m.role === 'staff' ? 'Staff' : 'Agent';
+      return `${label}: ${m.content}`;
+    })
+    .join('\n\n');
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#09203c;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#09203c;">
+    <tr><td style="padding:40px 20px;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin:0 auto;background-color:#1a3a52;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.5);">
+        <tr><td style="background:linear-gradient(135deg,#dc2626 0%,#b91c1c 100%);text-align:center;padding:32px;">
+          <h2 style="margin:0;font-size:22px;font-weight:600;color:#ffffff;">⚠️ Customer Needs Attention</h2>
+          <p style="margin:8px 0 0;font-size:15px;color:rgba(255,255,255,0.95);">${branchName}</p>
+        </td></tr>
+        <tr><td style="padding:32px;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr><td style="padding:20px;background-color:#0d2739;border:1px solid #1e4a66;border-radius:8px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr><td style="padding-bottom:12px;font-size:14px;color:#94a3b8;"><strong style="color:#e2e8f0;">👤 Customer:</strong> ${displayName}</td></tr>
+                ${customerPhone ? `<tr><td style="padding-bottom:12px;font-size:14px;color:#94a3b8;"><strong style="color:#e2e8f0;">📞 Phone:</strong> ${customerPhone}</td></tr>` : ''}
+              </table>
+            </td></tr>
+          </table>
+          <h3 style="margin:24px 0 12px;font-size:16px;font-weight:600;color:#e2e8f0;">Recent Conversation</h3>
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#0d2739;border-left:4px solid #dc2626;border-radius:6px;">
+            <tr><td style="padding:16px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                ${messagesHtml}
+              </table>
+            </td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:0 32px 32px;text-align:center;">
+          <a href="${portalUrl}/conversations/${conversationId}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#3126cf 0%,#2419a8 100%);color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">View Conversation in Portal</a>
+        </td></tr>
+        <tr><td style="padding:24px;background-color:#0d2739;border-top:1px solid #1e4a66;text-align:center;">
+          <p style="margin:0;font-size:12px;color:#64748b;">Automated notification from <strong style="color:#3126cf;">ReceptionMate</strong></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  const text = `CUSTOMER NEEDS ATTENTION\n\nBranch: ${branchName}\nCustomer: ${displayName}${customerPhone ? `\nPhone: ${customerPhone}` : ''}\n\nRecent Conversation:\n${'─'.repeat(40)}\n${messagesText}\n\nView in portal: ${portalUrl}/conversations/${conversationId}\n\n---\nReceptionMate automated notification`;
+
+  return sendEmail({
+    to: notificationEmails,
+    subject: `Customer needs attention — ${displayName}`,
     html,
     text,
   });

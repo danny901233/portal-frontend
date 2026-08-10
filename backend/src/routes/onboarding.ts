@@ -19,7 +19,7 @@ function getTwilioClient() {
 }
 
 // Helper function to auto-purchase a random UK number
-async function purchaseRandomTwilioNumber(): Promise<string> {
+export async function purchaseRandomTwilioNumber(): Promise<string> {
   try {
     const client = getTwilioClient();
 
@@ -380,9 +380,11 @@ router.post('/onboarding/create-business', authenticateApiKey, async (req, res) 
         });
         const agentName = agentConfig?.agentScript === 'tyresoft-agent'
           ? 'tyresoft-agent'
-          : agentConfig?.agentScript === 'receptionmate-agent-v3' 
-            ? 'receptionmate-agent-v3' 
-            : 'receptionmate-agent';
+          : agentConfig?.agentScript === 'receptionmate-agent-v3'
+            ? 'receptionmate-agent-v3'
+            : agentConfig?.agentScript === 'MMH-agent'
+              ? 'MMH-agent'
+              : 'receptionmate-agent';
 
         const response = await fetch(`${onboardingUrl}/provision`, {
           method: 'POST',

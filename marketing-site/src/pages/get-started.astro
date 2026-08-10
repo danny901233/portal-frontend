@@ -1,0 +1,1089 @@
+---
+// Multi-step "Get started" flow.
+//
+// Path (all paths walk through Business → Package first):
+//   • Assist           → Account → portal redirect
+//   • Automate/Connect → GMS question
+//     ├─ Garage Hive / Tyresoft → Account + phone → HighLevel lead → "we'll be in touch"
+//     └─ Other (or "not sure") → Recommend Assist (capture booking-lead-time +
+//                                their actual GMS) → Account → portal,
+//                                AND notify the team in HighLevel with the
+//                                integration interest so we can follow up.
+
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLang, L } from '../i18n/ui';
+const lang = getLang(Astro.url);
+
+const LEAD_ENDPOINT    = import.meta.env.PUBLIC_LEAD_ENDPOINT    || 'https://portal.receptionmate.co.uk/api/public/lead';
+const SIGNUP_ENDPOINT  = import.meta.env.PUBLIC_SIGNUP_ENDPOINT  || 'https://portal.receptionmate.co.uk/api/public-signup';
+const PORTAL_LOGIN_URL = import.meta.env.PUBLIC_PORTAL_LOGIN_URL || 'https://portal.receptionmate.co.uk/login?welcome=true';
+const GOOGLE_API_KEY   = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
+
+const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
+
+const c = {
+  en: {
+    metaTitle: 'Get started — ReceptionMate',
+    metaDesc: 'Set up your ReceptionMate AI receptionist in a few quick steps.',
+    homeAria: 'ReceptionMate home',
+    alreadyCustomer: 'Already a customer? Sign in',
+    back: 'Back',
+    stepLabelInit: 'Step 1 of 3',
+
+    // Step: business
+    businessH1: 'What’s your garage called?',
+    businessSub: 'Start typing and pick from the list — we’ll pull your details from Google.',
+    searchPlaceholder: 'e.g. Acme Auto Centre',
+    cantFind: 'Can’t find your garage?',
+    manualNameLabel: 'Business name',
+    manualNamePlaceholder: 'Acme Auto Centre',
+    manualAddrLabel: 'Town or city',
+    manualAddrPlaceholder: 'Telford',
+    continue: 'Continue',
+
+    // Step: package
+    settingUp: 'Setting up',
+    yourGarage: 'your garage',
+    packageH1: 'Which option suits you best?',
+    packageSub: 'Most garages start with Assist and upgrade later — but it’s your call.',
+    instantSignup: 'Instant sign-up',
+    assistDesc: 'Catches every call and books jobs using the lead time you set — bookings land in your portal inbox, not your diary.',
+    assistF1: 'Live in minutes — no integration needed',
+    assistF2: 'Takes bookings using your set lead time',
+    assistF3: 'Simple monthly billing',
+    mostPopular: 'Most popular',
+    automateDesc: 'Books the job in your diary on the call — no callbacks.',
+    automateF1: 'Plugs into Garage Hive, Tyresoft + more',
+    automateF2: 'Quotes from your service menu',
+    automateF3: 'SMS confirmations + reminders',
+    connectDesc: 'AI chat widget for your website — books from page visitors.',
+    connectF1: 'One-line install on any website',
+    connectF2: 'Books MOTs + services 24/7',
+    connectF3: 'Conversations in your portal inbox',
+    bespoke: 'Bespoke',
+    multibranchTitle: 'Multi-branch or custom',
+    multibranchDesc: 'Running multiple locations, or need a bespoke build? We’ll scope it with you.',
+    multibranchF1: 'Central portal, separate inboxes per branch',
+    multibranchF2: 'Custom integrations + custom workflows',
+    multibranchF3: 'Dedicated onboarding + volume pricing',
+
+    // Step: gms
+    youPicked: 'You picked',
+    gmsH1: 'Which booking system do you use?',
+    gmsSub: 'This tells us whether we can plug straight in — or whether we’d recommend a different starting point.',
+    supported: 'Supported',
+    canIntegrateNow: 'We can integrate now.',
+    somethingElse: 'Something else / not sure',
+    somethingElseDesc: 'We’ll suggest the best way to get started today.',
+
+    // Step: recommend
+    recommendH1: 'Start with Assist while we build the integration.',
+    recommendSub: 'Assist catches every call from day one. As soon as your system is supported, we’ll switch you over to Automate.',
+    gmsNameLabel: 'Which system do you use today?',
+    gmsNamePlaceholder: 'e.g. ProtechMS, MAM Autowork, paper diary…',
+    recommendNote: 'You can switch bookings on and set a lead time inside the portal once your account’s live.',
+
+    // Step: account-assist
+    assistAccountH1: 'One last thing — your details.',
+    assistAccountSub: 'We’ll email your login and you can go live in the portal.',
+    creatingFor: 'Creating an account for',
+    assistTierBadge: 'Assist · £200/mo',
+    whatsIncluded: 'What’s included',
+    incl1: 'AI receptionist answering 24/7 — no missed calls',
+    incl2: 'Takes bookings using a lead time you control',
+    incl3: 'Job details + transcripts in your portal inbox',
+    incl4: 'SMS confirmations sent to the customer',
+    incl5: '400 minutes included, then £0.25 per minute',
+    incl6: 'Simple monthly billing',
+    yourName: 'Your name',
+    namePlaceholder: 'Jane Smith',
+    emailLabel: 'Email address',
+    emailPlaceholder: 'you@yourgarage.co.uk',
+    createAccount: 'Create my account',
+    creatingAccount: 'Creating your account…',
+    termsIntro: 'By creating an account you agree to our',
+    termsWord: 'Terms',
+    andWord: 'and',
+    privacyWord: 'Privacy Policy',
+    orWord: 'or',
+    enquireInstead: 'Prefer to chat first? Send us an enquiry instead →',
+
+    // Step: account-lead
+    leadHeadline: 'Let’s scope the integration.',
+    leadSub: 'Drop your details and someone from the team will be in touch within one working day.',
+    forWord: 'For',
+    phoneLabel: 'Phone number',
+    phonePlaceholder: '07700 000000',
+    sendIt: 'Send it',
+    sending: 'Sending…',
+
+    // Step: success-lead
+    successH2: 'Thanks — we’ve got your details.',
+    successBody: 'Someone from the team will be in touch within one working day.',
+    backHome: 'Back to homepage',
+
+    // Step: redirecting
+    accountReady: 'Account ready.',
+    redirectingBody: 'Taking you to your service agreement now — sign it in your browser and we’ll email your portal login details.',
+
+    // Script-internal (passed via define:vars)
+    js: {
+      step1of3: 'Step 1 of 3',
+      step2of3: 'Step 2 of 3',
+      step3of4: 'Step 3 of 4',
+      step4of5: 'Step 4 of 5',
+      finalStep: 'Final step',
+      done: 'Done',
+      tierAssist: 'Assist',
+      tierAutomate: 'Automate',
+      tierConnect: 'Connect',
+      tierMultibranch: 'Multi-branch',
+      gmsGaragehive: 'Garage Hive',
+      gmsTyresoft: 'Tyresoft',
+      gmsOther: 'Other system',
+      headlineBranches: 'Let’s get your branches set up.',
+      headlineScope: 'Let’s scope the integration.',
+      headlineTellUs: 'Tell us a bit about your garage.',
+      assistEnquiry: 'Assist enquiry',
+      errEmailInUse: 'That email already has a ReceptionMate account — sign in instead.',
+      errSignup: "Couldn't create your account — please try again in a moment.",
+      errLead: "Couldn't send that — please try again in a moment.",
+    },
+  },
+  fr: {
+    metaTitle: 'Commencer — ReceptionMate',
+    metaDesc: 'Configurez votre réceptionniste IA ReceptionMate en quelques étapes rapides.',
+    homeAria: 'Accueil ReceptionMate',
+    alreadyCustomer: 'Déjà client ? Se connecter',
+    back: 'Retour',
+    stepLabelInit: 'Étape 1 sur 3',
+
+    // Step: business
+    businessH1: 'Comment s’appelle votre garage ?',
+    businessSub: 'Commencez à saisir et choisissez dans la liste — nous récupérerons vos informations depuis Google.',
+    searchPlaceholder: 'par ex. Acme Auto Centre',
+    cantFind: 'Vous ne trouvez pas votre garage ?',
+    manualNameLabel: 'Nom de l’entreprise',
+    manualNamePlaceholder: 'Acme Auto Centre',
+    manualAddrLabel: 'Ville',
+    manualAddrPlaceholder: 'Telford',
+    continue: 'Continuer',
+
+    // Step: package
+    settingUp: 'Configuration de',
+    yourGarage: 'votre garage',
+    packageH1: 'Quelle option vous convient le mieux ?',
+    packageSub: 'La plupart des garages commencent avec Assist et évoluent plus tard — mais c’est vous qui décidez.',
+    instantSignup: 'Inscription instantanée',
+    assistDesc: 'Répond à chaque appel et enregistre les réservations selon le délai que vous définissez — les réservations arrivent dans votre boîte de réception du portail, pas dans votre agenda.',
+    assistF1: 'Opérationnel en quelques minutes — aucune intégration nécessaire',
+    assistF2: 'Prend les réservations selon le délai que vous définissez',
+    assistF3: 'Facturation mensuelle simple',
+    mostPopular: 'Le plus populaire',
+    automateDesc: 'Enregistre l’intervention dans votre agenda pendant l’appel — sans rappel.',
+    automateF1: 'Se connecte à Garage Hive, Tyresoft et plus encore',
+    automateF2: 'Devis à partir de votre catalogue de services',
+    automateF3: 'Confirmations et rappels par SMS',
+    connectDesc: 'Widget de chat IA pour votre site web — réserve auprès des visiteurs.',
+    connectF1: 'Installation en une ligne sur n’importe quel site web',
+    connectF2: 'Réserve les contrôles techniques et entretiens 24h/24, 7j/7',
+    connectF3: 'Conversations dans votre boîte de réception du portail',
+    bespoke: 'Sur mesure',
+    multibranchTitle: 'Multi-agences ou sur mesure',
+    multibranchDesc: 'Vous gérez plusieurs sites ou avez besoin d’une solution sur mesure ? Nous la définissons avec vous.',
+    multibranchF1: 'Portail central, boîtes de réception distinctes par agence',
+    multibranchF2: 'Intégrations et flux de travail personnalisés',
+    multibranchF3: 'Accompagnement dédié et tarifs dégressifs',
+
+    // Step: gms
+    youPicked: 'Vous avez choisi',
+    gmsH1: 'Quel système de réservation utilisez-vous ?',
+    gmsSub: 'Cela nous indique si nous pouvons nous connecter directement — ou si nous recommanderions un autre point de départ.',
+    supported: 'Pris en charge',
+    canIntegrateNow: 'Nous pouvons l’intégrer dès maintenant.',
+    somethingElse: 'Autre chose / je ne sais pas',
+    somethingElseDesc: 'Nous vous suggérerons la meilleure façon de commencer dès aujourd’hui.',
+
+    // Step: recommend
+    recommendH1: 'Commencez avec Assist pendant que nous construisons l’intégration.',
+    recommendSub: 'Assist répond à chaque appel dès le premier jour. Dès que votre système est pris en charge, nous vous basculons vers Automate.',
+    gmsNameLabel: 'Quel système utilisez-vous aujourd’hui ?',
+    gmsNamePlaceholder: 'par ex. ProtechMS, MAM Autowork, agenda papier…',
+    recommendNote: 'Vous pourrez activer les réservations et définir un délai dans le portail une fois votre compte actif.',
+
+    // Step: account-assist
+    assistAccountH1: 'Une dernière chose — vos coordonnées.',
+    assistAccountSub: 'Nous vous enverrons vos identifiants par e-mail et vous pourrez passer en ligne dans le portail.',
+    creatingFor: 'Création d’un compte pour',
+    assistTierBadge: 'Assist · £200/mois',
+    whatsIncluded: 'Ce qui est inclus',
+    incl1: 'Réceptionniste IA répondant 24h/24, 7j/7 — aucun appel manqué',
+    incl2: 'Prend les réservations selon un délai que vous contrôlez',
+    incl3: 'Détails des interventions et transcriptions dans votre boîte de réception du portail',
+    incl4: 'Confirmations par SMS envoyées au client',
+    incl5: '400 minutes incluses, puis £0,25 par minute',
+    incl6: 'Facturation mensuelle simple',
+    yourName: 'Votre nom',
+    namePlaceholder: 'Jean Dupont',
+    emailLabel: 'Adresse e-mail',
+    emailPlaceholder: 'vous@votregarage.fr',
+    createAccount: 'Créer mon compte',
+    creatingAccount: 'Création de votre compte…',
+    termsIntro: 'En créant un compte, vous acceptez nos',
+    termsWord: 'Conditions',
+    andWord: 'et notre',
+    privacyWord: 'Politique de confidentialité',
+    orWord: 'ou',
+    enquireInstead: 'Vous préférez en discuter d’abord ? Envoyez-nous plutôt une demande →',
+
+    // Step: account-lead
+    leadHeadline: 'Définissons l’intégration.',
+    leadSub: 'Laissez-nous vos coordonnées et un membre de l’équipe vous recontactera sous un jour ouvré.',
+    forWord: 'Pour',
+    phoneLabel: 'Numéro de téléphone',
+    phonePlaceholder: '06 12 34 56 78',
+    sendIt: 'Envoyer',
+    sending: 'Envoi…',
+
+    // Step: success-lead
+    successH2: 'Merci — nous avons bien reçu vos coordonnées.',
+    successBody: 'Un membre de l’équipe vous recontactera sous un jour ouvré.',
+    backHome: 'Retour à l’accueil',
+
+    // Step: redirecting
+    accountReady: 'Compte prêt.',
+    redirectingBody: 'Nous vous dirigeons vers votre contrat de service — signez-le dans votre navigateur et nous vous enverrons vos identifiants du portail par e-mail.',
+
+    // Script-internal (passed via define:vars)
+    js: {
+      step1of3: 'Étape 1 sur 3',
+      step2of3: 'Étape 2 sur 3',
+      step3of4: 'Étape 3 sur 4',
+      step4of5: 'Étape 4 sur 5',
+      finalStep: 'Dernière étape',
+      done: 'Terminé',
+      tierAssist: 'Assist',
+      tierAutomate: 'Automate',
+      tierConnect: 'Connect',
+      tierMultibranch: 'Multi-agences',
+      gmsGaragehive: 'Garage Hive',
+      gmsTyresoft: 'Tyresoft',
+      gmsOther: 'Autre système',
+      headlineBranches: 'Configurons vos agences.',
+      headlineScope: 'Définissons l’intégration.',
+      headlineTellUs: 'Parlez-nous un peu de votre garage.',
+      assistEnquiry: 'Demande Assist',
+      errEmailInUse: 'Cette adresse e-mail est déjà associée à un compte ReceptionMate — connectez-vous plutôt.',
+      errSignup: "Impossible de créer votre compte — veuillez réessayer dans un instant.",
+      errLead: "Impossible d'envoyer — veuillez réessayer dans un instant.",
+    },
+  },
+}[lang];
+---
+
+<BaseLayout title={c.metaTitle} description={c.metaDesc}>
+  <Fragment slot="nav">
+    <header class="border-b border-ink-200/60 bg-white/90 backdrop-blur">
+      <div class="mx-auto flex max-w-3xl items-center justify-between px-4 py-4 sm:px-6">
+        <a href={L('/', lang)} class="flex items-center" aria-label={c.homeAria}>
+          <span class="inline-flex h-28 items-center justify-center rounded-2xl bg-brand-600 px-7 py-4">
+            <img src={LOGO_URL} alt="ReceptionMate" class="h-20 w-auto" />
+          </span>
+        </a>
+        <a href="https://portal.receptionmate.co.uk/login" class="text-sm font-medium text-ink-500 hover:text-ink-900">{c.alreadyCustomer}</a>
+      </div>
+    </header>
+  </Fragment>
+
+  <div class="relative min-h-screen overflow-hidden bg-ink-50/40">
+    <!-- Subtle brand glow accents -->
+    <div class="pointer-events-none absolute inset-x-0 -top-32 -z-0 h-72 bg-gradient-to-b from-brand-100/40 via-brand-50/20 to-transparent"></div>
+    <div class="pointer-events-none absolute -left-32 top-40 -z-0 h-72 w-72 rounded-full bg-brand-200/30 blur-3xl"></div>
+    <div class="pointer-events-none absolute -right-32 top-96 -z-0 h-72 w-72 rounded-full bg-emerald-200/20 blur-3xl"></div>
+
+    <div class="relative z-10 mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
+
+      <!-- Step indicator: dot trail + back button -->
+      <div class="mb-8 flex items-center justify-between gap-3">
+        <button id="gs-back-top" type="button" class="invisible inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-700 shadow-sm hover:bg-ink-50">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          {c.back}
+        </button>
+        <div class="flex items-center gap-1.5" id="gs-step-dots" data-current="1" data-total="3">
+          <span class="gs-dot" data-i="1"></span>
+          <span class="gs-dot" data-i="2"></span>
+          <span class="gs-dot" data-i="3"></span>
+        </div>
+      </div>
+      <p id="gs-step-label" class="sr-only">{c.stepLabelInit}</p>
+
+      <!-- ===== STEP: BUSINESS ===== -->
+      <section id="step-business" class="gs-step">
+        <h1 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          {c.businessH1}
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          {c.businessSub}
+        </p>
+
+        <div class="mt-8">
+          <div class="gs-input-wrap">
+            <svg class="gs-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" id="gs-search" autocomplete="off" placeholder={c.searchPlaceholder} class="gs-input gs-input-lg" />
+          </div>
+          <ul id="gs-search-results" class="mt-3 hidden max-h-72 overflow-y-auto rounded-2xl border border-ink-200 bg-white shadow-sm"></ul>
+
+          <button type="button" id="gs-manual-toggle" class="mt-4 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+            {c.cantFind}
+          </button>
+
+          <div id="gs-manual" class="mt-4 hidden space-y-3 rounded-2xl border border-ink-200 bg-white p-5">
+            <div>
+              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-manual-name">{c.manualNameLabel}</label>
+              <input type="text" id="gs-manual-name" class="gs-input gs-input-plain" placeholder={c.manualNamePlaceholder} />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-manual-addr">{c.manualAddrLabel}</label>
+              <input type="text" id="gs-manual-addr" class="gs-input gs-input-plain" placeholder={c.manualAddrPlaceholder} />
+            </div>
+            <button type="button" id="gs-manual-confirm" class="gs-primary-btn w-full">{c.continue}</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== STEP: PACKAGE ===== -->
+      <section id="step-package" class="gs-step hidden">
+        <p class="text-sm text-ink-500">{c.settingUp} <span id="gs-business-readback" class="font-semibold text-ink-900">{c.yourGarage}</span></p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          {c.packageH1}
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          {c.packageSub}
+        </p>
+
+        <div class="mt-8 space-y-3">
+          <!-- Assist -->
+          <button type="button" class="gs-choice gs-choice-rich gs-choice-instant" data-tier="assist">
+            <span class="gs-choice-badge gs-choice-badge-instant">{c.instantSignup}</span>
+            <div class="flex items-start gap-4">
+              <span class="gs-choice-icon bg-emerald-100 text-emerald-700">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.33 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <span class="text-base font-semibold text-ink-900">Assist</span>
+                  <span class="text-sm font-medium text-ink-700">£200<span class="text-ink-400">/mo</span></span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">{c.assistDesc}</p>
+                <ul class="mt-3 space-y-1.5 text-xs text-ink-600">
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.assistF1}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.assistF2}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.assistF3}</li>
+                </ul>
+              </div>
+            </div>
+          </button>
+
+          <!-- Automate (recommended) -->
+          <button type="button" class="gs-choice gs-choice-rich gs-choice-recommended" data-tier="automate">
+            <span class="gs-choice-badge">{c.mostPopular}</span>
+            <div class="flex items-start gap-4">
+              <span class="gs-choice-icon bg-brand-100 text-brand-600">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <span class="text-base font-semibold text-ink-900">Automate</span>
+                  <span class="text-sm font-medium text-ink-700">POA</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">{c.automateDesc}</p>
+                <ul class="mt-3 space-y-1.5 text-xs text-ink-600">
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.automateF1}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.automateF2}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.automateF3}</li>
+                </ul>
+              </div>
+            </div>
+          </button>
+
+          <!-- Connect -->
+          <button type="button" class="gs-choice gs-choice-rich" data-tier="connect">
+            <div class="flex items-start gap-4">
+              <span class="gs-choice-icon bg-sky-100 text-sky-700">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <span class="text-base font-semibold text-ink-900">Connect</span>
+                  <span class="text-sm font-medium text-ink-700">POA</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">{c.connectDesc}</p>
+                <ul class="mt-3 space-y-1.5 text-xs text-ink-600">
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.connectF1}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.connectF2}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.connectF3}</li>
+                </ul>
+              </div>
+            </div>
+          </button>
+
+          <!-- Multi-branch / custom -->
+          <button type="button" class="gs-choice gs-choice-rich gs-choice-multibranch" data-tier="multibranch">
+            <span class="gs-choice-badge gs-choice-badge-multibranch">{c.bespoke}</span>
+            <div class="flex items-start gap-4">
+              <span class="gs-choice-icon bg-violet-100 text-violet-700">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="6" height="14" rx="1"/><rect x="15" y="3" width="6" height="18" rx="1"/><path d="M9 11h6M9 15h6"/></svg>
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <span class="text-base font-semibold text-ink-900">{c.multibranchTitle}</span>
+                  <span class="text-sm font-medium text-ink-700">POA</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">{c.multibranchDesc}</p>
+                <ul class="mt-3 space-y-1.5 text-xs text-ink-600">
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.multibranchF1}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.multibranchF2}</li>
+                  <li class="flex items-center gap-2"><svg class="h-3 w-3 shrink-0 text-violet-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.multibranchF3}</li>
+                </ul>
+              </div>
+            </div>
+          </button>
+        </div>
+
+      </section>
+
+      <!-- ===== STEP: GMS ===== -->
+      <section id="step-gms" class="gs-step hidden">
+        <p class="text-sm text-ink-500">{c.youPicked} <span id="gs-tier-readback" class="font-semibold text-ink-900">Automate</span></p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          {c.gmsH1}
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          {c.gmsSub}
+        </p>
+
+        <div class="mt-8 space-y-3">
+          <button type="button" class="gs-choice gs-choice-rich" data-gms="garagehive">
+            <div class="flex items-center gap-4">
+              <span class="gs-choice-icon bg-emerald-100 text-emerald-700">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><polyline points="2 8.5 12 15 22 8.5"/><line x1="12" y1="22" x2="12" y2="15"/></svg>
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-base font-semibold text-ink-900">Garage Hive</span>
+                  <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{c.supported}</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">{c.canIntegrateNow}</p>
+              </div>
+            </div>
+          </button>
+
+          <button type="button" class="gs-choice gs-choice-rich" data-gms="tyresoft">
+            <div class="flex items-center gap-4">
+              <span class="gs-choice-icon bg-amber-100 text-amber-700">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-base font-semibold text-ink-900">Tyresoft</span>
+                  <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{c.supported}</span>
+                </div>
+                <p class="mt-1 text-sm text-ink-600">{c.canIntegrateNow}</p>
+              </div>
+            </div>
+          </button>
+
+          <button type="button" class="gs-choice gs-choice-rich" data-gms="other">
+            <div class="flex items-center gap-4">
+              <span class="gs-choice-icon bg-ink-100 text-ink-600">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
+              </span>
+              <div class="min-w-0 flex-1">
+                <span class="text-base font-semibold text-ink-900">{c.somethingElse}</span>
+                <p class="mt-1 text-sm text-ink-600">{c.somethingElseDesc}</p>
+              </div>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <!-- ===== STEP: RECOMMEND ASSIST ===== -->
+      <section id="step-recommend" class="gs-step hidden">
+        <h1 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          {c.recommendH1}
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          {c.recommendSub}
+        </p>
+
+        <div class="mt-8 space-y-5">
+          <div>
+            <label for="gs-gms-name" class="mb-1.5 block text-sm font-medium text-ink-800">{c.gmsNameLabel}</label>
+            <input type="text" id="gs-gms-name" class="gs-input gs-input-plain" placeholder={c.gmsNamePlaceholder} />
+          </div>
+
+          <p class="text-xs text-ink-500">{c.recommendNote}</p>
+
+          <button type="button" id="gs-recommend-continue" class="gs-primary-btn w-full">
+            {c.continue}
+          </button>
+        </div>
+      </section>
+
+      <!-- ===== STEP: ASSIST ACCOUNT ===== -->
+      <section id="step-account-assist" class="gs-step hidden">
+        <h1 class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          {c.assistAccountH1}
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          {c.assistAccountSub}
+        </p>
+
+        <div class="mt-6 rounded-2xl bg-white p-5 ring-1 ring-ink-200">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-xs font-medium text-ink-500">{c.creatingFor}</p>
+              <p class="mt-0.5 text-sm font-semibold text-ink-900" id="gs-account-business">—</p>
+            </div>
+            <span class="shrink-0 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">{c.assistTierBadge}</span>
+          </div>
+          <hr class="my-4 border-ink-100"/>
+          <p class="text-xs font-semibold uppercase tracking-wider text-ink-500">{c.whatsIncluded}</p>
+          <ul class="mt-2.5 space-y-2 text-sm text-ink-700">
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl1}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl2}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl3}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl4}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl5}</li>
+            <li class="flex items-start gap-2.5"><svg class="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>{c.incl6}</li>
+          </ul>
+        </div>
+
+        <form id="gs-form-assist" class="mt-6 space-y-4">
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-assist-name">{c.yourName}</label>
+            <input type="text" id="gs-assist-name" name="name" required minlength="2" autocomplete="name" placeholder={c.namePlaceholder} class="gs-input gs-input-plain" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-assist-email">{c.emailLabel}</label>
+            <input type="email" id="gs-assist-email" name="email" required autocomplete="email" placeholder={c.emailPlaceholder} class="gs-input gs-input-plain" />
+          </div>
+
+          <div id="gs-assist-error" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200"></div>
+
+          <button type="submit" class="gs-primary-btn w-full">
+            <span data-state="idle">{c.createAccount}</span>
+            <span data-state="loading" style="display:none" class="items-center gap-2">
+              <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-30"/>
+                <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              </svg>
+              {c.creatingAccount}
+            </span>
+          </button>
+
+          <p class="text-center text-xs text-ink-500">
+            {c.termsIntro} <a href={L('/terms', lang)} class="underline">{c.termsWord}</a> {c.andWord} <a href={L('/privacy', lang)} class="underline">{c.privacyWord}</a>.
+          </p>
+        </form>
+
+        <div class="my-6 flex items-center gap-3 text-xs text-ink-400">
+          <span class="h-px flex-1 bg-ink-200"></span>
+          <span>{c.orWord}</span>
+          <span class="h-px flex-1 bg-ink-200"></span>
+        </div>
+
+        <button type="button" id="gs-enquire-instead" class="block w-full rounded-2xl border border-ink-200 bg-white px-5 py-3.5 text-sm font-medium text-ink-700 hover:border-brand-300 hover:bg-brand-50/40 hover:text-brand-700 transition">
+          {c.enquireInstead}
+        </button>
+      </section>
+
+      <!-- ===== STEP: LEAD ACCOUNT (GH/TS + Multi-branch) ===== -->
+      <section id="step-account-lead" class="gs-step hidden">
+        <h1 id="gs-lead-headline" class="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          {c.leadHeadline}
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          {c.leadSub}
+        </p>
+
+        <div class="mt-6 rounded-2xl bg-white p-4 ring-1 ring-ink-200">
+          <p class="text-xs font-medium text-ink-500">{c.forWord}</p>
+          <p class="mt-0.5 text-sm font-semibold text-ink-900" id="gs-lead-business">—</p>
+          <p class="mt-0.5 text-xs text-brand-700"><span id="gs-lead-tier">Automate</span><span id="gs-lead-gms-wrap"> · <span id="gs-lead-gms">Garage Hive</span></span></p>
+        </div>
+
+        <form id="gs-form-lead" class="mt-6 space-y-4">
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-name">{c.yourName}</label>
+            <input type="text" id="gs-lead-name" name="name" required minlength="2" autocomplete="name" placeholder={c.namePlaceholder} class="gs-input gs-input-plain" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-email">{c.emailLabel}</label>
+            <input type="email" id="gs-lead-email" name="email" required autocomplete="email" placeholder={c.emailPlaceholder} class="gs-input gs-input-plain" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="gs-lead-phone">{c.phoneLabel}</label>
+            <input type="tel" id="gs-lead-phone" name="phone" required autocomplete="tel" placeholder={c.phonePlaceholder} class="gs-input gs-input-plain" />
+          </div>
+
+          <div id="gs-lead-error" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200"></div>
+
+          <button type="submit" class="gs-primary-btn w-full">
+            <span data-state="idle">{c.sendIt}</span>
+            <span data-state="loading" style="display:none" class="items-center gap-2">
+              <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-30"/>
+                <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              </svg>
+              {c.sending}
+            </span>
+          </button>
+        </form>
+      </section>
+
+      <!-- ===== STEP: SUCCESS (HL lead path) ===== -->
+      <section id="step-success-lead" class="gs-step hidden py-6 text-center">
+        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+          <svg class="h-6 w-6 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <h2 class="mt-5 text-2xl font-bold text-ink-900">{c.successH2}</h2>
+        <p class="mx-auto mt-2 max-w-md text-ink-600">
+          {c.successBody}
+        </p>
+        <a href={L('/', lang)} class="mt-6 inline-flex items-center justify-center rounded-xl border border-ink-300 bg-white px-5 py-2.5 text-sm font-medium text-ink-700 hover:bg-ink-50">
+          {c.backHome}
+        </a>
+      </section>
+
+      <!-- ===== STEP: REDIRECTING TO AGREEMENT (Assist success) ===== -->
+      <section id="step-redirecting" class="gs-step hidden py-6 text-center">
+        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-100">
+          <svg class="h-7 w-7 animate-spin text-brand-600" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-30"/>
+            <path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h2 class="mt-5 text-2xl font-bold text-ink-900">{c.accountReady}</h2>
+        <p class="mx-auto mt-2 max-w-md text-ink-600">
+          {c.redirectingBody}
+        </p>
+      </section>
+
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  /* Inputs */
+  .gs-input-wrap { position: relative; display: flex; align-items: center; }
+  .gs-input-icon { position: absolute; left: 1rem; height: 1.25rem; width: 1.25rem; color: #94a3b8; pointer-events: none; transition: color 0.15s ease; }
+  .gs-input { width: 100%; border-radius: 0.875rem; border: 1px solid #cbd5e1; background: #fff; padding: 0.875rem 1rem; font-size: 1rem; color: #0f172a; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+  .gs-input::placeholder { color: #94a3b8; }
+  .gs-input:hover { border-color: #94a3b8; }
+  .gs-input:focus { outline: none; border-color: #3426cf; box-shadow: 0 0 0 4px rgba(52, 38, 207, 0.12); }
+  .gs-input-wrap:focus-within .gs-input-icon { color: #3426cf; }
+  .gs-input-wrap .gs-input { padding-left: 2.75rem; }
+  .gs-input-lg { padding: 1.125rem 1.125rem 1.125rem 2.75rem; font-size: 1.0625rem; border-radius: 1rem; }
+
+  /* Big choice cards (single-column) */
+  .gs-choice { display: block; width: 100%; text-align: left; cursor: pointer; border-radius: 1rem; border: 1.5px solid #e2e8f0; background: #fff; padding: 1.125rem 1.25rem; transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease; }
+  .gs-choice:hover { border-color: #3426cf; box-shadow: 0 8px 24px -16px rgba(52,38,207,0.4); transform: translateY(-1px); }
+  .gs-choice-rich { padding: 1.25rem 1.25rem 1.375rem; position: relative; }
+
+  /* Icon badge inside choice cards */
+  .gs-choice-icon { display: inline-flex; height: 2.5rem; width: 2.5rem; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 0.75rem; }
+
+  /* "Most popular" pill on the recommended tier */
+  .gs-choice-recommended { border-color: rgba(52, 38, 207, 0.35); box-shadow: 0 12px 32px -20px rgba(52,38,207,0.35); }
+  .gs-choice-recommended:hover { border-color: #3426cf; }
+  .gs-choice-badge { position: absolute; top: -0.625rem; right: 1.25rem; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 9999px; background: #3426cf; padding: 0.25rem 0.625rem; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; box-shadow: 0 6px 16px -6px rgba(52,38,207,0.5); }
+  .gs-choice-badge-instant { background: #047857; box-shadow: 0 6px 16px -6px rgba(4,120,87,0.5); }
+  .gs-choice-instant { border-color: rgba(4, 120, 87, 0.25); }
+  .gs-choice-instant:hover { border-color: #047857; box-shadow: 0 8px 24px -16px rgba(4,120,87,0.4); }
+  .gs-choice-badge-multibranch { background: #6d28d9; box-shadow: 0 6px 16px -6px rgba(109,40,217,0.5); }
+  .gs-choice-multibranch { border-color: rgba(109, 40, 217, 0.25); }
+  .gs-choice-multibranch:hover { border-color: #6d28d9; box-shadow: 0 8px 24px -16px rgba(109,40,217,0.4); }
+
+  /* Dot trail */
+  .gs-dot { display: inline-block; height: 0.375rem; width: 1.5rem; border-radius: 9999px; background: #e2e8f0; transition: all 0.25s ease; }
+  .gs-dot[data-state="active"] { background: #3426cf; width: 2.25rem; }
+  .gs-dot[data-state="done"]   { background: #3426cf; }
+
+  /* Small chips */
+  .gs-chip { display: inline-flex; align-items: center; justify-content: center; border-radius: 0.625rem; border: 1.5px solid #e2e8f0; background: #fff; padding: 0.625rem 0.75rem; font-size: 0.875rem; font-weight: 500; color: #475569; cursor: pointer; transition: all 0.15s ease; }
+  .gs-chip:hover { border-color: #cbd5e1; background: #f8fafc; }
+  .gs-chip[data-selected="true"] { border-color: #3426cf; background: rgba(52, 38, 207, 0.06); color: #3426cf; }
+
+  /* Primary button */
+  .gs-primary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 0.875rem; background: #3426cf; padding: 0.875rem 1.25rem; font-size: 0.9375rem; font-weight: 600; color: #fff; box-shadow: 0 8px 24px -10px rgba(52,38,207,0.6); transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease; }
+  .gs-primary-btn:hover:not(:disabled) { background: #2a1ea8; transform: translateY(-1px); }
+  .gs-primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+
+<script is:inline define:vars={{ LEAD_ENDPOINT, SIGNUP_ENDPOINT, PORTAL_LOGIN_URL, GOOGLE_API_KEY, T: c.js }}>
+  const state = {
+    businessName: '',
+    address: '',
+    tier: '',
+    gms: '',
+    gmsName: '',
+    leadTime: '',
+    history: [],
+  };
+
+  // For each step: { label, dot index, total dots }. Total grows as the user
+  // takes longer paths so the trail always reflects where they really are.
+  const STEP_META = {
+    'business':       { label: T.step1of3, dot: 1, total: 3 },
+    'package':        { label: T.step2of3, dot: 2, total: 3 },
+    'gms':            { label: T.step3of4, dot: 3, total: 4 },
+    'recommend':      { label: T.step4of5, dot: 4, total: 5 },
+    'account-assist': { label: T.finalStep, dot: 3, total: 3 }, // assist direct
+    'account-lead':   { label: T.finalStep, dot: 4, total: 4 }, // GH/TS path
+    'success-lead':   { label: T.done,     dot: 4, total: 4 },
+    'redirecting':    { label: '',         dot: 3, total: 3 },
+  };
+
+  function renderDots(dot, total) {
+    const wrap = document.getElementById('gs-step-dots');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    for (let i = 1; i <= total; i++) {
+      const span = document.createElement('span');
+      span.className = 'gs-dot';
+      if (i < dot)       span.dataset.state = 'done';
+      else if (i === dot) span.dataset.state = 'active';
+      wrap.appendChild(span);
+    }
+  }
+
+  const qs = new URLSearchParams(location.search);
+  const seedName = qs.get('name') || '';
+  const seedAddr = qs.get('address') || '';
+  const seedTier = qs.get('tier') || '';
+  if (seedName.length >= 2) { state.businessName = seedName; state.address = seedAddr; }
+  if (['assist','automate','connect'].includes(seedTier)) state.tier = seedTier;
+
+  function setStep(name, pushHistory) {
+    document.querySelectorAll('.gs-step').forEach((el) => el.classList.add('hidden'));
+    const target = document.getElementById('step-' + name);
+    if (!target) return;
+    target.classList.remove('hidden');
+
+    const meta = STEP_META[name] || { label: '', dot: 1, total: 3 };
+    document.getElementById('gs-step-label').textContent = meta.label;
+    renderDots(meta.dot, meta.total);
+
+    const backBtn = document.getElementById('gs-back-top');
+    const isTerminal = name === 'redirecting' || name === 'success-lead';
+    if (state.history.length > 0 && !isTerminal) backBtn.classList.remove('invisible');
+    else backBtn.classList.add('invisible');
+
+    if (pushHistory) state.history.push(name);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  document.getElementById('gs-back-top').addEventListener('click', () => {
+    state.history.pop();
+    const prev = state.history.pop() || 'business';
+    setStep(prev, true);
+  });
+
+  function startFlow() {
+    if (state.businessName && state.tier) {
+      updateBusinessReadback();
+      proceedFromPackage();
+    } else if (state.businessName) {
+      updateBusinessReadback();
+      setStep('package', true);
+    } else {
+      setStep('business', true);
+    }
+  }
+
+  // ====== Business lookup ======
+  let placesReady = false;
+  let placesMode = '';
+  let legacySvc = null;
+  let placesLoadPromise = null;
+
+  window.gm_authFailure = () => console.error('[get-started] Google Maps auth failed.');
+
+  function ensurePlaces() {
+    if (placesReady) return Promise.resolve();
+    if (!GOOGLE_API_KEY) return Promise.resolve();
+    if (placesLoadPromise) return placesLoadPromise;
+    placesLoadPromise = new Promise((resolve) => {
+      const setMode = () => {
+        const ns = window.google?.maps?.places;
+        if (ns?.AutocompleteSuggestion) { placesMode = 'new'; placesReady = true; }
+        else if (ns?.AutocompleteService) { placesMode = 'legacy'; legacySvc = new google.maps.places.AutocompleteService(); placesReady = true; }
+      };
+      if (window.google?.maps?.places) { setMode(); if (placesReady) return resolve(); }
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&libraries=places&v=weekly`;
+      s.async = true; s.defer = true;
+      s.onload  = () => { setMode(); resolve(); };
+      s.onerror = () => { console.error('[get-started] Failed to load Google Maps script'); resolve(); };
+      document.head.appendChild(s);
+    });
+    return placesLoadPromise;
+  }
+
+  const $search  = document.getElementById('gs-search');
+  const $results = document.getElementById('gs-search-results');
+
+  function pickBusiness(name, addr) {
+    state.businessName = name;
+    state.address = addr || '';
+    updateBusinessReadback();
+    $results.classList.add('hidden');
+    setStep('package', true);
+  }
+
+  function updateBusinessReadback() {
+    const label = state.address ? `${state.businessName} · ${state.address}` : state.businessName;
+    const el1 = document.getElementById('gs-business-readback');
+    const el2 = document.getElementById('gs-account-business');
+    const el3 = document.getElementById('gs-lead-business');
+    if (el1) el1.textContent = state.businessName;
+    if (el2) el2.textContent = label;
+    if (el3) el3.textContent = label;
+  }
+
+  function renderResults(items) {
+    $results.innerHTML = '';
+    if (!items.length) { $results.classList.add('hidden'); return; }
+    items.slice(0, 6).forEach(({ mainText, secondaryText }) => {
+      const li = document.createElement('li');
+      li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
+      li.innerHTML = `
+        <svg class="mt-0.5 h-4 w-4 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-semibold text-ink-900">${mainText}</p>
+          <p class="truncate text-xs text-ink-500">${secondaryText}</p>
+        </div>`;
+      li.addEventListener('click', () => pickBusiness(mainText, secondaryText));
+      $results.appendChild(li);
+    });
+    $results.classList.remove('hidden');
+  }
+
+  let searchDebounce;
+  $search.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    const q = $search.value.trim();
+    if (q.length < 2) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
+    searchDebounce = setTimeout(async () => {
+      await ensurePlaces();
+      if (!placesReady) return;
+      if (placesMode === 'new') {
+        try {
+          const { suggestions } = await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+            input: q, includedRegionCodes: ['gb'], language: 'en-GB', region: 'GB',
+          });
+          renderResults((suggestions || []).map((s) => ({
+            mainText:      s.placePrediction?.mainText?.toString()      || s.placePrediction?.text?.toString() || '',
+            secondaryText: s.placePrediction?.secondaryText?.toString() || '',
+          })));
+        } catch (err) { console.error('[get-started] autocomplete failed', err); }
+      } else if (legacySvc) {
+        legacySvc.getPlacePredictions(
+          { input: q, componentRestrictions: { country: 'gb' } },
+          (preds) => renderResults((preds || []).map((p) => ({
+            mainText:      p.structured_formatting?.main_text      || p.description || '',
+            secondaryText: p.structured_formatting?.secondary_text || '',
+          }))),
+        );
+      }
+    }, 200);
+  });
+
+  document.getElementById('gs-manual-toggle').addEventListener('click', () => {
+    document.getElementById('gs-manual').classList.toggle('hidden');
+  });
+  document.getElementById('gs-manual-confirm').addEventListener('click', () => {
+    const name = document.getElementById('gs-manual-name').value.trim();
+    const addr = document.getElementById('gs-manual-addr').value.trim();
+    if (name.length < 2) return;
+    pickBusiness(name, addr);
+  });
+
+  // ====== Package selection ======
+  document.querySelectorAll('#step-package [data-tier]').forEach((card) => {
+    card.addEventListener('click', () => {
+      state.tier = card.getAttribute('data-tier') || '';
+      proceedFromPackage();
+    });
+  });
+
+  const TIER_LABEL = {
+    assist:      T.tierAssist,
+    automate:    T.tierAutomate,
+    connect:     T.tierConnect,
+    multibranch: T.tierMultibranch,
+  };
+
+  function proceedFromPackage() {
+    const label = TIER_LABEL[state.tier] || '';
+    document.getElementById('gs-tier-readback').textContent = label;
+    document.getElementById('gs-lead-tier').textContent     = label;
+    // gs-account-tier is intentionally not set here — the Assist account
+    // form always shows "Assist" regardless of the user's original pick,
+    // since this form only ever creates Assist accounts.
+
+    if (state.tier === 'assist') {
+      setStep('account-assist', true);
+    } else if (state.tier === 'multibranch') {
+      // Multi-branch is always a sales conversation — skip the GMS gate and
+      // go straight to capturing contact details for the team to follow up.
+      state.gms = '';
+      document.getElementById('gs-lead-gms-wrap')?.classList.add('hidden');
+      document.getElementById('gs-lead-headline').textContent = T.headlineBranches;
+      setStep('account-lead', true);
+    } else {
+      document.getElementById('gs-lead-gms-wrap')?.classList.remove('hidden');
+      document.getElementById('gs-lead-headline').textContent = T.headlineScope;
+      setStep('gms', true);
+    }
+  }
+
+
+  // ====== GMS ======
+  const GMS_LABEL = { garagehive: T.gmsGaragehive, tyresoft: T.gmsTyresoft, other: T.gmsOther };
+  document.querySelectorAll('#step-gms [data-gms]').forEach((card) => {
+    card.addEventListener('click', () => {
+      state.gms = card.getAttribute('data-gms') || '';
+      if (state.gms === 'garagehive' || state.gms === 'tyresoft') {
+        document.getElementById('gs-lead-gms').textContent = GMS_LABEL[state.gms];
+        setStep('account-lead', true);
+      } else {
+        setStep('recommend', true);
+      }
+    });
+  });
+
+  // ====== Recommend ======
+  document.getElementById('gs-gms-name').addEventListener('input', (e) => {
+    state.gmsName = e.target.value.trim();
+  });
+  document.getElementById('gs-recommend-continue').addEventListener('click', () => {
+    setStep('account-assist', true);
+  });
+
+  // ====== "Enquire instead" escape hatch from Assist signup ======
+  document.getElementById('gs-enquire-instead').addEventListener('click', () => {
+    // Treat this as an Assist tier enquiry. We route to the lead form (which
+    // pushes the contact into HighLevel) instead of creating an account.
+    document.getElementById('gs-lead-tier').textContent = T.assistEnquiry;
+    document.getElementById('gs-lead-gms-wrap')?.classList.add('hidden');
+    document.getElementById('gs-lead-headline').textContent = T.headlineTellUs;
+    state.gms = '';
+    setStep('account-lead', true);
+  });
+
+  // ====== Assist signup ======
+  document.getElementById('gs-form-assist').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const err  = document.getElementById('gs-assist-error');
+    err.classList.add('hidden');
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const idleEls = form.querySelectorAll('[data-state="idle"]');
+    const loadEl  = form.querySelector('[data-state="loading"]');
+    submitBtn.disabled = true; idleEls.forEach((el) => el.classList.add('hidden')); loadEl.style.display = 'inline-flex';
+
+    const name  = form.querySelector('[name=name]').value.trim();
+    const email = form.querySelector('[name=email]').value.trim();
+
+    try {
+      const res = await fetch(SIGNUP_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessName: state.businessName,
+          email,
+          address: state.address,
+          name,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 201 && data.success) {
+        if (state.tier !== 'assist') fireIntegrationLead({ name, email });
+        setStep('redirecting', false);
+        // Redirect the user to the in-browser agreement sign page. The token
+        // is single-use and lives 14 days — the backup email above sends the
+        // same URL in case they bail.
+        const target = data.signUrl || PORTAL_LOGIN_URL;
+        setTimeout(() => { window.location.href = target; }, 900);
+        return;
+      }
+      if (res.status === 409) {
+        err.textContent = T.errEmailInUse;
+        err.classList.remove('hidden');
+        throw new Error('email_in_use');
+      }
+      throw new Error('signup_failed');
+    } catch (e2) {
+      if (!err.textContent) err.textContent = T.errSignup;
+      err.classList.remove('hidden');
+      submitBtn.disabled = false; idleEls.forEach((el) => el.classList.remove('hidden')); loadEl.style.display = 'none';
+    }
+  });
+
+  // Background HighLevel lead for Automate/Connect → Other-GMS → Assist signups.
+  function fireIntegrationLead({ name, email }) {
+    const tierLabel = state.tier === 'automate' ? 'Automate' : 'Connect';
+    fetch(LEAD_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name, companyName: state.businessName, email,
+        phone: '0000000000',
+        source: `website-getstarted-${state.tier}-integration-pending`,
+        notes: `Tier interest: ${tierLabel}. GMS: ${state.gmsName || 'unspecified'}.`,
+      }),
+    }).catch(() => {});
+  }
+
+  // ====== HighLevel lead form (GH/TS) ======
+  document.getElementById('gs-form-lead').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const err  = document.getElementById('gs-lead-error');
+    err.classList.add('hidden');
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const idleEls = form.querySelectorAll('[data-state="idle"]');
+    const loadEl  = form.querySelector('[data-state="loading"]');
+    submitBtn.disabled = true; idleEls.forEach((el) => el.classList.add('hidden')); loadEl.style.display = 'inline-flex';
+
+    try {
+      const tierLabel = state.tier === 'automate' ? 'Automate' : 'Connect';
+      const res = await fetch(LEAD_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:        form.querySelector('[name=name]').value.trim(),
+          companyName: state.businessName,
+          email:       form.querySelector('[name=email]').value.trim(),
+          phone:       form.querySelector('[name=phone]').value.trim(),
+          source:      `website-getstarted-${state.tier}-${state.gms}`,
+          notes:       `Tier: ${tierLabel}. GMS: ${GMS_LABEL[state.gms] || state.gms}. Address: ${state.address || 'n/a'}.`,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) { setStep('success-lead', false); return; }
+      throw new Error('lead_failed');
+    } catch (e2) {
+      err.textContent = T.errLead;
+      err.classList.remove('hidden');
+      submitBtn.disabled = false; idleEls.forEach((el) => el.classList.remove('hidden')); loadEl.style.display = 'none';
+    }
+  });
+
+  startFlow();
+</script>

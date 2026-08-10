@@ -2,6 +2,8 @@ import type { Call, CallFeedback, Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { randomInt } from 'node:crypto';
 import { Router } from 'express';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
@@ -13,9 +15,13 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { sendNegativeFeedbackEmail, sendCallSummaryEmail } from '../utils/email.js';
+import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail, sendArrearsCallNoticeEmail } from '../utils/email.js';
+import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
+import { notifyGarageUsers, garageUnreadBadge } from '../utils/push.js';
 import { trackConfirmedBooking } from '../services/billing.js';
 import { logCallToHubSpot } from '../services/hubspot.js';
+import { analyzeCall, analyzeDeep } from '../services/callDiagnosis.js';
+import { cloneHubspotSettings } from '../utils/types.js';
 
 const router = Router();
 
@@ -47,6 +53,75 @@ const csvEscape = (value: string | number | null | undefined) => {
     return `"${raw.replace(/"/g, '""')}"`;
   }
   return raw;
+};
+
+// Express's `qs` query parser turns MORE THAN 20 repeated params (garageIds=a&garageIds=b&…) into an
+// OBJECT keyed by index ({"0":"a","1":"b",…}) instead of an array. With 20+ branches the all-branches
+// filter hit this: Array.isArray() was false, the object got wrapped as a single non-string element,
+// and every id was dropped (403 "No valid garage IDs"). Normalise array | index-object | single -> string[].
+const normalizeGarageIds = (garageIds: unknown): string[] => {
+  if (Array.isArray(garageIds)) {
+    return garageIds.filter((v): v is string => typeof v === 'string');
+  }
+  if (garageIds && typeof garageIds === 'object') {
+    return Object.values(garageIds as Record<string, unknown>).filter((v): v is string => typeof v === 'string');
+  }
+  return typeof garageIds === 'string' ? [garageIds] : [];
+};
+
+// Backend safety net for the agent-side categoriser bug: when the agent tags
+// a call as "message_only" / "other" / "unknown" / "general enquiry" while the
+// agent's own bookingDetails string describes a real confirmed booking
+// (e.g. "MOT booked for Monday 29th June at 08:00 AM"), this helper rescues
+// the row. Looks for both a confirmation verb and a clock time.
+type BookingCategory = 'service' | 'mot' | 'diagnostic' | 'other';
+
+// Heuristics for rescuing mistagged bookings.
+// Positive signals: a confirmation verb ("booked"/"scheduled"/etc.) and a clock time.
+// Negative signals: phrases that mean the call was about a PRE-EXISTING booking
+// (modify/cancel/enquire) or was only intent, not confirmation. Without the
+// negative pass, an enquiry like "wants to cancel MOT booked at 5pm" or
+// "his already-booked MOT" would be wrongly upgraded to "confirmed booking".
+const POSITIVE_RE = /\b(booked|scheduled|confirmed|reserved)\b/i;
+const TIME_RE = /\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)\b|\b\d{1,2}:\d{2}\b/i;
+const NEGATIVE_RE = new RegExp(
+  [
+    'already[\\s-]+booked',
+    'already[\\s-]+scheduled',
+    'has (?:an? )?(?:mot|service|booking)[\\s\\w]{0,20}booked',
+    'pre[\\s-]?existing booking',
+    'wants? to cancel',
+    'cancell?(?:ing|ation)',
+    'wants? to (?:know|reschedule|change|move)',
+    'asking (?:if|about|whether)',
+    'inquired? about',
+    'enquired? about',
+    'wants? to book(?!ed)',
+    'next available (?:weekday|day|slot)',
+  ].join('|'),
+  'i',
+);
+
+const detectBookingFromDetails = (
+  bookingDetails?: string | null,
+): { isBooking: boolean; category: BookingCategory | undefined } => {
+  if (!bookingDetails) return { isBooking: false, category: undefined };
+  const text = String(bookingDetails);
+  if (!POSITIVE_RE.test(text) || !TIME_RE.test(text)) return { isBooking: false, category: undefined };
+  if (NEGATIVE_RE.test(text)) return { isBooking: false, category: undefined };
+
+  // Infer category from the text. When MOT + service both appear, service wins
+  // (the bigger ticket job) — mirrors how the agent categorises clean cases.
+  const lower = text.toLowerCase();
+  let category: BookingCategory | undefined;
+  if (/\b(full service|interim service|major service|annual service|service)\b/.test(lower)) {
+    category = 'service';
+  } else if (/\bmot\b/.test(lower)) {
+    category = 'mot';
+  } else if (/\bdiagnos/.test(lower)) {
+    category = 'diagnostic';
+  }
+  return { isBooking: true, category };
 };
 
 const extractBookingDate = (bookingDetails?: string | null) => {
@@ -116,6 +191,30 @@ const parseCallJson = (call: Call & { feedback?: CallFeedback | null }): CallWit
     feedback: serializeCallFeedback(feedback ?? null),
   };
 };
+
+// Arrears gating: strip every content field from a parsed call so a restricted garage's own
+// users see ONLY when the call happened and its tag. Everything that identifies the caller or
+// reveals what was said/booked is nulled server-side (including roomName, which embeds the
+// caller's number, and metrics, which can carry the AI diagnosis). Internal staff never hit this.
+const redactRestrictedCall = (call: ReturnType<typeof parseCallJson>) => ({
+  ...call,
+  roomName: '',
+  recordingUrl: null,
+  recordingDurationSeconds: null,
+  recordingCompletedAt: null,
+  twilioCallSid: null,
+  fromNumber: null,
+  registrationNumber: null,
+  customerName: null,
+  customerPhone: null,
+  capturedRevenue: null,
+  bookingDetails: null,
+  summary: '',
+  transcript: [],
+  metrics: {},
+  emotionData: null,
+  restricted: true,
+});
 
 const ensureWebhookSecret = (req: Request) => {
   const configuredSecret = process.env.WEBHOOK_SECRET;
@@ -194,12 +293,36 @@ router.post('/calls', async (req: Request, res: Response) => {
     });
 
     // Determine call type:
-    // If confirmedBooking is true, always classify as "confirmed booking"
-    // Otherwise use the AI classification from the agent
+    // If confirmedBooking is true, always classify as "confirmed booking".
+    // Then a secondary safety net rescues calls the agent mis-tagged as
+    // "message_only" / "other" / "unknown" / "general enquiry" when its own
+    // bookingDetails clearly describes a confirmed booking. The agent has a
+    // long-standing bug where the Step.MESSAGE_ONLY override (and a string
+    // mismatch between "new_booking" and "booking" in the intent check)
+    // suppresses the booking tag even when the booking went through.
     let callType = payload.callType || 'unknown';
-    if (payload.confirmedBooking === true) {
+    let confirmedBooking = payload.confirmedBooking ?? false;
+    let confirmedBookingCategory = payload.confirmedBookingCategory;
+
+    if (confirmedBooking) {
       callType = 'confirmed booking';
       console.log(`[CALL] Overriding callType to "confirmed booking" based on confirmedBooking=true`);
+    } else {
+      const MISTAG_CANDIDATES = new Set([
+        'message_only', 'other', 'unknown', 'general enquiry', 'general_enquiry',
+      ]);
+      if (MISTAG_CANDIDATES.has(callType.toLowerCase())) {
+        const detected = detectBookingFromDetails(payload.bookingDetails);
+        if (detected.isBooking) {
+          console.log(
+            `[CALL] Reclassifying mistagged call: callType "${callType}" → "confirmed booking" ` +
+            `(bookingDetails: "${String(payload.bookingDetails).slice(0, 140)}")`,
+          );
+          callType = 'confirmed booking';
+          confirmedBooking = true;
+          if (!confirmedBookingCategory) confirmedBookingCategory = detected.category;
+        }
+      }
     }
 
     const callId = await generateUniqueCallId();
@@ -219,8 +342,8 @@ router.post('/calls', async (req: Request, res: Response) => {
         registrationNumber: payload.registrationNumber,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
-        confirmedBooking: payload.confirmedBooking ?? false,
-        confirmedBookingCategory: payload.confirmedBookingCategory,
+        confirmedBooking,
+        confirmedBookingCategory,
         capturedRevenue: payload.capturedRevenue ?? null,
         bookingDetails: payload.bookingDetails,
         metrics: payload.metrics,
@@ -234,7 +357,10 @@ router.post('/calls', async (req: Request, res: Response) => {
             agentConfiguration: {
               select: {
                 branchName: true,
+                agentName: true,
+                voice: true,
                 notificationEmails: true,
+                integrationProviderConfig: true,
               },
             },
           },
@@ -242,8 +368,55 @@ router.post('/calls', async (req: Request, res: Response) => {
       },
     });
 
-    // Track confirmed booking for subscription activation
-    if (payload.confirmedBooking) {
+    // Stage 2 — automatic AI call diagnosis (gpt-4o-mini). Fire-and-forget so it never
+    // delays the agent's webhook response; the verdict is merged into the call's metrics
+    // JSON (metrics.diagnosis) for the portal to display. Runs on every call (cheap triage).
+    void (async () => {
+      try {
+        const diag = await analyzeCall({
+          transcript: payload.transcript,
+          metrics: payload.metrics,
+          summary: payload.summary,
+          callType,
+          confirmedBooking,
+        });
+        if (diag) {
+          // Two-tier: when triage flags an issue, auto-escalate to the deep-dive (root cause + fix)
+          // which reads the richer trace (GH bodies, tool inputs) with a stronger model.
+          if (diag.status === 'issue') {
+            const deep = await analyzeDeep({
+              transcript: payload.transcript,
+              metrics: payload.metrics,
+              summary: payload.summary,
+              callType,
+              confirmedBooking,
+              triage: { headline: diag.headline, detail: diag.detail },
+            });
+            if (deep) {
+              diag.rootCause = deep.rootCause;
+              diag.fix = deep.fix;
+              diag.severity = deep.severity;
+              diag.deepModel = deep.model;
+            }
+          }
+          const base =
+            payload.metrics && typeof payload.metrics === 'object' && !Array.isArray(payload.metrics)
+              ? (payload.metrics as Record<string, unknown>)
+              : {};
+          await prisma.call.update({
+            where: { id: createdCall.id },
+            data: { metrics: { ...base, diagnosis: diag } as Prisma.InputJsonValue },
+          });
+          console.log(`[DIAGNOSIS] ${createdCall.id}: ${diag.status} — ${diag.headline}${diag.fix ? ' | fix: ' + diag.fix : ''}`);
+        }
+      } catch (err) {
+        console.error('[DIAGNOSIS] post-call analysis failed:', err);
+      }
+    })();
+
+    // Track confirmed booking for subscription activation. Use the post-safety-net
+    // value so rescued mistagged bookings also count toward activation.
+    if (confirmedBooking) {
       try {
         await trackConfirmedBooking(payload.garageId);
       } catch (error) {
@@ -251,28 +424,131 @@ router.post('/calls', async (req: Request, res: Response) => {
       }
     }
 
+    // Log to HubSpot if configured
+    const rawConfig = createdCall.garage?.agentConfiguration?.integrationProviderConfig;
+    if (rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)) {
+      const cfg = rawConfig as Record<string, unknown>;
+      const rawHubspot = (cfg.hubspot && typeof cfg.hubspot === 'object' && !Array.isArray(cfg.hubspot))
+        ? cfg.hubspot as Record<string, unknown>
+        : null;
+      if (rawHubspot?.enabled === true && typeof rawHubspot.apiToken === 'string' && rawHubspot.apiToken) {
+        const hubspotSettings = cloneHubspotSettings({
+          enabled: true,
+          apiToken: rawHubspot.apiToken,
+          ownerId: typeof rawHubspot.ownerId === 'string' ? rawHubspot.ownerId : '',
+          inboxEmail: typeof rawHubspot.inboxEmail === 'string' ? rawHubspot.inboxEmail : '',
+        });
+        void logCallToHubSpot({
+          customerName: payload.customerName ?? null,
+          customerPhone: payload.customerPhone ?? null,
+          fromNumber: null,
+          registrationNumber: payload.registrationNumber ?? null,
+          summary: payload.summary,
+          bookingDetails: payload.bookingDetails ?? null,
+          confirmedBooking: payload.confirmedBooking ?? false,
+          durationSeconds: actualDuration,
+          callType: payload.callType ?? 'unknown',
+          createdAt: new Date(),
+          branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
+          recordingUrl: payload.recordingUrl ?? null,
+        }, hubspotSettings).catch((err: unknown) => {
+          console.error('[HUBSPOT] Failed to log call:', err);
+        });
+      }
+    }
+
     // Send notification email (agent already filtered to only send calls >= 30s)
     if (createdCall.garage?.agentConfiguration?.notificationEmails &&
         createdCall.garage.agentConfiguration.notificationEmails.length > 0) {
-      console.log(`[EMAIL] Sending notification for call ${callId} with duration ${actualDuration}s`);
+      console.log(`[EMAIL] Checking payment status for call ${callId} notification (duration ${actualDuration}s)`);
 
-      void sendCallSummaryEmail(createdCall.garage.agentConfiguration.notificationEmails, {
-        branchName: createdCall.garage.agentConfiguration.branchName,
-        summary: payload.summary,
-        transcript: payload.transcript as any,
-        durationSeconds: actualDuration,
-        callType: callType,
-        customerName: payload.customerName,
-        customerPhone: payload.customerPhone,
-        registrationNumber: payload.registrationNumber,
-        confirmedBooking: payload.confirmedBooking ?? false,
-        capturedRevenue: payload.capturedRevenue ?? null,
-        createdAt: createdCall.createdAt.toISOString(),
-        bookingDate: null,
-        priceQuoted: payload.capturedRevenue ?? null,
-      }).catch((error) => {
-        console.error('[EMAIL] Failed to send notification email:', error);
+      // Check if any users with access to this garage need to set up payment
+      const usersWithAccess = await prisma.user.findMany({
+        where: {
+          garageAccessIds: {
+            has: payload.garageId
+          }
+        },
+        select: {
+          email: true,
+          mustSetupPayment: true
+        }
       });
+
+      const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
+      const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+
+      if (createdCall.garage?.accessRestricted) {
+        // Arrears: don't reveal any call content by email — just notify that a call was handled
+        // and that the details are locked until the account is brought up to date.
+        console.log(`[EMAIL] ⛔ Garage in arrears - sending arrears call notice (details withheld)`);
+
+        void sendArrearsCallNoticeEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+          branchName: createdCall.garage.agentConfiguration.branchName,
+          createdAt: createdCall.createdAt.toISOString(),
+          portalUrl,
+        }).catch((error) => {
+          console.error('[EMAIL] Failed to send arrears call notice email:', error);
+        });
+      } else if (userNeedsPaymentSetup) {
+        console.log(`[EMAIL] 💳 User(s) need payment setup - sending payment reminder email`);
+        
+        void sendPaymentSetupReminderEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+          branchName: createdCall.garage.agentConfiguration.branchName,
+          summary: payload.summary,
+          customerPhone: payload.customerPhone,
+          createdAt: createdCall.createdAt.toISOString(),
+          portalUrl,
+        }).catch((error) => {
+          console.error('[EMAIL] Failed to send payment reminder email:', error);
+        });
+      } else {
+        console.log(`[EMAIL] ✅ Sending standard call summary email`);
+        
+        void sendCallSummaryEmail(createdCall.garage.agentConfiguration.notificationEmails, {
+          branchName: createdCall.garage.agentConfiguration.branchName,
+          summary: payload.summary,
+          transcript: payload.transcript as any,
+          durationSeconds: actualDuration,
+          callType: callType,
+          customerName: payload.customerName,
+          customerPhone: payload.customerPhone,
+          registrationNumber: payload.registrationNumber,
+          confirmedBooking: payload.confirmedBooking ?? false,
+          capturedRevenue: payload.capturedRevenue ?? null,
+          createdAt: createdCall.createdAt.toISOString(),
+          bookingDate: null,
+          priceQuoted: payload.capturedRevenue ?? null,
+        }).catch((error) => {
+          console.error('[EMAIL] Failed to send notification email:', error);
+        });
+      }
+    }
+
+    // Mobile push: tell the garage's users their AI receptionist just handled a
+    // call, with the summary as the body (iOS shows it in full when expanded).
+    // Independent of email config — fire-and-forget, dormant until APNs creds set.
+    {
+      const cfg = createdCall.garage?.agentConfiguration;
+      const personaName =
+        (cfg?.agentName && cfg.agentName.trim()) ||
+        (cfg?.voice ? cfg.voice.charAt(0).toUpperCase() + cfg.voice.slice(1) : '') ||
+        'Your receptionist';
+      // Arrears: withhold the summary from the push body too — just say a call was handled.
+      const restricted = Boolean(createdCall.garage?.accessRestricted);
+      const summary = (payload.summary || '').trim();
+      const pushBody = restricted
+        ? 'Your account is in arrears — settle up to view this call.'
+        : summary || 'Tap to see the call details.';
+      void (async () => {
+        const badge = await garageUnreadBadge(payload.garageId);
+        await notifyGarageUsers(payload.garageId, {
+          title: `${personaName} handled a call for you`,
+          body: pushBody,
+          data: { type: 'call', callId, garageId: payload.garageId },
+          badge,
+        });
+      })();
     }
 
     // Send to HubSpot if configured
@@ -351,11 +627,9 @@ router.get(
 
       // If garageIds filter is provided, use it (for "all assigned branches")
       if (garageIds) {
-        const requestedGarageIds = Array.isArray(garageIds) ? garageIds : [garageIds];
+        const requestedGarageIds = normalizeGarageIds(garageIds);
         // RECEPTIONMATE_STAFF can access all requested garages, others only their assigned ones
-        const validGarageIds = requestedGarageIds
-          .filter((id): id is string => typeof id === 'string')
-          .filter(id => isStaff || allowedGarages.includes(id));
+        const validGarageIds = requestedGarageIds.filter(id => isStaff || allowedGarages.includes(id));
         if (validGarageIds.length === 0) {
           return res.status(403).json({ error: 'No valid garage IDs provided' });
         }
@@ -409,8 +683,25 @@ router.get(
 
       const parsedCalls = calls.map((call: Call & { feedback?: CallFeedback | null }) => parseCallJson(call));
 
-      res.json({ 
-        calls: parsedCalls,
+      // Arrears gating: for a garage's OWN users (never staff), redact calls belonging to any
+      // garage flagged accessRestricted — they keep only date + tag. One query for the flags.
+      let outCalls = parsedCalls;
+      if (!isStaff && parsedCalls.length > 0) {
+        const gids = Array.from(new Set(calls.map((c) => c.garageId)));
+        const restricted = await prisma.garage.findMany({
+          where: { id: { in: gids }, accessRestricted: true },
+          select: { id: true },
+        });
+        if (restricted.length > 0) {
+          const restrictedIds = new Set(restricted.map((g) => g.id));
+          outCalls = parsedCalls.map((pc) =>
+            restrictedIds.has((pc as { garageId: string }).garageId) ? redactRestrictedCall(pc) : pc,
+          );
+        }
+      }
+
+      res.json({
+        calls: outCalls,
         pagination: {
           page: currentPage,
           pageSize: itemsPerPage,
@@ -426,6 +717,185 @@ router.get(
     }
   },
 );
+
+// Staff-only chat-agent observability: tool-call success rates per tool & per agent type,
+// recent failures, and overall volume. Aggregated in SQL (groupBy) — never hydrates every row.
+router.get('/staff/chat-tool-stats', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { startDate, endDate } = req.query;
+    if ((startDate && Array.isArray(startDate)) || (endDate && Array.isArray(endDate))) {
+      return res.status(400).json({ error: 'Invalid query parameters' });
+    }
+    const dateFilter: Prisma.DateTimeFilter = {};
+    if (typeof startDate === 'string' && startDate.trim()) {
+      const d = new Date(startDate);
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid startDate parameter' });
+      dateFilter.gte = d;
+    }
+    if (typeof endDate === 'string' && endDate.trim()) {
+      const d = new Date(endDate);
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid endDate parameter' });
+      dateFilter.lte = d;
+    }
+    const where: Prisma.ChatToolCallWhereInput = {};
+    if (Object.keys(dateFilter).length > 0) where.createdAt = dateFilter;
+
+    const [byTool, byAgent, overall, failures] = await Promise.all([
+      prisma.chatToolCall.groupBy({
+        by: ['agentType', 'toolName', 'success'],
+        where,
+        _count: { _all: true },
+        _avg: { durationMs: true },
+      }),
+      prisma.chatToolCall.groupBy({ by: ['agentType', 'success'], where, _count: { _all: true } }),
+      prisma.chatToolCall.groupBy({ by: ['success'], where, _count: { _all: true } }),
+      prisma.chatToolCall.findMany({
+        where: { ...where, success: false },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+        select: { id: true, conversationId: true, garageId: true, agentType: true, toolName: true, errorMessage: true, durationMs: true, createdAt: true },
+      }),
+    ]);
+
+    // Resolve garage names for the failures list.
+    const garageIds = [...new Set(failures.map(f => f.garageId))];
+    const garages = garageIds.length
+      ? await prisma.garage.findMany({ where: { id: { in: garageIds } }, select: { id: true, name: true } })
+      : [];
+    const garageName = new Map(garages.map(g => [g.id, g.name]));
+
+    // Per-tool roll-up (weighted avg latency across the success/fail split).
+    const toolMap = new Map<string, { agentType: string; toolName: string; total: number; success: number; failed: number; _avgSum: number; _avgWeight: number }>();
+    for (const row of byTool) {
+      const key = `${row.agentType}::${row.toolName}`;
+      const e = toolMap.get(key) || { agentType: row.agentType, toolName: row.toolName, total: 0, success: 0, failed: 0, _avgSum: 0, _avgWeight: 0 };
+      const c = row._count._all;
+      e.total += c;
+      if (row.success) e.success += c; else e.failed += c;
+      if (row._avg.durationMs != null) { e._avgSum += row._avg.durationMs * c; e._avgWeight += c; }
+      toolMap.set(key, e);
+    }
+    const byToolOut = [...toolMap.values()]
+      .map(e => ({
+        agentType: e.agentType,
+        toolName: e.toolName,
+        total: e.total,
+        success: e.success,
+        failed: e.failed,
+        successRate: e.total ? Math.round((e.success / e.total) * 100) : 0,
+        avgMs: e._avgWeight ? Math.round(e._avgSum / e._avgWeight) : 0,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    // Per-agent-type roll-up.
+    const agentMap = new Map<string, { agentType: string; total: number; success: number; failed: number }>();
+    for (const row of byAgent) {
+      const e = agentMap.get(row.agentType) || { agentType: row.agentType, total: 0, success: 0, failed: 0 };
+      const c = row._count._all;
+      e.total += c;
+      if (row.success) e.success += c; else e.failed += c;
+      agentMap.set(row.agentType, e);
+    }
+    const byAgentOut = [...agentMap.values()]
+      .map(e => ({ ...e, successRate: e.total ? Math.round((e.success / e.total) * 100) : 0 }))
+      .sort((a, b) => b.total - a.total);
+
+    const overallTotal = overall.reduce((s, r) => s + r._count._all, 0);
+    const overallSuccess = overall.filter(r => r.success).reduce((s, r) => s + r._count._all, 0);
+
+    res.json({
+      overall: {
+        total: overallTotal,
+        success: overallSuccess,
+        failed: overallTotal - overallSuccess,
+        successRate: overallTotal ? Math.round((overallSuccess / overallTotal) * 100) : 0,
+      },
+      byAgent: byAgentOut,
+      byTool: byToolOut,
+      recentFailures: failures.map(f => ({ ...f, garageName: garageName.get(f.garageId) || f.garageId })),
+    });
+  } catch (error) {
+    console.error('[CALLS] GET /staff/chat-tool-stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch chat tool stats' });
+  }
+});
+
+// Staff-only cross-garage leaderboard for the observability page: per-garage totals (calls,
+// bookings, minutes, captured revenue) aggregated in SQL so we never hydrate every call row.
+router.get('/staff/garage-stats', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { startDate, endDate } = req.query;
+    if ((startDate && Array.isArray(startDate)) || (endDate && Array.isArray(endDate))) {
+      return res.status(400).json({ error: 'Invalid query parameters' });
+    }
+
+    const dateFilter: Prisma.DateTimeFilter = {};
+    if (typeof startDate === 'string' && startDate.trim()) {
+      const parsedStart = new Date(startDate);
+      if (Number.isNaN(parsedStart.getTime())) {
+        return res.status(400).json({ error: 'Invalid startDate parameter' });
+      }
+      dateFilter.gte = parsedStart;
+    }
+    if (typeof endDate === 'string' && endDate.trim()) {
+      const parsedEnd = new Date(endDate);
+      if (Number.isNaN(parsedEnd.getTime())) {
+        return res.status(400).json({ error: 'Invalid endDate parameter' });
+      }
+      dateFilter.lte = parsedEnd;
+    }
+
+    const where: Prisma.CallWhereInput = {};
+    if (Object.keys(dateFilter).length > 0) {
+      where.createdAt = dateFilter;
+    }
+
+    // One groupBy for calls/minutes/revenue, one for bookings (filtered) — both per garage.
+    const [grouped, bookingGroup, garages] = await Promise.all([
+      prisma.call.groupBy({
+        by: ['garageId'],
+        where,
+        _count: { _all: true },
+        _sum: { durationSeconds: true, capturedRevenue: true },
+      }),
+      prisma.call.groupBy({
+        by: ['garageId'],
+        where: { ...where, confirmedBooking: true },
+        _count: { _all: true },
+      }),
+      prisma.garage.findMany({ select: { id: true, name: true } }),
+    ]);
+
+    const bookingByGarage = new Map(bookingGroup.map((g) => [g.garageId, g._count._all]));
+    const nameById = new Map(garages.map((g) => [g.id, g.name]));
+
+    const stats = grouped
+      .map((g) => ({
+        garageId: g.garageId,
+        name: nameById.get(g.garageId) ?? g.garageId,
+        callCount: g._count._all,
+        bookingCount: bookingByGarage.get(g.garageId) ?? 0,
+        totalDurationSeconds: g._sum.durationSeconds ?? 0,
+        capturedRevenue: g._sum.capturedRevenue ?? 0,
+      }))
+      .sort((a, b) => b.callCount - a.callCount);
+
+    res.json({ stats, totalGarages: garages.length });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to fetch garage stats', error);
+    }
+    res.status(500).json({ error: 'Failed to fetch garage stats' });
+  }
+});
 
 router.get(
   '/garages/:garageId/confirmed-bookings.csv',
@@ -451,10 +921,8 @@ router.get(
       };
 
       if (garageIds) {
-        const requestedGarageIds = Array.isArray(garageIds) ? garageIds : [garageIds];
-        const validGarageIds = requestedGarageIds
-          .filter((id): id is string => typeof id === 'string')
-          .filter((id) => isStaff || allowedGarages.includes(id));
+        const requestedGarageIds = normalizeGarageIds(garageIds);
+        const validGarageIds = requestedGarageIds.filter((id) => isStaff || allowedGarages.includes(id));
         if (validGarageIds.length === 0) {
           return res.status(403).json({ error: 'No valid garage IDs provided' });
         }
@@ -570,6 +1038,17 @@ router.get(
         return res.status(404).json({ error: 'Call not found' });
       }
 
+      // Arrears gating: a restricted garage's own users get the redacted call (date + tag only).
+      if (!isStaff) {
+        const g = await prisma.garage.findUnique({
+          where: { id: garageId },
+          select: { accessRestricted: true },
+        });
+        if (g?.accessRestricted) {
+          return res.json({ call: redactRestrictedCall(parseCallJson(call)) });
+        }
+      }
+
       res.json({ call: parseCallJson(call) });
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
@@ -627,19 +1106,40 @@ router.post(
         },
       });
 
-      // Send email notification for negative feedback
-      if (rating === 'down' && req.user?.email) {
-        void sendNegativeFeedbackEmail({
-          branchName: call.garage.name,
-          callId,
-          rating: 'down',
-          reasons: normalizedReasons,
-          notes: sanitizedNotes,
-          userEmail: req.user.email,
-          submittedAt: new Date().toISOString(),
+      // Send notifications for negative feedback
+      if (rating === 'down') {
+        const fields = [
+          { name: 'Branch', value: call.garage.name, inline: true },
+          { name: 'Call ID', value: callId, inline: true },
+          { name: 'Duration', value: call.durationSeconds ? `${call.durationSeconds}s` : 'n/a', inline: true },
+        ];
+        if (call.callType) fields.push({ name: 'Type', value: call.callType, inline: true });
+        if (call.customerPhone) fields.push({ name: 'Caller', value: call.customerPhone, inline: true });
+        if (normalizedReasons.length) fields.push({ name: 'Reasons', value: normalizedReasons.join(', '), inline: false });
+        if (sanitizedNotes) fields.push({ name: 'Notes', value: sanitizedNotes, inline: false });
+
+        void sendDiscordNotification({
+          title: 'Negative Call Rating',
+          description: `A call at **${call.garage.name}** was rated thumbs down.`,
+          color: DISCORD_COLORS.error,
+          fields,
         }).catch((error) => {
-          console.error('Failed to send negative feedback email:', error);
+          console.error('Failed to send Discord notification:', error);
         });
+
+        if (req.user?.email) {
+          void sendNegativeFeedbackEmail({
+            branchName: call.garage.name,
+            callId,
+            rating: 'down',
+            reasons: normalizedReasons,
+            notes: sanitizedNotes,
+            userEmail: req.user.email,
+            submittedAt: new Date().toISOString(),
+          }).catch((error) => {
+            console.error('Failed to send negative feedback email:', error);
+          });
+        }
       }
 
       res.json({ feedback: serializeCallFeedback(feedback) });
@@ -651,6 +1151,56 @@ router.post(
     }
   },
 );
+
+// On-demand "analyse in depth" — re-run the AI call diagnosis with a stronger model
+// (default gpt-4o) and store the new verdict in metrics.diagnosis. Used by the call-page button.
+router.post('/calls/:id/analyze', authenticate, async (req: Request, res: Response) => {
+  try {
+    const call = await prisma.call.findUnique({ where: { id: req.params.id } });
+    if (!call) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    const diagnosis = await analyzeCall({
+      transcript: call.transcript,
+      metrics: call.metrics,
+      summary: call.summary ?? undefined,
+      callType: call.callType ?? undefined,
+      confirmedBooking: call.confirmedBooking,
+      model: 'gpt-4o-mini',
+    });
+    if (!diagnosis) {
+      return res.status(502).json({ error: 'analysis_unavailable' });
+    }
+    // The button always runs the deep-dive (root cause + fix) with the strong model.
+    const deep = await analyzeDeep({
+      transcript: call.transcript,
+      metrics: call.metrics,
+      summary: call.summary ?? undefined,
+      callType: call.callType ?? undefined,
+      confirmedBooking: call.confirmedBooking,
+      triage: { headline: diagnosis.headline, detail: diagnosis.detail },
+      model: typeof req.body?.model === 'string' && req.body.model ? req.body.model : 'gpt-4o',
+    });
+    if (deep) {
+      diagnosis.rootCause = deep.rootCause;
+      diagnosis.fix = deep.fix;
+      diagnosis.severity = deep.severity;
+      diagnosis.deepModel = deep.model;
+    }
+    const base =
+      call.metrics && typeof call.metrics === 'object' && !Array.isArray(call.metrics)
+        ? (call.metrics as Record<string, unknown>)
+        : {};
+    await prisma.call.update({
+      where: { id: call.id },
+      data: { metrics: { ...base, diagnosis } as Prisma.InputJsonValue },
+    });
+    return res.json({ diagnosis });
+  } catch (err) {
+    console.error('[DIAGNOSIS] on-demand analyze failed:', err);
+    return res.status(500).json({ error: 'server_error' });
+  }
+});
 
 // Fetch Twilio recording URL for a specific call
 router.get('/calls/:id/recording', authenticate, async (req: Request, res: Response) => {
@@ -669,8 +1219,14 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     // Check user has access to this garage
     const allowedGarages = resolveAllowedGarages(req.user);
-    if (req.user?.role !== 'RECEPTIONMATE_STAFF' && !allowedGarages.includes(call.garageId)) {
+    const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+    if (!isStaff && !allowedGarages.includes(call.garageId)) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Arrears gating: withhold recordings from a restricted garage's own users (staff unaffected).
+    if (!isStaff && call.garage?.accessRestricted) {
+      return res.status(403).json({ error: 'restricted', restricted: true });
     }
 
     // If we already have a recording URL, return it
@@ -805,27 +1361,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.status(404).json({ error: 'Recording not available yet for this call' });
     }
 
-    // Strategy 1: Try matching by roomName (most reliable - each call has unique room)
-    if (call.roomName) {
-      console.log(`[RECORDING] Strategy 1: Looking for roomName match: ${call.roomName}`);
-      const existingRecording = await prisma.twilioRecording.findFirst({
-        where: { roomName: call.roomName },
-      });
-
-      if (existingRecording?.recordingSid) {
-        console.log(`[RECORDING] Strategy 1 SUCCESS: Found roomName match`);
-        // Update call with recordingUrl
-        await prisma.call.update({
-          where: { id },
-          data: {
-            recordingUrl: existingRecording.recordingSid,
-          },
-        });
-        return res.json({ recordingUrl: `/api/calls/${id}/recording/audio` });
-      }
-    }
-
-    // Strategy 2: Fetch from Twilio API with smart matching
+    // Fetch from Twilio API with phone-based matching
     // Prefer fromNumber (full E.164) over customerPhone (may be partial/truncated)
     let phoneForTwilioLookup = call.fromNumber || call.customerPhone;
     if (!phoneForTwilioLookup) {
@@ -842,20 +1378,35 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     console.log(`[RECORDING] Strategy 2: Fetching from Twilio API for phone: ${phoneForTwilioLookup}`);
 
-    // CRITICAL SECURITY FIX: Get garage's phone number to validate recording matches
-    const garageConfig = await prisma.agentConfiguration.findUnique({
-      where: { garageId: call.garageId },
-      select: { phoneNumber: true },
+    // CRITICAL SECURITY FIX: Get garage's ReceptionMate number to validate recording matches
+    const garage = await prisma.garage.findUnique({
+      where: { id: call.garageId },
+      select: { twilioNumber: true },
     });
 
-    if (!garageConfig?.phoneNumber) {
-      console.error('[RECORDING] Cannot fetch recording: garage phone number not configured');
+    if (!garage?.twilioNumber) {
+      console.error('[RECORDING] Cannot fetch recording: garage ReceptionMate number not configured');
       return res.status(404).json({ 
-        error: 'Recording not available: garage configuration incomplete' 
+        error: 'Recording not available: garage ReceptionMate number not configured' 
       });
     }
 
-    const garagePhoneNumber = garageConfig.phoneNumber;
+    let garagePhoneNumber = garage.twilioNumber;
+    console.log(`[RECORDING] ReceptionMate number: ${garagePhoneNumber}`);
+    
+    // Normalize garage phone to E.164 format for Twilio API
+    garagePhoneNumber = garagePhoneNumber.replace(/\s+/g, ''); // Remove spaces
+    if (!garagePhoneNumber.startsWith('+')) {
+      // Add + prefix if missing (e.g., "441603249593" -> "+441603249593")
+      if (garagePhoneNumber.startsWith('44')) {
+        garagePhoneNumber = '+' + garagePhoneNumber;
+      } else if (garagePhoneNumber.startsWith('0') && garagePhoneNumber.length >= 10) {
+        // UK number without country code: 01905xxx -> +441905xxx
+        garagePhoneNumber = '+44' + garagePhoneNumber.substring(1);
+      }
+      console.log(`[RECORDING] Normalized ReceptionMate number to E.164: ${garagePhoneNumber}`);
+    }
+    
     console.log(`[RECORDING] Validating recordings match garage number: ${garagePhoneNumber}`);
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -866,8 +1417,12 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
       return res.status(500).json({ error: 'Recording service not configured' });
     }
 
-    // Search for recent calls FROM customer TO this specific garage
-    const callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?From=${encodeURIComponent(phoneForTwilioLookup)}&To=${encodeURIComponent(garagePhoneNumber)}&PageSize=20`;
+    // Search for recent calls TO this specific garage, filtered by caller phone when available
+    let callsUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json?To=${encodeURIComponent(garagePhoneNumber)}&PageSize=20`;
+    if (phoneForTwilioLookup) {
+      callsUrl += `&From=${encodeURIComponent(phoneForTwilioLookup)}`;
+      console.log(`[RECORDING] Including From filter: ${phoneForTwilioLookup}`);
+    }
     const callsResponse = await fetch(callsUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
@@ -881,51 +1436,30 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
 
     const callsData = await callsResponse.json();
 
-    // Find calls within 90 seconds, score by duration similarity
-    const callTime = call.createdAt.getTime();
-    const tightTolerance = 90 * 1000; // 90 seconds (safer window)
-    const broadTolerance = 5 * 60 * 1000; // 5 minutes (fallback)
-
+    // Score all calls by duration similarity — no time window exclusion.
+    // From+To filter already scopes to exact caller+garage, so duration picks
+    // the right call if the same person called twice in one day.
     interface ScoredCall {
       twilioCall: any;
-      timeDiff: number;
       durationDiff: number;
-      score: number;
     }
 
     const scoredCalls: ScoredCall[] = [];
 
     for (const twilioCall of callsData.calls || []) {
-      const twilioCallTime = new Date(twilioCall.start_time).getTime();
-      const timeDiff = Math.abs(twilioCallTime - callTime);
-
-      // Only consider calls within broad tolerance
-      if (timeDiff < broadTolerance) {
-        const twilioCallDuration = parseInt(twilioCall.duration || '0');
-        const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
-
-        // Score: lower is better (prefer close time + close duration)
-        // Time is weighted more heavily (×1000) than duration
-        const score = timeDiff + (durationDiff * 1000);
-
-        scoredCalls.push({
-          twilioCall,
-          timeDiff,
-          durationDiff,
-          score,
-        });
-      }
+      const twilioCallDuration = parseInt(twilioCall.duration || '0');
+      const durationDiff = Math.abs(twilioCallDuration - call.durationSeconds);
+      scoredCalls.push({ twilioCall, durationDiff });
     }
 
-    // Sort by score (best match first)
-    scoredCalls.sort((a, b) => a.score - b.score);
+    // Sort by duration similarity (closest duration wins)
+    scoredCalls.sort((a, b) => a.durationDiff - b.durationDiff);
 
-    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls within broad window`);
+    console.log(`[RECORDING] Found ${scoredCalls.length} candidate calls, matching by duration`);
 
-    // Try candidates in order of best score
-    for (const { twilioCall, timeDiff, durationDiff, score } of scoredCalls) {
-      const withinTightWindow = timeDiff < tightTolerance;
-      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: timeDiff=${timeDiff}ms, durationDiff=${durationDiff}s, score=${score}, inTightWindow=${withinTightWindow}`);
+    // Try candidates in order of best duration match
+    for (const { twilioCall, durationDiff } of scoredCalls) {
+      console.log(`[RECORDING] Checking CallSid ${twilioCall.sid}: durationDiff=${durationDiff}s (twilio=${twilioCall.duration}s, portal=${call.durationSeconds}s)`);
 
       // CRITICAL SECURITY: Verify this call was TO our garage's number
       // Prevents cross-garage contamination when same customer calls multiple garages
@@ -953,7 +1487,7 @@ router.get('/calls/:id/recording', authenticate, async (req: Request, res: Respo
           const recording = recordingsData.recordings[0];
           const recordingSid = recording.sid;
 
-          console.log(`[RECORDING] Strategy 2 SUCCESS: Found recording with score=${score}`);
+          console.log(`[RECORDING] SUCCESS: Found recording, durationDiff=${durationDiff}s`);
 
           // Store in TwilioRecording for future lookups
           await prisma.twilioRecording.upsert({
@@ -1022,6 +1556,38 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       return res.status(404).send('No recording available');
     }
 
+    const recordingValue = call.recordingUrl;
+
+    // S3 recordings — fetch securely using AWS SDK
+    if (recordingValue.startsWith('http') && recordingValue.includes('amazonaws.com')) {
+      const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+      const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+      const awsRegion = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+      const s3Bucket = process.env.S3_BUCKET || 'receptionmate-recordings';
+
+      if (!awsAccessKey || !awsSecretKey) {
+        return res.status(500).send('S3 recording service not configured');
+      }
+
+      // Extract S3 object key from URL
+      const url = new URL(recordingValue);
+      const s3Key = url.pathname.replace(/^\//, '');
+
+      const s3Client = new S3Client({
+        region: awsRegion,
+        credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
+      });
+
+      const signedUrl = await getSignedUrl(
+        s3Client,
+        new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }),
+        { expiresIn: 3600 }
+      );
+
+      return res.redirect(302, signedUrl);
+    }
+
+    // Twilio recording (SID or twilio.com URL)
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
 
@@ -1029,12 +1595,10 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       return res.status(500).send('Recording service not configured');
     }
 
-    // Fetch the recording from Twilio and stream it
-    const recordingValue = call.recordingUrl;
     const twilioUrl = recordingValue.startsWith('http')
       ? `${recordingValue.replace(/\.mp3$/i, '')}.mp3`
       : `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordingValue}.mp3`;
-    
+
     const twilioResponse = await fetch(twilioUrl, {
       headers: {
         'Authorization': 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64'),
@@ -1045,12 +1609,35 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       return res.status(404).send('Recording not found');
     }
 
-    // Stream the audio back to the client
+    // Stream the audio back to the client WITH HTTP Range support. iOS Safari /
+    // the mobile WebView send a `Range` request for <audio> and refuse to play
+    // unless the server answers 206 with Accept-Ranges/Content-Range. The old
+    // code always replied 200 with the whole body, so recordings were silent on
+    // iPhone (they worked on desktop Chrome, which is more lenient).
+    const buffer = Buffer.from(await twilioResponse.arrayBuffer());
+    const total = buffer.length;
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
-    
-    const buffer = await twilioResponse.arrayBuffer();
-    res.send(Buffer.from(buffer));
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    const rangeHeader = req.headers.range;
+    if (rangeHeader) {
+      const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
+      const start = match ? parseInt(match[1], 10) : 0;
+      const end = match && match[2] ? parseInt(match[2], 10) : total - 1;
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= total) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        return res.status(416).end();
+      }
+      const safeEnd = Math.min(end, total - 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${safeEnd}/${total}`);
+      res.setHeader('Content-Length', safeEnd - start + 1);
+      return res.end(buffer.subarray(start, safeEnd + 1));
+    }
+
+    res.setHeader('Content-Length', total);
+    return res.end(buffer);
   } catch (error) {
     console.error('[RECORDING] Error streaming recording:', error);
     res.status(500).send('Failed to stream recording');
@@ -1084,6 +1671,111 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
       console.error('Failed to fetch garages', error);
     }
     res.status(500).json({ error: 'Failed to fetch garages' });
+  }
+});
+
+// Toggle the "reviewed" flag on a flagged call. Stored inside metrics.reviewed so it rides
+// along with the existing calls list (no schema change) and is shared across all staff. Staff only.
+router.post('/calls/:id/reviewed', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const call = await prisma.call.findUnique({ where: { id: req.params.id } });
+    if (!call) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    const base =
+      call.metrics && typeof call.metrics === 'object' && !Array.isArray(call.metrics)
+        ? (call.metrics as Record<string, unknown>)
+        : {};
+    const reviewed =
+      req.body?.reviewed === true
+        ? { at: new Date().toISOString(), by: req.user?.email ?? req.user?.userId ?? 'staff' }
+        : null;
+    const nextMetrics: Record<string, unknown> = { ...base };
+    if (reviewed) {
+      nextMetrics.reviewed = reviewed;
+    } else {
+      delete nextMetrics.reviewed;
+    }
+    await prisma.call.update({
+      where: { id: call.id },
+      data: { metrics: nextMetrics as Prisma.InputJsonValue },
+    });
+    return res.json({ reviewed });
+  } catch (err) {
+    console.error('[REVIEWED] toggle failed:', err);
+    return res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// Mark a call as VIEWED by the current user (opening its detail). Stored in metrics.viewedAt
+// (no schema change), so a call counts as "unread" for the badge until it's opened. Any user
+// with access to the call's garage can mark it; the flag is shared (first view clears it).
+router.post('/calls/:id/viewed', authenticate, async (req: Request, res: Response) => {
+  try {
+    const call = await prisma.call.findUnique({ where: { id: req.params.id } });
+    if (!call) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+    if (!isStaff) {
+      const allowed = resolveAllowedGarages(req.user);
+      if (!call.garageId || !allowed.includes(call.garageId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+    const base =
+      call.metrics && typeof call.metrics === 'object' && !Array.isArray(call.metrics)
+        ? (call.metrics as Record<string, unknown>)
+        : {};
+    if (!base.viewedAt) {
+      await prisma.call.update({
+        where: { id: call.id },
+        data: {
+          metrics: { ...base, viewedAt: new Date().toISOString() } as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[VIEWED] mark failed:', err);
+    return res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// Unread badge counts for the mobile app: calls not yet opened + unread chat messages, across
+// the user's accessible garages. Calls created before CALL_BADGE_SINCE are treated as already
+// seen so the badge starts clean at launch (only new calls accrue until viewed).
+const CALL_BADGE_SINCE = new Date(process.env.CALL_BADGE_SINCE || '2026-07-06T20:00:00Z');
+router.get('/notifications/counts', authenticate, async (req: Request, res: Response) => {
+  try {
+    const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+    // Badges are a garage-user feature; staff use desktop, so skip the (huge) all-garages count.
+    const allowed = isStaff ? [] : resolveAllowedGarages(req.user);
+    if (allowed.length === 0) {
+      return res.json({ unreadCalls: 0, unreadMessages: 0 });
+    }
+
+    // Unread calls: not viewed, created since launch. metrics.viewedAt lives in JSON -> raw query.
+    const rows = await prisma.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM "Call"
+      WHERE "garageId" = ANY(${allowed}) AND "createdAt" >= ${CALL_BADGE_SINCE}
+        AND ("metrics"->>'viewedAt') IS NULL`;
+    const unreadCalls = Number(rows[0]?.n ?? 0);
+
+    // Unread chat messages: sum of ChatConversation.unreadCount across accessible garages.
+    const agg = await prisma.chatConversation.aggregate({
+      where: { garageId: { in: allowed } },
+      _sum: { unreadCount: true },
+    });
+    const unreadMessages = agg._sum.unreadCount ?? 0;
+
+    return res.json({ unreadCalls, unreadMessages });
+  } catch (err) {
+    console.error('[COUNTS] failed:', err);
+    return res.status(500).json({ error: 'server_error' });
   }
 });
 

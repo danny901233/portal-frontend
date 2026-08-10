@@ -3,12 +3,52 @@
 import { useState } from 'react';
 import type { MandateStatus } from '../../lib/billing';
 import { createMandateUpdateFlow } from '../../lib/billing';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface MandateStatusCardProps {
   mandateStatus: MandateStatus;
 }
 
 export default function MandateStatusCard({ mandateStatus }: MandateStatusCardProps) {
+  const lang = useLang();
+  const c = {
+    en: {
+      updateFailed: 'Failed to initiate payment method update. Please try again.',
+      na: 'N/A',
+      heading: 'Direct Debit',
+      subtitle: 'Your payment method and billing schedule',
+      redirecting: 'Redirecting...',
+      updatePaymentMethod: 'Update Payment Method',
+      active: 'Direct Debit Active',
+      activeHint: 'Your payment method is set up and active',
+      status: 'Status',
+      nextBillingDate: 'Next Billing Date',
+      mandateReference: 'Mandate Reference',
+      automaticBilling: 'Automatic Billing',
+      automaticBillingBody: 'Your subscription and usage charges will be automatically collected via Direct Debit on your billing date.',
+      noMandateTitle: 'No Direct Debit Set Up',
+      noMandateBody: 'You need to set up Direct Debit to enable automatic billing.',
+      setUp: 'Set Up Direct Debit',
+    },
+    fr: {
+      updateFailed: 'Échec du lancement de la mise à jour du moyen de paiement. Veuillez réessayer.',
+      na: 'N/D',
+      heading: 'Prélèvement automatique',
+      subtitle: 'Votre moyen de paiement et votre calendrier de facturation',
+      redirecting: 'Redirection...',
+      updatePaymentMethod: 'Mettre à jour le moyen de paiement',
+      active: 'Prélèvement automatique actif',
+      activeHint: 'Votre moyen de paiement est configuré et actif',
+      status: 'Statut',
+      nextBillingDate: 'Prochaine date de facturation',
+      mandateReference: 'Référence du mandat',
+      automaticBilling: 'Facturation automatique',
+      automaticBillingBody: "Votre abonnement et vos frais d'utilisation seront automatiquement prélevés par prélèvement automatique à votre date de facturation.",
+      noMandateTitle: 'Aucun prélèvement automatique configuré',
+      noMandateBody: 'Vous devez configurer le prélèvement automatique pour activer la facturation automatique.',
+      setUp: 'Configurer le prélèvement automatique',
+    },
+  }[lang];
   const [isUpdating, setIsUpdating] = useState(false);
 
   const handleUpdateMandate = async () => {
@@ -18,13 +58,13 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
       window.location.href = redirectUrl;
     } catch (error) {
       console.error('Failed to create mandate update flow:', error);
-      alert('Failed to initiate payment method update. Please try again.');
+      alert(c.updateFailed);
       setIsUpdating(false);
     }
   };
 
   const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'N/A';
+    if (!dateString) return c.na;
     return new Date(dateString).toLocaleDateString('en-GB', {
       day: '2-digit',
       month: 'long',
@@ -33,12 +73,12 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
   };
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="rounded-2xl border border-slate-200 bg-white p-6">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-slate-100">Direct Debit</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Your payment method and billing schedule
+          <h2 className="text-xl font-semibold text-slate-900">{c.heading}</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {c.subtitle}
           </p>
         </div>
         {mandateStatus.hasMandate && (
@@ -64,7 +104,7 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
                 />
               </svg>
             )}
-            {isUpdating ? 'Redirecting...' : 'Update Payment Method'}
+            {isUpdating ? c.redirecting : c.updatePaymentMethod}
           </button>
         )}
       </div>
@@ -73,8 +113,8 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
         {mandateStatus.hasMandate ? (
           <>
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10">
-                <svg className="h-5 w-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50">
+                <svg className="h-5 w-5 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -84,37 +124,37 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
                 </svg>
               </div>
               <div>
-                <div className="font-medium text-slate-200">Direct Debit Active</div>
-                <div className="text-sm text-slate-400">Your payment method is set up and active</div>
+                <div className="font-medium text-slate-700">{c.active}</div>
+                <div className="text-sm text-slate-500">{c.activeHint}</div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                  Status
+                  {c.status}
                 </div>
                 <div className="mt-1 inline-flex items-center gap-2">
                   <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
-                  <span className="text-sm capitalize text-slate-300">{mandateStatus.status}</span>
+                  <span className="text-sm capitalize text-slate-600">{mandateStatus.status}</span>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                  Next Billing Date
+                  {c.nextBillingDate}
                 </div>
-                <div className="mt-1 text-sm text-slate-300">
+                <div className="mt-1 text-sm text-slate-600">
                   {formatDate(mandateStatus.nextBillingDate)}
                 </div>
               </div>
 
               {mandateStatus.mandateId && (
-                <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 md:col-span-2">
+                <div className="rounded-lg border border-slate-200 bg-white p-4 md:col-span-2">
                   <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                    Mandate Reference
+                    {c.mandateReference}
                   </div>
-                  <div className="mt-1 font-mono text-xs text-slate-400">
+                  <div className="mt-1 font-mono text-xs text-slate-500">
                     {mandateStatus.mandateId}
                   </div>
                 </div>
@@ -137,18 +177,18 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
                   />
                 </svg>
                 <div className="text-sm text-blue-300">
-                  <p className="font-medium">Automatic Billing</p>
+                  <p className="font-medium">{c.automaticBilling}</p>
                   <p className="mt-1 text-blue-400">
-                    Your subscription and usage charges will be automatically collected via Direct Debit on your billing date.
+                    {c.automaticBillingBody}
                   </p>
                 </div>
               </div>
             </div>
           </>
         ) : (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-6 text-center">
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center">
             <svg
-              className="mx-auto h-12 w-12 text-amber-400"
+              className="mx-auto h-12 w-12 text-amber-700"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -160,9 +200,9 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
               />
             </svg>
-            <h3 className="mt-4 text-lg font-medium text-amber-300">No Direct Debit Set Up</h3>
-            <p className="mt-2 text-sm text-amber-400">
-              You need to set up Direct Debit to enable automatic billing.
+            <h3 className="mt-4 text-lg font-medium text-amber-300">{c.noMandateTitle}</h3>
+            <p className="mt-2 text-sm text-amber-700">
+              {c.noMandateBody}
             </p>
             <a
               href="/setup-payment"
@@ -176,7 +216,7 @@ export default function MandateStatusCard({ mandateStatus }: MandateStatusCardPr
                   d="M12 6v6m0 0v6m0-6h6m-6 0H6"
                 />
               </svg>
-              Set Up Direct Debit
+              {c.setUp}
             </a>
           </div>
         )}

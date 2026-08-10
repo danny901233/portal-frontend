@@ -22,6 +22,7 @@ export default function ChatInterface() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [config, setConfig] = useState<GarageConfig | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -66,7 +67,7 @@ export default function ChatInterface() {
 
     try {
       // Send message to chat agent API
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/chat/agent`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/chat/widget`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -74,10 +75,7 @@ export default function ChatInterface() {
         body: JSON.stringify({
           garageId,
           message: userMessage.content,
-          conversationHistory: messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          conversationId,
         }),
       });
 
@@ -86,7 +84,11 @@ export default function ChatInterface() {
       }
 
       const data = await response.json();
-      
+
+      if (data.conversationId && !conversationId) {
+        setConversationId(data.conversationId);
+      }
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',

@@ -1,0 +1,59 @@
+# Generates a new ReceptionMate blog post every Monday at 06:00 UTC,
+# commits the markdown file to the marketing-site, and lets the marketing
+# site's deploy pipeline pick it up on the next build.
+#
+# Setup:
+# 1. Add the secret OPENAI_API_KEY to the repo (Settings → Secrets → Actions).
+# 2. Enable Actions on the repo.
+# 3. (Optional) Adjust the cron schedule below — current cadence is weekly.
+#
+# To run manually: GitHub Actions tab → "Marketing site — auto blog post"
+# → "Run workflow".
+name: Marketing site — auto blog post
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC (07:00 BST)
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  generate:
+    name: Generate and commit a fresh blog post
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: marketing-site
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: marketing-site/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate post
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node scripts/generate-post.mjs
+
+      - name: Commit and push the new post
+        run: |
+          git config user.name "receptionmate-bot"
+          git config user.email "bot@receptionmate.co.uk"
+          # Only commit if there's actually a new file
+          if [ -n "$(git status --porcelain src/content/blog)" ]; then
+            git add src/content/blog/
+            git commit -m "blog(auto): new post via scheduled generator"
+            git push
+          else
+            echo "No new post written — skipping commit."
+          fi

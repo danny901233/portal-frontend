@@ -47,6 +47,10 @@ router.get(
           bookingsRequiredForActivation: true,
           activationBookingsCount: true,
           subscriptionActivatedAt: true,
+          hasMessagingAccess: true,
+          messagingSubscriptionCostGbp: true,
+          includedMessages: true,
+          costPerMessageGbp: true,
         },
       });
 
@@ -79,6 +83,11 @@ router.put(
         trialDays: z.number().int().min(0).optional(),
         requiresBookingActivation: z.boolean().optional(),
         bookingsRequiredForActivation: z.number().int().min(1).optional(),
+        // Messaging (webchat / WhatsApp) subscription billing — previously DB-only with no UI.
+        hasMessagingAccess: z.boolean().optional(),
+        messagingSubscriptionCostGbp: z.number().min(0).optional(),
+        includedMessages: z.number().int().min(0).optional(),
+        costPerMessageGbp: z.number().min(0).optional(),
       });
 
       const result = schema.safeParse(req.body);

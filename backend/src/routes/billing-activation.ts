@@ -141,6 +141,7 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
         await prisma.invoice.create({
           data: {
             garageId: garage.id,
+            userId: user.id,
             periodStart: billingCycleStartDate,
             periodEnd: nextBillingDate,
             minutesUsed: 0,

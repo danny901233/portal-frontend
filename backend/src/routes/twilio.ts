@@ -105,8 +105,11 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
     }
 
     // Use the specific Local bundle and associated address
-    const bundleSid = 'BU08d2714daf3a61874f914319204d51ca';
-    const addressSid = 'AD5d175e286a33f9348f9b19aa4bdd513a';
+    const bundleSid = process.env.TWILIO_BUNDLE_SID;
+    const addressSid = process.env.TWILIO_ADDRESS_SID;
+    if (!bundleSid || !addressSid) {
+      return res.status(500).json({ error: 'TWILIO_BUNDLE_SID and TWILIO_ADDRESS_SID must be configured' });
+    }
 
     console.log(`Using Local bundle: ${bundleSid} with address: ${addressSid}`);
     console.log('Attempting to purchase:', phoneNumber);

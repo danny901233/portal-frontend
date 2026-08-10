@@ -1100,6 +1100,64 @@ class CallState:
     booking_submit_pending: bool = False  # True when submit_booking failed and needs retry
     recent_transcripts: list[str] = field(default_factory=list)
     conversation_items: list[dict] = field(default_factory=list)  # full agent+customer turns for GPT summary
+    tool_call_history: list[dict] = field(default_factory=list)  # tracks all tool/API calls with timing
+    llm_response_times: list[dict] = field(default_factory=list)  # tracks LLM response latencies
+# ============================================================
+# TOOL CALL TRACKING HELPERS
+# ============================================================
+
+def record_tool_call(
+    state: "CallState",
+    tool_name: str,
+    parameters: dict,
+    start_time: float,
+    end_time: float,
+    success: bool = True,
+    result: dict = None,
+    error: str = None,
+    error_type: str = None,
+    retry_count: int = 0,
+) -> None:
+    """Record a tool call with full observability metrics."""
+    duration_ms = (end_time - start_time) * 1000
+    
+    tool_call_entry = {
+        "tool": tool_name,
+        "timestamp": start_time,
+        "duration_ms": round(duration_ms, 2),
+        "success": success,
+        "parameters": parameters,
+        "retry_count": retry_count,
+    }
+    
+    if result is not None:
+        tool_call_entry["result"] = result
+    
+    if error:
+        tool_call_entry["error"] = error
+        tool_call_entry["error_type"] = error_type or "unknown"
+    
+    state.tool_call_history.append(tool_call_entry)
+    logger.info(f"[TOOL_TRACK] {tool_name} | {duration_ms:.0f}ms | {'✓' if success else '✗'} | retry={retry_count}")
+
+
+def record_llm_response(
+    state: "CallState",
+    context: str,
+    start_time: float,
+    end_time: float,
+    token_count: int = 0,
+) -> None:
+    """Record LLM response timing for latency analysis."""
+    duration_ms = (end_time - start_time) * 1000
+    
+    state.llm_response_times.append({
+        "context": context,
+        "timestamp": start_time,
+        "duration_ms": round(duration_ms, 2),
+        "token_count": token_count,
+    })
+    logger.debug(f"[LLM_TRACK] {context} | {duration_ms:.0f}ms")
 
 
 # ============================================================
@@ -3351,12 +3409,26 @@ async def entrypoint(ctx: JobContext):
 
         _last_final = text
 
+    # Try to capture transcript using agent's own message callbacks
+    # Store messages directly from agent function calls
+    original_say = session.say
+    def _wrapped_say(text, **kwargs):
+        """Wrap session.say to capture agent speech."""
+        if text and text.strip():
+            ts = max(0.0, time.time() - (state.call_start_time or time.time()))
+            state.conversation_items.append({"speaker": "agent", "text": text.strip(), "timestamp": round(ts, 1)})
+            logger.info(f"[TRANSCRIPT] Agent speech captured via session.say: {text[:80]}")
+        return original_say(text, **kwargs)
+    session.say = _wrapped_say
+
     @session.on("conversation_item_added")
     def _on_conversation_item_added(ev):
         """Capture full agent+customer transcript for GPT summary."""
+        logger.info(f"[DEBUG] conversation_item_added event fired: {ev}")
         try:
             item = getattr(ev, "item", None)
             if item is None:
+                logger.warning("[DEBUG] conversation_item_added: item is None")
                 return
             role = getattr(item, "role", "") or ""
             text = ""
@@ -3376,6 +3448,7 @@ async def entrypoint(ctx: JobContext):
                     text = " ".join(p for p in parts if p)
             text = text.strip()
             if not text:
+                logger.warning("[DEBUG] conversation_item_added: text is empty after extraction")
                 return
             speaker = "agent" if role in ("assistant", "agent") else "customer"
             ts = max(0.0, time.time() - (state.call_start_time or time.time()))
@@ -3430,25 +3503,57 @@ async def entrypoint(ctx: JobContext):
                 # Fall back to synthetic transcript from recent_transcripts if no conversation_items
                 base_ts = state.call_start_time or time.time()
                 if state.conversation_items:
-                    transcript = state.conversation_items
+                    # Merge conversation items + tool calls into unified timeline
+                    unified_transcript = []
+                    for item in state.conversation_items:
+                        unified_transcript.append({
+                            "type": "message",
+                            "speaker": item.get("speaker"),
+                            "text": item.get("text"),
+                            "timestamp": item.get("timestamp")
+                        })
+                    
+                    # Add tool calls to transcript timeline
+                    for tool_call in state.tool_call_history:
+                        # Convert absolute timestamp to relative
+                        abs_timestamp = tool_call.get("timestamp", time.time())
+                        relative_timestamp = max(0.0, abs_timestamp - (state.call_start_time or abs_timestamp))
+                        
+                        unified_transcript.append({
+                            "type": "tool_call",
+                            "tool": tool_call.get("tool"),
+                            "parameters": tool_call.get("parameters"),
+                            "result": tool_call.get("result"),
+                            "success": tool_call.get("success"),
+                            "duration_ms": tool_call.get("duration_ms"),
+                            "error": tool_call.get("error"),
+                            "retry_count": tool_call.get("retry_count", 0),
+                            "timestamp": round(relative_timestamp, 1)
+                        })
+                    
+                    # Sort entire timeline by timestamp
+                    unified_transcript.sort(key=lambda x: x.get("timestamp", 0))
+                    
                     # Ensure at least one agent entry exists
-                    if not any(e.get("speaker") == "agent" for e in transcript):
-                        transcript = [{"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0}] + transcript
-                    logger.info(f"[PORTAL] Using {len(transcript)} conversation_items for transcript")
+                    if not any(e.get("type") == "message" and e.get("speaker") == "agent" for e in unified_transcript):
+                        unified_transcript = [{"type": "message", "speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0}] + unified_transcript
+                    
+                    transcript = unified_transcript
+                    logger.info(f"[PORTAL] Using {len(state.conversation_items)} conversation_items + {len(state.tool_call_history)} tool calls = {len(transcript)} total transcript entries")
                 else:
-                    # Fallback: synthetic transcript from customer utterances
+                    # Fallback: synthetic transcript from customer utterances + state-based agent responses
                     logger.info("[PORTAL] No conversation_items — building synthetic transcript from recent_transcripts")
                     transcript = []
-                    transcript.append({"speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0})
+                    transcript.append({"type": "message", "speaker": "agent", "text": "Hello, how can I help you today?", "timestamp": 0})
                     for i, text in enumerate(state.recent_transcripts or [], start=1):
-                        transcript.append({"speaker": "customer", "text": text, "timestamp": i * 5})
+                        transcript.append({"type": "message", "speaker": "customer", "text": text, "timestamp": i * 5})
                     # Append key structured events as agent turns
                     offset = len(transcript) * 5
                     if state.vrn:
-                        transcript.append({"speaker": "agent", "text": f"I have your vehicle registration as {state.vrn}.", "timestamp": offset})
+                        transcript.append({"type": "message", "speaker": "agent", "text": f"I have your vehicle registration as {state.vrn}.", "timestamp": offset})
                         offset += 5
                     if state.booking_date:
-                        transcript.append({"speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
+                        transcript.append({"type": "message", "speaker": "agent", "text": f"Booking confirmed for {state.booking_date} at {state.booking_time}.", "timestamp": offset})
 
                 # Generate GPT summary (falls back to state-based if LLM unavailable)
                 summary = await generate_call_summary(transcript, state)
@@ -3483,6 +3588,17 @@ async def entrypoint(ctx: JobContext):
                     "intent": state.intent or "unknown",
                     "vrn_captured": bool(state.vrn),
                     "booking_confirmed": state.step == Step.CONFIRMED,
+                    
+                    # Tool usage tracking
+                    "tool_calls": state.tool_call_history,
+                    "tool_call_count": len(state.tool_call_history),
+                    "failed_tool_calls": sum(1 for t in state.tool_call_history if not t.get("success")),
+                    "total_tool_latency_ms": sum(t.get("duration_ms", 0) for t in state.tool_call_history),
+                    
+                    # LLM performance
+                    "llm_responses": state.llm_response_times,
+                    "llm_response_count": len(state.llm_response_times),
+                    "avg_llm_latency_ms": round(sum(r.get("duration_ms", 0) for r in state.llm_response_times) / len(state.llm_response_times), 2) if state.llm_response_times else 0,
                 }
 
                 logger.info(f"[PORTAL] Extracted caller phone: {caller_phone}")

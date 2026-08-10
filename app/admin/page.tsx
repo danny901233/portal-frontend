@@ -586,7 +586,19 @@ export default function AdminPage() {
       />
 
       {/* Quick Onboard Button */}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={() => router.push('/admin/support')}
+          className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-sm font-medium transition-colors shadow-sm"
+        >
+          Support inbox
+        </button>
+        <button
+          onClick={() => router.push('/admin/agreements')}
+          className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-sm font-medium transition-colors shadow-sm"
+        >
+          Service agreements
+        </button>
         <button
           onClick={() => setIsOnboardingModalOpen(true)}
           className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-colors shadow-lg"
@@ -596,24 +608,24 @@ export default function AdminPage() {
       </div>
 
       {/* Billing Forecast */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-slate-100">Revenue Forecast</h2>
+          <h2 className="text-xl font-semibold text-slate-900">Revenue Forecast</h2>
           <button
             onClick={() => router.push('/admin/forecast')}
-            className="px-3 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 rounded-lg text-xs font-semibold transition-colors border border-sky-500/30"
+            className="px-3 py-1.5 bg-brand-100 hover:bg-brand-100 text-brand-600 rounded-lg text-xs font-semibold transition-colors border border-brand-200"
           >
             📅 View Calendar
           </button>
         </div>
         <div>
-          <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
+          <div className="rounded-lg border border-slate-300 bg-slate-50 p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-slate-300">Revenue Forecast</h3>
+              <h3 className="text-sm font-semibold text-slate-600">Revenue Forecast</h3>
               <select
                 value={forecastDays}
                 onChange={(e) => setForecastDays(Number(e.target.value))}
-                className="text-xs rounded-md border border-slate-600 bg-slate-900 px-2 py-1 text-slate-300"
+                className="text-xs rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-600"
               >
                 <option value={7}>Next 7 days</option>
                 <option value={30}>Next 30 days</option>
@@ -623,12 +635,12 @@ export default function AdminPage() {
             </div>
 
             {/* Total Expected */}
-            <div className="mb-4 rounded-lg bg-sky-500/10 border border-sky-500/30 p-3">
-              <div className="text-xs text-sky-300 mb-1">Expected Revenue</div>
-              <div className="text-2xl font-bold text-sky-100">
+            <div className="mb-4 rounded-lg bg-brand-100 border border-brand-200 p-3">
+              <div className="text-xs text-brand-700 mb-1">Expected Revenue</div>
+              <div className="text-2xl font-bold text-brand-700">
                 {new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(billingForecast.totalExpected / 100)}
               </div>
-              <div className="text-[10px] text-sky-300 mt-1">
+              <div className="text-[10px] text-brand-700 mt-1">
                 from {billingForecast.upcomingBillings.length} upcoming {billingForecast.upcomingBillings.length === 1 ? 'billing' : 'billings'}
               </div>
             </div>
@@ -636,15 +648,15 @@ export default function AdminPage() {
             {/* Upcoming Billings */}
             {billingForecast.upcomingBillings.length > 0 ? (
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-slate-400 mb-2">Upcoming Billings</div>
+                <div className="text-xs font-semibold text-slate-500 mb-2">Upcoming Billings</div>
                 <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                   {billingForecast.upcomingBillings.map((billing: any, index: number) => (
-                    <div key={index} className="flex flex-col text-xs p-3 rounded bg-slate-900/50 border border-slate-700/50">
-                      <div className="text-slate-300 font-medium">{billing.email}</div>
+                    <div key={index} className="flex flex-col text-xs p-3 rounded bg-white border border-slate-300/50">
+                      <div className="text-slate-600 font-medium">{billing.email}</div>
                       <div className="text-slate-500 text-[10px] mt-1">
                         {billing.garages.map((g: any) => g.name).join(', ')}
                       </div>
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700">
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-300">
                         <div className="text-slate-500 text-[10px]">
                           {new Date(billing.nextBillingDate).toLocaleDateString('en-GB', {
                             day: 'numeric',
@@ -652,7 +664,7 @@ export default function AdminPage() {
                             year: 'numeric'
                           })}
                         </div>
-                        <div className="text-slate-100 font-semibold">
+                        <div className="text-slate-900 font-semibold">
                           {new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(billing.expectedAmount / 100)}
                         </div>
                       </div>
@@ -669,20 +681,20 @@ export default function AdminPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-slate-100">Businesses</h2>
-            <p className="text-sm text-slate-400">
+            <h2 className="text-xl font-semibold text-slate-900">Businesses</h2>
+            <p className="text-sm text-slate-500">
               Start with a business before assigning branches and users. Use the search field to locate businesses quickly.
             </p>
           </div>
-          <span className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-slate-500">
+          <span className="rounded-full border border-slate-300 px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-slate-500">
             {businesses.length} businesses
           </span>
         </div>
         <div className="mt-6 space-y-3">
-          <label className="text-sm font-medium text-slate-300" htmlFor="businessSearch">
+          <label className="text-sm font-medium text-slate-600" htmlFor="businessSearch">
             Search businesses
           </label>
           <input
@@ -691,7 +703,7 @@ export default function AdminPage() {
             value={businessSearch}
             onChange={(event) => setBusinessSearch(event.target.value)}
             placeholder="Filter by business name"
-            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
           />
         </div>
 
@@ -699,7 +711,7 @@ export default function AdminPage() {
           <>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
+                <thead className="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-200">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Business Name</th>
                     <th className="px-4 py-3 font-semibold text-center">Branches</th>
@@ -710,10 +722,10 @@ export default function AdminPage() {
                   {paginatedBusinesses.map((business) => (
                   <tr
                     key={business.id}
-                    className={`border-b border-slate-800 transition-colors ${
+                    className={`border-b border-slate-200 transition-colors ${
                       business.id === selectedBusinessId
-                        ? 'bg-sky-500/10'
-                        : 'hover:bg-slate-800/40'
+                        ? 'bg-brand-100'
+                        : 'hover:bg-slate-50'
                     }`}
                   >
                     <td className="px-4 py-3">
@@ -721,12 +733,12 @@ export default function AdminPage() {
                         onClick={() => setSelectedBusinessId(business.id)}
                         className="text-left w-full"
                       >
-                        <div className="font-semibold text-slate-100">{business.name}</div>
+                        <div className="font-semibold text-slate-900">{business.name}</div>
                         <div className="text-xs text-slate-500 mt-0.5">ID: {business.id}</div>
                       </button>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className="inline-flex items-center justify-center rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-300">
+                      <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
                         {business.branches.length}
                       </span>
                     </td>
@@ -752,15 +764,15 @@ export default function AdminPage() {
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="mt-4 flex items-center justify-between border-t border-slate-800 pt-4">
-                <div className="text-sm text-slate-400">
+              <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-4">
+                <div className="text-sm text-slate-500">
                   Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredBusinesses.length)} of {filteredBusinesses.length} businesses
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-3 py-1 rounded-lg border border-slate-700 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-1 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     Previous
                   </button>
@@ -772,7 +784,7 @@ export default function AdminPage() {
                         className={`px-3 py-1 rounded-lg text-sm transition-colors ${
                           currentPage === page
                             ? 'bg-violet-600 text-white'
-                            : 'border border-slate-700 text-slate-300 hover:bg-slate-800'
+                            : 'border border-slate-300 text-slate-600 hover:bg-slate-100'
                         }`}
                       >
                         {page}
@@ -782,7 +794,7 @@ export default function AdminPage() {
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-3 py-1 rounded-lg border border-slate-700 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-1 rounded-lg border border-slate-300 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     Next
                   </button>
@@ -812,26 +824,26 @@ export default function AdminPage() {
                 <span className="text-xs font-bold uppercase tracking-wider text-white">Currently Editing</span>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-100">{selectedBusiness.name}</h3>
-                <p className="text-xs text-slate-400">ID: {selectedBusiness.id}</p>
+                <h3 className="text-lg font-bold text-slate-900">{selectedBusiness.name}</h3>
+                <p className="text-xs text-slate-500">ID: {selectedBusiness.id}</p>
               </div>
             </div>
           </div>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold text-slate-100">Branches</h2>
-                <p className="text-sm text-slate-400">Manage branches for {selectedBusiness.name}</p>
+                <h2 className="text-xl font-semibold text-slate-900">Branches</h2>
+                <p className="text-sm text-slate-500">Manage branches for {selectedBusiness.name}</p>
               </div>
-              <span className="rounded-full border border-slate-700 px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-slate-500">
+              <span className="rounded-full border border-slate-300 px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-slate-500">
                 {branches.length} branches
               </span>
             </div>
           <div className="mt-6 space-y-4">
             {/* Business Point of Contact */}
-            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Business Point of Contact</p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Business Point of Contact</p>
               <form
                 className="space-y-3"
                 onSubmit={(event) => {
@@ -848,43 +860,43 @@ export default function AdminPage() {
                 }}
               >
                 <div className="grid gap-3 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-sm text-slate-300">
+                  <label className="flex flex-col gap-1 text-sm text-slate-600">
                     Name
                     <input
                       type="text"
                       value={contactForm.contactName}
                       onChange={(e) => setContactForm({ ...contactForm, contactName: e.target.value })}
-                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                       placeholder="Casey Admin"
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-sm text-slate-300">
+                  <label className="flex flex-col gap-1 text-sm text-slate-600">
                     Email
                     <input
                       type="email"
                       value={contactForm.contactEmail}
                       onChange={(e) => setContactForm({ ...contactForm, contactEmail: e.target.value })}
-                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                       placeholder="contact@biz.com"
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-sm text-slate-300">
+                  <label className="flex flex-col gap-1 text-sm text-slate-600">
                     Telephone
                     <input
                       type="tel"
                       value={contactForm.contactPhone}
                       onChange={(e) => setContactForm({ ...contactForm, contactPhone: e.target.value })}
-                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                       placeholder="(555) 123-4567"
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-sm text-slate-300">
+                  <label className="flex flex-col gap-1 text-sm text-slate-600">
                     Role
                     <input
                       type="text"
                       value={contactForm.contactRole}
                       onChange={(e) => setContactForm({ ...contactForm, contactRole: e.target.value })}
-                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                       placeholder="Owner"
                     />
                   </label>
@@ -893,12 +905,12 @@ export default function AdminPage() {
                   <button
                     type="submit"
                     disabled={updateContactMutation.isPending}
-                    className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500"
+                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-700 disabled:bg-slate-700 disabled:text-slate-500"
                   >
                     {updateContactMutation.isPending ? 'Saving…' : 'Save Contact Info'}
                   </button>
                   {contactMessage && (
-                    <p className="text-sm text-slate-300">{contactMessage}</p>
+                    <p className="text-sm text-slate-600">{contactMessage}</p>
                   )}
                 </div>
               </form>
@@ -907,7 +919,7 @@ export default function AdminPage() {
             <button
               type="button"
               onClick={() => setIsBranchFormVisible((prev) => !prev)}
-              className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 hover:border-slate-500"
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:border-slate-500"
             >
               {isBranchFormVisible ? 'Hide add branch form' : 'Add branches'}
             </button>
@@ -925,29 +937,29 @@ export default function AdminPage() {
                     branchMutation.mutate({ businessId: selectedBusiness.id, name: branchName.trim() });
                   }}
                 >
-                  <label className="flex flex-1 flex-col gap-1 text-sm text-slate-300">
+                  <label className="flex flex-1 flex-col gap-1 text-sm text-slate-600">
                     Branch name
                     <input
                       type="text"
                       value={branchName}
                       onChange={(event) => setBranchName(event.target.value)}
-                      className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                       placeholder="DMS Lane"
                     />
                   </label>
                   <button
                     type="submit"
-                    className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-400"
+                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-700"
                     disabled={branchMutation.isPending}
                   >
                     {branchMutation.isPending ? 'Creating…' : 'Create branch'}
                   </button>
                 </form>
-                {branchMessage && <p className="text-sm text-slate-300">{branchMessage}</p>}
+                {branchMessage && <p className="text-sm text-slate-600">{branchMessage}</p>}
               </div>
             )}
             <div className="space-y-3">
-              <label className="text-sm font-medium text-slate-300" htmlFor="branchSearch">
+              <label className="text-sm font-medium text-slate-600" htmlFor="branchSearch">
                 Search branches
               </label>
               <input
@@ -956,7 +968,7 @@ export default function AdminPage() {
                 value={branchSearch}
                 onChange={(event) => setBranchSearch(event.target.value)}
                 placeholder="Filter by branch name"
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
@@ -982,20 +994,20 @@ export default function AdminPage() {
                   branch.activationBookingsCount < branch.bookingsRequiredForActivation;
 
                 let billingStatus = 'Active';
-                let statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+                let statusColor = 'text-emerald-700 bg-emerald-50 border-emerald-300';
 
                 if (inTrial) {
                   billingStatus = `Trial until ${new Date(branch.trialEndDate!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
-                  statusColor = 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+                  statusColor = 'text-amber-700 bg-amber-50 border-amber-300';
                 } else if (needsActivation) {
                   billingStatus = `Awaiting bookings (${branch.activationBookingsCount}/${branch.bookingsRequiredForActivation})`;
-                  statusColor = 'text-sky-400 bg-sky-500/10 border-sky-500/30';
+                  statusColor = 'text-brand-600 bg-brand-100 border-brand-200';
                 }
 
                 return (
-                  <div key={branch.id} className="rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3">
+                  <div key={branch.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-slate-200">{branch.name}</p>
+                      <p className="text-sm font-semibold text-slate-700">{branch.name}</p>
                       <span className={`text-[10px] font-medium px-2 py-1 rounded border ${statusColor}`}>
                         {billingStatus}
                       </span>
@@ -1003,37 +1015,37 @@ export default function AdminPage() {
                     <p className="mt-1 text-[11px] text-slate-500">Garage ID: {branch.id}</p>
 
                     {/* Billing Information */}
-                    <div className="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/60 p-3">
+                    <div className="mt-3 rounded-lg border border-slate-300/50 bg-white p-3">
                       <div className="flex items-center justify-between mb-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Billing</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Billing</p>
                         <button
                           onClick={() => router.push(`/admin/billing/${branch.id}`)}
-                          className="text-[10px] font-semibold uppercase tracking-wide text-sky-400 hover:text-sky-300 transition-colors"
+                          className="text-[10px] font-semibold uppercase tracking-wide text-brand-600 hover:text-brand-700 transition-colors"
                         >
                           {hasBillingConfigured ? 'Edit' : 'Configure'}
                         </button>
                       </div>
                       {hasBillingConfigured ? (
                         <div className="space-y-1">
-                          <p className="text-xs text-slate-300">
+                          <p className="text-xs text-slate-600">
                             <span className="text-slate-500">Subscription:</span> £{branch.subscriptionCostGbp.toFixed(2)}/month
                           </p>
-                          <p className="text-xs text-slate-300">
+                          <p className="text-xs text-slate-600">
                             <span className="text-slate-500">Included:</span> {branch.includedMinutes} minutes
                           </p>
-                          <p className="text-xs text-slate-300">
+                          <p className="text-xs text-slate-600">
                             <span className="text-slate-500">Overage:</span> £{branch.costPerMinuteGbp.toFixed(2)}/min
                           </p>
-                          <p className="text-xs text-slate-300">
+                          <p className="text-xs text-slate-600">
                             <span className="text-slate-500">VAT:</span> {(branch.vatRate * 100).toFixed(0)}%
                           </p>
                           {branch.billingDay && (
-                            <p className="text-xs text-slate-300 pt-1 border-t border-slate-700/50 mt-2">
+                            <p className="text-xs text-slate-600 pt-1 border-t border-slate-300/50 mt-2">
                               <span className="text-slate-500">Direct Debit:</span> {branch.billingDay}{branch.billingDay === 1 ? 'st' : branch.billingDay === 2 ? 'nd' : branch.billingDay === 3 ? 'rd' : 'th'} of every month
                             </p>
                           )}
                           {!branch.billingDay && (inTrial || needsActivation) && (
-                            <p className="text-xs text-amber-400 pt-1 border-t border-slate-700/50 mt-2">
+                            <p className="text-xs text-amber-700 pt-1 border-t border-slate-300/50 mt-2">
                               <span className="text-slate-500">Direct Debit:</span> Not yet set (pending activation)
                             </p>
                           )}
@@ -1043,27 +1055,27 @@ export default function AdminPage() {
                       )}
                     </div>
                     
-                    <div className="mt-3 rounded-lg border border-slate-700/50 bg-slate-900/60 p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Branch Details</p>
+                    <div className="mt-3 rounded-lg border border-slate-300/50 bg-white p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Branch Details</p>
                       <div className="space-y-1.5">
-                        <p className="text-xs text-slate-300">
+                        <p className="text-xs text-slate-600">
                           <span className="text-slate-500">Email:</span> {branch.agentConfiguration?.emailAddress || 'Not set'}
                         </p>
-                        <p className="text-xs text-slate-300">
+                        <p className="text-xs text-slate-600">
                           <span className="text-slate-500">Phone:</span> {contactPhone || 'Not set'}
                         </p>
-                        <p className="text-xs text-slate-300">
+                        <p className="text-xs text-slate-600">
                           <span className="text-slate-500">Summary contact:</span> {branch.agentConfiguration?.callSummaryEmail || 'Not set'}
                         </p>
-                        <p className="text-xs text-slate-300">
+                        <p className="text-xs text-slate-600">
                           <span className="text-slate-500">Notification emails:</span> {branch.agentConfiguration?.notificationEmails?.length ? branch.agentConfiguration.notificationEmails.join(', ') : 'Not set'}
                         </p>
                       </div>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-700/50 bg-slate-900/60 p-3">
+                    <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-300/50 bg-white p-3">
                       <div className="flex flex-col gap-1">
-                        <p className="text-xs font-semibold text-slate-300">Messaging Access</p>
+                        <p className="text-xs font-semibold text-slate-600">Messaging Access</p>
                         <p className="text-[10px] text-slate-500">Enable WhatsApp, Facebook, Instagram messaging</p>
                       </div>
                       <label className="relative inline-flex cursor-pointer items-center">
@@ -1080,12 +1092,12 @@ export default function AdminPage() {
                                    updateMessagingAccessMutation.variables?.garageId === branch.id}
                           className="peer sr-only"
                         />
-                        <div className="peer h-6 w-11 rounded-full bg-slate-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-600 after:bg-white after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"></div>
+                        <div className="peer h-6 w-11 rounded-full bg-slate-700 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"></div>
                       </label>
                     </div>
 
                     <div className="mt-3 flex flex-col gap-2">
-                      <label className="text-xs text-slate-400" htmlFor={`twilio-${branch.id}`}>
+                      <label className="text-xs text-slate-500" htmlFor={`twilio-${branch.id}`}>
                         ReceptionMate number (Twilio)
                       </label>
                       <div className="flex flex-col gap-2 sm:flex-row">
@@ -1095,14 +1107,14 @@ export default function AdminPage() {
                           value={draftTwilioNumber}
                           onChange={(event) => handleTwilioDraftChange(branch.id, event.target.value)}
                           disabled={isUpdatingTwilio}
-                          className="w-full flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                          className="w-full flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                           placeholder="+44…"
                         />
                         <button
                           type="button"
                           onClick={() => handleSaveTwilioNumber(branch.id)}
                           disabled={isUpdatingTwilio || !trimmedDraftTwilio || !hasTwilioChanges}
-                          className="inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-100 transition hover:border-sky-500 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-900 transition hover:border-brand-600 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isUpdatingTwilio ? 'Saving…' : 'Save number'}
                         </button>
@@ -1121,7 +1133,7 @@ export default function AdminPage() {
                       {activationState && (
                         <p
                           className={`text-[11px] ${
-                            activationState.tone === 'success' ? 'text-emerald-400' : 'text-red-400'
+                            activationState.tone === 'success' ? 'text-emerald-700' : 'text-red-400'
                           }`}
                         >
                           {activationState.message}
@@ -1158,11 +1170,11 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+        <section className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between">
-              <h2 className="text-xl font-semibold text-slate-100">Users</h2>
-                <p className="text-sm text-slate-400">
+              <h2 className="text-xl font-semibold text-slate-900">Users</h2>
+                <p className="text-sm text-slate-500">
                 Only ReceptionMate staff see this area; branch managers use the calls dashboard with their assigned branches.
               </p>
             </div>
@@ -1199,7 +1211,7 @@ export default function AdminPage() {
               }}
             >
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300" htmlFor="adminEmail">
+                <label className="text-sm font-medium text-slate-600" htmlFor="adminEmail">
                   Email address
                 </label>
                 <input
@@ -1207,13 +1219,13 @@ export default function AdminPage() {
                   type="email"
                   value={userForm.email}
                   onChange={(event) => setUserForm({ ...userForm, email: event.target.value })}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                   required
                 />
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-300" htmlFor="adminPassword">
+                  <label className="text-sm font-medium text-slate-600" htmlFor="adminPassword">
                     Password
                   </label>
                   <input
@@ -1221,12 +1233,12 @@ export default function AdminPage() {
                     type="password"
                     value={userForm.password}
                     onChange={(event) => setUserForm({ ...userForm, password: event.target.value })}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                     required
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-300" htmlFor="adminPasswordConfirm">
+                  <label className="text-sm font-medium text-slate-600" htmlFor="adminPasswordConfirm">
                     Confirm password
                   </label>
                   <input
@@ -1234,13 +1246,13 @@ export default function AdminPage() {
                     type="password"
                     value={userForm.confirmPassword}
                     onChange={(event) => setUserForm({ ...userForm, confirmPassword: event.target.value })}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                     required
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300" htmlFor="userRole">
+                <label className="text-sm font-medium text-slate-600" htmlFor="userRole">
                   Role
                 </label>
                 <select
@@ -1249,7 +1261,7 @@ export default function AdminPage() {
                   onChange={(event) =>
                     setUserForm({ ...userForm, role: event.target.value as UserRole })
                   }
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                 >
                   <option value="USER">Standard user</option>
                   <option value="MANAGER">Manager</option>
@@ -1260,8 +1272,8 @@ export default function AdminPage() {
                 </p>
               </div>
               <fieldset className="space-y-2">
-                <legend className="text-sm font-medium text-slate-300">Assign branches ({currentBusinessName})</legend>
-                <div className="grid gap-2 text-sm text-slate-200">
+                <legend className="text-sm font-medium text-slate-600">Assign branches ({currentBusinessName})</legend>
+                <div className="grid gap-2 text-sm text-slate-700">
                   {!selectedBusiness && (
                     <p className="text-sm text-slate-500">Select a business to pick branches.</p>
                   )}
@@ -1282,7 +1294,7 @@ export default function AdminPage() {
                           }
                           return { ...prev, garageIds: Array.from(copy) };
                         })}
-                        className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500"
+                        className="h-4 w-4 rounded border-slate-300 bg-white text-brand-600"
                       />
                       <span className="flex flex-col text-left leading-tight">
                         <span>{branch.name}</span>
@@ -1294,13 +1306,13 @@ export default function AdminPage() {
               </fieldset>
               <button
                 type="submit"
-                className="w-full rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-400"
+                className="w-full rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-700"
                 disabled={userMutation.isPending}
               >
                 {userMutation.isPending ? 'Creating…' : 'Create user'}
               </button>
             </form>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">Existing users</h3>
@@ -1308,7 +1320,7 @@ export default function AdminPage() {
                     {users.length} users
                   </span>
                 </div>
-                <label className="text-sm font-medium text-slate-300" htmlFor="userSearch">
+                <label className="text-sm font-medium text-slate-600" htmlFor="userSearch">
                   Search users
                 </label>
                 <input
@@ -1317,7 +1329,7 @@ export default function AdminPage() {
                   value={userSearch}
                   onChange={(event) => setUserSearch(event.target.value)}
                   placeholder="Filter by email"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                 />
               </div>
               <div className="mt-4 space-y-3 text-sm">
@@ -1330,8 +1342,8 @@ export default function AdminPage() {
                     return `${label} (${id})`;
                   });
                   return (
-                    <div key={user.id} className="rounded-lg border border-slate-800 px-3 py-2">
-                      <div className="flex items-center justify-between text-slate-100">
+                    <div key={user.id} className="rounded-lg border border-slate-200 px-3 py-2">
+                      <div className="flex items-center justify-between text-slate-900">
                         <span>{user.email}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs tracking-[0.3em] text-slate-500">{user.role}</span>
@@ -1358,7 +1370,7 @@ export default function AdminPage() {
                           : 'None yet. Assign branches to give visibility.'}
                       </p>
                       {selectedBusiness && branches.length > 0 && (
-                        <div className="mt-3 space-y-2 border-t border-slate-800 pt-3">
+                        <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
                           <label className="text-xs uppercase tracking-[0.3em] text-slate-500">
                             Assign branch for {selectedBusiness.name}
                           </label>
@@ -1371,7 +1383,7 @@ export default function AdminPage() {
                                   [user.id]: event.target.value,
                                 }))
                               }
-                              className="flex-1 min-w-[160px] rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              className="flex-1 min-w-[160px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900"
                             >
                               <option value="">Select a branch</option>
                               {branches
@@ -1386,7 +1398,7 @@ export default function AdminPage() {
                               type="button"
                               onClick={() => handleAssign(user)}
                               disabled={assignmentMutation.isPending}
-                              className="rounded-lg bg-sky-500 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-sky-400"
+                              className="rounded-lg bg-brand-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-brand-700"
                             >
                               Assign
                             </button>
@@ -1394,7 +1406,7 @@ export default function AdminPage() {
                         </div>
                       )}
                       {selectedBusiness && assignedBranchesInBusiness.length > 0 && (
-                        <div className="mt-3 space-y-2 border-t border-slate-800 pt-3">
+                        <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
                           <label className="text-xs uppercase tracking-[0.3em] text-slate-500">
                             Unassign branch from {selectedBusiness.name}
                           </label>
@@ -1407,7 +1419,7 @@ export default function AdminPage() {
                                   [user.id]: event.target.value,
                                 }))
                               }
-                              className="flex-1 min-w-[160px] rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              className="flex-1 min-w-[160px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900"
                             >
                               <option value="">Select a branch</option>
                               {assignedBranchesInBusiness.map((branch) => (
@@ -1440,7 +1452,7 @@ export default function AdminPage() {
               </div>
             </div>
           </div>
-          {userMessage && <p className="mt-4 text-sm text-slate-300">{userMessage}</p>}
+          {userMessage && <p className="mt-4 text-sm text-slate-600">{userMessage}</p>}
         </section>
         </>
       )}

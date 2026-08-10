@@ -32,6 +32,30 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET is not configured');
+    }
+    const branchRoles = sanitizeBranchRoles(user.branchRoles);
+    let onboardingGarageIds = Array.isArray(user.garageAccessIds) ? [...user.garageAccessIds] : [];
+    if (user.role === 'RECEPTIONMATE_STAFF') {
+      const allGarages = await prisma.garage.findMany({ select: { id: true } });
+      onboardingGarageIds = allGarages.map((entry) => entry.id);
+    }
+    // Issue an onboarding JWT NOW. Each gate (password change, agreement,
+    // payment) reuses this token so the user is never logged out mid-flow.
+    const onboardingToken = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        branchRoles,
+        garageIds: onboardingGarageIds,
+      },
+      secret,
+      { expiresIn: '7d' },
+    );
+
     if (user.mustChangePassword) {
       const resetToken = randomBytes(32).toString('hex');
       const resetTokenExpiry = new Date(Date.now() + 3600000);
@@ -48,43 +72,32 @@ router.post('/login', async (req: Request, res: Response) => {
         success: true,
         passwordChangeRequired: true,
         resetToken,
-        user: { id: user.id, email: user.email, role: user.role, branchRoles: sanitizeBranchRoles(user.branchRoles) },
+        token: onboardingToken,
+        user: { id: user.id, email: user.email, role: user.role, branchRoles },
+      });
+    }
+
+    // Onboarding order: agreement → DD → setup wizard. Agreement comes first
+    // because everything downstream is contingent on a signed contract.
+    const pendingAgreement = await prisma.agreement.findFirst({
+      where: { userId: user.id, status: { in: ['draft', 'sent'] } },
+      select: { id: true },
+    });
+    if (pendingAgreement) {
+      return res.json({
+        success: true,
+        agreementSignRequired: true,
+        token: onboardingToken,
+        user: { id: user.id, email: user.email, role: user.role, branchRoles },
       });
     }
 
     // Check if payment setup is required
     if (user.mustSetupPayment) {
-      const secret = process.env.JWT_SECRET;
-      if (!secret) {
-        throw new Error('JWT_SECRET is not configured');
-      }
-
-      const branchRoles = sanitizeBranchRoles(user.branchRoles);
-
-      // Get garage IDs for the token (users still need access to portal features)
-      let paymentSetupGarageIds = Array.isArray(user.garageAccessIds) ? [...user.garageAccessIds] : [];
-      if (user.role === 'RECEPTIONMATE_STAFF') {
-        const allGarages = await prisma.garage.findMany({ select: { id: true } });
-        paymentSetupGarageIds = allGarages.map((entry) => entry.id);
-      }
-
-      // Generate a token for authenticated payment setup
-      const token = jwt.sign(
-        {
-          userId: user.id,
-          email: user.email,
-          role: user.role,
-          branchRoles,
-          garageIds: paymentSetupGarageIds,
-        },
-        secret,
-        { expiresIn: '12h' },
-      );
-
       return res.json({
         success: true,
         paymentSetupRequired: true,
-        token,
+        token: onboardingToken,
         user: { id: user.id, email: user.email, role: user.role, branchRoles },
       });
     }
@@ -118,13 +131,6 @@ router.post('/login', async (req: Request, res: Response) => {
     });
 
 
-    const branchRoles = sanitizeBranchRoles(user.branchRoles);
-
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      throw new Error('JWT_SECRET is not configured');
-    }
-
     const token = jwt.sign(
       {
         userId: user.id,
@@ -134,7 +140,7 @@ router.post('/login', async (req: Request, res: Response) => {
         branchRoles,
       },
       secret,
-      { expiresIn: '12h' },
+      { expiresIn: '7d' },
     );
 
     res.json({
@@ -302,7 +308,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { id: user.id },
       data: {
         passwordHash,
@@ -312,7 +318,48 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       },
     });
 
-    res.json({ success: true, message: 'Password reset successfully' });
+    // Tell the frontend what the next onboarding step is so it can route
+    // the user forward without forcing them to log in again.
+    const pendingAgreement = await prisma.agreement.findFirst({
+      where: { userId: user.id, status: { in: ['draft', 'sent'] } },
+      select: { id: true },
+    });
+
+    // Auto-login: issue a session so the reset page can drop the customer straight into the
+    // portal (self-serve "choose a password" flow) instead of bouncing them to the login screen.
+    let session: unknown = null;
+    const secret = process.env.JWT_SECRET;
+    if (secret) {
+      const allowedGarageIds = Array.isArray(updatedUser.garageAccessIds) ? updatedUser.garageAccessIds : [];
+      const branchRoles = sanitizeBranchRoles(updatedUser.branchRoles);
+      const accessibleGarages = await prisma.garage.findMany({
+        where: { id: { in: allowedGarageIds } },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+      const authToken = jwt.sign(
+        { userId: updatedUser.id, email: updatedUser.email, garageIds: allowedGarageIds, role: updatedUser.role, branchRoles },
+        secret,
+        { expiresIn: '12h' },
+      );
+      session = {
+        token: authToken,
+        selectedGarageId: allowedGarageIds[0] ?? null,
+        garages: accessibleGarages,
+        user: { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role, branchRoles },
+      };
+    }
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully',
+      session,
+      nextStep: pendingAgreement
+        ? 'agreement'
+        : updatedUser.mustSetupPayment
+        ? 'payment'
+        : 'dashboard',
+    });
   } catch (error) {
     console.error('Password reset failed:', error);
     res.status(500).json({ error: 'Failed to reset password' });

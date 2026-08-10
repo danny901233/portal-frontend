@@ -22,7 +22,8 @@ router.post(
   authenticate,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
-    const { voiceId } = req.body;
+    const { voiceId, lang } = req.body;
+    const isFrench = lang === 'fr';
 
     const allowedGarages = resolveAllowedGarages(req.user);
     if (!allowedGarages.includes(garageId)) {
@@ -40,7 +41,10 @@ router.post(
         select: { greetingLine: true },
       });
 
-      const text = config?.greetingLine?.trim() || 'Hello, how can I help you today?';
+      const fallback = isFrench
+        ? 'Bonjour, comment puis-je vous aider aujourd’hui ?'
+        : 'Hello, how can I help you today?';
+      const text = config?.greetingLine?.trim() || fallback;
       const elevenLabsVoiceId = VOICE_IDS[voiceId];
       const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
 
@@ -60,7 +64,9 @@ router.post(
           },
           body: JSON.stringify({
             text,
-            model_id: 'eleven_monolingual_v1',
+            // Multilingual model for French so the accent/pronunciation is
+            // correct; keep the English-only model for English previews.
+            model_id: isFrench ? 'eleven_multilingual_v2' : 'eleven_monolingual_v1',
             voice_settings: {
               stability: 0.5,
               similarity_boost: 0.5,

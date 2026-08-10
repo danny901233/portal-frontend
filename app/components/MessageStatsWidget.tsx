@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
+import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface PlatformStats {
   active: number;
@@ -43,6 +44,27 @@ const InstagramIcon = () => (
 );
 
 export default function MessageStatsWidget({ garageId, startDate, endDate }: MessageStatsWidgetProps) {
+  const lang = useLang();
+  const c = {
+    en: {
+      csvFailed: 'Failed to download CSV',
+      title: 'Message Statistics',
+      downloading: 'Downloading…',
+      downloadCsv: 'Download CSV',
+      active: 'Active',
+      attention: 'Attention',
+      resolved: 'Resolved',
+    },
+    fr: {
+      csvFailed: 'Échec du téléchargement du CSV',
+      title: 'Statistiques des messages',
+      downloading: 'Téléchargement…',
+      downloadCsv: 'Télécharger le CSV',
+      active: 'Actifs',
+      attention: 'Attention',
+      resolved: 'Résolus',
+    },
+  }[lang];
   const [stats, setStats] = useState<MessageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
@@ -106,7 +128,7 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
       }
     } catch (error) {
       console.error('Error downloading CSV:', error);
-      alert('Failed to download CSV');
+      alert(c.csvFailed);
     } finally {
       setDownloading(false);
     }
@@ -114,12 +136,12 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
 
   if (loading) {
     return (
-      <div className="bg-slate-900/40 border border-slate-800 rounded-lg p-4">
+      <div className="bg-white/40 border border-slate-200 rounded-lg p-4">
         <div className="animate-pulse">
-          <div className="h-3 bg-slate-800 rounded w-24 mb-3"></div>
+          <div className="h-3 bg-slate-200 rounded w-24 mb-3"></div>
           <div className="space-y-2">
-            <div className="h-2 bg-slate-800 rounded"></div>
-            <div className="h-2 bg-slate-800 rounded w-4/5"></div>
+            <div className="h-2 bg-slate-200 rounded"></div>
+            <div className="h-2 bg-slate-200 rounded w-4/5"></div>
           </div>
         </div>
       </div>
@@ -137,33 +159,33 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
   ];
 
   return (
-    <div className="bg-slate-900/40 border border-slate-800 rounded-lg p-4">
+    <div className="bg-white/40 border border-slate-200 rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-slate-100">Message Statistics</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{c.title}</h3>
         <button
           onClick={handleDownloadCSV}
           disabled={downloading}
           className={cn(
-            'text-xs px-3 py-1 rounded-lg border border-emerald-500/60 bg-emerald-500/10 text-emerald-200 transition hover:border-emerald-400 hover:text-emerald-100',
+            'text-xs px-3 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 transition hover:border-emerald-400 hover:text-emerald-100',
             downloading && 'cursor-not-allowed opacity-60'
           )}
         >
-          {downloading ? 'Downloading…' : 'Download CSV'}
+          {downloading ? c.downloading : c.downloadCsv}
         </button>
       </div>
 
       {/* Overall Stats */}
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="bg-slate-800/40 rounded-lg p-2">
-          <p className="text-[10px] text-slate-400 mb-0.5">Active</p>
-          <p className="text-lg font-bold text-slate-100">{stats.totals.active}</p>
+        <div className="bg-slate-50 rounded-lg p-2">
+          <p className="text-[10px] text-slate-500 mb-0.5">{c.active}</p>
+          <p className="text-lg font-bold text-slate-900">{stats.totals.active}</p>
         </div>
         <div className="bg-orange-500/10 rounded-lg p-2">
-          <p className="text-[10px] text-orange-400 mb-0.5">Attention</p>
+          <p className="text-[10px] text-orange-400 mb-0.5">{c.attention}</p>
           <p className="text-lg font-bold text-orange-400">{stats.totals.needsAttention}</p>
         </div>
         <div className="bg-green-500/10 rounded-lg p-2">
-          <p className="text-[10px] text-green-400 mb-0.5">Resolved</p>
+          <p className="text-[10px] text-green-400 mb-0.5">{c.resolved}</p>
           <p className="text-lg font-bold text-green-400">{stats.totals.resolved}</p>
         </div>
       </div>
@@ -175,19 +197,19 @@ export default function MessageStatsWidget({ garageId, startDate, endDate }: Mes
           const Icon = platform.icon;
 
           return (
-            <div key={platform.id} className="flex items-center justify-between p-2 bg-slate-800/40 rounded text-xs">
+            <div key={platform.id} className="flex items-center justify-between p-2 bg-slate-50 rounded text-xs">
               <div className="flex items-center gap-2">
                 <div className={cn(platform.color)}>
                   <Icon />
                 </div>
-                <span className="text-slate-100 font-medium">{platform.name}</span>
+                <span className="text-slate-900 font-medium">{platform.name}</span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-slate-400">{platformStats.active}</span>
+                <span className="text-slate-500">{platformStats.active}</span>
                 {platformStats.needsAttention > 0 && (
                   <span className="text-orange-400">{platformStats.needsAttention}</span>
                 )}
-                <span className="text-slate-300 font-semibold">{platformStats.total}</span>
+                <span className="text-slate-700 font-semibold">{platformStats.total}</span>
               </div>
             </div>
           );

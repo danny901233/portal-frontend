@@ -9,127 +9,350 @@ datasource db {
 }
 
 model Garage {
-  id    String @id @default(uuid())
-  name  String
-  twilioNumber String?
+  id                 String  @id @default(uuid())
+  name               String
+  twilioNumber       String?
   hasMessagingAccess Boolean @default(false)
+
+  // Arrears / access gating: when true, this garage's OWN users see only date+tag for
+  // their calls (caller name/number, summary, transcript and recordings are withheld),
+  // and per-call emails become an "account in arrears" notice. Internal staff are unaffected.
+  accessRestricted   Boolean @default(false)
 
   // Billing Configuration
   subscriptionCostGbp Float @default(0)
-  includedMinutes Int @default(0)
-  costPerMinuteGbp Float @default(0)
-  vatRate Float @default(0.20)
+  includedMinutes     Int   @default(0)
+  costPerMinuteGbp    Float @default(0)
+  vatRate             Float @default(0.20)
+
+  // Webchat / Messaging Billing
+  messagingSubscriptionCostGbp Float @default(0)
+  includedMessages             Int   @default(0)
+  costPerMessageGbp            Float @default(0)
 
   // Trial and Activation
-  trialEndDate DateTime?
-  requiresBookingActivation Boolean @default(false)
-  bookingsRequiredForActivation Int @default(4)
-  activationBookingsCount Int @default(0)
-  subscriptionActivatedAt DateTime?
+  trialEndDate                  DateTime?
+  requiresBookingActivation     Boolean   @default(false)
+  bookingsRequiredForActivation Int       @default(4)
+  activationBookingsCount       Int       @default(0)
+  subscriptionActivatedAt       DateTime?
+
+  // Stripe billing (NEW Assist self-serve signups only — 14-day trial then monthly card
+  // subscription). Existing customers stay on GoCardless Direct Debit and never get these set.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  trialEndsAt          DateTime?
+  ghlOpportunityId     String?
+
+  // Arrears timer: set when a Stripe card charge fails. Once this is older than the grace
+  // period (2 days) the garage is auto-locked (accessRestricted = true). Cleared when a
+  // payment succeeds. Only ever set for Stripe customers (GoCardless billing is separate).
+  paymentFailedAt      DateTime?
 
   // Setup Wizard
-  setupWizardCompleted Boolean @default(false)
+  setupWizardCompleted   Boolean   @default(false)
   setupWizardCompletedAt DateTime?
 
-  calls Call[]
-  agentConfiguration AgentConfiguration?
-  knowledgeDocuments AgentKnowledgeDocument[]
-  business   Business? @relation(fields: [businessId], references: [id])
-  businessId String?
-  conversations ChatConversation[]
+  // Widget Customization
+  widgetLogoUrl      String?
+  widgetLogoWidth    Int     @default(120)
+  widgetLogoHeight   Int     @default(60)
+  widgetPrimaryColor String?
+  widgetButtonColor  String?
+  widgetButtonShape  String  @default("circle")
+  widgetButtonIcon   String  @default("chat")
+
+  calls                  Call[]
+  agentConfiguration     AgentConfiguration?
+  knowledgeDocuments     AgentKnowledgeDocument[]
+  business               Business?                @relation(fields: [businessId], references: [id])
+  businessId             String?
+  conversations          ChatConversation[]
   socialMediaConnections SocialMediaConnection[]
-  customers Customer[]
-  smsBookingLinks SmsBookingLink[]
-  invoices Invoice[]
+  customers              Customer[]
+  smsBookingLinks        SmsBookingLink[]
+  invoices               Invoice[]
+  messageTemplates       MessageTemplate[]
+  outboundCampaigns      OutboundCampaign[]
+  garageHiveConnection   GarageHiveConnection?
+}
+
+// Per-garage Garage Hive (Business Central) integration + daily reminder config.
+// Each Garage Hive account is its own BC environment (tenantId + environmentName);
+// branches are companies (companyId). The Azure AD app clientId/secret are shared
+// across accounts via env once each account grants the app access, but can be
+// overridden here per garage if needed.
+model GarageHiveConnection {
+  id                 String    @id @default(cuid())
+  garageId           String    @unique
+  garage             Garage    @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  tenantId           String
+  environmentName    String
+  companyId          String
+  clientId           String? // optional per-garage app creds; else shared env app
+  clientSecret       String?
+  remindersEnabled   Boolean   @default(false)
+  reminderDaysAhead  Int       @default(30)
+  reminderTemplateId String? // approved WhatsApp MessageTemplate id used for auto-sends
+  reminderChannel    String    @default("whatsapp") // "whatsapp" | "sms"
+  // Caller recognition — on an inbound call, look the caller's number up in the
+  // Garage Hive phonebook so the agent confirms their vehicle instead of asking
+  // for the reg. Off by default; GarageHive-agent only.
+  callerRecognitionEnabled Boolean @default(false)
+  // Advisory upsells — when a customer books over the phone, the voice agent
+  // checks their vehicle for outstanding health-check advisories (recommended
+  // work not yet booked) and offers to add them. GarageHive-agent only.
+  advisoryUpsellsEnabled Boolean @default(false)
+  lastRunAt          DateTime?
+  lastRunError       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 model Call {
-  id           String   @id @default(cuid())
-  garageId     String
-  garage       Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  roomName     String
-  recordingUrl String?
+  id                       String                    @id @default(cuid())
+  garageId                 String
+  garage                   Garage                    @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  roomName                 String
+  recordingUrl             String?
   recordingDurationSeconds Int?
-  recordingCompletedAt DateTime?
-  twilioCallSid String?
-  fromNumber     String?
-  durationSeconds Int    @default(0)
-  callType       String  @default("unknown")
-  registrationNumber String?
-  customerName   String?
-  customerPhone  String?
-  confirmedBooking Boolean @default(false)
+  recordingCompletedAt     DateTime?
+  twilioCallSid            String?
+  fromNumber               String?
+  durationSeconds          Int                       @default(0)
+  callType                 String                    @default("unknown")
+  registrationNumber       String?
+  customerName             String?
+  customerPhone            String?
+  confirmedBooking         Boolean                   @default(false)
   confirmedBookingCategory ConfirmedBookingCategory?
-  capturedRevenue Float?
-  bookingDetails String?
-  metrics      Json
-  transcript   Json
-  summary      String
-  emotionData  Json?
-  createdAt    DateTime @default(now())
-  feedback     CallFeedback?
+  capturedRevenue          Float?
+  bookingDetails           String?
+  metrics                  Json
+  transcript               Json
+  summary                  String
+  emotionData              Json?
+  createdAt                DateTime                  @default(now())
+  feedback                 CallFeedback?
 }
 
 model TwilioRecording {
-  id        String   @id @default(cuid())
-  callSid   String   @unique
-  recordingSid String?
-  recordingUrl String
+  id                       String    @id @default(cuid())
+  callSid                  String    @unique
+  recordingSid             String?
+  recordingUrl             String
   recordingDurationSeconds Int?
-  completedAt DateTime?
-  roomName  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  completedAt              DateTime?
+  roomName                 String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 }
 
 model User {
-  id           String @id @default(cuid())
-  email        String @unique
-  passwordHash String
-  mustChangePassword Boolean @default(false)
-  mustSetupPayment   Boolean @default(false)
-  gocardlessMandateId String?
-  gocardlessCustomerId String?
+  id                    String    @id @default(cuid())
+  email                 String    @unique
+  passwordHash          String
+  mustChangePassword    Boolean   @default(false)
+  mustSetupPayment      Boolean   @default(false)
+  gocardlessMandateId   String?
+  gocardlessCustomerId  String?
   billingCycleStartDate DateTime?
-  nextBillingDate      DateTime?
-  garageAccessIds String[] @default([])
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  role         UserRole @default(USER)
-  branchRoles  Json @default("{}")
-  resetToken       String?
-  resetTokenExpiry DateTime?
+  nextBillingDate       DateTime?
+  garageAccessIds       String[]  @default([])
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  role                  UserRole  @default(USER)
+  branchRoles           Json      @default("{}")
+  resetToken            String?
+  resetTokenExpiry      DateTime?
 
   // Onboarding tracking
-  setupWizardCompleted Boolean @default(false)
+  setupWizardCompleted   Boolean   @default(false)
   setupWizardCompletedAt DateTime?
+
+  // Service agreement
+  mustSignAgreement Boolean     @default(true)
+  agreements        Agreement[]
+
+  // Magic-link tokens for "sign your agreement" links (short-lived, single-use)
+  signLinkTokens SignLinkToken[]
+
+  // In-portal support chat with the ReceptionMate team
+  supportConversation SupportConversation?
+  supportMessages     SupportMessage[]
+
+  // Mobile push notifications (iOS APNs device tokens). One user may have
+  // several devices; tokens are registered by the mobile app on launch.
+  deviceTokens String[] @default([])
+  pushEnabled  Boolean  @default(true)
+}
+
+// Lightweight inbound-support chat between a portal user (the customer) and
+// the ReceptionMate team. One thread per user — keeps the team's view simple
+// and avoids fragmenting context across multiple "tickets".
+model SupportConversation {
+  id              String           @id @default(cuid())
+  userId          String           @unique
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 'ai' (AI is handling) | 'awaiting_staff' (escalated, staff hasn't replied) |
+  // 'staff_handled' (a staff member has replied) | 'closed'
+  status          String           @default("ai")
+  aiTurns         Int              @default(0)
+  // Cached for the admin inbox so we don't have to fan out joins for every row
+  lastMessageAt   DateTime         @default(now())
+  lastMessageText String?
+  // Unread counters — incremented on inbound, reset by the relevant side
+  unreadForUser   Int              @default(0)
+  unreadForStaff  Int              @default(0)
+  closedAt        DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  messages        SupportMessage[]
+
+  @@index([lastMessageAt])
+  @@index([status])
+}
+
+model SupportMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // Sender — `senderUserId` set when a real human sent it (could be the
+  // customer User or an RM staff User). `senderRole` distinguishes who sent it
+  // so the UI can render bubbles correctly regardless of who the User is.
+  senderRole     String // 'customer' | 'staff' | 'system'
+  senderUserId   String?
+  sender         User?               @relation(fields: [senderUserId], references: [id], onDelete: SetNull)
+  channel        String              @default("portal") // 'portal' | 'whatsapp' | 'slack' (future)
+  body           String              @db.Text
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// SaaS service agreement — one per business; staff issues a draft with commercial
+// terms, customer signs in the portal. Snapshot of the rendered HTML is stored so
+// updates to the template don't change what a customer has already signed.
+model Agreement {
+  id      String @id @default(cuid())
+  type    String // 'saas' (today) or 'partnership' (future)
+  version String // template version, e.g. '1.0'
+  status  String @default("draft") // 'draft' | 'sent' | 'signed' | 'externally_signed' | 'voided'
+
+  // Who it's for
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id])
+
+  // Commercial terms (the placeholders from the PDF)
+  clientName    String // matches the business name at the time of issue
+  setupFeeGbp   Float     @default(0)
+  licenceFeeGbp Float // £ per centre per month
+  centresCount  Int       @default(1)
+  licences      String[]  @default(["assist"]) // any of: assist, automate, connect
+  goLiveDate    DateTime?
+
+  // Rendered content snapshot — the exact HTML they saw at sign time
+  templateSnapshot String @db.Text
+
+  // Signature audit
+  signedAt        DateTime?
+  signedByName    String?
+  signedByEmail   String?
+  signedFromIp    String?
+  signedUserAgent String?
+  // Drawn-signature PNG as base64 data URL — embedded into templateSnapshot
+  signatureImage  String?   @db.Text
+
+  // Generated PDF copy
+  pdfUrl String?
+
+  // External signature (for High Level legacy customers)
+  externallySignedAt   DateTime?
+  externalSignatureRef String? // free text — e.g. High Level envelope ID
+
+  // Admin metadata
+  issuedByUserId String? // staff who created the draft
+  voidedAt       DateTime?
+  voidedReason   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([businessId])
+  @@index([status])
+}
+
+// Short-lived single-use tokens for "sign your agreement" email links.
+// Used so customers in the sales-led flow can land directly on /agreement/sign
+// without having to log in first.
+model SignLinkToken {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agreementId String?
+  purpose     String    @default("sign_agreement") // 'sign_agreement' for now
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model AgentConfiguration {
-  id                String   @id @default(cuid())
-  garageId          String   @unique
-  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  branchName        String
-  phoneNumber       String?
-  emailAddress      String?
-  branchAddress     String?
-  websiteUrl        String?
-  weeklyOpeningHours Json?
-  holidayClosures   String?
-  greetingLine      String?
-  tonePreference    String   @default("standard")
-  responseSpeed     String   @default("normal")
-  interruptionSensitivity Float @default(0.5)
-  allowFastFitOnly  Boolean  @default(false)
-  notificationEmails String[] @default([])
-  integrationProvider String  @default("none")
+  id                        String   @id @default(cuid())
+  garageId                  String   @unique
+  garage                    Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  branchName                String
+  agentName                 String?
+  phoneNumber               String?
+  emailAddress              String?
+  branchAddress             String?
+  websiteUrl                String?
+  weeklyOpeningHours        Json?
+  holidayClosures           String?
+  greetingLine              String?
+  tonePreference            String   @default("standard")
+  responseSpeed             String   @default("normal")
+  interruptionSensitivity   Float    @default(0.5)
+  allowFastFitOnly          Boolean  @default(false)
+  // Garage Hive voice-agent booking behaviours (only for the GarageHive/automate agent)
+  callerRecognitionEnabled  Boolean  @default(false)
+  advisoryUpsellsEnabled    Boolean  @default(false)
+  enableDropOffBookings     Boolean  @default(false)
+  dropOffMessage            String   @default("drop your vehicle off between 8am and half ten in the morning")
+  dropOffExcludeServices    String[] @default(["MOT"])
+  notificationEmails        String[] @default([])
+  integrationProvider       String   @default("none")
   integrationProviderConfig Json?
-  agentType         String   @default("assist")
-  agentScript       String   @default("receptionmate-agent")
-  enableSmsBookingLinks Boolean @default(true)
-  voice             String   @default("leah")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  agentType                 String   @default("assist")
+  agentScript               String   @default("receptionmate-agent")
+  enableSmsBookingLinks     Boolean  @default(true)
+  humanEscalation           Boolean  @default(true)
+  transferNumber            String?
+  // Messaging (chat) human handoff — independent of the voice humanEscalation above.
+  // true  = the chat agent offers to take a message / flag the team when a human is asked for.
+  // false = the chat agent politely declines and points them at phone/email (messagingHandoffMessage).
+  messagingHumanHandoff     Boolean  @default(true)
+  messagingHandoffMessage   String?
+  // Messaging notifications: when to alert the garage and how.
+  messagingNotifyScope      String   @default("off")
+  messagingNotifyEmail      Boolean  @default(false)
+  messagingNotifySms        Boolean  @default(false)
+  messagingNotifyPhone      String?
+  allowBookings             Boolean  @default(false)
+  bookingLeadTimeDays       Int      @default(1)
+  customRules               Json?
+  dataCollectionFields      Json?
+  faqs                      Json?
+  pronunciations            Json?
+  voice                     String   @default("leah")
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
 
 model AgentKnowledgeDocument {
@@ -160,22 +383,36 @@ model CallFeedback {
 }
 
 model SmsBookingLink {
-  id              String   @id @default(cuid())
-  garageId        String
-  garage          Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  phoneNumber     String
+  id               String   @id @default(cuid())
+  garageId         String
+  garage           Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  phoneNumber      String
   twilioMessageSid String?
-  status          String   @default("sent")
-  costGbp         Float    @default(0.99)
-  createdAt       DateTime @default(now())
+  status           String   @default("sent")
+  costGbp          Float    @default(0.99)
+  createdAt        DateTime @default(now())
+
+  @@index([garageId, createdAt])
+  @@index([garageId])
+}
+
+// One row per messaging-notification SMS actually sent, for billing (£0.20 each).
+model MessagingNotificationSms {
+  id               String   @id @default(cuid())
+  garageId         String
+  phoneNumber      String
+  twilioMessageSid String?
+  costGbp          Float    @default(0.20)
+  createdAt        DateTime @default(now())
 
   @@index([garageId, createdAt])
   @@index([garageId])
 }
 
 model Business {
-  id           String   @id @default(cuid())
+  id           String      @id @default(cuid())
   name         String
+  agreements   Agreement[]
   contactName  String?
   contactEmail String?
   contactPhone String?
@@ -183,34 +420,34 @@ model Business {
   garages      Garage[]
 
   // Billing Information
-  billingAddress      String?
-  billingCity         String?
-  billingPostcode     String?
-  billingCountry      String? @default("United Kingdom")
-  vatNumber           String?
-  companyRegNumber    String?
-  billingEmail        String?
+  billingAddress       String?
+  billingCity          String?
+  billingPostcode      String?
+  billingCountry       String?   @default("United Kingdom")
+  vatNumber            String?
+  companyRegNumber     String?
+  billingEmail         String?
   billingInfoUpdatedAt DateTime?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Customer {
-  id                String   @id @default(cuid())
-  garageId          String
-  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  name              String?
-  phone             String?
-  email             String?
-  whatsappId        String?
-  facebookUserId    String?
-  instagramUserId   String?
-  notes             String?
-  metadata          Json?
-  conversations     ChatConversation[]
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String             @id @default(cuid())
+  garageId        String
+  garage          Garage             @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  name            String?
+  phone           String?
+  email           String?
+  whatsappId      String?
+  facebookUserId  String?
+  instagramUserId String?
+  notes           String?
+  metadata        Json?
+  conversations   ChatConversation[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   @@index([garageId])
   @@index([garageId, phone])
@@ -218,31 +455,34 @@ model Customer {
 }
 
 model ChatConversation {
-  id            String   @id @default(cuid())
-  garageId      String
-  garage        Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  customerId    String?
-  customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  platform      String
-  customerPhone String?
-  platformUserId String?
-  customerName  String?
-  status        String   @default("active")
-  agentPaused   Boolean  @default(false)
-  agentPausedUntil DateTime?
-  needsAttention Boolean @default(false)
-  messageType   String?
-  confirmedBooking Boolean @default(false)
+  id                       String                    @id @default(cuid())
+  garageId                 String
+  garage                   Garage                    @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  customerId               String?
+  customer                 Customer?                 @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  platform                 String
+  customerPhone            String?
+  platformUserId           String?
+  customerName             String?
+  status                   String                    @default("active")
+  agentPaused              Boolean                   @default(false)
+  agentPausedUntil         DateTime?
+  pausedByUserId           String?
+  pausedByUserEmail        String?
+  needsAttention           Boolean                   @default(false)
+  messageType              String?
+  confirmedBooking         Boolean                   @default(false)
   confirmedBookingCategory ConfirmedBookingCategory?
-  capturedRevenue Float?
-  bookingDetails String?
-  tags          String[] @default([])
-  unreadCount   Int      @default(0)
-  lastMessageAt DateTime @default(now())
-  sessionState  Json?
-  messages      ChatMessage[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  capturedRevenue          Float?
+  bookingDetails           String?
+  tags                     String[]                  @default([])
+  unreadCount              Int                       @default(0)
+  lastMessageAt            DateTime                  @default(now())
+  sessionState             Json?
+  messages                 ChatMessage[]
+  toolCalls                ChatToolCall[]
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
 
   @@index([garageId, status])
   @@index([garageId, platform])
@@ -251,16 +491,41 @@ model ChatConversation {
 }
 
 model ChatMessage {
-  id             String   @id @default(cuid())
+  id             String           @id @default(cuid())
   conversationId String
   conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           String
   content        String
   mediaUrl       String?
   mediaType      String?
-  createdAt      DateTime @default(now())
+  metaMid        String?          @unique
+  staffUserId    String?
+  staffUserEmail String?
+  createdAt      DateTime         @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+// Observability for the web-chat agents: one row per tool call the agent makes.
+// Written fire-and-forget from the agent tool loop (chatAgentAssist/V2/Tyresoft).
+// Powers the per-conversation tool timeline and the staff success-rate dashboard.
+model ChatToolCall {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  garageId       String
+  agentType      String // assist | automate | tyresoft
+  toolName       String
+  args           Json?
+  result         Json?
+  success        Boolean
+  errorMessage   String?
+  durationMs     Int?
+  createdAt      DateTime         @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([garageId, createdAt])
+  @@index([toolName, success])
 }
 
 model SocialMediaConnection {
@@ -271,6 +536,7 @@ model SocialMediaConnection {
   whatsappPhoneNumberId String?
   pageId                String?
   instagramAccountId    String?
+  accountName           String?
   accessToken           String
   isActive              Boolean  @default(true)
   createdAt             DateTime @default(now())
@@ -278,6 +544,39 @@ model SocialMediaConnection {
 
   @@unique([garageId, platform])
   @@index([garageId])
+}
+
+model MessageTemplate {
+  id       String @id @default(cuid())
+  garageId String
+  garage   Garage @relation(fields: [garageId], references: [id], onDelete: Cascade)
+
+  name     String // Template name (lowercase, underscores only)
+  category String // UTILITY, MARKETING, AUTHENTICATION
+  language String @default("en_GB")
+
+  // Template content
+  headerType      String? // none, text, image, document
+  headerContent   String? // Header text or media URL
+  headerSample    String? // Sample value for {{1}} in header
+  bodyText        String // Main message body with {{1}}, {{2}} variables
+  variableSamples Json? // Sample values for variables e.g. {"{{1}}":"John","{{2}}":"15th March"}
+  footerText      String? // Optional footer
+  buttonType      String? // none, url, call, quick_reply
+  buttonText      String? // Button label
+  buttonValue     String? // URL or phone number
+
+  // Meta status
+  metaTemplateId  String? // Template ID returned by Meta after submission
+  status          String  @default("draft") // draft, pending, approved, rejected
+  rejectionReason String? // Reason if rejected by Meta
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([garageId, name])
+  @@index([garageId])
+  @@index([garageId, status])
 }
 
 enum UserRole {
@@ -293,51 +592,154 @@ enum ConfirmedBookingCategory {
   other
 }
 
-model Invoice {
-  id                String   @id @default(cuid())
+model OutboundCampaign {
+  id                String            @id @default(cuid())
   garageId          String
-  garage            Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  businessId        String?
-  userId            String?  // User who should be charged for this invoice
-  
+  garage            Garage            @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  name              String
+  channel           String            @default("sms") // "sms" | "whatsapp"
+  status            String            @default("draft") // "draft" | "sending" | "sent" | "processed" | "failed" | "queued"
+  sentAt            DateTime?
+  resumeAt          DateTime?
+  tierLimit         Int               @default(250)
+  totalContacts     Int               @default(0)
+  sentCount         Int               @default(0)
+  messageTemplateId String? // Optional: ID of MessageTemplate to use
+  variableMapping   Json? // e.g. {"1": "customer_name", "2": "mot_due_date"}
+  contacts          OutboundContact[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([garageId])
+}
+
+model OutboundContact {
+  id             String           @id @default(cuid())
+  campaignId     String
+  campaign       OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  garageId       String
+  customerName   String
+  phone          String
+  registration   String?
+  motDueDate     String?
+  serviceDueDate String?
+  messageType    String           @default("mot") // "mot" | "service"
+  status         String           @default("pending") // "pending" | "sent" | "replied" | "opted_out" | "failed"
+  messageSid     String?
+  errorReason    String?
+  conversationId String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([campaignId])
+  @@index([garageId, phone])
+}
+
+model Invoice {
+  id         String  @id @default(cuid())
+  garageId   String
+  garage     Garage  @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  businessId String?
+  userId     String? // User who should be charged for this invoice
+
   // Billing Period
-  periodStart       DateTime
-  periodEnd         DateTime
-  
+  periodStart DateTime
+  periodEnd   DateTime
+
   // Usage
-  minutesUsed       Int      @default(0)
-  minutesIncluded   Int      @default(0)
-  smsCount          Int      @default(0)
-  
+  minutesUsed            Int @default(0)
+  minutesIncluded        Int @default(0)
+  smsCount               Int @default(0)
+  notificationSmsCount   Int @default(0) // Messaging-notification SMS sent (£0.20 each)
+  messagingMessagesCount Int @default(0) // Webchat/messaging messages billed
+
   // Costs (in pence for precision)
-  subscriptionAmount Int     // Base subscription cost
-  minutesAmount      Int     @default(0) // Overage minutes cost
-  smsAmount          Int     @default(0) // SMS cost
-  subtotal           Int     // Before VAT
-  vatAmount          Int     // VAT only
-  total              Int     // Final amount
-  
+  subscriptionAmount          Int // Base (voice) subscription cost
+  minutesAmount               Int @default(0)
+  smsAmount                   Int @default(0)
+  notificationSmsAmount       Int @default(0) // Messaging-notification SMS cost (£0.20 each)
+  messagingSubscriptionAmount Int @default(0) // Webchat subscription portion
+  messagingMessagesAmount     Int @default(0) // Webchat overage messages cost
+  subtotal                    Int // Before VAT
+  vatAmount                   Int // VAT only
+  total                       Int // Final amount
+
   // Rates used (stored for audit trail)
   subscriptionCostGbp Float
   costPerMinuteGbp    Float
   vatRate             Float
-  
+
   // Status
-  status            String   @default("draft") // draft, pending, paid, failed, cancelled
-  
+  status String @default("draft") // draft, pending, paid, failed, cancelled
+
   // GoCardless
-  gocardlessPaymentId String?
-  paidAt              DateTime?
+  gocardlessPaymentId  String?
+  gocardlessChargeDate DateTime?
+  paidAt               DateTime?
 
   // Credit/Void tracking
-  creditReason        String?
-  creditedAt          DateTime?
+  creditReason String?
+  creditedAt   DateTime?
 
   // Metadata
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([garageId, periodStart])
   @@index([businessId, periodStart])
   @@index([status])
+}
+
+// A self-serve Assist signup that has NOT yet become a real account. Created when the
+// customer submits their garage details; the real Business/Garage/User/Agreement are
+// only created once they have signed the agreement AND confirmed a card (Stripe
+// setup_intent.succeeded). Until then we hold their details here and track them in
+// HighLevel's "Abandoned checkout" stage so no interested party is lost.
+model PendingSignup {
+  id            String   @id @default(uuid())
+  businessName  String
+  email         String
+  name          String?
+  googlePlaceId String?
+  product      String?  // assist | automate | connect | multibranch | custom
+  contactPhone String?  // contact phone captured on the scope step (non-Assist)
+
+  // Enriched from Google Places at submit time so we don't re-call Google on completion.
+  branchAddress      String?
+  phoneNumber        String?
+  websiteUrl         String?
+  weeklyOpeningHours Json?
+
+  // Magic-link sign token (single-use-ish; the pending row is the source of truth).
+  signToken String  @unique
+  status    String  @default("pending") // pending | signed | completed
+
+  // HighLevel — opportunity starts in "Abandoned checkout", moves to "Free trial live" on completion.
+  ghlOpportunityId String?
+  ghlContactId     String?
+
+  // Signature capture (transferred onto the real Agreement on completion).
+  signedByName     String?
+  signedByPosition String?
+  signatureImage   String?  @db.Text
+  signedFromIp     String?
+  signedUserAgent  String?
+  templateSnapshot String?  @db.Text
+  agreementVersion String?
+  signedAt         DateTime?
+
+  // Stripe trial — created when they sign; the webhook maps the confirmed card back here.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  trialEndsAt          DateTime?
+
+  // Set once the real account is provisioned (idempotency guard for the webhook).
+  createdGarageId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
+
+  @@index([email])
+  @@index([stripeCustomerId])
 }

@@ -33,12 +33,14 @@ const getGocardlessClient = () => {
 export interface UsageSummary {
   minutesUsed: number;
   smsCount: number;
+  notificationSmsCount: number; // messaging-notification SMS sent, billed £0.20 each
 }
 
 export interface BillingCalculation {
   subscriptionAmount: number; // in pence
   minutesAmount: number;
   smsAmount: number;
+  messagingAmount: number;
   subtotal: number;
   vatAmount: number;
   total: number;
@@ -51,6 +53,10 @@ export interface BillingCalculation {
     smsCount: number;
     costPerSmsGbp: number;
     vatRate: number;
+    messagingSubscriptionCostGbp: number;
+    messagingMessagesCount: number;
+    includedMessages: number;
+    costPerMessageGbp: number;
   };
 }
 
@@ -79,8 +85,19 @@ export async function calculateUsage(
   const totalSeconds = calls.reduce((sum, call) => sum + call.durationSeconds, 0);
   const minutesUsed = Math.ceil(totalSeconds / 60);
 
-  // Calculate SMS count
+  // Calculate SMS count (booking-link SMS)
   const smsCount = await prisma.smsBookingLink.count({
+    where: {
+      garageId,
+      createdAt: {
+        gte: periodStart,
+        lte: periodEnd,
+      },
+    },
+  });
+
+  // Messaging-notification SMS actually sent this period (billed £0.20 each)
+  const notificationSmsCount = await prisma.messagingNotificationSms.count({
     where: {
       garageId,
       createdAt: {
@@ -93,6 +110,7 @@ export async function calculateUsage(
   return {
     minutesUsed,
     smsCount,
+    notificationSmsCount,
   };
 }
 
@@ -110,6 +128,9 @@ export async function calculateBilling(
       includedMinutes: true,
       costPerMinuteGbp: true,
       vatRate: true,
+      messagingSubscriptionCostGbp: true,
+      includedMessages: true,
+      costPerMessageGbp: true,
     },
   });
 
@@ -120,12 +141,19 @@ export async function calculateBilling(
   // Calculate overage minutes
   const overageMinutes = Math.max(0, usage.minutesUsed - garage.includedMinutes);
 
+  // Calculate messaging overage
+  const messagingMessagesCount = (usage as any).messagingMessagesCount ?? 0;
+  const overageMessages = Math.max(0, messagingMessagesCount - (garage.includedMessages ?? 0));
+  const messagingSubscriptionAmount = Math.round((garage.messagingSubscriptionCostGbp ?? 0) * 100);
+  const messagingOverageAmount = Math.round(overageMessages * (garage.costPerMessageGbp ?? 0) * 100);
+  const messagingAmount = messagingSubscriptionAmount + messagingOverageAmount;
+
   // Calculate amounts in pence for precision
   const subscriptionAmount = Math.round(garage.subscriptionCostGbp * 100);
   const minutesAmount = Math.round(overageMinutes * garage.costPerMinuteGbp * 100);
   const smsAmount = Math.round(usage.smsCount * 0.99 * 100); // £0.99 per SMS
 
-  const subtotal = subscriptionAmount + minutesAmount + smsAmount;
+  const subtotal = subscriptionAmount + minutesAmount + smsAmount + messagingAmount;
   const vatAmount = Math.round(subtotal * garage.vatRate);
   const total = subtotal + vatAmount;
 
@@ -133,6 +161,7 @@ export async function calculateBilling(
     subscriptionAmount,
     minutesAmount,
     smsAmount,
+    messagingAmount,
     subtotal,
     vatAmount,
     total,
@@ -145,6 +174,10 @@ export async function calculateBilling(
       smsCount: usage.smsCount,
       costPerSmsGbp: 0.99,
       vatRate: garage.vatRate,
+      messagingSubscriptionCostGbp: garage.messagingSubscriptionCostGbp ?? 0,
+      messagingMessagesCount,
+      includedMessages: garage.includedMessages ?? 0,
+      costPerMessageGbp: garage.costPerMessageGbp ?? 0,
     },
   };
 }
@@ -193,7 +226,11 @@ export async function generateInvoice(
   }
 
   // Find the user who should be charged for this garage
-  const billingUser = await prisma.user.findFirst({
+  // Priority:
+  // 1. Users who ONLY have access to this garage (actual owners)
+  // 2. Exclude admin/staff accounts (role: ADMIN, STAFF)
+  // 3. Exclude receptionmate.ai/receptionmate.co.uk emails
+  const users = await prisma.user.findMany({
     where: {
       garageAccessIds: {
         has: garageId,
@@ -201,11 +238,36 @@ export async function generateInvoice(
       gocardlessMandateId: {
         not: null,
       },
-    },
-    orderBy: {
-      createdAt: 'asc', // Prefer the oldest user (likely the owner)
+      role: {
+        notIn: ['RECEPTIONMATE_STAFF'],
+      },
+      email: {
+        not: {
+          endsWith: '@receptionmate.ai',
+        },
+      },
     },
   });
+
+  // Filter out receptionmate.co.uk emails
+  const eligibleUsers = users.filter(
+    (u) => !u.email.endsWith('@receptionmate.co.uk')
+  );
+
+  // Prefer users who only have access to this one garage (likely the owner)
+  const singleGarageOwner = eligibleUsers.find(
+    (u) => u.garageAccessIds.length === 1
+  );
+
+  const billingUser = singleGarageOwner || eligibleUsers[0];
+
+  if (billingUser) {
+    console.log('[BILLING] Selected billing user:', {
+      email: billingUser.email,
+      garageCount: billingUser.garageAccessIds.length,
+      reason: singleGarageOwner ? 'single-garage owner' : 'first eligible user',
+    });
+  }
 
   // Create invoice
   const invoice = await prisma.invoice.create({
@@ -427,16 +489,25 @@ export async function activateTrialEndedGarages() {
 }
 
 /**
- * Find users who are due for billing (nextBillingDate is today or in the past)
- * Anniversary billing - users are billed on the same day each month as signup
+ * Find users who are due for billing.
+ * Submits 3 working days early so GoCardless collects on the actual billing date.
  */
 export async function findUsersDueForBilling() {
   const now = new Date();
 
+  // Add 3 working days to today so payment lands on the billing date
+  const lookAhead = new Date(now);
+  let daysAdded = 0;
+  while (daysAdded < 3) {
+    lookAhead.setDate(lookAhead.getDate() + 1);
+    const day = lookAhead.getDay();
+    if (day !== 0 && day !== 6) daysAdded++; // skip weekends
+  }
+
   const users = await prisma.user.findMany({
     where: {
       nextBillingDate: {
-        lte: now,
+        lte: lookAhead,
       },
       gocardlessMandateId: {
         not: null,
@@ -469,6 +540,7 @@ export async function generateInvoicesForUser(userId: string) {
       billingCycleStartDate: true,
       nextBillingDate: true,
       garageAccessIds: true,
+      gocardlessMandateId: true,
     },
   });
 
@@ -502,6 +574,10 @@ export async function generateInvoicesForUser(userId: string) {
           bookingsRequiredForActivation: true,
           activationBookingsCount: true,
           subscriptionActivatedAt: true,
+          hasMessagingAccess: true,
+          messagingSubscriptionCostGbp: true,
+          includedMessages: true,
+          costPerMessageGbp: true,
         },
       });
 
@@ -555,33 +631,67 @@ export async function generateInvoicesForUser(userId: string) {
       const overageMinutes = Math.max(0, usage.minutesUsed - garage.includedMinutes);
       const minutesAmount = Math.round(overageMinutes * garage.costPerMinuteGbp * 100);
       const smsAmount = Math.round(usage.smsCount * 0.99 * 100);
+      // Messaging-notification SMS: £0.20 each (only SMS notifications are chargeable).
+      const notificationSmsAmount = Math.round(usage.notificationSmsCount * 0.2 * 100);
 
-      const subtotal = subscriptionAmount + minutesAmount + smsAmount;
+      // Messaging subscription (webchat / WhatsApp). Billed like the voice subscription: a flat
+      // monthly fee for garages with messaging access, suppressed while booking-activation is
+      // pending. Previously this was omitted entirely, so messaging garages (e.g. EAC Telford,
+      // Elite Landrover at £250/mo) were silently under-billed. Per-message overage stays 0 until
+      // message usage is metered in calculateUsage.
+      const messagingSubscriptionAmount =
+        !needsBookingActivation && garage.hasMessagingAccess
+          ? Math.round((garage.messagingSubscriptionCostGbp || 0) * 100)
+          : 0;
+
+      const subtotal = subscriptionAmount + minutesAmount + smsAmount + notificationSmsAmount + messagingSubscriptionAmount;
       const vatAmount = Math.round(subtotal * garage.vatRate);
       const total = subtotal + vatAmount;
 
-      // Create invoice
-      const invoice = await prisma.invoice.create({
-        data: {
-          garageId,
-          businessId: garage.businessId,
-          periodStart,
-          periodEnd,
-          minutesUsed: usage.minutesUsed,
-          minutesIncluded: garage.includedMinutes,
-          smsCount: usage.smsCount,
-          subscriptionAmount,
-          minutesAmount,
-          smsAmount,
-          subtotal,
-          vatAmount,
-          total,
-          subscriptionCostGbp: garage.subscriptionCostGbp,
-          costPerMinuteGbp: garage.costPerMinuteGbp,
-          vatRate: garage.vatRate,
-          status: 'draft',
-        },
+      // Anti-double-bill: never re-bill a period that's already paid or has a payment in flight.
+      // (The historic duplicate invoices — e.g. St Johns charged twice for Apr–May — came from
+      // re-billing the same period.)
+      const alreadyBilled = await prisma.invoice.findFirst({
+        where: { garageId, periodStart, periodEnd, status: { in: ['paid', 'pending'] } },
       });
+      if (alreadyBilled) {
+        console.log(`Garage ${garage.name} already has a ${alreadyBilled.status} invoice for ${periodStart.toISOString().slice(0,10)}→${periodEnd.toISOString().slice(0,10)}, skipping`);
+        results.push({ garageId, garageName: garage.name, success: true, message: 'Already billed for this period' });
+        continue;
+      }
+
+      const invoiceData = {
+        garageId,
+        businessId: garage.businessId,
+        periodStart,
+        periodEnd,
+        minutesUsed: usage.minutesUsed,
+        minutesIncluded: garage.includedMinutes,
+        smsCount: usage.smsCount,
+        notificationSmsCount: usage.notificationSmsCount,
+        subscriptionAmount,
+        minutesAmount,
+        smsAmount,
+        notificationSmsAmount,
+        messagingSubscriptionAmount,
+        subtotal,
+        vatAmount,
+        total,
+        subscriptionCostGbp: garage.subscriptionCostGbp,
+        costPerMinuteGbp: garage.costPerMinuteGbp,
+        vatRate: garage.vatRate,
+        status: 'draft',
+      };
+
+      // Idempotent: if a previous run left a draft/failed invoice for this exact period (e.g. a
+      // charge that errored and wasn't retried), reuse and refresh it instead of creating a
+      // duplicate row.
+      const existingUnpaid = await prisma.invoice.findFirst({
+        where: { garageId, periodStart, periodEnd, status: { in: ['draft', 'failed'] } },
+      });
+      const invoice = existingUnpaid
+        ? await prisma.invoice.update({ where: { id: existingUnpaid.id }, data: invoiceData })
+        : await prisma.invoice.create({ data: invoiceData });
 
       // Store invoice for later combined charging
       invoicesToCharge.push({
@@ -611,30 +721,28 @@ export async function generateInvoicesForUser(userId: string) {
   }
 
   // Create ONE combined GoCardless payment for all invoices
+  let chargeSucceeded = false;
   if (invoicesToCharge.length > 0) {
     try {
       const totalAmount = invoicesToCharge.reduce((sum, item) => sum + item.total, 0);
 
-      // Get user with mandate
-      const userWithMandate = await prisma.user.findFirst({
-        where: {
-          garageAccessIds: {
-            hasSome: user.garageAccessIds,
-          },
-          gocardlessMandateId: {
-            not: null,
-          },
-        },
-      });
-
-      if (!userWithMandate || !userWithMandate.gocardlessMandateId) {
+      // Charge the user being billed against their OWN mandate.
+      // Previously this did a findFirst across any user with overlapping garage access,
+      // which non-deterministically picked staff/admin mandates instead of the customer's.
+      if (!user.gocardlessMandateId) {
         throw new Error('No valid mandate found');
       }
 
       const client = getGocardlessClient();
 
-      // Create single combined payment
-      const payment = await client.payments.create({
+      // charge_date is normally the billing date — but GoCardless REJECTS a charge_date in the
+      // past (with a ValidationFailedError), which happens when a run lands on/after the billing
+      // date (e.g. VWGS, 11 Jun for a 10 Jun date). When the billing date has already passed,
+      // omit charge_date so GoCardless collects on the earliest valid working day instead of
+      // hard-failing and silently orphaning the invoice.
+      const todayStr = new Date().toISOString().split('T')[0];
+      const billingDateStr = periodEnd.toISOString().split('T')[0];
+      const paymentArgs: any = {
         amount: totalAmount,
         currency: 'GBP',
         description: `ReceptionMate - ${invoicesToCharge.length} branch${invoicesToCharge.length > 1 ? 'es' : ''}`,
@@ -644,9 +752,15 @@ export async function generateInvoicesForUser(userId: string) {
           period_end: periodEnd.toISOString(),
         },
         links: {
-          mandate: userWithMandate.gocardlessMandateId,
+          mandate: user.gocardlessMandateId,
         },
-      });
+      };
+      if (billingDateStr > todayStr) {
+        paymentArgs.charge_date = billingDateStr;
+      }
+
+      // Create single combined payment
+      const payment = await client.payments.create(paymentArgs);
 
       // Update all invoices with the same payment ID
       for (const item of invoicesToCharge) {
@@ -658,6 +772,7 @@ export async function generateInvoicesForUser(userId: string) {
           },
         });
       }
+      chargeSucceeded = true;
 
       // Log details
       const breakdown = invoicesToCharge.map(item =>
@@ -677,6 +792,14 @@ export async function generateInvoicesForUser(userId: string) {
 
     } catch (paymentError) {
       console.error(`Failed to create combined payment:`, paymentError);
+      // Mark the invoices FAILED (not leave them as draft) so the failure is visible and the
+      // amount can be retried/collected — previously a failed charge left a silent draft.
+      for (const item of invoicesToCharge) {
+        await prisma.invoice.update({
+          where: { id: item.invoice.id },
+          data: { status: 'failed' },
+        }).catch(() => {});
+      }
       results.forEach(r => {
         if (r.success && !r.error) {
           (r as any).charged = false;
@@ -686,25 +809,32 @@ export async function generateInvoicesForUser(userId: string) {
     }
   }
 
-  // Update user's next billing date (anniversary billing - same day next month)
-  const newNextBillingDate = new Date(user.nextBillingDate);
-  newNextBillingDate.setMonth(newNextBillingDate.getMonth() + 1);
+  // Advance the billing cycle ONLY when we actually collected (or there was nothing to charge —
+  // e.g. trial or a skipped garage). Previously this advanced unconditionally, so a FAILED charge
+  // still moved the cycle forward and the uncollected month was silently orphaned (St Johns, VWGS).
+  let resolvedNextBillingDate = user.nextBillingDate;
+  if (chargeSucceeded || invoicesToCharge.length === 0) {
+    const newNextBillingDate = new Date(user.nextBillingDate);
+    newNextBillingDate.setMonth(newNextBillingDate.getMonth() + 1);
+    resolvedNextBillingDate = newNextBillingDate;
 
-  // Update billing dates
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      billingCycleStartDate: user.nextBillingDate, // Move cycle start forward
-      nextBillingDate: newNextBillingDate,
-    },
-  });
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        billingCycleStartDate: user.nextBillingDate, // Move cycle start forward
+        nextBillingDate: newNextBillingDate,
+      },
+    });
+  } else {
+    console.warn(`[BILLING] Not advancing billing date for ${user.email} — charge failed; period ${periodStart.toISOString().slice(0,10)}→${periodEnd.toISOString().slice(0,10)} will be retried.`);
+  }
 
   return {
     userId: user.id,
     userEmail: user.email,
     periodStart,
     periodEnd,
-    nextBillingDate: newNextBillingDate,
+    nextBillingDate: resolvedNextBillingDate,
     results,
   };
 }
@@ -803,9 +933,9 @@ export async function createPaymentForInvoice(invoiceId: string) {
   }
   
   if (!user || !user.gocardlessMandateId) {
-    // Fallback: find any user with mandate for this garage
+    // Fallback: find user with mandate for this garage (exclude admin accounts)
     console.log('[BILLING] Falling back to finding user with garage access...');
-    user = await prisma.user.findFirst({
+    const users = await prisma.user.findMany({
       where: {
         garageAccessIds: {
           has: invoice.garageId,
@@ -813,11 +943,36 @@ export async function createPaymentForInvoice(invoiceId: string) {
         gocardlessMandateId: {
           not: null,
         },
-      },
-      orderBy: {
-        createdAt: 'asc', // Prefer oldest user (likely the owner)
+        role: {
+          notIn: ['RECEPTIONMATE_STAFF'],
+        },
+        email: {
+          not: {
+            endsWith: '@receptionmate.ai',
+          },
+        },
       },
     });
+
+    // Filter out receptionmate.co.uk emails
+    const eligibleUsers = users.filter(
+      (u) => !u.email.endsWith('@receptionmate.co.uk')
+    );
+
+    // Prefer users who only have access to this one garage
+    const singleGarageOwner = eligibleUsers.find(
+      (u) => u.garageAccessIds.length === 1
+    );
+
+    user = singleGarageOwner || eligibleUsers[0];
+
+    if (user) {
+      console.log('[BILLING] Fallback user selected:', {
+        email: user.email,
+        garageCount: user.garageAccessIds.length,
+        reason: singleGarageOwner ? 'single-garage owner' : 'first eligible user',
+      });
+    }
   }
 
   if (!user || !user.gocardlessMandateId) {

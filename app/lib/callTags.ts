@@ -1,5 +1,6 @@
 export const TRACKED_TAGS = [
   'update',
+  'quote',
   'general enquiry',
   'internal',
   'complaint',
@@ -10,6 +11,7 @@ export const TRACKED_TAGS = [
 
 export const TAG_LABELS: Record<string, string> = {
   update: 'Update',
+  quote: 'Quote',
   'general enquiry': 'General Enquiry',
   internal: 'Internal',
   complaint: 'Complaint',
@@ -18,8 +20,20 @@ export const TAG_LABELS: Record<string, string> = {
   other: 'Other',
 };
 
+export const TAG_LABELS_FR: Record<string, string> = {
+  update: 'Mise à jour',
+  quote: 'Devis',
+  'general enquiry': 'Renseignement général',
+  internal: 'Interne',
+  complaint: 'Réclamation',
+  'human request': 'Demande d’un humain',
+  'confirmed booking': 'Réservation confirmée',
+  other: 'Autre',
+};
+
 export const TAG_STYLES: Record<string, string> = {
   update: 'bg-gradient-to-r from-sky-400 via-sky-500 to-sky-600 text-white',
+  quote: 'bg-gradient-to-r from-indigo-400 via-indigo-500 to-indigo-600 text-white',
   'general enquiry': 'bg-gradient-to-r from-violet-400 via-violet-500 to-violet-600 text-white',
   internal: 'bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-slate-900',
   complaint: 'bg-gradient-to-r from-rose-400 via-rose-500 to-rose-600 text-white',
@@ -30,6 +44,7 @@ export const TAG_STYLES: Record<string, string> = {
 
 export const TAG_COLORS: Record<string, string> = {
   update: '#38bdf8',
+  quote: '#6366f1',
   'general enquiry': '#a855f7',
   internal: '#fbbf24',
   complaint: '#fb7185',
@@ -45,9 +60,10 @@ export const normaliseCallTag = (raw?: string | null): string => {
   return cleaned || DEFAULT_CALL_TAG;
 };
 
-export const getCallTagLabel = (raw?: string | null): string => {
+export const getCallTagLabel = (raw?: string | null, lang: 'en' | 'fr' = 'en'): string => {
   const tag = normaliseCallTag(raw);
-  return TAG_LABELS[tag] ?? tag.replace(/\b\w/g, (char) => char.toUpperCase());
+  const labels = lang === 'fr' ? TAG_LABELS_FR : TAG_LABELS;
+  return labels[tag] ?? tag.replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
 export const getCallTagStyle = (raw?: string | null): string => {

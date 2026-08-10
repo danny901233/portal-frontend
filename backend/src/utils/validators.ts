@@ -2,14 +2,58 @@ import { z } from 'zod';
 
 import { WEEKDAY_ORDER } from './types.js';
 
-export const transcriptEntrySchema = z.object({
+// Base message entry (conversation turns) - with explicit type
+const messageEntryWithTypeSchema = z.object({
+  type: z.literal('message'),
   speaker: z.string().min(1),
   text: z.string().min(1),
   timestamp: z.number().nonnegative(),
+  confidence: z.number().min(0).max(1).optional(), // STT confidence score
+  latency_ms: z.number().nonnegative().optional(), // Response latency
 });
 
+// Legacy message entry without type field
+const messageLegacySchema = z.object({
+  speaker: z.string().min(1),
+  text: z.string().min(1),
+  timestamp: z.number().nonnegative(),
+  confidence: z.number().min(0).max(1).optional(),
+  latency_ms: z.number().nonnegative().optional(),
+});
+
+// Tool call entry
+const toolCallEntrySchema = z.object({
+  type: z.literal('tool_call'),
+  tool: z.string().min(1),
+  parameters: z.record(z.any()).nullable().optional(),
+  result: z.any().nullable().optional(),
+  success: z.boolean(),
+  duration_ms: z.number(),
+  error: z.string().nullable().optional(),
+  retry_count: z.number().nullable().optional(),
+  timestamp: z.number().nonnegative(),
+});
+
+// Log entry
+const logEntrySchema = z.object({
+  type: z.literal('log'),
+  level: z.enum(['INFO', 'WARN', 'ERROR', 'DEBUG']),
+  logger: z.string().min(1),
+  message: z.string().min(1),
+  timestamp: z.number().nonnegative(),
+  attributes: z.record(z.any()).optional(),
+});
+
+// Union of all transcript entry types
+export const transcriptEntrySchema = z.union([
+  messageEntryWithTypeSchema,
+  toolCallEntrySchema,
+  logEntrySchema,
+  messageLegacySchema, // Last so it doesn't match entries with type field
+]);
+
 export const metricsSchema = z
-  .record(z.union([z.number(), z.string(), z.boolean(), z.null()]))
+  .record(z.any())
   .refine((metrics) => Object.keys(metrics).length > 0, {
     message: 'Metrics cannot be empty',
   });
@@ -100,6 +144,46 @@ const garageHiveSettingsSchema = z
   })
   .optional();
 
+// One engine-size price bracket: "vehicles up to maxCC cc pay this price".
+const pricingBracketSchema = z.object({
+  maxCC: z.number().int().nonnegative().max(20000),
+  price: z.number().nonnegative().max(100000),
+});
+
+// One Tyresoft service entry. Engine-size services attach brackets via pricingRules[id].
+const tsServiceSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(200),
+  pricingType: z.enum(['fixed', 'engine-size']),
+  price: z.number().nonnegative().max(100000).optional(),
+  // Numeric Tyresoft API serviceID for this service (from the garage's Tyresoft
+  // account). The agent needs this to book the service — without it the service
+  // falls back to the MISC line, or is unbookable. Kept as string|number since the
+  // UI edits it as text.
+  tsServiceId: z.union([z.string().max(20), z.number()]).optional(),
+});
+
+const tyresoftSettingsSchema = z
+  .object({
+    tsWorkspace: optionalBoundedString(100),
+    tsUsername: optionalBoundedString(100),
+    tsPassword: optionalBoundedString(1000),
+    tsApiKey: optionalBoundedString(1000),
+    tsDepotId: z.union([z.string().max(20), z.number()]).optional(),
+    // Per-garage Tyresoft "client channel id". The agent sends this on createSale;
+    // if it's wrong/unset Tyresoft rejects the booking with "Invalid client channel id".
+    // Elite Autocare = 31. Must be set per garage (there is no safe shared default).
+    tsChannelId: z.union([z.string().max(20), z.number()]).optional(),
+    // Structured pricing data — service catalogue + engine-size price brackets keyed by service id.
+    tsServices: z.array(tsServiceSchema).max(200).optional(),
+    pricingRules: z.record(z.string().max(64), z.array(pricingBracketSchema).max(20)).optional(),
+    // Per-garage tyre markup. Stored as form-friendly { type, value } from the
+    // UI, normalised by config.ts to tyreMarkupFlat / tyreMarkupPercent on PUT.
+    tyreMarkupType: z.enum(['flat', 'percent']).optional(),
+    tyreMarkupValue: optionalBoundedString(20),
+  })
+  .optional();
+
 const timeString = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM in 24-hour time');
@@ -172,6 +256,7 @@ export const weeklyOpeningHoursSchema = z.preprocess(
 
 export const upsertAgentConfigurationSchema = z.object({
   branchName: z.string().min(1).max(200),
+  agentName: z.union([z.string().max(60), z.literal(''), z.null()]).optional(),
   phoneNumber: z.union([z.string().max(100), z.literal('')]).optional(),
   emailAddress: optionalEmail,
   branchAddress: z.union([z.string().max(1000), z.literal('')]).optional(),
@@ -183,13 +268,51 @@ export const upsertAgentConfigurationSchema = z.object({
   responseSpeed: z.enum(['slow', 'normal', 'fast']).optional(),
   interruptionSensitivity: z.number().min(0).max(1).optional(),
   allowFastFitOnly: z.boolean(),
+  callerRecognitionEnabled: z.boolean().optional(),
+  advisoryUpsellsEnabled: z.boolean().optional(),
+  enableDropOffBookings: z.boolean().optional(),
+  dropOffMessage: z.string().max(500).optional(),
+  dropOffExcludeServices: z.array(z.string().max(100)).max(20).optional(),
   notificationEmails: z.array(z.string().email().max(254)).max(10).optional(),
   integrationProvider: z.enum(['none', 'garage_hive']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
+  tyresoftSettings: tyresoftSettingsSchema,
   agentType: z.enum(['assist', 'automate']).optional(),
-  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent']).optional(),
+  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'Assist-agent', 'GarageHive-agent', 'MMH-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
+  humanEscalation: z.boolean().optional(),
+  // Messaging (chat) agent settings — without these, z.object() strips them on save.
+  messagingHumanHandoff: z.boolean().optional(),
+  messagingHandoffMessage: z.union([z.string().max(2000), z.literal(''), z.null()]).optional(),
+  messagingNotifyScope: z.enum(['off', 'escalated', 'all']).optional(),
+  messagingNotifyEmail: z.boolean().optional(),
+  messagingNotifySms: z.boolean().optional(),
+  messagingNotifyPhone: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
+  transferNumber: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
+  allowBookings: z.boolean().optional(),
+  bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
+  customRules: z.array(z.object({ text: z.string(), active: z.boolean() })).optional().nullable(),
+  // Jodie-style per-garage toggleable data-collection fields (consumed by RMB agents
+  // via DynamoDB AgentConfig). Each entry: key (machine id), label (caller-facing),
+  // active (toggle), required (must collect), instruction (optional how-to hint).
+  dataCollectionFields: z.array(z.object({
+    key: z.string().min(1).max(64),
+    label: z.string().min(1).max(120),
+    active: z.boolean(),
+    required: z.boolean(),
+    instruction: z.string().max(280).optional().nullable(),
+  })).optional().nullable(),
+  // Stored answers the agent uses verbatim, and per-word pronunciation overrides.
+  // Kept permissive so the save never rejects regardless of the editor's exact shape.
+  faqs: z.array(z.any()).optional().nullable(),
+  pronunciations: z.array(z.any()).optional().nullable(),
+  hubspotSettings: z.object({
+    enabled: z.boolean(),
+    apiToken: z.string(),
+    ownerId: z.string(),
+    inboxEmail: z.string().optional().default(''),
+  }).optional(),
 }).superRefine((value, ctx) => {
   const provider = value.integrationProvider ?? 'none';
   if (provider !== 'garage_hive') {

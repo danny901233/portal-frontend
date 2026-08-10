@@ -15,6 +15,7 @@ import type {
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { sendNegativeFeedbackEmail, sendCallSummaryEmail } from '../utils/email.js';
 import { trackConfirmedBooking } from '../services/billing.js';
+import { logCallToHubSpot } from '../services/hubspot.js';
 
 const router = Router();
 
@@ -272,6 +273,38 @@ router.post('/calls', async (req: Request, res: Response) => {
       }).catch((error) => {
         console.error('[EMAIL] Failed to send notification email:', error);
       });
+    }
+
+    // Send to HubSpot if configured
+    if (createdCall.garage?.agentConfiguration) {
+      const integrationConfig = createdCall.garage.agentConfiguration.integrationProviderConfig as any;
+      const hubspotSettings = integrationConfig?.hubspot;
+
+      if (hubspotSettings?.apiToken) {
+        console.log(`[HUBSPOT] Sending call data for garage ${payload.garageId}`);
+        console.log(`[HUBSPOT] Transcript entries in payload: ${Array.isArray(payload.transcript) ? payload.transcript.length : 0}`);
+
+        void logCallToHubSpot(
+          {
+            apiToken: hubspotSettings.apiToken,
+            ownerId: hubspotSettings.ownerId,
+          },
+          {
+            customerName: payload.customerName,
+            customerPhone: payload.customerPhone,
+            customerEmail: payload.customerEmail,
+            summary: payload.summary,
+            registrationNumber: payload.registrationNumber,
+            callDuration: actualDuration,
+            confirmedBooking: payload.confirmedBooking ?? false,
+            bookingDetails: payload.bookingDetails,
+            transcript: payload.transcript as any,
+            recordingUrl: finalRecordingUrl,
+          }
+        ).catch((error) => {
+          console.error('[HUBSPOT] Failed to send call to HubSpot:', error);
+        });
+      }
     }
 
     res.status(201).json({ success: true, callId });

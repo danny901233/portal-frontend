@@ -50,3 +50,16 @@ scripts/aws.env
 .secrets
 agent-tyresoft/.secrets
 agent-v3/.secrets
+
+# --- ad-hoc box debug scripts / backups / runtime state / secrets (2026-08-10 reconcile) ---
+backend/apns/
+backend/*.cjs
+backend/*.mjs
+backend/*.js
+*.bak
+*.bak-*
+*.bak.*
+backend/dist.bak*
+backend/.stripe-bak*
+backend/*-state.json
+check_calls.js

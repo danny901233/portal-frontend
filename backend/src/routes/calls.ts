@@ -450,7 +450,8 @@ router.post('/calls', async (req: Request, res: Response) => {
           callType: payload.callType ?? 'unknown',
           createdAt: new Date(),
           branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
-          recordingUrl: payload.recordingUrl ?? null,
+          recordingUrl: finalRecordingUrl ?? null,
+          transcript: payload.transcript as any,
         }, hubspotSettings).catch((err: unknown) => {
           console.error('[HUBSPOT] Failed to log call:', err);
         });
@@ -562,20 +563,24 @@ router.post('/calls', async (req: Request, res: Response) => {
 
         void logCallToHubSpot(
           {
-            apiToken: hubspotSettings.apiToken,
-            ownerId: hubspotSettings.ownerId,
-          },
-          {
             customerName: payload.customerName,
             customerPhone: payload.customerPhone,
-            customerEmail: payload.customerEmail,
-            summary: payload.summary,
+            fromNumber: null,
             registrationNumber: payload.registrationNumber,
-            callDuration: actualDuration,
-            confirmedBooking: payload.confirmedBooking ?? false,
+            summary: payload.summary,
             bookingDetails: payload.bookingDetails,
-            transcript: payload.transcript as any,
+            durationSeconds: actualDuration,
+            callType: payload.callType ?? 'unknown',
+            confirmedBooking: payload.confirmedBooking ?? false,
+            createdAt: new Date(),
+            branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
             recordingUrl: finalRecordingUrl,
+            transcript: payload.transcript as any,
+          },
+          {
+            apiToken: hubspotSettings.apiToken,
+            ownerId: hubspotSettings.ownerId ?? '',
+            inboxEmail: hubspotSettings.inboxEmail ?? '',
           }
         ).catch((error) => {
           console.error('[HUBSPOT] Failed to send call to HubSpot:', error);

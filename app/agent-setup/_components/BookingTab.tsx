@@ -144,8 +144,13 @@ export default function BookingTab({ config, save, isSaving }: Props) {
     config.agentScript,
   );
   const isBookarAgent = config.agentScript === 'bookar-agent';
-  const supportsRecAndAdvisory = isGarageHiveAgent || isBookarAgent;
-  const integrationName = isBookarAgent ? 'Bookar' : 'Garage Hive';
+  // Poole (AutoSage) chat agent also honours callerRecognitionEnabled — the tool
+  // for pl_find_customer_by_phone is filtered out when the toggle is off. Advisory
+  // upsells aren't implemented server-side yet (Poole doesn't return advisories
+  // via A2), so the advisory toggle is a no-op for Poole today.
+  const isPooleAgent = config.agentScript === 'poole-agent';
+  const supportsRecAndAdvisory = isGarageHiveAgent || isBookarAgent || isPooleAgent;
+  const integrationName = isBookarAgent ? 'Bookar' : isPooleAgent ? 'Poole' : 'Garage Hive';
 
   // The GarageHive (Automate) agent always books against the live diary and ignores this
   // toggle — it only applies to Assist garages. Flag that clearly so it isn't mistaken for

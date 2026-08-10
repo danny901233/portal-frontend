@@ -203,6 +203,27 @@ export const cloneBookarSettings = (settings?: BookarSettings | null): BookarSet
   bookarApiBase: typeof settings?.bookarApiBase === 'string' ? settings.bookarApiBase : '',
 });
 
+// Poole (AutoSage) per-garage credentials — stored in integrationProviderConfig
+// JSONB. One `branchKey` per Poole branch (their API scopes everything to the
+// key). `branchCode` is optional but recommended: if sent on B1 create it must
+// match the key's branch, so setting both together makes mismatches surface
+// immediately.
+export type PooleSettings = {
+  branchKey: string;
+  branchCode?: string;
+};
+
+export const createDefaultPooleSettings = (): PooleSettings => ({
+  branchKey: '',
+});
+
+export const clonePooleSettings = (settings?: PooleSettings | null): PooleSettings => ({
+  branchKey: typeof settings?.branchKey === 'string' ? settings.branchKey : '',
+  ...(typeof settings?.branchCode === 'string' && settings.branchCode.trim() !== ''
+    ? { branchCode: settings.branchCode }
+    : {}),
+});
+
 export const cloneGarageHiveSettings = (settings?: GarageHiveSettings | null): GarageHiveSettings => ({
   instanceUrl: typeof settings?.instanceUrl === 'string' ? settings.instanceUrl : '',
   apiKey: typeof settings?.apiKey === 'string' ? settings.apiKey : '',
@@ -254,9 +275,10 @@ export type AgentConfigurationPayload = {
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings?: TyresoftSettings;
   bookarSettings?: BookarSettings;
+  pooleSettings?: PooleSettings;
   hubspotSettings?: HubspotSettings;
   agentType: AgentType;
-  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent';
+  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent';
   enableSmsBookingLinks?: boolean;
   humanEscalation?: boolean;
   messagingHumanHandoff?: boolean;

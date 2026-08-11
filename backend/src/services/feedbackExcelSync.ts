@@ -102,7 +102,7 @@ export async function syncNegativeFeedbackToExcel(): Promise<{
       const colData = (await colResp.json()) as { values: (string | null)[][] };
       for (const row of colData.values) {
         const val = row[0];
-        if (val) existingCallIds.add(String(val));
+        if (val) existingCallIds.add(String(val).replace(/^0+(?=\d)/, ''));
       }
     }
   }
@@ -129,7 +129,7 @@ export async function syncNegativeFeedbackToExcel(): Promise<{
   });
 
   // 3. Filter out already-synced rows
-  const newFeedbacks = feedbacks.filter((fb) => !existingCallIds.has(fb.callId));
+  const newFeedbacks = feedbacks.filter((fb) => !existingCallIds.has(fb.callId.replace(/^0+(?=\d)/, '')));
 
   if (newFeedbacks.length === 0) {
     console.log('[FEEDBACK-SYNC] No new negative feedback to sync');

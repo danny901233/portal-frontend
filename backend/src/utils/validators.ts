@@ -250,6 +250,7 @@ export const upsertAgentConfigurationSchema = z.object({
   integrationProvider: z.enum(['none', 'garage_hive']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
+  bookarSettings: z.object({ bookarClientId: optionalBoundedString(200), bookarClientSecret: optionalBoundedString(1000), bookarApiBase: optionalBoundedString(500) }).optional(),
   agentType: z.enum(['assist', 'automate']).optional(),
   agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'MMH-agent', 'bookar-agent', 'Assist-agent', 'GarageHive-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),

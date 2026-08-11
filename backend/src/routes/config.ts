@@ -167,6 +167,28 @@ const parseIntegrationSettings = (
     };
   }
 
+  if (agentScript === 'bookar-agent') {
+    if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+      const raw = rawSettings as Record<string, unknown>;
+      return {
+        integrationProvider: 'none' as IntegrationProvider,
+        garageHiveSettings: createDefaultGarageHiveSettings(),
+        tyresoftSettings: createDefaultTyresoftSettings(),
+        bookarSettings: {
+          bookarClientId: typeof raw.bookarClientId === 'string' ? raw.bookarClientId : '',
+          bookarClientSecret: typeof raw.bookarClientSecret === 'string' ? raw.bookarClientSecret : '',
+          bookarApiBase: typeof raw.bookarApiBase === 'string' ? raw.bookarApiBase : 'https://partners.bookar.app',
+        },
+      };
+    }
+    return {
+      integrationProvider: 'none' as IntegrationProvider,
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
+      bookarSettings: { bookarClientId: '', bookarClientSecret: '', bookarApiBase: 'https://partners.bookar.app' },
+    };
+  }
+
   const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
 
   if (provider !== 'garage_hive') {
@@ -273,7 +295,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       config.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       config.agentScript === 'Assist-agent' ? 'Assist-agent' :
       config.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
-      config.agentScript === 'MMH-agent' ? 'MMH-agent' :
+      config.agentScript === 'MMH-agent' ? 'MMH-agent' : config.agentScript === 'bookar-agent' ? 'bookar-agent' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
@@ -350,7 +372,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       configuration.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' :
       configuration.agentScript === 'Assist-agent' ? 'Assist-agent' :
       configuration.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
-      configuration.agentScript === 'MMH-agent' ? 'MMH-agent' :
+      configuration.agentScript === 'MMH-agent' ? 'MMH-agent' : configuration.agentScript === 'bookar-agent' ? 'bookar-agent' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent'
@@ -996,6 +1018,10 @@ router.put(
             locationId: garageHiveSettings.locationId,
             ...hubspotPayload,
           }
+        : resolvedAgentScript === 'bookar-agent' && data.bookarSettings
+        ? { bookarClientId: (data.bookarSettings.bookarClientId || '').trim(), bookarClientSecret: (data.bookarSettings.bookarClientSecret || '').trim(), bookarApiBase: (data.bookarSettings.bookarApiBase || 'https://partners.bookar.app').trim(), ...hubspotPayload }
+        : resolvedAgentScript === 'bookar-agent' && existingConfig?.integrationProviderConfig
+        ? { ...(existingConfig.integrationProviderConfig as object), ...hubspotPayload }
         : Object.keys(hubspotPayload).length > 0 ? hubspotPayload : null;
 
     const normalizedData = {

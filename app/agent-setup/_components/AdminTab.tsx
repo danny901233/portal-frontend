@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   AgentConfiguration,
+  BookarSettings,
   GarageHiveSettings,
   IntegrationProvider,
   TyresoftSettings,
@@ -17,7 +18,7 @@ interface Props {
 }
 
 type AgentType = 'assist' | 'automate';
-type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
+type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent';
 
 const EMPTY_GH: GarageHiveSettings = {
   instanceUrl: '',
@@ -34,6 +35,12 @@ const EMPTY_TS: TyresoftSettings = {
   tsDepotId: '',
   tyreMarkupType: 'flat',
   tyreMarkupValue: '',
+};
+
+const EMPTY_BK: BookarSettings = {
+  bookarClientId: '',
+  bookarClientSecret: '',
+  bookarApiBase: '',
 };
 
 export default function AdminTab({ config, save, isSaving }: Props) {
@@ -64,7 +71,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture (Account 1)' },
         { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Original agent architecture (Account 1)' },
         { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre-centre integration (Account 1)' },
-        { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on LiveKit Account 2 — ElevenLabs voice + per-garage rules' },
+        { value: 'Assist-agent', label: 'Assist', description: 'New assist-mode agent on LiveKit Account 2 — ElevenLabs voice + per-garage rules' },
+        { value: 'bookar-agent', label: 'Bookar', description: 'Bookar SIP agent — routes to bookar-yw3ukuz1.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_BOOKAR)' },
       ],
       agentScriptHint:
         'Saving with a different agent script triggers the onboarding service to update the SIP dispatch rule. Assist-agent routes to LiveKit Account 2; the others stay on Account 1.',
@@ -95,6 +103,13 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         'Added to the raw Tyresoft supplier price before the agent quotes. Leave value blank for no markup.',
       flatPerTyre: 'Flat £ per tyre',
       percentage: 'Percentage %',
+      bkCredsTitle: 'Bookar (Vitara Commerce) credentials',
+      bkClientId: 'Client ID',
+      bkClientIdPlaceholder: 'pk_...',
+      bkClientSecret: 'Client secret',
+      bkClientSecretPlaceholder: 'sk_...',
+      bkApiBase: 'API base URL (optional)',
+      bkApiBaseHint: 'Leave blank to use https://partners.bookar.app (default). Only override if Vitara has issued a custom endpoint.',
     },
     fr: {
       title: 'Routage (personnel uniquement)',
@@ -121,7 +136,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Agent amélioré avec architecture superviseur (Account 1)' },
         { value: 'receptionmate-agent', label: 'Legacy Agent', description: 'Architecture d’agent d’origine (Account 1)' },
         { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Intégration centre pneus Tyresoft (Account 1)' },
-        { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'Nouvel agent en mode assist sur LiveKit Account 2 — voix ElevenLabs + règles par agence' },
+        { value: 'Assist-agent', label: 'Assist', description: 'Nouvel agent en mode assist sur LiveKit Account 2 — voix ElevenLabs + règles par agence' },
+        { value: 'bookar-agent', label: 'Bookar', description: 'Agent SIP Bookar — routé vers bookar-yw3ukuz1.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_BOOKAR)' },
       ],
       agentScriptHint:
         'Enregistrer avec un script d’agent différent déclenche la mise à jour de la règle de dispatch SIP par le service de mise en service. Assist-agent est routé vers LiveKit Account 2 ; les autres restent sur Account 1.',
@@ -152,6 +168,13 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         'Ajoutée au prix fournisseur brut de Tyresoft avant que l’agent ne donne le devis. Laissez la valeur vide pour aucune marge.',
       flatPerTyre: 'Forfait £ par pneu',
       percentage: 'Pourcentage %',
+      bkCredsTitle: 'Identifiants Bookar (Vitara Commerce)',
+      bkClientId: 'ID client',
+      bkClientIdPlaceholder: 'pk_...',
+      bkClientSecret: 'Secret client',
+      bkClientSecretPlaceholder: 'sk_...',
+      bkApiBase: "URL de base de l'API (optionnel)",
+      bkApiBaseHint: 'Laissez vide pour utiliser https://partners.bookar.app (par défaut). Ne remplacez que si Vitara a fourni un endpoint personnalisé.',
     },
   }[lang];
   const AGENT_TYPE_OPTIONS = c.agentTypeOptions as { value: AgentType; label: string; description: string }[];
@@ -173,19 +196,27 @@ export default function AdminTab({ config, save, isSaving }: Props) {
     ...EMPTY_TS,
     ...(config.tyresoftSettings ?? {}),
   });
-
+  const [bk, setBk] = useState<BookarSettings>({
+    ...EMPTY_BK,
+    ...(config.bookarSettings ?? {}),
+  });
   useEffect(() => {
     setAgentType((config.agentType as AgentType) ?? 'assist');
     setAgentScript((config.agentScript as AgentScript) ?? 'receptionmate-agent-v3');
     setIntegrationProvider((config.integrationProvider as IntegrationProvider) ?? 'none');
     setGh({ ...EMPTY_GH, ...(config.garageHiveSettings ?? {}) });
     setTs({ ...EMPTY_TS, ...(config.tyresoftSettings ?? {}) });
+    setBk({ ...EMPTY_BK, ...(config.bookarSettings ?? {}) });
   }, [config]);
 
-  // GH misconfig warning: provider is garage_hive but any of the 4 required
-  // GH fields is empty. Same logic the old /agent-configurations page uses.
+  // GH misconfig warning: fires on GH-family agents when any of the 4 required
+  // GH fields is empty. Derived from agentScript now that integrationProvider is a dead flag.
   const ghMisconfigWarning = useMemo(() => {
-    if (integrationProvider !== 'garage_hive') return null;
+    const isGhAgent =
+      agentScript === 'receptionmate-agent' ||
+      agentScript === 'receptionmate-agent-v3' ||
+      agentScript === 'GarageHive-agent';
+    if (!isGhAgent) return null;
     const missing: string[] = [];
     if (!gh.instanceUrl.trim()) missing.push(c.ghMissing.instanceUrl);
     if (!gh.apiKey.trim()) missing.push(c.ghMissing.apiKey);
@@ -193,15 +224,20 @@ export default function AdminTab({ config, save, isSaving }: Props) {
     if (!gh.locationId.trim()) missing.push(c.ghMissing.locationId);
     if (missing.length === 0) return null;
     return c.ghWarn(missing.join(', '), missing.length !== 1);
-  }, [integrationProvider, gh, c]);
+  }, [agentScript, gh, c]);
 
   const handleSave = () => {
+    const isGhAgent =
+      agentScript === 'receptionmate-agent' ||
+      agentScript === 'receptionmate-agent-v3' ||
+      agentScript === 'GarageHive-agent';
     void save({
       agentType,
       agentScript,
-      integrationProvider,
+      integrationProvider: isGhAgent ? 'garage_hive' : integrationProvider,
       garageHiveSettings: gh,
       tyresoftSettings: ts,
+      bookarSettings: bk,
     });
   };
 
@@ -283,39 +319,50 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         </p>
       </div>
 
-      <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700">
-          {c.diaryLabel}
-        </label>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {(['none', 'garage_hive'] as IntegrationProvider[]).map((opt) => {
-            const isActive = integrationProvider === opt;
-            const label = opt === 'none' ? c.notConnected : c.garageHive;
-            const description =
-              opt === 'none'
-                ? c.notConnectedDesc
-                : c.garageHiveDesc;
-            return (
-              <button
-                key={opt}
-                type="button"
-                onClick={() => setIntegrationProvider(opt)}
-                className={`rounded-xl border p-3 text-left transition ${
-                  isActive
-                    ? 'border-brand-600 bg-brand-50'
-                    : 'border-slate-300 bg-slate-50 hover:border-slate-500'
-                }`}
-              >
-                <div className="text-sm font-semibold text-slate-900">{label}</div>
-                <div className="mt-0.5 text-xs text-slate-500">{description}</div>
-              </button>
-            );
-          })}
+      {agentScript === 'bookar-agent' && (
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-700">
+            {c.diaryLabel}
+          </label>
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">{c.bkCredsTitle}</h3>
+            <Field label={c.bkClientId}>
+              <input
+                type="text"
+                value={bk.bookarClientId}
+                onChange={(e) => setBk({ ...bk, bookarClientId: e.target.value })}
+                placeholder={c.bkClientIdPlaceholder}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </Field>
+            <Field label={c.bkClientSecret}>
+              <input
+                type="password"
+                value={bk.bookarClientSecret}
+                onChange={(e) => setBk({ ...bk, bookarClientSecret: e.target.value })}
+                placeholder={c.bkClientSecretPlaceholder}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </Field>
+            <Field label={c.bkApiBase} hint={c.bkApiBaseHint}>
+              <input
+                type="url"
+                value={bk.bookarApiBase}
+                onChange={(e) => setBk({ ...bk, bookarApiBase: e.target.value })}
+                placeholder="https://partners.bookar.app"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </Field>
+          </div>
         </div>
-      </div>
+      )}
 
-      {integrationProvider === 'garage_hive' && (
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      {(agentScript === 'receptionmate-agent' || agentScript === 'receptionmate-agent-v3' || agentScript === 'GarageHive-agent') && (
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-700">
+            {c.diaryLabel}
+          </label>
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <h3 className="text-sm font-semibold text-slate-900">{c.ghCredsTitle}</h3>
           <Field label={c.customerId}>
             <input
@@ -353,11 +400,16 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
+          </div>
         </div>
       )}
 
       {agentScript === 'tyresoft-agent' && (
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-700">
+            {c.diaryLabel}
+          </label>
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <h3 className="text-sm font-semibold text-slate-900">{c.tsCredsTitle}</h3>
           <Field label={c.workspace}>
             <input
@@ -446,8 +498,10 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               />
             </div>
           </Field>
+          </div>
         </div>
       )}
+
     </TabShell>
   );
 }

@@ -144,25 +144,6 @@ const garageHiveSettingsSchema = z
   })
   .optional();
 
-// One engine-size price bracket: "vehicles up to maxCC cc pay this price".
-const pricingBracketSchema = z.object({
-  maxCC: z.number().int().nonnegative().max(20000),
-  price: z.number().nonnegative().max(100000),
-});
-
-// One Tyresoft service entry. Engine-size services attach brackets via pricingRules[id].
-const tsServiceSchema = z.object({
-  id: z.string().min(1).max(64),
-  name: z.string().min(1).max(200),
-  pricingType: z.enum(['fixed', 'engine-size']),
-  price: z.number().nonnegative().max(100000).optional(),
-  // Numeric Tyresoft API serviceID for this service (from the garage's Tyresoft
-  // account). The agent needs this to book the service — without it the service
-  // falls back to the MISC line, or is unbookable. Kept as string|number since the
-  // UI edits it as text.
-  tsServiceId: z.union([z.string().max(20), z.number()]).optional(),
-});
-
 const tyresoftSettingsSchema = z
   .object({
     tsWorkspace: optionalBoundedString(100),
@@ -170,15 +151,10 @@ const tyresoftSettingsSchema = z
     tsPassword: optionalBoundedString(1000),
     tsApiKey: optionalBoundedString(1000),
     tsDepotId: z.union([z.string().max(20), z.number()]).optional(),
-    // Per-garage Tyresoft "client channel id". The agent sends this on createSale;
-    // if it's wrong/unset Tyresoft rejects the booking with "Invalid client channel id".
-    // Elite Autocare = 31. Must be set per garage (there is no safe shared default).
-    tsChannelId: z.union([z.string().max(20), z.number()]).optional(),
-    // Structured pricing data — service catalogue + engine-size price brackets keyed by service id.
-    tsServices: z.array(tsServiceSchema).max(200).optional(),
-    pricingRules: z.record(z.string().max(64), z.array(pricingBracketSchema).max(20)).optional(),
-    // Per-garage tyre markup. Stored as form-friendly { type, value } from the
-    // UI, normalised by config.ts to tyreMarkupFlat / tyreMarkupPercent on PUT.
+    // Per-garage tyre markup — added to every quoted tyre price.
+    // Stored as { type: 'flat'|'percent', value: '28' } via the form.
+    // The config webhook converts these into tyreMarkupFlat / tyreMarkupPercent
+    // on the way to DynamoDB so the agent can read them.
     tyreMarkupType: z.enum(['flat', 'percent']).optional(),
     tyreMarkupValue: optionalBoundedString(20),
   })
@@ -256,7 +232,6 @@ export const weeklyOpeningHoursSchema = z.preprocess(
 
 export const upsertAgentConfigurationSchema = z.object({
   branchName: z.string().min(1).max(200),
-  agentName: z.union([z.string().max(60), z.literal(''), z.null()]).optional(),
   phoneNumber: z.union([z.string().max(100), z.literal('')]).optional(),
   emailAddress: optionalEmail,
   branchAddress: z.union([z.string().max(1000), z.literal('')]).optional(),
@@ -268,8 +243,6 @@ export const upsertAgentConfigurationSchema = z.object({
   responseSpeed: z.enum(['slow', 'normal', 'fast']).optional(),
   interruptionSensitivity: z.number().min(0).max(1).optional(),
   allowFastFitOnly: z.boolean(),
-  callerRecognitionEnabled: z.boolean().optional(),
-  advisoryUpsellsEnabled: z.boolean().optional(),
   enableDropOffBookings: z.boolean().optional(),
   dropOffMessage: z.string().max(500).optional(),
   dropOffExcludeServices: z.array(z.string().max(100)).max(20).optional(),
@@ -278,17 +251,10 @@ export const upsertAgentConfigurationSchema = z.object({
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
   agentType: z.enum(['assist', 'automate']).optional(),
-  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'Assist-agent', 'GarageHive-agent', 'MMH-agent']).optional(),
+  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'MMH-agent', 'bookar-agent', 'Assist-agent', 'GarageHive-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
-  // Messaging (chat) agent settings — without these, z.object() strips them on save.
-  messagingHumanHandoff: z.boolean().optional(),
-  messagingHandoffMessage: z.union([z.string().max(2000), z.literal(''), z.null()]).optional(),
-  messagingNotifyScope: z.enum(['off', 'escalated', 'all']).optional(),
-  messagingNotifyEmail: z.boolean().optional(),
-  messagingNotifySms: z.boolean().optional(),
-  messagingNotifyPhone: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
-  transferNumber: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
+  transferNumber: z.union([z.string().max(50), z.literal('')]).nullable().optional(),
   allowBookings: z.boolean().optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
@@ -303,10 +269,6 @@ export const upsertAgentConfigurationSchema = z.object({
     required: z.boolean(),
     instruction: z.string().max(280).optional().nullable(),
   })).optional().nullable(),
-  // Stored answers the agent uses verbatim, and per-word pronunciation overrides.
-  // Kept permissive so the save never rejects regardless of the editor's exact shape.
-  faqs: z.array(z.any()).optional().nullable(),
-  pronunciations: z.array(z.any()).optional().nullable(),
   hubspotSettings: z.object({
     enabled: z.boolean(),
     apiToken: z.string(),

@@ -907,6 +907,46 @@ export async function getChatAgentResponse(
       }
     }
 
+    // UNBOOKABLE_REQUEST_FASTPATH: the customer wants an MOT on its own, and THIS garage has no
+    // standalone MOT to book — every MOT in their catalogue is bundled with a service. Their own
+    // rules then say to take details and arrange a callback.
+    //
+    // This has to happen in code. Three separate prompt attempts failed to make the model do it:
+    // at need_service with a loaded service list it keeps answering "what sort of service were
+    // you after?", even with the garage rule marked as overriding everything. State only yields
+    // to state. Deliberately narrow so it stays garage-scoped: it cannot fire for a garage whose
+    // catalogue DOES contain a standalone MOT (5 of the 6 live chat garages), and it only fires
+    // on an explicit MOT-only request, never on a vague enquiry.
+    if (session.step === Step.NEED_SERVICE && (session.servicesAvailable?.length ?? 0) > 0) {
+      const askedMotOnly = /\b(just|only)\s+(the\s+|an?\s+)?mot\b|\bmot[- ]only\b|\bmot\b[^.]{0,24}\b(no|without|not)\s+(a\s+)?(service|servicing)\b|\b(no|without|dont want|don't want|do not want)\s+(a\s+)?(service|servicing)\b/i
+        .test(message);
+      if (askedMotOnly) {
+        // A standalone MOT = a service naming MOT but NOT bundled with servicing work.
+        const hasStandaloneMot = session.servicesAvailable.some((s: any) => {
+          const n = String(s?.name || '').toLowerCase();
+          return n.includes('mot') && !/(service|servicing|oil|filter|interim|full)/.test(n);
+        });
+        if (!hasStandaloneMot) {
+          console.log(`[UNBOOKABLE_REQUEST_FASTPATH] MOT-only asked for but no standalone MOT in this garage's ${session.servicesAvailable.length} services — switching to message_only`);
+          session.step = Step.MESSAGE_ONLY;
+          session.serviceHint = '';
+          await saveSession(conversationId, session);
+          const needName = !session.customerNameFirst;
+          const needPhone = !session.contactPhone;
+          const ask = needName && needPhone ? 'your full name and the best number to reach you'
+            : needName ? 'your full name'
+            : needPhone ? 'the best number to reach you'
+            : '';
+          return {
+            content: ask
+              ? `That's no problem — we don't book MOTs on their own, so I'll get a Service Advisor to call you back and arrange it. Could I take ${ask}?`
+              : `That's no problem — we don't book MOTs on their own, so I'll pass your details to a Service Advisor and they'll call you back to arrange it.`,
+            needsHumanAssistance: false,
+          };
+        }
+      }
+    }
+
     // UPSELL_SERVICE_FASTPATH: during upsell, if customer confirms adding a service that's in our
     // available services list, call select_service directly instead of relying on the LLM.
     // Catches: "Yes, brakes too" / "yeah book the brakes" / "yes can I book that on same slot"
@@ -3997,6 +4037,21 @@ TONE EXAMPLES:
 
   // ── Current booking state ─────────────────────────────────────────────────
   prompt += `CURRENT STATE: ${session.step}\n`;
+
+  // message_only means we have already told the customer we cannot book what they want and that
+  // an advisor will ring them back. Without this the prompt still contains the whole booking
+  // flow and the service list, so the very next turn the agent goes back to "what sort of
+  // service were you after?" — which is what happened on Great Hollands 2026-08-12 even after
+  // the state was corrected. State the situation plainly and name the one tool that finishes it.
+  if (session.step === Step.MESSAGE_ONLY) {
+    const missing = [
+      !session.customerNameFirst ? 'their full name' : '',
+      !session.contactPhone ? 'the best phone number for them' : '',
+    ].filter(Boolean);
+    prompt += `\nYOU ARE TAKING A MESSAGE, NOT BOOKING. This customer has asked for something this garage does not book online, and they have been told an advisor will call them back. Do NOT ask what service they want, do NOT offer or list services, and do NOT restart the booking flow — ignore the booking instructions below for now.${
+      missing.length ? ` You still need ${missing.join(' and ')} — ask for that, then call take_message.` : ` You already have their name and number — call take_message now with what they want passing on.`
+    }\n`;
+  }
   if (session.customerNameFirst) prompt += `Customer: ${session.customerNameFirst} ${session.customerNameLast || ''}\n`;
   if (session.vrn) prompt += `Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
   if (session.serviceSelectedName) {

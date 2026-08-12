@@ -73,9 +73,13 @@ async function runOnce(i) {
     }
     const after = await prisma.chatConversation.findUnique({ where: { id: conv.id }, select: { sessionState: true } });
     const step = after?.sessionState?.step;
-    // take_message is the only thing that sets MESSAGE_ONLY, so the step is the assertion.
-    const passed = step === 'message_only';
-    return { passed, step, last: replies[replies.length - 1] || '(no reply)' };
+    const last = replies[replies.length - 1] || '(no reply)';
+    // Two assertions, because the step alone is not enough: an earlier version passed on
+    // step=message_only while the agent was STILL replying "what sort of service were you
+    // after?" — technically in the right state, still doing the wrong thing to the customer.
+    const stillSellingService = /what (sort|kind|type) of service|which service|were you after|what service/i.test(last);
+    const passed = step === 'message_only' && !stillSellingService;
+    return { passed, step, stillSellingService, last };
   } finally {
     await prisma.chatMessage.deleteMany({ where: { conversationId: conv.id } }).catch(() => {});
     await prisma.chatConversation.delete({ where: { id: conv.id } }).catch(() => {});
@@ -129,7 +133,7 @@ async function runNameMidBooking(i) {
     try {
       const r = await runOnce(i);
       if (r.passed) pass1++;
-      console.log(`  run ${i}: ${r.passed ? 'PASS' : 'FAIL'}  step=${r.step}`);
+      console.log(`  run ${i}: ${r.passed ? "PASS" : "FAIL"}  step=${r.step} stillSellingService=${r.stillSellingService}`);
       console.log(`     final reply: ${r.last.slice(0, 140)}`);
     } catch (e) {
       console.log(`  run ${i}: ERROR ${String(e.message).split('\n')[0]}`);

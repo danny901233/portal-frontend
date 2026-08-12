@@ -624,6 +624,30 @@ export const createOutboundCampaign = async (payload: {
   return data;
 };
 
+export interface OutboundLimits {
+  dailyLimit: number;
+  sentLast24h: number;
+  remaining: number;
+  halt: { reason: string | null; haltedAt: string; campaignName: string } | null;
+  /** True for ReceptionMate staff — garages can see the limit but not change it. */
+  canEditLimit: boolean;
+}
+
+export const fetchOutboundLimits = async (garageId: string): Promise<OutboundLimits> => {
+  const { data } = await api.get('/api/outbound/limits', { params: { garageId } });
+  return data;
+};
+
+export const updateOutboundLimit = async (garageId: string, dailyMessageLimit: number) => {
+  const { data } = await api.patch('/api/outbound/limits', { garageId, dailyMessageLimit });
+  return data;
+};
+
+export const resumeOutboundSending = async (garageId: string) => {
+  const { data } = await api.post('/api/outbound/limits/resume', { garageId });
+  return data;
+};
+
 export const fetchGarageTemplates = async (garageId: string): Promise<{ templates: MessageTemplate[] }> => {
   const { data } = await api.get(`/api/garages/${garageId}/templates`);
   return data;

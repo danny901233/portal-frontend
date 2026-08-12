@@ -6,6 +6,9 @@ import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
 import {
   createOutboundCampaign,
+  fetchOutboundLimits,
+  updateOutboundLimit,
+  resumeOutboundSending,
   fetchOutboundCampaigns,
   fetchOutboundCampaign,
   fetchGarageTemplates,
@@ -159,6 +162,15 @@ export default function OutboundPage() {
       step2Body: 'Name it, pick the channel, then say whether it\u2019s a reminder series or a one-off. Bring your customers in from a CSV (customer_name, phone, registration, mot_due_date, service_due_date) or straight from Garage Hive. Upload as far ahead as your system will export — nobody is messaged until their own due date is close.',
       step3: 'Step 3 — Check and send',
       step3Body: 'Check the names and numbers look right, then send. Messages go out spaced a few seconds apart rather than all at once, which is what keeps a WhatsApp number in good standing; a large list carries on over following days automatically.',
+      haltTitle: 'Outbound messaging is paused',
+      haltBody: 'This is a protection. Carrying on after a warning like this is what gets a WhatsApp number permanently disabled — please don\u2019t re-send the same list. Reply to the email we sent and we\u2019ll go through it with you.',
+      haltResume: 'Resume sending (staff)',
+      haltResumed: 'Sending resumed.',
+      allowance: (left: number, limit: number) => `${left} of today\u2019s ${limit} messages left`,
+      allowanceHelp: 'Messages go out about one every 30 seconds, between 8am and 8pm. Anything over the daily allowance is queued and sent the next day.',
+      limitEdit: 'Change limit (staff)',
+      limitSaved: 'Daily limit updated.',
+      limitFailed: 'Could not update the limit.',
       step4: 'Step 4 — See what came back',
       step4Body: 'Every campaign shows what was delivered, who replied, and which replies your agent turned into a booking. Click a campaign to see it customer by customer.',
       howFooter: 'Opt-outs are permanent and shared across every campaign \u2014 once someone says stop, they are never messaged again.',
@@ -292,6 +304,15 @@ export default function OutboundPage() {
       step2Body: 'Nommez-la, choisissez le canal, puis indiquez s\u2019il s\u2019agit d\u2019une série de rappels ou d\u2019un envoi unique. Importez vos clients depuis un CSV (customer_name, phone, registration, mot_due_date, service_due_date) ou directement depuis Garage Hive. Importez aussi loin que votre système l\u2019autorise — personne n\u2019est contacté avant que sa propre échéance approche.',
       step3: 'Étape 3 — Vérifiez et envoyez',
       step3Body: 'Vérifiez que les noms et les numéros sont corrects, puis envoyez. Les messages partent espacés de quelques secondes plutôt que tous en même temps, ce qui protège la réputation de votre numéro WhatsApp ; une longue liste se poursuit automatiquement les jours suivants.',
+      haltTitle: 'La messagerie sortante est en pause',
+      haltBody: 'Il s\u2019agit d\u2019une protection. Continuer après un tel avertissement est ce qui fait désactiver définitivement un numéro WhatsApp — merci de ne pas renvoyer la même liste. Répondez à l\u2019e-mail que nous vous avons envoyé et nous verrons cela avec vous.',
+      haltResume: 'Reprendre l\u2019envoi (personnel)',
+      haltResumed: 'Envoi repris.',
+      allowance: (left: number, limit: number) => `${left} messages restants sur ${limit} aujourd\u2019hui`,
+      allowanceHelp: 'Les messages partent environ un toutes les 30 secondes, entre 8h et 20h. Tout ce qui dépasse l\u2019allocation quotidienne est mis en file et envoyé le lendemain.',
+      limitEdit: 'Modifier la limite (personnel)',
+      limitSaved: 'Limite quotidienne mise à jour.',
+      limitFailed: 'Impossible de mettre à jour la limite.',
       step4: 'Étape 4 — Voyez ce qui revient',
       step4Body: 'Chaque campagne indique ce qui a été délivré, qui a répondu, et quelles réponses votre agent a transformées en rendez-vous. Cliquez sur une campagne pour la voir client par client.',
       howFooter: 'Les désabonnements sont définitifs et partagés entre toutes les campagnes \u2014 une fois qu\u2019une personne dit stop, elle n\u2019est plus jamais contactée.',
@@ -457,6 +478,12 @@ export default function OutboundPage() {
   });
 
   // Automatic daily reminder settings (Garage Hive connection)
+  const { data: limits } = useQuery({
+    queryKey: ['outbound-limits', garageId],
+    queryFn: () => fetchOutboundLimits(garageId),
+    enabled: !!garageId,
+  });
+
   const { data: ghSettings } = useQuery({
     queryKey: ['gh-settings', garageId],
     queryFn: () => fetchGarageHiveSettings(garageId),
@@ -577,6 +604,35 @@ export default function OutboundPage() {
     }
   };
 
+  /** Staff-only. A garage cannot raise its own cap — that is the decision that costs it its number. */
+  const handleEditLimit = async () => {
+    const current = limits?.dailyLimit ?? 240;
+    const input = window.prompt(`Daily message limit for this garage (currently ${current}):`, String(current));
+    if (input === null) return;
+    const n = Number(input);
+    if (!Number.isFinite(n) || n < 1 || n > 10000) {
+      showToast('error', c.limitFailed);
+      return;
+    }
+    try {
+      await updateOutboundLimit(garageId, Math.floor(n));
+      showToast('success', c.limitSaved);
+      queryClient.invalidateQueries({ queryKey: ['outbound-limits', garageId] });
+    } catch {
+      showToast('error', c.limitFailed);
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await resumeOutboundSending(garageId);
+      showToast('success', c.haltResumed);
+      queryClient.invalidateQueries({ queryKey: ['outbound-limits', garageId] });
+    } catch {
+      showToast('error', c.limitFailed);
+    }
+  };
+
   /** Add a custom days-before value. Out-of-range or duplicate input is ignored, not an error. */
   const addCustomStage = () => {
     const n = Number.parseInt(customStage, 10);
@@ -675,6 +731,24 @@ export default function OutboundPage() {
       {/* Templates first: a campaign can only send an APPROVED template, so the thing that blocks
           sending belongs above the thing that sends. Previously these were separate nav items and
           nothing connected them. */}
+      {/* Halted: this is the loudest thing on the page for a reason. */}
+      {limits?.halt && (
+        <div className="rounded-xl border border-red-300 bg-red-50 p-5">
+          <h2 className="text-sm font-semibold text-red-900">{c.haltTitle}</h2>
+          <p className="mt-2 text-sm text-red-800">{limits.halt.reason}</p>
+          <p className="mt-2 text-xs text-red-700">{c.haltBody}</p>
+          {limits.canEditLimit && (
+            <button
+              type="button"
+              onClick={handleResume}
+              className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+            >
+              {c.haltResume}
+            </button>
+          )}
+        </div>
+      )}
+
       <section id="templates" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <StepHeader n={1} title={c.step1} body={c.step1Body} />
         <TemplatesPage embedded />
@@ -1158,6 +1232,23 @@ export default function OutboundPage() {
                 {c.cancel}
               </button>
             </div>
+            {limits && (
+              <p className="mt-3 text-xs text-slate-600">
+                <span className={cn('font-medium', limits.remaining === 0 ? 'text-amber-600' : 'text-slate-700')}>
+                  {c.allowance(limits.remaining, limits.dailyLimit)}
+                </span>
+                {' '}{c.allowanceHelp}
+                {limits.canEditLimit && (
+                  <button
+                    type="button"
+                    onClick={handleEditLimit}
+                    className="ml-2 text-blue-600 underline hover:text-blue-700"
+                  >
+                    {c.limitEdit}
+                  </button>
+                )}
+              </p>
+            )}
             <p className="mt-3 text-xs text-slate-500">{c.howFooter}</p>
           </div>
         </div>

@@ -452,19 +452,28 @@ router.get('/outbound/limits', authenticate, async (req: Request, res: Response)
     if (!garage) return res.status(404).json({ error: 'Garage not found' });
 
     // Same counting rule the send loop uses: successful sends in the rolling 24h.
-    const sentLast24h = await prisma.outboundContact.count({
-      where: {
-        garageId,
-        status: { in: ['sent', 'delivered', 'read', 'replied'] },
-        updatedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-      },
-    });
+    const windowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const counted = { garageId, status: { in: ['sent', 'delivered', 'read', 'replied'] }, updatedAt: { gte: windowStart } };
+    const sentLast24h = await prisma.outboundContact.count({ where: counted });
+
+    // The allowance is a rolling window, not a midnight reset, so "when does it reset" has two
+    // honest answers: when the oldest message drops out (allowance starts freeing up) and when
+    // the newest does (back to a full allowance). Showing both beats implying a midnight tick.
+    const [oldest, newest] = await Promise.all([
+      prisma.outboundContact.findFirst({ where: counted, orderBy: { updatedAt: 'asc' }, select: { updatedAt: true } }),
+      prisma.outboundContact.findFirst({ where: counted, orderBy: { updatedAt: 'desc' }, select: { updatedAt: true } }),
+    ]);
+    const plus24h = (d?: Date | null) => (d ? new Date(d.getTime() + 24 * 60 * 60 * 1000).toISOString() : null);
+
     const halt = await activeHalt(garageId);
 
     res.json({
       dailyLimit: garage.dailyMessageLimit,
       sentLast24h,
       remaining: Math.max(0, garage.dailyMessageLimit - sentLast24h),
+      nextFreeAt: plus24h(oldest?.updatedAt),
+      fullyFreeAt: plus24h(newest?.updatedAt),
+      sendWindow: { startHour: 8, endHour: 20, timezone: 'Europe/London' },
       halt: halt ? { reason: halt.haltReason, haltedAt: halt.haltedAt, campaignName: halt.name } : null,
       canEditLimit: req.user?.role === 'RECEPTIONMATE_STAFF',
     });

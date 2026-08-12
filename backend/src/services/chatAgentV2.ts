@@ -2044,6 +2044,17 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
     const hourLondon2 = parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }), 10);
     const timeGreeting2 = hourLondon2 < 12 ? 'morning' : hourLondon2 < 17 ? 'afternoon' : 'evening';
     const firstName2 = first_name.charAt(0).toUpperCase() + first_name.slice(1).toLowerCase();
+    // Only greet when this is the START of a message flow ("hi, can someone call me back?").
+    // Mid-conversation we already know what they want — greeting them and asking "what can I
+    // help you with?" reads as if the agent forgot the last five minutes, and it stalls short of
+    // take_message, so the customer is never actually told their message was passed on.
+    const midConversation = !!(session.vrnConfirmed && session.vrn) || !!session.serviceHint || !!session.notes;
+    if (midConversation) {
+      const wanted = session.serviceHint || session.notes || 'what they asked about above';
+      const vehicle = session.vrn ? ` for their ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})` : '';
+      console.log(`[SAVE_NAME] Mid-conversation message intent — going straight to take_message, no greeting`);
+      return `Name saved: ${firstName2}. You ALREADY know what they want (${wanted})${vehicle} — do NOT greet them again and do NOT ask "what can I help you with?". Call take_message NOW, summarising what they asked for, so they get told it has been passed on.`;
+    }
     return `Customer wants to leave a message.\nSay: "Good ${timeGreeting2}, ${firstName2}! What can I help you with?"\nWait for their message, then call take_message.`;
   }
   

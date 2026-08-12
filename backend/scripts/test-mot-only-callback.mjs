@@ -78,8 +78,12 @@ async function runOnce(i) {
     // step=message_only while the agent was STILL replying "what sort of service were you
     // after?" — technically in the right state, still doing the wrong thing to the customer.
     const stillSellingService = /what (sort|kind|type) of service|which service|were you after|what service/i.test(last);
-    const passed = step === 'message_only' && !stillSellingService;
-    return { passed, step, stillSellingService, last };
+    // And it must actually TELL them. An earlier version stopped selling but ended on
+    // "Good afternoon, Dan! What can I help you with?" — no worse for the state machine,
+    // useless for the customer, who is left not knowing anything was passed on.
+    const confirmedPassedOn = /passed (that|it) on|pass (that|it|your details) on|will (give you a|be in touch)|call you back|ring you back|be in touch/i.test(last);
+    const passed = step === 'message_only' && !stillSellingService && confirmedPassedOn;
+    return { passed, step, stillSellingService, confirmedPassedOn, last };
   } finally {
     await prisma.chatMessage.deleteMany({ where: { conversationId: conv.id } }).catch(() => {});
     await prisma.chatConversation.delete({ where: { id: conv.id } }).catch(() => {});
@@ -133,7 +137,7 @@ async function runNameMidBooking(i) {
     try {
       const r = await runOnce(i);
       if (r.passed) pass1++;
-      console.log(`  run ${i}: ${r.passed ? "PASS" : "FAIL"}  step=${r.step} stillSellingService=${r.stillSellingService}`);
+      console.log(`  run ${i}: ${r.passed ? "PASS" : "FAIL"}  step=${r.step} stillSellingService=${r.stillSellingService} confirmed=${r.confirmedPassedOn}`);
       console.log(`     final reply: ${r.last.slice(0, 140)}`);
     } catch (e) {
       console.log(`  run ${i}: ERROR ${String(e.message).split('\n')[0]}`);

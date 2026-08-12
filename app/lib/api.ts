@@ -551,6 +551,15 @@ export interface OutboundContact extends OutboundContactInput {
   messageSid?: string | null;
   errorReason?: string | null;
   conversationId?: string | null;
+  /** The conversation their reply started, if they replied — this is where the outcome lives. */
+  conversation?: {
+    id: string;
+    confirmedBooking: boolean;
+    bookingDetails?: string | null;
+    needsAttention: boolean;
+    lastMessageAt: string;
+    unreadCount: number;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -566,10 +575,16 @@ export interface OutboundCampaign {
   sentAt?: string | null;
   resumeAt?: string | null;
   tierLimit?: number;
+  campaignType?: 'reminder' | 'oneoff';
+  reminderStages?: number[];
   messageTemplateId?: string | null;
   variableMapping?: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;
+  /** Contacts who wrote back (replied or told us they're booked). */
+  replyCount?: number;
+  /** Replies the agent turned into a confirmed booking. */
+  bookedCount?: number;
   contacts?: OutboundContact[];
   _count?: { contacts: number };
 }

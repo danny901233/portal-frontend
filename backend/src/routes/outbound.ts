@@ -387,7 +387,49 @@ router.get('/outbound/campaigns', authenticate, async (req: Request, res: Respon
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({ campaigns });
+    // Replies and bookings per campaign. "Delivered" is not an outcome — what a garage wants to
+    // know at a glance is how many people wrote back and how many of those ended up booked.
+    const ids = campaigns.map((c) => c.id);
+    const replyRows = ids.length
+      ? await prisma.outboundContact.groupBy({
+          by: ['campaignId'],
+          where: { campaignId: { in: ids }, status: { in: ['replied', 'booked'] } },
+          _count: { _all: true },
+        })
+      : [];
+    const repliesByCampaign = new Map(replyRows.map((r) => [r.campaignId, r._count._all]));
+
+    // A booking is recorded on the conversation the reply started, so it needs the join.
+    const linked = ids.length
+      ? await prisma.outboundContact.findMany({
+          where: { campaignId: { in: ids }, conversationId: { not: null } },
+          select: { campaignId: true, conversationId: true },
+        })
+      : [];
+    const bookedConvIds = new Set(
+      linked.length
+        ? (
+            await prisma.chatConversation.findMany({
+              where: { id: { in: [...new Set(linked.map((l) => l.conversationId!))] }, confirmedBooking: true },
+              select: { id: true },
+            })
+          ).map((cv) => cv.id)
+        : [],
+    );
+    const bookedByCampaign = new Map<string, number>();
+    for (const l of linked) {
+      if (l.conversationId && bookedConvIds.has(l.conversationId)) {
+        bookedByCampaign.set(l.campaignId, (bookedByCampaign.get(l.campaignId) ?? 0) + 1);
+      }
+    }
+
+    res.json({
+      campaigns: campaigns.map((c) => ({
+        ...c,
+        replyCount: repliesByCampaign.get(c.id) ?? 0,
+        bookedCount: bookedByCampaign.get(c.id) ?? 0,
+      })),
+    });
   } catch (error) {
     console.error('[OUTBOUND] List campaigns error:', error);
     res.status(500).json({ error: 'Failed to list campaigns' });
@@ -408,7 +450,29 @@ router.get('/outbound/campaigns/:id', authenticate, async (req: Request, res: Re
       return res.status(404).json({ error: 'Campaign not found' });
     }
 
-    res.json({ campaign });
+    // The outcome of a campaign lives on the conversation the reply started: whether the agent
+    // confirmed a booking, and for what. Without it the results table can only say "delivered",
+    // which tells a garage nothing about whether the campaign actually worked.
+    // Fetched separately rather than via a relation — OutboundContact.conversationId is a loose
+    // id with no foreign key, so some rows point at conversations that have since been deleted.
+    const convIds = [...new Set(campaign.contacts.map((c) => c.conversationId).filter(Boolean))] as string[];
+    const conversations = convIds.length
+      ? await prisma.chatConversation.findMany({
+          where: { id: { in: convIds } },
+          select: {
+            id: true, confirmedBooking: true, bookingDetails: true,
+            needsAttention: true, lastMessageAt: true, unreadCount: true,
+          },
+        })
+      : [];
+    const convById = new Map(conversations.map((cv) => [cv.id, cv]));
+
+    const contacts = campaign.contacts.map((ct) => ({
+      ...ct,
+      conversation: ct.conversationId ? convById.get(ct.conversationId) ?? null : null,
+    }));
+
+    res.json({ campaign: { ...campaign, contacts } });
   } catch (error) {
     console.error('[OUTBOUND] Get campaign error:', error);
     res.status(500).json({ error: 'Failed to get campaign' });

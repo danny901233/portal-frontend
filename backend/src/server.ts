@@ -47,6 +47,7 @@ import supportRouter from './routes/support.js';
 import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
+import { initReminderCron } from './services/reminderScheduler.js';
 import { initConnectTrialCron } from './utils/connectTrialCron.js';
 import { startArrearsSweep } from './utils/arrears.js';
 import billingStatusRouter from './routes/billing-status.js';
@@ -178,6 +179,8 @@ app.listen(port, '0.0.0.0', () => {
 
   // Initialize scheduled report jobs
   initializeScheduledReports();
+  // Staged MOT/service reminders. Dry-run unless REMINDER_SCHEDULER=on.
+  initReminderCron();
   initConnectTrialCron();
 
   // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.

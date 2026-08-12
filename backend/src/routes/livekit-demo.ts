@@ -29,6 +29,10 @@ const TOKEN_TTL_SECONDS = 30 * 60;
 // Voices the demo agent can use — the /demo picker sends a key; we validate against this
 // allowlist so a caller can't inject an arbitrary value into the dispatch metadata.
 const DEMO_VOICES = new Set(['leah', 'tom', 'sophie', 'gemma', 'isobel', 'fraser']);
+// Expressive Mode (LiveKit Agents >= 1.6.9) makes the LLM emit inline delivery tags the TTS
+// renders. It only engages on a TTS that declares a markup dialect — ElevenLabs does NOT, so the
+// expressive path swaps the voice engine too. Opt-in per call, so the public demo is unchanged.
+const DEMO_EXPRESSIVE_TTS = new Set(['cartesia', 'inworld', 'fishaudio', 'xai']);
 
 router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
@@ -37,6 +41,10 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
 
   const requested = String(req.body?.voice ?? '').toLowerCase();
   const voice = DEMO_VOICES.has(requested) ? requested : 'leah';
+  // Asking for expressive without naming an engine gets Cartesia Sonic 3, the fastest of them.
+  const requestedTts = String(req.body?.tts ?? '').toLowerCase();
+  const expressive = req.body?.expressive === true || req.body?.expressive === 'true';
+  const tts = DEMO_EXPRESSIVE_TTS.has(requestedTts) ? requestedTts : 'cartesia';
 
   const roomName = `demo-${randomBytes(8).toString('hex')}`;
   const identity = `visitor-${randomBytes(4).toString('hex')}`;
@@ -61,11 +69,14 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   // auto-join. Best-effort: if dispatch hiccups we still return the token, but log loudly since
   // without the agent the room is silent.
   const httpUrl = LIVEKIT_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
-  const agentName = process.env.DEMO_AGENT_NAME || 'demo-agent';
+  // The self-hosted worker registers as 'demo-agent-v2' (see demo-agent/.env AGENT_DISPATCH_NAME),
+  // so that is what has to be dispatched — a dispatch to 'demo-agent' names a worker that no
+  // longer registers and the visitor waits in an empty room.
+  const agentName = process.env.DEMO_AGENT_NAME || 'demo-agent-v2';
   try {
     const dispatchClient = new AgentDispatchClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
     await dispatchClient.createDispatch(roomName, agentName, {
-      metadata: JSON.stringify({ kind: 'web-demo', voice }),
+      metadata: JSON.stringify({ kind: 'web-demo', voice, ...(expressive && { expressive: true, tts }) }),
     });
   } catch (err) {
     console.error(`[demo] failed to dispatch "${agentName}" into ${roomName}:`, err);

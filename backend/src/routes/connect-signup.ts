@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Request } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -55,6 +56,50 @@ function toE164UK(raw: string): string | null {
   return null;
 }
 
+// --- Rate limiting -----------------------------------------------------------------------
+// /start sends a real SMS through Twilio Verify, so an unthrottled public endpoint is both a
+// direct cost leak and a way to text-bomb a number the caller doesn't own; /verify needs a cap
+// so a 6-digit code can't be brute-forced. In-memory state is sufficient and deliberate: pm2
+// runs this backend as a SINGLE fork-mode process, so there's nothing to share across workers.
+// If it's ever moved to cluster mode or a second instance, this must move to Redis/Postgres.
+type Bucket = { count: number; windowStart: number; last: number };
+const startByNumber = new Map<string, Bucket>();
+const startByIp = new Map<string, Bucket>();
+const verifyByNumber = new Map<string, Bucket>();
+
+const RESEND_COOLDOWN_MS = 60_000;                    // between two SMS to the same number
+const START_NUMBER_MAX = 5, START_NUMBER_WINDOW = 24 * 60 * 60 * 1000;
+const START_IP_MAX = 10, START_IP_WINDOW = 60 * 60 * 1000;
+const VERIFY_MAX = 8, VERIFY_WINDOW = 15 * 60 * 1000;
+
+/** Fixed-window counter. Returns null when allowed, else seconds until the window resets. */
+function hit(map: Map<string, Bucket>, key: string, max: number, windowMs: number): number | null {
+  const now = Date.now();
+  const b = map.get(key);
+  if (!b || now - b.windowStart >= windowMs) {
+    map.set(key, { count: 1, windowStart: now, last: now });
+    return null;
+  }
+  b.last = now;
+  if (b.count >= max) return Math.max(1, Math.ceil((b.windowStart + windowMs - now) / 1000));
+  b.count += 1;
+  return null;
+}
+
+// Sweep hourly so the maps can't grow without bound. unref() so this never holds the process open.
+setInterval(() => {
+  const cutoff = Date.now() - START_NUMBER_WINDOW;
+  for (const map of [startByNumber, startByIp, verifyByNumber]) {
+    for (const [k, b] of map) if (b.last < cutoff) map.delete(k);
+  }
+}, 60 * 60 * 1000).unref();
+
+/** Client IP — nginx sits in front and `trust proxy` is not set, so req.ip is the loopback. */
+function clientIp(req: Request): string {
+  const forwarded = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+  return forwarded || req.ip || 'unknown';
+}
+
 const startSchema = z.object({
   businessName: z.string().trim().min(2).max(200),
   name: z.string().trim().min(2).max(120),
@@ -83,6 +128,35 @@ router.post('/start', async (req, res) => {
   const mobile = toE164UK(parsed.data.mobile);
   if (!mobile) {
     return res.status(400).json({ success: false, error: 'invalid_mobile', message: 'Enter a valid UK mobile number.' });
+  }
+  // Throttle before any Twilio spend. Cooldown first so a double-click gets the friendly
+  // "wait a moment" rather than burning one of the five daily sends.
+  const prev = startByNumber.get(mobile);
+  if (prev && Date.now() - prev.last < RESEND_COOLDOWN_MS) {
+    const wait = Math.ceil((RESEND_COOLDOWN_MS - (Date.now() - prev.last)) / 1000);
+    res.setHeader('Retry-After', String(wait));
+    return res.status(429).json({
+      success: false, error: 'too_soon', retryAfter: wait,
+      message: `Please wait ${wait} second${wait === 1 ? '' : 's'} before requesting another code.`,
+    });
+  }
+  const ipWait = hit(startByIp, clientIp(req), START_IP_MAX, START_IP_WINDOW);
+  if (ipWait !== null) {
+    console.warn(`[CONNECT_SIGNUP] rate-limited /start by ip=${clientIp(req)}`);
+    res.setHeader('Retry-After', String(ipWait));
+    return res.status(429).json({
+      success: false, error: 'rate_limited', retryAfter: ipWait,
+      message: 'Too many sign-up attempts. Please try again later.',
+    });
+  }
+  const numWait = hit(startByNumber, mobile, START_NUMBER_MAX, START_NUMBER_WINDOW);
+  if (numWait !== null) {
+    console.warn(`[CONNECT_SIGNUP] rate-limited /start by number=${mobile.slice(-4)}`);
+    res.setHeader('Retry-After', String(numWait));
+    return res.status(429).json({
+      success: false, error: 'rate_limited', retryAfter: numWait,
+      message: 'Too many codes requested for that number today. Please try again tomorrow.',
+    });
   }
   try {
     // Reject duplicate emails up front — direct them to log in instead.
@@ -117,6 +191,16 @@ router.post('/verify', async (req, res) => {
   const mobile = toE164UK(parsed.data.mobile);
   if (!mobile) {
     return res.status(400).json({ success: false, error: 'invalid_mobile' });
+  }
+  // Cap code guesses so a 6-digit OTP can't be brute-forced.
+  const codeWait = hit(verifyByNumber, mobile, VERIFY_MAX, VERIFY_WINDOW);
+  if (codeWait !== null) {
+    console.warn(`[CONNECT_SIGNUP] rate-limited /verify by number=${mobile.slice(-4)}`);
+    res.setHeader('Retry-After', String(codeWait));
+    return res.status(429).json({
+      success: false, error: 'rate_limited', retryAfter: codeWait,
+      message: 'Too many incorrect codes. Please request a new one shortly.',
+    });
   }
   try {
     // 1. Check the SMS OTP.

@@ -31,7 +31,6 @@ import type {
   AgentKnowledgeDocument,
   AgentType,
   DayOfWeek,
-  BookarSettings,
   HubspotSettings,
   IntegrationProvider,
   TonePreference,
@@ -126,18 +125,6 @@ const cloneTyresoftSettings = (settings: TyresoftSettings | undefined): Tyresoft
   tsDepotId: settings?.tsDepotId ?? '',
 });
 
-const createEmptyBookarSettings = (): BookarSettings => ({
-  bookarClientId: '',
-  bookarClientSecret: '',
-  bookarApiBase: '',
-});
-
-const cloneBookarSettings = (settings: BookarSettings | undefined): BookarSettings => ({
-  bookarClientId: settings?.bookarClientId ?? '',
-  bookarClientSecret: settings?.bookarClientSecret ?? '',
-  bookarApiBase: settings?.bookarApiBase ?? '',
-});
-
 const createEmptyHubspotSettings = (): HubspotSettings => ({
   enabled: false,
   apiToken: '',
@@ -173,7 +160,6 @@ const createEmptyConfiguration = (): AgentConfiguration => ({
   integrationProvider: 'none',
   garageHiveSettings: createEmptyGarageHiveSettings(),
   tyresoftSettings: createEmptyTyresoftSettings(),
-  bookarSettings: createEmptyBookarSettings(),
   hubspotSettings: createEmptyHubspotSettings(),
   agentType: 'assist',
   agentScript: 'receptionmate-agent-v3',
@@ -207,7 +193,6 @@ const cloneConfiguration = (config: AgentConfiguration): AgentConfiguration => (
   weeklyOpeningHours: cloneWeeklyOpeningHours(config.weeklyOpeningHours),
   garageHiveSettings: cloneGarageHiveSettings(config.garageHiveSettings),
   tyresoftSettings: cloneTyresoftSettings(config.tyresoftSettings),
-  bookarSettings: cloneBookarSettings(config.bookarSettings),
   hubspotSettings: cloneHubspotSettings(config.hubspotSettings),
   dropOffExcludeServices: [...(config.dropOffExcludeServices || ['MOT'])],
 });
@@ -271,7 +256,7 @@ const buildAgentTypeOptions = (lang: 'en' | 'fr'): AgentTypeOption[] =>
         { value: 'automate', label: 'Automate', description: 'Handles full booking process with diary integration.' },
       ];
 
-type AgentScriptOption = { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent'; label: string; description: string };
+type AgentScriptOption = { value: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent'; label: string; description: string };
 const buildAgentScriptOptions = (lang: 'en' | 'fr'): AgentScriptOption[] =>
   lang === 'fr'
     ? [
@@ -281,7 +266,6 @@ const buildAgentScriptOptions = (lang: 'en' | 'fr'): AgentScriptOption[] =>
         { value: 'Assist-agent', label: 'RMB-Assist (Compte 2)', description: 'Nouvel agent en mode assist sur le deuxième compte LiveKit Cloud — prise de message uniquement, voix ElevenLabs, prend en charge customRules + dataCollectionFields par garage' },
         { value: 'GarageHive-agent', label: 'RMB-GarageHive', description: 'Nouvel agent de réservation + prise de message GarageHive sur le deuxième compte LiveKit Cloud — flux de réservation complet, voix ElevenLabs, prend en charge customRules + dataCollectionFields par garage' },
         { value: 'MMH-agent', label: 'Agent MMH (Midlands Motorhome Hire)', description: "Agent de réservation de location de camping-cars (Outdoorsy/Wheelbase) sur le projet LiveKit new-gh-agent. Route via LIVEKIT_SIP_DOMAIN_MMH — n'utilisez pas le provisionnement SIP standard pour ce garage." },
-        { value: 'bookar-agent', label: 'Agent Bookar (Vitara Commerce)', description: "Agent de prise de rendez-vous pour les garages utilisant Bookar (système de gestion Vitara Commerce). Sur le projet LiveKit dédié « bookar deploy » — flux de réservation complet via l'API Partner de Bookar. Route via LIVEKIT_SIP_DOMAIN_BOOKAR — n'utilisez pas le provisionnement SIP standard." },
       ]
     : [
         { value: 'receptionmate-agent-v3', label: 'New Agent', description: 'Enhanced agent with supervisor architecture' },
@@ -290,7 +274,6 @@ const buildAgentScriptOptions = (lang: 'en' | 'fr'): AgentScriptOption[] =>
         { value: 'Assist-agent', label: 'RMB-Assist (Account 2)', description: 'New assist-mode agent on the second LiveKit Cloud account — message-taking only, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
         { value: 'GarageHive-agent', label: 'RMB-GarageHive', description: 'New GarageHive booking + take-message agent on the second LiveKit Cloud account — full booking flow, ElevenLabs voice, supports per-garage customRules + dataCollectionFields' },
         { value: 'MMH-agent', label: 'MMH Agent (Midlands Motorhome Hire)', description: 'Dedicated motorhome-hire booking agent (Outdoorsy/Wheelbase) on the new-gh-agent LiveKit project. Routes via LIVEKIT_SIP_DOMAIN_MMH — do not use the standard SIP provisioning for this garage.' },
-        { value: 'bookar-agent', label: 'Bookar Agent (Vitara Commerce)', description: 'Garage-appointments agent for garages running Bookar (Vitara Commerce garage management). On the dedicated "bookar deploy" LiveKit project — full booking flow via Bookar Partner API. Routes via LIVEKIT_SIP_DOMAIN_BOOKAR — do not use the standard SIP provisioning for this garage.' },
       ];
 const maskSecretValue = (value: string, lang: 'en' | 'fr' = 'en') => {
   if (!value) {
@@ -477,9 +460,9 @@ export default function AgentConfigurationsPage() {
       dropOffMessageTooltip: 'The agent will say this message when confirming a drop-off booking. Example: "drop your vehicle off between 8am and half ten in the morning"',
       dropOffMessagePlaceholder: 'drop your vehicle off between 8-10:30am',
       notSet: 'Not set',
-      excludedServices: 'Services booked at set times, not drop-off (comma-separated)',
-      excludedServicesAria: 'Services booked at specific timeslots instead of drop-off mode',
-      excludedServicesTooltip: 'These services are booked at a set appointment time (on the hour, 9am–4pm) instead of a drop-off. Everything else is offered as a drop-off. Useful for MOTs / contrôle technique that need the vehicle at a specific time.',
+      excludedServices: 'Excluded services (comma-separated)',
+      excludedServicesAria: 'Services that should still use specific timeslots instead of drop-off mode',
+      excludedServicesTooltip: 'Services listed here will still use specific timeslots instead of drop-off mode. Useful for services like contrôle technique that require the vehicle at a specific time.',
       excludedPlaceholder: 'MOT, Diagnostic',
       none: 'None',
       // Agent Type
@@ -695,9 +678,9 @@ export default function AgentConfigurationsPage() {
       dropOffMessageTooltip: 'L’agent prononcera ce message lors de la confirmation d’une réservation en dépôt. Exemple : « déposez votre véhicule entre 8h et 10h30 le matin »',
       dropOffMessagePlaceholder: 'déposez votre véhicule entre 8h et 10h30',
       notSet: 'Non défini',
-      excludedServices: 'Services à horaire fixe, pas en dépôt (séparés par des virgules)',
-      excludedServicesAria: 'Services réservés à des créneaux précis plutôt qu’en mode dépôt',
-      excludedServicesTooltip: 'Ces services sont réservés à une heure précise (à l’heure pile, de 9h à 16h) plutôt qu’en dépôt. Tout le reste est proposé en dépôt. Utile pour le contrôle technique qui nécessite le véhicule à une heure précise.',
+      excludedServices: 'Services exclus (séparés par des virgules)',
+      excludedServicesAria: 'Services qui doivent continuer à utiliser des créneaux précis plutôt que le mode dépôt',
+      excludedServicesTooltip: 'Les services listés ici continueront à utiliser des créneaux précis plutôt que le mode dépôt. Utile pour des services comme le contrôle technique qui nécessitent le véhicule à une heure précise.',
       excludedPlaceholder: 'MOT, Diagnostic',
       none: 'Aucun',
       agentType: 'Type d’agent',
@@ -1350,23 +1333,6 @@ export default function AgentConfigurationsPage() {
       ...prev,
       tyresoftSettings: {
         ...prev.tyresoftSettings,
-        [field]: value,
-      },
-    }));
-    setFeedback(null);
-  };
-
-  const handleBookarSettingsChange = (
-    field: keyof BookarSettings,
-  ) => (event: ChangeEvent<HTMLInputElement>) => {
-    if (!isEditing || mutation.isPending) {
-      return;
-    }
-    const { value } = event.target;
-    setFormState((prev) => ({
-      ...prev,
-      bookarSettings: {
-        ...(prev.bookarSettings ?? createEmptyBookarSettings()),
         [field]: value,
       },
     }));
@@ -2498,7 +2464,7 @@ export default function AgentConfigurationsPage() {
                 onChange={(event) =>
                   setFormState((state) => ({
                     ...state,
-                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent',
+                    agentScript: event.target.value as 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent',
                   }))
                 }
                 disabled={!isEditing || mutation.isPending || !canEditAgentType}
@@ -2608,69 +2574,6 @@ export default function AgentConfigurationsPage() {
                   <div>
                     <span className="text-xs uppercase tracking-wide text-slate-500">{c.depotId}</span>
                     <div className="text-slate-900">{formState.tyresoftSettings.tsDepotId || c.notSet}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {formState.agentScript === 'bookar-agent' && canEditAgentType && (
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-lg shadow-slate-200/60">
-            <h2 className="text-lg font-semibold text-slate-900">Bookar (Vitara Commerce) Credentials</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Per-branch Bookar Partner API credentials from Vitara Commerce. One credential per garage. Leave the API base blank to use the default (<code className="rounded bg-slate-100 px-1 py-0.5 text-xs">https://partners.bookar.app</code>).
-            </p>
-            <div className="mt-6">
-              {isEditing ? (
-                <div className="grid gap-5 md:grid-cols-2">
-                  <label className="flex flex-col gap-2 text-sm text-slate-700">
-                    <span className="text-xs uppercase tracking-wide text-slate-500">Client ID</span>
-                    <input
-                      type="text"
-                      placeholder="pk_..."
-                      value={formState.bookarSettings?.bookarClientId ?? ''}
-                      onChange={handleBookarSettingsChange('bookarClientId')}
-                      disabled={!isEditing || mutation.isPending}
-                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-700">
-                    <span className="text-xs uppercase tracking-wide text-slate-500">Client Secret</span>
-                    <input
-                      type="password"
-                      placeholder="sk_..."
-                      value={formState.bookarSettings?.bookarClientSecret ?? ''}
-                      onChange={handleBookarSettingsChange('bookarClientSecret')}
-                      disabled={!isEditing || mutation.isPending}
-                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-2 text-sm text-slate-700 md:col-span-2">
-                    <span className="text-xs uppercase tracking-wide text-slate-500">API Base (optional)</span>
-                    <input
-                      type="text"
-                      placeholder="https://partners.bookar.app"
-                      value={formState.bookarSettings?.bookarApiBase ?? ''}
-                      onChange={handleBookarSettingsChange('bookarApiBase')}
-                      disabled={!isEditing || mutation.isPending}
-                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    />
-                  </label>
-                </div>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <span className="text-xs uppercase tracking-wide text-slate-500">Client ID</span>
-                    <div className="text-slate-900">{formState.bookarSettings?.bookarClientId || c.notSet}</div>
-                  </div>
-                  <div>
-                    <span className="text-xs uppercase tracking-wide text-slate-500">Client Secret</span>
-                    <div className="text-slate-900">{maskSecretValue(formState.bookarSettings?.bookarClientSecret ?? '', lang)}</div>
-                  </div>
-                  <div className="md:col-span-2">
-                    <span className="text-xs uppercase tracking-wide text-slate-500">API Base</span>
-                    <div className="text-slate-900">{formState.bookarSettings?.bookarApiBase || 'https://partners.bookar.app (default)'}</div>
                   </div>
                 </div>
               )}

@@ -36,15 +36,11 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       fastFitHint:
         'If on, the agent only offers quick services (tyres, oil, basics) — full diagnostic / engine work is escalated.',
       callerRecLabel: 'Caller recognition',
-      callerRecHintGH:
+      callerRecHint:
         'On an inbound call, look the caller’s number up in Garage Hive and confirm the vehicle on file (“is it still the Focus?”) instead of asking for the reg. Needs Garage Hive connected.',
-      callerRecHintBookar:
-        'On an inbound call, look the caller’s number up in Bookar and greet them by name if they’re a returning customer. Needs the caller’s number on file in Bookar.',
       advisoryLabel: 'Advisory upsells',
-      advisoryHintGH:
+      advisoryHint:
         'When a customer books, the agent checks Garage Hive for outstanding health-check advisories on their vehicle and offers to add them. Needs Garage Hive connected.',
-      advisoryHintBookar:
-        'When a customer books, the agent checks Bookar for outstanding health-check advisories on their vehicle and offers to add them to the same visit. Needs advisories recorded against the vehicle in Bookar.',
     },
     fr: {
       title: 'Comportement de réservation',
@@ -69,15 +65,11 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       fastFitHint:
         "Si activé, l'agent ne propose que des prestations rapides (pneus, vidange, entretien de base) — les diagnostics complets / travaux moteur sont escaladés.",
       callerRecLabel: "Reconnaissance de l'appelant",
-      callerRecHintGH:
+      callerRecHint:
         "Lors d'un appel entrant, rechercher le numéro de l'appelant dans Garage Hive et confirmer le véhicule au dossier (« est-ce toujours la Focus ? ») au lieu de demander l'immatriculation. Nécessite Garage Hive connecté.",
-      callerRecHintBookar:
-        "Lors d'un appel entrant, rechercher le numéro de l'appelant dans Bookar et le saluer par son nom s'il s'agit d'un client existant. Nécessite le numéro de l'appelant enregistré dans Bookar.",
       advisoryLabel: 'Ventes additionnelles de recommandations',
-      advisoryHintGH:
+      advisoryHint:
         "Lorsqu'un client réserve, l'agent vérifie dans Garage Hive les recommandations de contrôle en attente sur son véhicule et propose de les ajouter. Nécessite Garage Hive connecté.",
-      advisoryHintBookar:
-        "Lorsqu'un client réserve, l'agent vérifie dans Bookar les recommandations de contrôle en attente sur son véhicule et propose de les ajouter à la même visite. Nécessite des recommandations enregistrées contre le véhicule dans Bookar.",
     },
   }[lang];
   const [allowBookings, setAllowBookings] = useState(config.allowBookings ?? false);
@@ -136,21 +128,10 @@ export default function BookingTab({ config, save, isSaving }: Props) {
     });
   };
 
-  // Caller recognition + advisory upsells apply to the Garage Hive AND Bookar agents.
-  // Bookar's Caller Recognition landed in bookar-agent 2026-08-03 (portal-frontend#341).
-  // Advisory Upsells for Bookar still WIP (portal-frontend#342) — toggle stores in DB
-  // but agent doesn't consume it yet.
+  // Caller recognition + advisory upsells only apply to the Garage Hive agent.
   const isGarageHiveAgent = ['receptionmate-agent-v3', 'GarageHive-agent'].includes(
     config.agentScript,
   );
-  const isBookarAgent = config.agentScript === 'bookar-agent';
-  // Poole (AutoSage) chat agent also honours callerRecognitionEnabled — the tool
-  // for pl_find_customer_by_phone is filtered out when the toggle is off. Advisory
-  // upsells aren't implemented server-side yet (Poole doesn't return advisories
-  // via A2), so the advisory toggle is a no-op for Poole today.
-  const isPooleAgent = config.agentScript === 'poole-agent';
-  const supportsRecAndAdvisory = isGarageHiveAgent || isBookarAgent || isPooleAgent;
-  const integrationName = isBookarAgent ? 'Bookar' : isPooleAgent ? 'Poole' : 'Garage Hive';
 
   // The GarageHive (Automate) agent always books against the live diary and ignores this
   // toggle — it only applies to Assist garages. Flag that clearly so it isn't mistaken for
@@ -254,20 +235,20 @@ export default function BookingTab({ config, save, isSaving }: Props) {
         onChange={setAllowFastFitOnly}
       />
 
-      {supportsRecAndAdvisory && (
+      {isGarageHiveAgent && (
         <>
           <div className="mt-6 border-t border-slate-200 pt-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{integrationName}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Garage Hive</p>
           </div>
           <Toggle
             label={c.callerRecLabel}
-            hint={isBookarAgent ? c.callerRecHintBookar : c.callerRecHintGH}
+            hint={c.callerRecHint}
             checked={callerRecognitionEnabled}
             onChange={setCallerRecognitionEnabled}
           />
           <Toggle
             label={c.advisoryLabel}
-            hint={isBookarAgent ? c.advisoryHintBookar : c.advisoryHintGH}
+            hint={c.advisoryHint}
             checked={advisoryUpsellsEnabled}
             onChange={setAdvisoryUpsellsEnabled}
           />

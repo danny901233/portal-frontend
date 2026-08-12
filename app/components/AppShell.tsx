@@ -28,13 +28,11 @@ import {
   isReceptionMateStaff,
   setGarageId,
   setGarages,
-  setBranchRoles,
-  setUserRole,
 } from '../lib/auth';
 import { fetchGarages, fetchPendingAgreement, fetchNotificationCounts, fetchArrearsStatus } from '../lib/api';
 import { setAppBadge } from '../lib/badge';
 import { fetchOnboardingStatus } from '../lib/onboarding';
-import type { BranchRolesMap, GarageSummary } from '../types';
+import type { GarageSummary } from '../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
 
 /** Client-only viewport check so we can place the branch bar in the mobile drawer vs the desktop top bar. */
@@ -50,7 +48,7 @@ function useIsMobile() {
   return isMobile;
 }
 
-const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/partsdemo', '/connect-garagehive']);
+const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {
@@ -78,33 +76,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [branchScope, setBranchScope] = useState<BranchScope>('single');
   const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
-  const [hasVoiceAccess, setHasVoiceAccess] = useState<boolean | null>(null);
   const [messagesNeedingAttention, setMessagesNeedingAttention] = useState(0);
   const [conversationsNeedingAttention, setConversationsNeedingAttention] = useState(0);
   const [unreadCalls, setUnreadCalls] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [setupWizardOpen, setSetupWizardOpen] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
-  const [trialEndDate, setTrialEndDate] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isMobile = useIsMobile();
-  const [addCardBusy, setAddCardBusy] = useState(false);
-  const handleConnectAddCard = useCallback(async () => {
-    if (!garageId) return;
-    setAddCardBusy(true);
-    try {
-      const token = getSessionToken();
-      const r = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ garageId }),
-      });
-      const d = await r.json();
-      if (d?.url) { window.location.href = d.url; return; }
-    } catch { /* fallthrough */ }
-    setAddCardBusy(false);
-  }, [garageId]);
-
   const handleLogout = useCallback(() => {
     clearSession();
     setIsStaffUser(false);
@@ -115,9 +94,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setMobileNavOpen(false);
   }, [pathname]);
   const [wizardAgentType, setWizardAgentType] = useState<'assist' | 'automate'>('assist');
-  // State, not a mount-time memo: the server hands us the live answer on every load, and the
-  // branch switcher filters by this — so it has to be able to change.
-  const [branchRoles, setBranchRolesState] = useState<BranchRolesMap>(() => getUserBranchRoles());
+  const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
       Object.entries(branchRoles)
@@ -204,31 +181,24 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setIsStaffUser(isReceptionMateStaff());
     setIsAdminUser(isManager());
 
-    // Paint from the cache first so there's no flash of an empty switcher...
     if (storedGarages.length > 0) {
       setGaragesState(storedGarages);
+      if (!storedGarages.some((garage) => garage.id === storedGarageId)) {
+        const fallbackId = storedGarages[0]?.id;
+        if (fallbackId) {
+          setGarageId(fallbackId);
+          setGarageIdState(fallbackId);
+        }
+      }
       setIsReady(true);
+      return;
     }
 
-    // ...then ALWAYS ask the server. This cache was previously trusted forever — refreshed only
-    // when empty — so a branch you were given never appeared, and one taken away never left.
     try {
       const response = await fetchGarages();
       const list = response.garages ?? [];
       setGaragesState(list);
       setGarages(list);
-
-      // The switcher filters the list BY branchRoles, so a stale copy of those hides branches
-      // just as effectively as a stale list does.
-      if (response.branchRoles) {
-        setBranchRolesState(response.branchRoles);
-        setBranchRoles(response.branchRoles);
-      }
-      if (response.role) {
-        setUserRole(response.role);
-        setIsStaffUser(response.role === 'RECEPTIONMATE_STAFF');
-        setIsAdminUser(response.role === 'MANAGER');
-      }
 
       if (list.length > 0 && !list.some((garage) => garage.id === storedGarageId)) {
         const fallbackId = list[0]?.id;
@@ -324,7 +294,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
       try {
         const status = await fetchOnboardingStatus();
-        if ((status.needsSetup || showSetup) && hasVoiceAccess !== null) {
+        if (status.needsSetup || showSetup) {
           setWizardAgentType(status.agentType);
           setSetupWizardOpen(true);
           // Clear query param if present
@@ -338,7 +308,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     };
 
     void checkSetupWizard();
-  }, [shouldShowChrome, isReady, garageId, pathname, router, hasVoiceAccess]);
+  }, [shouldShowChrome, isReady, garageId, pathname, router]);
 
   useEffect(() => {
     if (!restrictToAssignedBranches) {
@@ -389,8 +359,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
           const hasAccess = accessData.hasMessagingAccess || false;
           console.log('[MESSAGING] Setting hasMessagingAccess to:', hasAccess);
           setHasMessagingAccess(hasAccess);
-          setHasVoiceAccess(accessData.hasVoiceAccess !== false);
-          setTrialEndDate(accessData.trialEndDate ?? null);
 
           // If has access, fetch needs attention count
           if (hasAccess) {
@@ -487,10 +455,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <PaymentBlocker
       garageName={garages.find((g) => g.id === garageId)?.name}
       onLogout={handleLogout}
-      variant={hasVoiceAccess === false ? 'trial-ended' : 'arrears'}
-      trialReason={trialEndDate && new Date(trialEndDate).getTime() > Date.now() ? 'cap' : 'time'}
-      onAddCard={handleConnectAddCard}
-      busy={addCardBusy}
     />
   ) : (
     (() => {
@@ -512,7 +476,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
             activePath={pathname ?? '/calls'}
             showAdminLink={isStaffUser}
             hasMessagingAccess={hasMessagingAccess}
-            hasVoiceAccess={hasVoiceAccess !== false}
             hasManagerAccess={managedGarageIds.length > 0}
             isManagerUser={isStaffUser || isAdminUser}
             messagesNeedingAttention={messagesNeedingAttention}
@@ -525,33 +488,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="flex min-w-0 flex-1 flex-col">
             {/* Desktop: top bar. Mobile: this lives in the drawer instead. */}
             {!isMobile && navbar}
-            <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6">
-              {garages.find((g) => g.id === garageId)?.awaitingGarageHive && (
-                <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                  <span className="text-lg leading-none">⏳</span>
-                  <div className="text-sm text-amber-900">
-                    <p className="font-semibold">Waiting to be connected to GarageHive</p>
-                    <p className="mt-0.5 text-amber-800">
-                      We&apos;re finishing your setup — connecting your booking diary. We&apos;ll email you as
-                      soon as you&apos;re connected and your agent is live.
-                    </p>
-                    <p className="mt-1.5 text-amber-800">
-                      While you wait, get ahead: your agent books into your existing GarageHive diary — add an{' '}
-                      <a
-                        href="https://garagehive-co.slite.com/app/docs/YzHdXMeW8CwmE3/How-to-Set-Up-an-Other-Service-Package-for-Custom-Online-Bookings"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-semibold underline"
-                      >
-                        &ldquo;Other&rdquo; service package
-                      </a>{' '}
-                      so it can book custom jobs.
-                    </p>
-                  </div>
-                </div>
-              )}
-              {children}
-            </main>
+            <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6">{children}</main>
           </div>
           {/* Floating "Need help?" chat with the RM team — only renders when authed */}
           <SupportChatWidget />
@@ -560,7 +497,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {/* Mobile-only bottom tab bar (desktop unchanged) */}
           <MobileBottomNav
             hasMessagingAccess={hasMessagingAccess}
-            hasVoiceAccess={hasVoiceAccess !== false}
             unreadCalls={unreadCalls}
             unreadMessages={unreadMessages}
             onOpenMore={() => setMobileNavOpen(true)}
@@ -577,7 +513,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
         isOpen={setupWizardOpen}
         garageId={garageId || ''}
         agentType={wizardAgentType}
-        hasVoiceAccess={hasVoiceAccess !== false}
         onComplete={() => {
           setSetupWizardOpen(false);
           // Optionally refresh the page

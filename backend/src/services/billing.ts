@@ -1,8 +1,5 @@
 import { prisma } from '../db.js';
 import { createRequire } from 'module';
-import { syncBusinessBillingFromUser, resolveChargeMandate } from '../utils/billingSync.js';
-import { setOnboardingStage } from '../utils/onboardingStage.js';
-import { resolveBillingUser } from '../utils/billingUser.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -381,19 +378,20 @@ export async function trackConfirmedBooking(garageId: string) {
 
     console.log(`🎉 Garage ${garage.name} reached ${garage.bookingsRequiredForActivation} bookings - subscription activated!`);
 
-    // Activation is what makes a "free until X bookings" deal live: the product has demonstrably
-    // worked and billing starts. No-ops for garages already at 'live' (i.e. everyone not in the
-    // sales-led pipeline).
-    void setOnboardingStage(garageId, 'live', {
-      monetaryValueGbp: garage.subscriptionCostGbp ?? undefined,
-      reason: `reached ${garage.bookingsRequiredForActivation} confirmed bookings`,
+    // Set billing cycle start date for the user if not already set
+    const user = await prisma.user.findFirst({
+      where: {
+        garageAccessIds: {
+          has: garageId,
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        billingCycleStartDate: true,
+        nextBillingDate: true,
+      },
     });
-
-    // Start the billing cycle on the MANDATE HOLDER. A bare findFirst here used to return
-    // whichever user Postgres felt like — measured on live data that's a different person from
-    // the payer on 8 of 46 garages — and findUsersDueForBilling only selects users WITH a
-    // mandate, so dates on anyone else are dead and the customer is silently never invoiced.
-    const user = await resolveBillingUser(garageId);
 
     if (user && !user.billingCycleStartDate) {
       // Set nextBillingDate to now so user gets billed immediately (not 1 month later)
@@ -404,7 +402,6 @@ export async function trackConfirmedBooking(garageId: string) {
           nextBillingDate: now, // Bill immediately when activation threshold reached
         },
       });
-      await syncBusinessBillingFromUser(user.id); // Phase A: mirror cycle dates onto the business
 
       console.log(`✓ Billing cycle started for ${user.email} - first billing on ${now.toISOString().split('T')[0]}`);
     }
@@ -447,12 +444,20 @@ export async function activateTrialEndedGarages() {
   const results = [];
 
   for (const garage of garages) {
-    // Same as trackConfirmedBooking: only the MANDATE HOLDER can actually be billed, because
-    // findUsersDueForBilling selects on gocardlessMandateId != null. A bare findFirst here used
-    // to return whichever user Postgres felt like — measured on live data that's a different
-    // person from the payer on 8 of 46 garages — and dates on a non-payer are never picked up,
-    // so the trial ends and the customer is silently never invoiced.
-    const user = await resolveBillingUser(garage.id);
+    // Find user with this garage
+    const user = await prisma.user.findFirst({
+      where: {
+        garageAccessIds: {
+          has: garage.id,
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        billingCycleStartDate: true,
+        nextBillingDate: true,
+      },
+    });
 
     if (user && !user.billingCycleStartDate) {
       // Start billing cycle from when trial ended
@@ -466,7 +471,6 @@ export async function activateTrialEndedGarages() {
           nextBillingDate: trialEndDate, // Bill immediately when trial ends
         },
       });
-      await syncBusinessBillingFromUser(user.id); // Phase A: mirror cycle dates onto the business
 
       results.push({
         garageId: garage.id,
@@ -731,33 +735,13 @@ export async function generateInvoicesForUser(userId: string) {
 
       const client = getGocardlessClient();
 
-      // charge_date has to satisfy TWO GoCardless rules. Breaking either throws a
-      // ValidationFailedError, and before 30 Jun that silently orphaned the whole month:
-      //   1. It can't be in the past — happens when a run lands on/after the billing date
-      //      (e.g. VWGS, 11 Jun for a 10 Jun date).
-      //   2. It can't be before the mandate's next_possible_charge_date — Direct Debit needs
-      //      ~3 working days' notice. findUsersDueForBilling looks 3 working days ahead using a
-      //      naive weekday count that knows nothing about bank holidays or GoCardless's own
-      //      submission cutoffs, so the billing date regularly lands inside that notice window
-      //      (Promotive, 30 Jun: asked for 2 Jul when the earliest legal date was 3 Jul).
-      // So: collect ON the billing date when that's legal, otherwise on the earliest date
-      // GoCardless will accept. Omitting charge_date also lets GoCardless choose, which is the
-      // fallback when the billing date has passed or the mandate can't be read.
+      // charge_date is normally the billing date — but GoCardless REJECTS a charge_date in the
+      // past (with a ValidationFailedError), which happens when a run lands on/after the billing
+      // date (e.g. VWGS, 11 Jun for a 10 Jun date). When the billing date has already passed,
+      // omit charge_date so GoCardless collects on the earliest valid working day instead of
+      // hard-failing and silently orphaning the invoice.
       const todayStr = new Date().toISOString().split('T')[0];
       const billingDateStr = periodEnd.toISOString().split('T')[0];
-      // Phase B: charge the BUSINESS's mandate (falls back to the user's).
-      const chargeMandate = await resolveChargeMandate(invoicesToCharge[0]?.invoice?.businessId, user.gocardlessMandateId);
-
-      let nextPossibleStr: string | null = null;
-      try {
-        const mandate: any = await client.mandates.find(chargeMandate);
-        nextPossibleStr = mandate?.next_possible_charge_date ?? null;
-      } catch (mandateError) {
-        console.warn(
-          `[BILLING] Could not read next_possible_charge_date for ${chargeMandate}; letting GoCardless pick the date:`,
-          mandateError instanceof Error ? mandateError.message : mandateError,
-        );
-      }
       const paymentArgs: any = {
         amount: totalAmount,
         currency: 'GBP',
@@ -768,19 +752,11 @@ export async function generateInvoicesForUser(userId: string) {
           period_end: periodEnd.toISOString(),
         },
         links: {
-          mandate: chargeMandate,
+          mandate: user.gocardlessMandateId,
         },
       };
       if (billingDateStr > todayStr) {
-        if (nextPossibleStr && billingDateStr < nextPossibleStr) {
-          paymentArgs.charge_date = nextPossibleStr;
-          console.log(
-            `[BILLING] ${user.email}: billing date ${billingDateStr} is inside the Direct Debit ` +
-            `notice window (earliest chargeable ${nextPossibleStr}); collecting on ${nextPossibleStr}.`,
-          );
-        } else {
-          paymentArgs.charge_date = billingDateStr;
-        }
+        paymentArgs.charge_date = billingDateStr;
       }
 
       // Create single combined payment
@@ -1028,9 +1004,6 @@ export async function createPaymentForInvoice(invoiceId: string) {
     description: `ReceptionMate Invoice ${invoice.id.slice(0, 8)} - ${invoice.garage.name}`,
   });
 
-  // Phase B: charge the BUSINESS's mandate (falls back to the user's).
-  const chargeMandate = await resolveChargeMandate(invoice.businessId, user.gocardlessMandateId);
-
   // Create payment (amount in pence as string)
   const payment = await client.payments.create({
     amount: amountInPence,
@@ -1043,7 +1016,7 @@ export async function createPaymentForInvoice(invoiceId: string) {
       // Note: GoCardless only allows 3 metadata properties max
     },
     links: {
-      mandate: chargeMandate,
+      mandate: user.gocardlessMandateId,
     },
   });
 

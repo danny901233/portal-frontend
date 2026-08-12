@@ -14,7 +14,6 @@ import { Router } from 'express';
 import express from 'express';
 import Stripe from 'stripe';
 import { prisma } from '../../db.js';
-import { setOnboardingStageForUser } from '../../utils/onboardingStage.js';
 import { sendWelcomeEmail, sendEmail, sendArrearsWarningEmail } from '../../utils/email.js';
 import { ARREARS_GRACE_DAYS } from '../../utils/arrears.js';
 import { getStripeClient, STRIPE_TRIAL_DAYS } from '../../services/stripe.js';
@@ -148,22 +147,11 @@ async function handleSetupIntentSucceeded(si: Stripe.SetupIntent): Promise<void>
     return;
   }
 
-  // Auto-provisioning (buys a Twilio number + emails voice credentials) is ONLY ever right for a
-  // self-serve ASSIST trial, so require that exact shape rather than "has a Stripe customer":
-  //   - A CONNECT garage also has stripeCustomerId + stripeSubscriptionId, but never trialEndsAt
-  //     (it tracks its trial on trialEndDate). It has no voice at all — provisioning would buy it
-  //     a phone number it can't use and email it credentials for a product it didn't buy.
-  //   - A DIRECT DEBIT garage can no longer reach here now the agreement-sign path doesn't mint
-  //     Stripe customers, but require the shape explicitly rather than lean on that.
   const garage = await prisma.garage.findFirst({
-    where: {
-      stripeCustomerId: customerId,
-      stripeSubscriptionId: { not: null },
-      trialEndsAt: { not: null },
-    },
+    where: { stripeCustomerId: customerId },
     select: { id: true, name: true, twilioNumber: true },
   });
-  if (!garage) return; // not ours, or not a self-serve Assist trial — never auto-provision
+  if (!garage) return; // not one of ours
   if (garage.twilioNumber) {
     console.log(`[STRIPE_WEBHOOK] garage ${garage.id} already provisioned, skipping`);
     return;
@@ -179,103 +167,6 @@ async function handleSetupIntentSucceeded(si: Stripe.SetupIntent): Promise<void>
 // ── legacy hosted Stripe Checkout path — kept for any in-flight hosted sessions ──
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const meta = session.metadata || {};
-  // One-off setup fee paid by card. Checked FIRST and returns early: this is the only
-  // mode:'payment' session we create, and if it fell through to the branches below it would be
-  // mistaken for a signup and try to provision a Twilio number.
-  if (meta.kind === 'setup-fee' && meta.invoiceId) {
-    const inv = await prisma.invoice.findUnique({
-      where: { id: meta.invoiceId },
-      select: { id: true, status: true, invoiceNumber: true, total: true },
-    });
-    if (!inv) {
-      console.warn(`[STRIPE_WEBHOOK] setup-fee session for unknown invoice ${meta.invoiceId}`);
-      return;
-    }
-    // Idempotent: Stripe retries, and a second delivery must not move paidAt.
-    if (inv.status === 'paid') {
-      console.log(`[STRIPE_WEBHOOK] setup fee ${inv.invoiceNumber} already paid — ignoring retry`);
-      return;
-    }
-    await prisma.invoice.update({
-      where: { id: inv.id },
-      data: { status: 'paid', paidAt: new Date() },
-    });
-    console.log(`[STRIPE_WEBHOOK] setup fee ${inv.invoiceNumber} PAID by card (£${(inv.total / 100).toFixed(2)})`);
-    return;
-  }
-  // Connect trial->paid: card added on the paywall. Record the subscription and UNLOCK.
-  if (meta.kind === 'connect-billing' && meta.garageId) {
-    const cg = await prisma.garage.update({
-      where: { id: meta.garageId },
-      select: { ghlOpportunityId: true },
-      data: {
-        stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null,
-        stripeSubscriptionId: typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null,
-        accessRestricted: false,
-        paymentFailedAt: null,
-        subscriptionActivatedAt: new Date(),
-      },
-    });
-    if (cg.ghlOpportunityId && LIVE_STAGE_ID) {
-      void updateOpportunity(cg.ghlOpportunityId, { stageId: LIVE_STAGE_ID, monetaryValueGbp: 250 })
-        .then((ok) => console.log(`[STRIPE_WEBHOOK] Connect HL opp ${cg.ghlOpportunityId} → Live (${ok ? 'ok' : 'failed'})`));
-    }
-    console.log(`[STRIPE_WEBHOOK] Connect paid + unlocked: garage ${meta.garageId}`);
-    return;
-  }
-  // Connect garage self-serve added voice (Assist) mid-trial. One subscription now covers both
-  // Connect + Assist (aligned trial_end). Flip the voice routing to the Assist agent (Account 2),
-  // unlock voice, record the subscription, then provision the number + agent.
-  if (meta.kind === 'connect-add-voice' && meta.garageId) {
-    const g = await prisma.garage.findUnique({
-      where: { id: meta.garageId },
-      select: { id: true, name: true, twilioNumber: true },
-    });
-    if (!g) return;
-    // agentType stays 'assist' (Connect garages already are); only agentScript changes → routes
-    // calls to the Assist voice agent on Account 2. Messaging (chat, by agentType) is untouched.
-    await prisma.agentConfiguration
-      .update({ where: { garageId: g.id }, data: { agentScript: 'Assist-agent', agentType: 'assist' } })
-      .catch((e) => console.error('[STRIPE_WEBHOOK] add-voice config update failed', e));
-    await prisma.garage.update({
-      where: { id: g.id },
-      data: {
-        stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null,
-        stripeSubscriptionId: typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null,
-        hasVoiceAccess: true,
-        accessRestricted: false,
-      },
-    });
-    const u = meta.userId ? await prisma.user.findUnique({ where: { id: meta.userId }, select: { email: true } }) : null;
-    if (!g.twilioNumber && u?.email) {
-      await provisionGarageAccount({ id: g.id, name: g.name }, u.email);
-    }
-    console.log(`[STRIPE_WEBHOOK] connect-add-voice: voice added + provisioned for garage ${meta.garageId}`);
-    return;
-  }
-  // Sales-led card rail: a manually-onboarded customer who pays by card rather than Direct
-  // Debit has just completed checkout. Clear the payment gate and record the subscription.
-  // NB: no billing cycle dates are set — Stripe bills this subscription itself. The GoCardless
-  // cron can't touch them either, since findUsersDueForBilling requires a mandate they'll never
-  // have. That's what stops a card customer being double-billed.
-  if (meta.kind === 'card-billing' && meta.garageId && meta.userId) {
-    await prisma.garage.update({
-      where: { id: meta.garageId },
-      data: {
-        stripeCustomerId: typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null,
-        stripeSubscriptionId: typeof session.subscription === 'string' ? session.subscription : session.subscription?.id ?? null,
-        subscriptionActivatedAt: new Date(),
-        accessRestricted: false,
-        paymentFailedAt: null,
-      },
-    });
-    await prisma.user.update({ where: { id: meta.userId }, data: { mustSetupPayment: false } });
-    // Mirror of what confirm-mandate does for DD: the onboarding is finished.
-    void setOnboardingStageForUser(meta.userId, 'live', { reason: 'card payment set up' });
-    console.log(`[STRIPE_WEBHOOK] card-billing set up: garage ${meta.garageId}`);
-    return;
-  }
-
   if (meta.kind !== 'assist-trial' || !meta.garageId || !meta.userId) return;
   const garage = await prisma.garage.findUnique({
     where: { id: meta.garageId },

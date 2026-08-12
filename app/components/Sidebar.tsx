@@ -81,12 +81,11 @@ interface NavItem {
   requiresMessaging?: boolean;
   requiresManager?: boolean;
   requiresStaff?: boolean;
-  requiresVoice?: boolean;
 }
 
 const baseNavigation: NavItem[] = [
   { name: 'Dashboard', tKey: 'nav.dashboard', href: '/dashboard', icon: <DashboardIcon /> },
-  { name: 'Calls', tKey: 'nav.calls', href: '/calls', icon: <PhoneIcon />, requiresVoice: true },
+  { name: 'Calls', tKey: 'nav.calls', href: '/calls', icon: <PhoneIcon /> },
   { name: 'Messages', tKey: 'nav.messages', href: '/messages', icon: <ChatIcon /> },
   { name: 'Outbound', tKey: 'nav.outbound', href: '/outbound', icon: <SendIcon />, requiresMessaging: true },
   { name: 'Templates', tKey: 'nav.templates', href: '/templates', icon: <TemplateIcon />, requiresMessaging: true },
@@ -105,7 +104,6 @@ interface SidebarProps {
   garageId?: string | null;
   showAdminLink?: boolean;
   hasMessagingAccess?: boolean;
-  hasVoiceAccess?: boolean;
   hasManagerAccess?: boolean;
   isManagerUser?: boolean;
   messagesNeedingAttention?: number;
@@ -123,7 +121,6 @@ export default function Sidebar({
   garageId,
   showAdminLink = false,
   hasMessagingAccess = false,
-  hasVoiceAccess = true,
   hasManagerAccess = false,
   isManagerUser = false,
   messagesNeedingAttention = 0,
@@ -142,7 +139,6 @@ export default function Sidebar({
       if (item.requiresManager) return isManagerUser || hasManagerAccess;
       if (item.requiresMessaging) return hasMessagingAccess;
       if (item.requiresStaff) return showAdminLink;
-      if (item.requiresVoice) return hasVoiceAccess;
       return true;
     });
 
@@ -150,7 +146,7 @@ export default function Sidebar({
       ...item,
       isActive: activePath.startsWith(item.href),
     }));
-  }, [activePath, showAdminLink, hasMessagingAccess, hasVoiceAccess, hasManagerAccess, isManagerUser]);
+  }, [activePath, showAdminLink, hasMessagingAccess, hasManagerAccess, isManagerUser]);
 
   const supportItems = useMemo(
     () =>

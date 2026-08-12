@@ -84,21 +84,6 @@ type BookingCategory = 'service' | 'mot' | 'diagnostic' | 'other';
 // "his already-booked MOT" would be wrongly upgraded to "confirmed booking".
 const POSITIVE_RE = /\b(booked|scheduled|confirmed|reserved)\b/i;
 const TIME_RE = /\b\d{1,2}(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)\b|\b\d{1,2}:\d{2}\b/i;
-// A DROP-OFF booking the agent placed, in the exact shape it writes them:
-// "<service>, drop-off Wednesday 22nd July". It legitimately has NO confirmation verb and NO
-// clock time — a drop-off is a DATE only by design ("never a specific time") — so the
-// verb+time test above rejects every one of them. Barrys Wed 29 Jul and Sawans Wed 22 Jul
-// both landed as message_only, while a remap the agent WRONGLY gave a 10:00 AM time sailed
-// through: we were counting the bug and dropping the correct behaviour.
-//
-// Deliberately NARROW: "drop-off" must be followed directly by a weekday. Matching a bare
-// "drop off" + any date lets through "will drop off vehicle between 8am" (intent, no agreed
-// day) and, once the time requirement is relaxed, a pile of PRE-EXISTING bookings that only
-// failed before for want of a clock time ("previously booked in for a service", "booked a
-// diagnostics test online for Friday 17th", "rescheduling his scheduled appointment for next
-// Tuesday"). Tested against 1100 real bookingDetails: this matches the 2 genuine drop-offs and
-// none of those 5.
-const DROPOFF_BOOKING_RE = /\bdrop[\s-]?off\s+(?:on\s+)?(?:mon|tues?|wed(nes)?|thur?s?|fri|sat(ur)?|sun)/i;
 const NEGATIVE_RE = new RegExp(
   [
     'already[\\s-]+booked',
@@ -122,11 +107,7 @@ const detectBookingFromDetails = (
 ): { isBooking: boolean; category: BookingCategory | undefined } => {
   if (!bookingDetails) return { isBooking: false, category: undefined };
   const text = String(bookingDetails);
-  // Two ways to qualify: a timed booking (verb + clock time), or a drop-off (date only).
-  // NEGATIVE_RE still vetoes both below.
-  const isTimedBooking = POSITIVE_RE.test(text) && TIME_RE.test(text);
-  const isDropOffBooking = DROPOFF_BOOKING_RE.test(text);
-  if (!isTimedBooking && !isDropOffBooking) return { isBooking: false, category: undefined };
+  if (!POSITIVE_RE.test(text) || !TIME_RE.test(text)) return { isBooking: false, category: undefined };
   if (NEGATIVE_RE.test(text)) return { isBooking: false, category: undefined };
 
   // Infer category from the text. When MOT + service both appear, service wins
@@ -424,7 +405,7 @@ router.post('/calls', async (req: Request, res: Response) => {
               : {};
           await prisma.call.update({
             where: { id: createdCall.id },
-            data: { metrics: { ...base, diagnosis: diag } as unknown as Prisma.InputJsonValue },
+            data: { metrics: { ...base, diagnosis: diag } as Prisma.InputJsonValue },
           });
           console.log(`[DIAGNOSIS] ${createdCall.id}: ${diag.status} — ${diag.headline}${diag.fix ? ' | fix: ' + diag.fix : ''}`);
         }
@@ -469,8 +450,8 @@ router.post('/calls', async (req: Request, res: Response) => {
           callType: payload.callType ?? 'unknown',
           createdAt: new Date(),
           branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
-          recordingUrl: payload.recordingUrl ?? null,
-          transcript: (payload.transcript ?? []).filter((t: any) => t.speaker && t.text).map((t: any) => ({ speaker: t.speaker, text: t.text })),
+          recordingUrl: finalRecordingUrl ?? null,
+          transcript: payload.transcript as any,
         }, hubspotSettings).catch((err: unknown) => {
           console.error('[HUBSPOT] Failed to log call:', err);
         });
@@ -569,6 +550,42 @@ router.post('/calls', async (req: Request, res: Response) => {
           badge,
         });
       })();
+    }
+
+    // Send to HubSpot if configured
+    if (createdCall.garage?.agentConfiguration) {
+      const integrationConfig = createdCall.garage.agentConfiguration.integrationProviderConfig as any;
+      const hubspotSettings = integrationConfig?.hubspot;
+
+      if (hubspotSettings?.apiToken) {
+        console.log(`[HUBSPOT] Sending call data for garage ${payload.garageId}`);
+        console.log(`[HUBSPOT] Transcript entries in payload: ${Array.isArray(payload.transcript) ? payload.transcript.length : 0}`);
+
+        void logCallToHubSpot(
+          {
+            customerName: payload.customerName ?? null,
+            customerPhone: payload.customerPhone ?? null,
+            fromNumber: null,
+            registrationNumber: payload.registrationNumber ?? null,
+            summary: payload.summary ?? null,
+            bookingDetails: payload.bookingDetails ?? null,
+            durationSeconds: actualDuration,
+            callType: payload.callType ?? 'unknown',
+            confirmedBooking: payload.confirmedBooking ?? false,
+            createdAt: new Date(),
+            branchName: createdCall.garage?.agentConfiguration?.branchName ?? '',
+            recordingUrl: finalRecordingUrl ?? null,
+            transcript: payload.transcript as any,
+          },
+          {
+            apiToken: hubspotSettings.apiToken,
+            ownerId: hubspotSettings.ownerId ?? '',
+            inboxEmail: hubspotSettings.inboxEmail ?? '',
+          }
+        ).catch((error) => {
+          console.error('[HUBSPOT] Failed to send call to HubSpot:', error);
+        });
+      }
     }
 
     res.status(201).json({ success: true, callId });
@@ -1181,7 +1198,7 @@ router.post('/calls/:id/analyze', authenticate, async (req: Request, res: Respon
         : {};
     await prisma.call.update({
       where: { id: call.id },
-      data: { metrics: { ...base, diagnosis } as unknown as Prisma.InputJsonValue },
+      data: { metrics: { ...base, diagnosis } as Prisma.InputJsonValue },
     });
     return res.json({ diagnosis });
   } catch (err) {
@@ -1639,49 +1656,21 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
       const garages = await prisma.garage.findMany({
         orderBy: { name: 'asc' },
       });
-      return res.json({
-        garages: garages.map((garage) => ({ id: garage.id, name: garage.name })),
-        role: req.user.role,
-        branchRoles: req.user.branchRoles ?? {},
-      });
+      return res.json({ garages: garages.map((garage) => ({ id: garage.id, name: garage.name })) });
     }
 
     // Regular users see only their assigned garages
-    // req.user is hydrated from the DB by authenticate(), so this is the CURRENT answer, not
-    // whatever was true when they logged in.
     const allowedGarages = resolveAllowedGarages(req.user);
     if (allowedGarages.length === 0) {
-      return res.json({ garages: [], role: req.user?.role, branchRoles: req.user?.branchRoles ?? {} });
+      return res.json({ garages: [] });
     }
 
     const garages = await prisma.garage.findMany({
       where: { id: { in: allowedGarages } },
       orderBy: { name: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        agentConfiguration: { select: { agentType: true, agentScript: true, integrationProviderConfig: true } },
-      },
     });
 
-    // branchRoles rides along so the browser can refresh its cached copy — the branch switcher
-    // filters the list by it, and until now it could only be updated by logging in again.
-    res.json({
-      garages: garages.map((garage) => {
-        // A garage set up as GarageHive Automate but with no diary credentials yet is "awaiting
-        // GarageHive" — the portal shows a waiting banner until the diary is connected.
-        const ipc = (garage.agentConfiguration?.integrationProviderConfig && typeof garage.agentConfiguration.integrationProviderConfig === 'object')
-          ? (garage.agentConfiguration.integrationProviderConfig as Record<string, unknown>)
-          : {};
-        const awaitingGarageHive =
-          garage.agentConfiguration?.agentType === 'automate' &&
-          garage.agentConfiguration?.agentScript === 'receptionmate-agent-v3' &&
-          !ipc.customerId;
-        return { id: garage.id, name: garage.name, awaitingGarageHive };
-      }),
-      role: req.user?.role,
-      branchRoles: req.user?.branchRoles ?? {},
-    });
+    res.json({ garages: garages.map((garage) => ({ id: garage.id, name: garage.name })) });
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       console.error('Failed to fetch garages', error);
@@ -1717,7 +1706,7 @@ router.post('/calls/:id/reviewed', authenticate, async (req: Request, res: Respo
     }
     await prisma.call.update({
       where: { id: call.id },
-      data: { metrics: nextMetrics as unknown as Prisma.InputJsonValue },
+      data: { metrics: nextMetrics as Prisma.InputJsonValue },
     });
     return res.json({ reviewed });
   } catch (err) {
@@ -1750,7 +1739,7 @@ router.post('/calls/:id/viewed', authenticate, async (req: Request, res: Respons
       await prisma.call.update({
         where: { id: call.id },
         data: {
-          metrics: { ...base, viewedAt: new Date().toISOString() } as unknown as Prisma.InputJsonValue,
+          metrics: { ...base, viewedAt: new Date().toISOString() } as Prisma.InputJsonValue,
         },
       });
     }

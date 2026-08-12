@@ -102,7 +102,7 @@ export async function syncNegativeFeedbackToExcel(): Promise<{
       const colData = (await colResp.json()) as { values: (string | null)[][] };
       for (const row of colData.values) {
         const val = row[0];
-        if (val) existingCallIds.add(String(val).replace(/^0+(?=\d)/, ''));
+        if (val) existingCallIds.add(String(val));
       }
     }
   }
@@ -129,7 +129,7 @@ export async function syncNegativeFeedbackToExcel(): Promise<{
   });
 
   // 3. Filter out already-synced rows
-  const newFeedbacks = feedbacks.filter((fb) => !existingCallIds.has(fb.callId.replace(/^0+(?=\d)/, '')));
+  const newFeedbacks = feedbacks.filter((fb) => !existingCallIds.has(fb.callId));
 
   if (newFeedbacks.length === 0) {
     console.log('[FEEDBACK-SYNC] No new negative feedback to sync');
@@ -166,42 +166,29 @@ export async function syncNegativeFeedbackToExcel(): Promise<{
     ];
   });
 
-  // 5. Append via Graph API in batches to avoid Graph 504 timeouts
-  const BATCH_SIZE = 30;
+  // 5. Append via Graph API (table add rows or range write)
+  const startRow = existingRowCount + 1;
+  const endRow = startRow + rows.length - 1;
   const endCol = 'M'; // 13 columns
-  let writtenRows = 0;
+  const address = `Negative%20Feedback!A${startRow}:${endCol}${endRow}`;
 
-  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-    const chunk = rows.slice(i, i + BATCH_SIZE);
-    const batchStart = existingRowCount + 1 + i;
-    const batchEnd = batchStart + chunk.length - 1;
+  const writeResp = await fetch(
+    `${base}/worksheets/Negative%20Feedback/range(address='A${startRow}:${endCol}${endRow}')`,
+    {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ values: rows }),
+    },
+  );
 
-    const writeResp = await fetch(
-      `${base}/worksheets/Negative%20Feedback/range(address='A${batchStart}:${endCol}${batchEnd}')`,
-      {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({ values: chunk }),
-      },
+  if (!writeResp.ok) {
+    throw new Error(
+      `Failed to write rows: ${writeResp.status} ${await writeResp.text()}`,
     );
-
-    if (!writeResp.ok) {
-      const errText = await writeResp.text().catch(() => '');
-      console.error(
-        `[FEEDBACK-SYNC] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed (rows ${batchStart}-${batchEnd}): ${writeResp.status} ${errText}`,
-      );
-      throw new Error(`Failed to write batch at row ${batchStart}: ${writeResp.status}`);
-    }
-
-    writtenRows += chunk.length;
-
-    if (i + BATCH_SIZE < rows.length) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
   }
 
   console.log(
-    `[FEEDBACK-SYNC] Appended ${writtenRows} new rows in ${Math.ceil(rows.length / BATCH_SIZE)} batch(es) (total: ${existingRowCount - 1 + writtenRows})`,
+    `[FEEDBACK-SYNC] ✓ Appended ${rows.length} new rows (total: ${existingRowCount - 1 + rows.length})`,
   );
 
   return { appended: rows.length, skipped: feedbacks.length - newFeedbacks.length };

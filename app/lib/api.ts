@@ -691,7 +691,6 @@ export type AgreementSummary = {
   clientName: string;
   setupFeeGbp: number;
   licenceFeeGbp: number;
-  messagingFeeGbp: number;
   centresCount: number;
   licences: string[];
   goLiveDate: string | null;

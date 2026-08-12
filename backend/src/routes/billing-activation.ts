@@ -4,7 +4,6 @@ import { createRequire } from 'module';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendDirectDebitRequestEmail } from '../services/directDebitRequestEmail.js';
-import { resolveChargeMandate } from '../utils/billingSync.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -59,7 +58,6 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
       select: {
         id: true,
         name: true,
-        businessId: true,
         subscriptionCostGbp: true,
         vatRate: true,
         trialEndDate: true,
@@ -104,8 +102,6 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
     if (totalInPence > 0) {
       try {
         const client = getGocardlessClient();
-        // Phase B: charge the BUSINESS's mandate (falls back to the user's).
-        const chargeMandate = await resolveChargeMandate(activeGarages[0]?.businessId, user.gocardlessMandateId);
         const payment = await client.payments.create({
           amount: totalInPence,
           currency: 'GBP',
@@ -116,7 +112,7 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
             activated_by: req.user?.email || 'admin',
           },
           links: {
-            mandate: chargeMandate,
+            mandate: user.gocardlessMandateId,
           },
         });
         paymentId = payment.id;

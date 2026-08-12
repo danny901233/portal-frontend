@@ -7,7 +7,6 @@ import readline from 'node:readline';
 import { createReadStream } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { prisma } from '../db.js';
-import { buildConfigurationResponse, loadKnowledgeBase } from './config.js';
 
 const router = Router();
 
@@ -245,69 +244,6 @@ const readCsvAsRecords = (filePath: string): Promise<Record<string, string>[]> =
     rl.on('close', () => resolve(rows));
     rl.on('error', reject);
   });
-
-/**
- * GET /webhooks/agent-config?garageId=<uuid>
- *
- * Machine-authenticated endpoint for voice/chat agents to fetch per-garage config
- * directly from Prisma (the source of truth), bypassing the fragile
- * Prisma → DynamoDB sync (`sendAgentConfigWebhook` → `writeAgentConfigToDynamo`).
- *
- * Rationale: the DDB sync is fire-and-forget with no retry and silently drops
- * writes when the config item exceeds DynamoDB's 400KB limit (usually caused
- * by a large knowledgeBase). When that happens, portal toggles like
- * `advisoryUpsellsEnabled` and `callerRecognitionEnabled` never reach the
- * voice agent, and calls behave with stale flags.
- *
- * Agents should call this at call/session start, cache briefly (~30s) for
- * concurrent same-garage calls, and fall back to their existing DDB reader
- * if the portal is unreachable.
- *
- * Auth: same X-Agent-Config-Secret header as POST /webhooks/agent-config.
- * Response shape mirrors the sendAgentConfigWebhook payload so agent code
- * can consume both without branching.
- */
-router.get('/agent-config', async (req: Request, res: Response) => {
-  if (!ensureSecretIsValid(req)) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  const garageId = typeof req.query.garageId === 'string' ? req.query.garageId : '';
-  if (!garageId) {
-    return res.status(400).json({ error: 'garageId query param required' });
-  }
-
-  try {
-    const [configurationRecord, garageRecord] = await Promise.all([
-      prisma.agentConfiguration.findUnique({ where: { garageId } }),
-      prisma.garage.findUnique({ where: { id: garageId }, select: { twilioNumber: true } }),
-    ]);
-
-    if (!configurationRecord) {
-      return res.status(404).json({ error: 'No agent configuration found for garageId' });
-    }
-
-    const configuration = buildConfigurationResponse(configurationRecord);
-    const knowledgeBase = await loadKnowledgeBase(garageId);
-    const knowledgeVersion = knowledgeBase.reduce<string | null>((latest, doc) => {
-      const candidate = doc.updatedAt;
-      if (!candidate) return latest;
-      if (!latest) return candidate;
-      return candidate > latest ? candidate : latest;
-    }, null);
-
-    return res.json({
-      garageId,
-      twilioNumber: garageRecord?.twilioNumber ?? null,
-      configuration,
-      knowledgeBase,
-      knowledgeVersion,
-    });
-  } catch (error) {
-    console.error('[AGENT_CONFIG_GET] failed for', garageId, error);
-    return res.status(500).json({ error: 'Failed to load agent configuration' });
-  }
-});
 
 router.get('/tyre-inventory/:garageId', async (req: Request, res: Response) => {
   if (!ensureSecretIsValid(req)) {

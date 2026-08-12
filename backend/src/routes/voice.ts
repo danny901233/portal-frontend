@@ -59,10 +59,10 @@ router.post('/voice', async (req: Request, res: Response) => {
           : isBookar && process.env.LIVEKIT_SIP_DOMAIN_BOOKAR
             ? process.env.LIVEKIT_SIP_DOMAIN_BOOKAR
             : (
-                process.env.LIVEKIT_SIP_DOMAIN ||
-                process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
-                process.env.LIVEKIT_SIP_DOMAIN_ASSIST
-              );
+              process.env.LIVEKIT_SIP_DOMAIN ||
+              process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
+              process.env.LIVEKIT_SIP_DOMAIN_ASSIST
+            );
 
   if (!livekitSipDomain) {
     return res

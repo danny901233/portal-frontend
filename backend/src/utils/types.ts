@@ -182,48 +182,6 @@ export const createDefaultGarageHiveSettings = (): GarageHiveSettings => ({
   locationId: '',
 });
 
-// Bookar (Vitara Commerce) per-garage credentials — stored in
-// integrationProviderConfig JSONB (same field Tyresoft + GarageHive use).
-// One credential per branch: apiBase defaults to https://partners.bookar.app.
-export type BookarSettings = {
-  bookarClientId: string;
-  bookarClientSecret: string;
-  bookarApiBase: string;
-};
-
-export const createDefaultBookarSettings = (): BookarSettings => ({
-  bookarClientId: '',
-  bookarClientSecret: '',
-  bookarApiBase: '',
-});
-
-export const cloneBookarSettings = (settings?: BookarSettings | null): BookarSettings => ({
-  bookarClientId: typeof settings?.bookarClientId === 'string' ? settings.bookarClientId : '',
-  bookarClientSecret: typeof settings?.bookarClientSecret === 'string' ? settings.bookarClientSecret : '',
-  bookarApiBase: typeof settings?.bookarApiBase === 'string' ? settings.bookarApiBase : '',
-});
-
-// Poole (AutoSage) per-garage credentials — stored in integrationProviderConfig
-// JSONB. One `branchKey` per Poole branch (their API scopes everything to the
-// key). `branchCode` is optional but recommended: if sent on B1 create it must
-// match the key's branch, so setting both together makes mismatches surface
-// immediately.
-export type PooleSettings = {
-  branchKey: string;
-  branchCode?: string;
-};
-
-export const createDefaultPooleSettings = (): PooleSettings => ({
-  branchKey: '',
-});
-
-export const clonePooleSettings = (settings?: PooleSettings | null): PooleSettings => ({
-  branchKey: typeof settings?.branchKey === 'string' ? settings.branchKey : '',
-  ...(typeof settings?.branchCode === 'string' && settings.branchCode.trim() !== ''
-    ? { branchCode: settings.branchCode }
-    : {}),
-});
-
 export const cloneGarageHiveSettings = (settings?: GarageHiveSettings | null): GarageHiveSettings => ({
   instanceUrl: typeof settings?.instanceUrl === 'string' ? settings.instanceUrl : '',
   apiKey: typeof settings?.apiKey === 'string' ? settings.apiKey : '',
@@ -274,11 +232,9 @@ export type AgentConfigurationPayload = {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings?: TyresoftSettings;
-  bookarSettings?: BookarSettings;
-  pooleSettings?: PooleSettings;
   hubspotSettings?: HubspotSettings;
   agentType: AgentType;
-  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent';
+  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
   enableSmsBookingLinks?: boolean;
   humanEscalation?: boolean;
   messagingHumanHandoff?: boolean;

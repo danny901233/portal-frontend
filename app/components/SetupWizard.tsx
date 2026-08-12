@@ -15,17 +15,16 @@ interface SetupWizardProps {
   isOpen: boolean;
   garageId: string;
   agentType: 'assist' | 'automate';
-  hasVoiceAccess?: boolean;
   onComplete: () => void;
 }
 
-export default function SetupWizard({ isOpen, agentType, onComplete, hasVoiceAccess = true }: SetupWizardProps) {
+export default function SetupWizard({ isOpen, agentType, onComplete }: SetupWizardProps) {
   const router = useRouter();
   const lang = useLang();
   const c = {
     en: {
       heading: 'Let’s set up your AI agent',
-      subheading: 'A few minutes now → fewer missed leads later.',
+      subheading: 'A few minutes now → fewer missed calls later.',
       welcome: (tier: string) => (
         <>
           Welcome aboard. You&rsquo;ve been provisioned with our <strong>{tier}</strong> tier.
@@ -40,12 +39,10 @@ export default function SetupWizard({ isOpen, agentType, onComplete, hasVoiceAcc
       skip: 'Skip for now',
       opening: 'Opening…',
       setup: 'Set up my agent',
-      connectWelcome: 'Welcome aboard! Your WhatsApp messaging is ready to set up. Tell the AI about your business, add your FAQs and rules, then connect your WhatsApp number so it can start messaging your customers.',
-      connectBullet2: 'Connect your WhatsApp number so the AI can message your customers',
     },
     fr: {
       heading: 'Configurons votre agent IA',
-      subheading: 'Quelques minutes maintenant → moins de prospects manqués plus tard.',
+      subheading: 'Quelques minutes maintenant → moins d’appels manqués plus tard.',
       welcome: (tier: string) => (
         <>
           Bienvenue à bord. Vous avez été provisionné avec notre offre <strong>{tier}</strong>.
@@ -60,8 +57,6 @@ export default function SetupWizard({ isOpen, agentType, onComplete, hasVoiceAcc
       skip: 'Ignorer pour l’instant',
       opening: 'Ouverture…',
       setup: 'Configurer mon agent',
-      connectWelcome: 'Bienvenue à bord ! Votre messagerie WhatsApp est prête. Présentez votre entreprise à l’IA, ajoutez vos FAQ et règles, puis connectez votre numéro WhatsApp.',
-      connectBullet2: 'Connectez votre numéro WhatsApp pour que l’IA puisse écrire à vos clients',
     },
   }[lang];
   const [busy, setBusy] = useState<'start' | 'skip' | null>(null);
@@ -108,12 +103,12 @@ export default function SetupWizard({ isOpen, agentType, onComplete, hasVoiceAcc
 
         <div className="px-6 py-6">
           <p className="text-sm text-slate-700">
-            {hasVoiceAccess === false ? c.connectWelcome : c.welcome(agentType === 'automate' ? 'Automate' : 'Assist')}
+            {c.welcome(agentType === 'automate' ? 'Automate' : 'Assist')}
           </p>
 
           <ul className="mt-4 space-y-2 text-sm text-slate-600">
             <Bullet>{c.bullet1}</Bullet>
-            <Bullet>{hasVoiceAccess === false ? c.connectBullet2 : c.bullet2}</Bullet>
+            <Bullet>{c.bullet2}</Bullet>
             <Bullet>{c.bullet3}</Bullet>
           </ul>
 

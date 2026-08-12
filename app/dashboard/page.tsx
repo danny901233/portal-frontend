@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Softphone from '../components/Softphone';
 import { useRouter } from 'next/navigation';
 import { downloadConfirmedBookingsCsv, fetchCalls, fetchAgentConfiguration } from '../lib/api';
 import type { CallRecord, ConfirmedBookingCategory } from '../types';
@@ -266,10 +265,6 @@ export default function DashboardPage() {
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMessagingAccess, setHasMessagingAccess] = useState<boolean>(false);
-  const [hasVoiceAccess, setHasVoiceAccess] = useState<boolean>(true);
-  const [trialEndDate, setTrialEndDate] = useState<string | null>(null);
-  const [addVoiceLoading, setAddVoiceLoading] = useState<boolean>(false);
-  const [addCardLoading, setAddCardLoading] = useState<boolean>(false);
   // Mobile-only: collapse the lower analytics (charts + tag spotlight) behind a
   // toggle so the phone dashboard is scannable. Desktop always shows everything.
   const [showMoreInsights, setShowMoreInsights] = useState<boolean>(false);
@@ -342,8 +337,6 @@ export default function DashboardPage() {
         if (response.ok) {
           const data = await response.json();
           setHasMessagingAccess(data.hasMessagingAccess || false);
-          setHasVoiceAccess(data.hasVoiceAccess !== false);
-          setTrialEndDate(data.trialEndDate ?? null);
         }
       } catch (error) {
         console.error('Error checking messaging access:', error);
@@ -712,48 +705,6 @@ export default function DashboardPage() {
     }
   };
 
-  // ── Connect trial countdown + voice upsell (Connect-only garages) ─────────
-  const trialDaysLeft = trialEndDate
-    ? Math.max(0, Math.ceil((new Date(trialEndDate).getTime() - Date.now()) / 86400000))
-    : null;
-  const inTrial = trialDaysLeft !== null && trialDaysLeft > 0;
-
-  const handleAddCard = async () => {
-    if (!selectedGarageId) return;
-    setAddCardLoading(true);
-    try {
-      const token = getSessionToken();
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ garageId: selectedGarageId }),
-      });
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else setAddCardLoading(false);
-    } catch {
-      setAddCardLoading(false);
-    }
-  };
-
-  const handleAddVoice = async () => {
-    if (!selectedGarageId) return;
-    setAddVoiceLoading(true);
-    try {
-      const token = getSessionToken();
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/add-voice`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ garageId: selectedGarageId }),
-      });
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else setAddVoiceLoading(false);
-    } catch {
-      setAddVoiceLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -887,60 +838,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Connect trial countdown + pre-expiry card nudge */}
-      {inTrial && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700">
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-            </span>
-            <div>
-              <p className="text-sm font-semibold text-amber-900">
-                {trialDaysLeft} {trialDaysLeft === 1 ? 'day' : 'days'} left in your free month
-              </p>
-              <p className="text-xs text-amber-700">Add a card to keep Connect running — you won&rsquo;t be charged until your free month ends.</p>
-            </div>
-          </div>
-          <button
-            onClick={handleAddCard}
-            disabled={addCardLoading}
-            className="shrink-0 rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:opacity-60"
-          >
-            {addCardLoading ? 'Opening…' : 'Add card'}
-          </button>
-        </div>
-      )}
-
-      {/* Add-voice upsell — Connect-only garages in the 2nd half of the free trial. Offered late so
-          the free voice window (until the Connect trial ends) stays ≈ the standard 14-day Assist
-          trial AND both bill together on one invoice. */}
-      {hasVoiceAccess === false && inTrial && (trialDaysLeft ?? 99) <= 15 && (
-        <div className="overflow-hidden rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-600 text-white">
-                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" /></svg>
-              </span>
-              <div>
-                <p className="text-base font-bold text-slate-900">Add voice — catch your missed calls too</p>
-                <p className="mt-1 text-sm text-slate-600">Connect handles your WhatsApp leads. Add voice and the same AI answers your phone, books customers in, and takes messages — <span className="font-medium text-slate-700">free for the rest of your trial, then on one bill with Connect.</span></p>
-              </div>
-            </div>
-            <div className="flex shrink-0 gap-2">
-              <button onClick={handleAddVoice} disabled={addVoiceLoading} className="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60">{addVoiceLoading ? 'Opening…' : 'Add voice'}</button>
-              <a href="/demo" target="_blank" rel="noopener noreferrer" className="grid place-items-center rounded-full border border-brand-200 bg-white px-4 py-2 text-sm font-semibold text-brand-700 transition hover:bg-brand-50">Find out more</a>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Mobile: quick call button */}
-      {hasVoiceAccess && (
-      <div className="md:hidden">
-        <Softphone variant="bar" />
-      </div>
-      )}
-
       {/* Mobile Home hero — the agent on duty (signature moment). Desktop keeps the revenue hero below. */}
       <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#3a2ec9] to-[#1f1483] p-4 text-white shadow-lg shadow-brand-600/30 md:hidden">
         <div className="flex items-center gap-3">
@@ -952,7 +849,7 @@ export default function DashboardPage() {
             <div className="truncate text-base font-semibold">{agentName}</div>
             <div className="mt-0.5 flex items-center gap-1.5 text-xs text-white/75">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 motion-safe:animate-pulse" />
-              On duty · answering your {hasVoiceAccess === false ? 'enquiries' : 'calls'}
+              On duty · answering your calls
             </div>
           </div>
         </div>
@@ -974,7 +871,6 @@ export default function DashboardPage() {
       </div>
 
       {/* Mobile metrics — calls handled + time saved. Revenue in the caption below. */}
-      {hasVoiceAccess && (
       <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:hidden">
         <div className="flex-1 p-4">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{lang === 'fr' ? 'Appels traités' : 'Calls handled'}</div>
@@ -985,7 +881,6 @@ export default function DashboardPage() {
           <div className="mt-2 text-[28px] font-extrabold leading-none tracking-tight tabular-nums text-slate-900">{loading ? '—' : formatDuration(totalDurationSeconds)}</div>
         </div>
       </div>
-      )}
       <p className="px-1 text-xs text-slate-500 md:hidden">
         {c.capturedRevenue}:{' '}
         <span className="font-semibold text-slate-700">{loading ? '—' : formatCurrency(bookingRevenueTotal)}</span>
@@ -995,7 +890,6 @@ export default function DashboardPage() {
       </p>
 
       {/* Mobile: calls by type as ranked bars */}
-      {hasVoiceAccess && (
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:hidden">
         <div className="mb-3 flex items-baseline justify-between">
           <h3 className="text-[15px] font-bold text-slate-900">{c.callTypeDistribution}</h3>
@@ -1024,14 +918,13 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-      )}
 
       {/* Mobile: recent activity preview (calls + chats interleaved) */}
       {recentActivity.length > 0 ? (
-        <div className={hasVoiceAccess ? 'md:hidden' : ''}>
+        <div className="md:hidden">
           <div className="mb-2.5 flex items-baseline justify-between px-1">
             <h3 className="text-[15px] font-bold text-slate-900">{lang === 'fr' ? 'Activité récente' : 'Recent activity'}</h3>
-            <button type="button" onClick={() => router.push(hasVoiceAccess ? '/calls' : '/messages')} className="text-[13px] font-semibold text-brand-600">
+            <button type="button" onClick={() => router.push('/calls')} className="text-[13px] font-semibold text-brand-600">
               {lang === 'fr' ? 'Voir tout' : 'See all'}
             </button>
           </div>
@@ -1117,7 +1010,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {hasVoiceAccess && (
       <div className="hidden grid-cols-3 gap-2 md:grid md:gap-4 md:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:rounded-2xl md:p-5">
           <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">{c.totalCalls}</div>
@@ -1139,7 +1031,6 @@ export default function DashboardPage() {
           <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.topCallTagHint}</p>
         </div>
       </div>
-      )}
 
       {hasMessagingAccess && selectedGarageId && !shouldAggregateAllBranches && (
         <div className="grid gap-4 md:grid-cols-2">
@@ -1157,7 +1048,6 @@ export default function DashboardPage() {
       )}
 
       {/* Mobile-only toggle to reveal the analytics below. Hidden on desktop. */}
-      {hasVoiceAccess && (
       <button
         type="button"
         onClick={() => setShowMoreInsights((v) => !v)}
@@ -1177,9 +1067,7 @@ export default function DashboardPage() {
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
-      )}
 
-      {hasVoiceAccess && (
       <div className={cn('grid gap-4 lg:grid-cols-3', showMoreInsights ? '' : 'hidden md:grid')}>
         <div className="hidden rounded-2xl border border-slate-200 bg-white p-6 md:block">
           <div className="flex items-center justify-between">
@@ -1340,7 +1228,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-      )}
     </div>
   );
 }

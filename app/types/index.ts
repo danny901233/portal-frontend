@@ -48,9 +48,6 @@ export interface CallRecord {
 export interface GarageSummary {
   id: string;
   name: string;
-  // Set up as GarageHive Automate but the diary isn't connected yet — the portal shows a
-  // "waiting to be connected" banner until GarageHive submits the instance.
-  awaitingGarageHive?: boolean;
 }
 
 export type BranchRole = 'MANAGER' | 'USER';
@@ -94,10 +91,6 @@ export interface CallFeedbackResponse {
 
 export interface GaragesResponse {
   garages: GarageSummary[];
-  // The server's CURRENT answer, not whatever the browser cached at login. Optional so a
-  // response from an older backend still type-checks.
-  role?: UserRole;
-  branchRoles?: BranchRolesMap;
 }
 
 export interface AdminGarageAgentConfiguration {
@@ -240,26 +233,6 @@ export interface TyresoftSettings {
   tyreMarkupPercent?: number;
 }
 
-// Bookar (Vitara Commerce) per-garage credentials — stored in
-// integrationProviderConfig JSONB (same field Tyresoft + GarageHive use).
-// One credential per branch. bookarApiBase defaults server-side to
-// https://partners.bookar.app when blank.
-export interface BookarSettings {
-  bookarClientId: string;
-  bookarClientSecret: string;
-  bookarApiBase: string;
-}
-
-// Poole Software (AutoSage) per-garage credentials — stored in
-// integrationProviderConfig JSONB. One `branchKey` per Poole branch (their
-// API scopes everything to the key via the `Key:` header). `branchCode` is
-// optional but recommended: if sent on B1 create it must match the key's
-// branch, so setting both together surfaces mismatches immediately.
-export interface PooleSettings {
-  branchKey: string;
-  branchCode?: string;
-}
-
 export interface HubspotSettings {
   enabled: boolean;
   apiToken: string;
@@ -290,11 +263,9 @@ export interface AgentConfiguration {
   integrationProvider: IntegrationProvider;
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings: TyresoftSettings;
-  bookarSettings?: BookarSettings;
-  pooleSettings?: PooleSettings;
   hubspotSettings: HubspotSettings;
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
   humanEscalation?: boolean;

@@ -31,7 +31,6 @@ import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
 import metaInstagramWebhook from './routes/webhooks/meta-instagram.js';
 import gocardlessWebhook from './routes/webhooks/gocardless.js';
 import stripeWebhook from './routes/webhooks/stripe.js';
-import livekitDemoRouter from './routes/livekit-demo.js';
 import featureAnnouncementRouter from './routes/featureAnnouncement.js';
 import usersRouter from './routes/users.js';
 import publicSignupRouter from './routes/public-signup.js';
@@ -39,16 +38,8 @@ import publicStatsRouter from './routes/public-stats.js';
 import publicLeadRouter from './routes/public-lead.js';
 import agreementsRouter from './routes/agreements.js';
 import supportRouter from './routes/support.js';
-import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
-import { startArrearsSweep } from './utils/arrears.js';
-import billingStatusRouter from './routes/billing-status.js';
-import outboundCallsRouter from './routes/outbound-calls.js';
-import publicProspectRouter from './routes/public-prospect.js';
-import connectSignupRouter from './routes/connect-signup.js';
-import connectBillingRouter from './routes/connect-billing.js';
-import { initConnectTrialCron } from './utils/connectTrialCron.js';
 
 const app = express();
 
@@ -65,10 +56,10 @@ app.use(helmet());
 // so any origin can call it; needs POST too for the lead endpoint.
 // `/api/public-signup` is included explicitly because Express's path-prefix
 // match treats the hyphen as a boundary and wouldn't otherwise pick it up.
-const PUBLIC_CORS_PATHS = ['/api/public', '/api/public-signup', '/api/livekit'];
+const PUBLIC_CORS_PATHS = ['/api/public', '/api/public-signup'];
 app.use(
   PUBLIC_CORS_PATHS,
-  cors({ origin: '*', methods: ['GET', 'POST', 'PATCH', 'OPTIONS'], allowedHeaders: ['Content-Type'], maxAge: 86400 }),
+  cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'], maxAge: 86400 }),
 );
 
 // Strict CORS for the authenticated portal API. We SKIP /api/public so
@@ -89,7 +80,6 @@ const strictCors = cors({
 });
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/public/') || req.path === '/api/public-signup') return next();
-  if (req.path.startsWith('/api/livekit/')) return next();
   // Webhook callbacks come from third-party services (Stripe, GoCardless,
   // Meta, Twilio) — no browser origin, so CORS doesn't apply. Let them pass.
   if (req.path.startsWith('/api/webhooks/')) return next();
@@ -123,9 +113,6 @@ app.use('/api', messagesRouter);
 app.use('/api', billingRouter);
 app.use('/api', billingActivationRouter);
 app.use('/api/customer/billing', customerBillingRouter);
-app.use('/api', billingStatusRouter);
-app.use('/api', outboundCallsRouter);
-app.use('/api', publicProspectRouter);
 app.use('/api', socialConnectionsRouter);
 app.use('/api', oauthRouter);
 app.use('/api', smsRouter);
@@ -138,12 +125,8 @@ app.use('/api', usersRouter);
 app.use('/api', publicSignupRouter);
 app.use('/api', publicStatsRouter);
 app.use('/api', publicLeadRouter);
-app.use('/api/public/connect-signup', connectSignupRouter);
-app.use('/api', connectBillingRouter);
-app.use('/api', livekitDemoRouter);
 app.use('/api', agreementsRouter);
 app.use('/api', supportRouter);
-app.use('/api', deviceTokensRouter);
 app.use('/api', templatesRouter);
 app.use('/api/webhooks', metaWhatsappWebhook);
 app.use('/api/webhooks', metaFacebookWebhook);
@@ -161,9 +144,4 @@ app.listen(port, '0.0.0.0', () => {
 
   // Initialize scheduled report jobs
   initializeScheduledReports();
-  // Connect trial -> paid: ends expired/over-cap trials and puts them behind the card paywall.
-  initConnectTrialCron();
-
-  // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.
-  startArrearsSweep();
 });

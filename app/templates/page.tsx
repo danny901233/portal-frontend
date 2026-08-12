@@ -31,7 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-slate-500/20 text-slate-600',
   pending: 'bg-yellow-500/20 text-yellow-300',
   approved: 'bg-green-500/20 text-green-300',
-  rejected: 'bg-red-500/20 text-red-300',
+  rejected: 'bg-red-50 text-red-700 ring-1 ring-red-200',
 };
 
 const CATEGORIES = [
@@ -558,7 +558,7 @@ export default function TemplatesPage() {
 
       {/* Status messages */}
       {error && (
-        <div className="mb-4 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-300">
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -988,7 +988,7 @@ export default function TemplatesPage() {
                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                       </svg>
                       <div>
-                        <p className="text-xs font-medium text-red-300">{c.rejectedByMeta}</p>
+                        <p className="text-xs font-medium text-red-700">{c.rejectedByMeta}</p>
                         <p className="mt-0.5 text-xs text-red-400/80">{t.rejectionReason}</p>
                       </div>
                     </div>
@@ -1024,13 +1024,13 @@ export default function TemplatesPage() {
                   )}
                   <button
                     onClick={() => handleEdit(t)}
-                    className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-600 transition-colors"
+                    className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-600 transition-colors"
                   >
                     {c.edit}
                   </button>
                   <button
                     onClick={() => handleDelete(t.id)}
-                    className="rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-600/40 transition-colors"
+                    className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 ring-1 ring-red-200 hover:bg-red-100 transition-colors"
                   >
                     {c.del}
                   </button>

@@ -23,7 +23,7 @@ const STATUS_COLORS: Record<string, string> = {
   sending: 'bg-yellow-500/20 text-yellow-300',
   sent: 'bg-green-500/20 text-green-300',
   processed: 'bg-green-500/20 text-green-300',
-  failed: 'bg-red-500/20 text-red-300',
+  failed: 'bg-red-50 text-red-700 ring-1 ring-red-200',
   queued: 'bg-blue-500/20 text-blue-300',
 };
 
@@ -863,7 +863,7 @@ export default function OutboundPage() {
             type="file"
             accept=".csv,text/csv"
             onChange={handleFileChange}
-            className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1 file:text-xs file:text-slate-700 hover:border-slate-500"
+            className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white hover:border-slate-500"
           />
           {parseError && (
             <p className="mt-2 text-xs text-red-400">{parseError}</p>

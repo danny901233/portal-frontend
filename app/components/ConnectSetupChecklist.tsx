@@ -106,7 +106,7 @@ export default function ConnectSetupChecklist({ garageId }: { garageId: string |
       title: 'Add the customers who are due',
       body: steps.contacts.done
         ? `${steps.contacts.campaigns} campaign${steps.contacts.campaigns === 1 ? '' : 's'} created.`
-        : 'Upload the customers whose MOT or service is due in the next 30 days — not your whole database. Reminders land best when they’re timely, and smaller, relevant sends protect your WhatsApp number. If your diary system is connected we can pull these for you instead.',
+        : 'Upload the customers whose MOT or service falls due roughly 30 to 60 days from now, then upload again each month. That way everyone gets about a month’s notice — uploading only what’s due in the next few days means the reminder arrives too late to book. Don’t upload your whole database: smaller, timely sends get better replies and protect your WhatsApp number. If your diary system is connected we can pull these for you automatically instead.',
       href: '/outbound',
       cta: 'Upload customers',
     },

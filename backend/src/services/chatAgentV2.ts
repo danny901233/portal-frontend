@@ -60,7 +60,10 @@ enum Step {
 interface ChatSession {
   step: Step;
   intent: string; // 'booking', 'quote', 'message'
-  
+  // Set once take_message has recorded this conversation, so the MESSAGE_TAKEN_FASTPATH
+  // records it exactly once instead of on every subsequent turn.
+  messageTaken?: boolean;
+
   // Customer
   customerNameFirst: string;
   customerNameLast: string;
@@ -482,7 +485,49 @@ export function invalidateSessionCache(conversationId: string): void {
   console.log(`[SESSION_CACHE] Invalidated cache for ${conversationId}`);
 }
 
+/**
+ * Safety net around the agent. If a turn ends in message_only holding both a name and a phone
+ * number but take_message was never called, record it here.
+ *
+ * The model reliably *says* the right thing ("I'll pass that on, the team will call you") and
+ * then simply does not call the tool. take_message is the only thing in this agent that sets
+ * needsAttention, so without this the conversation never reaches the Messages inbox and the lead
+ * is silently lost — the customer believes a callback is coming and nobody knows. Scenario
+ * BOOK-03 caught exactly this.
+ *
+ * This has to run AFTER the model, not before: on the turn where the customer supplies their
+ * details, the session does not have them yet when the turn starts.
+ */
 export async function getChatAgentResponse(
+  garageId: string,
+  message: string,
+  conversationId: string,
+  seedContact?: { phone?: string; name?: string }
+): Promise<ChatAgentResponse> {
+  const res = await getChatAgentResponseInner(garageId, message, conversationId, seedContact);
+  try {
+    const session = await getOrCreateSession(conversationId);
+    if (session.step === Step.MESSAGE_ONLY && !session.messageTaken
+        && session.customerNameFirst && session.contactPhone) {
+      const summary = [
+        session.serviceHint || '',
+        session.notes || '',
+        session.vrn ? `Vehicle: ${[session.vehicleMake, session.vehicleModel].filter(Boolean).join(' ')} (${session.vrn})` : '',
+        `Latest message: "${String(message).slice(0, 200)}"`,
+      ].filter(Boolean).join('. ');
+      session.messageTaken = true;
+      await handleTakeMessage({ message: summary, phone: session.contactPhone }, session, conversationId);
+      console.log('[MESSAGE_TAKEN_SAFETY_NET] take_message was not called by the model — recorded and flagged here');
+      // Keep the model's wording, which is warmer than the canned line, but report the handoff.
+      return { ...res, needsHumanAssistance: true };
+    }
+  } catch (e) {
+    console.error('[MESSAGE_TAKEN_SAFETY_NET] failed:', e);
+  }
+  return res;
+}
+
+async function getChatAgentResponseInner(
   garageId: string,
   message: string,
   conversationId: string,
@@ -907,6 +952,85 @@ export async function getChatAgentResponse(
       }
     }
 
+    // CALLBACK_REQUEST_FASTPATH: the customer has plainly asked for a person to call them back.
+    // Without this the flow stays in the booking machine: they ask for a callback, the agent asks
+    // for their name, save_caller_name gets intent 'booking' and rewinds to need_vrn, and they
+    // get "what's your vehicle registration?" instead of a callback (scenario HUMAN-04).
+    // Switching to message_only early makes the take-a-message prompt apply from that point on.
+    if ([Step.GREETING, Step.NEED_NAME, Step.NEED_VRN].includes(session.step as Step)) {
+      const wantsCallback = /\b(call|ring|phone)\s+(me|us)\s+back\b|\b(someone|somebody|a person|anyone)\s+(to\s+)?(call|ring|phone)\b|\bgive me a (call|ring)\b|\bget (someone|somebody) to (call|ring)\b/i
+        .test(message);
+      if (wantsCallback) {
+        console.log('[CALLBACK_REQUEST_FASTPATH] explicit callback request — switching to message_only');
+        session.step = Step.MESSAGE_ONLY;
+        await saveSession(conversationId, session);
+      }
+    }
+
+    // MESSAGE_TAKEN_FASTPATH: in message_only with a name and a number in hand, record the
+    // message in code rather than hoping the model calls take_message. It frequently does not —
+    // it composes a convincing "I'll pass that on to the team" and stops, so nothing is recorded
+    // and needsAttention stays false, meaning the conversation never appears in the Messages
+    // inbox and the lead is silently dropped (scenario BOOK-03). take_message is the ONLY thing
+    // in this agent that sets needsAttention, so this is the difference between a customer being
+    // promised a callback and anyone actually seeing it.
+    if (session.step === Step.MESSAGE_ONLY && !session.messageTaken) {
+      const name = session.customerNameFirst;
+      const phone = session.contactPhone;
+      if (name && phone) {
+        const summary = [
+          session.serviceHint || session.notes || '',
+          session.vrn ? `Vehicle: ${session.vehicleMake || ''} ${session.vehicleModel || ''} (${session.vrn})`.trim() : '',
+          `Customer said: "${String(message).slice(0, 200)}"`,
+        ].filter(Boolean).join('. ');
+        console.log('[MESSAGE_TAKEN_FASTPATH] name + phone known in message_only — recording via take_message');
+        session.messageTaken = true;
+        const res = await handleTakeMessage({ message: summary, phone }, session, conversationId);
+        const say = res.match(/Say:\s*"([\s\S]*?)"/i);
+        if (say) return { content: say[1].trim(), needsHumanAssistance: true };
+      }
+    }
+
+    // UNBOOKABLE_REQUEST_FASTPATH: the customer wants an MOT on its own, and THIS garage has no
+    // standalone MOT to book — every MOT in their catalogue is bundled with a service. Their own
+    // rules then say to take details and arrange a callback.
+    //
+    // This has to happen in code. Three separate prompt attempts failed to make the model do it:
+    // at need_service with a loaded service list it keeps answering "what sort of service were
+    // you after?", even with the garage rule marked as overriding everything. State only yields
+    // to state. Deliberately narrow so it stays garage-scoped: it cannot fire for a garage whose
+    // catalogue DOES contain a standalone MOT (5 of the 6 live chat garages), and it only fires
+    // on an explicit MOT-only request, never on a vague enquiry.
+    if (session.step === Step.NEED_SERVICE && (session.servicesAvailable?.length ?? 0) > 0) {
+      const askedMotOnly = /\b(just|only)\s+(the\s+|an?\s+)?mot\b|\bmot[- ]only\b|\bmot\b[^.]{0,24}\b(no|without|not)\s+(a\s+)?(service|servicing)\b|\b(no|without|dont want|don't want|do not want)\s+(a\s+)?(service|servicing)\b/i
+        .test(message);
+      if (askedMotOnly) {
+        // A standalone MOT = a service naming MOT but NOT bundled with servicing work.
+        const hasStandaloneMot = session.servicesAvailable.some((s: any) => {
+          const n = String(s?.name || '').toLowerCase();
+          return n.includes('mot') && !/(service|servicing|oil|filter|interim|full)/.test(n);
+        });
+        if (!hasStandaloneMot) {
+          console.log(`[UNBOOKABLE_REQUEST_FASTPATH] MOT-only asked for but no standalone MOT in this garage's ${session.servicesAvailable.length} services — switching to message_only`);
+          session.step = Step.MESSAGE_ONLY;
+          session.serviceHint = '';
+          await saveSession(conversationId, session);
+          const needName = !session.customerNameFirst;
+          const needPhone = !session.contactPhone;
+          const ask = needName && needPhone ? 'your full name and the best number to reach you'
+            : needName ? 'your full name'
+            : needPhone ? 'the best number to reach you'
+            : '';
+          return {
+            content: ask
+              ? `That's no problem — we don't book MOTs on their own, so I'll get a Service Advisor to call you back and arrange it. Could I take ${ask}?`
+              : `That's no problem — we don't book MOTs on their own, so I'll pass your details to a Service Advisor and they'll call you back to arrange it.`,
+            needsHumanAssistance: false,
+          };
+        }
+      }
+    }
+
     // UPSELL_SERVICE_FASTPATH: during upsell, if customer confirms adding a service that's in our
     // available services list, call select_service directly instead of relying on the LLM.
     // Catches: "Yes, brakes too" / "yeah book the brakes" / "yes can I book that on same slot"
@@ -1309,13 +1433,20 @@ export async function getChatAgentResponse(
     const looksLikeQuestion = message.trim().endsWith('?') ||
       /\b(how long|how much|what time|what do i need|do (you|i) need|will (you|i|they)|can (you|i)|is (it|there|the)|are (you|there)|does it|when (do|will|is)|where (do|is|are)|what happens|what if|do you do)\b/i.test(message);
     if (midBookingSteps.includes(session.step) && looksLikeQuestion) {
-      const stepContext = session.step === Step.NEED_TIMESLOT ? 'asking them for a date/time preference'
-        : session.step === Step.NEED_SERVICE ? 'selecting a service'
-        : session.step === Step.NEED_SLOT_CONFIRM ? 'confirming their slot'
-        : 'collecting their contact details';
+      // State the situation, don't dictate the destination. Naming the step as the goal
+      // ("continue selecting a service") overrode the garage's own rules: on Great Hollands
+      // 2026-08-12 the customer wanted an MOT on its own — which that garage cannot book, so
+      // their rules say take a message — and this nudge pulled the agent straight back to
+      // offering services instead. Where to go next is a judgement call that depends on the
+      // garage's rules and what the customer actually wants, so leave it to the model; the
+      // nudge only needs to stop it ignoring the question.
+      const stepContext = session.step === Step.NEED_TIMESLOT ? "you still need a date/time preference from them"
+        : session.step === Step.NEED_SERVICE ? "they have not settled on a service yet"
+        : session.step === Step.NEED_SLOT_CONFIRM ? "they have not confirmed the proposed slot yet"
+        : "you still need their contact details";
       messages.push({
         role: 'system' as any,
-        content: `The customer just asked a side question. Answer it helpfully in 1-2 sentences using your knowledge of the garage, then smoothly continue ${stepContext}. Do NOT ignore the question or just repeat the booking prompt.`,
+        content: `The customer just asked a side question. Answer it helpfully in 1-2 sentences using your knowledge of the garage, then carry on with whatever genuinely helps them next — for context, ${stepContext}. If the garage's rules mean what they are asking for cannot be booked, follow those rules (for example take their details and arrange a callback) rather than steering back to the booking flow. Do NOT ignore the question or just repeat the booking prompt.`,
       });
       console.log(`[SIDE_QUESTION_NUDGE] Question detected at ${session.step}: "${message.slice(0, 60)}"`);
     }
@@ -1997,10 +2128,39 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
     const hourLondon2 = parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }), 10);
     const timeGreeting2 = hourLondon2 < 12 ? 'morning' : hourLondon2 < 17 ? 'afternoon' : 'evening';
     const firstName2 = first_name.charAt(0).toUpperCase() + first_name.slice(1).toLowerCase();
+    // Only greet when this is the START of a message flow ("hi, can someone call me back?").
+    // Mid-conversation we already know what they want — greeting them and asking "what can I
+    // help you with?" reads as if the agent forgot the last five minutes, and it stalls short of
+    // take_message, so the customer is never actually told their message was passed on.
+    // MESSAGE_ONLY counts as mid-conversation too: we only get there after telling the customer
+    // we'll arrange a callback, so greeting them and asking "what can I help you with?" throws
+    // that away. Scenario HUMAN-04 — a cold "can someone call me back" — has no vehicle, so the
+    // vrnConfirmed check alone missed it.
+    const midConversation = !!(session.vrnConfirmed && session.vrn) || !!session.serviceHint
+      || !!session.notes || session.step === Step.MESSAGE_ONLY;
+    if (midConversation) {
+      const wanted = session.serviceHint || session.notes || 'what they asked about above';
+      const vehicle = session.vrn ? ` for their ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})` : '';
+      console.log(`[SAVE_NAME] Mid-conversation message intent — going straight to take_message, no greeting`);
+      return `Name saved: ${firstName2}. You ALREADY know what they want (${wanted})${vehicle} — do NOT greet them again and do NOT ask "what can I help you with?". Call take_message NOW, summarising what they asked for, so they get told it has been passed on.`;
+    }
     return `Customer wants to leave a message.\nSay: "Good ${timeGreeting2}, ${firstName2}! What can I help you with?"\nWait for their message, then call take_message.`;
   }
   
-  // Booking or quote flow
+  // Booking or quote flow.
+  // Only rewind to need_vrn if we do NOT already have a confirmed vehicle. save_caller_name is
+  // written for the START of a conversation (name -> ask for the reg), but the model also calls
+  // it whenever a customer volunteers their name later on — e.g. when we've asked for details to
+  // arrange a callback. Resetting the step then threw away a confirmed vehicle, the loaded
+  // service list and any selected service, and made the agent re-greet the customer from scratch
+  // mid-conversation ("Good afternoon, Dan! …is that still the vehicle you'd like to book in?").
+  // That is what "the agent forgets the conversation" looks like. Seen on Great Hollands
+  // 2026-08-12. Same shape as the NEED_CONTACT guard above — keep the name, keep the place.
+  if (session.vrnConfirmed && session.vrn) {
+    console.log(`[STATE_GUARD] save_caller_name mid-booking — keeping step ${session.step}, not rewinding to need_vrn`);
+    await saveSession(conversationId, session);
+    return `Name saved: ${first_name}${last_name ? ' ' + last_name : ''}. The vehicle (${session.vehicleMake} ${session.vehicleModel}) is already confirmed — do NOT re-greet the customer, do NOT ask for the registration again, and do NOT restart the conversation. Carry straight on from where you were.`;
+  }
   session.step = Step.NEED_VRN;
   await saveSession(conversationId, session);
   console.log(`[SAVE_NAME] Session saved for booking intent`);
@@ -2122,7 +2282,19 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     
     console.log(`[LOOKUP_VEHICLE] Found: ${session.vehicleMake} ${session.vehicleModel}, session: ${sessionId}`);
     
-    return `Vehicle found: ${session.vehicleMake} ${session.vehicleModel} (${winningReg}).\nNOW call confirm_vehicle(confirmed=true) immediately — ZERO SPEECH. Do not wait for customer input.`;
+    // Chain straight into confirm_vehicle rather than instructing the model to call it.
+    // This step is unconditional — the old return said "immediately, ZERO SPEECH, do not wait" —
+    // but leaving it to model compliance meant it sometimes answered with filler ("Leave it with
+    // me, one moment") and ENDED THE TURN instead, stranding the customer at confirming_vehicle
+    // with no service list and no price, and nothing to resume it. Seen live on Great Hollands
+    // 2026-08-12. Doing it in code makes vehicle -> services -> price deterministic.
+    // Safe to call directly: handleConfirmVehicle is a hoisted declaration, and neither of its
+    // guards can recurse into here — the services-loaded guard needs step NEED_SERVICE/
+    // NEED_TIMESLOT (we are at CONFIRMING_VEHICLE), and the missing-sessionId guard only returns
+    // an instruction for the model, it does not call back into lookup.
+    console.log('[LOOKUP_VEHICLE] Chaining directly into confirm_vehicle (no model round-trip)');
+    const chained = await handleConfirmVehicle({ confirmed: true }, session, conversationId);
+    return `Vehicle found: ${session.vehicleMake} ${session.vehicleModel} (${winningReg}).\n${chained}`;
     
   } catch (error: any) {
     console.error('[LOOKUP_VEHICLE] API error:', error);
@@ -3965,6 +4137,21 @@ TONE EXAMPLES:
 
   // ── Current booking state ─────────────────────────────────────────────────
   prompt += `CURRENT STATE: ${session.step}\n`;
+
+  // message_only means we have already told the customer we cannot book what they want and that
+  // an advisor will ring them back. Without this the prompt still contains the whole booking
+  // flow and the service list, so the very next turn the agent goes back to "what sort of
+  // service were you after?" — which is what happened on Great Hollands 2026-08-12 even after
+  // the state was corrected. State the situation plainly and name the one tool that finishes it.
+  if (session.step === Step.MESSAGE_ONLY) {
+    const missing = [
+      !session.customerNameFirst ? 'their full name' : '',
+      !session.contactPhone ? 'the best phone number for them' : '',
+    ].filter(Boolean);
+    prompt += `\nYOU ARE TAKING A MESSAGE, NOT BOOKING. This customer has asked for something this garage does not book online, and they have been told an advisor will call them back. Do NOT ask what service they want, do NOT offer or list services, and do NOT restart the booking flow — ignore the booking instructions below for now.${
+      missing.length ? ` You still need ${missing.join(' and ')} — ask for that, then call take_message.` : ` You already have their name and number — call take_message now with what they want passing on.`
+    }\n`;
+  }
   if (session.customerNameFirst) prompt += `Customer: ${session.customerNameFirst} ${session.customerNameLast || ''}\n`;
   if (session.vrn) prompt += `Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
   if (session.serviceSelectedName) {
@@ -4170,6 +4357,8 @@ YOUR ROLE NOW: You are a human-like customer service rep following up on WhatsAp
 6. Contact details collected automatically after timeslot
 7. Booking confirmed ✅
 
+BEFORE YOU BOOK ANYTHING: check the "RULES YOU MUST FOLLOW" section above. If those rules say the work this customer is asking for must not be booked, then do NOT book it and do NOT keep steering them towards a service — follow the rule instead, which normally means taking their name and number and calling take_message so an advisor can ring them back. A garage rule always beats the booking flow, including anything below.
+
 CRITICAL TOOL ORDER RULES:
 - NEVER call select_service before confirm_vehicle has been called and returned successfully — the services list does not exist yet
 - NEVER call select_timeslot before select_service has been called and returned successfully
@@ -4182,6 +4371,7 @@ YOUR CAPABILITIES — be honest about these:
 - That's it. You CANNOT check MOT due dates, look up existing bookings, check vehicle history, or access any external system beyond the booking engine. If a customer asks for something outside your capabilities, say so honestly and offer what you CAN do (book them in or take a message). Never say "hold on" or "let me check" for something you cannot do.
 
 GENERAL RULES:
+- COMPLAINTS ARE NOT SALES OPPORTUNITIES. If the customer is unhappy about work this garage already did, about being overcharged, about damage to their vehicle, or about a delay, then acknowledge it and apologise first, and take their details for a callback so a human can deal with it. Do NOT offer to book or quote the repair — offering to sell them a fix for damage they are blaming on the garage is the worst possible reply.
 - Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases
 - NEVER answer questions about services/prices from your own knowledge — only use what tools return after confirm_vehicle has been called
 - Keep responses short (1–2 sentences)
@@ -4189,7 +4379,7 @@ GENERAL RULES:
 - Never invent booking details — only use what tools return
 - If the customer asks a side question mid-booking (e.g. "how long does it take?", "what time do you open?", "is parking free?"), answer briefly in one sentence, then immediately continue with the current booking step — do NOT ignore the question and do NOT abandon the booking flow
 - If you cannot proceed, offer to take a message for a callback
-- If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT call take_message, do NOT end the conversation
+- If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT bail out to take_message merely because they asked about price, and do NOT end the conversation. (Exception: if a garage rule says the work they actually want must not be booked, that rule wins — take their details and call take_message.)
 - Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected
 - If the current step is need_timeslot and the customer says "that's all", "nothing else", "just the MOT/service", "no thanks", "nope", or any short/negative reply — this means "no extras, proceed with booking". Do NOT say goodbye. Immediately ask: "Do you have a preferred date in mind, or shall I suggest the earliest available?"
 

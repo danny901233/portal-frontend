@@ -600,6 +600,10 @@ export const createOutboundCampaign = async (payload: {
   contacts: OutboundContactInput[];
   messageTemplateId?: string;
   variableMapping?: Record<string, string>;
+  /** 'reminder' enters the staged follow-up sweep; 'oneoff' is sent once and never chased. */
+  campaignType?: 'reminder' | 'oneoff';
+  /** Days-before-due to message. Only read for reminder campaigns. */
+  reminderStages?: number[];
 }): Promise<{ campaign: OutboundCampaign }> => {
   const { data } = await api.post('/api/outbound/campaigns', payload);
   return data;

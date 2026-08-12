@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { fetchCalls, submitCallFeedback, downloadConfirmedBookingsCsv } from '../lib/api';
-import { getGarageId, isReceptionMateStaff } from '../lib/auth';
+import { getGarageId, isReceptionMateStaff, getSessionToken } from '../lib/auth';
 import {
   TRACKED_TAGS,
   TAG_COLORS,
@@ -567,6 +567,55 @@ export default function CallsPage() {
       summaryUnavailable: 'Résumé indisponible pour cet appel.',
     },
   }[lang];
+  // Voice access gate. Connect-only garages have no phone number and can never have calls, so
+  // showing them an empty call log reads as broken. They get an Assist upgrade offer instead.
+  // null = not loaded yet; deliberately NOT defaulted to true, because defaulting the other way
+  // is exactly how the setup wizard ended up showing Connect customers the Assist welcome.
+  const [voiceAccess, setVoiceAccess] = useState<boolean | null>(null);
+  const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!garageId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = getSessionToken();
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/garages/${garageId}/messaging-access`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        setVoiceAccess(data.hasVoiceAccess !== false);
+        setTrialEndsAt(data.trialEndDate ?? null);
+      } catch {
+        /* leave as null — the log renders as before rather than wrongly gating someone out */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [garageId]);
+
+  const startVoiceUpgrade = async () => {
+    if (!garageId) return;
+    setUpgradeLoading(true);
+    setUpgradeError(null);
+    try {
+      const token = getSessionToken();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/connect/add-voice`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ garageId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.url) { window.location.href = data.url; return; }
+      setUpgradeError('Could not open checkout. Please try again, or contact us and we’ll set it up for you.');
+    } catch {
+      setUpgradeError('Could not open checkout. Please check your connection and try again.');
+    }
+    setUpgradeLoading(false);
+  };
+
   const [callTagFilter, setCallTagFilter] = useState('all');
   const [startDateInput, setStartDateInput] = useState('');
   const [endDateInput, setEndDateInput] = useState('');
@@ -982,6 +1031,72 @@ export default function CallsPage() {
     return (
       <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
         {c.garageNotSelected}
+      </div>
+    );
+  }
+
+  // Connect-only garages have no phone number and can never have a call, so the normal page is
+  // just an empty table reading "No calls found" — which looks broken rather than like an
+  // upsell. Show the Assist offer instead. Gated on an explicit `false`: while access is still
+  // loading it is null and the real page renders, so a slow request never locks anyone out.
+  if (voiceAccess === false) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold text-slate-900">{c.callActivity}</h1>
+          <p className="text-sm text-slate-500">
+            Add voice and your AI answers the phone too — every missed call becomes a booking.
+          </p>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-8 shadow-sm">
+          <div className="mx-auto max-w-2xl text-center">
+            <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-brand-600 text-white">
+              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.09 4.18 2 2 0 0 1 4.08 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />
+              </svg>
+            </span>
+            <h2 className="mt-5 text-xl font-bold text-slate-900">Your plan doesn’t include call answering yet</h2>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              You’re on <strong>Connect</strong>, so your AI replies on WhatsApp, Facebook and Instagram and sends
+              MOT and service reminders automatically. Add <strong>Assist</strong> and the same AI answers your
+              phone as well — taking bookings, capturing registrations and passing messages on, so nothing is
+              missed while you’re under a car.
+            </p>
+            <ul className="mx-auto mt-5 max-w-md space-y-2 text-left text-sm text-slate-700">
+              {[
+                'Answers every call, including evenings and weekends',
+                'Books jobs straight into your diary',
+                'A dedicated number — keep your existing one',
+                'Recordings, summaries and transcripts, right here',
+              ].map((t) => (
+                <li key={t} className="flex items-start gap-2">
+                  <span className="mt-0.5 font-bold text-brand-600">✓</span>
+                  <span>{t}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-6 flex flex-col items-center gap-3">
+              <button
+                onClick={startVoiceUpgrade}
+                disabled={upgradeLoading}
+                className="rounded-full bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
+              >
+                {upgradeLoading ? 'Opening secure checkout…' : 'Start my 14-day Assist trial'}
+              </button>
+              <p className="max-w-md text-xs leading-relaxed text-slate-500">
+                Card details required — nothing is charged during the trial.
+                {trialEndsAt
+                  ? ` Assist is billed on the same date as Connect (${new Date(trialEndsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}), so you only ever get one invoice.`
+                  : ' Cancel any time before it ends.'}
+              </p>
+              {upgradeError && <p className="text-xs font-medium text-rose-600">{upgradeError}</p>}
+              <a href="/demo" target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-brand-700 underline underline-offset-2">
+                Hear the voice agent first
+              </a>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

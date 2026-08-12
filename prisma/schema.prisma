@@ -612,6 +612,19 @@ model OutboundCampaign {
   sentCount         Int               @default(0)
   messageTemplateId String? // Optional: ID of MessageTemplate to use
   variableMapping   Json? // e.g. {"1": "customer_name", "2": "mot_due_date"}
+
+  // How this campaign is delivered. Not everything outbound is a due-date reminder — an offer
+  // or an announcement goes out ONCE, and chasing someone three times about a promotion is how
+  // you lose a WhatsApp number.
+  //   "oneoff"   — send to everyone now, no follow-ups (offers, announcements). The default,
+  //                so any campaign created before this existed keeps its old behaviour.
+  //   "reminder" — due-date driven: each contact is messaged at their own point before their
+  //                MOT/service is due, using reminderStages below.
+  campaignType      String            @default("oneoff") // "oneoff" | "reminder"
+  // Days-before-due at which to message, largest first. Only read when campaignType=reminder,
+  // and per-campaign so a garage can run a single 14-day nudge without touching the others.
+  reminderStages    Int[]             @default([30, 14, 3])
+
   contacts          OutboundContact[]
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
@@ -629,8 +642,17 @@ model OutboundContact {
   registration   String?
   motDueDate     String?
   serviceDueDate String?
+  // Parsed from motDueDate/serviceDueDate at upload. Those stay as the raw strings the DMS
+  // exported; this is the machine-readable version the reminder scheduler works from. Null
+  // means we could not read the date and the row is skipped rather than guessed at — sending
+  // someone a reminder on the wrong day is worse than not sending one.
+  dueDate        DateTime?
+  // Which reminder stages have gone out, in days-before-due (e.g. [30, 14]). Lets a garage
+  // upload overlapping windows without anyone being messaged the same stage twice.
+  stagesSent     Int[]            @default([])
   messageType    String           @default("mot") // "mot" | "service"
-  status         String           @default("pending") // "pending" | "sent" | "replied" | "opted_out" | "failed"
+  // "booked" = the customer told us they're already booked, so the remaining stages are skipped.
+  status         String           @default("pending") // "pending" | "sent" | "replied" | "booked" | "opted_out" | "failed" | "expired"
   messageSid     String?
   errorReason    String?
   conversationId String?
@@ -639,6 +661,8 @@ model OutboundContact {
 
   @@index([campaignId])
   @@index([garageId, phone])
+  // The scheduler's daily sweep: "pending contacts with a due date, per garage".
+  @@index([garageId, status, dueDate])
 }
 
 model Invoice {

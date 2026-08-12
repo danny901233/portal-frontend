@@ -33,10 +33,13 @@ export type Scenario = 'booking' | 'parts';
 export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenario }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [voice, setVoice] = useState('leah');
-  // Expressive Mode trial. Opt-in via ?expressive=1 (optionally &tts=cartesia|inworld|fishaudio|xai)
-  // rather than a control on the page: /demo is a public sales page, and this swaps the voice
-  // engine — visitors should keep hearing the voices we've tuned until we've judged it ourselves.
-  const [expressive, setExpressive] = useState<{ on: boolean; tts: string } | null>(null);
+  // Expressive Mode trial. The switch only appears once the URL asks for it (?expressive=1),
+  // because /demo is a public sales page and expressive swaps the voice engine away from the
+  // ElevenLabs voices we've tuned. Once revealed you get a real toggle, so an A/B is two clicks
+  // rather than two URLs.
+  const [trial, setTrial] = useState(false);
+  const [expressiveOn, setExpressiveOn] = useState(false);
+  const [ttsKey, setTtsKey] = useState('cartesia');
   const [micOn, setMicOn] = useState(true);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const roomRef = useRef<RoomType | null>(null);
@@ -51,8 +54,10 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
     if (typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
     const flag = q.get('expressive');
-    if (flag === '1' || flag === 'true') {
-      setExpressive({ on: true, tts: (q.get('tts') || 'cartesia').toLowerCase() });
+    if (flag === '1' || flag === 'true' || flag === '0') {
+      setTrial(true);
+      setExpressiveOn(flag !== '0');
+      setTtsKey((q.get('tts') || 'cartesia').toLowerCase());
     }
   }, []);
 
@@ -78,7 +83,7 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
         body: JSON.stringify({
           voice,
           scenario,
-          ...(expressive?.on && { expressive: true, tts: expressive.tts }),
+          ...(expressiveOn && { expressive: true, tts: ttsKey }),
         }),
       });
       if (!res.ok) throw new Error('Failed to start the demo');
@@ -129,7 +134,7 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
       cleanup();
       setPhase('failed');
     }
-  }, [cleanup, voice, scenario, expressive]);
+  }, [cleanup, voice, scenario, expressiveOn, ttsKey]);
 
   const end = useCallback(() => {
     cleanup();
@@ -149,11 +154,18 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
   const selectedVoice = VOICES.find((v) => v.key === voice) ?? VOICES[0];
   // Without this you cannot tell which pipeline you just listened to, which makes the whole
   // comparison worthless.
-  const expressiveBadge = expressive?.on ? (
-    <span className="ml-2 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-800">
-      Expressive · {expressive.tts}
+  const expressiveBadge = expressiveOn ? (
+    <span className="ml-2 align-middle rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-800">
+      Expressive · {ttsKey}
     </span>
   ) : null;
+
+  const EXPRESSIVE_ENGINES = [
+    { key: 'cartesia', label: 'Cartesia Sonic 3' },
+    { key: 'inworld', label: 'Inworld TTS 2' },
+    { key: 'fishaudio', label: 'Fish Audio S2.1' },
+    { key: 'xai', label: 'xAI TTS 1' },
+  ];
   const showPicker = phase === 'idle' || phase === 'ended' || phase === 'failed';
 
   return (
@@ -243,6 +255,61 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
                   </button>
                 ))}
               </div>
+
+              {/* Expressive A/B switch — revealed by ?expressive=1, hidden from ordinary visitors.
+                  Standard is the tuned ElevenLabs stack; Expressive swaps the engine, which is the
+                  whole point of comparing them. */}
+              {trial ? (
+                <div className="mt-4 rounded-2xl bg-black/20 p-3 ring-1 ring-white/15">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-brand-100/70">
+                    Voice engine (internal test)
+                  </p>
+                  <div className="inline-flex rounded-full bg-white/10 p-0.5">
+                    {[
+                      { on: false, label: 'Standard' },
+                      { on: true, label: 'Expressive' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => setExpressiveOn(opt.on)}
+                        className={cn(
+                          'rounded-full px-4 py-1.5 text-xs font-bold transition',
+                          expressiveOn === opt.on ? 'bg-white text-brand-700 shadow' : 'text-white/80 hover:text-white',
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {expressiveOn ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {EXPRESSIVE_ENGINES.map((e) => (
+                        <button
+                          key={e.key}
+                          type="button"
+                          onClick={() => setTtsKey(e.key)}
+                          className={cn(
+                            'rounded-full px-3 py-1 text-[11px] font-semibold ring-1 transition',
+                            ttsKey === e.key
+                              ? 'bg-purple-200 text-purple-900 ring-purple-200'
+                              : 'bg-white/10 text-white/80 ring-white/20 hover:bg-white/20',
+                          )}
+                        >
+                          {e.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <p className="mt-2 text-[11px] leading-snug text-brand-100/70">
+                    {expressiveOn
+                      ? 'Expressive delivery, but a different voice engine \u2014 these are not the voices we\u2019ve tuned.'
+                      : 'The tuned ElevenLabs voices. Switch to Expressive and call again to compare.'}
+                  </p>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

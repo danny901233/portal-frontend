@@ -1,0 +1,139 @@
+[
+  { "cadence":"daily", "tags":["admin"], "title":"Triage hello@ and the MMH inbox",
+    "instructions":"1. Open hello@receptionmate.co.uk and the MMH inbox.\n2. Reply to customer/garage questions you can answer; escalate anything you can't to Dan.\n3. Forward genuine SALES enquiries straight to Dan — don't sit on them.\n4. Archive/label handled threads so the inbox stays clean." },
+
+  { "cadence":"daily", "tags":["admin"], "title":"Routine admin — diary, follow-ups, invoices",
+    "instructions":"1. Check the diary/calendar and note any follow-ups due today.\n2. Log any invoices or receipts that came in.\n3. Chase anything left outstanding from yesterday." },
+
+  { "cadence":"daily", "tags":["marketing"], "title":"Social comments, DMs & scheduled post",
+    "instructions":"1. Check comments + DMs on the ReceptionMate and MMH Facebook/Instagram accounts.\n2. Reply to genuine questions; flag any leads to Dan.\n3. Publish the day's scheduled post if one is queued.\n(Events/festival & seasonal content posts itself — don't touch it.)" },
+
+  { "cadence":"daily", "tags":["agents"], "title":"Confirm every voice agent is online",
+    "instructions":"1. Check the agent-watchdog alerts (email/SMS) for any overnight outage.\n2. Run `lk agent list` and confirm each agent is deployed/available.\n3. If a garage looks down, check its recent call logs in the portal AND its routing (agentScript/agentType); action or escalate immediately — a silent outage loses live calls." },
+
+  { "cadence":"daily", "tags":["agents"], "title":"Work the negative-call feedback",
+    "instructions":"1. In the portal, filter calls to NEGATIVE (👎) feedback since yesterday.\n2. Listen to the actual recording for each — don't guess the cause.\n3. Fix where it's a fixable pattern (FAQ / rule / KB / prompt).\n4. Log each one in the feedback sheet: garage, call ID, cause, fix applied, status." },
+
+  { "cadence":"daily", "tags":["agents"], "title":"Skim reg-capture (VRM) failures",
+    "instructions":"1. In the call logs, skim the registration-capture failures from the last day.\n2. Look for a NEW pattern (a specific letter/number mishearing, a garage-specific plate format).\n3. If it repeats, note it for the reg-normaliser; one-offs just log." },
+
+  { "cadence":"daily", "tags":["connect"], "title":"Messaging inbox & human-handoff flags",
+    "instructions":"1. Open the Messaging (Connect) inbox.\n2. Action any human-handoff flags — a customer waiting on a person.\n3. Reply, or route to the garage as needed." },
+
+  { "cadence":"daily", "tags":["onboarding"], "title":"Move new signups along",
+    "instructions":"1. Open the HighLevel onboarding pipeline.\n2. Move each new signup to its correct stage.\n3. Once a garage's agent is built, send the welcome email with login details." },
+
+  { "cadence":"daily", "tags":["support"], "title":"Answer in-portal support tickets",
+    "instructions":"1. Open the in-portal support inbox (/admin/support).\n2. Reply to any threads Leah escalated (status awaiting_staff).\n3. Close out resolved ones." },
+
+  { "cadence":"daily", "tags":["mmh"], "title":"Confirm the 9am MMH reminders ran",
+    "instructions":"1. On the EC2 box, check mmh-docs-reminders.log for today's 9am run.\n2. Confirm it ran and shows the document texts sent (0 due is fine).\n3. If the log is missing or shows errors, the cron failed — investigate/escalate: customers won't have got their upload links." },
+
+  { "cadence":"daily", "tags":["mmh"], "title":"DVLA licence check + approve documents",
+    "instructions":"1. In the MMH admin panel, find new document uploads.\n2. Run the DVLA licence check on each driver's licence + consent.\n3. Approve the documents once verified." },
+
+  { "cadence":"daily", "tags":["mmh"], "title":"Answer MMH hire messages",
+    "instructions":"1. Check inbound MMH hire messages (chat/SMS).\n2. Answer anything needing a human.\n3. Nudge enquiries toward a booking — offer the nearest available dates." },
+
+  { "cadence":"weekly", "tags":["admin"], "title":"Weekly admin sweep + summary to Dan",
+    "instructions":"1. Reconcile the week's invoices/receipts + expenses; chase anything outstanding.\n2. Write Dan a SHORT weekly summary: what happened + what needs his sales attention.\n3. Send it." },
+
+  { "cadence":"weekly", "tags":["marketing"], "title":"Plan & schedule the week's social",
+    "instructions":"1. Plan the coming week's Facebook/social posts for both brands.\n2. Schedule them.\n3. Review last week's engagement and note what worked." },
+
+  { "cadence":"weekly", "tags":["marketing"], "title":"Check Google Ads conversion tracking",
+    "instructions":"1. Open Google Ads.\n2. Confirm conversion tracking + enhanced conversions are firing (recent conversions are recording).\n3. Flag any drop to Dan." },
+
+  { "cadence":"weekly", "tags":["agents"], "title":"Call-quality review (sample per garage)",
+    "instructions":"1. Sample a handful of calls per garage from this week.\n2. Check booking conversion, reg capture, and response gaps.\n3. Note any garage trending worse and dig in." },
+
+  { "cadence":"weekly", "tags":["agents"], "title":"Agent-error QA (accuracy sample)",
+    "instructions":"1. Pull a weekly sample of calls per garage.\n2. Check for accuracy problems: wrong prices/hours, made-up facts, ghost or wrong-date bookings, missed/failed transfers.\n3. Flag anything customer-facing to Dan and fix at source (KB / rule / prompt)." },
+
+  { "cadence":"weekly", "tags":["agents"], "title":"Is every garage still forwarding its calls?",
+    "instructions":"1. In the call logs, check each garage's call volume for the week.\n2. Flag any garage that's suddenly dropped to ~0 calls — it may have stopped forwarding (gets zero AI calls and blames us silently).\n3. For a quiet garage, cross-check its routing too, then contact them." },
+
+  { "cadence":"weekly", "tags":["billing"], "title":"Billing hygiene",
+    "instructions":"1. Review arrears + failed Stripe payments.\n2. Chase users without a mandate (the users-without-mandate list).\n3. Note upcoming trial expiries." },
+
+  { "cadence":"weekly", "tags":["infra"], "title":"Verify deploys & config syncs landed",
+    "instructions":"1. Confirm the week's agent deploys (CI/CD) actually landed (`lk agent versions`).\n2. Confirm config syncs (Postgres → DynamoDB) applied.\n3. Flag any drift." },
+
+  { "cadence":"weekly", "tags":["support"], "title":"Proactive check-ins",
+    "instructions":"1. New garages: do the week-1 and week-4 touchpoint.\n2. Established garages: send the light MONTHLY value check-in (their stats + 'anything you need?') to any due this week.\n3. Reach out immediately to any garage the data flags — usage drop, negative-feedback trend, or a failed payment." },
+
+  { "cadence":"weekly", "tags":["mmh"], "title":"MMH weekly review",
+    "instructions":"1. Review the week's MMH bookings + document-completion rate.\n2. Chase anyone outstanding.\n3. Mine chat/voice transcripts for missed questions → add new FAQs." },
+
+  { "cadence":"monthly", "tags":["agents"], "title":"Full VRM-capture analysis",
+    "instructions":"1. Pull the reg-STT logs across all agents for the month.\n2. Measure the capture rate.\n3. Ship any flag-gated normaliser fixes and re-measure." },
+
+  { "cadence":"monthly", "tags":["agents"], "title":"Per-garage performance review",
+    "instructions":"1. For each garage, pull latency trends, booking conversion, cost/call (session usage), model behaviour.\n2. Note the winners and the laggards.\n3. Action or flag to Dan." },
+
+  { "cadence":"monthly", "tags":["agents"], "title":"KB / FAQ audit per garage",
+    "instructions":"1. For each garage, compare its KB/FAQs against the month's calls.\n2. Fill gaps — questions the agent couldn't answer.\n3. Retire stale entries." },
+
+  { "cadence":"monthly", "tags":["billing"], "title":"Reconcile manual-pay invoices",
+    "instructions":"1. The In'n'out combined invoice auto-emails on the 1st — DON'T raise it.\n2. Check the bank for In'n'out + any other bank-transfer garages' payments.\n3. Mark those invoices as paid in the system." },
+
+  { "cadence":"monthly", "tags":["billing"], "title":"Full billing reconciliation",
+    "instructions":"1. Reconcile arrears, mandates, invoices and refunds for the month.\n2. Resolve any mismatches." },
+
+  { "cadence":"monthly", "tags":["marketing","demos"], "title":"Content calendar + refresh demos",
+    "instructions":"1. Build next month's social content calendar.\n2. Review the month's reach/engagement.\n3. Refresh the sales demos (/demo, /lkqdemo, /partsdemo)." },
+
+  { "cadence":"monthly", "tags":["mobile"], "title":"App build / push-notification check",
+    "instructions":"1. If there were app changes, ship a build / TestFlight upload.\n2. Send a test push and confirm notifications still work end-to-end." },
+
+  { "cadence":"monthly", "tags":["infra"], "title":"Security & hygiene",
+    "instructions":"1. Rotate the Facebook token.\n2. Review the box-vs-git drift.\n3. Confirm backups + config-sync health." },
+
+  { "cadence":"project", "tags":["support"], "title":"Support hub — read first (goal & rules)",
+    "instructions":"The portal support inbox becomes the ONE place all support lands (email, WhatsApp, calls). Rules: (1) keep hello@ as the single address — AI sorts billing/support/sales AFTER arrival, no new mailboxes; (2) NOT HighLevel's inbox — it lives in our portal; (3) ship the phases below, don't stop agent work." },
+
+  { "cadence":"project", "tags":["support"], "title":"Support hub · Phase 0 — audit what's live",
+    "instructions":"1. On the EC2 branch, check: can a customer clearly find 'Support' in the portal?\n2. Does the admin inbox (app/admin/support) load and show threads?\n3. Does an escalation actually email the team, and does someone watch it?\nDone when: a short note says exactly what exists vs. missing." },
+
+  { "cadence":"project", "tags":["support"], "title":"Support hub · Phase 1 — email into the portal",
+    "instructions":"1. Add a Mailgun inbound route on hello@ → webhook.\n2. AI (Leah) tags each email billing/support/sales/other and creates/updates a ticket.\n3. AI DRAFTS a reply for a human to approve — it does NOT auto-send; never auto-reply to no-reply/bulk senders.\n4. Staff reply sends from hello@ with a [RM #id] subject token so replies thread back.\nDone when: an email to hello@ becomes a tagged ticket with a draft reply, an approved reply round-trips, and no new address was created." },
+
+  { "cadence":"project", "tags":["support"], "title":"Support hub · Phase 1b — noise filter",
+    "instructions":"1. Spam → drop/quarantine on the Mailgun score; no ticket, NEVER unsubscribe.\n2. Marketing/bulk → detect List-Unsubscribe and auto-unsubscribe (one-click), with a first-time confirm per sender.\n3. Transactional (Stripe/GoCardless/Twilio/suppliers) → NEVER unsubscribe; route to billing/ops.\nDone when: spam creates no tickets, marketing can be unsubscribed in one click, transactional is kept and routed." },
+
+  { "cadence":"project", "tags":["support"], "title":"Support hub · Phase 2 — real shared inbox",
+    "instructions":"1. Let a ticket belong to a CONTACT (email/phone), not just a logged-in user; allow >1 per contact.\n2. Add assignee, internal staff-only notes, and filter views by category + status.\nDone when: the team works one inbox, sorted by tag, each ticket owned by a named person." },
+
+  { "cadence":"project", "tags":["support","connect"], "title":"Support hub · Phase 3 — WhatsApp into the portal",
+    "instructions":"1. Point a BUSINESS WhatsApp number (never personal) at the Meta webhook → ticket (channel: whatsapp) keyed to the sender's number.\n2. Staff reply goes back via the WhatsApp API.\nDone when: a WhatsApp message shows as a ticket and a reply reaches the customer on WhatsApp." },
+
+  { "cadence":"project", "tags":["support","agents"], "title":"Support hub · Phase 4 — calls into the portal",
+    "instructions":"1. Point a support phone number at a ReceptionMate agent.\n2. On call end, log the transcript + summary as a ticket (channel: phone).\nDone when: a support call becomes a ticket with its summary, and Dan's mobile is no longer the support line." },
+
+  { "cadence":"project", "tags":["support"], "title":"Support hub · make it findable & tell customers",
+    "instructions":"1. Make 'Support' prominent in the portal.\n2. Message existing + new customers with the one official way to reach us.\nDone when: every customer knows the portal / official channels are THE way to get help." },
+
+  { "cadence":"project", "tags":["infra"], "title":"Fix the observability dashboard",
+    "instructions":"1. The dashboard reads dead metric keys (avg_llm_latency_ms) the current agents no longer emit.\n2. Repoint it at the live keys the agents write now (e.g. metrics.latency.response_gap_p50_s).\n3. Verify the tiles populate." },
+
+  { "cadence":"project", "tags":["agents"], "title":"max_delay endpointing A/B",
+    "instructions":"1. On ONE non-learning garage, A/B a lower endpointing max_delay.\n2. Measure the reply-gap vs reg-capture trade-off.\n3. Roll out only if it's a clear win." },
+
+  { "cadence":"project", "tags":["mmh"], "title":"Manual voice-agent deploy for MMH",
+    "instructions":"1. MMH's CI auto-deploy is DISABLED (separate new-gh-agent LiveKit project).\n2. Deploy the MMH agent manually when its code changes.\n3. Confirm live via a test dispatch." },
+
+  { "cadence":"project", "tags":["mmh","infra"], "title":"Put the MMH project under git",
+    "instructions":"1. Init git for the MMH site + mmh-api.\n2. gitignore: .env, mmh-docs/ (customer PII), the SQLite DB, and venv.\n3. Commit; deploy from the EC2 source (local is out of sync)." },
+
+  { "cadence":"project", "tags":["mmh"], "title":"ICO data-protection registration (MMH)",
+    "instructions":"1. Register Midlands Motorhome Hire with the ICO for data protection.\n2. Keep the confirmation on file." },
+
+  { "cadence":"project", "tags":["onboarding","garagehive","connect"], "title":"Onboard new garages end-to-end",
+    "instructions":"1. GarageHive connect (paste the instance; branches auto-match).\n2. Wire WhatsApp/Connect if bought.\n3. Upload the KB + FAQs.\n4. Build the agent, then send the welcome email." },
+
+  { "cadence":"project", "tags":["mmh"], "title":"Update the MMH hire agreement & T&Cs",
+    "instructions":"1. Update the hire agreement + T&Cs in Wheelbase / Outdoorsy to the current terms.\n2. Make sure each includes an e-signature field at the bottom.\n3. Prep them ready — DAN sends the new agreements out." },
+
+  { "cadence":"project", "tags":["support","infra"], "title":"Build the in-portal Tasks board",
+    "instructions":"1. Build from ops-tasks-board-spec.md: OpsTask model + /admin/tasks page.\n2. Per-task instructions, notes, assignment between Dan & the VA, add-task, status — Postgres-backed so it's shared.\n3. Seed it from this file (ops-tasks-seed.json)." }
+]

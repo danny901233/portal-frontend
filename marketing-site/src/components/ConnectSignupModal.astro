@@ -90,10 +90,6 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
           <input id="cs-mobile" name="mobile" type="tel" required autocomplete="tel" class="cs-input" placeholder="07700 000000" />
           <p class="mt-1 text-xs text-ink-400">We'll text you a code to confirm it's really you.</p>
         </div>
-        <div>
-          <label class="cs-label" for="cs-password">Choose a password</label>
-          <input id="cs-password" name="password" type="password" required minlength="8" autocomplete="new-password" class="cs-input" placeholder="At least 8 characters" />
-        </div>
         <div id="cs-err-1" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
         <button type="submit" id="cs-submit-1" class="cs-btn">
           <span class="cs-idle">Text me a code →</span>
@@ -112,6 +108,14 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
         <div>
           <label class="cs-label" for="cs-code">Verification code</label>
           <input id="cs-code" name="code" inputmode="numeric" required minlength="4" maxlength="10" class="cs-input text-center text-xl tracking-[0.5em]" placeholder="••••••" />
+        </div>
+        <!-- Password moved here from step 1: asking for one before anything had been verified was
+             the heaviest field on the form, and the heatmap showed people clicking into the form
+             and never submitting. By this point they've committed, and their details are already
+             captured server-side at /start so a drop-off here is still a chaseable lead. -->
+        <div>
+          <label class="cs-label" for="cs-password">Choose a password</label>
+          <input id="cs-password" name="password" type="password" required minlength="8" autocomplete="new-password" class="cs-input" placeholder="At least 8 characters" />
         </div>
         <div id="cs-err-2" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
         <button type="submit" id="cs-submit-2" class="cs-btn">
@@ -199,11 +203,13 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
       data.name = $('cs-name').value.trim();
       data.email = $('cs-email').value.trim();
       data.mobile = $('cs-mobile').value.trim();
-      data.password = $('cs-password').value;
       try {
         const r = await fetch(START_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessName: data.businessName, name: data.name, email: data.email, mobile: data.mobile }) });
+          body: JSON.stringify({ businessName: data.businessName, name: data.name, email: data.email, mobile: data.mobile, prospectId: data.prospectId }) });
         const d = await r.json().catch(() => ({}));
+        // /start now records the lead, so keep the id it hands back — it's the row /verify
+        // completes, and the one HighLevel is chasing if they never enter the code.
+        if (d && d.prospectId) data.prospectId = d.prospectId;
         if (r.ok && d.success) {
           $('cs-mobile-masked').textContent = d.mobileMasked || data.mobile;
           hide(formD); show(formC);
@@ -225,6 +231,7 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
       $('cs-err-2').classList.add('hidden');
       const btn = $('cs-submit-2'); load(btn, true);
       try {
+        data.password = $('cs-password').value;
         const r = await fetch(VERIFY_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...data, code: $('cs-code').value.trim() }) });
         const d = await r.json().catch(() => ({}));

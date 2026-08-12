@@ -4,8 +4,9 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import twilio from 'twilio';
+import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
-import { pushSignupToHighlevel, updateOpportunity, TRIAL_LIVE_STAGE_ID } from '../services/highlevel.js';
+import { pushSignupToHighlevel, updateContact, updateOpportunity, TRIAL_LIVE_STAGE_ID } from '../services/highlevel.js';
 
 // ---------------------------------------------------------------------------
 // Self-serve "Connect-only" signup (WhatsApp messaging, no voice tier).
@@ -100,11 +101,15 @@ function clientIp(req: Request): string {
   return forwarded || req.ip || 'unknown';
 }
 
+const SIGN_LINK_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
 const startSchema = z.object({
   businessName: z.string().trim().min(2).max(200),
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(254),
   mobile: z.string().trim().min(7).max(20),
+  // PendingSignup id from the /mot garage picker, when they came through it.
+  prospectId: z.string().trim().max(80).optional(),
 });
 
 const verifySchema = startSchema.extend({
@@ -127,6 +132,7 @@ router.post('/start', async (req, res) => {
     console.error('[CONNECT_SIGNUP] TWILIO_VERIFY_SERVICE_SID is not configured');
     return res.status(500).json({ success: false, error: 'verify_not_configured' });
   }
+  const { businessName, name, prospectId } = parsed.data;
   const email = parsed.data.email.toLowerCase();
   const mobile = toE164UK(parsed.data.mobile);
   if (!mobile) {
@@ -171,9 +177,66 @@ router.post('/start', async (req, res) => {
         message: 'This email already has an account. Please sign in instead.',
       });
     }
+    // Capture the lead BEFORE sending the code. Until now this step stored nothing, so anyone
+    // who entered their details and never typed the SMS code vanished without trace — which is
+    // most of them. Persisting here means a drop-off is still a contactable lead. Deliberately
+    // before the Twilio call: if the SMS fails we would rather keep the details than lose them.
+    let leadId: string | null = null;
+    try {
+      const existingRow = prospectId
+        ? await prisma.pendingSignup.findUnique({ where: { id: prospectId } })
+        : null;
+      const row = existingRow
+        ? await prisma.pendingSignup.update({
+            where: { id: existingRow.id },
+            data: { name, email, contactPhone: mobile, businessName, product: 'connect', status: 'pending' },
+          })
+        : await prisma.pendingSignup.create({
+            data: {
+              businessName,
+              email,
+              name,
+              contactPhone: mobile,
+              product: 'connect',
+              status: 'pending',
+              signToken: randomBytes(32).toString('base64url'),
+              expiresAt: new Date(Date.now() + SIGN_LINK_TTL_MS),
+            },
+          });
+      leadId = row.id;
+      // Now that we have an email this lead is chaseable, so it can go to HighLevel — the
+      // garage-picker step deliberately doesn't sync (no email yet, see public-prospect.ts).
+      void (async () => {
+        try {
+          if (row.ghlContactId) {
+            await updateContact(row.ghlContactId, { name, email, phone: mobile });
+          } else {
+            const r = await pushSignupToHighlevel({
+              name, email, phone: mobile, companyName: businessName,
+              source: 'website-mot-connect', tags: ['website-signup', 'connect', 'abandoned-checkout'],
+              opportunityName: `${businessName} — Connect trial`,
+              kind: 'abandoned',
+            });
+            if (r.opportunityId || r.contactId) {
+              await prisma.pendingSignup.update({
+                where: { id: row.id },
+                data: { ghlOpportunityId: r.opportunityId, ghlContactId: r.contactId },
+              });
+            }
+          }
+        } catch (e) {
+          console.error('[CONNECT_SIGNUP] HL lead capture failed:', e);
+        }
+      })();
+    } catch (e) {
+      // Never block the signup on lead capture.
+      console.error('[CONNECT_SIGNUP] lead capture failed:', e);
+    }
+
     await twilioClient.verify.v2.services(VERIFY_SID).verifications.create({ to: mobile, channel: 'sms' });
     const masked = mobile.slice(0, 3) + '•••••' + mobile.slice(-3);
-    return res.json({ success: true, mobileMasked: masked });
+    // Hand the id back so /verify can complete THIS row rather than creating another.
+    return res.json({ success: true, mobileMasked: masked, prospectId: leadId ?? prospectId ?? undefined });
   } catch (error) {
     console.error('[CONNECT_SIGNUP] start failed:', error);
     return res.status(500).json({ success: false, error: 'server_error' });

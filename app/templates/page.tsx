@@ -34,6 +34,33 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: 'bg-red-50 text-red-700 ring-1 ring-red-200',
 };
 
+/**
+ * Offer language. A UTILITY template is meant to be about something the customer already has —
+ * an appointment, an order, a due date. The moment it carries a discount or a promotion it is
+ * MARKETING, whatever we tick in the box.
+ *
+ * This is not theoretical: Midlands Motorhome Hire submitted "£495 instead of £1,140" as UTILITY,
+ * Meta approved it, and the number was permanently disabled inside a week. Meta approving a
+ * template is not confirmation that the category was right.
+ *
+ * Deliberately narrow — a false alarm on every reminder would train people to ignore it.
+ */
+const OFFER_PATTERNS: { label: string; re: RegExp }[] = [
+  { label: 'a percentage discount', re: /\b\d{1,2}\s?%\s?(off|discount)?/i },
+  { label: 'money off', re: /(\b\d{1,2}\s?%|£\s?\d+)\s?off\b|\bmoney off\b|\boff (your|all|any) (next |first )?(mot|service|repair|booking|order)\b/i },
+  { label: '“discount”', re: /\bdiscount(ed|s)?\b/i },
+  { label: '“deal” or “offer”', re: /\b(deal|deals|offer|offers|offering|special offer)\b/i },
+  { label: '“sale”', re: /\b(sale|clearance)\b/i },
+  { label: '“free”', re: /\bfree\b/i },
+  { label: 'a was/now price', re: /(instead of|was\s?£|now only|reduced (to|from)|save\s?£)/i },
+  { label: 'urgency wording', re: /\b(limited (time|availability|spaces)|last minute|while stocks last|book now to)\b/i },
+];
+
+function detectOfferLanguage(text: string): string[] {
+  if (!text) return [];
+  return [...new Set(OFFER_PATTERNS.filter((p) => p.re.test(text)).map((p) => p.label))];
+}
+
 const CATEGORIES = [
   { value: 'UTILITY', label: 'Utility', desc: 'Appointment reminders, order updates' },
   { value: 'MARKETING', label: 'Marketing', desc: 'Promotions, offers, re-engagement' },
@@ -79,6 +106,12 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
       nameNoChange: 'Template name cannot be changed after creation.',
       nameRules: 'Lowercase, underscores only. No spaces.',
       category: 'Category',
+      offerFlagTitle: 'This looks like a promotion, not a reminder',
+      offerFlagBody: (what: string) =>
+        `The message mentions ${what}. WhatsApp treats anything that promotes a new purchase as MARKETING, whichever category you pick here — and a discount sent under a Utility template is what got a customer of ours permanently banned. Meta approving it doesn\u2019t mean the category was right.`,
+      offerFlagSwitch: 'Switch to Marketing',
+      offerFlagKeep: 'It\u2019s not an offer — keep Utility',
+      offerFlagDismissed: 'Kept as Utility. Please double-check the wording promotes nothing.',
       header: 'Header',
       optional: '(optional)',
       headerPlaceholder: 'Hello there — or use {{1}} for a variable',
@@ -164,6 +197,12 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
       nameNoChange: 'Le nom du modèle ne peut pas être modifié après la création.',
       nameRules: 'Minuscules et traits de soulignement uniquement. Pas d’espaces.',
       category: 'Catégorie',
+      offerFlagTitle: 'Cela ressemble à une promotion, pas à un rappel',
+      offerFlagBody: (what: string) =>
+        `Le message mentionne ${what}. WhatsApp considère comme MARKETING tout ce qui incite à un nouvel achat, quelle que soit la catégorie choisie ici — et une remise envoyée sous un modèle Utilitaire a fait bannir définitivement l\u2019un de nos clients. Une approbation de Meta ne signifie pas que la catégorie était correcte.`,
+      offerFlagSwitch: 'Passer en Marketing',
+      offerFlagKeep: 'Ce n\u2019est pas une offre — garder Utilitaire',
+      offerFlagDismissed: 'Conservé en Utilitaire. Vérifiez que le texte ne fait aucune promotion.',
       header: 'En-tête',
       optional: '(facultatif)',
       headerPlaceholder: 'Bonjour — ou utilisez {{1}} pour une variable',
@@ -242,6 +281,8 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
   const [formName, setFormName] = useState('');
   const [formCategory, setFormCategory] = useState('UTILITY');
   const [formBody, setFormBody] = useState('');
+  /** Set when the user says the offer-language flag is a false alarm, so it stops nagging. */
+  const [offerFlagDismissed, setOfferFlagDismissed] = useState(false);
   const [formHeader, setFormHeader] = useState('');
   const [formFooter, setFormFooter] = useState('');
   const [formButtonType, setFormButtonType] = useState('none');
@@ -370,6 +411,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
     setFormName(t.name);
     setFormCategory(t.category);
     setFormBody(t.bodyText);
+    setOfferFlagDismissed(false);
     setFormHeader(t.headerContent || '');
     setFormHeaderSample(t.headerSample || '');
     setFormFooter(t.footerText || '');
@@ -463,6 +505,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
     setFormName('');
     setFormCategory('UTILITY');
     setFormBody('');
+    setOfferFlagDismissed(false);
     setFormHeader('');
     setFormFooter('');
     setFormButtonType('none');
@@ -507,6 +550,9 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
   }
 
   // Detect variables in body text — sorted unique list e.g. ['{{1}}', '{{2}}']
+  // Header and footer count too — an offer in the header is still an offer.
+  const offerFlags = detectOfferLanguage(`${formHeader} ${formBody} ${formFooter}`);
+
   const detectedVariables = [...new Set(formBody.match(/\{\{(\d+)\}\}/g) || [])].sort(
     (a, b) => parseInt(a.replace(/\D/g, '')) - parseInt(b.replace(/\D/g, ''))
   );
@@ -616,6 +662,33 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
                   </select>
                 </div>
               </div>
+
+              {/* Offer language under a Utility category — the exact mistake that preceded a
+                  customer's WhatsApp number being permanently disabled. */}
+              {formCategory === 'UTILITY' && !offerFlagDismissed && offerFlags.length > 0 && (
+                <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <p className="text-sm font-semibold text-amber-900">{c.offerFlagTitle}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-800">
+                    {c.offerFlagBody(offerFlags.join(', '))}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormCategory('MARKETING')}
+                      className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-500"
+                    >
+                      {c.offerFlagSwitch}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOfferFlagDismissed(true)}
+                      className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                    >
+                      {c.offerFlagKeep}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="mb-4">
                 <label className="block text-sm font-medium text-slate-600 mb-1">{c.header} <span className="text-slate-500 font-normal">{c.optional}</span></label>

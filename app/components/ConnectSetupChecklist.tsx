@@ -8,6 +8,10 @@
  * stays until setup is genuinely finished. Completion is read from /connect/setup-status, which
  * derives each step from real data on every call rather than from a stored "done" flag — so if a
  * garage disconnects WhatsApp or deletes its campaign, the checklist honestly reverts.
+ *
+ * Once finished it doesn't vanish — it collapses to a "Setup guide" button that reopens the same
+ * steps. People come back to this weeks later to remember where WhatsApp is connected or how to
+ * upload customers, and a checklist that deletes itself on completion leaves them nowhere to look.
  */
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -25,6 +29,8 @@ const dismissKey = (garageId: string) => `rm_connect_setup_dismissed_${garageId}
 export default function ConnectSetupChecklist({ garageId }: { garageId: string | null }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [dismissed, setDismissed] = useState(true); // assume dismissed until we've read storage
+  /** Completed setup, reopened on purpose from the "Setup guide" button. */
+  const [reopenedComplete, setReopenedComplete] = useState(false);
 
   useEffect(() => {
     if (!garageId) return;
@@ -51,8 +57,8 @@ export default function ConnectSetupChecklist({ garageId }: { garageId: string |
 
   useEffect(() => { void load(); }, [load]);
 
-  // Only for messaging garages, and only while something is outstanding.
-  if (!status || !status.applicable || status.complete) return null;
+  // Only for messaging garages.
+  if (!status || !status.applicable) return null;
 
   const dismiss = () => {
     setDismissed(true);
@@ -66,7 +72,23 @@ export default function ConnectSetupChecklist({ garageId }: { garageId: string |
   const { steps, remaining } = status;
   const done = 3 - remaining;
 
-  if (dismissed) {
+  // Finished: a quiet way back in, rather than nothing at all.
+  if (status.complete && !reopenedComplete) {
+    return (
+      <button
+        onClick={() => setReopenedComplete(true)}
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left transition hover:bg-slate-50"
+      >
+        <span className="text-sm text-slate-600">
+          <span className="mr-1.5 text-green-600">✓</span>
+          <strong className="text-slate-900">Setup complete.</strong> Your reminders can go out.
+        </span>
+        <span className="shrink-0 text-xs font-semibold text-blue-600 underline underline-offset-2">Setup guide</span>
+      </button>
+    );
+  }
+
+  if (dismissed && !status.complete) {
     return (
       <button
         onClick={reopen}
@@ -116,13 +138,20 @@ export default function ConnectSetupChecklist({ garageId }: { garageId: string |
     <div className="overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-bold text-slate-900">Finish setting up your reminders</h2>
+          <h2 className="text-base font-bold text-slate-900">
+            {status.complete ? 'Your reminder setup' : 'Finish setting up your reminders'}
+          </h2>
           <p className="mt-1 text-sm text-slate-600">
-            {done} of 3 done — your MOT and service reminders start going out once these are complete.
+            {status.complete
+              ? 'All three steps are done. Here they are again if you need to change anything.'
+              : `${done} of 3 done — your MOT and service reminders start going out once these are complete.`}
           </p>
         </div>
-        <button onClick={dismiss} className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold text-slate-500 transition hover:bg-white hover:text-slate-700">
-          Dismiss
+        <button
+          onClick={() => (status.complete ? setReopenedComplete(false) : dismiss())}
+          className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold text-slate-500 transition hover:bg-white hover:text-slate-700"
+        >
+          {status.complete ? 'Close' : 'Dismiss'}
         </button>
       </div>
 

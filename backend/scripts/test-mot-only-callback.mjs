@@ -57,14 +57,18 @@ async function runOnce(i) {
     data: {
       garageId: GARAGE_ID, platform: 'whatsapp',
       customerPhone: '447700900123', platformUserId: `motonly-test-${Date.now()}-${i}`,
-      customerName: 'Dan Test', status: 'active', sessionState: SEED_SESSION,
+      // Name deliberately NOT pre-seeded. In the real failure the agent had to ASK for the
+      // customer's details and then act on them; pre-filling them let the model reply "I've
+      // already got your details" and skip straight back to service selection, which is a
+      // different (and easier) situation than the one that actually broke.
+      customerName: '', status: 'active', sessionState: SEED_SESSION,
     },
   });
   invalidateSessionCache(conv.id);
   const replies = [];
   try {
     for (const t of TURNS) {
-      const r = await getChatAgentResponse(GARAGE_ID, t, conv.id, { phone: '447700900123', name: 'Dan Test' });
+      const r = await getChatAgentResponse(GARAGE_ID, t, conv.id, { phone: '447700900123' });
       replies.push((r?.content || '').replace(/\s+/g, ' ').trim());
     }
     const after = await prisma.chatConversation.findUnique({ where: { id: conv.id }, select: { sessionState: true } });

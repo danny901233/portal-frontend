@@ -32,6 +32,11 @@ const DEMO_VOICES = new Set(['leah', 'tom', 'sophie', 'gemma', 'isobel', 'fraser
 // Which demo persona to run: the garage receptionist ('booking') or the trade parts counter
 // ('parts'). Validated here so a caller can't inject arbitrary values into the dispatch metadata.
 const DEMO_SCENARIOS = new Set(['booking', 'parts']);
+// Expressive Mode (LiveKit Agents >= 1.6.9) makes the LLM emit inline delivery tags that the TTS
+// renders. It only works on a TTS that declares a markup dialect — ElevenLabs does NOT, so the
+// expressive path also swaps the voice engine. Off unless the visitor's URL asks for it, so the
+// public demo keeps the voices we've tuned.
+const DEMO_EXPRESSIVE_TTS = new Set(['cartesia', 'inworld', 'fishaudio', 'xai']);
 
 router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
@@ -42,6 +47,11 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   const voice = DEMO_VOICES.has(requested) ? requested : 'leah';
   const requestedScenario = String(req.body?.scenario ?? '').toLowerCase();
   const scenario = DEMO_SCENARIOS.has(requestedScenario) ? requestedScenario : 'booking';
+  // Expressive requires one of the markup-capable engines; asking for it without naming one
+  // gets Cartesia Sonic 3, the fastest of them, since this is a sales demo.
+  const requestedTts = String(req.body?.tts ?? '').toLowerCase();
+  const expressive = req.body?.expressive === true || req.body?.expressive === 'true';
+  const tts = DEMO_EXPRESSIVE_TTS.has(requestedTts) ? requestedTts : 'cartesia';
 
   const roomName = `demo-${randomBytes(8).toString('hex')}`;
   const identity = `visitor-${randomBytes(4).toString('hex')}`;
@@ -75,7 +85,10 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   try {
     const dispatchClient = new AgentDispatchClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
     await dispatchClient.createDispatch(roomName, agentName, {
-      metadata: JSON.stringify({ kind: 'web-demo', voice, scenario }),
+      metadata: JSON.stringify({
+        kind: 'web-demo', voice, scenario,
+        ...(expressive && { expressive: true, tts }),
+      }),
     });
   } catch (err) {
     console.error(`[demo] failed to dispatch "${agentName}" into ${roomName}:`, err);

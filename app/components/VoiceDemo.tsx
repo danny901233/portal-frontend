@@ -33,6 +33,10 @@ export type Scenario = 'booking' | 'parts';
 export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenario }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [voice, setVoice] = useState('leah');
+  // Expressive Mode trial. Opt-in via ?expressive=1 (optionally &tts=cartesia|inworld|fishaudio|xai)
+  // rather than a control on the page: /demo is a public sales page, and this swaps the voice
+  // engine — visitors should keep hearing the voices we've tuned until we've judged it ourselves.
+  const [expressive, setExpressive] = useState<{ on: boolean; tts: string } | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const roomRef = useRef<RoomType | null>(null);
@@ -42,6 +46,15 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
   useEffect(() => {
     if (capBoxRef.current) capBoxRef.current.scrollTop = capBoxRef.current.scrollHeight;
   }, [captions]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search);
+    const flag = q.get('expressive');
+    if (flag === '1' || flag === 'true') {
+      setExpressive({ on: true, tts: (q.get('tts') || 'cartesia').toLowerCase() });
+    }
+  }, []);
 
   const cleanup = useCallback(() => {
     try { roomRef.current?.disconnect(); } catch { /* noop */ }
@@ -62,7 +75,11 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
       const res = await fetch('/api/livekit/demo-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice, scenario }),
+        body: JSON.stringify({
+          voice,
+          scenario,
+          ...(expressive?.on && { expressive: true, tts: expressive.tts }),
+        }),
       });
       if (!res.ok) throw new Error('Failed to start the demo');
       const { token, url } = await res.json();
@@ -112,7 +129,7 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
       cleanup();
       setPhase('failed');
     }
-  }, [cleanup, voice, scenario]);
+  }, [cleanup, voice, scenario, expressive]);
 
   const end = useCallback(() => {
     cleanup();
@@ -130,6 +147,13 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
 
   const live = phase === 'live';
   const selectedVoice = VOICES.find((v) => v.key === voice) ?? VOICES[0];
+  // Without this you cannot tell which pipeline you just listened to, which makes the whole
+  // comparison worthless.
+  const expressiveBadge = expressive?.on ? (
+    <span className="ml-2 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-800">
+      Expressive · {expressive.tts}
+    </span>
+  ) : null;
   const showPicker = phase === 'idle' || phase === 'ended' || phase === 'failed';
 
   return (
@@ -183,6 +207,7 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
               : phase === 'connecting'
                 ? 'Connecting you…'
                 : `Talk to ${selectedVoice.name}`}
+            {expressiveBadge}
           </h1>
           <p className="mx-auto mt-2 max-w-sm text-[15px] leading-relaxed text-brand-100/90">
             {scenario === 'parts'

@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 import axios from 'axios';
 import { prisma } from '../db.js';
+import { sendEmail, brandedEmailShell } from '../utils/email.js';
 
 /** Normalise phone to E.164 format for Twilio and matching. */
 export function normalisePhone(raw: string): string {
@@ -62,6 +63,20 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
   const campaign = await loadCampaign(campaignId);
   if (!campaign) return { ok: false, code: 404, error: 'Campaign not found' };
   if (campaign.status === 'sent') return { ok: false, code: 400, error: 'Campaign already sent' };
+
+  // A halt covers the whole garage, so this has to be checked before anything else.
+  const halt = await activeHalt(campaign.garageId);
+  if (halt) {
+    const until = new Date(new Date(halt.haltedAt!).getTime() + HALT_COOLDOWN_HOURS * 60 * 60 * 1000);
+    return {
+      ok: false,
+      code: 423,
+      error: `Outbound messaging is paused for this garage. ${halt.haltReason} Sending can resume after ${until.toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'medium', timeStyle: 'short' })}. Please don't re-send the same list — reply to the email we sent and we'll go through it with you.`,
+    };
+  }
+  if (campaign.status === 'halted') {
+    return { ok: false, code: 423, error: (campaign as any).haltReason || 'This campaign was stopped.' };
+  }
   if (campaign.status === 'queued') {
     const resumeAt = (campaign as any).resumeAt ? new Date((campaign as any).resumeAt).toISOString() : 'unknown';
     return { ok: false, code: 400, error: `Campaign is queued and will automatically send the next batch at ${resumeAt}. Please wait for the daily limit to reset.` };
@@ -116,13 +131,60 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
 /**
  * Pacing. Meta will happily accept a few hundred template sends in under a minute, so nothing
  * stops us firing the whole batch at once — but a brand-new WhatsApp number that sends 250 cold
- * templates in 90 seconds is the exact shape of a spam run, and the quality rating drops on the
- * first handful of "block" taps. Spreading the send does two things: it looks like a business
- * messaging its customers, and it gives us time to notice a rate-limit error and stop.
+ * templates in 90 seconds is the exact shape of a spam run, and quality rating drops on the
+ * first handful of "block" taps. Midlands Motorhome Hire sent 151 in a single minute on
+ * 2026-07-08, collected 510 "spam rate limit" errors, and the number was gone by the 13th.
+ *
+ * One message every 30 seconds is 120/hour. Inside the sending window below that is still ~1,300
+ * a day — comfortably more than the 250/day cap almost every garage is on — so the slow rate
+ * costs nothing in practice and makes a burst impossible.
  */
-const SEND_GAP_MS = 3_000;
+const SEND_GAP_MS = 30_000;
 /** Jitter so sends don't land on a metronome. */
-const SEND_GAP_JITTER_MS = 2_000;
+const SEND_GAP_JITTER_MS = 6_000;
+
+/**
+ * Sending window, UK time. At one message every 30s a big list runs for hours, and a reminder
+ * arriving at 2am reads as spam no matter how politely it is worded. Outside the window the
+ * batch is queued and picks up the next morning.
+ */
+const SEND_WINDOW_START_HOUR = 8;
+const SEND_WINDOW_END_HOUR = 20;
+
+function ukHour(at = new Date()): number {
+  return Number(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: 'numeric', hour12: false }).format(at),
+  );
+}
+
+function withinSendWindow(at = new Date()): boolean {
+  const h = ukHour(at);
+  return h >= SEND_WINDOW_START_HOUR && h < SEND_WINDOW_END_HOUR;
+}
+
+/** Next 08:00 UK from now, as a rough resume point (an hour's slack is fine here). */
+function nextWindowOpen(): Date {
+  const now = new Date();
+  const h = ukHour(now);
+  const hoursAhead = h < SEND_WINDOW_START_HOUR
+    ? SEND_WINDOW_START_HOUR - h
+    : 24 - h + SEND_WINDOW_START_HOUR;
+  return new Date(now.getTime() + hoursAhead * 60 * 60 * 1000);
+}
+
+/**
+ * Meta errors that mean "stop", not "retry". These are the ones that precede a number being
+ * disabled, so they halt the whole garage rather than just the current batch.
+ */
+const HALT_CODES: Record<number, string> = {
+  131048: 'WhatsApp flagged these messages as spam and stopped delivering them.',
+  368: 'WhatsApp has temporarily blocked this number for a policy violation.',
+  131042: 'WhatsApp reports a billing or business-eligibility problem on this account.',
+};
+/** Throughput limits — pause and resume, no halt. */
+const PAUSE_CODES = new Set([130429]);
+/** How long a halt keeps the whole garage from sending. */
+const HALT_COOLDOWN_HOURS = 24;
 
 /**
  * Warm-up ceiling for a number with little history, stricter than Meta's own tier limit.
@@ -137,11 +199,118 @@ function warmupCeiling(everSent: number): number {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Is this garage currently stopped after a policy/spam error? Returns the halt if so.
+ * Checked before every send, so a halt blocks the whole garage — not just the campaign that
+ * triggered it. Re-running the same list minutes later is exactly how an account gets banned
+ * rather than warned.
+ */
+export async function activeHalt(garageId: string) {
+  return prisma.outboundCampaign.findFirst({
+    where: { garageId, haltedAt: { gte: new Date(Date.now() - HALT_COOLDOWN_HOURS * 60 * 60 * 1000) } },
+    orderBy: { haltedAt: 'desc' },
+    select: { id: true, name: true, haltedAt: true, haltReason: true },
+  });
+}
+
+/**
+ * Stop everything for this garage and tell someone. Halts the campaign that hit the error plus
+ * anything queued behind it, so tomorrow's automatic resume doesn't walk into the same wall.
+ */
+export async function haltOutboundForGarage(
+  garageId: string,
+  args: { code: number; campaignId?: string; metaMessage?: string },
+): Promise<void> {
+  const reason = HALT_CODES[args.code] || `WhatsApp returned error ${args.code}.`;
+  const haltedAt = new Date();
+
+  await prisma.outboundCampaign.updateMany({
+    where: {
+      garageId,
+      OR: [
+        ...(args.campaignId ? [{ id: args.campaignId }] : []),
+        { status: { in: ['sending', 'queued'] } },
+      ],
+    },
+    data: { status: 'halted', haltedAt, haltReason: reason },
+  });
+
+  const garage = await prisma.garage.findUnique({
+    where: { id: garageId },
+    select: { name: true, agentConfiguration: { select: { notificationEmails: true } } },
+  });
+  const garageName = garage?.name || 'your garage';
+  console.error(`[OUTBOUND] HALTED ${garageName} (${garageId}) — ${args.code}: ${reason}`);
+
+  const garageEmails = (garage?.agentConfiguration?.notificationEmails || []).filter(Boolean);
+  const opsEmail = process.env.OPS_ALERT_EMAIL_TO || process.env.LEAD_ALERT_EMAIL_TO || '';
+  const to = [...new Set([...garageEmails, ...opsEmail.split(',').map((e) => e.trim()).filter(Boolean)])];
+  if (to.length === 0) {
+    console.warn(`[OUTBOUND] No notification address for ${garageName} — halt email not sent.`);
+    return;
+  }
+
+  const subject = `Outbound messaging stopped — ${garageName}`;
+  const detail = args.metaMessage ? `<p style="color:#64748b;font-size:13px;">WhatsApp said: “${escapeHtml(args.metaMessage)}”</p>` : '';
+  await sendEmail({
+    to,
+    subject,
+    text:
+      `We have stopped your outbound WhatsApp messages.
+
+${reason}
+
+` +
+      `Nothing further will be sent for ${HALT_COOLDOWN_HOURS} hours. This is a protection: ` +
+      `carrying on after a warning like this is what gets a WhatsApp number permanently disabled.
+
+` +
+      `What to do next:
+` +
+      `- Don't re-send the same list.
+` +
+      `- Check the message reads as something your customers asked to receive.
+` +
+      `- Offers and promotions must use a MARKETING template, not a UTILITY one.
+
+` +
+      `Reply to this email and we'll take a look with you.`,
+    html: brandedEmailShell(`
+      <h2 style="margin:0 0 12px;font-size:20px;color:#0f172a;">Outbound messaging stopped</h2>
+      <p style="color:#334155;">We've stopped sending your outbound WhatsApp messages for ${garageName}.</p>
+      <p style="background:#fef2f2;border-left:3px solid #ef4444;padding:12px 14px;color:#7f1d1d;margin:16px 0;">
+        ${escapeHtml(reason)}
+      </p>
+      ${detail}
+      <p style="color:#334155;">Nothing further will be sent for ${HALT_COOLDOWN_HOURS} hours. This is deliberate —
+      carrying on after a warning like this is what gets a WhatsApp number permanently disabled.</p>
+      <p style="color:#0f172a;font-weight:600;margin-bottom:4px;">What to do next</p>
+      <ul style="color:#334155;padding-left:18px;margin-top:0;">
+        <li>Don't re-send the same list.</li>
+        <li>Check the message reads as something your customers asked to receive.</li>
+        <li>Offers and promotions need a MARKETING template, not a UTILITY one.</li>
+      </ul>
+      <p style="color:#334155;">Reply to this email and we'll go through it with you.</p>
+    `),
+  }).catch((e) => console.error('[OUTBOUND] halt email failed', e));
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 /** Run the actual per-contact send loop and finalise the campaign status. */
 export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number; total: number }> {
   const { campaign, garageName, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
 
-  const tierLimit = (campaign as any).tierLimit ?? 250;
+  // The garage-level cap is the real ceiling: staff-set, deliberately under Meta's tier, and
+  // counted across every campaign. The per-campaign tierLimit stays as a stricter-only override.
+  const garageLimits = await prisma.garage.findUnique({
+    where: { id: campaign.garageId },
+    select: { dailyMessageLimit: true },
+  });
+  const dailyLimit = garageLimits?.dailyMessageLimit ?? 240;
+  const tierLimit = Math.min((campaign as any).tierLimit ?? dailyLimit, dailyLimit);
 
   // Rolling 24h cross-campaign quota check — Meta's tier limit counts messages
   // DELIVERED to unique numbers, not API calls made. Failed deliveries don't count.
@@ -175,6 +344,18 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
     return { sent: 0, total: campaign.contacts.length };
   }
 
+  // Outside the window, do nothing but queue — a template landing at 2am reads as spam however
+  // politely it's worded, and at one message per 30s a long list would otherwise run into the night.
+  if (!withinSendWindow()) {
+    const resumeAt = nextWindowOpen();
+    console.log(`[OUTBOUND] Outside sending hours — queueing campaign ${campaign.id} until ${resumeAt.toISOString()}`);
+    await prisma.outboundCampaign.update({
+      where: { id: campaign.id },
+      data: { status: 'queued', resumeAt },
+    });
+    return { sent: 0, total: campaign.contacts.length };
+  }
+
   const optedOut = await prisma.outboundContact.findMany({
     where: { garageId: campaign.garageId, status: 'opted_out' },
     select: { phone: true },
@@ -185,6 +366,10 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
   let rateLimitHit = false;
 
   for (const contact of campaign.contacts) {
+    if (!withinSendWindow()) {
+      console.log(`[OUTBOUND] Sending window closed mid-batch — pausing campaign ${campaign.id}.`);
+      break;
+    }
     if (sentCount >= availableQuota) {
       console.log(`[OUTBOUND] Reached quota (${sentCount}/${availableQuota}) for campaign ${campaign.id}, stopping batch.`);
       break;
@@ -250,8 +435,24 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
       const metaError = (err as { response?: { data?: { error?: { message?: string; code?: number } } } })?.response?.data;
       const errorCode = metaError?.error?.code;
 
-      if (errorCode === 131048) {
-        console.log(`[OUTBOUND] Meta rate limit hit (131048) for campaign ${campaign.id}, keeping contact pending for retry`);
+      // Spam / policy / eligibility: stop the whole garage and tell them why. This is the
+      // difference between a warning and a permanently disabled number.
+      if (errorCode && HALT_CODES[errorCode]) {
+        await prisma.outboundContact.update({
+          where: { id: contact.id },
+          data: { status: 'failed', errorReason: metaError?.error?.message || `Halted (${errorCode})` },
+        });
+        await haltOutboundForGarage(campaign.garageId, {
+          code: errorCode,
+          campaignId: campaign.id,
+          metaMessage: metaError?.error?.message,
+        });
+        return { sent: sentCount, total: campaign.contacts.length };
+      }
+
+      // Throughput limit — not a quality signal. Pause and retry later.
+      if (errorCode && PAUSE_CODES.has(errorCode)) {
+        console.log(`[OUTBOUND] Throughput limit (${errorCode}) on campaign ${campaign.id}, keeping contact pending for retry`);
         rateLimitHit = true;
         break;
       }

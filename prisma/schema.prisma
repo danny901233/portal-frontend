@@ -32,6 +32,10 @@ model Garage {
 
   // Webchat / Messaging Billing
   messagingSubscriptionCostGbp Float @default(0)
+  // Hard ceiling on outbound WhatsApp messages per rolling 24h, deliberately below Meta's own
+  // tier so we never get close to it. ReceptionMate staff only — a garage raising its own limit
+  // is exactly the decision that costs them their number.
+  dailyMessageLimit            Int   @default(240)
   includedMessages             Int   @default(0)
   costPerMessageGbp            Float @default(0)
 
@@ -680,6 +684,12 @@ model OutboundCampaign {
   //                so any campaign created before this existed keeps its old behaviour.
   //   "reminder" — due-date driven: each contact is messaged at their own point before their
   //                MOT/service is due, using reminderStages below.
+  // Set when Meta tells us this traffic looks like spam (error 131048) or blocks the number for
+  // a policy violation (368). Sending stops immediately and stays stopped for the whole garage
+  // for 24h — the failure mode we are guarding against is a garage re-running the same list
+  // minutes later, which is what preceded a WABA being permanently disabled in July.
+  haltedAt          DateTime?
+  haltReason        String?
   campaignType      String            @default("oneoff") // "oneoff" | "reminder"
   // Days-before-due at which to message, largest first. Only read when campaignType=reminder,
   // and per-campaign so a garage can run a single 14-day nudge without touching the others.

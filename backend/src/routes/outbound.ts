@@ -2,11 +2,11 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import twilio from 'twilio';
 import { prisma } from '../db.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
 import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories } from '../services/garageHiveBc.js';
-import { normalisePhone, getCampaignSendContext, runCampaignSend } from '../services/outboundSend.js';
+import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
 const router = Router();
@@ -433,6 +433,93 @@ router.get('/outbound/campaigns', authenticate, async (req: Request, res: Respon
   } catch (error) {
     console.error('[OUTBOUND] List campaigns error:', error);
     res.status(500).json({ error: 'Failed to list campaigns' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/outbound/limits?garageId= — daily allowance, what's left, and whether
+// sending is currently halted. Read-only for everyone; only staff can change it.
+// ---------------------------------------------------------------------------
+router.get('/outbound/limits', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { garageId } = req.query as { garageId: string };
+    if (!garageId) return res.status(400).json({ error: 'garageId required' });
+
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      select: { dailyMessageLimit: true },
+    });
+    if (!garage) return res.status(404).json({ error: 'Garage not found' });
+
+    // Same counting rule the send loop uses: successful sends in the rolling 24h.
+    const sentLast24h = await prisma.outboundContact.count({
+      where: {
+        garageId,
+        status: { in: ['sent', 'delivered', 'read', 'replied'] },
+        updatedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+    });
+    const halt = await activeHalt(garageId);
+
+    res.json({
+      dailyLimit: garage.dailyMessageLimit,
+      sentLast24h,
+      remaining: Math.max(0, garage.dailyMessageLimit - sentLast24h),
+      halt: halt ? { reason: halt.haltReason, haltedAt: halt.haltedAt, campaignName: halt.name } : null,
+      canEditLimit: req.user?.role === 'RECEPTIONMATE_STAFF',
+    });
+  } catch (error) {
+    console.error('[OUTBOUND] Limits error:', error);
+    res.status(500).json({ error: 'Failed to load limits' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/outbound/limits — ReceptionMate staff only.
+// A garage raising its own sending cap is precisely the decision that costs it
+// its WhatsApp number, so this is deliberately not self-serve.
+// ---------------------------------------------------------------------------
+router.patch('/outbound/limits', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { garageId, dailyMessageLimit } = req.body as { garageId?: string; dailyMessageLimit?: number };
+    if (!garageId) return res.status(400).json({ error: 'garageId required' });
+
+    const n = Number(dailyMessageLimit);
+    if (!Number.isFinite(n) || n < 1 || n > 10_000) {
+      return res.status(400).json({ error: 'dailyMessageLimit must be between 1 and 10000' });
+    }
+
+    const garage = await prisma.garage.update({
+      where: { id: garageId },
+      data: { dailyMessageLimit: Math.floor(n) },
+      select: { id: true, name: true, dailyMessageLimit: true },
+    });
+    console.log(`[OUTBOUND] Daily limit for ${garage.name} set to ${garage.dailyMessageLimit} by ${req.user?.email}`);
+    res.json({ success: true, garage });
+  } catch (error) {
+    console.error('[OUTBOUND] Update limit error:', error);
+    res.status(500).json({ error: 'Failed to update limit' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/outbound/limits/resume — ReceptionMate staff only. Clears a halt
+// early, once someone has actually looked at why it fired.
+// ---------------------------------------------------------------------------
+router.post('/outbound/limits/resume', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { garageId } = req.body as { garageId?: string };
+    if (!garageId) return res.status(400).json({ error: 'garageId required' });
+
+    const cleared = await prisma.outboundCampaign.updateMany({
+      where: { garageId, haltedAt: { not: null } },
+      data: { haltedAt: null, haltReason: null },
+    });
+    console.log(`[OUTBOUND] Halt cleared for garage ${garageId} by ${req.user?.email} (${cleared.count} campaigns)`);
+    res.json({ success: true, cleared: cleared.count });
+  } catch (error) {
+    console.error('[OUTBOUND] Resume error:', error);
+    res.status(500).json({ error: 'Failed to resume sending' });
   }
 });
 

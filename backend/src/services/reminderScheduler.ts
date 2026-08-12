@@ -17,15 +17,15 @@
 import axios from 'axios';
 import cron from 'node-cron';
 import { prisma } from '../db.js';
-import { normalisePhone } from './outboundSend.js';
+import { normalisePhone, activeHalt, haltOutboundForGarage } from './outboundSend.js';
 import { daysUntil } from '../utils/dueDate.js';
 
 /** Used when a reminder campaign somehow has no stages recorded. */
 const DEFAULT_STAGES = [30, 14, 3];
 /** Never send two reminders to the same person closer together than this. */
 const MIN_GAP_DAYS = 7;
-/** Fallback WhatsApp 24h send cap when a garage has no campaign tier recorded. */
-const DEFAULT_TIER_LIMIT = 250;
+/** Fallback 24h send cap if a garage somehow has no limit recorded. Staff-adjustable per garage. */
+const DEFAULT_TIER_LIMIT = 240;
 
 export function schedulerArmed(): boolean {
   return String(process.env.REMINDER_SCHEDULER || '').toLowerCase() === 'on';
@@ -61,10 +61,17 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
 
   const garages = await prisma.garage.findMany({
     where: { hasMessagingAccess: true, accessRestricted: false },
-    select: { id: true, name: true },
+    select: { id: true, name: true, dailyMessageLimit: true },
   });
 
   for (const garage of garages) {
+    // A garage stopped after a spam/policy error stays stopped — reminders included.
+    const halt = await activeHalt(garage.id);
+    if (halt) {
+      console.log(`[REMINDERS] ${garage.name}: outbound halted (${halt.haltReason}) — skipping.`);
+      continue;
+    }
+
     const contacts = (await prisma.outboundContact.findMany({
       // campaignType 'reminder' ONLY. A one-off offer or announcement must never be chased —
       // that is a promotion, not a reminder, and repeating it is how a WhatsApp number gets
@@ -135,7 +142,7 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
     const sentLast24h = await prisma.outboundContact.count({
       where: { garageId: garage.id, status: 'sent', updatedAt: { gte: since } },
     });
-    const quota = Math.max(0, DEFAULT_TIER_LIMIT - sentLast24h);
+    const quota = Math.max(0, (garage.dailyMessageLimit ?? DEFAULT_TIER_LIMIT) - sentLast24h);
     const batch = due.slice(0, quota);
     if (batch.length < due.length) {
       console.log(`[REMINDERS] ${garage.name}: capping at ${batch.length}/${due.length} (${sentLast24h} already sent in 24h)`);
@@ -183,7 +190,13 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
       } catch (err: any) {
         const code = err?.response?.data?.error?.code;
         console.error(`[REMINDERS] ${garage.name}: send failed for ${c.phone} (code ${code}):`, err?.response?.data?.error?.message || err?.message);
-        if (code === 131048 || code === 130429) break; // rate limited — stop this garage, retry tomorrow
+        // Spam / policy / eligibility: stop this garage entirely and email them, same as a
+        // campaign send. Reminders are template traffic and carry exactly the same risk.
+        if (code === 131048 || code === 368 || code === 131042) {
+          await haltOutboundForGarage(garage.id, { code, metaMessage: err?.response?.data?.error?.message });
+          break;
+        }
+        if (code === 130429) break; // throughput limit — stop this garage, retry tomorrow
       }
     }
   }

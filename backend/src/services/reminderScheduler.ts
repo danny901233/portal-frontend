@@ -20,7 +20,8 @@ import { prisma } from '../db.js';
 import { normalisePhone } from './outboundSend.js';
 import { daysUntil } from '../utils/dueDate.js';
 
-const STAGES = [30, 14, 3] as const;
+/** Used when a reminder campaign somehow has no stages recorded. */
+const DEFAULT_STAGES = [30, 14, 3];
 /** Never send two reminders to the same person closer together than this. */
 const MIN_GAP_DAYS = 7;
 /** Fallback WhatsApp 24h send cap when a garage has no campaign tier recorded. */
@@ -34,10 +35,14 @@ export function schedulerArmed(): boolean {
  * Which stage is due for this contact, or null.
  * Picks the LARGEST unsent stage the customer is already inside, so someone uploaded late (say
  * 20 days out) still gets a first reminder rather than silently missing the 30-day mark.
+ *
+ * `stages` comes from the campaign, so a garage running a single 14-day nudge gets exactly one
+ * message, and a one-off offer campaign never reaches here at all.
  */
-export function stageDueFor(days: number, stagesSent: number[]): number | null {
+export function stageDueFor(days: number, stagesSent: number[], stages: number[] = DEFAULT_STAGES): number | null {
   if (days < 0) return null;
-  for (const s of STAGES) {
+  const ordered = [...stages].sort((a, b) => b - a); // largest first
+  for (const s of ordered) {
     if (days <= s && !stagesSent.includes(s)) return s;
   }
   return null;
@@ -47,6 +52,7 @@ type Candidate = {
   id: string; customerName: string; phone: string; registration: string | null;
   motDueDate: string | null; serviceDueDate: string | null; messageType: string;
   dueDate: Date | null; stagesSent: number[]; updatedAt: Date;
+  campaign: { id: string; campaignType: string; reminderStages: number[] } | null;
 };
 
 export async function runReminderSweep(): Promise<{ garages: number; sent: number; wouldSend: number; expired: number }> {
@@ -60,10 +66,18 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
 
   for (const garage of garages) {
     const contacts = (await prisma.outboundContact.findMany({
-      where: { garageId: garage.id, status: 'pending', dueDate: { not: null } },
+      // campaignType 'reminder' ONLY. A one-off offer or announcement must never be chased —
+      // that is a promotion, not a reminder, and repeating it is how a WhatsApp number gets
+      // reported. Campaigns created before this field existed default to 'oneoff', so nothing
+      // historic is retro-actively turned into a reminder series.
+      where: {
+        garageId: garage.id, status: 'pending', dueDate: { not: null },
+        campaign: { campaignType: 'reminder' },
+      },
       select: {
         id: true, customerName: true, phone: true, registration: true, motDueDate: true,
         serviceDueDate: true, messageType: true, dueDate: true, stagesSent: true, updatedAt: true,
+        campaign: { select: { id: true, campaignType: true, reminderStages: true } },
       },
       orderBy: { dueDate: 'asc' },
     })) as unknown as Candidate[];
@@ -84,7 +98,14 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
     const now = Date.now();
     const due = contacts
       .filter((c) => c.dueDate && daysUntil(c.dueDate) >= 0)
-      .map((c) => ({ c, stage: stageDueFor(daysUntil(c.dueDate as Date), c.stagesSent || []) }))
+      .map((c) => ({
+        c,
+        stage: stageDueFor(
+          daysUntil(c.dueDate as Date),
+          c.stagesSent || [],
+          c.campaign?.reminderStages?.length ? c.campaign.reminderStages : DEFAULT_STAGES,
+        ),
+      }))
       .filter((x): x is { c: Candidate; stage: number } => x.stage !== null)
       // Respect the minimum gap using the last time we touched the row.
       .filter((x) => (x.c.stagesSent?.length ?? 0) === 0

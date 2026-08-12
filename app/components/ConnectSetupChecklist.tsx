@@ -98,7 +98,7 @@ export default function ConnectSetupChecklist({ garageId }: { garageId: string |
         : steps.template.rejected > 0
           ? `${steps.template.rejected} template was rejected by Meta and needs editing before it can be sent again.`
           : `Your MOT and service reminders are already written${steps.template.drafts ? ` (${steps.template.drafts} drafts ready)` : ''} — review the wording and submit them. Meta has to approve a template before it can be sent.`,
-      href: '/templates',
+      href: '/outbound#templates',
       cta: steps.template.rejected > 0 ? 'Fix template' : 'Review and submit',
     },
     {
@@ -106,7 +106,7 @@ export default function ConnectSetupChecklist({ garageId }: { garageId: string |
       title: 'Add the customers who are due',
       body: steps.contacts.done
         ? `${steps.contacts.campaigns} campaign${steps.contacts.campaigns === 1 ? '' : 's'} created.`
-        : 'Upload the customers whose MOT or service falls due roughly 30 to 60 days from now, then upload again each month. That way everyone gets about a month’s notice — uploading only what’s due in the next few days means the reminder arrives too late to book. Don’t upload your whole database: smaller, timely sends get better replies and protect your WhatsApp number. If your diary system is connected we can pull these for you automatically instead.',
+        : 'Upload everyone in your book, or as far ahead as your system will export — at least the next 60 days. Nobody is messaged when the file lands: each customer is contacted 30 days before their own due date, chased at 14 days and again at 3 if they haven’t replied. Uploading only what’s due in the next few days means the reminder arrives too late to book. If your diary system is connected we can pull these for you automatically instead.',
       href: '/outbound',
       cta: 'Upload customers',
     },

@@ -16,7 +16,7 @@ const router = Router();
 // ---------------------------------------------------------------------------
 router.post('/outbound/campaigns', authenticate, async (req: Request, res: Response) => {
   try {
-    const { garageId, name, channel, contacts, messageTemplateId, variableMapping } = req.body as {
+    const { garageId, name, channel, contacts, messageTemplateId, variableMapping, campaignType, reminderStages } = req.body as {
       garageId: string;
       name: string;
       channel: 'sms' | 'whatsapp';
@@ -29,6 +29,8 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
       }>;
       messageTemplateId?: string;
       variableMapping?: Record<string, string>;
+      campaignType?: 'oneoff' | 'reminder';
+      reminderStages?: number[];
     };
 
     if (!garageId || !name || !contacts || !Array.isArray(contacts) || contacts.length === 0) {
@@ -79,11 +81,25 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
       status: dncPhones.has(c.phone) ? 'opted_out' : 'pending',
     }));
 
+    // A one-off (an offer, an announcement) is sent once and never chased. Only a 'reminder'
+    // campaign enters the staged follow-up sweep, and it follows the stages chosen here.
+    // Anything unrecognised falls back to 'oneoff' — the option that sends fewer messages.
+    const type = campaignType === 'reminder' ? 'reminder' : 'oneoff';
+    const stages = type === 'reminder'
+      ? [...new Set((reminderStages || [30, 14, 3]).map(Number).filter((n) => Number.isFinite(n) && n > 0 && n <= 120))]
+          .sort((a, b) => b - a)
+      : [];
+    if (type === 'reminder' && stages.length === 0) {
+      return res.status(400).json({ error: 'A reminder campaign needs at least one follow-up stage (days before due).' });
+    }
+
     const campaign = await prisma.outboundCampaign.create({
       data: {
         garageId,
         name,
         channel: channel || 'sms',
+        campaignType: type,
+        reminderStages: stages,
         totalContacts: contactData.length,
         messageTemplateId: messageTemplateId || undefined,
         variableMapping: variableMapping || undefined,

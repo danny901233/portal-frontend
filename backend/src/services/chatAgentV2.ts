@@ -2007,7 +2007,20 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
     return `Customer wants to leave a message.\nSay: "Good ${timeGreeting2}, ${firstName2}! What can I help you with?"\nWait for their message, then call take_message.`;
   }
   
-  // Booking or quote flow
+  // Booking or quote flow.
+  // Only rewind to need_vrn if we do NOT already have a confirmed vehicle. save_caller_name is
+  // written for the START of a conversation (name -> ask for the reg), but the model also calls
+  // it whenever a customer volunteers their name later on — e.g. when we've asked for details to
+  // arrange a callback. Resetting the step then threw away a confirmed vehicle, the loaded
+  // service list and any selected service, and made the agent re-greet the customer from scratch
+  // mid-conversation ("Good afternoon, Dan! …is that still the vehicle you'd like to book in?").
+  // That is what "the agent forgets the conversation" looks like. Seen on Great Hollands
+  // 2026-08-12. Same shape as the NEED_CONTACT guard above — keep the name, keep the place.
+  if (session.vrnConfirmed && session.vrn) {
+    console.log(`[STATE_GUARD] save_caller_name mid-booking — keeping step ${session.step}, not rewinding to need_vrn`);
+    await saveSession(conversationId, session);
+    return `Name saved: ${first_name}${last_name ? ' ' + last_name : ''}. The vehicle (${session.vehicleMake} ${session.vehicleModel}) is already confirmed — do NOT re-greet the customer, do NOT ask for the registration again, and do NOT restart the conversation. Carry straight on from where you were.`;
+  }
   session.step = Step.NEED_VRN;
   await saveSession(conversationId, session);
   console.log(`[SAVE_NAME] Session saved for booking intent`);

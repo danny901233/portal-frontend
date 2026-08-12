@@ -78,6 +78,38 @@ async function runOnce(i) {
   }
 }
 
+/**
+ * Scenario 2 — giving your name mid-booking must NOT rewind the conversation.
+ *
+ * save_caller_name is written for the start of a chat (name -> ask for the reg), but the model
+ * also calls it when a customer volunteers their name later, e.g. after we ask for details to
+ * arrange a callback. It used to reset the step to need_vrn and re-greet from scratch, throwing
+ * away the confirmed vehicle and the loaded services — "the agent forgot the conversation".
+ *
+ * Unlike scenario 1 this is a state invariant, not model compliance, so it should be 100%.
+ */
+async function runNameMidBooking(i) {
+  const conv = await prisma.chatConversation.create({
+    data: {
+      garageId: GARAGE_ID, platform: 'whatsapp',
+      customerPhone: '447700900124', platformUserId: `namerewind-test-${Date.now()}-${i}`,
+      customerName: '', status: 'active', sessionState: SEED_SESSION,
+    },
+  });
+  invalidateSessionCache(conv.id);
+  try {
+    const r = await getChatAgentResponse(GARAGE_ID, 'Dan Test', conv.id, { phone: '447700900124' });
+    const after = await prisma.chatConversation.findUnique({ where: { id: conv.id }, select: { sessionState: true } });
+    const s = after?.sessionState || {};
+    const passed = s.step !== 'need_vrn' && s.vrnConfirmed === true && !!s.vrn;
+    return { passed, step: s.step, vrnConfirmed: s.vrnConfirmed, vrn: s.vrn,
+             reply: (r?.content || '').replace(/\s+/g, ' ').trim() };
+  } finally {
+    await prisma.chatMessage.deleteMany({ where: { conversationId: conv.id } }).catch(() => {});
+    await prisma.chatConversation.delete({ where: { id: conv.id } }).catch(() => {});
+  }
+}
+
 (async () => {
   const g = await prisma.garage.findUnique({
     where: { id: GARAGE_ID },
@@ -87,19 +119,36 @@ async function runOnce(i) {
   if (g.hasMessagingAccess) throw new Error(`REFUSING: ${g.name} has messaging access ON — not a safe test target`);
   console.log(`target: ${g.name} (${g.agentConfiguration?.agentScript})  runs: ${RUNS}\n`);
 
-  let pass = 0;
+  console.log('SCENARIO 1 — "just the MOT" must end in a callback (take_message)');
+  let pass1 = 0;
   for (let i = 1; i <= RUNS; i++) {
     try {
       const r = await runOnce(i);
-      if (r.passed) pass++;
+      if (r.passed) pass1++;
       console.log(`  run ${i}: ${r.passed ? 'PASS' : 'FAIL'}  step=${r.step}`);
-      console.log(`     final reply: ${r.last.slice(0, 150)}`);
+      console.log(`     final reply: ${r.last.slice(0, 140)}`);
     } catch (e) {
       console.log(`  run ${i}: ERROR ${String(e.message).split('\n')[0]}`);
     }
   }
-  console.log(`\nRESULT: ${pass}/${RUNS} took a message (step=message_only)`);
-  console.log(pass === RUNS ? 'All runs correct.' : 'NOT reliable — the agent still steers back to booking on some runs.');
+
+  console.log('\nSCENARIO 2 — giving a name mid-booking must not rewind to need_vrn');
+  let pass2 = 0;
+  for (let i = 1; i <= RUNS; i++) {
+    try {
+      const r = await runNameMidBooking(i);
+      if (r.passed) pass2++;
+      console.log(`  run ${i}: ${r.passed ? 'PASS' : 'FAIL'}  step=${r.step} vrnConfirmed=${r.vrnConfirmed} vrn=${r.vrn || '(cleared)'}`);
+      console.log(`     reply: ${r.reply.slice(0, 140)}`);
+    } catch (e) {
+      console.log(`  run ${i}: ERROR ${String(e.message).split('\n')[0]}`);
+    }
+  }
+
+  console.log(`\nRESULT  scenario 1 (callback):      ${pass1}/${RUNS}`);
+  console.log(`RESULT  scenario 2 (no rewind):     ${pass2}/${RUNS}`);
+  const ok = pass1 === RUNS && pass2 === RUNS;
+  console.log(ok ? '\nAll green.' : '\nNot all green — see the failing runs above.');
   await prisma.$disconnect();
-  process.exit(pass === RUNS ? 0 : 1);
+  process.exit(ok ? 0 : 1);
 })();

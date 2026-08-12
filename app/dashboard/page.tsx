@@ -15,6 +15,7 @@ import {
 } from '../lib/callTags';
 import MessageStatsWidget from '../components/MessageStatsWidget';
 import SmsStatsWidget from '../components/SmsStatsWidget';
+import ConnectSetupChecklist from '../components/ConnectSetupChecklist';
 import { getSessionToken } from '../lib/auth';
 import { useLang } from '@/app/i18n/LocaleProvider';
 
@@ -910,6 +911,9 @@ export default function DashboardPage() {
           </button>
         </div>
       )}
+
+      {/* Connect setup — sits above the upsell: finish what you've bought before being sold more. */}
+      <ConnectSetupChecklist garageId={selectedGarageId ?? null} />
 
       {/* Add-voice upsell — Connect-only garages in the 2nd half of the free trial. Offered late so
           the free voice window (until the Connect trial ends) stays ≈ the standard 14-day Assist

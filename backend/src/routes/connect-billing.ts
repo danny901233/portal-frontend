@@ -18,6 +18,64 @@ const PORTAL_URL = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk
 const CONNECT_PRICE_ID = process.env.STRIPE_CONNECT_PRICE_ID;
 const ASSIST_PRICE_ID = process.env.STRIPE_ASSIST_PRICE_ID;
 
+// GET /api/connect/setup-status/:garageId — how far through Connect setup this garage is.
+//
+// Derived from real data every time rather than from a stored "completed" flag, so it cannot go
+// stale: if a garage disconnects WhatsApp or deletes its campaign, the checklist reverts to
+// incomplete on its own. The wizard is dismissible, so this is what the persistent reminder
+// reads to know whether there is still something to nag about.
+router.get('/connect/setup-status/:garageId', authenticate, async (req: Request, res: Response) => {
+  const { garageId } = req.params;
+  const user = req.user;
+  const allowed = user?.role === 'RECEPTIONMATE_STAFF' || (Array.isArray(user?.garageIds) && user!.garageIds!.includes(garageId));
+  if (!allowed) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const [garage, whatsapp, templates, campaigns] = await Promise.all([
+      prisma.garage.findUnique({ where: { id: garageId }, select: { hasMessagingAccess: true, hasVoiceAccess: true } }),
+      prisma.socialMediaConnection.findFirst({
+        where: { garageId, platform: 'whatsapp', isActive: true },
+        select: { id: true, accountName: true, whatsappPhoneNumberId: true },
+      }),
+      prisma.messageTemplate.findMany({ where: { garageId }, select: { name: true, status: true } }),
+      prisma.outboundCampaign.findMany({ where: { garageId }, select: { id: true, status: true } }),
+    ]);
+    if (!garage) return res.status(404).json({ error: 'garage_not_found' });
+
+    // "Submitted" means it has left draft — pending counts, because the customer has done their
+    // part and is waiting on Meta. Rejected does NOT count: it needs their attention again.
+    const submitted = templates.filter((t) => t.status === 'pending' || t.status === 'approved');
+    const rejected = templates.filter((t) => t.status === 'rejected');
+
+    const steps = {
+      whatsapp: {
+        done: Boolean(whatsapp),
+        label: whatsapp?.accountName || null,
+      },
+      template: {
+        done: submitted.length > 0,
+        submitted: submitted.length,
+        approved: templates.filter((t) => t.status === 'approved').length,
+        rejected: rejected.length,
+        drafts: templates.filter((t) => t.status === 'draft').length,
+      },
+      contacts: {
+        done: campaigns.length > 0,
+        campaigns: campaigns.length,
+      },
+    };
+    const remaining = Object.values(steps).filter((s) => !s.done).length;
+    return res.json({
+      applicable: garage.hasMessagingAccess === true,
+      complete: remaining === 0,
+      remaining,
+      steps,
+    });
+  } catch (e: any) {
+    console.error('[CONNECT_SETUP_STATUS] failed:', e?.message);
+    return res.status(500).json({ error: 'setup_status_failed' });
+  }
+});
+
 router.post('/connect/checkout', authenticate, async (req: Request, res: Response) => {
   const { garageId } = req.body || {};
   const user = req.user;

@@ -88,8 +88,11 @@ const baseNavigation: NavItem[] = [
   { name: 'Dashboard', tKey: 'nav.dashboard', href: '/dashboard', icon: <DashboardIcon /> },
   { name: 'Calls', tKey: 'nav.calls', href: '/calls', icon: <PhoneIcon />, requiresVoice: true },
   { name: 'Messages', tKey: 'nav.messages', href: '/messages', icon: <ChatIcon /> },
+  // Templates used to be its own nav item. It now lives at the top of Outbound, because a
+  // template only exists to be sent — splitting them meant writing one here and sending from
+  // there, with nothing telling you the template still needed Meta's approval. /templates still
+  // works as a direct URL.
   { name: 'Outbound', tKey: 'nav.outbound', href: '/outbound', icon: <SendIcon />, requiresMessaging: true },
-  { name: 'Templates', tKey: 'nav.templates', href: '/templates', icon: <TemplateIcon />, requiresMessaging: true },
   { name: 'Agent Configurations', tKey: 'nav.agentConfigurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
   { name: 'Team', tKey: 'nav.team', href: '/team', icon: <UsersIcon />, requiresManager: true },
   { name: 'Observability', tKey: 'nav.observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },

@@ -17,6 +17,7 @@ import {
 import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTemplate } from '../lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import TemplatesPage from '../templates/page';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-slate-500/20 text-slate-600',
@@ -558,6 +559,13 @@ export default function OutboundPage() {
 
   return (
     <div className="space-y-8">
+      {/* Templates first: a campaign can only send an APPROVED template, so the thing that blocks
+          sending belongs above the thing that sends. Previously these were separate nav items and
+          nothing connected them. */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <TemplatesPage embedded />
+      </section>
+
       {/* Toast */}
       {toast && (
         <div

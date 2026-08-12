@@ -32,6 +32,8 @@ const DEMO_VOICES = new Set(['leah', 'tom', 'sophie', 'gemma', 'isobel', 'fraser
 // Expressive Mode (LiveKit Agents >= 1.6.9) makes the LLM emit inline delivery tags the TTS
 // renders. It only engages on a TTS that declares a markup dialect — ElevenLabs does NOT, so the
 // expressive path swaps the voice engine too. Opt-in per call, so the public demo is unchanged.
+// ElevenLabs is deliberately absent: no markup dialect, and our key cannot stream v3 at all
+// (403 from the realtime websocket, tested 2026-08-12), so it would break the call.
 const DEMO_EXPRESSIVE_TTS = new Set(['cartesia', 'inworld', 'fishaudio', 'xai']);
 
 router.post('/livekit/demo-token', async (req: Request, res: Response) => {

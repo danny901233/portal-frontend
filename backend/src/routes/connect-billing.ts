@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
-import { getStripeClient } from '../services/stripe.js';
+import { getStripeClient, STRIPE_TRIAL_DAYS } from '../services/stripe.js';
 
 // ---------------------------------------------------------------------------
 // Connect trial → paid. When a Connect garage's free month ends without a card,
@@ -84,9 +84,18 @@ router.post('/connect/add-voice', authenticate, async (req: Request, res: Respon
     if (!garage) return res.status(404).json({ error: 'garage_not_found' });
     if (garage.hasVoiceAccess) return res.status(400).json({ error: 'already_has_voice' });
 
-    // Align the shared trial end to the Connect trial so both items bill together. The upsell is
-    // only shown in the trial's 2nd half, so trialEndDate is always comfortably in the future.
-    const trialEnd = garage.trialEndDate ? Math.floor(garage.trialEndDate.getTime() / 1000) : undefined;
+    // ONE subscription, ONE trial end, so Connect and Assist always bill on the same date and
+    // land on a single invoice — adding voice must never give a customer two billing dates.
+    //
+    // Take the LATER of the existing Connect trial end and a full Assist trial from today.
+    // Aligning to the Connect date alone is what the customer expects for billing, but because
+    // the upsell only appears in the trial's second half it would give a late upgrader just a
+    // day or two of Assist. Taking the max guarantees a proper look at voice. The cost is that a
+    // late upgrade extends the shared free period a little, which is the cheaper mistake.
+    const assistTrialEndMs = Date.now() + STRIPE_TRIAL_DAYS * 24 * 60 * 60 * 1000;
+    const connectTrialEndMs = garage.trialEndDate ? garage.trialEndDate.getTime() : 0;
+    const trialEnd = Math.floor(Math.max(connectTrialEndMs, assistTrialEndMs) / 1000);
+    console.log(`[CONNECT_ADD_VOICE] ${garage.name}: connect trial ends ${garage.trialEndDate?.toISOString() ?? 'n/a'}, shared trial_end -> ${new Date(trialEnd * 1000).toISOString()}`);
 
     const stripe = getStripeClient();
     const metadata: Record<string, string> = {
@@ -104,7 +113,7 @@ router.post('/connect/add-voice', authenticate, async (req: Request, res: Respon
         { price: ASSIST_PRICE_ID, quantity: 1 },
       ],
       payment_method_collection: 'always',
-      subscription_data: { metadata, ...(trialEnd ? { trial_end: trialEnd } : {}) },
+      subscription_data: { metadata, trial_end: trialEnd },
       metadata,
       success_url: `${PORTAL_URL}/dashboard?voice_added=1`,
       cancel_url: `${PORTAL_URL}/dashboard`,

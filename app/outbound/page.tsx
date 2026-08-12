@@ -183,11 +183,18 @@ export default function OutboundPage() {
       kindReminderBody: 'Each customer is messaged before THEIR due date, and chased again if they don\u2019t reply.',
       kindOneoff: 'One-off message',
       kindOneoffBody: 'Sent once. Offers, announcements, opening hours \u2014 anything you would not chase.',
-      followUps: 'Follow-ups',
-      followUpsHelp: 'Days before the due date to message. Anyone who replies or books is taken off the rest.',
-      followUpsNone: 'Pick at least one follow-up.',
-      stageDays: (d: number) => `${d} days before`,
-      stageDay: (d: number) => `${d} days before`,
+      followUps: 'How many days before the due date should we message?',
+      followUpsHelp: 'Pick as many as you like \u2014 each customer gets one message at each point, counted from their own due date. Anyone who replies or books is taken off the rest.',
+      followUpsNone: 'Pick at least one send point.',
+      stageDays: (d: number) => (d === 1 ? '1 day' : `${d} days`),
+      customLabel: 'Custom',
+      customPlaceholder: 'e.g. 45',
+      customAdd: 'Add',
+      customRange: 'Between 1 and 120 days.',
+      followUpsSummary: (days: number[]) =>
+        days.length === 1
+          ? `We\u2019ll message once, ${days[0]} day${days[0] === 1 ? '' : 's'} before each customer\u2019s due date.`
+          : `We\u2019ll message ${days.slice(0, -1).join(', ')} and ${days[days.length - 1]} days before each customer\u2019s due date, stopping as soon as they reply.`,
       oneoffNote: 'No follow-ups \u2014 this goes out once.',
       messageTemplate: 'Message template',
       templateOptional: '(optional — uses default reminder if not selected)',
@@ -312,11 +319,18 @@ export default function OutboundPage() {
       kindReminderBody: 'Chaque client est contacté avant SA date d\u2019échéance, puis relancé s\u2019il ne répond pas.',
       kindOneoff: 'Message ponctuel',
       kindOneoffBody: 'Envoyé une seule fois. Offres, annonces, horaires \u2014 tout ce que vous ne relanceriez pas.',
-      followUps: 'Relances',
-      followUpsHelp: 'Jours avant l\u2019échéance. Toute personne qui répond ou réserve est retirée des relances suivantes.',
-      followUpsNone: 'Choisissez au moins une relance.',
-      stageDays: (d: number) => `${d} jours avant`,
-      stageDay: (d: number) => `${d} jours avant`,
+      followUps: 'Combien de jours avant l\u2019échéance faut-il envoyer le message ?',
+      followUpsHelp: 'Choisissez-en autant que vous voulez \u2014 chaque client reçoit un message à chaque point, compté depuis sa propre échéance. Toute personne qui répond ou réserve est retirée des relances suivantes.',
+      followUpsNone: 'Choisissez au moins un point d\u2019envoi.',
+      stageDays: (d: number) => (d === 1 ? '1 jour' : `${d} jours`),
+      customLabel: 'Personnalisé',
+      customPlaceholder: 'ex. 45',
+      customAdd: 'Ajouter',
+      customRange: 'Entre 1 et 120 jours.',
+      followUpsSummary: (days: number[]) =>
+        days.length === 1
+          ? `Nous enverrons un message ${days[0]} jour${days[0] === 1 ? '' : 's'} avant l\u2019échéance de chaque client.`
+          : `Nous enverrons un message ${days.slice(0, -1).join(', ')} et ${days[days.length - 1]} jours avant l\u2019échéance de chaque client, en nous arrêtant dès qu\u2019il répond.`,
       oneoffNote: 'Aucune relance \u2014 envoi unique.',
       messageTemplate: 'Modèle de message',
       templateOptional: '(facultatif — utilise le rappel par défaut si non sélectionné)',
@@ -414,6 +428,7 @@ export default function OutboundPage() {
   const [showHow, setShowHow] = useState(true);
   const [campaignType, setCampaignType] = useState<'reminder' | 'oneoff'>('reminder');
   const [reminderStages, setReminderStages] = useState<number[]>([30, 14, 3]);
+  const [customStage, setCustomStage] = useState('');
   const [source, setSource] = useState<'csv' | 'garagehive'>('csv');
   const [ghDays, setGhDays] = useState(30);
   const [ghLoading, setGhLoading] = useState(false);
@@ -569,11 +584,23 @@ export default function OutboundPage() {
     }
   };
 
+  /** Add a custom days-before value. Out-of-range or duplicate input is ignored, not an error. */
+  const addCustomStage = () => {
+    const n = Number.parseInt(customStage, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 120) {
+      showToast('error', c.customRange);
+      return;
+    }
+    setReminderStages((prev) => (prev.includes(n) ? prev : [...prev, n].sort((x, y) => y - x)));
+    setCustomStage('');
+  };
+
   const resetForm = () => {
     setCampaignName('');
     setChannel('whatsapp');
     setCampaignType('reminder');
     setReminderStages([30, 14, 3]);
+    setCustomStage('');
     setSource('csv');
     setGhDays(30);
     setGhSkipped([]);
@@ -759,32 +786,72 @@ export default function OutboundPage() {
 
           {campaignType === 'reminder' ? (
             <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-medium text-slate-600">{c.followUps}</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {[60, 30, 14, 7, 3, 1].map((d) => {
-                  const on = reminderStages.includes(d);
-                  return (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() =>
-                        setReminderStages((prev) =>
-                          prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((x, y) => y - x),
-                        )
+              <p className="text-xs font-medium text-slate-700">{c.followUps}</p>
+              <p className="mt-1 text-xs text-slate-500">{c.followUpsHelp}</p>
+              {/* The chip is the number of days, not a sentence — the heading already says
+                  "before the due date", so repeating it on every chip read as noise. Any custom
+                  value the user adds joins the row rather than hiding behind the input. */}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {[...new Set([30, 14, 7, 3, ...reminderStages])]
+                  .sort((a, b) => b - a)
+                  .map((d) => {
+                    const on = reminderStages.includes(d);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() =>
+                          setReminderStages((prev) =>
+                            prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((x, y) => y - x),
+                          )
+                        }
+                        className={cn(
+                          'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                          on
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400',
+                        )}
+                      >
+                        {c.stageDays(d)}
+                      </button>
+                    );
+                  })}
+
+                {/* Custom point. Garages with a longer service interval ask for 45 and 90. */}
+                <span className="flex items-center gap-1 rounded-full border border-dashed border-slate-300 bg-white px-2 py-0.5">
+                  <span className="text-xs text-slate-500">{c.customLabel}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={customStage}
+                    onChange={(e) => setCustomStage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addCustomStage();
                       }
-                      className={cn(
-                        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                        on
-                          ? 'border-blue-600 bg-blue-600 text-white'
-                          : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400',
-                      )}
-                    >
-                      {c.stageDays(d)}
-                    </button>
-                  );
-                })}
+                    }}
+                    placeholder={c.customPlaceholder}
+                    className="w-16 rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomStage}
+                    className="rounded px-1.5 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+                  >
+                    {c.customAdd}
+                  </button>
+                </span>
               </div>
-              <p className="mt-2 text-xs text-slate-500">{c.followUpsHelp}</p>
+
+              {/* Say back what was chosen, in a sentence. The chips alone don't tell you what
+                  actually happens to a customer. */}
+              <p className="mt-3 text-xs text-slate-600">
+                {reminderStages.length > 0
+                  ? c.followUpsSummary([...reminderStages].sort((a, b) => b - a))
+                  : c.followUpsNone}
+              </p>
             </div>
           ) : (
             <p className="mt-2 text-xs text-slate-500">{c.oneoffNote}</p>

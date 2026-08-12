@@ -60,7 +60,10 @@ enum Step {
 interface ChatSession {
   step: Step;
   intent: string; // 'booking', 'quote', 'message'
-  
+  // Set once take_message has recorded this conversation, so the MESSAGE_TAKEN_FASTPATH
+  // records it exactly once instead of on every subsequent turn.
+  messageTaken?: boolean;
+
   // Customer
   customerNameFirst: string;
   customerNameLast: string;
@@ -482,7 +485,49 @@ export function invalidateSessionCache(conversationId: string): void {
   console.log(`[SESSION_CACHE] Invalidated cache for ${conversationId}`);
 }
 
+/**
+ * Safety net around the agent. If a turn ends in message_only holding both a name and a phone
+ * number but take_message was never called, record it here.
+ *
+ * The model reliably *says* the right thing ("I'll pass that on, the team will call you") and
+ * then simply does not call the tool. take_message is the only thing in this agent that sets
+ * needsAttention, so without this the conversation never reaches the Messages inbox and the lead
+ * is silently lost — the customer believes a callback is coming and nobody knows. Scenario
+ * BOOK-03 caught exactly this.
+ *
+ * This has to run AFTER the model, not before: on the turn where the customer supplies their
+ * details, the session does not have them yet when the turn starts.
+ */
 export async function getChatAgentResponse(
+  garageId: string,
+  message: string,
+  conversationId: string,
+  seedContact?: { phone?: string; name?: string }
+): Promise<ChatAgentResponse> {
+  const res = await getChatAgentResponseInner(garageId, message, conversationId, seedContact);
+  try {
+    const session = await getOrCreateSession(conversationId);
+    if (session.step === Step.MESSAGE_ONLY && !session.messageTaken
+        && session.customerNameFirst && session.contactPhone) {
+      const summary = [
+        session.serviceHint || '',
+        session.notes || '',
+        session.vrn ? `Vehicle: ${[session.vehicleMake, session.vehicleModel].filter(Boolean).join(' ')} (${session.vrn})` : '',
+        `Latest message: "${String(message).slice(0, 200)}"`,
+      ].filter(Boolean).join('. ');
+      session.messageTaken = true;
+      await handleTakeMessage({ message: summary, phone: session.contactPhone }, session, conversationId);
+      console.log('[MESSAGE_TAKEN_SAFETY_NET] take_message was not called by the model — recorded and flagged here');
+      // Keep the model's wording, which is warmer than the canned line, but report the handoff.
+      return { ...res, needsHumanAssistance: true };
+    }
+  } catch (e) {
+    console.error('[MESSAGE_TAKEN_SAFETY_NET] failed:', e);
+  }
+  return res;
+}
+
+async function getChatAgentResponseInner(
   garageId: string,
   message: string,
   conversationId: string,
@@ -904,6 +949,45 @@ export async function getChatAgentResponse(
           await saveSession(conversationId, session);
           return { content: sayMatch[1].trim(), needsHumanAssistance: false };
         }
+      }
+    }
+
+    // CALLBACK_REQUEST_FASTPATH: the customer has plainly asked for a person to call them back.
+    // Without this the flow stays in the booking machine: they ask for a callback, the agent asks
+    // for their name, save_caller_name gets intent 'booking' and rewinds to need_vrn, and they
+    // get "what's your vehicle registration?" instead of a callback (scenario HUMAN-04).
+    // Switching to message_only early makes the take-a-message prompt apply from that point on.
+    if ([Step.GREETING, Step.NEED_NAME, Step.NEED_VRN].includes(session.step as Step)) {
+      const wantsCallback = /\b(call|ring|phone)\s+(me|us)\s+back\b|\b(someone|somebody|a person|anyone)\s+(to\s+)?(call|ring|phone)\b|\bgive me a (call|ring)\b|\bget (someone|somebody) to (call|ring)\b/i
+        .test(message);
+      if (wantsCallback) {
+        console.log('[CALLBACK_REQUEST_FASTPATH] explicit callback request — switching to message_only');
+        session.step = Step.MESSAGE_ONLY;
+        await saveSession(conversationId, session);
+      }
+    }
+
+    // MESSAGE_TAKEN_FASTPATH: in message_only with a name and a number in hand, record the
+    // message in code rather than hoping the model calls take_message. It frequently does not —
+    // it composes a convincing "I'll pass that on to the team" and stops, so nothing is recorded
+    // and needsAttention stays false, meaning the conversation never appears in the Messages
+    // inbox and the lead is silently dropped (scenario BOOK-03). take_message is the ONLY thing
+    // in this agent that sets needsAttention, so this is the difference between a customer being
+    // promised a callback and anyone actually seeing it.
+    if (session.step === Step.MESSAGE_ONLY && !session.messageTaken) {
+      const name = session.customerNameFirst;
+      const phone = session.contactPhone;
+      if (name && phone) {
+        const summary = [
+          session.serviceHint || session.notes || '',
+          session.vrn ? `Vehicle: ${session.vehicleMake || ''} ${session.vehicleModel || ''} (${session.vrn})`.trim() : '',
+          `Customer said: "${String(message).slice(0, 200)}"`,
+        ].filter(Boolean).join('. ');
+        console.log('[MESSAGE_TAKEN_FASTPATH] name + phone known in message_only — recording via take_message');
+        session.messageTaken = true;
+        const res = await handleTakeMessage({ message: summary, phone }, session, conversationId);
+        const say = res.match(/Say:\s*"([\s\S]*?)"/i);
+        if (say) return { content: say[1].trim(), needsHumanAssistance: true };
       }
     }
 
@@ -2048,7 +2132,12 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
     // Mid-conversation we already know what they want — greeting them and asking "what can I
     // help you with?" reads as if the agent forgot the last five minutes, and it stalls short of
     // take_message, so the customer is never actually told their message was passed on.
-    const midConversation = !!(session.vrnConfirmed && session.vrn) || !!session.serviceHint || !!session.notes;
+    // MESSAGE_ONLY counts as mid-conversation too: we only get there after telling the customer
+    // we'll arrange a callback, so greeting them and asking "what can I help you with?" throws
+    // that away. Scenario HUMAN-04 — a cold "can someone call me back" — has no vehicle, so the
+    // vrnConfirmed check alone missed it.
+    const midConversation = !!(session.vrnConfirmed && session.vrn) || !!session.serviceHint
+      || !!session.notes || session.step === Step.MESSAGE_ONLY;
     if (midConversation) {
       const wanted = session.serviceHint || session.notes || 'what they asked about above';
       const vehicle = session.vrn ? ` for their ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})` : '';
@@ -4282,6 +4371,7 @@ YOUR CAPABILITIES — be honest about these:
 - That's it. You CANNOT check MOT due dates, look up existing bookings, check vehicle history, or access any external system beyond the booking engine. If a customer asks for something outside your capabilities, say so honestly and offer what you CAN do (book them in or take a message). Never say "hold on" or "let me check" for something you cannot do.
 
 GENERAL RULES:
+- COMPLAINTS ARE NOT SALES OPPORTUNITIES. If the customer is unhappy about work this garage already did, about being overcharged, about damage to their vehicle, or about a delay, then acknowledge it and apologise first, and take their details for a callback so a human can deal with it. Do NOT offer to book or quote the repair — offering to sell them a fix for damage they are blaming on the garage is the worst possible reply.
 - Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases
 - NEVER answer questions about services/prices from your own knowledge — only use what tools return after confirm_vehicle has been called
 - Keep responses short (1–2 sentences)

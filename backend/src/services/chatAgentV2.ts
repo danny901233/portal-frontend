@@ -1309,13 +1309,20 @@ export async function getChatAgentResponse(
     const looksLikeQuestion = message.trim().endsWith('?') ||
       /\b(how long|how much|what time|what do i need|do (you|i) need|will (you|i|they)|can (you|i)|is (it|there|the)|are (you|there)|does it|when (do|will|is)|where (do|is|are)|what happens|what if|do you do)\b/i.test(message);
     if (midBookingSteps.includes(session.step) && looksLikeQuestion) {
-      const stepContext = session.step === Step.NEED_TIMESLOT ? 'asking them for a date/time preference'
-        : session.step === Step.NEED_SERVICE ? 'selecting a service'
-        : session.step === Step.NEED_SLOT_CONFIRM ? 'confirming their slot'
-        : 'collecting their contact details';
+      // State the situation, don't dictate the destination. Naming the step as the goal
+      // ("continue selecting a service") overrode the garage's own rules: on Great Hollands
+      // 2026-08-12 the customer wanted an MOT on its own — which that garage cannot book, so
+      // their rules say take a message — and this nudge pulled the agent straight back to
+      // offering services instead. Where to go next is a judgement call that depends on the
+      // garage's rules and what the customer actually wants, so leave it to the model; the
+      // nudge only needs to stop it ignoring the question.
+      const stepContext = session.step === Step.NEED_TIMESLOT ? "you still need a date/time preference from them"
+        : session.step === Step.NEED_SERVICE ? "they have not settled on a service yet"
+        : session.step === Step.NEED_SLOT_CONFIRM ? "they have not confirmed the proposed slot yet"
+        : "you still need their contact details";
       messages.push({
         role: 'system' as any,
-        content: `The customer just asked a side question. Answer it helpfully in 1-2 sentences using your knowledge of the garage, then smoothly continue ${stepContext}. Do NOT ignore the question or just repeat the booking prompt.`,
+        content: `The customer just asked a side question. Answer it helpfully in 1-2 sentences using your knowledge of the garage, then carry on with whatever genuinely helps them next — for context, ${stepContext}. If the garage's rules mean what they are asking for cannot be booked, follow those rules (for example take their details and arrange a callback) rather than steering back to the booking flow. Do NOT ignore the question or just repeat the booking prompt.`,
       });
       console.log(`[SIDE_QUESTION_NUDGE] Question detected at ${session.step}: "${message.slice(0, 60)}"`);
     }

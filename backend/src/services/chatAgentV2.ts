@@ -2122,7 +2122,19 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     
     console.log(`[LOOKUP_VEHICLE] Found: ${session.vehicleMake} ${session.vehicleModel}, session: ${sessionId}`);
     
-    return `Vehicle found: ${session.vehicleMake} ${session.vehicleModel} (${winningReg}).\nNOW call confirm_vehicle(confirmed=true) immediately — ZERO SPEECH. Do not wait for customer input.`;
+    // Chain straight into confirm_vehicle rather than instructing the model to call it.
+    // This step is unconditional — the old return said "immediately, ZERO SPEECH, do not wait" —
+    // but leaving it to model compliance meant it sometimes answered with filler ("Leave it with
+    // me, one moment") and ENDED THE TURN instead, stranding the customer at confirming_vehicle
+    // with no service list and no price, and nothing to resume it. Seen live on Great Hollands
+    // 2026-08-12. Doing it in code makes vehicle -> services -> price deterministic.
+    // Safe to call directly: handleConfirmVehicle is a hoisted declaration, and neither of its
+    // guards can recurse into here — the services-loaded guard needs step NEED_SERVICE/
+    // NEED_TIMESLOT (we are at CONFIRMING_VEHICLE), and the missing-sessionId guard only returns
+    // an instruction for the model, it does not call back into lookup.
+    console.log('[LOOKUP_VEHICLE] Chaining directly into confirm_vehicle (no model round-trip)');
+    const chained = await handleConfirmVehicle({ confirmed: true }, session, conversationId);
+    return `Vehicle found: ${session.vehicleMake} ${session.vehicleModel} (${winningReg}).\n${chained}`;
     
   } catch (error: any) {
     console.error('[LOOKUP_VEHICLE] API error:', error);

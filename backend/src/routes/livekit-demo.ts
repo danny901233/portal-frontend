@@ -43,10 +43,11 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
 
   const requested = String(req.body?.voice ?? '').toLowerCase();
   const voice = DEMO_VOICES.has(requested) ? requested : 'leah';
-  // Asking for expressive without naming an engine gets Cartesia Sonic 3, the fastest of them.
+  // Default to Inworld: Olivia is the only British voice among the four expressive engines, and
+  // comparing a British agent against an American one tests accent rather than expression.
   const requestedTts = String(req.body?.tts ?? '').toLowerCase();
   const expressive = req.body?.expressive === true || req.body?.expressive === 'true';
-  const tts = DEMO_EXPRESSIVE_TTS.has(requestedTts) ? requestedTts : 'cartesia';
+  const tts = DEMO_EXPRESSIVE_TTS.has(requestedTts) ? requestedTts : 'inworld';
 
   const roomName = `demo-${randomBytes(8).toString('hex')}`;
   const identity = `visitor-${randomBytes(4).toString('hex')}`;

@@ -345,6 +345,50 @@ router.post('/verify', async (req, res) => {
 
     console.log(`[CONNECT_SIGNUP] created Connect trial: ${email} -> ${businessName} (garage=${garage.id})`);
 
+    // Seed the two reminder templates every garage needs, as drafts. WhatsApp templates must be
+    // approved by Meta before they can be sent, and writing one from scratch is the step new
+    // customers stall on — so ship the wording and let them just press Submit. UTILITY category
+    // because these are transactional reminders to existing customers, which Meta approves far
+    // more readily than MARKETING. Non-fatal: a template failure must not fail the signup.
+    void (async () => {
+      const templates = [
+        {
+          name: 'mot_reminder',
+          bodyText:
+            'Hi {{1}}, it\'s {{2}}. Your {{3}} is due its MOT on {{4}}. Reply to this message and we\'ll get you booked in at a time that suits you.',
+          variableSamples: { '{{1}}': 'John', '{{2}}': businessName, '{{3}}': 'Ford Focus (AB12 CDE)', '{{4}}': '15 March' },
+        },
+        {
+          name: 'service_reminder',
+          bodyText:
+            'Hi {{1}}, it\'s {{2}}. Your {{3}} is due a service in {{4}}. Reply to this message and we\'ll find you a slot.',
+          variableSamples: { '{{1}}': 'John', '{{2}}': businessName, '{{3}}': 'Ford Focus (AB12 CDE)', '{{4}}': 'the next few weeks' },
+        },
+      ];
+      for (const t of templates) {
+        try {
+          await prisma.messageTemplate.create({
+            data: {
+              garageId: garage.id,
+              name: t.name,
+              category: 'UTILITY',
+              language: 'en_GB',
+              headerType: 'none',
+              bodyText: t.bodyText,
+              variableSamples: t.variableSamples as any,
+              footerText: 'Reply STOP to opt out.',
+              buttonType: 'none',
+              status: 'draft',
+            },
+          });
+          console.log(`[CONNECT_SIGNUP] seeded template ${t.name} for ${garage.id}`);
+        } catch (e: any) {
+          // Unique on (garageId, name) — ignore if it somehow already exists.
+          console.error(`[CONNECT_SIGNUP] seeding template ${t.name} failed:`, e?.message);
+        }
+      }
+    })();
+
     // Tell the team. Until now a Connect signup produced NOTHING internally — no SMS, no email,
     // only a HighLevel opportunity nobody was watching, so Kestrels signed up on 2026-08-12 and
     // the first anyone knew was noticing it in the portal by chance. Fire-and-forget so a failed

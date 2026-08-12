@@ -166,8 +166,15 @@ export default function OutboundPage() {
       haltBody: 'This is a protection. Carrying on after a warning like this is what gets a WhatsApp number permanently disabled — please don\u2019t re-send the same list. Reply to the email we sent and we\u2019ll go through it with you.',
       haltResume: 'Resume sending (staff)',
       haltResumed: 'Sending resumed.',
-      allowance: (left: number, limit: number) => `${left} of today\u2019s ${limit} messages left`,
-      allowanceHelp: 'Messages go out about one every 30 seconds, between 8am and 8pm. Anything over the daily allowance is queued and sent the next day.',
+      allowanceTitle: 'Daily sending allowance',
+      allowanceUsed: (sent: number, limit: number) => `${sent} of ${limit} sent in the last 24 hours`,
+      allowanceLeft: (left: number) => `${left} left`,
+      allowanceNone: 'None left right now — anything you send will be queued.',
+      allowanceFrees: (t: string) => `Allowance starts freeing up at ${t}`,
+      allowanceFull: (t: string) => `back to the full allowance at ${t}.`,
+      allowanceIdle: 'Nothing sent in the last 24 hours.',
+      allowanceHelp: 'Messages go out about one every 30 seconds, between 8am and 8pm. The allowance is a rolling 24 hours rather than a midnight reset, and anything over it is queued and sent automatically.',
+      allowanceStaffNote: 'The limit is set by ReceptionMate, deliberately below WhatsApp\u2019s own so your number never gets near it.',
       limitEdit: 'Change limit (staff)',
       limitSaved: 'Daily limit updated.',
       limitFailed: 'Could not update the limit.',
@@ -308,8 +315,15 @@ export default function OutboundPage() {
       haltBody: 'Il s\u2019agit d\u2019une protection. Continuer après un tel avertissement est ce qui fait désactiver définitivement un numéro WhatsApp — merci de ne pas renvoyer la même liste. Répondez à l\u2019e-mail que nous vous avons envoyé et nous verrons cela avec vous.',
       haltResume: 'Reprendre l\u2019envoi (personnel)',
       haltResumed: 'Envoi repris.',
-      allowance: (left: number, limit: number) => `${left} messages restants sur ${limit} aujourd\u2019hui`,
-      allowanceHelp: 'Les messages partent environ un toutes les 30 secondes, entre 8h et 20h. Tout ce qui dépasse l\u2019allocation quotidienne est mis en file et envoyé le lendemain.',
+      allowanceTitle: 'Allocation d\u2019envoi quotidienne',
+      allowanceUsed: (sent: number, limit: number) => `${sent} sur ${limit} envoyés ces dernières 24 heures`,
+      allowanceLeft: (left: number) => `${left} restants`,
+      allowanceNone: 'Plus rien de disponible — tout envoi sera mis en file.',
+      allowanceFrees: (t: string) => `L\u2019allocation commence à se libérer à ${t}`,
+      allowanceFull: (t: string) => `allocation complète rétablie à ${t}.`,
+      allowanceIdle: 'Aucun envoi ces dernières 24 heures.',
+      allowanceHelp: 'Les messages partent environ un toutes les 30 secondes, entre 8h et 20h. L\u2019allocation porte sur 24 heures glissantes et non sur une remise à zéro à minuit ; tout dépassement est mis en file et envoyé automatiquement.',
+      allowanceStaffNote: 'La limite est fixée par ReceptionMate, volontairement sous celle de WhatsApp pour que votre numéro n\u2019en approche jamais.',
       limitEdit: 'Modifier la limite (personnel)',
       limitSaved: 'Limite quotidienne mise à jour.',
       limitFailed: 'Impossible de mettre à jour la limite.',
@@ -746,6 +760,54 @@ export default function OutboundPage() {
               {c.haltResume}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Allowance. Always visible, not tucked inside the send step — "how much can I send and
+          when does it come back" is a question garages have before they build a campaign. */}
+      {limits && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900">{c.allowanceTitle}</h2>
+            <p className="text-xs text-slate-600">
+              <span className="font-medium text-slate-900">{c.allowanceUsed(limits.sentLast24h, limits.dailyLimit)}</span>
+              {' · '}
+              <span className={cn('font-medium', limits.remaining === 0 ? 'text-amber-700' : 'text-green-700')}>
+                {limits.remaining === 0 ? c.allowanceNone : c.allowanceLeft(limits.remaining)}
+              </span>
+            </p>
+          </div>
+
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div
+              className={cn('h-full rounded-full', limits.remaining === 0 ? 'bg-amber-500' : 'bg-blue-600')}
+              style={{ width: `${Math.min(100, Math.round((limits.sentLast24h / Math.max(1, limits.dailyLimit)) * 100))}%` }}
+            />
+          </div>
+
+          <p className="mt-2 text-xs text-slate-500">
+            {limits.sentLast24h === 0 || !limits.nextFreeAt ? (
+              c.allowanceIdle
+            ) : (
+              <>
+                {c.allowanceFrees(new Date(limits.nextFreeAt).toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' }))}
+                {limits.fullyFreeAt && `, ${c.allowanceFull(new Date(limits.fullyFreeAt).toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' }))}`}
+              </>
+            )}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {c.allowanceHelp}{' '}
+            {c.allowanceStaffNote}
+            {limits.canEditLimit && (
+              <button
+                type="button"
+                onClick={handleEditLimit}
+                className="ml-2 font-medium text-blue-600 underline hover:text-blue-700"
+              >
+                {c.limitEdit}
+              </button>
+            )}
+          </p>
         </div>
       )}
 
@@ -1234,19 +1296,10 @@ export default function OutboundPage() {
             </div>
             {limits && (
               <p className="mt-3 text-xs text-slate-600">
-                <span className={cn('font-medium', limits.remaining === 0 ? 'text-amber-600' : 'text-slate-700')}>
-                  {c.allowance(limits.remaining, limits.dailyLimit)}
+                <span className={cn('font-medium', limits.remaining === 0 ? 'text-amber-700' : 'text-slate-800')}>
+                  {limits.remaining === 0 ? c.allowanceNone : c.allowanceLeft(limits.remaining)}
                 </span>
-                {' '}{c.allowanceHelp}
-                {limits.canEditLimit && (
-                  <button
-                    type="button"
-                    onClick={handleEditLimit}
-                    className="ml-2 text-blue-600 underline hover:text-blue-700"
-                  >
-                    {c.limitEdit}
-                  </button>
-                )}
+                {' '}{c.allowanceUsed(limits.sentLast24h, limits.dailyLimit)}.
               </p>
             )}
             <p className="mt-3 text-xs text-slate-500">{c.howFooter}</p>

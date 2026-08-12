@@ -29,8 +29,8 @@ interface MessageTemplate {
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-slate-500/20 text-slate-600',
-  pending: 'bg-yellow-500/20 text-yellow-300',
-  approved: 'bg-green-500/20 text-green-300',
+  pending: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200',
+  approved: 'bg-green-50 text-green-700 ring-1 ring-green-200',
   rejected: 'bg-red-50 text-red-700 ring-1 ring-red-200',
 };
 
@@ -565,7 +565,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
         </div>
       )}
       {success && (
-        <div className="mb-4 rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-3 text-sm text-green-300">
+        <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
           {success}
         </div>
       )}
@@ -582,7 +582,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
               </h2>
               <p className="mb-5 text-sm text-slate-500">{c.formIntro}</p>
               {editingTemplateId && (
-                <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300">
+                <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
                   {c.editWarning}
                 </div>
               )}
@@ -675,7 +675,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
                               }}
                               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-700 transition-colors"
                             >
-                              <svg className="h-3 w-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                              <svg className="h-3 w-3 shrink-0 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M17.707 9.293l-7-7A1 1 0 0010 2H4a2 2 0 00-2 2v6a1 1 0 00.293.707l7 7a1 1 0 001.414 0l7-7a1 1 0 000-1.414z" clipRule="evenodd" />
                               </svg>
                               <span className="flex-1">{displayLabel(field.label)}</span>
@@ -754,7 +754,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
                 <p className="mt-1 text-xs text-slate-500">
                   {c.useVars()}
                   {detectedVariables.length > 0 && (
-                    <span className="ml-2 text-blue-400">{c.varsDetected(detectedVariables.length)}</span>
+                    <span className="ml-2 text-blue-600">{c.varsDetected(detectedVariables.length)}</span>
                   )}
                 </p>
 
@@ -828,7 +828,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
                                     }}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-700 transition-colors"
                                   >
-                                    <svg className="h-3 w-3 shrink-0 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                    <svg className="h-3 w-3 shrink-0 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
                                       <path fillRule="evenodd" d="M17.707 9.293l-7-7A1 1 0 0010 2H4a2 2 0 00-2 2v6a1 1 0 00.293.707l7 7a1 1 0 001.414 0l7-7a1 1 0 000-1.414z" clipRule="evenodd" />
                                     </svg>
                                     <span className="flex-1">{displayLabel(field.label)}</span>
@@ -1046,7 +1046,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
                 {t.footerText && <p className="mt-1 text-xs text-slate-500">{t.footerText}</p>}
                 {t.buttonType && t.buttonText && (
                   <div className="mt-2 border-t border-slate-300 pt-2 text-center">
-                    <span className="text-xs text-blue-400">{t.buttonText}</span>
+                    <span className="text-xs text-blue-600">{t.buttonText}</span>
                   </div>
                 )}
               </div>

@@ -30,6 +30,10 @@ const SIGNUP_URL = 'https://receptionmate.co.uk/get-started/';
 export default function DemoPage() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [voice, setVoice] = useState('leah');
+  // Expressive Mode trial, opt-in via ?expressive=1 (&tts=cartesia|inworld|fishaudio|xai) rather
+  // than a control on the page: this is a public sales page and expressive swaps the voice engine,
+  // so visitors keep hearing the ElevenLabs voices we've tuned until we've judged it ourselves.
+  const [expressive, setExpressive] = useState<{ on: boolean; tts: string } | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const roomRef = useRef<RoomType | null>(null);
@@ -49,6 +53,15 @@ export default function DemoPage() {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search);
+    const flag = q.get('expressive');
+    if (flag === '1' || flag === 'true') {
+      setExpressive({ on: true, tts: (q.get('tts') || 'cartesia').toLowerCase() });
+    }
+  }, []);
+
   const start = useCallback(async () => {
     setPhase('connecting');
     setCaptions([]);
@@ -59,7 +72,10 @@ export default function DemoPage() {
       const res = await fetch('/api/livekit/demo-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice }),
+        body: JSON.stringify({
+          voice,
+          ...(expressive?.on && { expressive: true, tts: expressive.tts }),
+        }),
       });
       if (!res.ok) throw new Error('Failed to start the demo');
       const { token, url } = await res.json();
@@ -109,7 +125,7 @@ export default function DemoPage() {
       cleanup();
       setPhase('failed');
     }
-  }, [cleanup, voice]);
+  }, [cleanup, voice, expressive]);
 
   const end = useCallback(() => {
     cleanup();
@@ -127,6 +143,12 @@ export default function DemoPage() {
 
   const live = phase === 'live';
   const selectedVoice = VOICES.find((v) => v.key === voice) ?? VOICES[0];
+  // Without this you can't tell which pipeline you just heard, which makes the comparison useless.
+  const expressiveBadge = expressive?.on ? (
+    <span className="ml-2 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-800">
+      Expressive · {expressive.tts}
+    </span>
+  ) : null;
   const showPicker = phase === 'idle' || phase === 'ended' || phase === 'failed';
 
   return (
@@ -180,6 +202,7 @@ export default function DemoPage() {
               : phase === 'connecting'
                 ? 'Connecting you…'
                 : `Talk to ${selectedVoice.name}`}
+            {expressiveBadge}
           </h1>
           <p className="mx-auto mt-2 max-w-sm text-[15px] leading-relaxed text-brand-100/90">
             {live

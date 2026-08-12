@@ -4,6 +4,7 @@ import twilio from 'twilio';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
+import { parseDueDate } from '../utils/dueDate.js';
 import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
@@ -34,16 +35,28 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Derive messageType per contact and normalise phones
-    const normalisedRaw = contacts.map((c) => ({
-      garageId,
-      customerName: c.customerName?.trim() || 'Customer',
-      phone: normalisePhone(c.phone || ''),
-      registration: c.registration?.trim() || null,
-      motDueDate: c.motDueDate?.trim() || null,
-      serviceDueDate: c.serviceDueDate?.trim() || null,
-      messageType: c.motDueDate?.trim() ? 'mot' : 'service',
-    }));
+    // Derive messageType per contact and normalise phones.
+    // dueDate is the parsed form of whatever the DMS exported, kept alongside the raw string so
+    // the reminder scheduler has a real date to work from. Unparseable dates land as null and
+    // are counted below — never guessed, because a reminder sent on the wrong day is worse than
+    // one not sent at all.
+    const normalisedRaw = contacts.map((c) => {
+      const rawDue = c.motDueDate?.trim() || c.serviceDueDate?.trim() || null;
+      return {
+        garageId,
+        customerName: c.customerName?.trim() || 'Customer',
+        phone: normalisePhone(c.phone || ''),
+        registration: c.registration?.trim() || null,
+        motDueDate: c.motDueDate?.trim() || null,
+        serviceDueDate: c.serviceDueDate?.trim() || null,
+        dueDate: parseDueDate(rawDue),
+        messageType: c.motDueDate?.trim() ? 'mot' : 'service',
+      };
+    });
+    const unreadableDates = normalisedRaw.filter((c) => !c.dueDate).length;
+    if (unreadableDates > 0) {
+      console.warn(`[OUTBOUND] ${unreadableDates}/${normalisedRaw.length} uploaded rows had a due date we could not read — those rows will not be auto-reminded.`);
+    }
 
     // Deduplicate by phone — keep first occurrence
     const seenPhones = new Set<string>();

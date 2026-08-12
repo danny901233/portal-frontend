@@ -357,7 +357,7 @@ router.post('/verify', async (req, res) => {
         {
           name: 'mot_reminder',
           bodyText:
-            'Hi {{1}}, it\'s {{2}} from {{3}}. Your car\'s {{4}} MOT is due on {{5}}. Would you like to get that booked in with me?',
+            'Hi {{1}}, it\'s {{2}} from {{3}}. Your car\'s {{4}} MOT is due on {{5}}. Would you like to get that booked in with me? If you\'ve already booked it in, just let me know and I\'ll take you off the reminders.',
           variableSamples: {
             '{{1}}': 'John', '{{2}}': 'Leah', '{{3}}': businessName,
             '{{4}}': 'AB12 CDE', '{{5}}': '15 March',
@@ -367,7 +367,7 @@ router.post('/verify', async (req, res) => {
           // Same shape as the MOT one so both read consistently to the customer.
           name: 'service_reminder',
           bodyText:
-            'Hi {{1}}, it\'s {{2}} from {{3}}. Your car\'s {{4}} service is due on {{5}}. Would you like to get that booked in with me?',
+            'Hi {{1}}, it\'s {{2}} from {{3}}. Your car\'s {{4}} service is due on {{5}}. Would you like to get that booked in with me? If you\'ve already booked it in, just let me know and I\'ll take you off the reminders.',
           variableSamples: {
             '{{1}}': 'John', '{{2}}': 'Leah', '{{3}}': businessName,
             '{{4}}': 'AB12 CDE', '{{5}}': '15 March',

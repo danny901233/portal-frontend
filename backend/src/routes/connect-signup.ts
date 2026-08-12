@@ -351,18 +351,27 @@ router.post('/verify', async (req, res) => {
     // because these are transactional reminders to existing customers, which Meta approves far
     // more readily than MARKETING. Non-fatal: a template failure must not fail the signup.
     void (async () => {
+      // Five variables, in this order: 1 customer name, 2 agent name, 3 branch name,
+      // 4 registration, 5 due date. Whatever sends the reminder must fill them in that order.
       const templates = [
         {
           name: 'mot_reminder',
           bodyText:
-            'Hi {{1}}, it\'s {{2}}. Your {{3}} is due its MOT on {{4}}. Reply to this message and we\'ll get you booked in at a time that suits you.',
-          variableSamples: { '{{1}}': 'John', '{{2}}': businessName, '{{3}}': 'Ford Focus (AB12 CDE)', '{{4}}': '15 March' },
+            'Hi {{1}}, it\'s {{2}} from {{3}}. Your car\'s {{4}} MOT is due on {{5}}. Would you like to get that booked in with me?',
+          variableSamples: {
+            '{{1}}': 'John', '{{2}}': 'Leah', '{{3}}': businessName,
+            '{{4}}': 'AB12 CDE', '{{5}}': '15 March',
+          },
         },
         {
+          // Same shape as the MOT one so both read consistently to the customer.
           name: 'service_reminder',
           bodyText:
-            'Hi {{1}}, it\'s {{2}}. Your {{3}} is due a service in {{4}}. Reply to this message and we\'ll find you a slot.',
-          variableSamples: { '{{1}}': 'John', '{{2}}': businessName, '{{3}}': 'Ford Focus (AB12 CDE)', '{{4}}': 'the next few weeks' },
+            'Hi {{1}}, it\'s {{2}} from {{3}}. Your car\'s {{4}} service is due on {{5}}. Would you like to get that booked in with me?',
+          variableSamples: {
+            '{{1}}': 'John', '{{2}}': 'Leah', '{{3}}': businessName,
+            '{{4}}': 'AB12 CDE', '{{5}}': '15 March',
+          },
         },
       ];
       for (const t of templates) {

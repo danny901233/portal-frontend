@@ -36,6 +36,10 @@ const DEMO_SCENARIOS = new Set(['booking', 'parts']);
 // renders. It only works on a TTS that declares a markup dialect — ElevenLabs does NOT, so the
 // expressive path also swaps the voice engine. Off unless the visitor's URL asks for it, so the
 // public demo keeps the voices we've tuned.
+//
+// ElevenLabs v3 was tried as a fifth option (same voices, no markup) and removed: our key cannot
+// stream it — the plugin's realtime websocket 403s on model_id=eleven_v3 and the turn dies
+// mid-sentence. Tested 2026-08-12.
 const DEMO_EXPRESSIVE_TTS = new Set(['cartesia', 'inworld', 'fishaudio', 'xai']);
 
 router.post('/livekit/demo-token', async (req: Request, res: Response) => {

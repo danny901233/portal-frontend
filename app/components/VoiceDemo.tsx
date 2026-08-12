@@ -39,7 +39,7 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
   // rather than two URLs.
   const [trial, setTrial] = useState(false);
   const [expressiveOn, setExpressiveOn] = useState(false);
-  const [ttsKey, setTtsKey] = useState('cartesia');
+  const [ttsKey, setTtsKey] = useState('inworld');
   const [micOn, setMicOn] = useState(true);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const roomRef = useRef<RoomType | null>(null);
@@ -57,7 +57,7 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
     if (flag === '1' || flag === 'true' || flag === '0') {
       setTrial(true);
       setExpressiveOn(flag !== '0');
-      setTtsKey((q.get('tts') || 'cartesia').toLowerCase());
+      setTtsKey((q.get('tts') || 'inworld').toLowerCase());
     }
   }, []);
 
@@ -161,10 +161,10 @@ export default function VoiceDemo({ scenario = 'booking' }: { scenario?: Scenari
   ) : null;
 
   const EXPRESSIVE_ENGINES = [
-    { key: 'cartesia', label: 'Cartesia Sonic 3' },
-    { key: 'inworld', label: 'Inworld TTS 2' },
-    { key: 'fishaudio', label: 'Fish Audio S2.1' },
-    { key: 'xai', label: 'xAI TTS 1' },
+    { key: 'inworld', label: 'Inworld — Olivia (British)' },
+    { key: 'cartesia', label: 'Cartesia — Jacqueline (US)' },
+    { key: 'fishaudio', label: 'Fish Audio — Marley (US)' },
+    { key: 'xai', label: 'xAI — Eve (US)' },
   ];
   const showPicker = phase === 'idle' || phase === 'ended' || phase === 'failed';
 

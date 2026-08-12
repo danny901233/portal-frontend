@@ -1,0 +1,32 @@
+Hi {{contact.company_name}},
+
+Just a quick one…
+
+We're a ServiceSure partner, and we've just launched a self-service 30-day free trial
+of ReceptionMate's WhatsApp reminders for garages.
+
+It automatically reminds your customers when their MOT or service is due — but unlike
+a normal reminder, the AI actually has the conversation and books them straight into
+your diary. You get the booking, not just the nudge.
+
+And because it all happens on WhatsApp, your reminders actually get read — around 98%
+of WhatsApp messages get opened, versus roughly 20% for email. A text or postcard just
+gets ignored.
+
+  • Reminds about MOTs and services, automatically
+  • Fewer no-shows — and customers brought back without the phone calls
+  • About 5 minutes to set up — nothing to install
+
+Start your free 30-day trial here:
+www.receptionmate.co.uk/reminders/?utm_source=hl&utm_medium=email&utm_campaign=mot-reminder&cid={{contact.id}}
+
+Any questions, just hit reply.
+
+Thanks,
+Dan
+ReceptionMate
+
+--
+You're getting this because {{contact.company_name}} is a registered UK MOT centre.
+Not for you? Unsubscribe: {{unsubscribe_link}}
+ReceptionMate Ltd, Studio 9, 50–54 St. Paul's Square, Birmingham B3 1QS · Company 16839506 · VAT 494543753

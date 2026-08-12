@@ -88,6 +88,32 @@ const footerYear = 2026;
         t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
         y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
       })(window, document, "clarity", "script", "xlh72oydpg");
+
+      // Campaign identification. HighLevel email links carry ?cid={{contact.id}} (and utm_*),
+      // so we stamp those onto the Clarity session — recordings become searchable by contact
+      // instead of being guessed at from click timestamps, which collide (HighLevel only
+      // records to the minute, and batch sends put several contacts in the same one).
+      // sessionStorage, not localStorage: it should cover this visit's page-to-page journey
+      // but never re-label an unrelated visit weeks later on a shared machine.
+      // Safe to call before the tag loads — the stub above queues calls until it does.
+      try {
+        var _q = new URLSearchParams(location.search);
+        var _cid = _q.get('cid');
+        if (_cid) sessionStorage.setItem('rm_cid', _cid);
+        var _camp = _q.get('utm_campaign');
+        if (_camp) sessionStorage.setItem('rm_campaign', _camp);
+        var _src = _q.get('utm_source');
+        if (_src) sessionStorage.setItem('rm_source', _src);
+        var _id = _cid || sessionStorage.getItem('rm_cid');
+        if (_id) {
+          window.clarity('identify', _id);
+          window.clarity('set', 'contact_id', _id);
+        }
+        var _c = _camp || sessionStorage.getItem('rm_campaign');
+        if (_c) window.clarity('set', 'campaign', _c);
+        var _s = _src || sessionStorage.getItem('rm_source');
+        if (_s) window.clarity('set', 'source', _s);
+      } catch (_e) {}
     </script>
 
     <slot name="head" />

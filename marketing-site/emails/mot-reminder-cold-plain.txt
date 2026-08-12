@@ -1,0 +1,24 @@
+Hi {{contact.company_name}},
+
+Quick one — how many of last year's MOT customers came back to you this year?
+
+Most garages lose a good few. A normal reminder just tells the customer their MOT's
+due, then leaves them to ring up and book — and most never get round to it.
+
+Ours works differently: our AI messages your customers when they're due, answers
+"how much?" and "when can you fit me in?", and books them straight into your diary.
+You get the booking, not just the reminder.
+
+The first month is completely free. Want me to show you how it works — takes about
+60 seconds?
+
+Cheers,
+Dan
+ReceptionMate
+
+P.S. Or have a look here: https://www.receptionmate.co.uk/mot/?utm_source=hl&utm_medium=email&utm_campaign=mot-reminder&cid={{contact.id}}
+
+--
+You're getting this because {{contact.company_name}} is a registered UK MOT centre.
+Not for you? Unsubscribe: {{unsubscribe_link}}
+ReceptionMate Ltd, Studio 9, 50–54 St. Paul's Square, Birmingham B3 1QS · Company 16839506 · VAT 494543753

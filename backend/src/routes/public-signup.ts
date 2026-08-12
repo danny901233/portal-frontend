@@ -8,6 +8,7 @@ import { sendEmail } from '../utils/email.js';
 import { TEMPLATE_VERSION } from '../services/agreementTemplate.js';
 import { pushSignupToHighlevel, updateContact } from '../services/highlevel.js';
 import { ensureAdminAccessToGarage } from './admin.js';
+import { getStripeClient, stripeConfigured } from '../services/stripe.js';
 import { fetchPlaceDetails } from '../utils/googlePlaces.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { autoIngestWebsiteKnowledge } from './config.js';
@@ -44,6 +45,10 @@ const publicSignupSchema = z.object({
   phone: z.string().trim().max(40).optional(),
   // When present, links to the prospect row created at the garage-search step (step 1).
   prospectId: z.string().trim().max(80).optional(),
+  // Google Ads click id from the marketing site (localStorage rm_gclid). Stored so we can
+  // tell which signups actually came from a paid click — gtag's cookie attribution alone
+  // leaves no record on our side.
+  gclid: z.string().trim().max(200).optional(),
 });
 
 /**
@@ -59,6 +64,41 @@ export async function createAccountFromPending(
   if (pending.createdGarageId) {
     const g = await prisma.garage.findUnique({ where: { id: pending.createdGarageId }, select: { id: true, name: true } });
     return g ? { garageId: g.id, garageName: g.name, userEmail: pending.email } : null;
+  }
+
+  // --- no card, no account -------------------------------------------------------------------
+  // The only public caller (/public/signup-complete) is unauthenticated and proves nothing but
+  // possession of a pending id the customer already holds — so without this, anyone who reaches
+  // the card step can skip paying and still get an account. This gates the ASSIST card flow only:
+  // Connect/MOT sign up through connect-signup.ts, which creates the garage directly after an SMS
+  // OTP and deliberately takes no card, so it never reaches this function.
+  if (!pending.stripeCustomerId) {
+    console.error(
+      `[PUBLIC_SIGNUP] refusing to create an account for ${pending.email} — no Stripe customer on the pending row, so no card was ever started`,
+    );
+    return null;
+  }
+  // stripeCustomerId is set at agreement-sign, BEFORE the card is entered — so on its own it only
+  // proves they got as far as signing. Ask Stripe whether a card actually landed.
+  if (stripeConfigured()) {
+    try {
+      const cards = await getStripeClient().paymentMethods.list({
+        customer: pending.stripeCustomerId,
+        type: 'card',
+        limit: 1,
+      });
+      if (!cards.data.length) {
+        console.error(
+          `[PUBLIC_SIGNUP] refusing to create an account for ${pending.email} — Stripe customer ${pending.stripeCustomerId} has no card attached`,
+        );
+        return null;
+      }
+    } catch (err) {
+      // Fail CLOSED. A Stripe outage delaying one signup is recoverable; handing out an
+      // unbilled account because we couldn't check is not.
+      console.error(`[PUBLIC_SIGNUP] card check failed for ${pending.email} — refusing to create the account:`, err);
+      return null;
+    }
   }
 
   const businessName = pending.businessName;
@@ -179,7 +219,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'invalid_request', details: parsed.error.flatten() });
   }
 
-  const { businessName, email, address, googlePlaceId, name, phone, prospectId } = parsed.data;
+  const { businessName, email, address, googlePlaceId, name, phone, prospectId, gclid } = parsed.data;
   const normalizedEmail = email.toLowerCase();
 
   try {
@@ -201,7 +241,8 @@ router.post('/public-signup', async (req: Request, res: Response) => {
     if (pending && pending.status !== 'completed') {
       pending = await prisma.pendingSignup.update({
         where: { id: pending.id },
-        data: { name: name ?? pending.name, email: normalizedEmail, contactPhone: phone ?? pending.contactPhone, product: 'assist', status: 'pending' },
+        // Never clobber an existing gclid: the earliest click is the one that earned the signup.
+        data: { name: name ?? pending.name, email: normalizedEmail, contactPhone: phone ?? pending.contactPhone, product: 'assist', status: 'pending', gclid: pending.gclid ?? gclid ?? null },
       });
       // Enrich the existing Abandoned-checkout HL contact with the real name + email + phone
       // (replaces the placeholder from the garage-search step) — updates by id, no duplicate.
@@ -225,6 +266,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
           signToken,
           status: 'pending',
           product: 'assist',
+          gclid: gclid ?? null,
           expiresAt: new Date(Date.now() + SIGN_LINK_TTL_MS),
         },
       });

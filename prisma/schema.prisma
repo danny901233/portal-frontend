@@ -13,6 +13,7 @@ model Garage {
   name               String
   twilioNumber       String?
   hasMessagingAccess Boolean @default(false)
+  hasVoiceAccess Boolean @default(true)
 
   // Arrears / access gating: when true, this garage's OWN users see only date+tag for
   // their calls (caller name/number, summary, transcript and recordings are withheld),
@@ -180,6 +181,10 @@ model User {
   // In-portal support chat with the ReceptionMate team
   supportConversation SupportConversation?
   supportMessages     SupportMessage[]
+
+  // Ops-tasks board (staff-only) — a staff user may be the assignee or the creator
+  opsTasksAssigned OpsTask[] @relation("OpsTaskAssignee")
+  opsTasksCreated  OpsTask[] @relation("OpsTaskCreatedBy")
 
   // Mobile push notifications (iOS APNs device tokens). One user may have
   // several devices; tokens are registered by the mobile app on launch.
@@ -418,6 +423,7 @@ model Business {
   contactPhone String?
   contactRole  String?
   garages      Garage[]
+  billingMethod String @default("directdebit") // 'directdebit' | 'stripe_card' | 'invoice'
 
   // Billing Information
   billingAddress       String?
@@ -703,6 +709,7 @@ model PendingSignup {
   googlePlaceId String?
   product      String?  // assist | automate | connect | multibranch | custom
   contactPhone String?  // contact phone captured on the scope step (non-Assist)
+  gclid        String?  // Google Ads click id, carried from the marketing site — proves which signups came from an ad
 
   // Enriched from Google Places at submit time so we don't re-call Google on completion.
   branchAddress      String?
@@ -742,4 +749,29 @@ model PendingSignup {
 
   @@index([email])
   @@index([stripeCustomerId])
+}
+
+// Ops-tasks board — shared internal task list for RM staff (Dan + the VA).
+// Postgres-backed so both staff see the same list; mirrors the SupportConversation
+// pattern for auth + shape. Managed by /admin/tasks and /api/admin/tasks/*.
+model OpsTask {
+  id           String    @id @default(cuid())
+  title        String
+  instructions String?   @db.Text
+  cadence      String    @default("weekly") // 'daily' | 'weekly' | 'monthly' | 'project'
+  tags         String[]  @default([])
+  status       String    @default("open") // 'open' | 'done'
+  notes        String?   @db.Text
+  assigneeId   String?
+  assignee     User?     @relation("OpsTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdById  String?
+  createdBy    User?     @relation("OpsTaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  dueDate      DateTime?
+  sortOrder    Int       @default(0)
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([cadence, status])
+  @@index([assigneeId])
 }

@@ -256,6 +256,20 @@ export const upsertAgentConfigurationSchema = z.object({
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
   transferNumber: z.union([z.string().max(50), z.literal('')]).nullable().optional(),
+  // These were missing from this schema while the save handler still wrote them. Zod strips
+  // unknown keys, so every agent-config PUT silently dropped them — settings appeared to
+  // "revert", and `faqs: (data.faqs ?? [])` wrote an EMPTY ARRAY, wiping the garage's FAQs
+  // on every save. Ported from git HEAD, which already had them.
+  callerRecognitionEnabled: z.boolean().optional(),
+  advisoryUpsellsEnabled: z.boolean().optional(),
+  messagingHumanHandoff: z.boolean().optional(),
+  messagingHandoffMessage: z.union([z.string().max(2000), z.literal(''), z.null()]).optional(),
+  messagingNotifyScope: z.enum(['off', 'escalated', 'all']).optional(),
+  messagingNotifyEmail: z.boolean().optional(),
+  messagingNotifySms: z.boolean().optional(),
+  messagingNotifyPhone: z.union([z.string().max(50), z.literal(''), z.null()]).optional(),
+  faqs: z.array(z.any()).optional().nullable(),
+  pronunciations: z.array(z.any()).optional().nullable(),
   allowBookings: z.boolean().optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),

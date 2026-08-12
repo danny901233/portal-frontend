@@ -210,7 +210,7 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contact
   if (call.transcript && call.transcript.length > 0) {
     lines.push(`\nCall Transcript:`);
     for (const entry of call.transcript) {
-      lines.push(`${entry.speaker}: ${entry.text}`);
+      lines.push(`${entry.speaker || "Unknown"}: ${entry.text || ""}`);
     }
   }
   const text = lines.join('\n');
@@ -241,10 +241,10 @@ const sendInboxEmail = async (call: HubSpotCallData, inboxEmail: string, contact
   let transcriptHtml = '';
   if (call.transcript && call.transcript.length > 0) {
     const rows = call.transcript.map((entry, i) => {
-      const isAgent = entry.speaker.toLowerCase().includes('agent');
+      const isAgent = (entry.speaker || '').toLowerCase().includes('agent');
       const bgColor = i % 2 === 1 ? ' style="background:#f8f9fa;"' : '';
       const nameColor = isAgent ? '#4f46e5' : '#0e7490';
-      return `<tr${bgColor}><td style="padding:4px 8px;color:${nameColor};font-weight:600;white-space:nowrap;vertical-align:top;width:1%;">${entry.speaker}</td><td style="padding:4px 8px;">${entry.text}</td></tr>`;
+      return `<tr${bgColor}><td style="padding:4px 8px;color:${nameColor};font-weight:600;white-space:nowrap;vertical-align:top;width:1%;">${entry.speaker || "Unknown"}</td><td style="padding:4px 8px;">${entry.text}</td></tr>`;
     }).join('');
     transcriptHtml = `<br><div style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Call Transcript</div><table style="width:100%;border-collapse:collapse;font-size:13px;line-height:1.4;">${rows}</table>`;
   }

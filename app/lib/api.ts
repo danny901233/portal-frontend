@@ -628,6 +628,11 @@ export interface OutboundLimits {
   dailyLimit: number;
   sentLast24h: number;
   remaining: number;
+  /** When the oldest counted message drops out of the rolling window — allowance starts freeing up. */
+  nextFreeAt: string | null;
+  /** When the newest does — back to a full allowance. */
+  fullyFreeAt: string | null;
+  sendWindow: { startHour: number; endHour: number; timezone: string };
   halt: { reason: string | null; haltedAt: string; campaignName: string } | null;
   /** True for ReceptionMate staff — garages can see the limit but not change it. */
   canEditLimit: boolean;

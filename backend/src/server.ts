@@ -39,6 +39,7 @@ import publicStatsRouter from './routes/public-stats.js';
 import publicLeadRouter from './routes/public-lead.js';
 import agreementsRouter from './routes/agreements.js';
 import supportRouter from './routes/support.js';
+import opsTasksRouter from './routes/opsTasks.js';
 import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
@@ -46,6 +47,9 @@ import { startArrearsSweep } from './utils/arrears.js';
 import billingStatusRouter from './routes/billing-status.js';
 import outboundCallsRouter from './routes/outbound-calls.js';
 import publicProspectRouter from './routes/public-prospect.js';
+import connectSignupRouter from './routes/connect-signup.js';
+import connectBillingRouter from './routes/connect-billing.js';
+import { initConnectTrialCron } from './utils/connectTrialCron.js';
 
 const app = express();
 
@@ -135,9 +139,12 @@ app.use('/api', usersRouter);
 app.use('/api', publicSignupRouter);
 app.use('/api', publicStatsRouter);
 app.use('/api', publicLeadRouter);
+app.use('/api/public/connect-signup', connectSignupRouter);
+app.use('/api', connectBillingRouter);
 app.use('/api', livekitDemoRouter);
 app.use('/api', agreementsRouter);
 app.use('/api', supportRouter);
+app.use('/api', opsTasksRouter);
 app.use('/api', deviceTokensRouter);
 app.use('/api', templatesRouter);
 app.use('/api/webhooks', metaWhatsappWebhook);
@@ -156,6 +163,8 @@ app.listen(port, '0.0.0.0', () => {
 
   // Initialize scheduled report jobs
   initializeScheduledReports();
+  // Connect trial -> paid: ends expired/over-cap trials and puts them behind the card paywall.
+  initConnectTrialCron();
 
   // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.
   startArrearsSweep();

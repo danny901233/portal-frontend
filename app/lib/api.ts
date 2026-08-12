@@ -871,3 +871,96 @@ export const fetchVoiceToken = async (
   const { data } = await api.get(`/api/outbound-calls/token`, { params: { garageId } });
   return data;
 };
+// Ops-tasks board (staff-only)
+// ---------------------------------------------------------------------------
+
+export type OpsTaskCadence = 'daily' | 'weekly' | 'monthly' | 'project';
+export type OpsTaskStatus = 'open' | 'done';
+
+export interface OpsTaskUserRef {
+  id: string;
+  email: string;
+}
+
+export interface OpsTask {
+  id: string;
+  title: string;
+  instructions: string | null;
+  cadence: OpsTaskCadence;
+  tags: string[];
+  status: OpsTaskStatus;
+  notes: string | null;
+  assigneeId: string | null;
+  assignee: OpsTaskUserRef | null;
+  createdById: string | null;
+  createdBy: OpsTaskUserRef | null;
+  dueDate: string | null;
+  sortOrder: number;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OpsStaffUser {
+  id: string;
+  email: string;
+}
+
+export const fetchOpsTasks = async (filters?: {
+  cadence?: OpsTaskCadence;
+  status?: OpsTaskStatus;
+  assigneeId?: string;
+  tag?: string;
+}): Promise<{ tasks: OpsTask[] }> => {
+  const { data } = await api.get('/api/admin/tasks', { params: filters });
+  return data;
+};
+
+export const createOpsTask = async (input: {
+  title: string;
+  instructions?: string | null;
+  cadence: OpsTaskCadence;
+  tags: string[];
+  assigneeId?: string | null;
+  dueDate?: string | null;
+}): Promise<{ task: OpsTask }> => {
+  const { data } = await api.post('/api/admin/tasks', input);
+  return data;
+};
+
+export const patchOpsTask = async (
+  id: string,
+  patch: Partial<{
+    title: string;
+    instructions: string | null;
+    cadence: OpsTaskCadence;
+    tags: string[];
+    status: OpsTaskStatus;
+    notes: string | null;
+    assigneeId: string | null;
+    dueDate: string | null;
+    sortOrder: number;
+  }>,
+): Promise<{ task: OpsTask }> => {
+  const { data } = await api.patch(`/api/admin/tasks/${id}`, patch);
+  return data;
+};
+
+export const toggleOpsTask = async (id: string): Promise<{ task: OpsTask }> => {
+  const { data } = await api.post(`/api/admin/tasks/${id}/toggle`);
+  return data;
+};
+
+export const deleteOpsTask = async (id: string): Promise<void> => {
+  await api.delete(`/api/admin/tasks/${id}`);
+};
+
+export const resetDailyOpsTasks = async (): Promise<{ reopened: number }> => {
+  const { data } = await api.post('/api/admin/tasks/reset-daily');
+  return data;
+};
+
+export const fetchOpsStaff = async (): Promise<{ staff: OpsStaffUser[] }> => {
+  const { data } = await api.get('/api/admin/staff');
+  return data;
+};

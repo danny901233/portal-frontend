@@ -6,6 +6,9 @@
  *                   ZERO calls for longer than its threshold (a fleet-wide outage / backend down).
  *   2. ROUTING    — alert if any active garage is mis-routed to a LiveKit account that has no agent
  *                   for it (exactly the Speedy Spanners failure: assist garage pointing at account 1).
+ *   3. RESPONSE   — alert if a fleet is ANSWERING calls but not RESPONDING: the caller speaks and gets
+ *                   only the greeting with no LLM turn (greet-then-silence). Catches bad agent deploys /
+ *                   LLM faults that the heartbeat misses because calls still connect and log normally.
  *
  * Alerts go out ONCE per issue (email + SMS), with a "recovered" message when it clears, using a
  * small state file so we don't spam. Scheduled by pm2 cron-restart every 5 minutes.
@@ -27,6 +30,12 @@ const TEST_MODE = process.argv.includes('--test');
 
 // Fleet-wide silence (minutes) during business hours that counts as "down".
 const SILENCE_MIN = { automate: 45, assist: 90 };
+
+// Response-health: a caller-engaged call that gets only the greeting and logs no LLM = a silent failure.
+// Alert when a fleet crosses BOTH an absolute count and a share of engaged calls within the window.
+const RESP_WINDOW_MIN = 20;
+const RESP_MIN_FAILS = 3;
+const RESP_FAIL_RATIO = 0.6;
 
 // LiveKit account each garage SHOULD land on, by agent type. assist -> account 2 (the Assist agent);
 // automate/tyresoft -> account 1. routesToAccount2 mirrors the portal voice webhook's logic.
@@ -97,6 +106,50 @@ async function checkRouting() {
   return issues;
 }
 
+// A call "responded" if the agent took a real turn beyond the greeting OR any LLM model was billed.
+function callResponded(call) {
+  const t = Array.isArray(call.transcript) ? call.transcript : [];
+  const aiTurns = t.filter((x) => /agent|assistant/i.test(`${x.speaker || x.role || ''}`)).length;
+  const hasLLM = (call.metrics?.usage || []).some((u) => /gpt|gemma|gemini|claude|4o|4\.1/i.test(u.model || ''));
+  return aiTurns >= 2 || hasLLM;
+}
+// The caller actually said something — so no-response is a real failure, not an instant hang-up.
+function callerEngaged(call) {
+  const t = Array.isArray(call.transcript) ? call.transcript : [];
+  return t.some((x) => !/agent|assistant/i.test(`${x.speaker || x.role || ''}`) && `${x.text || ''}`.trim().length > 3);
+}
+
+// RESPONSE health — the fleet is answering calls but the agent isn't replying (greet-then-silence).
+// The heartbeat can't see this: calls still connect and log, so volume looks normal.
+async function checkResponseHealth() {
+  const issues = [];
+  const cfgs = await prisma.agentConfiguration.findMany({ select: { garageId: true, agentType: true } });
+  const garages = await prisma.garage.findMany({ select: { id: true, name: true } });
+  const nameById = new Map(garages.map((g) => [g.id, g.name]));
+  const byType = { assist: [], automate: [] };
+  for (const c of cfgs) (byType[c.agentType === 'assist' ? 'assist' : 'automate']).push(c.garageId);
+  const since = new Date(Date.now() - RESP_WINDOW_MIN * 60000);
+
+  for (const fleet of ['assist', 'automate']) {
+    const ids = byType[fleet];
+    if (!ids.length) continue;
+    const calls = await prisma.call.findMany({
+      where: { garageId: { in: ids }, createdAt: { gte: since } },
+      select: { garageId: true, transcript: true, metrics: true },
+    });
+    const engaged = calls.filter(callerEngaged);
+    const silent = engaged.filter((c) => !callResponded(c));
+    if (engaged.length >= RESP_MIN_FAILS && silent.length >= RESP_MIN_FAILS && silent.length >= engaged.length * RESP_FAIL_RATIO) {
+      const names = [...new Set(silent.map((c) => nameById.get(c.garageId) || c.garageId))].slice(0, 4);
+      issues.push({
+        key: `silent:${fleet}`,
+        msg: `${fleet.toUpperCase()} agents ANSWERING but NOT RESPONDING — ${silent.length}/${engaged.length} calls in the last ${RESP_WINDOW_MIN} min had the caller speak but got only a greeting (no LLM turn). Likely a bad agent deploy or LLM/tool fault. Garages: ${names.join(', ')}.`,
+      });
+    }
+  }
+  return issues;
+}
+
 // ---- state ----
 function loadState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return {}; }
@@ -153,15 +206,17 @@ async function main() {
 
   // Heartbeat only judged during business hours; outside hours, carry prior heartbeat state untouched
   // so we don't fire false "down"/"recovered" pings overnight.
-  let heartbeat;
+  let heartbeat, responseHealth;
   if (inBusinessHours()) {
     heartbeat = await checkHeartbeat();
+    responseHealth = await checkResponseHealth();
   } else {
     heartbeat = Object.entries(prev).filter(([k]) => k.startsWith('heartbeat:')).map(([key, msg]) => ({ key, msg }));
+    responseHealth = Object.entries(prev).filter(([k]) => k.startsWith('silent:')).map(([key, msg]) => ({ key, msg }));
   }
 
   const current = {};
-  [...heartbeat, ...routing].forEach((i) => { current[i.key] = i.msg; });
+  [...heartbeat, ...responseHealth, ...routing].forEach((i) => { current[i.key] = i.msg; });
 
   const newIssues = Object.entries(current).filter(([k]) => !(k in prev));
   const resolved = Object.keys(prev).filter((k) => !(k in current));

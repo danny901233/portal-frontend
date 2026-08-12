@@ -25,6 +25,8 @@ const leadSchema = z.object({
   // When present, moves the prospect's existing Abandoned-checkout opportunity to
   // "Enquiry Received & Demo Links sent" instead of creating a fresh opportunity.
   prospectId: z.string().trim().max(80).optional(),
+  // Google Ads click id from the marketing site — see public-signup.ts.
+  gclid: z.string().trim().max(200).optional(),
 });
 
 const PRIMARY_TAG = process.env.GHL_LEAD_TAG || 'website-lead';
@@ -38,7 +40,7 @@ router.post('/public/lead', async (req: Request, res: Response) => {
     return res.status(400).json({ ok: false, error: 'Invalid input', issues: parsed.error.flatten() });
   }
 
-  const { name, companyName, email, phone, source, notes, prospectId } = parsed.data;
+  const { name, companyName, email, phone, source, notes, prospectId, gclid } = parsed.data;
 
   // Always notify the team by email + SMS — gives us a fallback record even
   // if HighLevel is down for any reason.
@@ -60,7 +62,7 @@ router.post('/public/lead', async (req: Request, res: Response) => {
         if (pending.ghlOpportunityId && ENQUIRY_STAGE_ID) {
           await updateOpportunity(pending.ghlOpportunityId, { stageId: ENQUIRY_STAGE_ID });
         }
-        await prisma.pendingSignup.update({ where: { id: pending.id }, data: { status: 'enquiry', name, email: email.toLowerCase(), contactPhone: phone } });
+        await prisma.pendingSignup.update({ where: { id: pending.id }, data: { status: 'enquiry', name, email: email.toLowerCase(), contactPhone: phone, gclid: pending.gclid ?? gclid ?? null } });
         return res.json({ ok: true, syncedToCrm: true, opportunityId: pending.ghlOpportunityId });
       }
     } catch (err) {

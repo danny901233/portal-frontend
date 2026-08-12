@@ -447,6 +447,17 @@ export default function MessagesPage() {
     }
   };
 
+  // Deep link from elsewhere in the portal — e.g. an outbound campaign's results table, where
+  // "Booked" should be able to take you to the conversation that produced the booking.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const wanted = new URLSearchParams(window.location.search).get('conversation');
+    if (!wanted || selectedConversation?.id === wanted) return;
+    void fetchConversationDetail(wanted);
+    // Once only: re-running on every conversation change would fight the user's own clicks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fetchConversationDetail = async (conversationId: string) => {
     try {
       const token = getSessionToken();

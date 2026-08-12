@@ -177,6 +177,9 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
           },
         });
         sent++;
+        // Same drip as campaign sends — see outboundSend.ts. A reminder sweep is business-
+        // initiated template traffic and looks exactly like a bulk run if it goes out at once.
+        await new Promise((r) => setTimeout(r, 3_000 + Math.floor(Math.random() * 2_000)));
       } catch (err: any) {
         const code = err?.response?.data?.error?.code;
         console.error(`[REMINDERS] ${garage.name}: send failed for ${c.phone} (code ${code}):`, err?.response?.data?.error?.message || err?.message);

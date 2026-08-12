@@ -17,13 +17,14 @@ import {
 import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTemplate } from '../lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import TemplatesPage from '../templates/page';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-slate-500/20 text-slate-600',
   sending: 'bg-yellow-500/20 text-yellow-300',
   sent: 'bg-green-500/20 text-green-300',
   processed: 'bg-green-500/20 text-green-300',
-  failed: 'bg-red-500/20 text-red-300',
+  failed: 'bg-red-50 text-red-700 ring-1 ring-red-200',
   queued: 'bg-blue-500/20 text-blue-300',
 };
 
@@ -152,9 +153,42 @@ export default function OutboundPage() {
       title: 'Outbound Messaging',
       subtitle: 'Upload a customer list and send personalised MOT or service reminders via SMS or WhatsApp. Customers who reply will be handled automatically by your AI agent.',
       newCampaign: 'New Campaign',
+      howTitle: 'How outbound works',
+      howHide: 'Hide',
+      howShow: 'Show me how',
+      howSteps: [
+        {
+          h: '1. Get a template approved',
+          b: 'WhatsApp only lets you start a conversation with a template Meta has approved. Two are already drafted for you above \u2014 MOT and service. Submit them and approval usually lands within a few hours. SMS needs no approval.',
+        },
+        {
+          h: '2. Bring in your customers',
+          b: 'Upload a CSV from your DMS (customer_name, phone, registration, mot_due_date, service_due_date), or pull them straight from Garage Hive. Upload as far ahead as your system will export \u2014 the whole book is fine. Nobody is messaged until their own due date is close.',
+        },
+        {
+          h: '3. Choose the type',
+          b: 'Reminders are chased at 30, 14 and 3 days before the due date, and stop the moment someone replies or books. A one-off \u2014 an offer, an announcement \u2014 goes out once and is never chased.',
+        },
+        {
+          h: '4. Replies handle themselves',
+          b: 'Your AI agent answers replies, books the job and stops the remaining reminders. You only get involved when someone asks for a person \u2014 those land in Messages, flagged.',
+        },
+      ],
+      howFooter: 'Opt-outs are permanent and shared across every campaign \u2014 once someone says stop, they are never messaged again.',
       campaignName: 'Campaign name',
       campaignNamePlaceholder: 'e.g. March MOT Reminders',
       channel: 'Channel',
+      campaignKind: 'Campaign type',
+      kindReminder: 'MOT / service reminders',
+      kindReminderBody: 'Each customer is messaged before THEIR due date, and chased again if they don\u2019t reply.',
+      kindOneoff: 'One-off message',
+      kindOneoffBody: 'Sent once. Offers, announcements, opening hours \u2014 anything you would not chase.',
+      followUps: 'Follow-ups',
+      followUpsHelp: 'Days before the due date to message. Anyone who replies or books is taken off the rest.',
+      followUpsNone: 'Pick at least one follow-up.',
+      stageDays: (d: number) => `${d} days before`,
+      stageDay: (d: number) => `${d} days before`,
+      oneoffNote: 'No follow-ups \u2014 this goes out once.',
       messageTemplate: 'Message template',
       templateOptional: '(optional — uses default reminder if not selected)',
       useDefault: '— Use default reminder message —',
@@ -248,9 +282,42 @@ export default function OutboundPage() {
       title: 'Messagerie sortante',
       subtitle: 'Importez une liste de clients et envoyez des rappels personnalisés de contrôle technique ou d’entretien par SMS ou WhatsApp. Les clients qui répondent sont pris en charge automatiquement par votre agent IA.',
       newCampaign: 'Nouvelle campagne',
+      howTitle: 'Comment fonctionne la messagerie sortante',
+      howHide: 'Masquer',
+      howShow: 'Comment \u00e7a marche',
+      howSteps: [
+        {
+          h: '1. Faites approuver un mod\u00e8le',
+          b: 'WhatsApp n\u2019autorise l\u2019ouverture d\u2019une conversation qu\u2019avec un mod\u00e8le approuv\u00e9 par Meta. Deux sont d\u00e9j\u00e0 pr\u00e9par\u00e9s ci-dessus \u2014 contr\u00f4le technique et entretien. Soumettez-les : l\u2019approbation arrive g\u00e9n\u00e9ralement en quelques heures. Le SMS ne demande aucune approbation.',
+        },
+        {
+          h: '2. Importez vos clients',
+          b: 'Importez un CSV depuis votre logiciel (customer_name, phone, registration, mot_due_date, service_due_date), ou r\u00e9cup\u00e9rez-les directement depuis Garage Hive. Importez aussi loin que votre syst\u00e8me l\u2019autorise \u2014 tout le fichier client convient. Personne n\u2019est contact\u00e9 avant que sa propre \u00e9ch\u00e9ance approche.',
+        },
+        {
+          h: '3. Choisissez le type',
+          b: 'Les rappels sont relanc\u00e9s \u00e0 30, 14 et 3 jours avant l\u2019\u00e9ch\u00e9ance, et s\u2019arr\u00eatent d\u00e8s qu\u2019une personne r\u00e9pond ou r\u00e9serve. Un message ponctuel \u2014 une offre, une annonce \u2014 part une seule fois et n\u2019est jamais relanc\u00e9.',
+        },
+        {
+          h: '4. Les r\u00e9ponses se g\u00e8rent seules',
+          b: 'Votre agent IA r\u00e9pond, r\u00e9serve le rendez-vous et arr\u00eate les rappels restants. Vous n\u2019intervenez que si le client demande un humain \u2014 ces conversations arrivent dans Messages, signal\u00e9es.',
+        },
+      ],
+      howFooter: 'Les d\u00e9sabonnements sont d\u00e9finitifs et partag\u00e9s entre toutes les campagnes \u2014 une fois qu\u2019une personne dit stop, elle n\u2019est plus jamais contact\u00e9e.',
       campaignName: 'Nom de la campagne',
       campaignNamePlaceholder: 'ex. Rappels contrôle technique de mars',
       channel: 'Canal',
+      campaignKind: 'Type de campagne',
+      kindReminder: 'Rappels contrôle technique / entretien',
+      kindReminderBody: 'Chaque client est contacté avant SA date d\u2019échéance, puis relancé s\u2019il ne répond pas.',
+      kindOneoff: 'Message ponctuel',
+      kindOneoffBody: 'Envoyé une seule fois. Offres, annonces, horaires \u2014 tout ce que vous ne relanceriez pas.',
+      followUps: 'Relances',
+      followUpsHelp: 'Jours avant l\u2019échéance. Toute personne qui répond ou réserve est retirée des relances suivantes.',
+      followUpsNone: 'Choisissez au moins une relance.',
+      stageDays: (d: number) => `${d} jours avant`,
+      stageDay: (d: number) => `${d} jours avant`,
+      oneoffNote: 'Aucune relance \u2014 envoi unique.',
       messageTemplate: 'Modèle de message',
       templateOptional: '(facultatif — utilise le rappel par défaut si non sélectionné)',
       useDefault: '— Utiliser le message de rappel par défaut —',
@@ -342,6 +409,11 @@ export default function OutboundPage() {
 
   const [campaignName, setCampaignName] = useState('');
   const [channel, setChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
+  // Reminders are chased; one-offs are not. Defaulting to 'reminder' matches what almost every
+  // garage uploads, but an offer campaign must be switched over or the customer gets it 3 times.
+  const [showHow, setShowHow] = useState(true);
+  const [campaignType, setCampaignType] = useState<'reminder' | 'oneoff'>('reminder');
+  const [reminderStages, setReminderStages] = useState<number[]>([30, 14, 3]);
   const [source, setSource] = useState<'csv' | 'garagehive'>('csv');
   const [ghDays, setGhDays] = useState(30);
   const [ghLoading, setGhLoading] = useState(false);
@@ -500,6 +572,8 @@ export default function OutboundPage() {
   const resetForm = () => {
     setCampaignName('');
     setChannel('whatsapp');
+    setCampaignType('reminder');
+    setReminderStages([30, 14, 3]);
     setSource('csv');
     setGhDays(30);
     setGhSkipped([]);
@@ -520,10 +594,16 @@ export default function OutboundPage() {
       showToast('error', c.selectTemplate);
       return;
     }
+    if (campaignType === 'reminder' && reminderStages.length === 0) {
+      showToast('error', c.followUpsNone);
+      return;
+    }
     createMutation.mutate({
       garageId,
       name: campaignName.trim(),
       channel,
+      campaignType,
+      reminderStages: campaignType === 'reminder' ? reminderStages : [],
       contacts: preview,
       ...(selectedTemplateId && { messageTemplateId: selectedTemplateId, variableMapping }),
     });
@@ -558,6 +638,13 @@ export default function OutboundPage() {
 
   return (
     <div className="space-y-8">
+      {/* Templates first: a campaign can only send an APPROVED template, so the thing that blocks
+          sending belongs above the thing that sends. Previously these were separate nav items and
+          nothing connected them. */}
+      <section id="templates" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <TemplatesPage embedded />
+      </section>
+
       {/* Toast */}
       {toast && (
         <div
@@ -575,6 +662,34 @@ export default function OutboundPage() {
         <p className="mt-1 text-sm text-slate-500">
           {c.subtitle}
         </p>
+      </div>
+
+      {/* What to actually do. Garages arrive here with a customer list and no idea that WhatsApp
+          needs an approved template first, so the order of the steps is the point. */}
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <h2 className="text-sm font-semibold text-blue-900">{c.howTitle}</h2>
+          <button
+            type="button"
+            onClick={() => setShowHow((v) => !v)}
+            className="shrink-0 text-xs font-medium text-blue-700 underline hover:text-blue-900"
+          >
+            {showHow ? c.howHide : c.howShow}
+          </button>
+        </div>
+        {showHow && (
+          <>
+            <ol className="mt-3 grid gap-3 sm:grid-cols-2">
+              {c.howSteps.map((step) => (
+                <li key={step.h} className="rounded-lg bg-white/70 p-3">
+                  <p className="text-xs font-semibold text-slate-900">{step.h}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">{step.b}</p>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-3 text-xs text-blue-800">{c.howFooter}</p>
+          </>
+        )}
       </div>
 
       {/* New Campaign */}
@@ -608,6 +723,74 @@ export default function OutboundPage() {
           </div>
         </div>
 
+        {/* Campaign type: this is what decides whether the follow-up sweep ever touches these
+            contacts. An offer sent three times is spam, and customers report it. */}
+        <div className="mt-4">
+          <label className="mb-1 block text-xs font-medium text-slate-500">{c.campaignKind}</label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {([
+              { id: 'reminder' as const, title: c.kindReminder, body: c.kindReminderBody },
+              { id: 'oneoff' as const, title: c.kindOneoff, body: c.kindOneoffBody },
+            ]).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setCampaignType(opt.id)}
+                className={cn(
+                  'rounded-lg border p-3 text-left transition-colors',
+                  campaignType === opt.id
+                    ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                    : 'border-slate-300 bg-white hover:border-slate-400',
+                )}
+              >
+                <span className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                  <span
+                    className={cn(
+                      'inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2',
+                      campaignType === opt.id ? 'border-blue-600 bg-blue-600' : 'border-slate-400 bg-white',
+                    )}
+                  />
+                  {opt.title}
+                </span>
+                <span className="mt-1 block text-xs text-slate-500">{opt.body}</span>
+              </button>
+            ))}
+          </div>
+
+          {campaignType === 'reminder' ? (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-600">{c.followUps}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[60, 30, 14, 7, 3, 1].map((d) => {
+                  const on = reminderStages.includes(d);
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() =>
+                        setReminderStages((prev) =>
+                          prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((x, y) => y - x),
+                        )
+                      }
+                      className={cn(
+                        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                        on
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400',
+                      )}
+                    >
+                      {c.stageDays(d)}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-slate-500">{c.followUpsHelp}</p>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">{c.oneoffNote}</p>
+          )}
+        </div>
+
         {/* Template selector (WhatsApp only) */}
         {channel === 'whatsapp' && (
           <div className="mt-4">
@@ -633,7 +816,7 @@ export default function OutboundPage() {
             {approvedTemplates.length === 0 && (
               <p className="mt-1 text-xs text-slate-500">
                 {c.noApprovedTemplates}{' '}
-                <a href="/templates" className="text-blue-400 hover:underline">{c.createApprove}</a>{' '}
+                <a href="#templates" className="text-blue-500 hover:underline">{c.createApprove}</a>{' '}
                 {c.toUseCustom}
               </p>
             )}
@@ -863,7 +1046,7 @@ export default function OutboundPage() {
             type="file"
             accept=".csv,text/csv"
             onChange={handleFileChange}
-            className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1 file:text-xs file:text-slate-700 hover:border-slate-500"
+            className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500 file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white hover:border-slate-500"
           />
           {parseError && (
             <p className="mt-2 text-xs text-red-400">{parseError}</p>

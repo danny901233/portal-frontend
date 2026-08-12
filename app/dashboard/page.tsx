@@ -14,6 +14,7 @@ import {
 } from '../lib/callTags';
 import MessageStatsWidget from '../components/MessageStatsWidget';
 import SmsStatsWidget from '../components/SmsStatsWidget';
+import ConnectSetupChecklist from '../components/ConnectSetupChecklist';
 import { getSessionToken } from '../lib/auth';
 import { useLang } from '@/app/i18n/LocaleProvider';
 
@@ -707,6 +708,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Connect setup — finish what you've bought before being sold anything else. */}
+      <ConnectSetupChecklist garageId={selectedGarageId ?? null} />
+
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">{c.title}</h1>

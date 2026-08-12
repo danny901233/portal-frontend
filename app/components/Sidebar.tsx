@@ -88,7 +88,9 @@ const baseNavigation: NavItem[] = [
   { name: 'Calls', tKey: 'nav.calls', href: '/calls', icon: <PhoneIcon /> },
   { name: 'Messages', tKey: 'nav.messages', href: '/messages', icon: <ChatIcon /> },
   { name: 'Outbound', tKey: 'nav.outbound', href: '/outbound', icon: <SendIcon />, requiresMessaging: true },
-  { name: 'Templates', tKey: 'nav.templates', href: '/templates', icon: <TemplateIcon />, requiresMessaging: true },
+  // Templates moved to the top of Outbound — a template only exists to be sent, and split
+  // across two nav items nothing told you it still needed Meta's approval. /templates
+  // still works as a direct URL.
   { name: 'Agent Configurations', tKey: 'nav.agentConfigurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
   { name: 'Team', tKey: 'nav.team', href: '/team', icon: <UsersIcon />, requiresManager: true },
   { name: 'Observability', tKey: 'nav.observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },

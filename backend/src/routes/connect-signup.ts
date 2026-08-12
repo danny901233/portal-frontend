@@ -7,6 +7,8 @@ import twilio from 'twilio';
 import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
 import { pushSignupToHighlevel, updateContact, updateOpportunity, TRIAL_LIVE_STAGE_ID } from '../services/highlevel.js';
+import { sendOpsSms } from '../utils/opsAlerts.js';
+import { sendEmail } from '../utils/email.js';
 
 // ---------------------------------------------------------------------------
 // Self-serve "Connect-only" signup (WhatsApp messaging, no voice tier).
@@ -342,6 +344,98 @@ router.post('/verify', async (req, res) => {
     });
 
     console.log(`[CONNECT_SIGNUP] created Connect trial: ${email} -> ${businessName} (garage=${garage.id})`);
+
+    // Seed the two reminder templates every garage needs, as drafts. WhatsApp templates must be
+    // approved by Meta before they can be sent, and writing one from scratch is the step new
+    // customers stall on — so ship the wording and let them just press Submit. UTILITY category
+    // because these are transactional reminders to existing customers, which Meta approves far
+    // more readily than MARKETING. Non-fatal: a template failure must not fail the signup.
+    void (async () => {
+      // Five variables, in this order: 1 customer name, 2 agent name, 3 branch name,
+      // 4 registration, 5 due date. Whatever sends the reminder must fill them in that order.
+      const templates = [
+        {
+          name: 'mot_reminder',
+          bodyText:
+            'Hi {{1}}, it\'s {{2}} from {{3}}. Your car\'s {{4}} MOT is due on {{5}}. Would you like to get that booked in with me? If you\'ve already booked it in, just let me know and I\'ll take you off the reminders.',
+          variableSamples: {
+            '{{1}}': 'John', '{{2}}': 'Leah', '{{3}}': businessName,
+            '{{4}}': 'AB12 CDE', '{{5}}': '15 March',
+          },
+        },
+        {
+          // Same shape as the MOT one so both read consistently to the customer.
+          name: 'service_reminder',
+          bodyText:
+            'Hi {{1}}, it\'s {{2}} from {{3}}. Your car\'s {{4}} service is due on {{5}}. Would you like to get that booked in with me? If you\'ve already booked it in, just let me know and I\'ll take you off the reminders.',
+          variableSamples: {
+            '{{1}}': 'John', '{{2}}': 'Leah', '{{3}}': businessName,
+            '{{4}}': 'AB12 CDE', '{{5}}': '15 March',
+          },
+        },
+      ];
+      for (const t of templates) {
+        try {
+          await prisma.messageTemplate.create({
+            data: {
+              garageId: garage.id,
+              name: t.name,
+              category: 'UTILITY',
+              language: 'en_GB',
+              headerType: 'none',
+              bodyText: t.bodyText,
+              variableSamples: t.variableSamples as any,
+              footerText: 'Reply STOP to opt out.',
+              buttonType: 'none',
+              status: 'draft',
+            },
+          });
+          console.log(`[CONNECT_SIGNUP] seeded template ${t.name} for ${garage.id}`);
+        } catch (e: any) {
+          // Unique on (garageId, name) — ignore if it somehow already exists.
+          console.error(`[CONNECT_SIGNUP] seeding template ${t.name} failed:`, e?.message);
+        }
+      }
+    })();
+
+    // Tell the team. Until now a Connect signup produced NOTHING internally — no SMS, no email,
+    // only a HighLevel opportunity nobody was watching, so Kestrels signed up on 2026-08-12 and
+    // the first anyone knew was noticing it in the portal by chance. Fire-and-forget so a failed
+    // alert can never break a signup that has already succeeded.
+    void (async () => {
+      const trialEnds = garage.trialEndDate
+        ? garage.trialEndDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+        : 'unknown';
+      const summary = `New Connect signup: ${businessName} — ${name} (${email}, ${mobile}). Free month ends ${trialEnds}.`;
+      try {
+        await sendOpsSms(summary);
+      } catch (e) {
+        console.error('[CONNECT_SIGNUP] ops SMS failed:', e);
+      }
+      try {
+        const to = (process.env.OPS_ALERT_EMAIL_TO || process.env.LEAD_ALERT_EMAIL_TO || '')
+          .split(',').map((s) => s.trim()).filter(Boolean);
+        if (to.length) {
+          await sendEmail({
+            to,
+            subject: `New Connect signup — ${businessName}`,
+            html: `<h2>New Connect free trial</h2>
+<table cellpadding="6">
+<tr><td><strong>Business</strong></td><td>${businessName}</td></tr>
+<tr><td><strong>Contact</strong></td><td>${name}</td></tr>
+<tr><td><strong>Email</strong></td><td>${email}</td></tr>
+<tr><td><strong>Mobile</strong></td><td>${mobile}</td></tr>
+<tr><td><strong>Free month ends</strong></td><td>${trialEnds}</td></tr>
+<tr><td><strong>Garage id</strong></td><td>${garage.id}</td></tr>
+</table>
+<p>No card was taken — this is the card-free Connect trial.</p>`,
+            text: summary,
+          });
+        }
+      } catch (e) {
+        console.error('[CONNECT_SIGNUP] ops email failed:', e);
+      }
+    })();
 
     // Fire-and-forget: create a HighLevel opportunity at the "Free trial live" stage and
     // store its id on the garage. When the trial converts (Stripe webhook), it's promoted

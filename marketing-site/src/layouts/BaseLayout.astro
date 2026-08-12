@@ -18,6 +18,14 @@ const htmlLang = lang === 'fr' ? 'fr' : 'en-GB';
 const frHref = altLangHref(Astro.url, 'fr');
 const enHref = altLangHref(Astro.url, 'en');
 
+// Canonical URL. The site answers on BOTH www and the apex with no redirect between
+// them, so Google sees two copies of every page and splits ranking signals across
+// them. www is canonical because that's where the Google Ads final URLs point, so
+// paid traffic doesn't take a redirect hop. Note this tag fixes the SEO half only —
+// the origin split still breaks localStorage (the rm_gclid click id is per-origin),
+// which needs an actual host redirect at Cloudflare.
+const canonicalHref = new URL(Astro.url.pathname, 'https://www.receptionmate.co.uk').href;
+
 const defaultTitle = lang === 'fr'
   ? 'ReceptionMate — réceptionniste IA pour les garages'
   : 'ReceptionMate — AI receptionist for UK garages';
@@ -46,6 +54,7 @@ const footerYear = 2026;
 
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalHref} />
 
     <meta property="og:type" content="website" />
     <meta property="og:title" content={title} />

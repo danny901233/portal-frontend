@@ -495,11 +495,20 @@ const faqSchema = {
 
     function startSignup(name, addr, placeId) {
       $results.classList.add('hidden');
-      // Enrich a prospect (abandoned-checkout opportunity) the moment a garage is chosen.
+      // Enrich a prospect (abandoned-checkout opportunity) the moment a garage is chosen,
+      // and KEEP the prospectId: passing it through to the signup lets the backend move
+      // this same HighLevel opportunity to "trial live" instead of creating a second one
+      // for the same garage. Mirrors get-started.astro's pickBusiness().
       try {
         fetch(PROSPECT_ENDPOINT, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined, source: LEAD_SOURCE }),
+        }).then((r) => r.json()).then((d) => {
+          if (d && d.prospectId) {
+            // The modal may already be open — tell it the id as soon as we have it.
+            window.__rmProspectId = d.prospectId;
+            window.dispatchEvent(new CustomEvent('rm:connect-prospect', { detail: { prospectId: d.prospectId } }));
+          }
         }).catch(() => {});
       } catch (e) {}
       // Open the prefilled signup to capture contact details.

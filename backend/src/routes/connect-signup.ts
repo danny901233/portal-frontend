@@ -112,6 +112,9 @@ const verifySchema = startSchema.extend({
   password: z.string().min(8).max(200),
   googlePlaceId: z.string().trim().max(200).optional(),
   address: z.string().trim().max(500).optional(),
+  // PendingSignup id from the /mot garage picker's prospect call. When present we promote
+  // that existing HighLevel opportunity instead of creating a second one for the same garage.
+  prospectId: z.string().trim().max(80).optional(),
 });
 
 // --- Step 1: validate + send the SMS OTP -----------------------------------
@@ -186,7 +189,7 @@ router.post('/verify', async (req, res) => {
   if (!VERIFY_SID) {
     return res.status(500).json({ success: false, error: 'verify_not_configured' });
   }
-  const { businessName, name, code, password, googlePlaceId, address } = parsed.data;
+  const { businessName, name, code, password, googlePlaceId, address, prospectId } = parsed.data;
   const email = parsed.data.email.toLowerCase();
   const mobile = toE164UK(parsed.data.mobile);
   if (!mobile) {
@@ -282,12 +285,35 @@ router.post('/verify', async (req, res) => {
     // to "Live and £££" with the £250 value. Non-fatal — signup succeeds even if HL is down.
     void (async () => {
       try {
-        const { opportunityId } = await pushSignupToHighlevel({
-          name, email, phone: mobile, companyName: businessName,
-          source: 'website-mot-connect', tags: ['website-signup', 'connect', 'trial'],
-          opportunityName: `${businessName} — Connect trial`,
-          monetaryValueGbp: 250, kind: 'signup',
-        });
+        // If the /mot garage picker already created an abandoned-checkout opportunity for this
+        // garage, PROMOTE it rather than pushing a second one — otherwise HighLevel ends up with
+        // two opportunities for the same business (one stranded at abandoned-checkout forever).
+        let opportunityId: string | null = null;
+        if (prospectId) {
+          const prospect = await prisma.pendingSignup.findUnique({
+            where: { id: prospectId },
+            select: { id: true, ghlOpportunityId: true },
+          });
+          if (prospect?.ghlOpportunityId) {
+            opportunityId = prospect.ghlOpportunityId;
+            console.log(`[CONNECT_SIGNUP] promoting existing HL opportunity ${opportunityId} from prospect ${prospect.id}`);
+          }
+          // Close the prospect row out either way, so it stops looking like an open lead.
+          if (prospect) {
+            await prisma.pendingSignup.update({
+              where: { id: prospect.id },
+              data: { status: 'completed', product: 'connect', email, name, createdGarageId: garage.id },
+            }).catch((e) => console.error('[CONNECT_SIGNUP] prospect close failed:', e));
+          }
+        }
+        if (!opportunityId) {
+          ({ opportunityId } = await pushSignupToHighlevel({
+            name, email, phone: mobile, companyName: businessName,
+            source: 'website-mot-connect', tags: ['website-signup', 'connect', 'trial'],
+            opportunityName: `${businessName} — Connect trial`,
+            monetaryValueGbp: 250, kind: 'signup',
+          }));
+        }
         if (opportunityId) {
           if (TRIAL_LIVE_STAGE_ID) {
             await updateOpportunity(opportunityId, { stageId: TRIAL_LIVE_STAGE_ID, monetaryValueGbp: 250 }).catch(() => {});

@@ -171,6 +171,10 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
       if (detail && detail.company) $('cs-garage').value = detail.company;
       data.placeId = (detail && detail.placeId) || undefined;
       data.address = (detail && detail.address) || undefined;
+      // Set by the /mot garage picker's prospect call. Sending it with the signup lets the
+      // backend promote that SAME HighLevel opportunity rather than creating a second one.
+      // The prospect POST races the modal opening, so also listen for it arriving late.
+      data.prospectId = (detail && detail.prospectId) || window.__rmProspectId || undefined;
       modal.classList.remove('hidden'); modal.classList.add('flex');
       document.body.style.overflow = 'hidden';
       setTimeout(() => (detail && detail.company ? $('cs-name') : $('cs-garage')).focus(), 60);
@@ -178,6 +182,9 @@ const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/
     function close() { modal.classList.add('hidden'); modal.classList.remove('flex'); document.body.style.overflow = ''; }
 
     window.addEventListener('rm:connect-open', (e) => open(e.detail || {}));
+    window.addEventListener('rm:connect-prospect', (e) => {
+      if (e.detail && e.detail.prospectId) data.prospectId = e.detail.prospectId;
+    });
     $('cs-close').addEventListener('click', close);
     modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) close(); });

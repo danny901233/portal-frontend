@@ -113,6 +113,30 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
   };
 }
 
+/**
+ * Pacing. Meta will happily accept a few hundred template sends in under a minute, so nothing
+ * stops us firing the whole batch at once — but a brand-new WhatsApp number that sends 250 cold
+ * templates in 90 seconds is the exact shape of a spam run, and the quality rating drops on the
+ * first handful of "block" taps. Spreading the send does two things: it looks like a business
+ * messaging its customers, and it gives us time to notice a rate-limit error and stop.
+ */
+const SEND_GAP_MS = 3_000;
+/** Jitter so sends don't land on a metronome. */
+const SEND_GAP_JITTER_MS = 2_000;
+
+/**
+ * Warm-up ceiling for a number with little history, stricter than Meta's own tier limit.
+ * Anything over the ceiling is queued for tomorrow by the existing resume logic, so nothing is
+ * dropped — it just goes out over a few days instead of one afternoon.
+ */
+function warmupCeiling(everSent: number): number {
+  if (everSent < 50) return 50;      // first send from this number
+  if (everSent < 250) return 150;
+  return Number.POSITIVE_INFINITY;   // established — Meta's tier limit is the only cap
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** Run the actual per-contact send loop and finalise the campaign status. */
 export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number; total: number }> {
   const { campaign, garageName, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
@@ -130,7 +154,16 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
       updatedAt: { gte: twentyFourHoursAgo },
     },
   });
-  const availableQuota = Math.max(0, tierLimit - recentSentCount);
+  // How much this number has ever sent, which is what decides whether it is still warming up.
+  const everSent = await prisma.outboundContact.count({
+    where: { garageId: campaign.garageId, status: { in: ['sent', 'delivered', 'read', 'replied'] } },
+  });
+  const ceiling = warmupCeiling(everSent);
+  const effectiveLimit = Math.min(tierLimit, ceiling);
+  if (ceiling < tierLimit) {
+    console.log(`[OUTBOUND] Garage ${campaign.garageId} is warming up (${everSent} ever sent) — capping this batch at ${ceiling} rather than ${tierLimit}.`);
+  }
+  const availableQuota = Math.max(0, effectiveLimit - recentSentCount);
 
   if (availableQuota === 0) {
     console.log(`[OUTBOUND] Quota exhausted for garage ${campaign.garageId} (${recentSentCount} sent in 24h, limit ${tierLimit}). Queueing campaign ${campaign.id}.`);
@@ -208,6 +241,11 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
         data: { status: 'sent', messageSid },
       });
       sentCount++;
+
+      // Drip. Only between sends, so a one-contact campaign is still instant.
+      if (sentCount < availableQuota) {
+        await sleep(SEND_GAP_MS + Math.floor(Math.random() * SEND_GAP_JITTER_MS));
+      }
     } catch (err: unknown) {
       const metaError = (err as { response?: { data?: { error?: { message?: string; code?: number } } } })?.response?.data;
       const errorCode = metaError?.error?.code;
@@ -256,8 +294,35 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
   return { sent: sentCount, total: campaign.contacts.length };
 }
 
+/**
+ * A campaign left 'sending' with contacts still pending was interrupted — the process restarted
+ * mid-batch. Paced sends take ten-plus minutes, so this window is real, and nothing else would
+ * ever pick those contacts up: the resume path only looks at 'queued'. Anything stuck for over
+ * an hour is handed back to the queue.
+ */
+async function requeueStalledSends(): Promise<number> {
+  const stalled = await prisma.outboundCampaign.findMany({
+    where: {
+      status: 'sending',
+      updatedAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
+      contacts: { some: { status: 'pending' } },
+    },
+    select: { id: true, name: true },
+  });
+  for (const s of stalled) {
+    console.warn(`[OUTBOUND-CRON] Campaign ${s.name} (${s.id}) stalled mid-send — requeueing.`);
+    await prisma.outboundCampaign.update({
+      where: { id: s.id },
+      data: { status: 'queued', resumeAt: new Date() },
+    });
+  }
+  return stalled.length;
+}
+
 /** Process all queued campaigns whose resumeAt has passed. Called by the cron job. */
 export async function processQueuedCampaigns(): Promise<{ processed: number }> {
+  await requeueStalledSends();
+  // After the requeue, so anything just handed back is picked up on this same run.
   const now = new Date();
   const queuedCampaigns = await prisma.outboundCampaign.findMany({
     where: { status: 'queued', resumeAt: { lte: now } },

@@ -153,27 +153,14 @@ export default function OutboundPage() {
       title: 'Outbound Messaging',
       subtitle: 'Upload a customer list and send personalised MOT or service reminders via SMS or WhatsApp. Customers who reply will be handled automatically by your AI agent.',
       newCampaign: 'New Campaign',
-      howTitle: 'How outbound works',
-      howHide: 'Hide',
-      howShow: 'Show me how',
-      howSteps: [
-        {
-          h: '1. Get a template approved',
-          b: 'WhatsApp only lets you start a conversation with a template Meta has approved. Two are already drafted for you above \u2014 MOT and service. Submit them and approval usually lands within a few hours. SMS needs no approval.',
-        },
-        {
-          h: '2. Bring in your customers',
-          b: 'Upload a CSV from your DMS (customer_name, phone, registration, mot_due_date, service_due_date), or pull them straight from Garage Hive. Upload as far ahead as your system will export \u2014 the whole book is fine. Nobody is messaged until their own due date is close.',
-        },
-        {
-          h: '3. Choose the type',
-          b: 'Reminders are chased at 30, 14 and 3 days before the due date, and stop the moment someone replies or books. A one-off \u2014 an offer, an announcement \u2014 goes out once and is never chased.',
-        },
-        {
-          h: '4. Replies handle themselves',
-          b: 'Your AI agent answers replies, books the job and stops the remaining reminders. You only get involved when someone asks for a person \u2014 those land in Messages, flagged.',
-        },
-      ],
+      step1: 'Step 1 — Create your template and submit it',
+      step1Body: 'WhatsApp only lets you start a conversation with a template Meta has approved. An MOT and a service reminder are already written for you below — check the wording and submit them. Approval usually comes back within a few hours. SMS needs no approval.',
+      step2: 'Step 2 — Create the campaign',
+      step2Body: 'Name it, pick the channel, then say whether it\u2019s a reminder series or a one-off. Bring your customers in from a CSV (customer_name, phone, registration, mot_due_date, service_due_date) or straight from Garage Hive. Upload as far ahead as your system will export — nobody is messaged until their own due date is close.',
+      step3: 'Step 3 — Check and send',
+      step3Body: 'Check the names and numbers look right, then send. Messages go out spaced a few seconds apart rather than all at once, which is what keeps a WhatsApp number in good standing; a large list carries on over following days automatically.',
+      step4: 'Step 4 — See what came back',
+      step4Body: 'Every campaign shows what was delivered, who replied, and which replies your agent turned into a booking. Click a campaign to see it customer by customer.',
       howFooter: 'Opt-outs are permanent and shared across every campaign \u2014 once someone says stop, they are never messaged again.',
       campaignName: 'Campaign name',
       campaignNamePlaceholder: 'e.g. March MOT Reminders',
@@ -256,6 +243,14 @@ export default function OutboundPage() {
       statRead: 'Read',
       statReplied: 'Replied',
       statFailed: 'Failed',
+      statBooked: 'Booked',
+      thReplies: 'Replies',
+      thBooked: 'Booked',
+      cOutcome: 'Outcome',
+      outcomeBooked: 'Booked',
+      outcomeReplied: 'Replied',
+      outcomeAwaiting: 'Awaiting reply',
+      openConversation: 'Open conversation',
       loadingContacts: 'Loading contacts…',
       noContacts: 'No contacts found.',
       cDetail: 'Detail',
@@ -265,7 +260,9 @@ export default function OutboundPage() {
         delivered: 'Delivered',
         read: 'Read',
         replied: 'Replied',
+        booked: 'Booked',
         failed: 'Failed',
+        expired: 'Due date passed',
         opted_out: 'Opted Out',
       } as Record<string, string>,
     },
@@ -289,28 +286,15 @@ export default function OutboundPage() {
       title: 'Messagerie sortante',
       subtitle: 'Importez une liste de clients et envoyez des rappels personnalisés de contrôle technique ou d’entretien par SMS ou WhatsApp. Les clients qui répondent sont pris en charge automatiquement par votre agent IA.',
       newCampaign: 'Nouvelle campagne',
-      howTitle: 'Comment fonctionne la messagerie sortante',
-      howHide: 'Masquer',
-      howShow: 'Comment \u00e7a marche',
-      howSteps: [
-        {
-          h: '1. Faites approuver un mod\u00e8le',
-          b: 'WhatsApp n\u2019autorise l\u2019ouverture d\u2019une conversation qu\u2019avec un mod\u00e8le approuv\u00e9 par Meta. Deux sont d\u00e9j\u00e0 pr\u00e9par\u00e9s ci-dessus \u2014 contr\u00f4le technique et entretien. Soumettez-les : l\u2019approbation arrive g\u00e9n\u00e9ralement en quelques heures. Le SMS ne demande aucune approbation.',
-        },
-        {
-          h: '2. Importez vos clients',
-          b: 'Importez un CSV depuis votre logiciel (customer_name, phone, registration, mot_due_date, service_due_date), ou r\u00e9cup\u00e9rez-les directement depuis Garage Hive. Importez aussi loin que votre syst\u00e8me l\u2019autorise \u2014 tout le fichier client convient. Personne n\u2019est contact\u00e9 avant que sa propre \u00e9ch\u00e9ance approche.',
-        },
-        {
-          h: '3. Choisissez le type',
-          b: 'Les rappels sont relanc\u00e9s \u00e0 30, 14 et 3 jours avant l\u2019\u00e9ch\u00e9ance, et s\u2019arr\u00eatent d\u00e8s qu\u2019une personne r\u00e9pond ou r\u00e9serve. Un message ponctuel \u2014 une offre, une annonce \u2014 part une seule fois et n\u2019est jamais relanc\u00e9.',
-        },
-        {
-          h: '4. Les r\u00e9ponses se g\u00e8rent seules',
-          b: 'Votre agent IA r\u00e9pond, r\u00e9serve le rendez-vous et arr\u00eate les rappels restants. Vous n\u2019intervenez que si le client demande un humain \u2014 ces conversations arrivent dans Messages, signal\u00e9es.',
-        },
-      ],
-      howFooter: 'Les d\u00e9sabonnements sont d\u00e9finitifs et partag\u00e9s entre toutes les campagnes \u2014 une fois qu\u2019une personne dit stop, elle n\u2019est plus jamais contact\u00e9e.',
+      step1: 'Étape 1 — Créez votre modèle et soumettez-le',
+      step1Body: 'WhatsApp n\u2019autorise l\u2019ouverture d\u2019une conversation qu\u2019avec un modèle approuvé par Meta. Un modèle contrôle technique et un modèle entretien sont déjà rédigés ci-dessous — vérifiez le texte et soumettez-les. L\u2019approbation arrive généralement en quelques heures. Le SMS ne demande aucune approbation.',
+      step2: 'Étape 2 — Créez la campagne',
+      step2Body: 'Nommez-la, choisissez le canal, puis indiquez s\u2019il s\u2019agit d\u2019une série de rappels ou d\u2019un envoi unique. Importez vos clients depuis un CSV (customer_name, phone, registration, mot_due_date, service_due_date) ou directement depuis Garage Hive. Importez aussi loin que votre système l\u2019autorise — personne n\u2019est contacté avant que sa propre échéance approche.',
+      step3: 'Étape 3 — Vérifiez et envoyez',
+      step3Body: 'Vérifiez que les noms et les numéros sont corrects, puis envoyez. Les messages partent espacés de quelques secondes plutôt que tous en même temps, ce qui protège la réputation de votre numéro WhatsApp ; une longue liste se poursuit automatiquement les jours suivants.',
+      step4: 'Étape 4 — Voyez ce qui revient',
+      step4Body: 'Chaque campagne indique ce qui a été délivré, qui a répondu, et quelles réponses votre agent a transformées en rendez-vous. Cliquez sur une campagne pour la voir client par client.',
+      howFooter: 'Les désabonnements sont définitifs et partagés entre toutes les campagnes \u2014 une fois qu\u2019une personne dit stop, elle n\u2019est plus jamais contactée.',
       campaignName: 'Nom de la campagne',
       campaignNamePlaceholder: 'ex. Rappels contrôle technique de mars',
       channel: 'Canal',
@@ -392,6 +376,14 @@ export default function OutboundPage() {
       statRead: 'Lus',
       statReplied: 'Répondus',
       statFailed: 'Échoués',
+      statBooked: 'Réservés',
+      thReplies: 'Réponses',
+      thBooked: 'Réservés',
+      cOutcome: 'Résultat',
+      outcomeBooked: 'Réservé',
+      outcomeReplied: 'A répondu',
+      outcomeAwaiting: 'En attente de réponse',
+      openConversation: 'Ouvrir la conversation',
       loadingContacts: 'Chargement des contacts…',
       noContacts: 'Aucun contact trouvé.',
       cDetail: 'Détail',
@@ -401,7 +393,9 @@ export default function OutboundPage() {
         delivered: 'Livré',
         read: 'Lu',
         replied: 'Répondu',
+        booked: 'Réservé',
         failed: 'Échec',
+        expired: 'Échéance passée',
         opted_out: 'Désabonné',
       } as Record<string, string>,
     },
@@ -425,7 +419,6 @@ export default function OutboundPage() {
   const [channel, setChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
   // Reminders are chased; one-offs are not. Defaulting to 'reminder' matches what almost every
   // garage uploads, but an offer campaign must be switched over or the customer gets it 3 times.
-  const [showHow, setShowHow] = useState(true);
   const [campaignType, setCampaignType] = useState<'reminder' | 'oneoff'>('reminder');
   const [reminderStages, setReminderStages] = useState<number[]>([30, 14, 3]);
   const [customStage, setCustomStage] = useState('');
@@ -661,6 +654,20 @@ export default function OutboundPage() {
     }
   };
 
+  /** Numbered section header. The instruction sits with the controls it describes, rather than
+      in one panel at the top that nobody reads twice. */
+  const StepHeader = ({ n, title, body }: { n: number; title: string; body: string }) => (
+    <div className="mb-4 flex gap-3">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+        {n}
+      </span>
+      <div>
+        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">{body}</p>
+      </div>
+    </div>
+  );
+
   const campaigns: OutboundCampaign[] = data?.campaigns || [];
 
   return (
@@ -669,6 +676,7 @@ export default function OutboundPage() {
           sending belongs above the thing that sends. Previously these were separate nav items and
           nothing connected them. */}
       <section id="templates" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <StepHeader n={1} title={c.step1} body={c.step1Body} />
         <TemplatesPage embedded />
       </section>
 
@@ -691,37 +699,9 @@ export default function OutboundPage() {
         </p>
       </div>
 
-      {/* What to actually do. Garages arrive here with a customer list and no idea that WhatsApp
-          needs an approved template first, so the order of the steps is the point. */}
-      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
-        <div className="flex items-start justify-between gap-4">
-          <h2 className="text-sm font-semibold text-blue-900">{c.howTitle}</h2>
-          <button
-            type="button"
-            onClick={() => setShowHow((v) => !v)}
-            className="shrink-0 text-xs font-medium text-blue-700 underline hover:text-blue-900"
-          >
-            {showHow ? c.howHide : c.howShow}
-          </button>
-        </div>
-        {showHow && (
-          <>
-            <ol className="mt-3 grid gap-3 sm:grid-cols-2">
-              {c.howSteps.map((step) => (
-                <li key={step.h} className="rounded-lg bg-white/70 p-3">
-                  <p className="text-xs font-semibold text-slate-900">{step.h}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">{step.b}</p>
-                </li>
-              ))}
-            </ol>
-            <p className="mt-3 text-xs text-blue-800">{c.howFooter}</p>
-          </>
-        )}
-      </div>
-
       {/* New Campaign */}
       <div className="rounded-xl border border-slate-300 bg-white p-6">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">{c.newCampaign}</h2>
+        <StepHeader n={2} title={c.step2} body={c.step2Body} />
 
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Campaign name */}
@@ -1120,9 +1100,14 @@ export default function OutboundPage() {
           )}
         </div>
 
-        {/* Preview table */}
-        {preview && preview.length > 0 && (
-          <div className="mt-4">
+      </div>
+
+      {/* Step 3 — review and send. Its own card because it is a decision point, not another
+          field on the form: this is the last screen before real customers get a message. */}
+      {preview && preview.length > 0 && (
+        <div className="rounded-xl border border-slate-300 bg-white p-6">
+          <StepHeader n={3} title={c.step3} body={c.step3Body} />
+          <div>
             <p className="mb-2 text-xs text-slate-500">
               {c.contactsPreview(preview.length, source === 'garagehive')}
             </p>
@@ -1173,13 +1158,14 @@ export default function OutboundPage() {
                 {c.cancel}
               </button>
             </div>
+            <p className="mt-3 text-xs text-slate-500">{c.howFooter}</p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Past campaigns */}
       <div>
-        <h2 className="mb-3 text-base font-semibold text-slate-900">{c.pastCampaigns}</h2>
+        <StepHeader n={4} title={c.step4} body={c.step4Body} />
 
         {isLoading ? (
           <p className="text-sm text-slate-500">{c.loadingCampaigns}</p>
@@ -1205,7 +1191,11 @@ export default function OutboundPage() {
                       {camp.channel} · {camp.totalContacts} · {new Date(camp.createdAt).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB')}
                     </p>
                     {!pending ? (
-                      <p className="mt-0.5 text-xs text-slate-500">{rate}% ({camp.sentCount}/{camp.totalContacts})</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {rate}% ({camp.sentCount}/{camp.totalContacts})
+                        {camp.replyCount ? ` · ${camp.replyCount} ${c.thReplies.toLowerCase()}` : ''}
+                        {camp.bookedCount ? ` · ${camp.bookedCount} ${c.thBooked.toLowerCase()}` : ''}
+                      </p>
                     ) : null}
                   </div>
                   <div className="shrink-0 text-right">
@@ -1235,6 +1225,8 @@ export default function OutboundPage() {
                   <th className="px-4 py-3">{c.thChannel}</th>
                   <th className="px-4 py-3">{c.thContacts}</th>
                   <th className="px-4 py-3">{c.thSentRate}</th>
+                  <th className="px-4 py-3">{c.thReplies}</th>
+                  <th className="px-4 py-3">{c.thBooked}</th>
                   <th className="px-4 py-3">{c.thStatus}</th>
                   <th className="px-4 py-3">{c.thDate}</th>
                 </tr>
@@ -1263,6 +1255,20 @@ export default function OutboundPage() {
                             </span>
                           );
                         })()
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.replyCount ? (
+                        <span className="font-medium text-purple-600">{c.replyCount}</span>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.bookedCount ? (
+                        <span className="font-medium text-green-600">{c.bookedCount}</span>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -1343,8 +1349,10 @@ export default function OutboundPage() {
                 const sent = count((s) => ['sent', 'delivered', 'read', 'replied'].includes(s));
                 const delivered = count((s) => ['delivered', 'read', 'replied'].includes(s));
                 const read = count((s) => ['read', 'replied'].includes(s));
-                const replied = count((s) => s === 'replied');
+                const replied = count((s) => ['replied', 'booked'].includes(s));
                 const failed = count((s) => s === 'failed');
+                // A booking is recorded on the conversation, not the contact row.
+                const booked = contacts.filter((ct) => ct.conversation?.confirmedBooking).length;
                 const pct = (n: number) => (sent ? Math.round((n / sent) * 100) : 0);
                 const stat = (label: string, n: number, showPct = true) => (
                   <div className="flex-1 text-center">
@@ -1361,6 +1369,7 @@ export default function OutboundPage() {
                     {stat(c.statDelivered, delivered)}
                     {stat(c.statRead, read)}
                     {stat(c.statReplied, replied)}
+                    {stat(c.statBooked, booked)}
                     {failed > 0 && stat(c.statFailed, failed)}
                   </div>
                 );
@@ -1380,6 +1389,7 @@ export default function OutboundPage() {
                       <th className="px-4 py-2">{c.colName}</th>
                       <th className="px-4 py-2">{c.colPhone}</th>
                       <th className="px-4 py-2">{c.thStatus}</th>
+                      <th className="px-4 py-2">{c.cOutcome}</th>
                       <th className="px-4 py-2">{c.cDetail}</th>
                     </tr>
                   </thead>
@@ -1391,9 +1401,24 @@ export default function OutboundPage() {
                         delivered: 'text-green-400',
                         read: 'text-green-300',
                         replied: 'text-purple-400',
+                        booked: 'text-green-500',
                         failed: 'text-red-400',
+                        expired: 'text-slate-400',
                         opted_out: 'text-slate-500',
                       };
+                      const conv = contact.conversation;
+                      // bookingDetails is the agent's own summary, e.g. "MOT Class 4 on
+                      // 2026-08-04 at 09:00" — shown as written rather than re-parsed, so it
+                      // can't disagree with what the customer was told.
+                      const outcome = conv?.confirmedBooking
+                        ? { label: c.outcomeBooked, detail: conv.bookingDetails || '', tone: 'text-green-600' }
+                        : conv
+                          ? {
+                              label: c.outcomeReplied,
+                              detail: new Date(conv.lastMessageAt).toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB', { dateStyle: 'short', timeStyle: 'short' }),
+                              tone: 'text-purple-600',
+                            }
+                          : null;
                       const statusLabel: Record<string, string> = c.statusLabels;
                       return (
                         <tr key={contact.id} className="text-slate-600">
@@ -1401,6 +1426,22 @@ export default function OutboundPage() {
                           <td className="px-4 py-2 font-mono text-xs">{contact.phone}</td>
                           <td className={`px-4 py-2 text-xs font-medium ${statusColor[contact.status] ?? 'text-slate-500'}`}>
                             {statusLabel[contact.status] ?? contact.status}
+                          </td>
+                          <td className="px-4 py-2 text-xs">
+                            {outcome ? (
+                              <a
+                                href={`/messages?conversation=${conv!.id}`}
+                                title={c.openConversation}
+                                className="hover:underline"
+                              >
+                                <span className={cn('font-medium', outcome.tone)}>{outcome.label}</span>
+                                {outcome.detail && (
+                                  <span className="block text-[11px] text-slate-500">{outcome.detail}</span>
+                                )}
+                              </a>
+                            ) : (
+                              <span className="text-slate-400">{c.outcomeAwaiting}</span>
+                            )}
                           </td>
                           <td className="px-4 py-2 text-xs text-slate-500">
                             {contact.errorReason || '—'}

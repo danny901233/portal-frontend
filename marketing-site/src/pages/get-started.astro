@@ -731,6 +731,17 @@ const c = {
 </style>
 
 <script is:inline define:vars={{ LEAD_ENDPOINT, SIGNUP_ENDPOINT, PROSPECT_ENDPOINT, PORTAL_LOGIN_URL, GOOGLE_API_KEY, T: c.js }}>
+  // Google Ads click id, stashed by BaseLayout on whichever page the ad landed on.
+  // Also read it straight off this URL, in case someone lands directly on /get-started?gclid=...
+  // before BaseLayout's script has run. Returns undefined so it drops out of the JSON body.
+  function rmGclid() {
+    try {
+      const fromUrl = new URLSearchParams(location.search).get('gclid');
+      if (fromUrl) { localStorage.setItem('rm_gclid', fromUrl); return fromUrl; }
+      return localStorage.getItem('rm_gclid') || undefined;
+    } catch (_e) { return undefined; }
+  }
+
   const state = {
     businessName: '',
     address: '',
@@ -1032,6 +1043,7 @@ const c = {
           phone: phone || undefined,
           googlePlaceId: state.placeId || undefined,
           prospectId: state.prospectId || undefined,
+          gclid: rmGclid(),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1098,6 +1110,7 @@ const c = {
           phone:       form.querySelector('[name=phone]').value.trim(),
           source:      `website-getstarted-${state.tier}-${state.gms}`,
           notes:       `Tier: ${tierLabel}. GMS: ${GMS_LABEL[state.gms] || state.gms}. Address: ${state.address || 'n/a'}.`,
+          gclid:       rmGclid(),
         }),
       });
       const data = await res.json().catch(() => ({}));

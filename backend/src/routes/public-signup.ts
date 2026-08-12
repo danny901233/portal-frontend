@@ -45,6 +45,10 @@ const publicSignupSchema = z.object({
   phone: z.string().trim().max(40).optional(),
   // When present, links to the prospect row created at the garage-search step (step 1).
   prospectId: z.string().trim().max(80).optional(),
+  // Google Ads click id from the marketing site (localStorage rm_gclid). Stored so we can
+  // tell which signups actually came from a paid click — gtag's cookie attribution alone
+  // leaves no record on our side.
+  gclid: z.string().trim().max(200).optional(),
 });
 
 /**
@@ -215,7 +219,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'invalid_request', details: parsed.error.flatten() });
   }
 
-  const { businessName, email, address, googlePlaceId, name, phone, prospectId } = parsed.data;
+  const { businessName, email, address, googlePlaceId, name, phone, prospectId, gclid } = parsed.data;
   const normalizedEmail = email.toLowerCase();
 
   try {
@@ -237,7 +241,8 @@ router.post('/public-signup', async (req: Request, res: Response) => {
     if (pending && pending.status !== 'completed') {
       pending = await prisma.pendingSignup.update({
         where: { id: pending.id },
-        data: { name: name ?? pending.name, email: normalizedEmail, contactPhone: phone ?? pending.contactPhone, product: 'assist', status: 'pending' },
+        // Never clobber an existing gclid: the earliest click is the one that earned the signup.
+        data: { name: name ?? pending.name, email: normalizedEmail, contactPhone: phone ?? pending.contactPhone, product: 'assist', status: 'pending', gclid: pending.gclid ?? gclid ?? null },
       });
       // The garage-search step deliberately creates nothing in HighLevel (it has no email, and a
       // phone-only contact is a guaranteed duplicate). So this is normally where the contact is
@@ -284,6 +289,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
           signToken,
           status: 'pending',
           product: 'assist',
+          gclid: gclid ?? null,
           expiresAt: new Date(Date.now() + SIGN_LINK_TTL_MS),
         },
       });

@@ -66,6 +66,10 @@ const footerYear = 2026;
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
       gtag('config', 'AW-16449651971');
+      // Stash the Google Ads click id so the signup POST can carry it to the portal.
+      // gtag's own _gcl_aw cookie already handles browser-side attribution; this is the
+      // server-side record, so we can prove which signups came from an ad click.
+      try{var _gp=new URLSearchParams(location.search);var _g=_gp.get('gclid');if(_g){localStorage.setItem('rm_gclid',_g);}}catch(_e){}
     </script>
 
     <!-- Microsoft Clarity (session recordings + heatmaps) -->

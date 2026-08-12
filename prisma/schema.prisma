@@ -789,6 +789,7 @@ model PendingSignup {
   googlePlaceId String?
   product      String?  // assist | automate | connect | multibranch | custom
   contactPhone String?  // contact phone captured on the scope step (non-Assist)
+  gclid        String?  // Google Ads click id, carried from the marketing site — proves which signups came from an ad
 
   // Enriched from Google Places at submit time so we don't re-call Google on completion.
   branchAddress      String?

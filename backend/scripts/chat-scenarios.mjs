@@ -77,9 +77,11 @@ export const SCENARIOS = [
   { id: 'BOOK-09', cat: 'booking', desc: 'Books for a specific day', seed: 'midBooking',
     turns: ['Full service please', 'Can you do next Tuesday?'] },
 
+  // Must match a PROMISE, not the word "guarantee" — "I can't guarantee lunchtime" is the
+  // correct answer and an earlier version failed it.
   { id: 'BOOK-10', cat: 'booking', desc: 'Asks for same-day — must not promise', seed: 'midBooking',
     turns: ['Can you do it today and have it back to me by lunchtime?'],
-    expect: { notSay: /guarantee|definitely be ready|will be ready today/i } },
+    expect: { notSay: /\bguaranteed\b|\b(?:i|we)\s+(?:can\s+)?guarantee\b|\b(?:will|we'll|it'll|you'll have it)\s+(?:definitely\s+)?be\s+ready\s+(?:today|by)/i } },
 
   // ── QUOTES & PRICING ────────────────────────────────────────────────────────
   { id: 'QUOTE-01', cat: 'quote', desc: 'Price for a service, vehicle known', seed: 'midBooking',

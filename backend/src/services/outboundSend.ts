@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 import axios from 'axios';
 import { prisma } from '../db.js';
-import { sendEmail, brandedEmailShell } from '../utils/email.js';
+import { sendEmail } from '../utils/email.js';
 
 /** Normalise phone to E.164 format for Twilio and matching. */
 export function normalisePhone(raw: string): string {
@@ -275,7 +275,7 @@ ${reason}
 
 ` +
       `Reply to this email and we'll take a look with you.`,
-    html: brandedEmailShell(`
+    html: emailShell(`
       <h2 style="margin:0 0 12px;font-size:20px;color:#0f172a;">Outbound messaging stopped</h2>
       <p style="color:#334155;">We've stopped sending your outbound WhatsApp messages for ${garageName}.</p>
       <p style="background:#fef2f2;border-left:3px solid #ef4444;padding:12px 14px;color:#7f1d1d;margin:16px 0;">
@@ -293,6 +293,23 @@ ${reason}
       <p style="color:#334155;">Reply to this email and we'll go through it with you.</p>
     `),
   }).catch((e) => console.error('[OUTBOUND] halt email failed', e));
+}
+
+/**
+ * Minimal self-contained wrapper. Deliberately not the shared branded shell — this alert has to
+ * send even when the rest of the email module is a different version to this file.
+ */
+function emailShell(bodyHtml: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f1f2f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f2f9;">
+    <tr><td style="padding:32px 16px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="margin:0 auto;background:#ffffff;border-radius:14px;">
+        <tr><td style="padding:28px;">${bodyHtml}</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
 }
 
 function escapeHtml(s: string): string {

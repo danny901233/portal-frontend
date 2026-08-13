@@ -75,7 +75,14 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   // The self-hosted worker registers as 'demo-agent-v2' (see demo-agent/.env AGENT_DISPATCH_NAME),
   // so that is what has to be dispatched — a dispatch to 'demo-agent' names a worker that no
   // longer registers and the visitor waits in an empty room.
-  const agentName = process.env.DEMO_AGENT_NAME || 'demo-agent-v2';
+  //
+  // ?agent=reg routes to the separate registration-specialist worker (demo-agent-reg, its own
+  // container). Opt-in only: the public demo is unchanged and a visitor without the URL cannot
+  // reach it.
+  const wantsReg = String(req.body?.agent ?? '').toLowerCase() === 'reg';
+  const agentName = wantsReg
+    ? (process.env.DEMO_AGENT_NAME_REG || 'demo-agent-reg')
+    : (process.env.DEMO_AGENT_NAME || 'demo-agent-v2');
   try {
     const dispatchClient = new AgentDispatchClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
     await dispatchClient.createDispatch(roomName, agentName, {

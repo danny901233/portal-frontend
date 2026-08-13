@@ -34,6 +34,9 @@ export default function DemoPage() {
   // because /demo is a public sales page and expressive swaps the voice engine away from the
   // ElevenLabs voices we've tuned. Once revealed you get a real toggle, so an A/B is two clicks
   // rather than two URLs.
+  // ?agent=reg routes the call to the registration-specialist worker instead of the usual demo
+  // agent. Opt-in by URL: the public demo is untouched.
+  const [agentVariant, setAgentVariant] = useState<string | null>(null);
   const [trial, setTrial] = useState(false);
   const [expressiveOn, setExpressiveOn] = useState(false);
   const [ttsKey, setTtsKey] = useState('inworld');
@@ -59,6 +62,8 @@ export default function DemoPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
+    const agent = (q.get('agent') || '').toLowerCase();
+    if (agent === 'reg') setAgentVariant('reg');
     const flag = q.get('expressive');
     if (flag === '1' || flag === 'true' || flag === '0') {
       setTrial(true);
@@ -80,6 +85,7 @@ export default function DemoPage() {
         body: JSON.stringify({
           voice,
           ...(expressiveOn && { expressive: true, tts: ttsKey }),
+          ...(agentVariant && { agent: agentVariant }),
         }),
       });
       if (!res.ok) throw new Error('Failed to start the demo');
@@ -130,7 +136,7 @@ export default function DemoPage() {
       cleanup();
       setPhase('failed');
     }
-  }, [cleanup, voice, expressiveOn, ttsKey]);
+  }, [cleanup, voice, expressiveOn, ttsKey, agentVariant]);
 
   const end = useCallback(() => {
     cleanup();
@@ -215,6 +221,11 @@ export default function DemoPage() {
                 ? 'Connecting you…'
                 : `Talk to ${selectedVoice.name}`}
             {expressiveBadge}
+            {agentVariant === 'reg' ? (
+              <span className="ml-2 align-middle rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                Reg specialist
+              </span>
+            ) : null}
           </h1>
           <p className="mx-auto mt-2 max-w-sm text-[15px] leading-relaxed text-brand-100/90">
             {live

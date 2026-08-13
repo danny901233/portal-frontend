@@ -411,6 +411,46 @@ export async function lookupPhonebookByPhone(
 }
 
 /**
+ * A canned caller profile for testing, used ONLY when Garage Hive is not connected.
+ *
+ * Two locks, both required:
+ *   GARAGEHIVE_CALLER_FIXTURE=on          — off unless explicitly set
+ *   GARAGEHIVE_FIXTURE_GARAGE_IDS=a,b,c   — allowlist; a customer garage can never match
+ *
+ * Returns null unless both hold, so the live path is untouched. The data is obviously fake on
+ * purpose: if it ever escapes into a real call, "Fixture Test" is unmistakable.
+ */
+function fakeCallerProfile(garageId: string, phone: string): CallerProfile | null {
+  if (String(process.env.GARAGEHIVE_CALLER_FIXTURE || '').toLowerCase() !== 'on') return null;
+  const allowed = (process.env.GARAGEHIVE_FIXTURE_GARAGE_IDS || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (!allowed.includes(garageId)) return null;
+
+  // Optionally restrict to specific callers, so a stranger ringing the test line still hears the
+  // unrecognised path — which is the more important behaviour to check.
+  const numbers = (process.env.GARAGEHIVE_FIXTURE_PHONES || '')
+    .split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean);
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (numbers.length && !numbers.some((n) => digits.endsWith(n.slice(-9)))) return null;
+
+  return {
+    matched: true,
+    customerNo: 'FIXTURE-001',
+    name: process.env.GARAGEHIVE_FIXTURE_NAME || 'Dan Fixture-Test',
+    contactNo: 'C-FIXTURE',
+    vehicles: [
+      {
+        registration: 'KX20HGF',
+        make: 'Volkswagen',
+        model: 'Golf',
+        motDueDate: '2026-09-04',
+        serviceDueDate: '2026-11-01',
+      },
+    ],
+  };
+}
+
+/**
  * Resolve an inbound number to a caller profile: who they are + their vehicles
  * with MOT/service due dates. Read-only. Returns { matched:false } when unknown.
  */
@@ -424,7 +464,22 @@ export async function getCallerProfile(garageId: string, phone: string): Promise
   if (!cfg?.callerRecognitionEnabled) return { matched: false, vehicles: [] };
 
   const creds = await resolveCreds(garageId);
-  if (!creds) return { matched: false, vehicles: [] };
+  if (!creds) {
+    // No Business Central credentials. Normally that means "we cannot answer", and the
+    // matched:false we return is indistinguishable from "not a customer" — which is precisely
+    // why nobody noticed this endpoint had nothing behind it.
+    //
+    // The fixture below exists so caller recognition can be heard on a real call BEFORE Garage
+    // Hive supply credentials. It is deliberately hard to switch on by accident: it needs an
+    // env flag AND the garage must be on the allowlist, which holds test accounts only. Without
+    // both, behaviour is exactly as before.
+    const fixture = fakeCallerProfile(garageId, phone);
+    if (fixture) {
+      console.log(`[GH] caller fixture served for ${garageId} (${phone}) — NOT real Garage Hive data`);
+      return fixture;
+    }
+    return { matched: false, vehicles: [] };
+  }
 
   const match = await lookupPhonebookByPhone(creds, phone);
   if (!match?.customerNo) return { matched: false, vehicles: [] };

@@ -824,6 +824,11 @@ model PendingSignup {
   product      String?  // assist | automate | connect | multibranch | custom
   contactPhone String?  // contact phone captured on the scope step (non-Assist)
   gclid        String?  // Google Ads click id, carried from the marketing site — proves which signups came from an ad
+  // Which page the signup started on ("website-getstarted", "website-mot-campaign", ...).
+  // Added after a prospect could not be attributed to a landing page at all: the marketing site
+  // was already sending this, the endpoint's schema silently dropped it, and the CRM source was
+  // hardcoded — so every signup looked identical whichever page produced it.
+  source       String?
 
   // Enriched from Google Places at submit time so we don't re-call Google on completion.
   branchAddress      String?

@@ -867,7 +867,10 @@ const c = {
     try {
       fetch(PROSPECT_ENDPOINT, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined }),
+        // Tells the backend which page produced the signup. Without it no prospect can be
+        // attributed to a landing page, because a cross-origin POST sends only the origin as
+        // Referer — the path never arrives.
+        body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined, source: 'website-getstarted' }),
       }).then((r) => r.json()).then((d) => { if (d && d.prospectId) state.prospectId = d.prospectId; }).catch(() => {});
     } catch (e) {}
   }

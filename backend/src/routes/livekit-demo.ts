@@ -86,7 +86,12 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   // /partsdemo calls to it and they answer as a garage. Our self-hosted EC2 container registers
   // 'demo-agent-v2'; dispatch here so every call reaches it. Revert to 'demo-agent' once the stale
   // worker is found and killed.
-  const agentName = process.env.DEMO_AGENT_NAME || 'demo-agent-v2';
+  // ?agent=reg routes to the separate registration-specialist worker (demo-agent-reg, its own
+  // container). Opt-in only: without the parameter nothing changes for a visitor.
+  const wantsReg = String(req.body?.agent ?? '').toLowerCase() === 'reg';
+  const agentName = wantsReg
+    ? (process.env.DEMO_AGENT_NAME_REG || 'demo-agent-reg')
+    : (process.env.DEMO_AGENT_NAME || 'demo-agent-v2');
   try {
     const dispatchClient = new AgentDispatchClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
     await dispatchClient.createDispatch(roomName, agentName, {

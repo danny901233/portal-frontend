@@ -150,6 +150,84 @@ async function get<T>(creds: GarageHiveCreds, url: string): Promise<T[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Connection test — validates the token AND that the assigned BC permission set
+// actually exposes each Garage Hive API group. GETting a module's base URL
+// returns its entity directory, so it works without a valid companyId. Powers
+// the "Connect Garage Hive" admin check and one-off diagnostics.
+// ---------------------------------------------------------------------------
+
+export interface GhModuleResult {
+  ok: boolean;
+  status?: number;
+  entityCount?: number;
+  sample?: string[];
+  error?: string;
+}
+
+export interface GhConnectionTest {
+  ok: boolean;
+  hasCreds: boolean;
+  tenantId?: string;
+  environmentName?: string;
+  companyId?: string;
+  tokenAcquired: boolean;
+  modules: Record<string, GhModuleResult>;
+}
+
+function ghErrDetail(err: unknown): { status?: number; message: string } {
+  const e = err as { response?: { status?: number; data?: { error?: { message?: string }; error_description?: string } }; message?: string };
+  const status = e?.response?.status;
+  const data = e?.response?.data;
+  const raw = data?.error?.message || data?.error_description || e?.message || String(err);
+  return { status, message: typeof raw === 'string' ? raw.split('\n')[0] : String(raw) };
+}
+
+/** Test modules: general (all plans), phoneIntegration (all plans), service (Garage Link Advanced). */
+const TEST_MODULES = ['general/v2.0', 'phoneIntegration/v2.0', 'service/v2.0'];
+
+export async function testConnection(garageId?: string): Promise<GhConnectionTest> {
+  const creds = await resolveCreds(garageId);
+  if (!creds) return { ok: false, hasCreds: false, tokenAcquired: false, modules: {} };
+
+  const out: GhConnectionTest = {
+    ok: false,
+    hasCreds: true,
+    tenantId: creds.tenantId,
+    environmentName: creds.environmentName,
+    companyId: creds.companyId,
+    tokenAcquired: false,
+    modules: {},
+  };
+
+  try {
+    await getToken(creds);
+    out.tokenAcquired = true;
+  } catch (err) {
+    const { status, message } = ghErrDetail(err);
+    out.modules.token = { ok: false, status, error: message };
+    return out;
+  }
+
+  for (const mod of TEST_MODULES) {
+    try {
+      const entities = await get<{ name?: string }>(creds, `${apiBase(creds)}/${mod}`);
+      out.modules[mod] = {
+        ok: true,
+        entityCount: entities.length,
+        sample: entities.map((e) => e.name || '').filter(Boolean).slice(0, 8),
+      };
+    } catch (err) {
+      const { status, message } = ghErrDetail(err);
+      out.modules[mod] = { ok: false, status, error: message };
+    }
+  }
+
+  // "Working" = token + at least the always-available General API responding.
+  out.ok = out.tokenAcquired && out.modules['general/v2.0']?.ok === true;
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
 
@@ -333,6 +411,46 @@ export async function lookupPhonebookByPhone(
 }
 
 /**
+ * A canned caller profile for testing, used ONLY when Garage Hive is not connected.
+ *
+ * Two locks, both required:
+ *   GARAGEHIVE_CALLER_FIXTURE=on          — off unless explicitly set
+ *   GARAGEHIVE_FIXTURE_GARAGE_IDS=a,b,c   — allowlist; a customer garage can never match
+ *
+ * Returns null unless both hold, so the live path is untouched. The data is obviously fake on
+ * purpose: if it ever escapes into a real call, "Fixture Test" is unmistakable.
+ */
+function fakeCallerProfile(garageId: string, phone: string): CallerProfile | null {
+  if (String(process.env.GARAGEHIVE_CALLER_FIXTURE || '').toLowerCase() !== 'on') return null;
+  const allowed = (process.env.GARAGEHIVE_FIXTURE_GARAGE_IDS || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (!allowed.includes(garageId)) return null;
+
+  // Optionally restrict to specific callers, so a stranger ringing the test line still hears the
+  // unrecognised path — which is the more important behaviour to check.
+  const numbers = (process.env.GARAGEHIVE_FIXTURE_PHONES || '')
+    .split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean);
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (numbers.length && !numbers.some((n) => digits.endsWith(n.slice(-9)))) return null;
+
+  return {
+    matched: true,
+    customerNo: 'FIXTURE-001',
+    name: process.env.GARAGEHIVE_FIXTURE_NAME || 'Dan Fixture-Test',
+    contactNo: 'C-FIXTURE',
+    vehicles: [
+      {
+        registration: 'KX20HGF',
+        make: 'Volkswagen',
+        model: 'Golf',
+        motDueDate: '2026-09-04',
+        serviceDueDate: '2026-11-01',
+      },
+    ],
+  };
+}
+
+/**
  * Resolve an inbound number to a caller profile: who they are + their vehicles
  * with MOT/service due dates. Read-only. Returns { matched:false } when unknown.
  */
@@ -346,7 +464,22 @@ export async function getCallerProfile(garageId: string, phone: string): Promise
   if (!cfg?.callerRecognitionEnabled) return { matched: false, vehicles: [] };
 
   const creds = await resolveCreds(garageId);
-  if (!creds) return { matched: false, vehicles: [] };
+  if (!creds) {
+    // No Business Central credentials. Normally that means "we cannot answer", and the
+    // matched:false we return is indistinguishable from "not a customer" — which is precisely
+    // why nobody noticed this endpoint had nothing behind it.
+    //
+    // The fixture below exists so caller recognition can be heard on a real call BEFORE Garage
+    // Hive supply credentials. It is deliberately hard to switch on by accident: it needs an
+    // env flag AND the garage must be on the allowlist, which holds test accounts only. Without
+    // both, behaviour is exactly as before.
+    const fixture = fakeCallerProfile(garageId, phone);
+    if (fixture) {
+      console.log(`[GH] caller fixture served for ${garageId} (${phone}) — NOT real Garage Hive data`);
+      return fixture;
+    }
+    return { matched: false, vehicles: [] };
+  }
 
   const match = await lookupPhonebookByPhone(creds, phone);
   if (!match?.customerNo) return { matched: false, vehicles: [] };

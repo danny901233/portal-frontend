@@ -21,6 +21,9 @@ const createSchema = z.object({
   businessName: z.string().trim().min(2).max(200),
   googlePlaceId: z.string().trim().max(200).optional(),
   address: z.string().trim().max(500).optional(),
+  // Which landing page this came from. /mot was already sending it and this schema silently
+  // dropped it, so no signup could be attributed to a page.
+  source: z.string().trim().max(100).optional(),
 });
 
 const enrichSchema = z.object({
@@ -44,7 +47,7 @@ function oppName(businessName: string, product?: string | null): string {
 async function syncProspectToHl(pending: {
   id: string; businessName: string; name: string | null; email: string | null;
   phoneNumber: string | null; contactPhone: string | null; websiteUrl: string | null; product: string | null;
-  ghlOpportunityId: string | null; ghlContactId: string | null;
+  ghlOpportunityId: string | null; ghlContactId: string | null; source?: string | null;
 }): Promise<{ opportunityId: string | null; contactId: string | null }> {
   if (!highlevelConfigured()) {
     return { opportunityId: pending.ghlOpportunityId, contactId: pending.ghlContactId };
@@ -73,7 +76,7 @@ async function syncProspectToHl(pending: {
       phone: realPhone,
       companyName: pending.businessName,
       website: pending.websiteUrl ?? undefined,
-      source: 'website-getstarted',
+      source: pending.source || 'website-getstarted',
       tags: ['website-signup', 'abandoned-checkout'],
     });
     contactId = contact.contactId;
@@ -96,7 +99,7 @@ router.post('/public/prospect', async (req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'invalid_request' });
-  const { businessName, googlePlaceId, address } = parsed.data;
+  const { businessName, googlePlaceId, address, source } = parsed.data;
 
   try {
     const place = googlePlaceId ? await fetchPlaceDetails(googlePlaceId) : null;
@@ -114,6 +117,9 @@ router.post('/public/prospect', async (req: Request, res: Response) => {
           : undefined,
         signToken,
         status: 'prospect',
+        // The only record of which page produced this signup: a cross-origin POST sends just the
+        // origin as Referer, so the path never reaches us.
+        source: source ?? null,
         expiresAt: new Date(Date.now() + SIGN_LINK_TTL_MS),
       },
     });

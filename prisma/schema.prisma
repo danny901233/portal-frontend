@@ -744,6 +744,9 @@ model PendingSignup {
   product      String?  // assist | automate | connect | multibranch | custom
   contactPhone String?  // contact phone captured on the scope step (non-Assist)
   gclid        String?  // Google Ads click id, carried from the marketing site — proves which signups came from an ad
+  // Which page the signup started on. A cross-origin POST sends only the origin as
+  // Referer, so without this a signup cannot be attributed to a landing page at all.
+  source       String?
 
   // Enriched from Google Places at submit time so we don't re-call Google on completion.
   branchAddress      String?

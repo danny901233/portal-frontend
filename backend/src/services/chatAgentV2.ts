@@ -503,6 +503,23 @@ export function invalidateSessionCache(conversationId: string): void {
  * This has to run AFTER the model, not before: on the turn where the customer supplies their
  * details, the session does not have them yet when the turn starts.
  */
+/**
+ * A number seeded from the platform (the WhatsApp number they are messaging from) is a default we
+ * offered them, not one they chose. Until they confirm it, a number they actually give must be
+ * able to replace it — otherwise answering "no, use 07…" is silently ignored and we ring the
+ * wrong number back. Once confirmed or corrected, it is theirs and the usual don't-overwrite rule
+ * applies again.
+ */
+function phoneIsReplaceable(session: ChatSession): boolean {
+  return !session.contactPhone || (!!session.contactPhoneSeeded && !session.contactPhoneConfirmed);
+}
+
+function setCustomerProvidedPhone(session: ChatSession, phone: string): void {
+  session.contactPhone = phone;
+  session.contactPhoneSeeded = false;
+  session.contactPhoneConfirmed = true;
+}
+
 const PRICE_TOKEN_RE = /£\s?\d[\d,]*(?:\.\d{1,2})?/g;
 
 function priceVariants(raw: any): number[] {
@@ -784,8 +801,9 @@ async function getChatAgentResponseInner(
       seedApplied = true;
     }
 
-    // Also scan the CURRENT message for contact details (e.g. user puts phone in their first message)
-    if (!session.contactPhone) {
+    // Also scan the CURRENT message for contact details (e.g. user puts phone in their first
+    // message, or answers "no, use 07…" when asked to confirm the number they're messaging from)
+    if (phoneIsReplaceable(session)) {
       const normalisedMsg = normaliseVoiceToText(message);
       const phoneMsgMatches = [...normalisedMsg.matchAll(/\+[\d\s\-]{7,18}|\b0\d[\d\s\-]{8,13}|\b44\d[\d\s\-]{7,12}/g)];
       if (phoneMsgMatches.length > 0) {
@@ -793,8 +811,10 @@ async function getChatAgentResponseInner(
         const chosenMsgPhone = (hasMsgCorrection && phoneMsgMatches.length > 1)
           ? phoneMsgMatches[phoneMsgMatches.length - 1][0]
           : phoneMsgMatches[0][0];
-        session.contactPhone = chosenMsgPhone.replace(/\s+/g, '');
-        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}${hasMsgCorrection ? ' (corrected)' : ''}`);
+        const wasSeeded = session.contactPhone;
+        setCustomerProvidedPhone(session, chosenMsgPhone.replace(/\s+/g, ''));
+        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}${hasMsgCorrection ? ' (corrected)' : ''}${
+          wasSeeded && wasSeeded !== session.contactPhone ? ` (replacing seeded ${wasSeeded})` : ''}`);
         seedApplied = true;
       }
     }
@@ -1412,9 +1432,10 @@ async function getChatAgentResponseInner(
         // Pure digit/phone string — either pre-saved by early scan, or waiting for phone now
         const looksLikeJustPhone = /^\+?[\d\s\-]{7,15}$/.test(msg);
         if (looksLikeJustPhone) {
-          if (!session.contactPhone) {
-            // Not yet saved — save it directly (accepts non-standard formats like 459694969496)
-            session.contactPhone = msg.replace(/[\s\-]/g, '');
+          if (phoneIsReplaceable(session)) {
+            // Not yet saved, or only the seeded platform number they haven't agreed to — save it
+            // directly (accepts non-standard formats like 459694969496)
+            setCustomerProvidedPhone(session, msg.replace(/[\s\-]/g, ''));
             await saveSession(conversationId, session);
           }
           const nextAsk = !session.contactEmail
@@ -3201,11 +3222,9 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   // A seeded number (the one they are messaging from) is a default, not their decision — so it
   // must not block a different callback number. Once the customer has confirmed or corrected it,
   // it counts as theirs and the normal "don't overwrite" rule applies again.
-  if (phone && (!session.contactPhone || (session.contactPhoneSeeded && !session.contactPhoneConfirmed))) {
+  if (phone && phoneIsReplaceable(session)) {
     const replacing = session.contactPhone && session.contactPhone !== phone ? ` (replacing seeded ${session.contactPhone})` : '';
-    session.contactPhone = phone;
-    session.contactPhoneConfirmed = true;
-    session.contactPhoneSeeded = false;
+    setCustomerProvidedPhone(session, phone);
     console.log(`[SET_CONTACT] Saved phone: ${phone}${replacing}`);
   }
   if (email && !session.contactEmail) {
@@ -4267,7 +4286,8 @@ TONE EXAMPLES:
 - NEVER ask them to type out or "grab" their phone number, and never say you don't have it. You do have it.
 - When you need a contact number, say EXACTLY: "I've got the number ending ${last3} — is that the best one for you?"
 - If they say yes (or "that's the one", "this number", "yep", or anything agreeing): call set_contact_info with phone "${session.contactPhone}". Do NOT ask for anything more.
-- If they give a different number, call set_contact_info with THAT number instead.
+- If they say no WITHOUT giving a number, reply "No problem — what's the best number for you?" and wait.
+- If they give a different number, call set_contact_info with THAT number instead — their number always wins over the one they are messaging from, and never argue with them about it.
 - If they have already told you it is the number they are messaging from, treat that as a yes and call set_contact_info with "${session.contactPhone}" immediately.\n`;
   }
 

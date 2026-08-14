@@ -92,6 +92,11 @@ interface ChatSession {
   
   // Contact
   contactPhone: string;
+  // True when contactPhone came from the platform (e.g. the WhatsApp number they are messaging
+  // from) rather than from the customer telling us. Such a number is known but not yet agreed as
+  // the callback number, so the agent confirms its last 3 digits instead of asking for it.
+  contactPhoneSeeded?: boolean;
+  contactPhoneConfirmed?: boolean;
   contactEmail: string;
   contactPostcode: string;
   contactStreet: string;
@@ -689,6 +694,7 @@ async function getChatAgentResponseInner(
     let seedApplied = false;
     if (seedContact?.phone && !session.contactPhone) {
       session.contactPhone = seedContact.phone.replace(/\s+/g, '');
+      session.contactPhoneSeeded = true;
       console.log(`[SEED_CONTACT] Phone seeded: ${session.contactPhone}`);
       seedApplied = true;
     }
@@ -774,6 +780,7 @@ async function getChatAgentResponseInner(
     // Re-apply seed after hydration to ensure it wins over any contradictory history
     if (seedContact?.phone && !session.contactPhone) {
       session.contactPhone = seedContact.phone.replace(/\s+/g, '');
+      session.contactPhoneSeeded = true;
       seedApplied = true;
     }
 
@@ -3190,10 +3197,16 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     session.step = Step.NEED_CONTACT;
   }
   
-  // Save any new information provided
-  if (phone && !session.contactPhone) {
+  // Save any new information provided.
+  // A seeded number (the one they are messaging from) is a default, not their decision — so it
+  // must not block a different callback number. Once the customer has confirmed or corrected it,
+  // it counts as theirs and the normal "don't overwrite" rule applies again.
+  if (phone && (!session.contactPhone || (session.contactPhoneSeeded && !session.contactPhoneConfirmed))) {
+    const replacing = session.contactPhone && session.contactPhone !== phone ? ` (replacing seeded ${session.contactPhone})` : '';
     session.contactPhone = phone;
-    console.log(`[SET_CONTACT] Saved phone: ${phone}`);
+    session.contactPhoneConfirmed = true;
+    session.contactPhoneSeeded = false;
+    console.log(`[SET_CONTACT] Saved phone: ${phone}${replacing}`);
   }
   if (email && !session.contactEmail) {
     if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email)) {
@@ -4100,7 +4113,7 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   return null;
 }
 
-function buildSystemPromptV2(config: any, knowledgeDocuments: any[], session: ChatSession): string {
+export function buildSystemPromptV2(config: any, knowledgeDocuments: any[], session: ChatSession): string {
   const branchName = config.branchName || 'our garage';
   const agentName = (config.agentName || '').trim() || 'Leah';
 
@@ -4232,14 +4245,32 @@ TONE EXAMPLES:
   // service were you after?" — which is what happened on Great Hollands 2026-08-12 even after
   // the state was corrected. State the situation plainly and name the one tool that finishes it.
   if (session.step === Step.MESSAGE_ONLY) {
+    const seededUnconfirmed = !!(session.contactPhone && session.contactPhoneSeeded && !session.contactPhoneConfirmed);
     const missing = [
       !session.customerNameFirst ? 'their full name' : '',
-      !session.contactPhone ? 'the best phone number for them' : '',
+      !session.contactPhone ? 'the best phone number for them'
+        : seededUnconfirmed ? `confirmation that the number they are messaging from (ending ${session.contactPhone.slice(-3)}) is the best one — ask that, do NOT ask them to type their number out`
+        : '',
     ].filter(Boolean);
     prompt += `\nYOU ARE TAKING A MESSAGE, NOT BOOKING. This customer has asked for something this garage does not book online, and they have been told an advisor will call them back. Do NOT ask what service they want, do NOT offer or list services, and do NOT restart the booking flow — ignore the booking instructions below for now.${
       missing.length ? ` You still need ${missing.join(' and ')} — ask for that, then call take_message.` : ` You already have their name and number — call take_message now with what they want passing on.`
     }\n`;
   }
+  // ── Number already known from the platform ──────────────────────────────
+  // On WhatsApp the customer is messaging FROM their number, so asking them to type it out reads
+  // as if we haven't been paying attention. Great Hollands 2026-08-14: the agent asked "can I
+  // grab a contact number?" three times, Kris replied "this is my number I'm on" twice, and it
+  // asked again. Mirrors the voice agents' SIP caller block — confirm the last 3, don't ask.
+  if (session.contactPhone && session.contactPhoneSeeded && !session.contactPhoneConfirmed) {
+    const last3 = session.contactPhone.slice(-3);
+    prompt += `\nTHEIR NUMBER IS ALREADY KNOWN — they are messaging from ${session.contactPhone} (ending ${last3}).
+- NEVER ask them to type out or "grab" their phone number, and never say you don't have it. You do have it.
+- When you need a contact number, say EXACTLY: "I've got the number ending ${last3} — is that the best one for you?"
+- If they say yes (or "that's the one", "this number", "yep", or anything agreeing): call set_contact_info with phone "${session.contactPhone}". Do NOT ask for anything more.
+- If they give a different number, call set_contact_info with THAT number instead.
+- If they have already told you it is the number they are messaging from, treat that as a yes and call set_contact_info with "${session.contactPhone}" immediately.\n`;
+  }
+
   if (session.customerNameFirst) prompt += `Customer: ${session.customerNameFirst} ${session.customerNameLast || ''}\n`;
   if (session.vrn) prompt += `Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
   if (session.serviceSelectedName) {

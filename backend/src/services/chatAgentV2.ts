@@ -498,6 +498,83 @@ export function invalidateSessionCache(conversationId: string): void {
  * This has to run AFTER the model, not before: on the turn where the customer supplies their
  * details, the session does not have them yet when the turn starts.
  */
+const PRICE_TOKEN_RE = /£\s?\d[\d,]*(?:\.\d{1,2})?/g;
+
+function priceVariants(raw: any): number[] {
+  const n = Number(String(raw ?? '').replace(/[^0-9.]/g, ''));
+  return isFinite(n) && n > 0 ? [n] : [];
+}
+
+/**
+ * Last line of defence against invented prices.
+ *
+ * The prompt already forbids quoting a figure it wasn't given, and that rule was still broken:
+ * Great Hollands, 2026-08-14, quoted a customer £319.99/£199.99/£109.99 for services whose real
+ * prices were £156/£135/£90 — the garage hides its prices in GarageHive, so the model had a list
+ * of names with no numbers and filled the gap itself. A prompt rule is a request; this is a check.
+ *
+ * Legitimate sources of a figure: the loaded GarageHive service list, the price of the service
+ * actually selected (real data even when the garage hides it publicly), the garage's own knowledge
+ * documents and FAQs, and any number the customer themselves just used. Anything else is redacted
+ * sentence-by-sentence, so a wrong number never reaches a customer.
+ */
+export async function redactUnverifiedPrices(
+  text: string,
+  session: ChatSession,
+  garageId: string,
+  customerMessage: string,
+): Promise<string> {
+  const quoted = text.match(PRICE_TOKEN_RE);
+  if (!quoted?.length) return text;
+
+  const allowed: number[] = [];
+  // Prices the garage hides are NOT quotable, so they never enter the allow-list — otherwise the
+  // guard would happily pass a figure the garage deliberately chose not to publish.
+  for (const s of session.servicesAvailable || []) {
+    if (!s?.hide_service_prices) allowed.push(...priceVariants(s?.price));
+  }
+  allowed.push(...priceVariants(session.servicePrice));
+  allowed.push(...priceVariants((session as any).additionalServicePrice));
+  const main = Number(session.servicePrice);
+  const addl = Number((session as any).additionalServicePrice);
+  if (main > 0 && addl > 0) allowed.push(main + addl);
+
+  let corpus = String(customerMessage || '');
+  try {
+    const g = await prisma.garage.findUnique({
+      where: { id: garageId },
+      include: { agentConfiguration: true, knowledgeDocuments: { take: 20 } },
+    });
+    corpus += ` ${JSON.stringify(g?.knowledgeDocuments || [])} ${JSON.stringify(g?.agentConfiguration || {})}`;
+  } catch (e: any) {
+    // Never redact on incomplete evidence — a failed lookup would strip legitimate prices.
+    console.error('[PRICE_GUARD] Source lookup failed, leaving message untouched:', e?.message);
+    return text;
+  }
+
+  const unverified = [...new Set(quoted)].filter((tok) => {
+    const n = Number(tok.replace(/[^0-9.]/g, ''));
+    if (!isFinite(n) || n <= 0) return false;
+    if (allowed.some((a) => Math.abs(a - n) < 0.005)) return false;
+    return !corpus.includes(n.toFixed(2)) && !corpus.includes(String(n));
+  });
+  if (!unverified.length) return text;
+
+  const kept = text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !unverified.some((bad) => sentence.includes(bad)));
+  const cleaned = kept.join(' ').replace(/\s+/g, ' ').trim();
+
+  console.error(
+    `[PRICE_GUARD] BLOCKED invented price(s) ${unverified.join(', ')} for garage ${garageId} — ` +
+    `allowed: [${allowed.join(', ')}] — original: ${JSON.stringify(text.slice(0, 300))}`,
+  );
+
+  return cleaned.length >= 25
+    ? cleaned
+    : "I can't confirm an exact price on here, but the team will confirm that for you. Is there anything else I can help with?";
+}
+
 export async function getChatAgentResponse(
   garageId: string,
   message: string,
@@ -507,6 +584,10 @@ export async function getChatAgentResponse(
   const res = await getChatAgentResponseInner(garageId, message, conversationId, seedContact);
   try {
     const session = await getOrCreateSession(conversationId);
+
+    if (res?.content?.includes('£')) {
+      res.content = await redactUnverifiedPrices(res.content, session, garageId, message);
+    }
     if (session.step === Step.MESSAGE_ONLY && !session.messageTaken
         && session.customerNameFirst && session.contactPhone) {
       const summary = [
@@ -2369,9 +2450,11 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
       return `Vehicle confirmed but no services available.\nSay: "Let me grab your details and we'll give you a call back with a quote."\nThen call take_message.`;
     }
     
+    // Label a withheld price rather than emitting a bare name — see the note in
+    // buildSystemPromptV2's AVAILABLE SERVICES block for why a silent gap gets filled in.
     const serviceList = services.slice(0, 5).map((s: any, i: number) => {
       const p = s.price || 0;
-      let priceStr = '';
+      let priceStr = ' — PRICE NOT AVAILABLE, do not state or estimate one';
       if (!s.hide_service_prices && p >= 1) {
         if (s.estimate) priceStr = ` — from around £${p}`;
         else if (s.from_price) priceStr = ` — from £${p}`;
@@ -2622,7 +2705,12 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 
   const serviceId = matched.service_price_id;
   const serviceName = matched.name;
-  const price = matched.price;
+  // A garage that hides its prices in GarageHive has decided not to publish them; the agent must
+  // honour that too, rather than reading out a figure the customer could not see for themselves.
+  // Blanking it here is enough: every downstream display already falls through to "POA" on an
+  // empty price, the booking itself is made from service IDs, and the price guard's allow-list is
+  // built from this same value — so a hidden price cannot leak by any route.
+  const price = matched.hide_service_prices ? '' : matched.price;
 
   // Append diagnostic notes to booking notes if collected
   if (session.diagnosticNotes) {
@@ -4212,10 +4300,17 @@ TONE EXAMPLES:
 
   // ── Available services — inject when loaded so agent can answer price/options questions ──
   if (session.servicesAvailable && session.servicesAvailable.length > 0) {
+    // A service whose price the garage hides (hide_service_prices) used to render as a bare name,
+    // while the line below still told the model to "list these services with their prices" — so it
+    // filled the gap with invented figures. Great Hollands, 2026-08-14: quoted £319.99/£199.99/
+    // £109.99 against real prices of £156/£135/£90. Label the absence explicitly instead of
+    // leaving a hole, and only ask for prices to be listed when prices actually exist.
+    let anyPriced = false;
     const svcLines = session.servicesAvailable.map((s: any) => {
       const p = s.price || 0;
-      let priceStr = '';
+      let priceStr = ' — PRICE NOT AVAILABLE, do not state or estimate one';
       if (!s.hide_service_prices && p > 0) {
+        anyPriced = true;
         if (s.estimate) priceStr = ` — from around £${p}`;
         else if (s.from_price) priceStr = ` — from £${p}`;
         else priceStr = ` — £${p}`;
@@ -4223,7 +4318,10 @@ TONE EXAMPLES:
       return `- ${s.name}${priceStr}`;
     }).join('\n');
     prompt += `\nAVAILABLE SERVICES:\n${svcLines}\n`;
-    prompt += `ONLY if the customer explicitly asks "what are the options", "what services do you offer", or "what are the prices", list these services with their prices naturally. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`;
+    prompt += `PRICING — ABSOLUTE RULE: the only prices that exist are the ones shown above. NEVER state, estimate, approximate, guess or imply any other figure — no ranges, no "typically around", no "from about". If a service is marked PRICE NOT AVAILABLE and the customer asks what it costs, say you can't confirm the price on chat and the team will confirm it, then carry on with the booking or take their details. If they push back on a price or ask why one service costs more than another, do NOT invent a figure or a justification for one.\n`;
+    prompt += anyPriced
+      ? `ONLY if the customer explicitly asks "what are the options", "what services do you offer", or "what are the prices", list these services naturally, quoting a price ONLY for those that show one above and saying the team will confirm the rest. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`
+      : `This garage does not publish its prices, so you do NOT have any prices to give. ONLY if the customer explicitly asks "what are the options" or "what services do you offer", list the service NAMES only and add that the team will confirm the cost. If they ask "how much", say you can't confirm prices on chat and the team will confirm — never produce a number. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`;
   }
 
   // ── Available timeslots — inject when in timeslot selection so OpenAI can handle any natural language ──
@@ -4374,12 +4472,13 @@ GENERAL RULES:
 - COMPLAINTS ARE NOT SALES OPPORTUNITIES. If the customer is unhappy about work this garage already did, about being overcharged, about damage to their vehicle, or about a delay, then acknowledge it and apologise first, and take their details for a callback so a human can deal with it. Do NOT offer to book or quote the repair — offering to sell them a fix for damage they are blaming on the garage is the worst possible reply.
 - Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases
 - NEVER answer questions about services/prices from your own knowledge — only use what tools return after confirm_vehicle has been called
+- A price is a FACT, not a guess. Only ever repeat a figure that a tool returned or that is listed in AVAILABLE SERVICES above. If you do not have a price, say so plainly ("I can't confirm the price on here, but the team will confirm it for you") — an honest "I don't know" is always better than a number you are not certain of. Quoting a wrong price is one of the most damaging things you can do
 - Keep responses short (1–2 sentences)
 - Address customer by first name only
 - Never invent booking details — only use what tools return
 - If the customer asks a side question mid-booking (e.g. "how long does it take?", "what time do you open?", "is parking free?"), answer briefly in one sentence, then immediately continue with the current booking step — do NOT ignore the question and do NOT abandon the booking flow
 - If you cannot proceed, offer to take a message for a callback
-- If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT bail out to take_message merely because they asked about price, and do NOT end the conversation. (Exception: if a garage rule says the work they actually want must not be booked, that rule wins — take their details and call take_message.)
+- If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking. If CURRENT STATE shows no price or shows POA, this garage does not publish that price — say you can't confirm the cost on chat and the team will confirm it, and carry on. Never fill that gap with a figure of your own — do NOT bail out to take_message merely because they asked about price, and do NOT end the conversation. (Exception: if a garage rule says the work they actually want must not be booked, that rule wins — take their details and call take_message.)
 - Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected
 - If the current step is need_timeslot and the customer says "that's all", "nothing else", "just the MOT/service", "no thanks", "nope", or any short/negative reply — this means "no extras, proceed with booking". Do NOT say goodbye. Immediately ask: "Do you have a preferred date in mind, or shall I suggest the earliest available?"
 

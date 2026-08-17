@@ -23,6 +23,10 @@ model Garage {
   // someone remembering to archive on the day is how a former customer's calls kept being
   // answered for free — see the voice-route gate.
   archiveScheduledAt DateTime?
+  // How this customer pays. 'invoice' customers (In'n'out) settle by bank transfer against an
+  // emailed invoice, so their invoices sit 'pending' by design — chasing them needs payment TERMS,
+  // not a failed-collection signal, and the billing watchdog must not treat them as unpaid.
+  paymentMethod      String  @default("direct_debit") // 'direct_debit' | 'invoice'
   twilioNumber       String?
   hasMessagingAccess Boolean @default(false)
   hasVoiceAccess Boolean @default(true)
@@ -731,6 +735,12 @@ model Invoice {
   // GoCardless
   gocardlessPaymentId  String?
   gocardlessChargeDate DateTime?
+  // When payment is due (issue date + the customer's terms, currently 14 days). Without this
+  // stored, nothing could answer "what is overdue" — the due date was only ever calculated inside
+  // the In'n'out email template and printed, never kept.
+  dueDate              DateTime?
+  chaseSentAt          DateTime? // first reminder, on the due date
+  chase2SentAt         DateTime? // second reminder, 14 days later
   paidAt               DateTime?
 
   // Credit/Void tracking

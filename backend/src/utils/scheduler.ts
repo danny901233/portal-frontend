@@ -14,6 +14,7 @@ import { runDailyReport } from '../services/opsDailyReport.js';
 import { resetRecurringTasks, archiveDueGarages } from '../services/opsTaskReset.js';
 import { runBillingWatchdog } from '../services/billingWatchdog.js';
 import { retryFailedPayments } from '../services/paymentRetry.js';
+import { chaseOverdueInvoices } from '../services/invoiceChase.js';
 
 const prisma = new PrismaClient();
 
@@ -134,6 +135,17 @@ export const initializeScheduledReports = (): void => {
     }
   }, { timezone: 'Europe/London' });
   console.log('✓ Failed-payment retry scheduled: Daily at 10:00 AM (UK time)');
+
+  // Chase invoice-payers past their 14-day terms: first reminder on the due date, second 14 days
+  // later. Direct Debit customers are handled by the failure/retry path instead.
+  cron.schedule('30 10 * * *', async () => {
+    try {
+      await chaseOverdueInvoices();
+    } catch (error) {
+      console.error('❌ Invoice chase failed:', error);
+    }
+  }, { timezone: 'Europe/London' });
+  console.log('✓ Overdue invoice chase scheduled: Daily at 10:30 AM (UK time)');
 
   // In'n'out Autocentres invoice: 1st of each month at 9:00 AM. They pay by their own Direct
   // Debit against an emailed invoice (not GoCardless), so we raise + email the combined 4-branch

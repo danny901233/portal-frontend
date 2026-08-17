@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../../db.js';
+import { sendPaymentFailedEmail } from '../../utils/email.js';
+import { createPaymentSetupLink } from '../../services/directDebitRequestEmail.js';
 
 const router = Router();
 
@@ -161,6 +163,39 @@ async function handlePaymentEvent(event: any) {
         where: { id: invoice.garageId }, data: { paymentFailedAt: new Date() },
       });
       console.warn(`[GoCardless Webhook] ⚠️ ${garage.name} payment ${action} — arrears clock started`);
+
+      // Tell them. Until now a bounced Direct Debit was silent on the customer's side — they had
+      // no idea anything had failed, and neither did we.
+      void (async () => {
+        try {
+          const cfg = await prisma.agentConfiguration.findUnique({
+            where: { garageId: invoice.garageId },
+            select: { notificationEmails: true, branchName: true },
+          });
+          const to = cfg?.notificationEmails?.length ? cfg.notificationEmails : [];
+          if (!to.length) return;
+          const user = await prisma.user.findFirst({
+            where: { garageAccessIds: { has: invoice.garageId } },
+            select: { email: true, gocardlessMandateId: true },
+          });
+          // If the mandate is gone we cannot retry, so the email has to ask them to re-authorise.
+          const mandateDead = !user?.gocardlessMandateId;
+          let ddSetupUrl: string | undefined;
+          if (mandateDead && user?.email) {
+            try { ddSetupUrl = await createPaymentSetupLink(user.email); } catch { /* no portal user */ }
+          }
+          await sendPaymentFailedEmail(to, {
+            branchName: cfg?.branchName || garage.name,
+            amount: `£${(invoice.total / 100).toFixed(2)}`,
+            retryDays: 4,
+            mandateDead,
+            ddSetupUrl,
+          });
+          console.log(`[GoCardless Webhook] payment-failed email sent to ${to.join(', ')}`);
+        } catch (e: any) {
+          console.error('[GoCardless Webhook] could not send payment-failed email:', e?.message);
+        }
+      })();
     } else {
       console.warn(`[GoCardless Webhook] ⚠️ ${garage?.name} payment ${action} — already in arrears since ${garage?.paymentFailedAt?.toISOString().slice(0,10)}`);
     }

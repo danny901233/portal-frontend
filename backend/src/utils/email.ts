@@ -10,6 +10,7 @@ export interface EmailAttachment {
 
 interface EmailOptions {
   to: string[];
+  cc?: string[];
   subject: string;
   html: string;
   text: string;
@@ -63,6 +64,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     const form = new FormData();
     form.set('from', config.from);
     form.set('to', options.to.join(', '));
+    if (options.cc?.length) form.set('cc', options.cc.join(', '));
     form.set('subject', options.subject);
     form.set('text', options.text);
     form.set('html', options.html);
@@ -79,6 +81,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     const form = new URLSearchParams();
     form.set('from', config.from);
     form.set('to', options.to.join(', '));
+    if (options.cc?.length) form.set('cc', options.cc.join(', '));
     form.set('subject', options.subject);
     form.set('text', options.text);
     form.set('html', options.html);
@@ -829,6 +832,218 @@ interface ArrearsWarningEmailData {
  * as a Stripe card charge fails. Advises the payment failed, that we'll retry, and that
  * access will be limited if it isn't brought up to date within the grace window.
  */
+export interface LatePaymentEmailData {
+  customerName: string;
+  finalNotice?: boolean;   // second chase, 14 days after the first
+  amount: string;          // formatted, e.g. "£1,855.50"
+  dueDate: string;         // e.g. "15 August 2026"
+  daysOverdue: number;
+  lines?: Array<{ label: string; amount: string }>;  // e.g. per-branch breakdown
+  ddSetupUrl?: string;     // omitted → the Direct Debit section is left out
+  portalUrl?: string;
+}
+
+/**
+ * Late payment reminder for customers who pay on invoice rather than Direct Debit.
+ *
+ * Deliberately gentle: it opens by excusing anyone who paid in the last day or two, since with
+ * 14-day terms and manual reconciliation we WILL sometimes chase someone who has already paid.
+ * It makes no threat — the contract allows suspension at 30 days, and that belongs in a second,
+ * firmer message rather than a first reminder. Direct Debit is offered as convenience, not
+ * compliance, because the point is to stop this recurring rather than to scold.
+ */
+export interface PaymentFailedEmailData {
+  branchName: string;
+  amount: string;
+  retryDays: number;
+  ddSetupUrl?: string;  // only when the mandate itself is dead and needs re-authorising
+  mandateDead?: boolean;
+}
+
+/**
+ * Direct Debit collection failed — tell the customer, and tell them we're handling it.
+ *
+ * The existing arrears warning is Stripe wording ("the card was declined") and only ever fired
+ * for card customers. Direct Debit customers got nothing at all: Caldwell & Dempster bounced on
+ * 30 June, kept taking 40 calls a month, and were never told. Most BACS failures are just funds
+ * on the day, so the tone is "no action needed, we'll retry" unless the mandate is actually gone.
+ */
+export const sendPaymentFailedEmail = async (
+  recipients: string[],
+  data: PaymentFailedEmailData,
+): Promise<boolean> => {
+  if (recipients.length === 0) return false;
+
+  const body = data.mandateDead
+    ? `
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #fef3f2; border: 1px solid #fbd5d0; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #7a2b23;">
+                    It looks like the Direct Debit instruction is no longer active with your bank, so
+                    we can't retry this one automatically. Setting it up again takes about a minute
+                    and we'll collect the outstanding amount on the next working day.
+                  </td>
+                </tr>
+              </table>`
+    : `
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #f7f7fb; border: 1px solid #e9eaf5; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #3a3f5c;">
+                    <strong>There's nothing you need to do.</strong> We'll automatically try again in
+                    about ${data.retryDays} days, which usually sorts it. Your service carries on as
+                    normal in the meantime — your AI receptionist keeps answering your calls.
+                  </td>
+                </tr>
+              </table>`;
+
+  const button = data.ddSetupUrl ? `
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 22px 0 0;">
+                <tr>
+                  <td style="border-radius: 10px; background-color: ${RM_BRAND};">
+                    <a href="${data.ddSetupUrl}" style="display: inline-block; padding: 14px 26px; font-size: 16px;
+                       font-weight: 600; color: #ffffff; text-decoration: none;">Set up Direct Debit</a>
+                  </td>
+                </tr>
+              </table>` : '';
+
+  const html = arrearsEmailShell(`
+          <tr>
+            <td style="padding: 36px 32px 8px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">Your Direct Debit didn't go through</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b7194;">${data.branchName}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 32px;">
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                We tried to collect <strong>${data.amount}</strong> for your ReceptionMate
+                subscription, but the payment didn't clear.
+              </p>
+              ${body}
+              ${button}
+              <p style="margin: 22px 0 0; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                If something's changed with your bank details, or you'd like to pay this one another
+                way, just reply to this email and we'll sort it out.
+              </p>
+            </td>
+          </tr>`);
+
+  const text = [
+    `Your Direct Debit didn't go through — ${data.branchName}`, '',
+    `We tried to collect ${data.amount} for your ReceptionMate subscription, but the payment didn't clear.`, '',
+    data.mandateDead
+      ? `The Direct Debit instruction is no longer active with your bank, so we can't retry automatically.${data.ddSetupUrl ? ` Set it up again here: ${data.ddSetupUrl}` : ''}`
+      : `There's nothing you need to do — we'll automatically try again in about ${data.retryDays} days. Your service carries on as normal.`,
+    '', 'If something has changed with your bank details, just reply and we will sort it out.',
+  ].join('\n');
+
+  return sendEmail({ to: recipients, subject: `Your Direct Debit didn't go through — ${data.amount}`, html, text });
+};
+
+export const sendLatePaymentEmail = async (
+  recipients: string[],
+  data: LatePaymentEmailData,
+  cc?: string[],
+): Promise<boolean> => {
+  if (recipients.length === 0) {
+    console.log('No recipients configured for late payment email');
+    return false;
+  }
+
+  const lineRows = (data.lines || []).map((l) => `
+                  <tr>
+                    <td style="padding: 4px 0; font-size: 15px; color: #3a3f5c;">${l.label}</td>
+                    <td style="padding: 4px 0; font-size: 15px; color: #1d1a72; font-weight: 600; text-align: right;">${l.amount}</td>
+                  </tr>`).join('');
+
+  const breakdown = lineRows ? `
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"
+                     style="margin: 0 0 20px; padding: 16px 20px; background-color: #f7f7fb; border: 1px solid #e9eaf5; border-radius: 10px;">
+                ${lineRows}
+                <tr>
+                  <td style="padding: 10px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72;">Total</td>
+                  <td style="padding: 10px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72; text-align: right;">${data.amount}</td>
+                </tr>
+              </table>` : '';
+
+  const ddBlock = data.ddSetupUrl ? `
+              <p style="margin: 24px 0 8px; font-size: 16px; font-weight: 600; color: #1d1a72;">Would Direct Debit be easier?</p>
+              <p style="margin: 0 0 18px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                Most of our customers pay this way — it collects automatically on the same date each
+                month, so there's nothing to remember and no risk of a missed invoice interrupting
+                your service. It takes about a minute to set up and you can cancel it at any time.
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 22px;">
+                <tr>
+                  <td style="border-radius: 10px; background-color: ${RM_BRAND};">
+                    <a href="${data.ddSetupUrl}" style="display: inline-block; padding: 14px 26px; font-size: 16px;
+                       font-weight: 600; color: #ffffff; text-decoration: none;">Set up Direct Debit</a>
+                  </td>
+                </tr>
+              </table>` : '';
+
+  const html = arrearsEmailShell(`
+          <tr>
+            <td style="padding: 36px 32px 8px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">${data.finalNotice ? 'Your invoice is still unpaid' : 'Your invoice is now overdue'}</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b7194;">${data.customerName}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 32px;">
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                Our records show your invoice for <strong>${data.amount}</strong> was due on
+                ${data.dueDate} and is still showing as unpaid — ${data.daysOverdue} day${data.daysOverdue === 1 ? '' : 's'}
+                past our 14&nbsp;day terms. If you've already sent it across in the last day or two,
+                thank you, and please ignore this.
+              </p>
+              ${data.finalNotice ? `
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 18px;">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #fef3f2; border: 1px solid #fbd5d0; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #7a2b23;">
+                    This is our second reminder. Under our agreement, accounts unpaid after 30 days may
+                    have their service restricted on 5 days' notice — we'd much rather not do that, so
+                    please let us know if there's a problem and we'll work something out.
+                  </td>
+                </tr>
+              </table>` : ''}
+              ${breakdown}
+              ${ddBlock}
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #6b7194;">
+                Prefer to pay this one by transfer? Our bank details are on the invoice${data.portalUrl ? `,
+                and you can view it any time in <a href="${data.portalUrl}" style="color: ${RM_BRAND};">the portal</a>` : ''}.
+              </p>
+              <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                If there's a problem with the invoice, or the timing doesn't work this month, just
+                reply to this email and we'll sort it out.
+              </p>
+            </td>
+          </tr>`);
+
+  const text = [
+    `Your invoice is now overdue — ${data.customerName}`,
+    '',
+    `Our records show your invoice for ${data.amount} was due on ${data.dueDate} and is still showing`,
+    `as unpaid — ${data.daysOverdue} day${data.daysOverdue === 1 ? '' : 's'} past our 14 day terms. If you've already sent it across in the`,
+    'last day or two, thank you, and please ignore this.',
+    '',
+    ...(data.lines || []).map((l) => `  ${l.label}: ${l.amount}`),
+    ...(data.lines?.length ? [`  Total: ${data.amount}`, ''] : []),
+    ...(data.ddSetupUrl ? [
+      'Would Direct Debit be easier? Most of our customers pay this way — it collects automatically',
+      'on the same date each month, so there is nothing to remember and no risk of a missed invoice',
+      'interrupting your service. It takes about a minute to set up and you can cancel at any time.',
+      '', data.ddSetupUrl, '',
+    ] : []),
+    'If there is a problem with the invoice, or the timing does not work this month, just reply and',
+    'we will sort it out.',
+  ].join('\n');
+
+  return sendEmail({ to: recipients, cc,
+    subject: data.finalNotice ? `Second reminder: invoice still unpaid — ${data.amount}` : `Invoice overdue — ${data.amount}`,
+    html, text });
+};
+
 export const sendArrearsWarningEmail = async (
   recipients: string[],
   data: ArrearsWarningEmailData,

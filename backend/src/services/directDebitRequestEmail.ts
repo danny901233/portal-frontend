@@ -6,37 +6,42 @@ import { sendEmail } from '../utils/email.js';
 import crypto from 'crypto';
 import { prisma } from '../db.js';
 
+/**
+ * One-time magic link that takes a customer straight into the Direct Debit setup flow.
+ *
+ * Extracted so any email can carry a WORKING "Set up Direct Debit" button — a late payment
+ * reminder that offers Direct Debit and then links nowhere is worse than not offering it.
+ * The token lives on the user's resetToken fields for 7 days, which is the same mechanism the
+ * Direct Debit request email has always used.
+ */
+export async function createPaymentSetupLink(userEmail: string): Promise<string> {
+  const user = await prisma.user.findUnique({
+    where: { email: userEmail },
+    select: { id: true },
+  });
+  if (!user) {
+    throw new Error(`User not found: ${userEmail}`);
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { resetToken: token, resetTokenExpiry: expiresAt },
+  });
+
+  const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+  return `${portalUrl}/setup-payment?token=${token}`;
+}
+
 export async function sendDirectDebitRequestEmail(
   userEmail: string,
   userName: string | null,
   garageNames: string[]
 ): Promise<void> {
-  // Find the user to create a magic link token
-  const user = await prisma.user.findUnique({
-    where: { email: userEmail },
-    select: { id: true }
-  });
-
-  if (!user) {
-    throw new Error(`User not found: ${userEmail}`);
-  }
-
-  // Generate a one-time magic link token (valid for 7 days)
-  const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-
-  // Store the token on the user record (reusing resetToken fields)
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      resetToken: token,
-      resetTokenExpiry: expiresAt,
-    }
-  });
-
-  const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
-  const setupUrl = `${portalUrl}/setup-payment?token=${token}`;
+  const setupUrl = await createPaymentSetupLink(userEmail);
 
   const emailHtml = generateDirectDebitRequestHtml(userName || userEmail, garageNames, setupUrl);
   const emailText = generateDirectDebitRequestText(userName || userEmail, garageNames, setupUrl);

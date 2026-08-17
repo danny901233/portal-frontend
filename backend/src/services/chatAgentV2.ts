@@ -554,6 +554,51 @@ export function isAskingAboutExistingBooking(message: string): boolean {
   );
 }
 
+/**
+ * The customer asked for a time the diary cannot do — return what it CAN do, or null if the
+ * request is satisfiable (or isn't about time at all).
+ *
+ * Speedy Spanners 2026-08-15: every slot in the diary was 08:30. Nicki asked for "a bit later in
+ * the day", and the agent re-proposed 8:30am verbatim; she asked again with "11am?" and it
+ * offered Friday 11th December — the boundary date named in its own prompt ("no others exist
+ * beyond…"), matched on the "11". Neither answer told her the truth, which is that 8:30 is the
+ * only time this garage publishes.
+ */
+export function unsatisfiableTimeRequest(
+  pref: string,
+  timeslots: Array<{ date: string; time: string }>,
+): { distinctTimes: string[]; latest: string } | null {
+  const p = String(pref || '').toLowerCase();
+  if (!timeslots?.length) return null;
+
+  const wantsLater = /\blater\b|\bafternoon\b|\bevening\b|\blunch\b|\bmidday\b|\bnoon\b/.test(p);
+  const hhmm = p.match(/\b(\d{1,2})[:.](\d{2})\s*(am|pm)?\b/);
+  const ampm = p.match(/(?<![\d:.])\b(\d{1,2})\s*(am|pm)\b/);
+  if (!wantsLater && !hhmm && !ampm) return null; // no time intent — not our case
+
+  let requestedHour: number | null = null;
+  if (hhmm) {
+    requestedHour = parseInt(hhmm[1]);
+    if ((hhmm[3] || '').toLowerCase() === 'pm' && requestedHour < 12) requestedHour += 12;
+  } else if (ampm) {
+    requestedHour = parseInt(ampm[1]);
+    if (ampm[2].toLowerCase() === 'pm' && requestedHour < 12) requestedHour += 12;
+  } else if (/\bafternoon\b|\blunch\b|\bmidday\b|\bnoon\b/.test(p)) {
+    requestedHour = 12;
+  } else if (/\bevening\b/.test(p)) {
+    requestedHour = 17;
+  }
+
+  const distinctTimes = [...new Set(timeslots.map((t) => t.time))].sort();
+  const latest = distinctTimes[distinctTimes.length - 1];
+  const latestHour = parseInt(latest.split(':')[0]);
+
+  // A bare "later" is satisfiable only if more than one time exists to be later than.
+  if (requestedHour === null) return distinctTimes.length > 1 ? null : { distinctTimes, latest };
+  if (latestHour >= requestedHour) return null; // something at or after what they asked for
+  return { distinctTimes, latest };
+}
+
 const PRICE_TOKEN_RE = /£\s?\d[\d,]*(?:\.\d{1,2})?/g;
 
 function priceVariants(raw: any): number[] {
@@ -3044,6 +3089,23 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     return `No timeslots loaded. Call select_service first.`;
   }
 
+  // They asked for a time this garage doesn't offer. Say so — do not re-propose the same slot as
+  // if they hadn't spoken, and do not go hunting for another date to satisfy the number.
+  const cannotDo = unsatisfiableTimeRequest(effectivePref, session.timeslotsAvailable);
+  if (cannotDo) {
+    const timesNatural = cannotDo.distinctTimes.map((t) => formatTimeNaturally(t));
+    const timeList = timesNatural.length === 1
+      ? timesNatural[0]
+      : `${timesNatural.slice(0, -1).join(', ')} and ${timesNatural[timesNatural.length - 1]}`;
+    console.log(`[SELECT_TIMESLOT] Time request "${effectivePref}" cannot be met — only ${cannotDo.distinctTimes.join(', ')} available`);
+    const dropOffLine = session.useDropOffBooking && DROP_OFF_MESSAGE
+      ? ` Explain that we like the car to ${DROP_OFF_MESSAGE}, and that it can be left with us for the day.`
+      : '';
+    return `TIME_NOT_AVAILABLE: this garage only books at ${cannotDo.distinctTimes.join(', ')}.
+Say: "I'm sorry — all our bookings ${cannotDo.distinctTimes.length === 1 ? `start at ${timeList}` : `are at ${timeList}`}, so I can't do anything later in the day."${dropOffLine} Then ask which DATE suits them.
+Do NOT propose a time that is not in that list, and do NOT offer a different date to try to satisfy the time — the date is still theirs to choose.`;
+  }
+
   // Drop-off booking: pick the first slot on the requested date, skip time selection
   if (session.useDropOffBooking) {
     // Try to find a date match from the preference
@@ -4500,6 +4562,12 @@ TONE EXAMPLES:
     ).join('\n');
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
     prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
+    const distinctTimes = [...new Set(session.timeslotsAvailable.map((t: any) => t.time))];
+    if (distinctTimes.length === 1) {
+      // Otherwise the model re-proposes the same slot at a customer asking for "later", or treats
+      // the hour they asked for as a day-of-month and offers the far end of the list.
+      prompt += `EVERY appointment above is at ${formatTimeNaturally(distinctTimes[0])} — that is the ONLY time this garage books. If the customer asks for a later time, a specific hour, or the afternoon, tell them plainly that all bookings are at ${formatTimeNaturally(distinctTimes[0])} and ask which DATE suits. Never offer another time, and never treat a time like "11am" as a date.\n`;
+    }
     prompt += `When the customer mentions ANY time or date preference, call select_timeslot IMMEDIATELY with exactly what they said — do NOT ask clarifying questions about the date or day first. The tool will find the best match. Only ask for clarification if select_timeslot returns NO_MATCH. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
     prompt += `If the customer asks to add another service at this point (e.g. "can you also do the brakes?", "add a full service too"), call select_service with that service name immediately — do NOT call select_timeslot yet.\n`;
     prompt += `If the customer asks a quick side question (e.g. "how long does it take?", "do you need the keys?", "will you text me?"), answer it briefly in one sentence, then immediately continue with the slot step in the same reply.\n`;

@@ -741,7 +741,20 @@ export async function generateInvoicesForUser(userId: string) {
       // omit charge_date so GoCardless collects on the earliest valid working day instead of
       // hard-failing and silently orphaning the invoice.
       const todayStr = new Date().toISOString().split('T')[0];
-      const billingDateStr = periodEnd.toISOString().split('T')[0];
+
+      // BACS only collects on working days, and GoCardless rejects a charge_date that falls on a
+      // weekend. The guard below checked the date was in the FUTURE but not that it was a WORKING
+      // DAY, so any customer whose billing day lands on a Saturday or Sunday hit a validation
+      // error and had their invoice orphaned — Speedy Spanners, 12 September 2026, a Saturday.
+      // Roll forward to the next working day so the collection is predictable.
+      const chargeDate = new Date(periodEnd);
+      while (chargeDate.getDay() === 0 || chargeDate.getDay() === 6) {
+        chargeDate.setDate(chargeDate.getDate() + 1);
+      }
+      const billingDateStr = chargeDate.toISOString().split('T')[0];
+      if (billingDateStr !== periodEnd.toISOString().split('T')[0]) {
+        console.log(`[BILLING] ${user.email}: billing date ${periodEnd.toISOString().split('T')[0]} is a weekend — collecting ${billingDateStr}`);
+      }
       const paymentArgs: any = {
         amount: totalAmount,
         currency: 'GBP',
@@ -759,8 +772,20 @@ export async function generateInvoicesForUser(userId: string) {
         paymentArgs.charge_date = billingDateStr;
       }
 
-      // Create single combined payment
-      const payment = await client.payments.create(paymentArgs);
+      // Create single combined payment. A bank holiday is also a non-working day and we have no
+      // holiday calendar here, so if GoCardless still rejects the date, retry WITHOUT it rather
+      // than losing the collection entirely — a few days late beats silently uncollected.
+      let payment;
+      try {
+        payment = await client.payments.create(paymentArgs);
+      } catch (err: any) {
+        const isChargeDateError = paymentArgs.charge_date &&
+          JSON.stringify(err?.errors || err?.message || err).toLowerCase().includes('charge_date');
+        if (!isChargeDateError) throw err;
+        console.warn(`[BILLING] ${user.email}: charge_date ${paymentArgs.charge_date} rejected (likely a bank holiday) — collecting on the earliest valid day instead`);
+        delete paymentArgs.charge_date;
+        payment = await client.payments.create(paymentArgs);
+      }
 
       // Update all invoices with the same payment ID
       for (const item of invoicesToCharge) {

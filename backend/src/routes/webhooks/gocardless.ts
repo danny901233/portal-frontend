@@ -131,9 +131,39 @@ async function handlePaymentEvent(event: any) {
       });
       console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked PAID (payment ${action})`);
     }
+    // Recovered: clear the arrears clock so access and full call details are restored.
+    const garage = await prisma.garage.findUnique({
+      where: { id: invoice.garageId }, select: { paymentFailedAt: true },
+    });
+    if (garage?.paymentFailedAt) {
+      await prisma.garage.update({
+        where: { id: invoice.garageId },
+        data: { paymentFailedAt: null, accessRestricted: false },
+      });
+      console.log(`[GoCardless Webhook] Garage ${invoice.garageId} out of arrears — payment received`);
+    }
   } else if (action === 'failed' || action === 'charged_back' || action === 'late_failure_settled') {
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'failed' } });
     console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked FAILED (payment ${action})`);
+
+    // Start the arrears clock. Without this a bounced Direct Debit was recorded on the invoice and
+    // NOWHERE else: paymentFailedAt stayed null, so the grace period never started, the garage was
+    // never restricted, and the customer was never told. Caldwell & Dempster bounced on 30 June and
+    // took 79 more calls before anyone noticed — in August, by hand.
+    //
+    // Only stamp if not already set, so a second failure does not restart the grace period and
+    // give a non-paying account another two days.
+    const garage = await prisma.garage.findUnique({
+      where: { id: invoice.garageId }, select: { paymentFailedAt: true, name: true },
+    });
+    if (garage && !garage.paymentFailedAt) {
+      await prisma.garage.update({
+        where: { id: invoice.garageId }, data: { paymentFailedAt: new Date() },
+      });
+      console.warn(`[GoCardless Webhook] ⚠️ ${garage.name} payment ${action} — arrears clock started`);
+    } else {
+      console.warn(`[GoCardless Webhook] ⚠️ ${garage?.name} payment ${action} — already in arrears since ${garage?.paymentFailedAt?.toISOString().slice(0,10)}`);
+    }
   } else if (action === 'cancelled') {
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'cancelled' } });
     console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked CANCELLED (payment ${action})`);

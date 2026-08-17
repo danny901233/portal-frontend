@@ -380,6 +380,10 @@ router.get(
           const garages = await prisma.garage.findMany({
             where: {
               id: { in: user.garageAccessIds },
+              // Archived garages and test accounts must never reach the revenue forecast — a
+              // former customer inflates the projection with money that will never arrive.
+              archivedAt: null,
+              isTestAccount: false,
             },
             select: {
               id: true,

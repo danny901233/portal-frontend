@@ -13,6 +13,7 @@ import { sendEmail } from './email.js';
 import { runDailyReport } from '../services/opsDailyReport.js';
 import { resetRecurringTasks } from '../services/opsTaskReset.js';
 import { runBillingWatchdog } from '../services/billingWatchdog.js';
+import { retryFailedPayments } from '../services/paymentRetry.js';
 
 const prisma = new PrismaClient();
 
@@ -114,6 +115,18 @@ export const initializeScheduledReports = (): void => {
     }
   }, { timezone: 'Europe/London' });
   console.log('✓ Billing watchdog scheduled: Daily at 9:30 AM (UK time)');
+
+  // Retry bounced Direct Debits: 10:00, after billing and the watchdog. Waits 4 days before the
+  // first retry and gives up after 2, so a customer with a genuine problem is left to a human
+  // rather than being charged repeatedly.
+  cron.schedule('0 10 * * *', async () => {
+    try {
+      await retryFailedPayments();
+    } catch (error) {
+      console.error('❌ Payment retry failed:', error);
+    }
+  }, { timezone: 'Europe/London' });
+  console.log('✓ Failed-payment retry scheduled: Daily at 10:00 AM (UK time)');
 
   // In'n'out Autocentres invoice: 1st of each month at 9:00 AM. They pay by their own Direct
   // Debit against an emailed invoice (not GoCardless), so we raise + email the combined 4-branch

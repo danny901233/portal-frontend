@@ -11,7 +11,7 @@ import { processQueuedCampaigns } from '../services/outboundSend.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 import { runDailyReport } from '../services/opsDailyReport.js';
-import { resetRecurringTasks } from '../services/opsTaskReset.js';
+import { resetRecurringTasks, archiveDueGarages } from '../services/opsTaskReset.js';
 import { runBillingWatchdog } from '../services/billingWatchdog.js';
 import { retryFailedPayments } from '../services/paymentRetry.js';
 
@@ -36,6 +36,13 @@ export const initializeScheduledReports = (): void => {
   cron.schedule('5 0 * * *', async () => {
     try { await resetRecurringTasks('daily'); }
     catch (error) { console.error('Ops board daily reset failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  // Leavers whose notice has expired: switch the service off first thing, so nobody has to
+  // remember to do it on the day.
+  cron.schedule('20 0 * * *', async () => {
+    try { await archiveDueGarages(); }
+    catch (error) { console.error('Scheduled garage archive failed:', error); }
   }, { timezone: 'Europe/London' });
 
   cron.schedule('10 0 * * 1', async () => {   // Monday

@@ -39,3 +39,40 @@ export async function resetRecurringTasks(cadence: ResettableCadence): Promise<n
   );
   return result.count;
 }
+
+
+/**
+ * Archive garages whose notice period has expired.
+ *
+ * A leaver keeps full service until the day their notice runs out, then this switches them off:
+ * voice and messaging access removed, pricing zeroed, archivedAt stamped. The voice route refuses
+ * archived garages, so calls stop being answered the same morning — without anyone remembering.
+ */
+export async function archiveDueGarages(): Promise<number> {
+  const due = await prisma.garage.findMany({
+    where: { archiveScheduledAt: { lte: new Date() }, archivedAt: null },
+    select: { id: true, name: true, archiveScheduledAt: true },
+  });
+  for (const g of due) {
+    await prisma.garage.update({
+      where: { id: g.id },
+      data: {
+        archivedAt: new Date(),
+        hasVoiceAccess: false,
+        hasMessagingAccess: false,
+        subscriptionCostGbp: 0,
+        messagingSubscriptionCostGbp: 0,
+      },
+    });
+    // Stop the daily billing job selecting them once they are gone.
+    const users = await prisma.user.findMany({
+      where: { garageAccessIds: { has: g.id } }, select: { id: true },
+    });
+    for (const u of users) {
+      await prisma.user.update({ where: { id: u.id }, data: { nextBillingDate: null } });
+    }
+    console.log(`[AUTO_ARCHIVE] ${g.name} — notice expired ${g.archiveScheduledAt?.toISOString().slice(0, 10)}, service off`);
+  }
+  if (due.length) console.log(`[AUTO_ARCHIVE] archived ${due.length} garage(s)`);
+  return due.length;
+}

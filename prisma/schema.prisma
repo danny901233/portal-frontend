@@ -19,6 +19,10 @@ model Garage {
   // guessing ("does the name contain 'test'?") would eventually skip a real customer called
   // something unlucky — or worse, fail to skip a test one and cry wolf every morning.
   isTestAccount      Boolean @default(false)
+  // A leaving customer stays live until their notice expires, then archives itself. Relying on
+  // someone remembering to archive on the day is how a former customer's calls kept being
+  // answered for free — see the voice-route gate.
+  archiveScheduledAt DateTime?
   twilioNumber       String?
   hasMessagingAccess Boolean @default(false)
   hasVoiceAccess Boolean @default(true)

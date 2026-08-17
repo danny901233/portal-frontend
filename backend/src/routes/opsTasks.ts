@@ -230,10 +230,14 @@ router.delete('/admin/tasks/:id', authenticate, requireAdmin, async (req: Reques
 // A cron can be added later; for v1 this is manual.
 // ---------------------------------------------------------------------------
 
-router.post('/admin/tasks/reset-daily', authenticate, requireAdmin, async (_req: Request, res: Response) => {
+router.post('/admin/tasks/reset-daily', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  // Manual version of the automatic reset (services/opsTaskReset). Defaults to 'daily' so the
+  // existing button keeps working; accepts a cadence for weekly/monthly.
+  const requested = typeof req.body?.cadence === 'string' ? req.body.cadence : 'daily';
+  const cadence = ['daily', 'weekly', 'monthly'].includes(requested) ? requested : 'daily';
   const result = await prisma.opsTask.updateMany({
-    where: { cadence: 'daily', status: 'done' },
-    data: { status: 'open', completedAt: null },
+    where: { cadence, status: 'done' },
+    data: { status: 'open', completedAt: null, completedById: null },
   });
   return res.json({ reopened: result.count });
 });

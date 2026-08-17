@@ -11,6 +11,7 @@ import { processQueuedCampaigns } from '../services/outboundSend.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 import { runDailyReport } from '../services/opsDailyReport.js';
+import { resetRecurringTasks } from '../services/opsTaskReset.js';
 
 const prisma = new PrismaClient();
 
@@ -26,6 +27,23 @@ export const initializeScheduledReports = (): void => {
     } catch (error) {
       console.error('Ops board daily report failed:', error);
     }
+  }, { timezone: 'Europe/London' });
+
+  // Ops board resets. Each runs just after midnight so the period is fully over — and, for daily,
+  // after the 21:00 report has already captured the day. Assignees are preserved.
+  cron.schedule('5 0 * * *', async () => {
+    try { await resetRecurringTasks('daily'); }
+    catch (error) { console.error('Ops board daily reset failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  cron.schedule('10 0 * * 1', async () => {   // Monday
+    try { await resetRecurringTasks('weekly'); }
+    catch (error) { console.error('Ops board weekly reset failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  cron.schedule('15 0 1 * *', async () => {   // 1st of the month
+    try { await resetRecurringTasks('monthly'); }
+    catch (error) { console.error('Ops board monthly reset failed:', error); }
   }, { timezone: 'Europe/London' });
 
   // Weekly reports: Every Sunday at 9:00 AM

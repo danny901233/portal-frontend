@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { runDailyReport, ukDateString } from '../services/opsDailyReport.js';
+import { notifyTaskAssignees } from '../services/opsNotify.js';
 
 const router = Router();
 
@@ -33,6 +34,7 @@ const createSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
   assigneeId: z.string().min(1).nullable().optional(),
   assigneeIds: z.array(z.string().min(1)).max(10).nullable().optional(),
+  priority: z.enum(['normal', 'urgent']).optional(),
   dueDate: z.string().datetime().nullable().optional(),
 });
 
@@ -45,6 +47,7 @@ const patchSchema = z.object({
   notes: z.string().max(20000).nullable().optional(),
   assigneeId: z.string().min(1).nullable().optional(),
   assigneeIds: z.array(z.string().min(1)).max(10).nullable().optional(),
+  priority: z.enum(['normal', 'urgent']).optional(),
   dueDate: z.string().datetime().nullable().optional(),
   sortOrder: z.number().int().optional(),
 });
@@ -121,6 +124,7 @@ router.post('/admin/tasks', authenticate, requireAdmin, async (req: Request, res
       cadence: parsed.data.cadence,
       tags: parsed.data.tags,
       ...(assignmentData(parsed.data) ?? { assigneeIds: [], assigneeId: null }),
+      priority: parsed.data.priority ?? 'normal',
       dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
       createdById: req.user.userId,
     },
@@ -148,6 +152,7 @@ router.patch('/admin/tasks/:id', authenticate, requireAdmin, async (req: Request
   if (parsed.data.instructions !== undefined) data.instructions = parsed.data.instructions;
   if (parsed.data.cadence !== undefined) data.cadence = parsed.data.cadence;
   if (parsed.data.tags !== undefined) data.tags = parsed.data.tags;
+  if (parsed.data.priority !== undefined) data.priority = parsed.data.priority;
   if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
   const assignment = assignmentData(parsed.data);
   if (assignment) Object.assign(data, assignment);
@@ -240,6 +245,68 @@ router.post('/admin/tasks/reset-daily', authenticate, requireAdmin, async (req: 
     data: { status: 'open', completedAt: null, completedById: null },
   });
   return res.json({ reopened: result.count });
+});
+
+// ---------------------------------------------------------------------------
+// Internal: another service raises a task (e.g. mmh-api when documents are uploaded)
+//
+// Token-gated rather than user-authenticated, because the caller is a machine. Deliberately
+// narrow: title, optional detail-free note, assignee, priority, tags. It is idempotent on
+// dedupeKey so a webhook retry cannot create the same task twice.
+// ---------------------------------------------------------------------------
+
+const internalTaskSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  instructions: z.string().max(4000).optional(),
+  assigneeEmail: z.string().email().optional(),
+  priority: z.enum(['normal', 'urgent']).default('normal'),
+  cadence: cadenceEnum.default('project'),
+  tags: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
+  dedupeKey: z.string().max(200).optional(),
+});
+
+router.post('/internal/ops-task', async (req: Request, res: Response) => {
+  const expected = process.env.INTERNAL_TASK_TOKEN;
+  const supplied = req.get('x-internal-token');
+  if (!expected || !supplied || supplied !== expected) {
+    return res.status(401).json({ error: 'Unauthorised' });
+  }
+  const parsed = internalTaskSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+  }
+  const d = parsed.data;
+
+  // Retry-safe: same dedupeKey while still open → return the existing task, create nothing.
+  if (d.dedupeKey) {
+    const existing = await prisma.opsTask.findFirst({
+      where: { tags: { has: `key:${d.dedupeKey}` }, status: 'open' },
+    });
+    if (existing) return res.json({ task: existing, deduped: true });
+  }
+
+  let assigneeIds: string[] = [];
+  if (d.assigneeEmail) {
+    const user = await prisma.user.findUnique({ where: { email: d.assigneeEmail }, select: { id: true } });
+    if (user) assigneeIds = [user.id];
+    else console.warn(`[INTERNAL_TASK] no user for ${d.assigneeEmail} — leaving unassigned`);
+  }
+
+  const task = await prisma.opsTask.create({
+    data: {
+      title: d.title,
+      instructions: d.instructions ?? null,
+      cadence: d.cadence,
+      priority: d.priority,
+      tags: d.dedupeKey ? [...d.tags, `key:${d.dedupeKey}`] : d.tags,
+      assigneeIds,
+      assigneeId: assigneeIds[0] ?? null,
+    },
+    include: taskInclude,
+  });
+  console.log(`[INTERNAL_TASK] created "${task.title}" (${d.priority}) for ${d.assigneeEmail || 'unassigned'}`);
+  void notifyTaskAssignees(task.id);
+  return res.status(201).json({ task });
 });
 
 // ---------------------------------------------------------------------------

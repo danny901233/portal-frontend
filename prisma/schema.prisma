@@ -164,6 +164,10 @@ model User {
   billingCycleStartDate DateTime?
   nextBillingDate       DateTime?
   garageAccessIds       String[]  @default([])
+  // Where ops alerts go for this person. Deliberately separate from `email` (the login): Gab is a
+  // VA on a personal Gmail, and alerts must reach him without that address becoming an account.
+  // Alerts sent here carry a title and a link only — never customer details. See opsNotify.ts.
+  notificationEmail     String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   role                  UserRole  @default(USER)
@@ -803,6 +807,7 @@ model OpsTask {
   // person ("Both" on the board); assigneeId mirrors its first entry so the assignee relation —
   // and anything still reading a single id — keeps working.
   assigneeIds  String[]  @default([])
+  priority     String    @default("normal") // 'normal' | 'urgent'
   assigneeId   String?
   assignee     User?     @relation("OpsTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   createdById  String?

@@ -1652,8 +1652,14 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
 router.get('/garages', authenticate, async (req: Request, res: Response) => {
   try {
     // RECEPTIONMATE_STAFF can see all garages
+    // Archived garages are former customers — hidden from every picker unless explicitly asked
+    // for with ?includeArchived=1, which the admin screens can use to look one up.
+    const includeArchived = req.query.includeArchived === '1';
+    const notArchived = includeArchived ? {} : { archivedAt: null };
+
     if (req.user?.role === 'RECEPTIONMATE_STAFF') {
       const garages = await prisma.garage.findMany({
+        where: notArchived,
         orderBy: { name: 'asc' },
       });
       return res.json({ garages: garages.map((garage) => ({ id: garage.id, name: garage.name })) });
@@ -1666,7 +1672,7 @@ router.get('/garages', authenticate, async (req: Request, res: Response) => {
     }
 
     const garages = await prisma.garage.findMany({
-      where: { id: { in: allowedGarages } },
+      where: { id: { in: allowedGarages }, ...notArchived },
       orderBy: { name: 'asc' },
     });
 

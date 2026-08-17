@@ -11,6 +11,14 @@ datasource db {
 model Garage {
   id                 String  @id @default(uuid())
   name               String
+  // Set when a garage is no longer a customer. Archived garages are hidden from the garage
+  // pickers and never selected for billing, but nothing is deleted — their calls, invoices and
+  // documents stay intact, which matters if a billing or legal question comes up later.
+  archivedAt         DateTime?
+  // Explicit flag rather than guessing from the name. The billing watchdog skips these, and
+  // guessing ("does the name contain 'test'?") would eventually skip a real customer called
+  // something unlucky — or worse, fail to skip a test one and cry wolf every morning.
+  isTestAccount      Boolean @default(false)
   twilioNumber       String?
   hasMessagingAccess Boolean @default(false)
   hasVoiceAccess Boolean @default(true)

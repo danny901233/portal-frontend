@@ -12,6 +12,7 @@ import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 import { runDailyReport } from '../services/opsDailyReport.js';
 import { resetRecurringTasks } from '../services/opsTaskReset.js';
+import { runBillingWatchdog } from '../services/billingWatchdog.js';
 
 const prisma = new PrismaClient();
 
@@ -101,6 +102,18 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ Automatic monthly billing scheduled: Daily at 9:00 AM (UK time)');
+
+  // Billing watchdog: 09:30, half an hour after billing runs, so it judges the outcome rather
+  // than racing it. Checks that every account which should be paying HAS paid this month —
+  // the process reporting success is not the same as money arriving.
+  cron.schedule('30 9 * * *', async () => {
+    try {
+      await runBillingWatchdog();
+    } catch (error) {
+      console.error('❌ Billing watchdog failed:', error);
+    }
+  }, { timezone: 'Europe/London' });
+  console.log('✓ Billing watchdog scheduled: Daily at 9:30 AM (UK time)');
 
   // In'n'out Autocentres invoice: 1st of each month at 9:00 AM. They pay by their own Direct
   // Debit against an emailed invoice (not GoCardless), so we raise + email the combined 4-branch

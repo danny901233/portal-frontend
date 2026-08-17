@@ -26,6 +26,10 @@ let GH_CUSTOMER_ID: string | undefined;
 let GH_API_KEY: string | undefined;
 let GH_LOCATION_ID: string = '23';
 
+// Garage whose request is currently being handled — so tool handlers deep in the stack can log
+// their own ChatToolCall rows without threading garageId through every signature.
+let CURRENT_GARAGE_ID: string = '';
+
 // Multi-branch configuration — loaded from customRules.branches
 let GARAGE_BRANCHES: { name: string; locationId: string }[] = [];
 
@@ -464,10 +468,20 @@ async function saveSession(conversationId: string, session: ChatSession): Promis
   console.log(`[SAVE_SESSION] Saving session for ${conversationId}, step: ${session.step}, phone: ${session.contactPhone}`);
   
   try {
-    // Strip large timeslot array before saving to DB (keep only first 5 for recovery)
+    // Persist the WHOLE timeslot list.
+    //
+    // This used to keep only the first 5 "for recovery", while buildSystemPromptV2 tells the model
+    // those slots are "ALL available slots — no others exist beyond X". Once the in-memory cache
+    // aged out (a customer taking a few minutes to reply is enough) the session reloaded with 5
+    // slots and the model believed that was the garage's entire diary. Speedy Spanners, 2026-08-15:
+    // GarageHive returned 80 slots including 15 Fridays; the 5 kept were Mon/Tue/Thu, so the agent
+    // told a customer "we don't have any slots on Fridays" and she booked elsewhere.
+    //
+    // Cost of keeping them: ~35 bytes each, so a full 80-slot list adds ~3KB to a ~5KB session.
+    // The 200 cap is a bound on pathological lists, not a working limit.
     const sessionToSave = {
       ...session,
-      timeslotsAvailable: (session.timeslotsAvailable || []).slice(0, 5),
+      timeslotsAvailable: (session.timeslotsAvailable || []).slice(0, 200),
       sessionUpdatedAt: new Date().toISOString(), // used for reliable expiry check
     };
     // Use raw SQL to update sessionState (Prisma client may not have the column in its types)
@@ -518,6 +532,26 @@ function setCustomerProvidedPhone(session: ChatSession, phone: string): void {
   session.contactPhone = phone;
   session.contactPhoneSeeded = false;
   session.contactPhoneConfirmed = true;
+}
+
+/**
+ * Is the customer asking whether they are ALREADY booked in, rather than asking to book?
+ *
+ * Deliberately narrow. It must not fire on an ordinary new-booking request ("can I book an MOT
+ * on Friday"), because the cost of a false positive is refusing to book someone who wanted to
+ * book. It must fire when they reference a booking that already exists, or a reschedule they
+ * believe is in place — that is the case the agent cannot answer and a human must.
+ */
+export function isAskingAboutExistingBooking(message: string): boolean {
+  const m = String(message || '');
+  return (
+    /\b(is|are|was|were)\s+(it|my|the|we|our)\b[^?.]{0,40}\b(booked|booking)\b/i.test(m) ||
+    /\b(already|previously)\s+(booked|booking)\b/i.test(m) ||
+    /\bcheck\b[^?.]{0,25}\b(my|the|our)\b[^?.]{0,15}\b(booking|appointment|slot|mot)\b/i.test(m) ||
+    /\b(had|have)\s+it\s+booked\b/i.test(m) ||
+    /\b(reschedul|rearrang)\w*\b/i.test(m) ||
+    /\bconfirm\b[^?.]{0,30}\b(that is in|that's in|it's in|its in|still booked|my booking|the booking)\b/i.test(m)
+  );
 }
 
 const PRICE_TOKEN_RE = /£\s?\d[\d,]*(?:\.\d{1,2})?/g;
@@ -653,6 +687,11 @@ async function getChatAgentResponseInner(
     }
 
     const config = garage.agentConfiguration;
+
+    // Tool handlers run deep in the call stack without garageId in scope; this lets them log
+    // their own ChatToolCall rows (e.g. the availability fetch) so staff can see them in the
+    // conversation view. Set alongside the other per-request module state below.
+    CURRENT_GARAGE_ID = garageId;
 
     // Load GarageHive credentials
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
@@ -1096,6 +1135,41 @@ async function getChatAgentResponseInner(
         const res = await handleTakeMessage({ message: summary, phone }, session, conversationId);
         const say = res.match(/Say:\s*"([\s\S]*?)"/i);
         if (say) return { content: say[1].trim(), needsHumanAssistance: true };
+      }
+    }
+
+    // EXISTING_BOOKING_FASTPATH: the customer is asking whether they are ALREADY booked in.
+    //
+    // The agent cannot read the garage's diary — it can only create bookings. So when it can't
+    // answer "am I booked?", the worst thing it can do is offer to book them again: either they
+    // end up double-booked, or they are told a slot is free when their existing one is fine.
+    // Speedy Spanners 2026-08-15: "I had it booked for 7th August... asked for a reschedule on
+    // 21st. Can I confirm that is in?" — the agent replied "I can't check, but I can get you in
+    // on the 21st" and went straight into a duplicate booking.
+    //
+    // A human has to check the diary, so this is a message, not a booking. Only fires when the
+    // customer is asking about an existing/prior booking, never on a plain new-booking request.
+    const handoffOn = (config as any).messagingHumanHandoff !== false;
+    if (handoffOn && session.step !== Step.MESSAGE_ONLY && !session.messageTaken
+        && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+      if (isAskingAboutExistingBooking(message)) {
+        console.log('[EXISTING_BOOKING_FASTPATH] Customer is asking about an existing booking — taking a message instead of booking');
+        session.step = Step.MESSAGE_ONLY;
+        session.serviceHint = '';
+        session.notes = (session.notes ? session.notes + ' | ' : '')
+          + 'Asking about an EXISTING booking — needs the diary checked before booking anything new';
+        await saveSession(conversationId, session);
+        const needName = !session.customerNameFirst;
+        const needPhone = !session.contactPhone || (session.contactPhoneSeeded && !session.contactPhoneConfirmed);
+        const ask = needName && !session.contactPhone ? ' Could I take your full name and the best number to reach you?'
+          : needName ? ' Could I take your full name?'
+          : needPhone && session.contactPhone ? ` I've got the number ending ${session.contactPhone.slice(-3)} — is that the best one for you?`
+          : !session.contactPhone ? ' Could I take the best number to reach you?'
+          : '';
+        return {
+          content: `I can't see the diary from here, so I don't want to book you in twice — I'll get someone to check whether that's already in and come straight back to you.${ask}`,
+          needsHumanAssistance: true,
+        };
       }
     }
 
@@ -2778,9 +2852,11 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     console.log(`[SELECT_SERVICE] Services tracked: ${session.serviceSelectedNames.join(' + ')} (${session.serviceSelectedIds.join(', ')})`);
 
     // Fetch timeslots right away (needed for both upsell and normal path)
+    const _tsT0 = Date.now();
     const timeslots = await ghListTimeslots(session.sessionId);
     session.timeslotsAvailable = timeslots;
     console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
+    logTimeslotFetch(conversationId, serviceName, timeslots, Date.now() - _tsT0);
 
     if (timeslots.length === 0) {
       // No online timeslots — tell customer and collect contact details
@@ -3468,6 +3544,48 @@ async function ghSetService(sessionId: string, servicePriceId: string | string[]
   );
   
   return response.data;
+}
+
+/**
+ * Record the availability fetch as a ChatToolCall so it renders inline in the portal's
+ * conversation view, next to lookup_vehicle and select_service.
+ *
+ * GarageHive's availability is the one input staff could not see. When a customer is told "no
+ * slots on Friday", the only way to check that was the answer was to read pm2 logs on the box
+ * (Speedy Spanners, 2026-08-15). The weekday summary is deliberate: it answers "did it actually
+ * have Fridays?" at a glance, which is the question that keeps coming up.
+ */
+export function summariseTimeslots(timeslots: any[]): Record<string, any> {
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const byWeekday: Record<string, number> = {};
+  const byDate: Record<string, string[]> = {};
+  for (const t of timeslots) {
+    const day = DAYS[new Date(`${t.date}T12:00:00Z`).getUTCDay()] || '?';
+    byWeekday[day] = (byWeekday[day] || 0) + 1;
+    (byDate[`${t.date} ${day}`] ||= []).push(t.time);
+  }
+  const dates = Object.keys(byDate);
+  return {
+    total: timeslots.length,
+    first: dates[0] || null,
+    last: dates[dates.length - 1] || null,
+    byWeekday,
+    // Bounded so a year of availability can't bloat the row; the summary above still covers it.
+    slots: Object.fromEntries(dates.slice(0, 60).map((d) => [d, byDate[d]])),
+    ...(dates.length > 60 ? { _note: `showing first 60 of ${dates.length} dates` } : {}),
+  };
+}
+
+function logTimeslotFetch(conversationId: string, serviceName: string, timeslots: any[], durationMs: number): void {
+  logChatToolCall({
+    conversationId,
+    garageId: CURRENT_GARAGE_ID,
+    agentType: 'automate',
+    toolName: 'list_timeslots',
+    args: { service: serviceName },
+    result: summariseTimeslots(timeslots),
+    durationMs,
+  });
 }
 
 async function ghListTimeslots(sessionId: string): Promise<any[]> {

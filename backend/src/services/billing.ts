@@ -578,8 +578,25 @@ export async function generateInvoicesForUser(userId: string) {
           messagingSubscriptionCostGbp: true,
           includedMessages: true,
           costPerMessageGbp: true,
+          archivedAt: true,
+          isTestAccount: true,
         },
       });
+
+      // An archived garage is a former customer: the contract has ended and the agent no longer
+      // answers their calls, so nothing more should ever be collected from them. Until now the only
+      // thing stopping this was that archiving happens to zero subscriptionCostGbp — an accident,
+      // not a rule. Archive one without zeroing the cost and the mandate would still be charged.
+      if (garage && (garage.archivedAt || garage.isTestAccount)) {
+        console.log(`[BILLING] skipping ${garage.name} — ${garage.archivedAt ? "archived" : "test account"}`);
+        results.push({
+          garageId,
+          garageName: garage.name,
+          success: true,
+          message: garage.archivedAt ? "Archived — not billed" : "Test account — not billed",
+        });
+        continue;
+      }
 
       if (!garage || garage.subscriptionCostGbp === 0) {
         results.push({

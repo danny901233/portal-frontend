@@ -66,6 +66,16 @@ export async function findBillingGaps(): Promise<BillingGap[]> {
       select: { status: true, total: true, createdAt: true },
     });
 
+    // A Direct Debit takes several working days to clear, so an invoice raised in the last week is
+    // money in transit, not a missed payment. Without this, seven healthy accounts appear in the
+    // alert every morning — and an alert that is mostly noise stops being read, which is the exact
+    // failure this watchdog exists to prevent. Past STUCK_DAYS it is genuinely stuck, and still
+    // reported.
+    if (unpaid && unpaid.status === 'pending'
+        && unpaid.createdAt >= new Date(now.getTime() - STUCK_DAYS * 864e5)) {
+      continue;
+    }
+
     gaps.push({
       garageId: g.id,
       name: g.name,

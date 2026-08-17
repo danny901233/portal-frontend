@@ -799,6 +799,10 @@ model OpsTask {
   tags         String[]  @default([])
   status       String    @default("open") // 'open' | 'done'
   notes        String?   @db.Text
+  // Who the task belongs to. assigneeIds is the source of truth and supports more than one
+  // person ("Both" on the board); assigneeId mirrors its first entry so the assignee relation —
+  // and anything still reading a single id — keeps working.
+  assigneeIds  String[]  @default([])
   assigneeId   String?
   assignee     User?     @relation("OpsTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   createdById  String?

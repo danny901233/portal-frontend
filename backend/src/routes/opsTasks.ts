@@ -28,6 +28,7 @@ const createSchema = z.object({
   cadence: cadenceEnum.default('weekly'),
   tags: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
   assigneeId: z.string().min(1).nullable().optional(),
+  assigneeIds: z.array(z.string().min(1)).max(10).nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
 });
 
@@ -39,9 +40,33 @@ const patchSchema = z.object({
   status: statusEnum.optional(),
   notes: z.string().max(20000).nullable().optional(),
   assigneeId: z.string().min(1).nullable().optional(),
+  assigneeIds: z.array(z.string().min(1)).max(10).nullable().optional(),
   dueDate: z.string().datetime().nullable().optional(),
   sortOrder: z.number().int().optional(),
 });
+
+/**
+ * A task can belong to more than one person ("Both" on the board), so assigneeIds is the source
+ * of truth. assigneeId is kept in sync with its first entry, which keeps the assignee relation
+ * (and any older reader) working without a second concept of ownership.
+ *
+ * Accepts either field: assigneeIds wins when both are sent; assigneeId alone is treated as a
+ * one-person list. Returns null when neither was supplied, so PATCH leaves assignment untouched.
+ */
+function assignmentData(input: {
+  assigneeIds?: string[] | null;
+  assigneeId?: string | null;
+}): { assigneeIds: string[]; assigneeId: string | null } | null {
+  if (input.assigneeIds !== undefined) {
+    const ids = [...new Set((input.assigneeIds || []).filter(Boolean))];
+    return { assigneeIds: ids, assigneeId: ids[0] ?? null };
+  }
+  if (input.assigneeId !== undefined) {
+    const ids = input.assigneeId ? [input.assigneeId] : [];
+    return { assigneeIds: ids, assigneeId: input.assigneeId ?? null };
+  }
+  return null;
+}
 
 // Same include shape everywhere so the frontend gets consistent rows
 const taskInclude = {
@@ -62,7 +87,7 @@ router.get('/admin/tasks', authenticate, requireAdmin, async (req: Request, res:
   const where: Record<string, unknown> = {};
   if (cadence && cadenceEnum.safeParse(cadence).success) where.cadence = cadence;
   if (status && statusEnum.safeParse(status).success) where.status = status;
-  if (assigneeId) where.assigneeId = assigneeId;
+  if (assigneeId) where.assigneeIds = { has: assigneeId };
   if (tag) where.tags = { has: tag };
 
   const tasks = await prisma.opsTask.findMany({
@@ -91,7 +116,7 @@ router.post('/admin/tasks', authenticate, requireAdmin, async (req: Request, res
       instructions: parsed.data.instructions ?? null,
       cadence: parsed.data.cadence,
       tags: parsed.data.tags,
-      assigneeId: parsed.data.assigneeId ?? null,
+      ...(assignmentData(parsed.data) ?? { assigneeIds: [], assigneeId: null }),
       dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
       createdById: req.user.userId,
     },
@@ -120,7 +145,8 @@ router.patch('/admin/tasks/:id', authenticate, requireAdmin, async (req: Request
   if (parsed.data.cadence !== undefined) data.cadence = parsed.data.cadence;
   if (parsed.data.tags !== undefined) data.tags = parsed.data.tags;
   if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
-  if (parsed.data.assigneeId !== undefined) data.assigneeId = parsed.data.assigneeId;
+  const assignment = assignmentData(parsed.data);
+  if (assignment) Object.assign(data, assignment);
   if (parsed.data.dueDate !== undefined) {
     data.dueDate = parsed.data.dueDate ? new Date(parsed.data.dueDate) : null;
   }

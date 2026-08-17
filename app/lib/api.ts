@@ -939,6 +939,7 @@ export interface OpsTask {
   status: OpsTaskStatus;
   notes: string | null;
   assigneeId: string | null;
+  assigneeIds: string[];
   assignee: OpsTaskUserRef | null;
   createdById: string | null;
   createdBy: OpsTaskUserRef | null;
@@ -970,6 +971,7 @@ export const createOpsTask = async (input: {
   cadence: OpsTaskCadence;
   tags: string[];
   assigneeId?: string | null;
+  assigneeIds?: string[];
   dueDate?: string | null;
 }): Promise<{ task: OpsTask }> => {
   const { data } = await api.post('/api/admin/tasks', input);
@@ -986,6 +988,7 @@ export const patchOpsTask = async (
     status: OpsTaskStatus;
     notes: string | null;
     assigneeId: string | null;
+    assigneeIds: string[];
     dueDate: string | null;
     sortOrder: number;
   }>,

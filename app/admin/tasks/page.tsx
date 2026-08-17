@@ -33,6 +33,50 @@ const CADENCE_LABEL: Record<OpsTaskCadence, string> = {
   project: 'Project',
 };
 
+// Display name overrides for known staff. User model has no display-name
+// field, so we map email → friendly name here. Unknown emails fall back to
+// the local part (before the @). Add entries here as new staff onboard.
+const STAFF_DISPLAY_NAMES: Record<string, string> = {
+  'admin@receptionmate.ai': 'Gab',
+  'dan@receptionmate.co.uk': 'Dan',
+};
+
+function displayName(email: string): string {
+  return STAFF_DISPLAY_NAMES[email.toLowerCase()] ?? email.split('@')[0];
+}
+
+// "Both" is a real state on this board — plenty of tasks genuinely belong to Dan AND Gab. It is
+// stored as two entries in assigneeIds; the dropdown needs a single string per <option>, hence
+// the sentinel. assigneeId is still mirrored server-side, so older rows read fine either way.
+const BOTH_VALUE = '__both__';
+
+function assigneeIdsOf(task: OpsTask): string[] {
+  if (task.assigneeIds?.length) return task.assigneeIds;
+  return task.assigneeId ? [task.assigneeId] : [];
+}
+
+function selectValueFor(task: OpsTask): string {
+  const ids = assigneeIdsOf(task);
+  if (ids.length > 1) return BOTH_VALUE;
+  return ids[0] ?? '';
+}
+
+function idsForSelection(value: string, staff: OpsStaffUser[]): string[] {
+  if (value === BOTH_VALUE) return staff.map((s) => s.id);
+  return value ? [value] : [];
+}
+
+function assigneeLabelFor(task: OpsTask, staff: OpsStaffUser[]): string {
+  const ids = assigneeIdsOf(task);
+  if (!ids.length) return 'Unassigned';
+  return ids
+    .map((id) => {
+      const match = staff.find((s) => s.id === id);
+      return match ? displayName(match.email) : 'Unknown';
+    })
+    .join(' & ');
+}
+
 type OwnerFilter = 'anyone' | 'me' | string; // 'me' | staff userId
 type StatusFilter = 'all' | OpsTaskStatus;
 type CadenceFilter = 'all' | OpsTaskCadence;
@@ -117,9 +161,9 @@ export default function AdminOpsTasksPage() {
         return false;
       }
       if (ownerFilter === 'me') {
-        if (!meUserId || t.assigneeId !== meUserId) return false;
+        if (!meUserId || !assigneeIdsOf(t).includes(meUserId)) return false;
       } else if (ownerFilter !== 'anyone') {
-        if (t.assigneeId !== ownerFilter) return false;
+        if (!assigneeIdsOf(t).includes(ownerFilter)) return false;
       }
       return true;
     });
@@ -150,9 +194,9 @@ export default function AdminOpsTasksPage() {
     }
   };
 
-  const handleReassign = async (task: OpsTask, newAssigneeId: string | null) => {
+  const handleReassign = async (task: OpsTask, assigneeIds: string[]) => {
     try {
-      const res = await patchOpsTask(task.id, { assigneeId: newAssigneeId });
+      const res = await patchOpsTask(task.id, { assigneeIds });
       setTasks((prev) => prev.map((t) => (t.id === task.id ? res.task : t)));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to reassign');
@@ -244,7 +288,7 @@ export default function AdminOpsTasksPage() {
               <option value="anyone">Anyone</option>
               <option value="me">Me</option>
               {staff.map((s) => (
-                <option key={s.id} value={s.id}>{s.email}</option>
+                <option key={s.id} value={s.id}>{displayName(s.email)}</option>
               ))}
             </select>
           </FilterPill>
@@ -363,7 +407,7 @@ interface TaskRowProps {
   expanded: boolean;
   onExpandToggle: () => void;
   onToggle: () => void;
-  onReassign: (assigneeId: string | null) => void;
+  onReassign: (assigneeIds: string[]) => void;
   onDelete: () => void;
   notesDraft: string;
   onNotesDraftChange: (v: string) => void;
@@ -384,7 +428,7 @@ function TaskRow({
   onSaveNotes,
   savingNotes,
 }: TaskRowProps) {
-  const assigneeLabel = task.assignee ? task.assignee.email.split('@')[0] : 'Unassigned';
+  const assigneeLabel = assigneeLabelFor(task, staff);
   return (
     <li className={task.status === 'done' ? 'bg-slate-50' : ''}>
       <div className="flex items-start gap-3 px-4 py-3">
@@ -408,15 +452,16 @@ function TaskRow({
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
           <select
-            value={task.assigneeId ?? ''}
-            onChange={(e) => onReassign(e.target.value || null)}
+            value={selectValueFor(task)}
+            onChange={(e) => onReassign(idsForSelection(e.target.value, staff))}
             className="rounded border border-slate-300 bg-white px-1.5 py-1 text-xs text-slate-700"
             title={assigneeLabel}
           >
             <option value="">Unassigned</option>
             {staff.map((s) => (
-              <option key={s.id} value={s.id}>{s.email}</option>
+              <option key={s.id} value={s.id}>{displayName(s.email)}</option>
             ))}
+            {staff.length > 1 && <option value={BOTH_VALUE}>Both</option>}
           </select>
           <button
             type="button"
@@ -509,7 +554,7 @@ function CreateTaskModal({
         instructions: instructions.trim() || null,
         cadence,
         tags,
-        assigneeId: assigneeId || null,
+        assigneeIds: idsForSelection(assigneeId, staff),
       });
       await onCreated(res.task);
     } catch (e) {
@@ -570,8 +615,9 @@ function CreateTaskModal({
           >
             <option value="">Unassigned</option>
             {staff.map((s) => (
-              <option key={s.id} value={s.id}>{s.email}</option>
+              <option key={s.id} value={s.id}>{displayName(s.email)}</option>
             ))}
+            {staff.length > 1 && <option value={BOTH_VALUE}>Both</option>}
           </select>
         </label>
         <label className="mb-4 block">

@@ -746,10 +746,22 @@ async function getChatAgentResponseInner(
       GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
       GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
       GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
-      DROP_OFF_ENABLED = ghConfig.enableDropOffBookings || false;
-      DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
-      DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
     }
+
+    // Drop-off settings live in their OWN AgentConfiguration columns — that is what the portal's
+    // agent-setup page writes. They were being read from integrationProviderConfig instead, where
+    // the portal never puts them, so every garage's drop-off switch was silently ignored: Speedy
+    // Spanners had enableDropOffBookings = true and dropOffExcludeServices = [] on 2026-08-15 and
+    // the agent still quoted exact times, because it saw the undefined-fallbacks (off, exclude
+    // MOT). Read the columns first; keep integrationProviderConfig as a fallback in case any
+    // garage was configured that way by hand.
+    const ipcDropOff = ((config.integrationProviderConfig as any)?.garagehive
+      || (config.integrationProviderConfig as any) || {}) as any;
+    DROP_OFF_ENABLED = config.enableDropOffBookings ?? ipcDropOff.enableDropOffBookings ?? false;
+    DROP_OFF_MESSAGE = config.dropOffMessage || ipcDropOff.dropOffMessage
+      || 'drop your vehicle off between 8am and half ten in the morning';
+    DROP_OFF_EXCLUDE_SERVICES = config.dropOffExcludeServices ?? ipcDropOff.dropOffExcludeServices ?? ['MOT'];
+    console.log(`[DROP_OFF_CONFIG] enabled=${DROP_OFF_ENABLED} exclude=${JSON.stringify(DROP_OFF_EXCLUDE_SERVICES)} message="${DROP_OFF_MESSAGE}"`);
     if (!GH_CUSTOMER_ID || !GH_API_KEY) {
       console.warn(`[GARAGEHIVE_MISCONFIGURED] garageId=${garageId} is using agentScript=${config.agentScript} but GarageHive credentials are not set in integrationProviderConfig. Vehicle lookups will fall back to take_message.`);
     }
@@ -3097,12 +3109,18 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
     const timeList = timesNatural.length === 1
       ? timesNatural[0]
       : `${timesNatural.slice(0, -1).join(', ')} and ${timesNatural[timesNatural.length - 1]}`;
-    console.log(`[SELECT_TIMESLOT] Time request "${effectivePref}" cannot be met — only ${cannotDo.distinctTimes.join(', ')} available`);
-    const dropOffLine = session.useDropOffBooking && DROP_OFF_MESSAGE
-      ? ` Explain that we like the car to ${DROP_OFF_MESSAGE}, and that it can be left with us for the day.`
-      : '';
+    console.log(`[SELECT_TIMESLOT] Time request "${effectivePref}" cannot be met — only ${cannotDo.distinctTimes.join(', ')} available (dropOff=${session.useDropOffBooking})`);
+
+    // Drop-off bookings are date-only by design, so answering with a list of times would leak
+    // exactly what drop-off exists to hide. Give the garage's own wording instead.
+    if (session.useDropOffBooking) {
+      return `TIME_NOT_AVAILABLE_DROP_OFF: this booking is drop-off, so there is no time to offer.
+Say: "We don't book specific times for this — we ask that you ${DROP_OFF_MESSAGE}, and the car can be left with us for the day." Then ask which DATE suits them.
+Do NOT mention a specific time, and do NOT offer a different date to satisfy the time they asked for.`;
+    }
+
     return `TIME_NOT_AVAILABLE: this garage only books at ${cannotDo.distinctTimes.join(', ')}.
-Say: "I'm sorry — all our bookings ${cannotDo.distinctTimes.length === 1 ? `start at ${timeList}` : `are at ${timeList}`}, so I can't do anything later in the day."${dropOffLine} Then ask which DATE suits them.
+Say: "I'm sorry — all our bookings ${cannotDo.distinctTimes.length === 1 ? `start at ${timeList}` : `are at ${timeList}`}, so I can't do anything later in the day." Then ask which DATE suits them.
 Do NOT propose a time that is not in that list, and do NOT offer a different date to try to satisfy the time — the date is still theirs to choose.`;
   }
 
@@ -4557,13 +4575,24 @@ TONE EXAMPLES:
 
   // ── Available timeslots — inject when in timeslot selection so OpenAI can handle any natural language ──
   if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
-    const slotLines = session.timeslotsAvailable.map((t: any) =>
-      `- ${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)} (${t.date} ${t.time})`
-    ).join('\n');
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
-    prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
+
+    // Drop-off bookings are date-only. Listing times here would put them in front of the model,
+    // and it will read them out — which defeats the whole point of the garage's drop-off setting.
+    if (session.useDropOffBooking) {
+      const dayLines = [...new Set(session.timeslotsAvailable.map((t: any) => t.date))]
+        .map((d: any) => `- ${formatDateNaturally(d)} (${d})`).join('\n');
+      prompt += `\nAVAILABLE DATES (these are ALL available dates — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${dayLines}\n`;
+      prompt += `This is a DROP-OFF booking: this garage does not book specific times for this work. NEVER state, offer or confirm a time — not even if the customer asks for one. Tell them we ask that they ${DROP_OFF_MESSAGE}, and the car can be left with us for the day. Offer DATES only.\n`;
+    } else {
+      const slotLines = session.timeslotsAvailable.map((t: any) =>
+        `- ${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)} (${t.date} ${t.time})`
+      ).join('\n');
+      prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
+    }
+
     const distinctTimes = [...new Set(session.timeslotsAvailable.map((t: any) => t.time))];
-    if (distinctTimes.length === 1) {
+    if (distinctTimes.length === 1 && !session.useDropOffBooking) {
       // Otherwise the model re-proposes the same slot at a customer asking for "later", or treats
       // the hour they asked for as a day-of-month and offers the far end of the list.
       prompt += `EVERY appointment above is at ${formatTimeNaturally(distinctTimes[0])} — that is the ONLY time this garage books. If the customer asks for a later time, a specific hour, or the afternoon, tell them plainly that all bookings are at ${formatTimeNaturally(distinctTimes[0])} and ask which DATE suits. Never offer another time, and never treat a time like "11am" as a date.\n`;

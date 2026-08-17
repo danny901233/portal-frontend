@@ -810,9 +810,44 @@ model OpsTask {
   dueDate      DateTime?
   sortOrder    Int       @default(0)
   completedAt  DateTime?
+  completedById String?  // who ticked it off — plain id, resolved against staff for display
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([cadence, status])
   @@index([assigneeId])
+}
+
+/// Immutable log of every completion.
+///
+/// OpsTask.completedAt cannot be the history: "reset daily" flips every daily task back to open
+/// and clears it, so yesterday's work would erase itself each morning. Titles are snapshotted
+/// because tasks get renamed and deleted, and a past report must still read true.
+model OpsTaskCompletion {
+  id            String   @id @default(cuid())
+  taskId        String?
+  taskTitle     String
+  cadence       String
+  tags          String[] @default([])
+  completedById String?
+  completedAt   DateTime @default(now())
+  notes         String?  @db.Text // notes as they stood when it was ticked off
+
+  @@index([completedAt])
+  @@index([taskId])
+}
+
+/// One row per day, written by the 21:00 cron and then never changed — so a report stays true to
+/// the day even after tasks are edited, reassigned or deleted.
+model OpsDailyReport {
+  id          String    @id @default(cuid())
+  reportDate  String    @unique // 'YYYY-MM-DD', Europe/London
+  completed   Json      @default("[]")
+  outstanding Json      @default("[]")
+  notes       Json      @default("[]")
+  totals      Json      @default("{}")
+  emailedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([reportDate])
 }

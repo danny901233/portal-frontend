@@ -10,11 +10,23 @@ import { runDailyGarageHiveReminders } from '../services/garageHiveReminders.js'
 import { processQueuedCampaigns } from '../services/outboundSend.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
+import { runDailyReport } from '../services/opsDailyReport.js';
 
 const prisma = new PrismaClient();
 
 export const initializeScheduledReports = (): void => {
   console.log('Initializing scheduled jobs...');
+
+  // Ops board end-of-day report: 21:00 UK, late enough that the day's work is in, early enough
+  // that it lands before the daily reset the next morning.
+  cron.schedule('0 21 * * *', async () => {
+    console.log('Running ops board daily report...');
+    try {
+      await runDailyReport();
+    } catch (error) {
+      console.error('Ops board daily report failed:', error);
+    }
+  }, { timezone: 'Europe/London' });
 
   // Weekly reports: Every Sunday at 9:00 AM
   cron.schedule('0 9 * * 0', async () => {

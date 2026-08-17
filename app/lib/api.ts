@@ -950,6 +950,27 @@ export interface OpsTask {
   updatedAt: string;
 }
 
+export interface OpsDailyReport {
+  id: string;
+  reportDate: string;
+  completed: Array<{ title: string; cadence: string; by: string; at: string; notes?: string }>;
+  outstanding: Array<{ title: string; cadence: string; assignees: string; dueDate: string | null }>;
+  notes: Array<{ title: string; note: string }>;
+  totals: { completed: number; outstanding: number; byPerson: Record<string, number> };
+  emailedAt: string | null;
+  createdAt: string;
+}
+
+export const fetchOpsReports = async (limit = 60): Promise<{ reports: OpsDailyReport[] }> => {
+  const { data } = await api.get('/api/admin/reports', { params: { limit } });
+  return data;
+};
+
+export const runOpsReport = async (date?: string): Promise<{ report: OpsDailyReport }> => {
+  const { data } = await api.post('/api/admin/reports/run', date ? { date } : {});
+  return data;
+};
+
 export interface OpsStaffUser {
   id: string;
   email: string;

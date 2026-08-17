@@ -10,12 +10,16 @@
 //   DELETE /api/admin/tasks/:id       — delete
 //   POST   /api/admin/tasks/reset-daily — flip every cadence='daily' task back to open (button in the UI)
 //   GET    /api/admin/staff           — list assignable RM staff users for the assignee dropdown
+//   GET    /api/admin/reports         — list stored end-of-day reports (newest first)
+//   GET    /api/admin/reports/:date   — one report, 'YYYY-MM-DD'
+//   POST   /api/admin/reports/run     — build/store/email a report now (defaults to today)
 
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { runDailyReport, ukDateString } from '../services/opsDailyReport.js';
 
 const router = Router();
 
@@ -175,18 +179,38 @@ router.patch('/admin/tasks/:id', authenticate, requireAdmin, async (req: Request
 // ---------------------------------------------------------------------------
 
 router.post('/admin/tasks/:id/toggle', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
   const existing = await prisma.opsTask.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: 'Task not found' });
 
   const nextStatus = existing.status === 'done' ? 'open' : 'done';
+  const completedAt = new Date();
   const task = await prisma.opsTask.update({
     where: { id: existing.id },
     data: {
       status: nextStatus,
-      completedAt: nextStatus === 'done' ? new Date() : null,
+      completedAt: nextStatus === 'done' ? completedAt : null,
+      completedById: nextStatus === 'done' ? req.user.userId : null,
     },
     include: taskInclude,
   });
+
+  // Write the permanent record. The task's own completedAt is wiped by the daily reset, so this
+  // log is the only thing that survives to be reported on. Never blocks the toggle.
+  if (nextStatus === 'done') {
+    prisma.opsTaskCompletion.create({
+      data: {
+        taskId: existing.id,
+        taskTitle: existing.title,
+        cadence: existing.cadence,
+        tags: existing.tags,
+        completedById: req.user.userId,
+        completedAt,
+        notes: existing.notes,
+      },
+    }).catch((e: any) => console.error("[OPS_COMPLETION] failed to log completion", e?.message));
+  }
+
   return res.json({ task });
 });
 
@@ -212,6 +236,39 @@ router.post('/admin/tasks/reset-daily', authenticate, requireAdmin, async (_req:
     data: { status: 'open', completedAt: null },
   });
   return res.json({ reopened: result.count });
+});
+
+// ---------------------------------------------------------------------------
+// Daily reports — snapshots written by the 21:00 cron (see services/opsDailyReport)
+// ---------------------------------------------------------------------------
+
+router.get('/admin/reports', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const limit = Math.min(Number(req.query.limit) || 60, 200);
+  const reports = await prisma.opsDailyReport.findMany({
+    orderBy: { reportDate: 'desc' },
+    take: limit,
+  });
+  return res.json({ reports });
+});
+
+router.get('/admin/reports/:date', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const report = await prisma.opsDailyReport.findUnique({ where: { reportDate: req.params.date } });
+  if (!report) return res.status(404).json({ error: 'No report for that date' });
+  return res.json({ report });
+});
+
+// Manual run — same path the cron takes. Upserts, so re-running a date is safe.
+router.post('/admin/reports/run', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const date = typeof req.body?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date)
+    ? req.body.date
+    : ukDateString();
+  try {
+    const payload = await runDailyReport(date);
+    return res.json({ report: payload });
+  } catch (e: any) {
+    console.error('[OPS_REPORT] manual run failed', e);
+    return res.status(500).json({ error: e?.message || 'Report failed' });
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -247,7 +247,8 @@ export default function AdminOpsTasksPage() {
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">Ops tasks</h1>
             <p className="mt-1 text-sm text-slate-500">
-              Shared board for Dan and the VA. Postgres-backed — changes sync between staff on the next 30s poll.
+              Shared board for Dan and the VA. Postgres-backed — changes sync between staff on the next 30s poll{' '}
+              <a href="/admin/reports" className="text-blue-600 hover:underline">Daily reports</a>.
             </p>
             <div className="mt-2 inline-flex items-center rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-200">
               🔒 ReceptionMate Staff Only

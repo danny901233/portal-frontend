@@ -680,7 +680,7 @@ export async function getChatAgentResponse(
   garageId: string,
   message: string,
   conversationId: string,
-  seedContact?: { phone?: string; name?: string }
+  seedContact?: { phone?: string; name?: string; lastContact?: string }
 ): Promise<ChatAgentResponse> {
   const res = await getChatAgentResponseInner(garageId, message, conversationId, seedContact);
   try {
@@ -713,7 +713,7 @@ async function getChatAgentResponseInner(
   garageId: string,
   message: string,
   conversationId: string,
-  seedContact?: { phone?: string; name?: string }
+  seedContact?: { phone?: string; name?: string; lastContact?: string }
 ): Promise<ChatAgentResponse> {
   try {
     const garage = await prisma.garage.findUnique({
@@ -1645,7 +1645,16 @@ async function getChatAgentResponseInner(
     }
 
     // Build system prompt with state awareness
-    const systemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, session);
+    let systemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, session);
+
+    // A dormant thread picking up again. Without this the agent carries on mid-flow days later,
+    // which no person would do. Guidance rather than a script — the wording is left to the model.
+    if (seedContact?.lastContact) {
+      systemPrompt += `\n\nCONTEXT: This customer last messaged ${seedContact.lastContact}. `
+        + `Open by acknowledging the gap naturally, the way a person picking the conversation back `
+        + `up would — do not resume mid-sentence as though no time has passed, and do not start `
+        + `over as though you have never spoken. Keep it to a few words, then carry on.`;
+    }
 
     // Clear warm resume context after prompt is built — only fires on first message after warm resume
     if (session.warmResumeContext) {

@@ -349,13 +349,42 @@ async function finaliseSignature(opts: {
   // SetupIntent client_secret; the sign page mounts the card form and confirms it. Provisioning +
   // welcome email fire from the Stripe webhook (setup_intent.succeeded) once the card is confirmed.
   let checkoutClientSecret: string | null = null;
-  if (user?.mustChangePassword && stripeConfigured()) {
+
+  // Who gets asked for a card at signing?
+  //
+  // Self-serve signups (mustChangePassword) always did. But a customer we onboard by hand never
+  // could: they set their password first, which clears mustChangePassword, so by the time they
+  // reached the agreement the card step had silently switched itself off. That left no way to
+  // take a card for a manually-created trial at all.
+  //
+  // So also offer it when the garage is plainly set up for one: on a trial, billing by Stripe
+  // card, and no subscription created yet. Additive — the self-serve path is untouched.
+  let wantsTrialCard = !!user?.mustChangePassword;
+  if (!wantsTrialCard && user && stripeConfigured()) {
+    const gid = user.garageAccessIds?.[0] ?? null;
+    if (gid) {
+      const g = await prisma.garage.findUnique({
+        where: { id: gid },
+        select: {
+          stripeSubscriptionId: true, trialEndsAt: true, trialEndDate: true,
+          business: { select: { billingMethod: true } },
+        },
+      });
+      const trialEnd = g?.trialEndsAt ?? g?.trialEndDate ?? null;
+      wantsTrialCard = !!g
+        && !g.stripeSubscriptionId
+        && g.business?.billingMethod === 'stripe_card'
+        && !!trialEnd && trialEnd > new Date();
+    }
+  }
+
+  if (wantsTrialCard && stripeConfigured()) {
     try {
-      const garageId = user.garageAccessIds?.[0] ?? null;
+      const garageId = user!.garageAccessIds?.[0] ?? null;
       if (garageId) {
         const trial = await createAssistTrialSubscription({
-          userId: user.id,
-          email: user.email,
+          userId: user!.id,
+          email: user!.email,
           businessName: agreement.clientName,
           garageId,
           agreementId: agreement.id,

@@ -138,9 +138,14 @@ const formatBranch = (garage: {
 });
 
 router.get('/admin/businesses', authenticate, requireAdmin, async (_req, res) => {
+  // Archived garages are former customers — they stay in the database for their billing and call
+  // history, but must not appear in the portal's lists. ?includeArchived=1 brings them back when
+  // someone genuinely needs to look one up.
+  const includeArchived = (_req.query as any)?.includeArchived === '1';
   const businesses = await prisma.business.findMany({
     include: {
       garages: {
+        where: includeArchived ? {} : { archivedAt: null },
         include: { agentConfiguration: true },
         orderBy: { name: 'asc' },
       },

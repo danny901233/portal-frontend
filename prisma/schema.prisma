@@ -11,6 +11,22 @@ datasource db {
 model Garage {
   id                 String  @id @default(uuid())
   name               String
+  // Set when a garage is no longer a customer. Archived garages are hidden from the garage
+  // pickers and never selected for billing, but nothing is deleted — their calls, invoices and
+  // documents stay intact, which matters if a billing or legal question comes up later.
+  archivedAt         DateTime?
+  // Explicit flag rather than guessing from the name. The billing watchdog skips these, and
+  // guessing ("does the name contain 'test'?") would eventually skip a real customer called
+  // something unlucky — or worse, fail to skip a test one and cry wolf every morning.
+  isTestAccount      Boolean @default(false)
+  // A leaving customer stays live until their notice expires, then archives itself. Relying on
+  // someone remembering to archive on the day is how a former customer's calls kept being
+  // answered for free — see the voice-route gate.
+  archiveScheduledAt DateTime?
+  // How this customer pays. 'invoice' customers (In'n'out) settle by bank transfer against an
+  // emailed invoice, so their invoices sit 'pending' by design — chasing them needs payment TERMS,
+  // not a failed-collection signal, and the billing watchdog must not treat them as unpaid.
+  paymentMethod      String  @default("direct_debit") // 'direct_debit' | 'invoice'
   twilioNumber       String?
   hasMessagingAccess Boolean @default(false)
   hasVoiceAccess Boolean @default(true)
@@ -164,6 +180,10 @@ model User {
   billingCycleStartDate DateTime?
   nextBillingDate       DateTime?
   garageAccessIds       String[]  @default([])
+  // Where ops alerts go for this person. Deliberately separate from `email` (the login): Gab is a
+  // VA on a personal Gmail, and alerts must reach him without that address becoming an account.
+  // Alerts sent here carry a title and a link only — never customer details. See opsNotify.ts.
+  notificationEmail     String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   role                  UserRole  @default(USER)
@@ -715,6 +735,12 @@ model Invoice {
   // GoCardless
   gocardlessPaymentId  String?
   gocardlessChargeDate DateTime?
+  // When payment is due (issue date + the customer's terms, currently 14 days). Without this
+  // stored, nothing could answer "what is overdue" — the due date was only ever calculated inside
+  // the In'n'out email template and printed, never kept.
+  dueDate              DateTime?
+  chaseSentAt          DateTime? // first reminder, on the due date
+  chase2SentAt         DateTime? // second reminder, 14 days later
   paidAt               DateTime?
 
   // Credit/Void tracking
@@ -799,6 +825,11 @@ model OpsTask {
   tags         String[]  @default([])
   status       String    @default("open") // 'open' | 'done'
   notes        String?   @db.Text
+  // Who the task belongs to. assigneeIds is the source of truth and supports more than one
+  // person ("Both" on the board); assigneeId mirrors its first entry so the assignee relation —
+  // and anything still reading a single id — keeps working.
+  assigneeIds  String[]  @default([])
+  priority     String    @default("normal") // 'normal' | 'urgent'
   assigneeId   String?
   assignee     User?     @relation("OpsTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   createdById  String?
@@ -806,9 +837,44 @@ model OpsTask {
   dueDate      DateTime?
   sortOrder    Int       @default(0)
   completedAt  DateTime?
+  completedById String?  // who ticked it off — plain id, resolved against staff for display
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([cadence, status])
   @@index([assigneeId])
+}
+
+/// Immutable log of every completion.
+///
+/// OpsTask.completedAt cannot be the history: "reset daily" flips every daily task back to open
+/// and clears it, so yesterday's work would erase itself each morning. Titles are snapshotted
+/// because tasks get renamed and deleted, and a past report must still read true.
+model OpsTaskCompletion {
+  id            String   @id @default(cuid())
+  taskId        String?
+  taskTitle     String
+  cadence       String
+  tags          String[] @default([])
+  completedById String?
+  completedAt   DateTime @default(now())
+  notes         String?  @db.Text // notes as they stood when it was ticked off
+
+  @@index([completedAt])
+  @@index([taskId])
+}
+
+/// One row per day, written by the 21:00 cron and then never changed — so a report stays true to
+/// the day even after tasks are edited, reassigned or deleted.
+model OpsDailyReport {
+  id          String    @id @default(cuid())
+  reportDate  String    @unique // 'YYYY-MM-DD', Europe/London
+  completed   Json      @default("[]")
+  outstanding Json      @default("[]")
+  notes       Json      @default("[]")
+  totals      Json      @default("{}")
+  emailedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([reportDate])
 }

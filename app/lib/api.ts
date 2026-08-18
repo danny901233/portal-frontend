@@ -939,6 +939,7 @@ export interface OpsTask {
   status: OpsTaskStatus;
   notes: string | null;
   assigneeId: string | null;
+  assigneeIds: string[];
   assignee: OpsTaskUserRef | null;
   createdById: string | null;
   createdBy: OpsTaskUserRef | null;
@@ -948,6 +949,27 @@ export interface OpsTask {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface OpsDailyReport {
+  id: string;
+  reportDate: string;
+  completed: Array<{ title: string; cadence: string; by: string; at: string; notes?: string }>;
+  outstanding: Array<{ title: string; cadence: string; assignees: string; dueDate: string | null }>;
+  notes: Array<{ title: string; note: string }>;
+  totals: { completed: number; outstanding: number; byPerson: Record<string, number> };
+  emailedAt: string | null;
+  createdAt: string;
+}
+
+export const fetchOpsReports = async (limit = 60): Promise<{ reports: OpsDailyReport[] }> => {
+  const { data } = await api.get('/api/admin/reports', { params: { limit } });
+  return data;
+};
+
+export const runOpsReport = async (date?: string): Promise<{ report: OpsDailyReport }> => {
+  const { data } = await api.post('/api/admin/reports/run', date ? { date } : {});
+  return data;
+};
 
 export interface OpsStaffUser {
   id: string;
@@ -970,6 +992,7 @@ export const createOpsTask = async (input: {
   cadence: OpsTaskCadence;
   tags: string[];
   assigneeId?: string | null;
+  assigneeIds?: string[];
   dueDate?: string | null;
 }): Promise<{ task: OpsTask }> => {
   const { data } = await api.post('/api/admin/tasks', input);
@@ -986,6 +1009,7 @@ export const patchOpsTask = async (
     status: OpsTaskStatus;
     notes: string | null;
     assigneeId: string | null;
+    assigneeIds: string[];
     dueDate: string | null;
     sortOrder: number;
   }>,

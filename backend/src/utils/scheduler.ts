@@ -10,11 +10,51 @@ import { runDailyGarageHiveReminders } from '../services/garageHiveReminders.js'
 import { processQueuedCampaigns } from '../services/outboundSend.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
+import { runDailyReport } from '../services/opsDailyReport.js';
+import { resetRecurringTasks, archiveDueGarages } from '../services/opsTaskReset.js';
+import { runBillingWatchdog } from '../services/billingWatchdog.js';
+import { retryFailedPayments } from '../services/paymentRetry.js';
+import { chaseOverdueInvoices } from '../services/invoiceChase.js';
 
 const prisma = new PrismaClient();
 
 export const initializeScheduledReports = (): void => {
   console.log('Initializing scheduled jobs...');
+
+  // Ops board end-of-day report: 21:00 UK, late enough that the day's work is in, early enough
+  // that it lands before the daily reset the next morning.
+  cron.schedule('0 21 * * *', async () => {
+    console.log('Running ops board daily report...');
+    try {
+      await runDailyReport();
+    } catch (error) {
+      console.error('Ops board daily report failed:', error);
+    }
+  }, { timezone: 'Europe/London' });
+
+  // Ops board resets. Each runs just after midnight so the period is fully over — and, for daily,
+  // after the 21:00 report has already captured the day. Assignees are preserved.
+  cron.schedule('5 0 * * *', async () => {
+    try { await resetRecurringTasks('daily'); }
+    catch (error) { console.error('Ops board daily reset failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  // Leavers whose notice has expired: switch the service off first thing, so nobody has to
+  // remember to do it on the day.
+  cron.schedule('20 0 * * *', async () => {
+    try { await archiveDueGarages(); }
+    catch (error) { console.error('Scheduled garage archive failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  cron.schedule('10 0 * * 1', async () => {   // Monday
+    try { await resetRecurringTasks('weekly'); }
+    catch (error) { console.error('Ops board weekly reset failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  cron.schedule('15 0 1 * *', async () => {   // 1st of the month
+    try { await resetRecurringTasks('monthly'); }
+    catch (error) { console.error('Ops board monthly reset failed:', error); }
+  }, { timezone: 'Europe/London' });
 
   // Weekly reports: Every Sunday at 9:00 AM
   cron.schedule('0 9 * * 0', async () => {
@@ -71,6 +111,41 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log('✓ Automatic monthly billing scheduled: Daily at 9:00 AM (UK time)');
+
+  // Billing watchdog: 09:30, half an hour after billing runs, so it judges the outcome rather
+  // than racing it. Checks that every account which should be paying HAS paid this month —
+  // the process reporting success is not the same as money arriving.
+  cron.schedule('30 9 * * *', async () => {
+    try {
+      await runBillingWatchdog();
+    } catch (error) {
+      console.error('❌ Billing watchdog failed:', error);
+    }
+  }, { timezone: 'Europe/London' });
+  console.log('✓ Billing watchdog scheduled: Daily at 9:30 AM (UK time)');
+
+  // Retry bounced Direct Debits: 10:00, after billing and the watchdog. Waits 4 days before the
+  // first retry and gives up after 2, so a customer with a genuine problem is left to a human
+  // rather than being charged repeatedly.
+  cron.schedule('0 10 * * *', async () => {
+    try {
+      await retryFailedPayments();
+    } catch (error) {
+      console.error('❌ Payment retry failed:', error);
+    }
+  }, { timezone: 'Europe/London' });
+  console.log('✓ Failed-payment retry scheduled: Daily at 10:00 AM (UK time)');
+
+  // Chase invoice-payers past their 14-day terms: first reminder on the due date, second 14 days
+  // later. Direct Debit customers are handled by the failure/retry path instead.
+  cron.schedule('30 10 * * *', async () => {
+    try {
+      await chaseOverdueInvoices();
+    } catch (error) {
+      console.error('❌ Invoice chase failed:', error);
+    }
+  }, { timezone: 'Europe/London' });
+  console.log('✓ Overdue invoice chase scheduled: Daily at 10:30 AM (UK time)');
 
   // In'n'out Autocentres invoice: 1st of each month at 9:00 AM. They pay by their own Direct
   // Debit against an emailed invoice (not GoCardless), so we raise + email the combined 4-branch

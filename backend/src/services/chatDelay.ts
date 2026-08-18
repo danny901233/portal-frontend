@@ -59,7 +59,10 @@ async function sendDelayedReply(p: HumanReplyParams): Promise<void> {
   // If a human took over during the wait, don't send the bot's reply.
   const conv = await prisma.chatConversation.findUnique({
     where: { id: p.conversationId },
-    select: { agentPaused: true, agentPausedUntil: true },
+    select: {
+      agentPaused: true, agentPausedUntil: true,
+      customerPhone: true, customerName: true,
+    },
   });
   if (conv?.agentPaused && (!conv.agentPausedUntil || conv.agentPausedUntil > new Date())) {
     console.log(`[chat-delay] agent paused for ${p.conversationId} — skipping reply`);
@@ -68,7 +71,15 @@ async function sendDelayedReply(p: HumanReplyParams): Promise<void> {
 
   // Route once, now — the agent loads full history, so any messages batched during the
   // wait are included and answered together.
-  const agentResponse = await routeChatMessage(p.garageId, p.agentText, p.conversationId);
+  //
+  // Seed the number they are messaging from. This path is how every WhatsApp reply reaches the
+  // agent, and it was passing no contact at all — so the agent asked a customer for a number it
+  // was literally receiving the message from (Great Hollands, 2026-08-14: asked three times,
+  // never got it, message never taken). The agent confirms the last 3 digits rather than asking.
+  const seedContact = (conv?.customerPhone || conv?.customerName)
+    ? { phone: conv.customerPhone || undefined, name: conv.customerName || undefined }
+    : undefined;
+  const agentResponse = await routeChatMessage(p.garageId, p.agentText, p.conversationId, seedContact);
   if (!agentResponse?.content) return;
 
   // Show "typing…" for a couple of seconds right before the message lands.

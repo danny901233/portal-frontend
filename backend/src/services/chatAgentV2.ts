@@ -26,6 +26,10 @@ let GH_CUSTOMER_ID: string | undefined;
 let GH_API_KEY: string | undefined;
 let GH_LOCATION_ID: string = '23';
 
+// Garage whose request is currently being handled — so tool handlers deep in the stack can log
+// their own ChatToolCall rows without threading garageId through every signature.
+let CURRENT_GARAGE_ID: string = '';
+
 // Multi-branch configuration — loaded from customRules.branches
 let GARAGE_BRANCHES: { name: string; locationId: string }[] = [];
 
@@ -92,6 +96,11 @@ interface ChatSession {
   
   // Contact
   contactPhone: string;
+  // True when contactPhone came from the platform (e.g. the WhatsApp number they are messaging
+  // from) rather than from the customer telling us. Such a number is known but not yet agreed as
+  // the callback number, so the agent confirms its last 3 digits instead of asking for it.
+  contactPhoneSeeded?: boolean;
+  contactPhoneConfirmed?: boolean;
   contactEmail: string;
   contactPostcode: string;
   contactStreet: string;
@@ -459,10 +468,20 @@ async function saveSession(conversationId: string, session: ChatSession): Promis
   console.log(`[SAVE_SESSION] Saving session for ${conversationId}, step: ${session.step}, phone: ${session.contactPhone}`);
   
   try {
-    // Strip large timeslot array before saving to DB (keep only first 5 for recovery)
+    // Persist the WHOLE timeslot list.
+    //
+    // This used to keep only the first 5 "for recovery", while buildSystemPromptV2 tells the model
+    // those slots are "ALL available slots — no others exist beyond X". Once the in-memory cache
+    // aged out (a customer taking a few minutes to reply is enough) the session reloaded with 5
+    // slots and the model believed that was the garage's entire diary. Speedy Spanners, 2026-08-15:
+    // GarageHive returned 80 slots including 15 Fridays; the 5 kept were Mon/Tue/Thu, so the agent
+    // told a customer "we don't have any slots on Fridays" and she booked elsewhere.
+    //
+    // Cost of keeping them: ~35 bytes each, so a full 80-slot list adds ~3KB to a ~5KB session.
+    // The 200 cap is a bound on pathological lists, not a working limit.
     const sessionToSave = {
       ...session,
-      timeslotsAvailable: (session.timeslotsAvailable || []).slice(0, 5),
+      timeslotsAvailable: (session.timeslotsAvailable || []).slice(0, 200),
       sessionUpdatedAt: new Date().toISOString(), // used for reliable expiry check
     };
     // Use raw SQL to update sessionState (Prisma client may not have the column in its types)
@@ -498,6 +517,165 @@ export function invalidateSessionCache(conversationId: string): void {
  * This has to run AFTER the model, not before: on the turn where the customer supplies their
  * details, the session does not have them yet when the turn starts.
  */
+/**
+ * A number seeded from the platform (the WhatsApp number they are messaging from) is a default we
+ * offered them, not one they chose. Until they confirm it, a number they actually give must be
+ * able to replace it — otherwise answering "no, use 07…" is silently ignored and we ring the
+ * wrong number back. Once confirmed or corrected, it is theirs and the usual don't-overwrite rule
+ * applies again.
+ */
+function phoneIsReplaceable(session: ChatSession): boolean {
+  return !session.contactPhone || (!!session.contactPhoneSeeded && !session.contactPhoneConfirmed);
+}
+
+function setCustomerProvidedPhone(session: ChatSession, phone: string): void {
+  session.contactPhone = phone;
+  session.contactPhoneSeeded = false;
+  session.contactPhoneConfirmed = true;
+}
+
+/**
+ * Is the customer asking whether they are ALREADY booked in, rather than asking to book?
+ *
+ * Deliberately narrow. It must not fire on an ordinary new-booking request ("can I book an MOT
+ * on Friday"), because the cost of a false positive is refusing to book someone who wanted to
+ * book. It must fire when they reference a booking that already exists, or a reschedule they
+ * believe is in place — that is the case the agent cannot answer and a human must.
+ */
+export function isAskingAboutExistingBooking(message: string): boolean {
+  const m = String(message || '');
+  return (
+    /\b(is|are|was|were)\s+(it|my|the|we|our)\b[^?.]{0,40}\b(booked|booking)\b/i.test(m) ||
+    /\b(already|previously)\s+(booked|booking)\b/i.test(m) ||
+    /\bcheck\b[^?.]{0,25}\b(my|the|our)\b[^?.]{0,15}\b(booking|appointment|slot|mot)\b/i.test(m) ||
+    /\b(had|have)\s+it\s+booked\b/i.test(m) ||
+    /\b(reschedul|rearrang)\w*\b/i.test(m) ||
+    /\bconfirm\b[^?.]{0,30}\b(that is in|that's in|it's in|its in|still booked|my booking|the booking)\b/i.test(m)
+  );
+}
+
+/**
+ * The customer asked for a time the diary cannot do — return what it CAN do, or null if the
+ * request is satisfiable (or isn't about time at all).
+ *
+ * Speedy Spanners 2026-08-15: every slot in the diary was 08:30. Nicki asked for "a bit later in
+ * the day", and the agent re-proposed 8:30am verbatim; she asked again with "11am?" and it
+ * offered Friday 11th December — the boundary date named in its own prompt ("no others exist
+ * beyond…"), matched on the "11". Neither answer told her the truth, which is that 8:30 is the
+ * only time this garage publishes.
+ */
+export function unsatisfiableTimeRequest(
+  pref: string,
+  timeslots: Array<{ date: string; time: string }>,
+): { distinctTimes: string[]; latest: string } | null {
+  const p = String(pref || '').toLowerCase();
+  if (!timeslots?.length) return null;
+
+  const wantsLater = /\blater\b|\bafternoon\b|\bevening\b|\blunch\b|\bmidday\b|\bnoon\b/.test(p);
+  const hhmm = p.match(/\b(\d{1,2})[:.](\d{2})\s*(am|pm)?\b/);
+  const ampm = p.match(/(?<![\d:.])\b(\d{1,2})\s*(am|pm)\b/);
+  if (!wantsLater && !hhmm && !ampm) return null; // no time intent — not our case
+
+  let requestedHour: number | null = null;
+  if (hhmm) {
+    requestedHour = parseInt(hhmm[1]);
+    if ((hhmm[3] || '').toLowerCase() === 'pm' && requestedHour < 12) requestedHour += 12;
+  } else if (ampm) {
+    requestedHour = parseInt(ampm[1]);
+    if (ampm[2].toLowerCase() === 'pm' && requestedHour < 12) requestedHour += 12;
+  } else if (/\bafternoon\b|\blunch\b|\bmidday\b|\bnoon\b/.test(p)) {
+    requestedHour = 12;
+  } else if (/\bevening\b/.test(p)) {
+    requestedHour = 17;
+  }
+
+  const distinctTimes = [...new Set(timeslots.map((t) => t.time))].sort();
+  const latest = distinctTimes[distinctTimes.length - 1];
+  const latestHour = parseInt(latest.split(':')[0]);
+
+  // A bare "later" is satisfiable only if more than one time exists to be later than.
+  if (requestedHour === null) return distinctTimes.length > 1 ? null : { distinctTimes, latest };
+  if (latestHour >= requestedHour) return null; // something at or after what they asked for
+  return { distinctTimes, latest };
+}
+
+const PRICE_TOKEN_RE = /£\s?\d[\d,]*(?:\.\d{1,2})?/g;
+
+function priceVariants(raw: any): number[] {
+  const n = Number(String(raw ?? '').replace(/[^0-9.]/g, ''));
+  return isFinite(n) && n > 0 ? [n] : [];
+}
+
+/**
+ * Last line of defence against invented prices.
+ *
+ * The prompt already forbids quoting a figure it wasn't given, and that rule was still broken:
+ * Great Hollands, 2026-08-14, quoted a customer £319.99/£199.99/£109.99 for services whose real
+ * prices were £156/£135/£90 — the garage hides its prices in GarageHive, so the model had a list
+ * of names with no numbers and filled the gap itself. A prompt rule is a request; this is a check.
+ *
+ * Legitimate sources of a figure: the loaded GarageHive service list, the price of the service
+ * actually selected (real data even when the garage hides it publicly), the garage's own knowledge
+ * documents and FAQs, and any number the customer themselves just used. Anything else is redacted
+ * sentence-by-sentence, so a wrong number never reaches a customer.
+ */
+export async function redactUnverifiedPrices(
+  text: string,
+  session: ChatSession,
+  garageId: string,
+  customerMessage: string,
+): Promise<string> {
+  const quoted = text.match(PRICE_TOKEN_RE);
+  if (!quoted?.length) return text;
+
+  const allowed: number[] = [];
+  // Prices the garage hides are NOT quotable, so they never enter the allow-list — otherwise the
+  // guard would happily pass a figure the garage deliberately chose not to publish.
+  for (const s of session.servicesAvailable || []) {
+    if (!s?.hide_service_prices) allowed.push(...priceVariants(s?.price));
+  }
+  allowed.push(...priceVariants(session.servicePrice));
+  allowed.push(...priceVariants((session as any).additionalServicePrice));
+  const main = Number(session.servicePrice);
+  const addl = Number((session as any).additionalServicePrice);
+  if (main > 0 && addl > 0) allowed.push(main + addl);
+
+  let corpus = String(customerMessage || '');
+  try {
+    const g = await prisma.garage.findUnique({
+      where: { id: garageId },
+      include: { agentConfiguration: true, knowledgeDocuments: { take: 20 } },
+    });
+    corpus += ` ${JSON.stringify(g?.knowledgeDocuments || [])} ${JSON.stringify(g?.agentConfiguration || {})}`;
+  } catch (e: any) {
+    // Never redact on incomplete evidence — a failed lookup would strip legitimate prices.
+    console.error('[PRICE_GUARD] Source lookup failed, leaving message untouched:', e?.message);
+    return text;
+  }
+
+  const unverified = [...new Set(quoted)].filter((tok) => {
+    const n = Number(tok.replace(/[^0-9.]/g, ''));
+    if (!isFinite(n) || n <= 0) return false;
+    if (allowed.some((a) => Math.abs(a - n) < 0.005)) return false;
+    return !corpus.includes(n.toFixed(2)) && !corpus.includes(String(n));
+  });
+  if (!unverified.length) return text;
+
+  const kept = text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !unverified.some((bad) => sentence.includes(bad)));
+  const cleaned = kept.join(' ').replace(/\s+/g, ' ').trim();
+
+  console.error(
+    `[PRICE_GUARD] BLOCKED invented price(s) ${unverified.join(', ')} for garage ${garageId} — ` +
+    `allowed: [${allowed.join(', ')}] — original: ${JSON.stringify(text.slice(0, 300))}`,
+  );
+
+  return cleaned.length >= 25
+    ? cleaned
+    : "I can't confirm an exact price on here, but the team will confirm that for you. Is there anything else I can help with?";
+}
+
 export async function getChatAgentResponse(
   garageId: string,
   message: string,
@@ -507,6 +685,10 @@ export async function getChatAgentResponse(
   const res = await getChatAgentResponseInner(garageId, message, conversationId, seedContact);
   try {
     const session = await getOrCreateSession(conversationId);
+
+    if (res?.content?.includes('£')) {
+      res.content = await redactUnverifiedPrices(res.content, session, garageId, message);
+    }
     if (session.step === Step.MESSAGE_ONLY && !session.messageTaken
         && session.customerNameFirst && session.contactPhone) {
       const summary = [
@@ -551,6 +733,11 @@ async function getChatAgentResponseInner(
 
     const config = garage.agentConfiguration;
 
+    // Tool handlers run deep in the call stack without garageId in scope; this lets them log
+    // their own ChatToolCall rows (e.g. the availability fetch) so staff can see them in the
+    // conversation view. Set alongside the other per-request module state below.
+    CURRENT_GARAGE_ID = garageId;
+
     // Load GarageHive credentials
     if (config.integrationProviderConfig && typeof config.integrationProviderConfig === 'object') {
       const rawConfig = config.integrationProviderConfig as any;
@@ -559,10 +746,22 @@ async function getChatAgentResponseInner(
       GH_CUSTOMER_ID = ghConfig.ghCustomerId || ghConfig.customerId;
       GH_API_KEY = ghConfig.ghApiKey || ghConfig.apiKey;
       GH_LOCATION_ID = ghConfig.ghLocationId || ghConfig.locationId || '23';
-      DROP_OFF_ENABLED = ghConfig.enableDropOffBookings || false;
-      DROP_OFF_MESSAGE = ghConfig.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning';
-      DROP_OFF_EXCLUDE_SERVICES = ghConfig.dropOffExcludeServices || ['MOT'];
     }
+
+    // Drop-off settings live in their OWN AgentConfiguration columns — that is what the portal's
+    // agent-setup page writes. They were being read from integrationProviderConfig instead, where
+    // the portal never puts them, so every garage's drop-off switch was silently ignored: Speedy
+    // Spanners had enableDropOffBookings = true and dropOffExcludeServices = [] on 2026-08-15 and
+    // the agent still quoted exact times, because it saw the undefined-fallbacks (off, exclude
+    // MOT). Read the columns first; keep integrationProviderConfig as a fallback in case any
+    // garage was configured that way by hand.
+    const ipcDropOff = ((config.integrationProviderConfig as any)?.garagehive
+      || (config.integrationProviderConfig as any) || {}) as any;
+    DROP_OFF_ENABLED = config.enableDropOffBookings ?? ipcDropOff.enableDropOffBookings ?? false;
+    DROP_OFF_MESSAGE = config.dropOffMessage || ipcDropOff.dropOffMessage
+      || 'drop your vehicle off between 8am and half ten in the morning';
+    DROP_OFF_EXCLUDE_SERVICES = config.dropOffExcludeServices ?? ipcDropOff.dropOffExcludeServices ?? ['MOT'];
+    console.log(`[DROP_OFF_CONFIG] enabled=${DROP_OFF_ENABLED} exclude=${JSON.stringify(DROP_OFF_EXCLUDE_SERVICES)} message="${DROP_OFF_MESSAGE}"`);
     if (!GH_CUSTOMER_ID || !GH_API_KEY) {
       console.warn(`[GARAGEHIVE_MISCONFIGURED] garageId=${garageId} is using agentScript=${config.agentScript} but GarageHive credentials are not set in integrationProviderConfig. Vehicle lookups will fall back to take_message.`);
     }
@@ -608,6 +807,7 @@ async function getChatAgentResponseInner(
     let seedApplied = false;
     if (seedContact?.phone && !session.contactPhone) {
       session.contactPhone = seedContact.phone.replace(/\s+/g, '');
+      session.contactPhoneSeeded = true;
       console.log(`[SEED_CONTACT] Phone seeded: ${session.contactPhone}`);
       seedApplied = true;
     }
@@ -693,11 +893,13 @@ async function getChatAgentResponseInner(
     // Re-apply seed after hydration to ensure it wins over any contradictory history
     if (seedContact?.phone && !session.contactPhone) {
       session.contactPhone = seedContact.phone.replace(/\s+/g, '');
+      session.contactPhoneSeeded = true;
       seedApplied = true;
     }
 
-    // Also scan the CURRENT message for contact details (e.g. user puts phone in their first message)
-    if (!session.contactPhone) {
+    // Also scan the CURRENT message for contact details (e.g. user puts phone in their first
+    // message, or answers "no, use 07…" when asked to confirm the number they're messaging from)
+    if (phoneIsReplaceable(session)) {
       const normalisedMsg = normaliseVoiceToText(message);
       const phoneMsgMatches = [...normalisedMsg.matchAll(/\+[\d\s\-]{7,18}|\b0\d[\d\s\-]{8,13}|\b44\d[\d\s\-]{7,12}/g)];
       if (phoneMsgMatches.length > 0) {
@@ -705,8 +907,10 @@ async function getChatAgentResponseInner(
         const chosenMsgPhone = (hasMsgCorrection && phoneMsgMatches.length > 1)
           ? phoneMsgMatches[phoneMsgMatches.length - 1][0]
           : phoneMsgMatches[0][0];
-        session.contactPhone = chosenMsgPhone.replace(/\s+/g, '');
-        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}${hasMsgCorrection ? ' (corrected)' : ''}`);
+        const wasSeeded = session.contactPhone;
+        setCustomerProvidedPhone(session, chosenMsgPhone.replace(/\s+/g, ''));
+        console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}${hasMsgCorrection ? ' (corrected)' : ''}${
+          wasSeeded && wasSeeded !== session.contactPhone ? ` (replacing seeded ${wasSeeded})` : ''}`);
         seedApplied = true;
       }
     }
@@ -988,6 +1192,41 @@ async function getChatAgentResponseInner(
         const res = await handleTakeMessage({ message: summary, phone }, session, conversationId);
         const say = res.match(/Say:\s*"([\s\S]*?)"/i);
         if (say) return { content: say[1].trim(), needsHumanAssistance: true };
+      }
+    }
+
+    // EXISTING_BOOKING_FASTPATH: the customer is asking whether they are ALREADY booked in.
+    //
+    // The agent cannot read the garage's diary — it can only create bookings. So when it can't
+    // answer "am I booked?", the worst thing it can do is offer to book them again: either they
+    // end up double-booked, or they are told a slot is free when their existing one is fine.
+    // Speedy Spanners 2026-08-15: "I had it booked for 7th August... asked for a reschedule on
+    // 21st. Can I confirm that is in?" — the agent replied "I can't check, but I can get you in
+    // on the 21st" and went straight into a duplicate booking.
+    //
+    // A human has to check the diary, so this is a message, not a booking. Only fires when the
+    // customer is asking about an existing/prior booking, never on a plain new-booking request.
+    const handoffOn = (config as any).messagingHumanHandoff !== false;
+    if (handoffOn && session.step !== Step.MESSAGE_ONLY && !session.messageTaken
+        && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+      if (isAskingAboutExistingBooking(message)) {
+        console.log('[EXISTING_BOOKING_FASTPATH] Customer is asking about an existing booking — taking a message instead of booking');
+        session.step = Step.MESSAGE_ONLY;
+        session.serviceHint = '';
+        session.notes = (session.notes ? session.notes + ' | ' : '')
+          + 'Asking about an EXISTING booking — needs the diary checked before booking anything new';
+        await saveSession(conversationId, session);
+        const needName = !session.customerNameFirst;
+        const needPhone = !session.contactPhone || (session.contactPhoneSeeded && !session.contactPhoneConfirmed);
+        const ask = needName && !session.contactPhone ? ' Could I take your full name and the best number to reach you?'
+          : needName ? ' Could I take your full name?'
+          : needPhone && session.contactPhone ? ` I've got the number ending ${session.contactPhone.slice(-3)} — is that the best one for you?`
+          : !session.contactPhone ? ' Could I take the best number to reach you?'
+          : '';
+        return {
+          content: `I can't see the diary from here, so I don't want to book you in twice — I'll get someone to check whether that's already in and come straight back to you.${ask}`,
+          needsHumanAssistance: true,
+        };
       }
     }
 
@@ -1324,9 +1563,10 @@ async function getChatAgentResponseInner(
         // Pure digit/phone string — either pre-saved by early scan, or waiting for phone now
         const looksLikeJustPhone = /^\+?[\d\s\-]{7,15}$/.test(msg);
         if (looksLikeJustPhone) {
-          if (!session.contactPhone) {
-            // Not yet saved — save it directly (accepts non-standard formats like 459694969496)
-            session.contactPhone = msg.replace(/[\s\-]/g, '');
+          if (phoneIsReplaceable(session)) {
+            // Not yet saved, or only the seeded platform number they haven't agreed to — save it
+            // directly (accepts non-standard formats like 459694969496)
+            setCustomerProvidedPhone(session, msg.replace(/[\s\-]/g, ''));
             await saveSession(conversationId, session);
           }
           const nextAsk = !session.contactEmail
@@ -2369,9 +2609,11 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
       return `Vehicle confirmed but no services available.\nSay: "Let me grab your details and we'll give you a call back with a quote."\nThen call take_message.`;
     }
     
+    // Label a withheld price rather than emitting a bare name — see the note in
+    // buildSystemPromptV2's AVAILABLE SERVICES block for why a silent gap gets filled in.
     const serviceList = services.slice(0, 5).map((s: any, i: number) => {
       const p = s.price || 0;
-      let priceStr = '';
+      let priceStr = ' — PRICE NOT AVAILABLE, do not state or estimate one';
       if (!s.hide_service_prices && p >= 1) {
         if (s.estimate) priceStr = ` — from around £${p}`;
         else if (s.from_price) priceStr = ` — from £${p}`;
@@ -2622,7 +2864,12 @@ async function handleSelectService(args: any, session: ChatSession, conversation
 
   const serviceId = matched.service_price_id;
   const serviceName = matched.name;
-  const price = matched.price;
+  // A garage that hides its prices in GarageHive has decided not to publish them; the agent must
+  // honour that too, rather than reading out a figure the customer could not see for themselves.
+  // Blanking it here is enough: every downstream display already falls through to "POA" on an
+  // empty price, the booking itself is made from service IDs, and the price guard's allow-list is
+  // built from this same value — so a hidden price cannot leak by any route.
+  const price = matched.hide_service_prices ? '' : matched.price;
 
   // Append diagnostic notes to booking notes if collected
   if (session.diagnosticNotes) {
@@ -2662,9 +2909,11 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     console.log(`[SELECT_SERVICE] Services tracked: ${session.serviceSelectedNames.join(' + ')} (${session.serviceSelectedIds.join(', ')})`);
 
     // Fetch timeslots right away (needed for both upsell and normal path)
+    const _tsT0 = Date.now();
     const timeslots = await ghListTimeslots(session.sessionId);
     session.timeslotsAvailable = timeslots;
     console.log(`[SELECT_SERVICE] Fetched ${timeslots.length} timeslots`);
+    logTimeslotFetch(conversationId, serviceName, timeslots, Date.now() - _tsT0);
 
     if (timeslots.length === 0) {
       // No online timeslots — tell customer and collect contact details
@@ -2850,6 +3099,29 @@ async function handleSelectTimeslot(args: any, session: ChatSession, conversatio
 
   if (!session.timeslotsAvailable || session.timeslotsAvailable.length === 0) {
     return `No timeslots loaded. Call select_service first.`;
+  }
+
+  // They asked for a time this garage doesn't offer. Say so — do not re-propose the same slot as
+  // if they hadn't spoken, and do not go hunting for another date to satisfy the number.
+  const cannotDo = unsatisfiableTimeRequest(effectivePref, session.timeslotsAvailable);
+  if (cannotDo) {
+    const timesNatural = cannotDo.distinctTimes.map((t) => formatTimeNaturally(t));
+    const timeList = timesNatural.length === 1
+      ? timesNatural[0]
+      : `${timesNatural.slice(0, -1).join(', ')} and ${timesNatural[timesNatural.length - 1]}`;
+    console.log(`[SELECT_TIMESLOT] Time request "${effectivePref}" cannot be met — only ${cannotDo.distinctTimes.join(', ')} available (dropOff=${session.useDropOffBooking})`);
+
+    // Drop-off bookings are date-only by design, so answering with a list of times would leak
+    // exactly what drop-off exists to hide. Give the garage's own wording instead.
+    if (session.useDropOffBooking) {
+      return `TIME_NOT_AVAILABLE_DROP_OFF: this booking is drop-off, so there is no time to offer.
+Say: "We don't book specific times for this — we ask that you ${DROP_OFF_MESSAGE}, and the car can be left with us for the day." Then ask which DATE suits them.
+Do NOT mention a specific time, and do NOT offer a different date to satisfy the time they asked for.`;
+    }
+
+    return `TIME_NOT_AVAILABLE: this garage only books at ${cannotDo.distinctTimes.join(', ')}.
+Say: "I'm sorry — all our bookings ${cannotDo.distinctTimes.length === 1 ? `start at ${timeList}` : `are at ${timeList}`}, so I can't do anything later in the day." Then ask which DATE suits them.
+Do NOT propose a time that is not in that list, and do NOT offer a different date to try to satisfy the time — the date is still theirs to choose.`;
   }
 
   // Drop-off booking: pick the first slot on the requested date, skip time selection
@@ -3102,10 +3374,14 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     session.step = Step.NEED_CONTACT;
   }
   
-  // Save any new information provided
-  if (phone && !session.contactPhone) {
-    session.contactPhone = phone;
-    console.log(`[SET_CONTACT] Saved phone: ${phone}`);
+  // Save any new information provided.
+  // A seeded number (the one they are messaging from) is a default, not their decision — so it
+  // must not block a different callback number. Once the customer has confirmed or corrected it,
+  // it counts as theirs and the normal "don't overwrite" rule applies again.
+  if (phone && phoneIsReplaceable(session)) {
+    const replacing = session.contactPhone && session.contactPhone !== phone ? ` (replacing seeded ${session.contactPhone})` : '';
+    setCustomerProvidedPhone(session, phone);
+    console.log(`[SET_CONTACT] Saved phone: ${phone}${replacing}`);
   }
   if (email && !session.contactEmail) {
     if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email)) {
@@ -3348,6 +3624,48 @@ async function ghSetService(sessionId: string, servicePriceId: string | string[]
   );
   
   return response.data;
+}
+
+/**
+ * Record the availability fetch as a ChatToolCall so it renders inline in the portal's
+ * conversation view, next to lookup_vehicle and select_service.
+ *
+ * GarageHive's availability is the one input staff could not see. When a customer is told "no
+ * slots on Friday", the only way to check that was the answer was to read pm2 logs on the box
+ * (Speedy Spanners, 2026-08-15). The weekday summary is deliberate: it answers "did it actually
+ * have Fridays?" at a glance, which is the question that keeps coming up.
+ */
+export function summariseTimeslots(timeslots: any[]): Record<string, any> {
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const byWeekday: Record<string, number> = {};
+  const byDate: Record<string, string[]> = {};
+  for (const t of timeslots) {
+    const day = DAYS[new Date(`${t.date}T12:00:00Z`).getUTCDay()] || '?';
+    byWeekday[day] = (byWeekday[day] || 0) + 1;
+    (byDate[`${t.date} ${day}`] ||= []).push(t.time);
+  }
+  const dates = Object.keys(byDate);
+  return {
+    total: timeslots.length,
+    first: dates[0] || null,
+    last: dates[dates.length - 1] || null,
+    byWeekday,
+    // Bounded so a year of availability can't bloat the row; the summary above still covers it.
+    slots: Object.fromEntries(dates.slice(0, 60).map((d) => [d, byDate[d]])),
+    ...(dates.length > 60 ? { _note: `showing first 60 of ${dates.length} dates` } : {}),
+  };
+}
+
+function logTimeslotFetch(conversationId: string, serviceName: string, timeslots: any[], durationMs: number): void {
+  logChatToolCall({
+    conversationId,
+    garageId: CURRENT_GARAGE_ID,
+    agentType: 'automate',
+    toolName: 'list_timeslots',
+    args: { service: serviceName },
+    result: summariseTimeslots(timeslots),
+    durationMs,
+  });
 }
 
 async function ghListTimeslots(sessionId: string): Promise<any[]> {
@@ -4012,7 +4330,7 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
   return null;
 }
 
-function buildSystemPromptV2(config: any, knowledgeDocuments: any[], session: ChatSession): string {
+export function buildSystemPromptV2(config: any, knowledgeDocuments: any[], session: ChatSession): string {
   const branchName = config.branchName || 'our garage';
   const agentName = (config.agentName || '').trim() || 'Leah';
 
@@ -4144,14 +4462,33 @@ TONE EXAMPLES:
   // service were you after?" — which is what happened on Great Hollands 2026-08-12 even after
   // the state was corrected. State the situation plainly and name the one tool that finishes it.
   if (session.step === Step.MESSAGE_ONLY) {
+    const seededUnconfirmed = !!(session.contactPhone && session.contactPhoneSeeded && !session.contactPhoneConfirmed);
     const missing = [
       !session.customerNameFirst ? 'their full name' : '',
-      !session.contactPhone ? 'the best phone number for them' : '',
+      !session.contactPhone ? 'the best phone number for them'
+        : seededUnconfirmed ? `confirmation that the number they are messaging from (ending ${session.contactPhone.slice(-3)}) is the best one — ask that, do NOT ask them to type their number out`
+        : '',
     ].filter(Boolean);
     prompt += `\nYOU ARE TAKING A MESSAGE, NOT BOOKING. This customer has asked for something this garage does not book online, and they have been told an advisor will call them back. Do NOT ask what service they want, do NOT offer or list services, and do NOT restart the booking flow — ignore the booking instructions below for now.${
       missing.length ? ` You still need ${missing.join(' and ')} — ask for that, then call take_message.` : ` You already have their name and number — call take_message now with what they want passing on.`
     }\n`;
   }
+  // ── Number already known from the platform ──────────────────────────────
+  // On WhatsApp the customer is messaging FROM their number, so asking them to type it out reads
+  // as if we haven't been paying attention. Great Hollands 2026-08-14: the agent asked "can I
+  // grab a contact number?" three times, Kris replied "this is my number I'm on" twice, and it
+  // asked again. Mirrors the voice agents' SIP caller block — confirm the last 3, don't ask.
+  if (session.contactPhone && session.contactPhoneSeeded && !session.contactPhoneConfirmed) {
+    const last3 = session.contactPhone.slice(-3);
+    prompt += `\nTHEIR NUMBER IS ALREADY KNOWN — they are messaging from ${session.contactPhone} (ending ${last3}).
+- NEVER ask them to type out or "grab" their phone number, and never say you don't have it. You do have it.
+- When you need a contact number, say EXACTLY: "I've got the number ending ${last3} — is that the best one for you?"
+- If they say yes (or "that's the one", "this number", "yep", or anything agreeing): call set_contact_info with phone "${session.contactPhone}". Do NOT ask for anything more.
+- If they say no WITHOUT giving a number, reply "No problem — what's the best number for you?" and wait.
+- If they give a different number, call set_contact_info with THAT number instead — their number always wins over the one they are messaging from, and never argue with them about it.
+- If they have already told you it is the number they are messaging from, treat that as a yes and call set_contact_info with "${session.contactPhone}" immediately.\n`;
+  }
+
   if (session.customerNameFirst) prompt += `Customer: ${session.customerNameFirst} ${session.customerNameLast || ''}\n`;
   if (session.vrn) prompt += `Vehicle: ${session.vehicleMake} ${session.vehicleModel} (${session.vrn})\n`;
   if (session.serviceSelectedName) {
@@ -4212,10 +4549,17 @@ TONE EXAMPLES:
 
   // ── Available services — inject when loaded so agent can answer price/options questions ──
   if (session.servicesAvailable && session.servicesAvailable.length > 0) {
+    // A service whose price the garage hides (hide_service_prices) used to render as a bare name,
+    // while the line below still told the model to "list these services with their prices" — so it
+    // filled the gap with invented figures. Great Hollands, 2026-08-14: quoted £319.99/£199.99/
+    // £109.99 against real prices of £156/£135/£90. Label the absence explicitly instead of
+    // leaving a hole, and only ask for prices to be listed when prices actually exist.
+    let anyPriced = false;
     const svcLines = session.servicesAvailable.map((s: any) => {
       const p = s.price || 0;
-      let priceStr = '';
+      let priceStr = ' — PRICE NOT AVAILABLE, do not state or estimate one';
       if (!s.hide_service_prices && p > 0) {
+        anyPriced = true;
         if (s.estimate) priceStr = ` — from around £${p}`;
         else if (s.from_price) priceStr = ` — from £${p}`;
         else priceStr = ` — £${p}`;
@@ -4223,16 +4567,36 @@ TONE EXAMPLES:
       return `- ${s.name}${priceStr}`;
     }).join('\n');
     prompt += `\nAVAILABLE SERVICES:\n${svcLines}\n`;
-    prompt += `ONLY if the customer explicitly asks "what are the options", "what services do you offer", or "what are the prices", list these services with their prices naturally. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`;
+    prompt += `PRICING — ABSOLUTE RULE: the only prices that exist are the ones shown above. NEVER state, estimate, approximate, guess or imply any other figure — no ranges, no "typically around", no "from about". If a service is marked PRICE NOT AVAILABLE and the customer asks what it costs, say you can't confirm the price on chat and the team will confirm it, then carry on with the booking or take their details. If they push back on a price or ask why one service costs more than another, do NOT invent a figure or a justification for one.\n`;
+    prompt += anyPriced
+      ? `ONLY if the customer explicitly asks "what are the options", "what services do you offer", or "what are the prices", list these services naturally, quoting a price ONLY for those that show one above and saying the team will confirm the rest. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`
+      : `This garage does not publish its prices, so you do NOT have any prices to give. ONLY if the customer explicitly asks "what are the options" or "what services do you offer", list the service NAMES only and add that the team will confirm the cost. If they ask "how much", say you can't confirm prices on chat and the team will confirm — never produce a number. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`;
   }
 
   // ── Available timeslots — inject when in timeslot selection so OpenAI can handle any natural language ──
   if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
-    const slotLines = session.timeslotsAvailable.map((t: any) =>
-      `- ${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)} (${t.date} ${t.time})`
-    ).join('\n');
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
-    prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
+
+    // Drop-off bookings are date-only. Listing times here would put them in front of the model,
+    // and it will read them out — which defeats the whole point of the garage's drop-off setting.
+    if (session.useDropOffBooking) {
+      const dayLines = [...new Set(session.timeslotsAvailable.map((t: any) => t.date))]
+        .map((d: any) => `- ${formatDateNaturally(d)} (${d})`).join('\n');
+      prompt += `\nAVAILABLE DATES (these are ALL available dates — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${dayLines}\n`;
+      prompt += `This is a DROP-OFF booking: this garage does not book specific times for this work. NEVER state, offer or confirm a time — not even if the customer asks for one. Tell them we ask that they ${DROP_OFF_MESSAGE}, and the car can be left with us for the day. Offer DATES only.\n`;
+    } else {
+      const slotLines = session.timeslotsAvailable.map((t: any) =>
+        `- ${formatDateNaturally(t.date)} at ${formatTimeNaturally(t.time)} (${t.date} ${t.time})`
+      ).join('\n');
+      prompt += `\nAVAILABLE TIMESLOTS (these are ALL available slots — no others exist beyond ${formatDateNaturally(lastSlot.date)}):\n${slotLines}\n`;
+    }
+
+    const distinctTimes = [...new Set(session.timeslotsAvailable.map((t: any) => t.time))];
+    if (distinctTimes.length === 1 && !session.useDropOffBooking) {
+      // Otherwise the model re-proposes the same slot at a customer asking for "later", or treats
+      // the hour they asked for as a day-of-month and offers the far end of the list.
+      prompt += `EVERY appointment above is at ${formatTimeNaturally(distinctTimes[0])} — that is the ONLY time this garage books. If the customer asks for a later time, a specific hour, or the afternoon, tell them plainly that all bookings are at ${formatTimeNaturally(distinctTimes[0])} and ask which DATE suits. Never offer another time, and never treat a time like "11am" as a date.\n`;
+    }
     prompt += `When the customer mentions ANY time or date preference, call select_timeslot IMMEDIATELY with exactly what they said — do NOT ask clarifying questions about the date or day first. The tool will find the best match. Only ask for clarification if select_timeslot returns NO_MATCH. If they ask for a date/time not in this list (e.g. "what about March?"), explain politely that online availability only goes up to ${formatDateNaturally(lastSlot.date)} and offer the closest available slot. Do NOT invent slots.\n`;
     prompt += `If the customer asks to add another service at this point (e.g. "can you also do the brakes?", "add a full service too"), call select_service with that service name immediately — do NOT call select_timeslot yet.\n`;
     prompt += `If the customer asks a quick side question (e.g. "how long does it take?", "do you need the keys?", "will you text me?"), answer it briefly in one sentence, then immediately continue with the slot step in the same reply.\n`;
@@ -4374,12 +4738,13 @@ GENERAL RULES:
 - COMPLAINTS ARE NOT SALES OPPORTUNITIES. If the customer is unhappy about work this garage already did, about being overcharged, about damage to their vehicle, or about a delay, then acknowledge it and apologise first, and take their details for a callback so a human can deal with it. Do NOT offer to book or quote the repair — offering to sell them a fix for damage they are blaming on the garage is the worst possible reply.
 - Tools return instructions — follow them exactly, especially "Say: ..." and "Wait for ..." phrases
 - NEVER answer questions about services/prices from your own knowledge — only use what tools return after confirm_vehicle has been called
+- A price is a FACT, not a guess. Only ever repeat a figure that a tool returned or that is listed in AVAILABLE SERVICES above. If you do not have a price, say so plainly ("I can't confirm the price on here, but the team will confirm it for you") — an honest "I don't know" is always better than a number you are not certain of. Quoting a wrong price is one of the most damaging things you can do
 - Keep responses short (1–2 sentences)
 - Address customer by first name only
 - Never invent booking details — only use what tools return
 - If the customer asks a side question mid-booking (e.g. "how long does it take?", "what time do you open?", "is parking free?"), answer briefly in one sentence, then immediately continue with the current booking step — do NOT ignore the question and do NOT abandon the booking flow
 - If you cannot proceed, offer to take a message for a callback
-- If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking — do NOT bail out to take_message merely because they asked about price, and do NOT end the conversation. (Exception: if a garage rule says the work they actually want must not be booked, that rule wins — take their details and call take_message.)
+- If the customer says "quote", "how much", "what does it cost" or similar AFTER the vehicle is already confirmed, just tell them the price from the already-selected service in CURRENT STATE and continue the booking. If CURRENT STATE shows no price or shows POA, this garage does not publish that price — say you can't confirm the cost on chat and the team will confirm it, and carry on. Never fill that gap with a figure of your own — do NOT bail out to take_message merely because they asked about price, and do NOT end the conversation. (Exception: if a garage rule says the work they actually want must not be booked, that rule wins — take their details and call take_message.)
 - Never say goodbye or end the chat unless the booking is fully confirmed AND all contact details have been collected
 - If the current step is need_timeslot and the customer says "that's all", "nothing else", "just the MOT/service", "no thanks", "nope", or any short/negative reply — this means "no extras, proceed with booking". Do NOT say goodbye. Immediately ask: "Do you have a preferred date in mind, or shall I suggest the earliest available?"
 

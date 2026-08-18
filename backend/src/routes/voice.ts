@@ -27,6 +27,22 @@ router.post('/voice', async (req: Request, res: Response) => {
         .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Configuration not found for this garage.</Say><Hangup/></Response>');
     }
 
+    // A garage that has been archived or had voice switched off must NOT have its calls
+    // answered. Until now this route only checked that an AgentConfiguration existed, so
+    // "deactivating" a garage in the portal stopped the billing while the agent kept picking up —
+    // a former customer's callers handled indefinitely, for free.
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      select: { name: true, archivedAt: true, hasVoiceAccess: true },
+    });
+    if (!garage || garage.archivedAt || garage.hasVoiceAccess === false) {
+      console.warn(`[VOICE] Refusing call for ${garage?.name || garageId} — ` +
+        `${!garage ? 'garage not found' : garage.archivedAt ? 'archived' : 'voice access disabled'}`);
+      return res
+        .type('text/xml')
+        .send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
+    }
+
     if (agentConfig.agentType === 'automate') {
       agentType = 'automate';
     }

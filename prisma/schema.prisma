@@ -835,6 +835,10 @@ model OpsTask {
   createdById  String?
   createdBy    User?     @relation("OpsTaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   dueDate      DateTime?
+  // For weekly tasks: which day of the week to do it on (visual hint only,
+  // does NOT affect reset/report logic — the weekly reset still runs every Monday).
+  // Null = no preferred day. Only meaningful when cadence='weekly'.
+  weeklyDay    String?   // 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
   sortOrder    Int       @default(0)
   completedAt  DateTime?
   completedById String?  // who ticked it off — plain id, resolved against staff for display

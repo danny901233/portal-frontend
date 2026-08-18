@@ -26,6 +26,10 @@ const router = Router();
 
 const cadenceEnum = z.enum(['daily', 'weekly', 'monthly', 'project']);
 const statusEnum = z.enum(['open', 'done']);
+// Visual hint on weekly tasks: which day of the week to do it. Does not
+// affect the Monday auto-reset or the daily report. Only meaningful when
+// cadence='weekly'; ignored otherwise.
+const weeklyDayEnum = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 
 const createSchema = z.object({
   title: z.string().trim().min(1).max(300),
@@ -36,6 +40,7 @@ const createSchema = z.object({
   assigneeIds: z.array(z.string().min(1)).max(10).nullable().optional(),
   priority: z.enum(['normal', 'urgent']).optional(),
   dueDate: z.string().datetime().nullable().optional(),
+  weeklyDay: weeklyDayEnum.nullable().optional(),
 });
 
 const patchSchema = z.object({
@@ -50,6 +55,7 @@ const patchSchema = z.object({
   priority: z.enum(['normal', 'urgent']).optional(),
   dueDate: z.string().datetime().nullable().optional(),
   sortOrder: z.number().int().optional(),
+  weeklyDay: weeklyDayEnum.nullable().optional(),
 });
 
 /**
@@ -126,6 +132,7 @@ router.post('/admin/tasks', authenticate, requireAdmin, async (req: Request, res
       ...(assignmentData(parsed.data) ?? { assigneeIds: [], assigneeId: null }),
       priority: parsed.data.priority ?? 'normal',
       dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
+      weeklyDay: parsed.data.weeklyDay ?? null,
       createdById: req.user.userId,
     },
     include: taskInclude,
@@ -159,6 +166,7 @@ router.patch('/admin/tasks/:id', authenticate, requireAdmin, async (req: Request
   if (parsed.data.dueDate !== undefined) {
     data.dueDate = parsed.data.dueDate ? new Date(parsed.data.dueDate) : null;
   }
+  if (parsed.data.weeklyDay !== undefined) data.weeklyDay = parsed.data.weeklyDay;
   if (parsed.data.sortOrder !== undefined) data.sortOrder = parsed.data.sortOrder;
 
   // If status is changing, sync completedAt too

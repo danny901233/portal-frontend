@@ -58,15 +58,37 @@ export default function WidgetEmbedPage() {
 
   const chatEmbedCode = garageId
     ? `<!-- ReceptionMate Chat Widget -->
+<style>
+  #receptionmate-widget {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 150px;
+    height: 150px;
+    border: none;
+    z-index: 999999;
+    transition: width 0.25s ease, height 0.25s ease;
+  }
+</style>
 <iframe
   src="https://portal.receptionmate.co.uk/widget/${garageId}"
-  style="position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; border: none; pointer-events: none; z-index: 999999;"
   allow="microphone"
   id="receptionmate-widget"
 ></iframe>
 <script>
-  // Make only the widget clickable
-  document.getElementById('receptionmate-widget').contentWindow.document.body.style.pointerEvents = 'auto';
+  (function () {
+    window.addEventListener('message', function (e) {
+      if (!e.data || e.data.type !== 'rm-resize') return;
+      var el = document.getElementById('receptionmate-widget');
+      if (!el) return;
+      var isBubble = /^(150|260)px$/.test(String(e.data.width));
+      var isMobileOpen = window.innerWidth < 500 && !isBubble;
+      el.style.width = isMobileOpen ? '100vw' : e.data.width;
+      el.style.height = isMobileOpen ? '100dvh' : e.data.height;
+      el.style.bottom = isMobileOpen ? '0' : '20px';
+      el.style.right = isMobileOpen ? '0' : '20px';
+    });
+  })();
 </script>`
     : '';
 

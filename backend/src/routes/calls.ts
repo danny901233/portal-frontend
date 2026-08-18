@@ -1,5 +1,6 @@
 import type { Call, CallFeedback, Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
+import type { Readable } from 'node:stream';
 import { randomInt } from 'node:crypto';
 import { Router } from 'express';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
@@ -1563,7 +1564,13 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
 
     const recordingValue = call.recordingUrl;
 
-    // S3 recordings — fetch securely using AWS SDK
+    // S3 recordings — STREAM through the portal instead of 302-redirecting to a
+    // pre-signed S3 URL. The old redirect version broke the audio waveform
+    // (WaveSurfer) because browsers enforce CORS on fetch() when the redirect
+    // target is a different origin, and the S3 bucket has no CORS headers.
+    // Streaming through the portal makes the audio same-origin from the
+    // browser's POV — no CORS, no redirect chain — matching how Twilio
+    // recordings are already served below.
     if (recordingValue.startsWith('http') && recordingValue.includes('amazonaws.com')) {
       const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
       const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
@@ -1583,13 +1590,32 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
         credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
       });
 
-      const signedUrl = await getSignedUrl(
-        s3Client,
-        new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }),
-        { expiresIn: 3600 }
-      );
+      // Pass through Range header so partial-content requests still work
+      // (iOS Safari + <audio> require this; WaveSurfer will fetch full audio)
+      const rangeHeader = req.headers.range;
+      const s3Response = await s3Client.send(new GetObjectCommand({
+        Bucket: s3Bucket,
+        Key: s3Key,
+        ...(rangeHeader ? { Range: rangeHeader } : {}),
+      }));
 
-      return res.redirect(302, signedUrl);
+      res.setHeader('Content-Type', s3Response.ContentType || 'audio/mpeg');
+      res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
+      res.setHeader('Accept-Ranges', 'bytes');
+      if (s3Response.ContentLength !== undefined) {
+        res.setHeader('Content-Length', String(s3Response.ContentLength));
+      }
+      if (s3Response.ContentRange) {
+        res.setHeader('Content-Range', s3Response.ContentRange);
+        res.status(206);
+      }
+
+      if (!s3Response.Body) {
+        return res.status(500).send('Empty S3 response body');
+      }
+      // In Node runtime, Body is a Readable stream; pipe straight to the response
+      (s3Response.Body as Readable).pipe(res);
+      return;
     }
 
     // Twilio recording (SID or twilio.com URL)

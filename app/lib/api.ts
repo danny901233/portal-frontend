@@ -930,6 +930,10 @@ export interface OpsTaskUserRef {
   email: string;
 }
 
+// Which day a weekly task should be done on. Visual hint only — doesn't
+// affect the Monday auto-reset or the daily report. Null = no preferred day.
+export type OpsTaskWeeklyDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
 export interface OpsTask {
   id: string;
   title: string;
@@ -944,6 +948,7 @@ export interface OpsTask {
   createdById: string | null;
   createdBy: OpsTaskUserRef | null;
   dueDate: string | null;
+  weeklyDay: OpsTaskWeeklyDay | null;
   sortOrder: number;
   completedAt: string | null;
   createdAt: string;
@@ -994,6 +999,7 @@ export const createOpsTask = async (input: {
   assigneeId?: string | null;
   assigneeIds?: string[];
   dueDate?: string | null;
+  weeklyDay?: OpsTaskWeeklyDay | null;
 }): Promise<{ task: OpsTask }> => {
   const { data } = await api.post('/api/admin/tasks', input);
   return data;
@@ -1011,6 +1017,7 @@ export const patchOpsTask = async (
     assigneeId: string | null;
     assigneeIds: string[];
     dueDate: string | null;
+    weeklyDay: OpsTaskWeeklyDay | null;
     sortOrder: number;
   }>,
 ): Promise<{ task: OpsTask }> => {

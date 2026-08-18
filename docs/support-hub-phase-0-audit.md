@@ -1,9 +1,52 @@
 # Support hub — Phase 0 audit
 
 Written by: Claude (VA / Gab session)
-Date: 2026-08-17
+Date: 2026-08-17 (updated 2026-08-18 with direct answers to the ops-task done-criteria)
 Branch: `feat/support-hub-phase-0-audit`
 Purpose: baseline audit of what the support system does TODAY before Phase 2 (ticket model) is built. Reviewable checkpoint per the ops-tasks board task _"Support hub — read first (goal & rules)"_.
+
+## 0. Done criteria — direct answers to the Phase 0 ops-task
+
+The ops-task defined three specific checks and "a short note says exactly what exists vs. missing" as the done condition. Answering each directly:
+
+### 1. Can a customer clearly find "Support" in the portal?
+
+**⚠️ Partial — one entry point, and it's a floating button, not a nav link.**
+
+- **What exists:** `SupportChatWidget` is rendered in `app/components/AppShell.tsx:494` so it appears on every portal page as a floating help button. Opens a 3-tile menu (Live Chat / WhatsApp / Phone).
+- **What's missing:** No "Support" link in the sidebar or navbar. The sidebar's `supportLinks` array contains a single item labelled "Help & Guides" that points to `/help` (documentation), not to any support inbox or ticket view. There is no top-level route like `/support` that a customer could navigate to directly (e.g. from a bookmarked link, an email, or a search).
+- **Effect:** a customer who doesn't spot the floating widget has no other route in. Users on smaller screens (where the widget is more likely to be obscured or forgotten) are effectively invisible to support.
+- **What to add later (Phase 2+):** a dedicated `/support` page that also opens/hosts the ticket UI, and a "Support" item in the sidebar so it's discoverable via normal navigation.
+
+### 2. Does the admin inbox (`app/admin/support`) load and show threads?
+
+**✅ Yes, functionally — but effectively unused.**
+
+- **What exists:** `app/admin/support/page.tsx` is live at `https://portal.receptionmate.co.uk/admin/support`. Staff-only (`isReceptionMateStaff()` redirect gate). Fetches from `GET /api/admin/support` which returns all `SupportConversation` rows sorted by `lastMessageAt` desc. Renders a left-column list + right-column selected-thread view. Reply form posts to `POST /api/admin/support/:id/messages`. Polls every 15s. Unread badge counters wire up correctly.
+- **What loads today:** 39 threads (per the DB snapshot in §4). Most are `status='ai'` — Leah is handling. 1 is `awaiting_staff` (from 2026-06-25).
+- **What's missing:** nothing on the code side — the page is fully functional. What IS missing is **usage**: see §3 below. The `SupportMessage` table contains **zero rows with `senderRole='staff'`** — nobody has ever replied via this inbox. Whether that means the escalation load is trivially small (39 threads across the whole history), or that staff reply via a different channel (see §3), the admin inbox itself is proven-working-but-idle infrastructure.
+
+### 3. Does an escalation actually email the team, and does someone watch it?
+
+**⚠️ Email is sent. Watching is unclear — no staff replies inside the portal, ever.**
+
+- **What exists (the email side):** `backend/src/services/supportEscalationEmail.ts` sends a Mailgun email to `hello@receptionmate.co.uk` on first escalation of a conversation (state transition `ai` → `awaiting_staff`). Includes last 10 messages as a rich HTML transcript + a link to `/admin/support`. Idempotent — only fires once per conversation.
+- **What exists (the DB evidence):** the 1 escalation on record fired the system message _"Support ticket created — the ReceptionMate team will email you back shortly"_ at 2026-06-13 (the only `senderRole='system'` row). This is proof the escalation path was traversed at least once and the code ran without erroring.
+- **What's missing / unclear:**
+  - **Zero staff replies inside the portal, ever.** `SupportMessage` breakdown: 20 AI, 20 customer, 1 system, **0 staff**. The 1 escalated thread was never answered via `/admin/support`. Either (a) staff replied to the customer directly via their own email client (which would explain no in-portal staff reply, but leaves the portal thread "orphaned"), or (b) nobody ever answered.
+  - **No confirmation `hello@receptionmate.co.uk` is monitored** in the sense of "someone is on the hook to see it". It's a shared address, not a personal one. There's no monitoring alerting, no daily "unread in hello@ count", no SLA metric.
+  - **The June 25 escalation is still `awaiting_staff` in the DB.** It never transitioned to `staff_handled` or `closed`. Whether that's because it was replied to out-of-band and staff forgot to update the portal, or because it was genuinely unanswered, isn't recoverable from the data alone.
+- **Effect:** the escalation path works technically, but there is no closed loop that proves the email is being watched with intent. Under Dan's rule 8 ("Unassigned = shared queue"), any Phase 2 ticket ingest MUST include an "unassigned older than N hours" alert or the same silent-drop pattern will repeat.
+
+**Short summary that answers the done-criteria in one line each:**
+
+- Q1: Findable via floating widget only; not in the sidebar/navbar; would benefit from a dedicated `/support` page + nav item.
+- Q2: Loads and functions correctly; has never been used by staff (0 replies via the portal).
+- Q3: Email fires reliably on escalation; nobody demonstrably watches it — the 1 escalation ever recorded (2026-06-25) is still `awaiting_staff` in the DB with no staff reply.
+
+The rest of this document (from §1 onward) is the fuller engineering audit: data model, backend surface, frontend surface, prod usage numbers, gap analysis vs Dan's 8 hard rules, and the 6 open questions Dan needs to answer before Phase 2 lands.
+
+---
 
 ## TL;DR
 

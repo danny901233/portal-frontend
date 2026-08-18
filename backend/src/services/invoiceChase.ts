@@ -156,6 +156,8 @@ export async function chaseOverdueInvoices(): Promise<{ first: number; second: n
       continue;
     }
 
+    // Stamping is what stops a second reminder going out tomorrow. It lives immediately after the
+    // send, and any manual reminder MUST go through this same path — see sendChaseNow below.
     for (const inv of invoices) {
       await prisma.invoice.update({
         where: { id: inv.id },
@@ -170,4 +172,72 @@ export async function chaseOverdueInvoices(): Promise<{ first: number; second: n
     console.log(`[INVOICE_CHASE] first reminders: ${first}, second reminders: ${second}`);
   }
   return { first, second };
+}
+
+
+/**
+ * Send a reminder for one business right now, by hand, and record it.
+ *
+ * This exists because a reminder was once sent with an ad-hoc script that called
+ * sendLatePaymentEmail directly. It reached the right people, but nothing wrote chaseSentAt — so
+ * the nightly job saw four invoices it believed had never been chased and sent the whole thing
+ * again the next morning, to the wrong mailbox. The customer got the same demand twice in fifteen
+ * hours.
+ *
+ * So: never send a payment reminder outside this function. It sends and stamps together, and a
+ * dry run tells you who it would reach before anything leaves.
+ */
+export async function sendChaseNow(
+  businessId: string,
+  opts: { dryRun?: boolean } = {},
+): Promise<{ to: string | null; amount: string; invoices: number; sent: boolean }> {
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      businessId,
+      status: { in: ['pending', 'draft'] },
+      garage: { archivedAt: null, isTestAccount: false },
+    },
+    include: { garage: { select: { id: true, name: true, businessId: true } } },
+    orderBy: { dueDate: 'asc' },
+  });
+  if (!invoices.length) return { to: null, amount: money(0), invoices: 0, sent: false };
+
+  const to = await resolveBillingContact(invoices);
+  const total = invoices.reduce((a, b) => a + b.total, 0);
+  if (opts.dryRun || !to) {
+    console.log(`[INVOICE_CHASE] dry run — would send ${money(total)} for ${invoices.length} invoice(s) to ${to ?? 'NOBODY'}`);
+    return { to, amount: money(total), invoices: invoices.length, sent: false };
+  }
+
+  const earliestDue = invoices.reduce((a, b) => ((a.dueDate ?? a.createdAt) < (b.dueDate ?? b.createdAt) ? a : b));
+  const due = earliestDue.dueDate ?? earliestDue.createdAt;
+  const now = new Date();
+
+  let ddSetupUrl: string | undefined;
+  try {
+    ddSetupUrl = await createPaymentSetupLink(to);
+  } catch {
+    ddSetupUrl = undefined;
+  }
+
+  const sent = await sendLatePaymentEmail([to], {
+    customerName: invoices[0].garage.name.replace(/ (Autocentres|Garage).*$/, ''),
+    amount: money(total),
+    dueDate: prettyDate(due),
+    daysOverdue: Math.floor((now.getTime() - due.getTime()) / 864e5),
+    lines: invoices.length > 1
+      ? invoices.map((i) => ({ label: i.garage.name, amount: money(i.total) }))
+      : undefined,
+    ddSetupUrl,
+    portalUrl: process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk',
+    finalNotice: false,
+  }, ['dan@receptionmate.co.uk']);
+
+  if (sent) {
+    for (const inv of invoices) {
+      await prisma.invoice.update({ where: { id: inv.id }, data: { chaseSentAt: now } });
+    }
+    console.log(`[INVOICE_CHASE] manual reminder sent to ${to} — ${money(total)}, ${invoices.length} invoice(s), stamped`);
+  }
+  return { to, amount: money(total), invoices: invoices.length, sent };
 }

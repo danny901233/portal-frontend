@@ -26,6 +26,54 @@ function prettyDate(d: Date): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' });
 }
 
+/**
+ * Who should a payment reminder actually go to?
+ *
+ * A branch mailbox is answered by whoever is on the counter. Sending them a demand for the whole
+ * group's balance is both wrong and embarrassing, so an explicit billing address always wins, and
+ * a login that spans every branch (which is what an accounts person looks like in our data) beats
+ * one that only sees a single branch.
+ */
+async function resolveBillingContact(
+  invoices: { businessId: string | null; garage: { id: string; name: string } }[],
+): Promise<string | null> {
+  const businessId = invoices.find((i) => i.businessId)?.businessId ?? null;
+
+  if (businessId) {
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { billingEmail: true, contactEmail: true },
+    });
+    const explicit = business?.billingEmail || business?.contactEmail;
+    if (explicit) return explicit;
+  }
+
+  // No explicit address recorded. Prefer whoever can see the most of the branches being chased —
+  // a group-wide login is the accounts contact; a single-branch login is the counter.
+  const garageIds = invoices.map((i) => i.garage.id);
+  const candidates = await prisma.user.findMany({
+    where: { garageAccessIds: { hasSome: garageIds } },
+    select: { email: true, role: true, garageAccessIds: true, createdAt: true },
+  });
+  if (!candidates.length) return null;
+
+  const scored = candidates
+    .filter((u) => u.role !== 'RECEPTIONMATE_STAFF')            // never chase ourselves
+    .map((u) => ({
+      email: u.email,
+      covered: garageIds.filter((g) => u.garageAccessIds.includes(g)).length,
+      // "accounts@", "finance@", "billing@" is a strong hint even without a business record.
+      named: /^(accounts?|finance|billing|invoices?|ap)@/i.test(u.email) ? 1 : 0,
+      createdAt: u.createdAt,
+    }))
+    .sort((a, b) =>
+      b.named - a.named ||
+      b.covered - a.covered ||
+      a.createdAt.getTime() - b.createdAt.getTime());
+
+  return scored[0]?.email ?? null;
+}
+
 export async function chaseOverdueInvoices(): Promise<{ first: number; second: number }> {
   const now = new Date();
   const secondChaseCutoff = new Date(now.getTime() - SECOND_CHASE_DAYS * 864e5);
@@ -37,21 +85,26 @@ export async function chaseOverdueInvoices(): Promise<{ first: number; second: n
       dueDate: { not: null, lte: now },
       garage: { paymentMethod: 'invoice', archivedAt: null, isTestAccount: false },
     },
-    include: { garage: { select: { id: true, name: true } } },
+    include: { garage: { select: { id: true, name: true, businessId: true } } },
     orderBy: { dueDate: 'asc' },
   });
 
-  // Group by garage so a multi-branch customer gets ONE email listing every branch, not four.
-  // In'n'out are billed as four branches on a single combined invoice; chasing each separately
-  // would be four emails for one debt.
+  // Group by BUSINESS and stage. A multi-branch customer gets one email listing every branch —
+  // In'n'out are billed as five branches on a single combined invoice, and chasing each
+  // separately would be five emails for one debt.
+  //
+  // Keying on the stage alone (as this first did) merged every invoice customer who happened to
+  // be overdue on the same day into a single email, listing one company's branches and amounts
+  // to another company's billing contact. Only one customer pays by invoice today, so nothing
+  // leaked, but it would have the moment a second one did.
   const groups = new Map<string, typeof due>();
   for (const inv of due) {
-    // Bucket by the chase stage this invoice is at, so first and second reminders don't mix.
     const stage = !inv.chaseSentAt ? 'first'
       : (!inv.chase2SentAt && inv.chaseSentAt <= secondChaseCutoff) ? 'second'
       : 'done';
     if (stage === 'done') continue;
-    const key = `${stage}`;
+    const owner = inv.businessId || inv.garage.id;   // no business? then it is its own group
+    const key = `${owner}:${stage}`;
     if (!groups.has(key)) groups.set(key, [] as any);
     (groups.get(key) as any).push(inv);
   }
@@ -67,15 +120,16 @@ export async function chaseOverdueInvoices(): Promise<{ first: number; second: n
     const earliestDue = invoices.reduce((a, b) => (a.dueDate! < b.dueDate! ? a : b)).dueDate!;
     const daysOverdue = Math.floor((now.getTime() - earliestDue.getTime()) / 864e5);
 
-    // Where does it go? The billing contact for the first garage in the group.
-    const user = await prisma.user.findFirst({
-      where: { garageAccessIds: { has: invoices[0].garage.id } },
-      select: { email: true },
-    });
-    if (!user) {
+    // Where does it go? This matters more than it looks. The first version took whichever login
+    // happened to be attached to the first garage in the group, which for In'n'out meant a
+    // £1,855 payment demand landing in a branch counter mailbox rather than with their accounts
+    // team. Resolve a real billing contact, in order of how much we should trust it.
+    const to = await resolveBillingContact(invoices);
+    if (!to) {
       console.warn(`[INVOICE_CHASE] no billing contact for ${invoices[0].garage.name} — skipped`);
       continue;
     }
+    const user = { email: to };
 
     let ddSetupUrl: string | undefined;
     try {

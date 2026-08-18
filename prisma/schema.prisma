@@ -96,6 +96,11 @@ model Garage {
   messageTemplates       MessageTemplate[]
   outboundCampaigns      OutboundCampaign[]
   garageHiveConnection   GarageHiveConnection?
+
+  // Support hub (Phase 2) — a garage can be linked to multiple support Contacts
+  // (many people at one garage email us) and to multiple Tickets over time.
+  supportContacts        Contact[]
+  supportTickets         Ticket[]                 @relation("SupportTicketGarage")
 }
 
 // Per-garage Garage Hive (Business Central) integration + daily reminder config.
@@ -209,6 +214,12 @@ model User {
   // Ops-tasks board (staff-only) — a staff user may be the assignee or the creator
   opsTasksAssigned OpsTask[] @relation("OpsTaskAssignee")
   opsTasksCreated  OpsTask[] @relation("OpsTaskCreatedBy")
+
+  // Support hub (Phase 2) — a staff user can own many tickets, and a portal
+  // User can also be the identified "who is this" behind a support Contact.
+  supportContacts    Contact[]      @relation("SupportContactUser")
+  supportTicketsOwned Ticket[]      @relation("SupportTicketAssignee")
+  supportTicketEntries TicketEntry[] @relation("TicketEntryStaffAuthor")
 
   // Mobile push notifications (iOS APNs device tokens). One user may have
   // several devices; tokens are registered by the mobile app on launch.
@@ -877,4 +888,148 @@ model OpsDailyReport {
   createdAt   DateTime  @default(now())
 
   @@index([reportDate])
+}
+
+// ============================================================================
+// SUPPORT HUB — Phase 2 (ticket model)
+//
+// Consolidates every support channel (email to hello@, WhatsApp to ops number,
+// portal live chat, negative call feedback) into a single queue where every
+// issue is one Ticket owned by one staff assignee (or "unassigned" = shared
+// queue). Deliberately separate from SupportConversation (legacy widget) and
+// ChatConversation (garages' end customers talking to their own agent) — see
+// docs/support-hub-phase-2-schema.md for the rationale and per-field notes.
+//
+// Rollout: the accompanying migration is SAFE (all-additive). Nothing existing
+// changes. Phase 1 (email ingest) writes to these tables; Phase 2 admin UI
+// reads them.
+// ============================================================================
+
+// A person who has ever contacted support. Cross-channel — a Contact may have
+// an email AND a phone, or just one of them. Application code enforces at
+// least one of email/phone is set (Prisma cannot express that in the schema).
+model Contact {
+  id        String   @id @default(cuid())
+  // At least one of email/phone must be non-null (enforced in code, not schema).
+  // Nullable unique on email = Postgres allows multiple NULLs, one non-null.
+  email     String?  @unique
+  phone     String?  // E.164-normalized on write; not unique because families/branches share numbers
+  name      String?  // display name; often null on first contact, filled in on reply
+  // Identified? When we can resolve a Contact to an existing Garage (via email
+  // domain match or manual link) and/or User, these get set. Both nullable —
+  // plenty of contacts are sales leads or one-off enquiries with no account.
+  garageId  String?
+  garage    Garage?  @relation(fields: [garageId], references: [id], onDelete: SetNull)
+  userId    String?
+  user      User?    @relation("SupportContactUser", fields: [userId], references: [id], onDelete: SetNull)
+  // Manual spam-hard-block; blocked contacts create no new tickets on ingest.
+  // Distinct from per-message spam filter (Phase 1b) — this is repeat offenders.
+  blocked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tickets   Ticket[]
+  entries   TicketEntry[]
+
+  @@index([phone])
+  @@index([garageId])
+  @@index([userId])
+}
+
+// One ticket = one issue (not one customer). Statuses drive the queue view.
+// Every field with an SLA implication is a real timestamp column, not derived,
+// so the daily report can count them cheaply without a scan.
+model Ticket {
+  id                     String        @id @default(cuid())
+  // Human-readable sequential number. Used in outbound email subjects as
+  // "[RM #123]" so customer replies thread back to the same ticket via
+  // Mailgun inbound routing (Phase 1). Autoincrementing SERIAL — DB-managed
+  // so concurrent creates cannot collide.
+  number                 Int           @unique @default(autoincrement())
+  title                  String        // subject line or first sentence; editable
+  // Status transitions:
+  //   new    -> nobody has looked at it yet
+  //   open   -> someone owns it, ours to act on
+  //   pending-> we replied, waiting on the customer (drops from work queue,
+  //           back to open when they reply)
+  //   on_hold-> blocked internally (e.g. waiting for Twilio, or Dan's decision)
+  //   solved -> done; auto-reopens on customer reply
+  //   closed -> archived; will not reopen automatically
+  status                 String        @default("new")
+  // AI-classified on ingest, staff can override at any time.
+  //   billing | agent_bug | setup_help | sales_enquiry | complaint | other | uncategorized
+  category               String        @default("uncategorized")
+  //   low | normal | high | urgent
+  priority               String        @default("normal")
+  // Where the ticket came from. NEVER changes after create.
+  //   email | whatsapp | portal_chat | phone
+  channel                String
+  // The person who reported it. Every ticket has one Contact. Contact deletes
+  // cascade to tickets (rare — mostly for spam sender cleanup).
+  contactId              String
+  contact                Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  // Cached from contact.garageId at create time, so the ticket stays attached
+  // to the right garage even if the Contact is later re-linked to another one.
+  // Nullable when the Contact is not yet identified to a garage.
+  garageId               String?
+  garage                 Garage?       @relation("SupportTicketGarage", fields: [garageId], references: [id], onDelete: SetNull)
+  // Nullable = Unassigned (the shared queue, per Dan's hard rule 8).
+  assigneeId             String?
+  assignee               User?         @relation("SupportTicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  // ------- lifecycle timestamps (real columns for cheap SLA queries) -------
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  // When staff first sent a public reply (not internal note). Powers first-response SLA.
+  firstResponseAt        DateTime?
+  // Bumped on every customer-originated entry. Powers "Pending N days" SLA:
+  //   status='pending' AND now() - lastCustomerActivityAt > N days
+  lastCustomerActivityAt DateTime      @default(now())
+  // Bumped on every staff-originated entry (excluding drafts).
+  lastStaffActivityAt    DateTime?
+  solvedAt               DateTime?
+  closedAt               DateTime?
+  entries                TicketEntry[]
+
+  @@index([status, updatedAt])
+  @@index([assigneeId, status])
+  @@index([contactId, createdAt])
+  @@index([channel, status])
+  @@index([garageId, status])
+}
+
+// A single event on a ticket: a public reply (in either direction), an internal
+// staff-only note, an auto-generated status/assignment log entry, or the
+// auto-acknowledgement receipt sent to the customer on ingest.
+model TicketEntry {
+  id              String   @id @default(cuid())
+  ticketId        String
+  ticket          Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  // What kind of entry:
+  //   public_reply       -> seen by the customer (via email/whatsapp/chat reply)
+  //   internal_note      -> staff-only; never leaves the portal
+  //   status_change      -> auto-log for audit ("Dan changed status new->open at 09:12")
+  //   assignment_change  -> auto-log for audit ("Dan assigned to Gab at 09:15")
+  //   auto_ack           -> the auto-generated acknowledgement sent on ingest
+  //                        (rule 4: email YES, whatsapp YES-if-24h, chat NO, spam NEVER)
+  kind            String
+  // Exactly ONE of authorUserId / authorContactId is set for public_reply and
+  // internal_note; both are null for status_change / assignment_change / auto_ack
+  // (those are system-generated). Enforced in application code.
+  authorUserId    String?
+  authorUser      User?    @relation("TicketEntryStaffAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorContactId String?
+  authorContact   Contact? @relation(fields: [authorContactId], references: [id], onDelete: SetNull)
+  body            String   @db.Text
+  // For public_reply on outbound channels (email/whatsapp): true means the AI
+  // drafted it and it is waiting for staff approval. Never sent until a staff
+  // action flips isDraft=false. This is Dan's hard rule 3 in schema form —
+  // the ONLY thing the AI can send unassisted is an auto_ack (see kind above).
+  isDraft         Boolean  @default(false)
+  // For sent public_reply on email/whatsapp: the outbound provider message id
+  // (Mailgun message-id, WhatsApp wa_id). Lets inbound webhooks thread replies
+  // back to this ticket by looking up the In-Reply-To header.
+  outboundMessageId String?
+  createdAt       DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@index([outboundMessageId])
 }

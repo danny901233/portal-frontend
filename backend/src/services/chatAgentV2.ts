@@ -772,6 +772,19 @@ async function getChatAgentResponseInner(
     // Store raw customer message so tool handlers (e.g. handleSelectService) can check it
     session.lastCustomerMessage = message;
 
+    // #386: Persist quote/price intent as soon as we see it. Without this a
+    // caller who asks "how much" on turn 1 loses that context by the time they
+    // pick a service (e.g. "Full please"), because the select_service tool
+    // only checks the CURRENT message for price signals. Result: agent drops
+    // them into a booking flow instead of a quote flow. Set once; save_caller_name
+    // can still override to 'booking' or 'message' later if the LLM classifies it that way.
+    if (!session.intent) {
+      const priceIntentSignals = /\b(how much|what.?s the (price|cost)|price.*for|cost.*of|quote|just.*(the )?(price|cost)|tell me the price|price.*only|quote only)\b/i;
+      if (priceIntentSignals.test(message)) {
+        session.intent = 'quote';
+      }
+    }
+
     // ── Stale slot guard: clear past-date timeslots even within active sessions ──
     if (session.pendingSlotDate) {
       const pendingDate = new Date(session.pendingSlotDate + 'T23:59:59');
@@ -1822,9 +1835,18 @@ async function getChatAgentResponseInner(
         // Inject price-inquiry flag for select_service — suppresses upsell when customer only wants a price
         // But do NOT suppress upsell when the customer is asking about ADDING a service (bundle, service, etc.)
         if (functionName === 'select_service') {
-          const priceSignals = /\bhow much\b|\bwhat.?s the (price|cost)\b|\bjust.*price\b|\bprice.*only\b|\bquote only\b/i;
-          const wantsAdditional = /\b(bundle|service|add|extra|also|as well|anything else|full service)\b/i.test(message);
-          functionArgs._isPriceInquiry = priceSignals.test(message) && !wantsAdditional;
+          // #386: honor session.intent === 'quote' set earlier when the caller first
+          // said "how much" — without this, a caller who picks a service on turn N
+          // (e.g. "Full please") loses the price-inquiry context and gets dropped
+          // into a booking flow. Regex broadened to match the same signals used at
+          // handleSelectService (line ~3007). wantsAdditional narrowed to only
+          // catch explicit bundling asks (removed standalone "service" / "full service"
+          // which were false positives for "Full please" style picks).
+          const priceSignals = /\b(how much|what.?s the (price|cost)|price.*for|cost.*of|quote|just.*(the )?(price|cost)|tell me the price|price.*only|quote only)\b/i;
+          const wantsAdditional = /\b(bundle|add\s+(a|another)|extra|as well|anything else|also.*book)\b/i.test(message);
+          functionArgs._isPriceInquiry = (
+            (session.intent === 'quote' || priceSignals.test(message)) && !wantsAdditional
+          );
         }
 
         // Execute tool and get INSTRUCTIONS for the agent

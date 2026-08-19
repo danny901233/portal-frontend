@@ -833,6 +833,81 @@ router.get('/staff/chat-tool-stats', authenticate, async (req: Request, res: Res
 
 // Staff-only cross-garage leaderboard for the observability page: per-garage totals (calls,
 // bookings, minutes, captured revenue) aggregated in SQL so we never hydrate every call row.
+/**
+ * Of the callers who wanted to book, how many did?
+ *
+ * The obvious field does not answer this. metrics.intent records what a call TURNED OUT to be —
+ * a caller who wanted to book and gave up is filed as "general enquiry", indistinguishable from
+ * someone asking the opening hours. So intent has to be inferred from what the agent actually
+ * did: reaching for a booking tool means the caller asked to book.
+ *
+ * The funnel is deliberately staged, because "did they convert" is less useful than "where did
+ * they fall out". A caller who never gives a registration is a different problem from one who
+ * hears a price and stops.
+ */
+router.get('/staff/booking-funnel', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      return res.status(403).json({ error: 'Staff only' });
+    }
+    const days = Math.min(Number(req.query.days) || 30, 180);
+    const since = new Date(Date.now() - days * 864e5);
+    const garageId = typeof req.query.garageId === 'string' && req.query.garageId !== 'all'
+      ? req.query.garageId : undefined;
+
+    const calls = await prisma.call.findMany({
+      where: { createdAt: { gte: since }, ...(garageId ? { garageId } : {}) },
+      select: { metrics: true, confirmedBooking: true },
+    });
+
+    // Tools that only get called because someone is trying to book something.
+    const BOOKING_TOOLS = new Set([
+      'start_quote', 'pick_service', 'select_service', 'quote_service', 'add_service',
+      'proceed_to_booking', 'select_timeslot', 'check_date', 'capture_postcode', 'confirm_booking',
+    ]);
+
+    const stage = { reg: 0, quoted: 0, service: 0, slot: 0, confirmed: 0 };
+    let intent = 0, booked = 0;
+
+    for (const c of calls) {
+      if (!c.metrics) continue;   // no instrumentation on this call, so nothing to infer from
+      const m = c.metrics as Record<string, unknown>;
+      const hist = Array.isArray(m.tool_call_history) ? (m.tool_call_history as Array<{ tool?: string }>) : [];
+      const used = new Set(hist.map((h) => h.tool).filter(Boolean) as string[]);
+      const wantedToBook = [...used].some((t) => BOOKING_TOOLS.has(t)) || c.confirmedBooking === true;
+      if (!wantedToBook) continue;
+
+      intent += 1;
+      if (c.confirmedBooking) booked += 1;
+      if (used.has('capture_registration') || used.has('lookup_vehicle')) stage.reg += 1;
+      if (used.has('start_quote') || used.has('quote_service')) stage.quoted += 1;
+      if (used.has('pick_service') || used.has('select_service') || used.has('add_service')) stage.service += 1;
+      if (used.has('select_timeslot') || used.has('check_date') || used.has('capture_postcode')) stage.slot += 1;
+      if (used.has('confirm_booking')) stage.confirmed += 1;
+    }
+
+    const pct = (n: number) => (intent ? Math.round((n / intent) * 1000) / 10 : 0);
+    res.json({
+      days,
+      callsAnalysed: calls.length,
+      bookingIntent: intent,
+      booked,
+      conversionRate: pct(booked),
+      funnel: [
+        { stage: 'Wanted to book', calls: intent, pct: 100 },
+        { stage: 'Gave a registration', calls: stage.reg, pct: pct(stage.reg) },
+        { stage: 'Got a quote', calls: stage.quoted, pct: pct(stage.quoted) },
+        { stage: 'Chose a service', calls: stage.service, pct: pct(stage.service) },
+        { stage: 'Reached a slot', calls: stage.slot, pct: pct(stage.slot) },
+        { stage: 'Booked', calls: booked, pct: pct(booked) },
+      ],
+    });
+  } catch (error) {
+    console.error('[OBSERVABILITY] booking funnel failed:', error);
+    res.status(500).json({ error: 'Could not build the booking funnel' });
+  }
+});
+
 router.get('/staff/garage-stats', authenticate, async (req: Request, res: Response) => {
   try {
     if (req.user?.role !== 'RECEPTIONMATE_STAFF') {

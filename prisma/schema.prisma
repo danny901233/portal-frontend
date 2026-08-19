@@ -85,6 +85,7 @@ model Garage {
 
   calls                  Call[]
   agentConfiguration     AgentConfiguration?
+  agentConfigChanges     AgentConfigChange[]
   knowledgeDocuments     AgentKnowledgeDocument[]
   business               Business?                @relation(fields: [businessId], references: [id])
   businessId             String?
@@ -902,6 +903,27 @@ model OpsDailyReport {
 // Who signed in, when, and from where. There was previously no record of a login at all, so
 // "who was in the portal on Tuesday" had no answer. Failures are recorded too — a run of them
 // against one account is worth seeing.
+// What changed in a garage's agent settings, who changed it, and what it was before.
+//
+// Settings have "reverted" before with no way to tell whether a person did it, a bad save
+// dropped them, or the config sync overwrote them -- the validator strip in August wiped FAQs to
+// an empty list and nobody could prove what had happened. One row per save, holding only the
+// fields that actually differed.
+model AgentConfigChange {
+  id        String   @id @default(cuid())
+  garageId  String
+  garage    Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  userId    String?
+  userEmail String?
+  // [{ field, from, to }] — values are truncated, this is for answering "who turned that off",
+  // not for restoring a backup.
+  changes   Json
+  createdAt DateTime @default(now())
+
+  @@index([garageId, createdAt])
+  @@index([createdAt])
+}
+
 model LoginEvent {
   id        String   @id @default(cuid())
   userId    String?

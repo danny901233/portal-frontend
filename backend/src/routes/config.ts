@@ -331,6 +331,62 @@ const extraAgentFields = (configuration: PrismaAgentConfiguration | null) => {
   };
 };
 
+
+/**
+ * Record what a save actually changed, so "who turned that off" has an answer.
+ *
+ * Agent settings have appeared to revert before with no way to tell whether a person did it, a
+ * bad save dropped the field, or the sync overwrote it — the validator strip in August wiped
+ * FAQs to an empty list and there was no record to check. Only fields that genuinely differ are
+ * stored, and values are truncated: this exists to answer questions, not to restore backups.
+ *
+ * Never throws. An audit write must not be the reason a garage cannot save its settings.
+ */
+async function recordConfigChanges(
+  garageId: string,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+  user?: { userId?: string; email?: string },
+): Promise<void> {
+  try {
+    const shrink = (v: unknown): unknown => {
+      if (v === null || v === undefined) return v;
+      if (typeof v === 'string') return v.length > 200 ? `${v.slice(0, 200)}…` : v;
+      if (Array.isArray(v)) return `[${v.length} item(s)]`;
+      if (typeof v === 'object') return JSON.stringify(v).slice(0, 200);
+      return v;
+    };
+    const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+    // Bookkeeping columns change on every single save and tell you nothing about what someone
+    // actually did, so they would bury the one line that matters.
+    const IGNORED = new Set(['id', 'garageId', 'createdAt', 'updatedAt']);
+
+    const changes: Array<{ field: string; from: unknown; to: unknown }> = [];
+    for (const [field, next] of Object.entries(after)) {
+      if (IGNORED.has(field)) continue;
+      const prev = before ? (before as Record<string, unknown>)[field] : undefined;
+      if (before && same(prev, next)) continue;
+      // A brand-new configuration would otherwise log every single field as a change.
+      if (!before) continue;
+      changes.push({ field, from: shrink(prev), to: shrink(next) });
+    }
+    if (!changes.length) return;
+
+    await prisma.agentConfigChange.create({
+      data: {
+        garageId,
+        userId: user?.userId ?? null,
+        userEmail: user?.email ?? null,
+        changes: changes as Prisma.InputJsonValue,
+      },
+    });
+    console.log(`[CONFIG_AUDIT] ${user?.email || 'unknown'} changed ${changes.map((c) => c.field).join(', ')} on ${garageId}`);
+  } catch (err) {
+    console.error('[CONFIG_AUDIT] could not record the change:', err);
+  }
+}
+
 const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
   if (!configuration) {
     return { ...sanitizeConfigForResponse(defaultConfiguration), ...extraAgentFields(null) };
@@ -867,7 +923,6 @@ router.put(
 
     const existingConfig = await prisma.agentConfiguration.findUnique({
       where: { garageId },
-      select: { agentScript: true, integrationProviderConfig: true },
     });
 
     const rawTyresoft = data.tyresoftSettings ?? {};
@@ -1074,6 +1129,8 @@ router.put(
       pronunciations: (data.pronunciations ?? []) as Prisma.InputJsonValue,
     };
 
+    const configBefore = existingConfig as Record<string, unknown> | null;
+
     const [configuration, garageRecord] = await Promise.all([
       prisma.agentConfiguration.upsert({
         where: { garageId },
@@ -1113,6 +1170,14 @@ router.put(
     } else {
       console.log('[UPDATE_AGENT] Skipping dispatch rule update - conditions not met');
     }
+
+    // After the write succeeded, so a failed save leaves no misleading audit entry.
+    await recordConfigChanges(
+      garageId,
+      configBefore,
+      configuration as unknown as Record<string, unknown>,
+      { userId: req.user?.userId, email: req.user?.email },
+    );
 
     const knowledgeBase = await loadKnowledgeBase(garageId);
 

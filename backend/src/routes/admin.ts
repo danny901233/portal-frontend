@@ -138,6 +138,32 @@ const formatBranch = (garage: {
 });
 
 /**
+ * What changed in a garage's agent settings, and who changed it.
+ *
+ * ?garageId= narrows it to one garage. Answers the question that had no answer before: a setting
+ * looks different from how somebody left it — was that a person, a bad save, or the sync?
+ */
+router.get('/admin/config-changes', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const take = Math.min(Number(req.query.limit) || 100, 500);
+    const garageId = typeof req.query.garageId === 'string' ? req.query.garageId : undefined;
+    const changes = await prisma.agentConfigChange.findMany({
+      where: garageId ? { garageId } : {},
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: {
+        id: true, garageId: true, userEmail: true, changes: true, createdAt: true,
+        garage: { select: { name: true } },
+      },
+    });
+    res.json({ changes });
+  } catch (error) {
+    console.error('[ADMIN] failed to list config changes:', error);
+    res.status(500).json({ error: 'Could not load configuration history' });
+  }
+});
+
+/**
  * Who signed in, when, and from where. Until this existed there was no record of a login at all,
  * so "who was in the portal on Tuesday" had no answer and repeated failures against one account
  * were invisible.

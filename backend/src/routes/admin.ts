@@ -169,6 +169,35 @@ router.get('/admin/logins', authenticate, requireAdmin, async (req, res) => {
 });
 
 /**
+ * Lift a sign-in block before it expires on its own.
+ *
+ * Five wrong passwords locks an account for fifteen minutes. That is right for an attacker and
+ * annoying for a customer on the phone who has just remembered their password, so there has to be
+ * a way to release it without waiting.
+ *
+ * The failed attempts are marked rather than deleted: they stop counting toward the limit but stay
+ * in the audit trail, so "why was this account locked" is still answerable afterwards.
+ */
+router.post('/admin/logins/unblock', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ error: 'An email address is required' });
+    }
+    const since = new Date(Date.now() - 15 * 60 * 1000);
+    const { count } = await prisma.loginEvent.updateMany({
+      where: { email, success: false, createdAt: { gte: since }, NOT: { reason: 'cleared_by_admin' } },
+      data: { reason: 'cleared_by_admin' },
+    });
+    console.log(`[ADMIN] ${req.user?.email} lifted the sign-in block on ${email} (${count} attempt(s) cleared)`);
+    res.json({ success: true, email, cleared: count });
+  } catch (error) {
+    console.error('[ADMIN] failed to lift sign-in block:', error);
+    res.status(500).json({ error: 'Could not lift the block' });
+  }
+});
+
+/**
  * Sign a user out of every device.
  *
  * Tokens are stateless, so there is no session to delete — instead we stamp sessionsValidFrom and

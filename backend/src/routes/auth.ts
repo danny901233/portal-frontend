@@ -80,12 +80,12 @@ async function loginThrottleRetryAfter(req: Request, email: string): Promise<num
       prisma.loginEvent.count({
         where: {
           email: email.toLowerCase(), success: false,
-          createdAt: { gte: since }, NOT: { reason: 'throttled' },
+          createdAt: { gte: since }, NOT: { reason: { in: ['throttled', 'cleared_by_admin'] } },
         },
       }),
       ip
         ? prisma.loginEvent.count({
-            where: { ip, success: false, createdAt: { gte: since }, NOT: { reason: 'throttled' } },
+            where: { ip, success: false, createdAt: { gte: since }, NOT: { reason: { in: ['throttled', 'cleared_by_admin'] } } },
           })
         : Promise.resolve(0),
     ]);
@@ -97,7 +97,7 @@ async function loginThrottleRetryAfter(req: Request, email: string): Promise<num
       where: {
         success: false,
         createdAt: { gte: since },
-        NOT: { reason: 'throttled' },
+        NOT: { reason: { in: ['throttled', 'cleared_by_admin'] } },
         ...(byEmail >= MAX_FAILS_PER_EMAIL ? { email: email.toLowerCase() } : { ip: ip as string }),
       },
       orderBy: { createdAt: 'asc' },

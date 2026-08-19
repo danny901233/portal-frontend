@@ -23,6 +23,11 @@ model Garage {
   // someone remembering to archive on the day is how a former customer's calls kept being
   // answered for free — see the voice-route gate.
   archiveScheduledAt DateTime?
+  // Why they left, captured when notice is given. Five garages have been archived with no record
+  // of the reason, so "why did our last five customers leave" had no answer at all.
+  cancellationReason      String?
+  cancellationRequestedAt DateTime?
+  cancellationRequestedBy String?
   // How this customer pays. 'invoice' customers (In'n'out) settle by bank transfer against an
   // emailed invoice, so their invoices sit 'pending' by design — chasing them needs payment TERMS,
   // not a failed-collection signal, and the billing watchdog must not treat them as unpaid.

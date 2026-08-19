@@ -138,6 +138,83 @@ const formatBranch = (garage: {
 });
 
 /**
+ * Schedule a leaver.
+ *
+ * A customer emails their notice, you set the date they are leaving, and the nightly
+ * archiveDueGarages job switches them off that morning — voice and messaging access removed,
+ * pricing zeroed, billing stopped, calls no longer answered. That engine already existed; there
+ * was no way to set the date except editing the database by hand, which is why five garages have
+ * been archived with no record of why they left.
+ *
+ * Service continues in full until the date arrives, so notice periods work the way a customer
+ * expects. Pass leavingDate: null to cancel it if they change their mind.
+ */
+router.post('/admin/garages/:garageId/schedule-leaving', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { garageId } = req.params;
+    const { leavingDate, reason } = req.body ?? {};
+
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      select: { id: true, name: true, archivedAt: true },
+    });
+    if (!garage) return res.status(404).json({ error: 'Garage not found' });
+    if (garage.archivedAt) return res.status(400).json({ error: 'That garage is already archived' });
+
+    // Cancelling the notice.
+    if (leavingDate === null) {
+      await prisma.garage.update({
+        where: { id: garageId },
+        data: { archiveScheduledAt: null, cancellationReason: null, cancellationRequestedAt: null, cancellationRequestedBy: null },
+      });
+      console.log(`[LEAVER] ${req.user?.email} cancelled the notice on ${garage.name}`);
+      return res.json({ success: true, name: garage.name, leavingDate: null });
+    }
+
+    const when = new Date(leavingDate);
+    if (Number.isNaN(when.getTime())) {
+      return res.status(400).json({ error: 'leavingDate must be a valid date, or null to cancel' });
+    }
+    // Archiving runs at 00:20, so a date without a time means "gone at the end of that day".
+    when.setHours(23, 59, 0, 0);
+
+    await prisma.garage.update({
+      where: { id: garageId },
+      data: {
+        archiveScheduledAt: when,
+        cancellationReason: typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 500) : null,
+        cancellationRequestedAt: new Date(),
+        cancellationRequestedBy: req.user?.email ?? null,
+      },
+    });
+    console.log(`[LEAVER] ${req.user?.email} scheduled ${garage.name} to leave on ${when.toISOString().slice(0, 10)}${reason ? ` — ${reason}` : ''}`);
+    res.json({ success: true, name: garage.name, leavingDate: when, reason: reason ?? null });
+  } catch (error) {
+    console.error('[ADMIN] failed to schedule leaving date:', error);
+    res.status(500).json({ error: 'Could not set the leaving date' });
+  }
+});
+
+/** Everyone with notice in, and everyone who has already gone, with the reason. */
+router.get('/admin/leavers', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const leavers = await prisma.garage.findMany({
+      where: { OR: [{ archiveScheduledAt: { not: null } }, { archivedAt: { not: null } }] },
+      orderBy: [{ archiveScheduledAt: 'asc' }],
+      select: {
+        id: true, name: true, archiveScheduledAt: true, archivedAt: true,
+        cancellationReason: true, cancellationRequestedAt: true, cancellationRequestedBy: true,
+        subscriptionCostGbp: true,
+      },
+    });
+    res.json({ leavers });
+  } catch (error) {
+    console.error('[ADMIN] failed to list leavers:', error);
+    res.status(500).json({ error: 'Could not load leavers' });
+  }
+});
+
+/**
  * What changed in a garage's agent settings, and who changed it.
  *
  * ?garageId= narrows it to one garage. Answers the question that had no answer before: a setting

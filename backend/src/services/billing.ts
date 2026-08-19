@@ -119,11 +119,13 @@ export async function calculateUsage(
  */
 export async function calculateBilling(
   garageId: string,
-  usage: UsageSummary
+  usage: UsageSummary,
+  period?: { start: Date; end: Date },
 ): Promise<BillingCalculation> {
   const garage = await prisma.garage.findUnique({
     where: { id: garageId },
     select: {
+      archiveScheduledAt: true,
       subscriptionCostGbp: true,
       includedMinutes: true,
       costPerMinuteGbp: true,
@@ -146,10 +148,32 @@ export async function calculateBilling(
   const overageMessages = Math.max(0, messagingMessagesCount - (garage.includedMessages ?? 0));
   const messagingSubscriptionAmount = Math.round((garage.messagingSubscriptionCostGbp ?? 0) * 100);
   const messagingOverageAmount = Math.round(overageMessages * (garage.costPerMessageGbp ?? 0) * 100);
-  const messagingAmount = messagingSubscriptionAmount + messagingOverageAmount;
+  let messagingAmount = messagingSubscriptionAmount + messagingOverageAmount;
 
   // Calculate amounts in pence for precision
-  const subscriptionAmount = Math.round(garage.subscriptionCostGbp * 100);
+  let subscriptionAmount = Math.round(garage.subscriptionCostGbp * 100);
+
+  // A garage leaving part-way through its billing month pays for the part it had.
+  //
+  // Only the standing charges are scaled — the monthly subscription and the messaging
+  // subscription. Minutes and messages are billed on what they actually used, so those are
+  // already correct and scaling them would undercharge. Without this a customer leaving on the
+  // 3rd was invoiced for the whole month, which is the sort of thing that turns a quiet leaver
+  // into a chargeback.
+  const leavingOn = (garage as { archiveScheduledAt?: Date | null }).archiveScheduledAt;
+  if (period && leavingOn && leavingOn > period.start && leavingOn < period.end) {
+    const span = period.end.getTime() - period.start.getTime();
+    const served = leavingOn.getTime() - period.start.getTime();
+    const fraction = Math.min(1, Math.max(0, served / span));
+    const fullSubscription = subscriptionAmount;
+    subscriptionAmount = Math.round(subscriptionAmount * fraction);
+    const proRatedMessagingSubscription = Math.round(messagingSubscriptionAmount * fraction);
+    messagingAmount = proRatedMessagingSubscription + messagingOverageAmount;
+    console.log(
+      `[BILLING] ${garageId} leaves ${leavingOn.toISOString().slice(0, 10)} — pro-rated to ` +
+      `${(fraction * 100).toFixed(1)}% of the month (subscription £${(fullSubscription / 100).toFixed(2)} -> £${(subscriptionAmount / 100).toFixed(2)})`,
+    );
+  }
   const minutesAmount = Math.round(overageMinutes * garage.costPerMinuteGbp * 100);
   const smsAmount = Math.round(usage.smsCount * 0.99 * 100); // £0.99 per SMS
 
@@ -207,7 +231,7 @@ export async function generateInvoice(
   const usage = await calculateUsage(garageId, periodStart, periodEnd);
 
   // Calculate billing
-  const billing = await calculateBilling(garageId, usage);
+  const billing = await calculateBilling(garageId, usage, { start: periodStart, end: periodEnd });
 
   // Get garage and business info
   const garage = await prisma.garage.findUnique({

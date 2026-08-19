@@ -205,6 +205,16 @@ async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
   const already = await prisma.invoice.findFirst({ where: { gocardlessPaymentId: invoice.id } });
   if (already) return;
 
+  // Stripe raises a £0 invoice the moment a trial subscription is created and marks it paid,
+  // because there is nothing to collect yet. This handler then wrote an invoice for OUR monthly
+  // price and marked it paid — so Kestrels, on day one of a free trial with no card on file,
+  // showed a £240 invoice as settled. Never record a payment Stripe did not take.
+  const collected = invoice.amount_paid ?? 0;
+  if (collected <= 0) {
+    console.log(`[STRIPE_WEBHOOK] ignoring £0 invoice ${invoice.id} (${invoice.billing_reason}) — nothing was collected`);
+    return;
+  }
+
   const user = await prisma.user.findFirst({ where: { garageAccessIds: { has: garage.id } }, select: { id: true } });
   const subscriptionAmount = Math.round(garage.subscriptionCostGbp * 100);
   const vatAmount = Math.round(subscriptionAmount * garage.vatRate);
@@ -234,6 +244,14 @@ async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
       gocardlessPaymentId: invoice.id, // Stripe invoice id, for reconciliation
     },
   });
+
+  // If Stripe took a different amount from the one we just recorded — a proration, a discount, a
+  // price changed in Stripe but not here — the invoice the customer sees does not match the money
+  // that left their account. Worth knowing about rather than discovering in a dispute.
+  const recorded = subscriptionAmount + vatAmount;
+  if (Math.abs(collected - recorded) > 1) {
+    console.warn(`[STRIPE_WEBHOOK] amount mismatch on ${invoice.id}: Stripe collected £${(collected / 100).toFixed(2)}, we recorded £${(recorded / 100).toFixed(2)}`);
+  }
 
   // Payment landed → clear any arrears state (unlock the account + stop the timer).
   await prisma.garage.updateMany({

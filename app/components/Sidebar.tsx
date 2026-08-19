@@ -94,13 +94,14 @@ const baseNavigation: NavItem[] = [
   { name: 'Agent Configurations', tKey: 'nav.agentConfigurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
   { name: 'Team', tKey: 'nav.team', href: '/team', icon: <UsersIcon />, requiresManager: true },
   { name: 'Observability', tKey: 'nav.observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },
+  { name: 'Garage health', tKey: 'nav.health', href: '/admin/health', icon: <ChartIcon />, requiresStaff: true },
   { name: 'Billing', tKey: 'nav.billing', href: '/billing', icon: <BillingIcon /> },
 ];
 
 const adminNavigation: NavItem = { name: 'Admin', tKey: 'nav.admin', href: '/admin', icon: <ShieldIcon /> };
 // Garage health sits alongside Admin rather than inside it: the whole point is that nobody was
 // looking, so it needs to be visible without going hunting for it.
-const healthNavigation: NavItem = { name: 'Garage health', tKey: 'nav.health', href: '/admin/health', icon: <ShieldIcon /> };
+const healthNavigation: NavItem = { name: 'Garage health', tKey: 'nav.health', href: '/admin/health', icon: <ChartIcon /> };
 
 const supportLinks: NavItem[] = [{ name: 'Help & Guides', tKey: 'nav.helpGuides', href: '/help', icon: <HelpIcon /> }];
 
@@ -147,7 +148,7 @@ export default function Sidebar({
       return true;
     });
 
-    return (showAdminLink ? [...filteredBase, adminNavigation, healthNavigation] : filteredBase).map((item) => ({
+    return (showAdminLink ? [...filteredBase, adminNavigation] : filteredBase).map((item) => ({
       ...item,
       isActive: activePath.startsWith(item.href),
     }));

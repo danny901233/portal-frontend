@@ -393,6 +393,8 @@ export interface BillingCalculation {
 }
 
 export interface Invoice {
+  /** When GoCardless will collect a pending Direct Debit — money in transit, not owed. */
+  gocardlessChargeDate?: string | null;
   id: string;
   garageId: string;
   garage?: {

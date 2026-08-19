@@ -89,6 +89,13 @@ model Garage {
   widgetButtonIcon   String  @default("chat")
 
   calls                  Call[]
+  // Outbound caller ID. These columns have been live in the database for a while but were never
+  // added here, so every reference to them in outbound-calls.ts was a type error and the backend
+  // could not build.
+  outboundCallerId         String?
+  outboundCallerIdVerified Boolean  @default(false)
+  outboundCallerIdSid      String?
+  outboundCalls            OutboundCall[]
   agentConfiguration     AgentConfiguration?
   agentConfigChanges     AgentConfigChange[]
   knowledgeDocuments     AgentKnowledgeDocument[]
@@ -932,6 +939,23 @@ model AgentConfigChange {
 
   @@index([garageId, createdAt])
   @@index([createdAt])
+}
+
+// Outbound calls placed from the portal. Table has existed in the database since the outbound
+// feature shipped; the model was never written, so the route that uses it could not compile.
+model OutboundCall {
+  id              String   @id @default(cuid())
+  garageId        String
+  garage          Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  toNumber        String
+  callerId        String
+  agentPhone      String
+  twilioCallSid   String?
+  status          String   @default("initiated")
+  durationSeconds Int?
+  createdAt       DateTime @default(now())
+
+  @@index([garageId, createdAt])
 }
 
 model LoginEvent {

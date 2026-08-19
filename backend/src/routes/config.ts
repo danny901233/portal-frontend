@@ -30,8 +30,7 @@ import {
   createDefaultGarageHiveSettings,
   createDefaultHubspotSettings,
   createDefaultTyresoftSettings,
-  createDefaultWeeklyOpeningHours,
-} from '../utils/types.js';
+  createDefaultWeeklyOpeningHours, BookarSettings } from '../utils/types.js';
 import type {
   AgentConfigurationPayload,
   GarageHiveSettings,
@@ -112,7 +111,7 @@ const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings } => {
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings?: BookarSettings } => {
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
     if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
@@ -1166,7 +1165,7 @@ router.put(
       console.log('[UPDATE_AGENT] Skipping dispatch rule update for MMH-agent (routing via voice.ts to new-gh-agent project)');
     } else if (existingConfig && existingConfig.agentScript !== resolvedAgentScript && garageRecord?.twilioNumber) {
       console.log('[UPDATE_AGENT] Updating SIP dispatch rule for garage', garageId, 'to agent:', resolvedAgentScript);
-      void updateSipDispatchRule(garageId, resolvedAgentScript);
+      void updateSipDispatchRule(garageId, resolvedAgentScript as Parameters<typeof updateSipDispatchRule>[1]);
     } else {
       console.log('[UPDATE_AGENT] Skipping dispatch rule update - conditions not met');
     }

@@ -252,6 +252,9 @@ export async function getMMHChatResponse(
       if (m.tool_calls?.length) {
         messages.push(m as any);
         for (const tc of m.tool_calls) {
+          // The SDK types tool_calls as a union — function calls and custom calls — and only the
+          // function arm has .function. We only ever define function tools, so skip anything else.
+          if (tc.type !== 'function') continue;
           let args: any = {};
           try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* ignore */ }
           const out = await runTool(tc.function.name, args);

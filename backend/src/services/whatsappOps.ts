@@ -275,6 +275,8 @@ export async function handleAdminOpsMessage(opts: {
     messages.push(msg);
     if (msg.tool_calls && msg.tool_calls.length) {
       for (const tc of msg.tool_calls) {
+        // Only function tool calls carry .function on the SDK's union type; we define no others.
+        if (tc.type !== 'function') continue;
         let result: unknown;
         try { result = await runTool(tc.function.name, JSON.parse(tc.function.arguments || '{}')); }
         catch (e) { result = { error: (e as Error).message }; }
@@ -287,7 +289,12 @@ export async function handleAdminOpsMessage(opts: {
   }
   if (!final) final = "Sorry — I couldn't work that out. Try naming the garage or a call id.";
 
-  history.set(from, [...prior, { role: 'user', content: text }, { role: 'assistant', content: final }].slice(-HIST_MAX));
+  const appended: Turn[] = [
+    ...prior,
+    { role: 'user', content: text },
+    { role: 'assistant', content: final },
+  ];
+  history.set(from, appended.slice(-HIST_MAX));
   console.log(`[WhatsApp Ops] replying to ${from} (${final.length} chars)`);
   try {
     await sendWhatsApp(phoneNumberId, accessToken, from, final);

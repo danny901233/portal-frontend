@@ -2446,7 +2446,12 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
   let { first_name, last_name = '', intent, service_hint = '' } = args;
 
   // Strip noise words that creep in when customers type multiple things on one line
-  const noiseWords = /\b(quote|booking|book|service|mot|call|please|thanks|hi|hello|hey|for|on|at|a|an|my|me|the|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|today|tomorrow|next|this|week|whatever|wait|sorry|actually|just|now|too|also|both|fine|unknown|there|you|yeah|yes|no|nope|ok|okay|right|sure|great)\b/gi;
+  // Modals and question words are the words customers OPEN with — "can you book me in", "how much
+  // is a service", "do you do MOTs" — and the model hands the first capitalised word over as a
+  // first name. A customer was greeted as "Can". Deliberately NOT stripped: will, may, mark,
+  // grace, faith, rose, summer — all common English words and all real first names, and calling
+  // someone by the wrong name is better than refusing to use the right one.
+  const noiseWords = /\b(quote|booking|book|service|mot|call|please|thanks|hi|hello|hey|for|on|at|a|an|my|me|the|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|today|tomorrow|next|this|week|whatever|wait|sorry|actually|just|now|too|also|both|fine|unknown|there|you|yeah|yes|no|nope|ok|okay|right|sure|great|can|cant|could|would|should|shall|does|did|do|is|are|am|been|have|has|had|what|whats|how|when|where|why|who|which|need|needs|want|wants|looking|after|got|get|any|much|many|cost|costs|price|prices|cheapest|dearest|about|with|and|or|but|if|please|sort|sorted|help|hiya|morning|afternoon)\b/gi;
   first_name = (first_name || '').replace(noiseWords, '').replace(/\s+/g, ' ').trim();
   last_name = (last_name || '').replace(noiseWords, '').replace(/\s+/g, ' ').trim();
 

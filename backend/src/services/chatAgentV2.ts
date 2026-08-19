@@ -928,11 +928,25 @@ async function getChatAgentResponseInner(
       (session.step === Step.NEED_VRN ||
        session.step === Step.NEED_SERVICE ||
        (session.step as string) === 'confirming_vehicle'));
-    const previousMessages = await prisma.chatMessage.findMany({
+    // The MOST RECENT messages, not the oldest.
+    //
+    // This was `orderBy: asc, take: 10`, which returns the FIRST ten messages a conversation ever
+    // had. Once a thread passed ten messages the agent was permanently reading its opening and
+    // never seeing anything since. Great Hollands, 2026-08-19: the agent asked "front wheel
+    // alignment (£79.99) or all four (£149.99)?", the customer said "Four", and it replied "did
+    // you mean a full service and an MOT?" -- because the tenth message was the full-service-and-
+    // MOT question and everything after it was invisible. It was answering the last question it
+    // could still see.
+    //
+    // Splitting replies into two or three WhatsApp-sized messages made this bite roughly three
+    // times sooner, since each agent turn now costs three rows rather than one. Hence 30 here,
+    // which is about the same number of real exchanges the old 10 was meant to cover.
+    const HISTORY_MESSAGES = 30;
+    const previousMessages = (await prisma.chatMessage.findMany({
       where: { conversationId },
-      orderBy: { createdAt: 'asc' },
-      take: isOutboundFresh ? 0 : 10,
-    });
+      orderBy: { createdAt: 'desc' },
+      take: isOutboundFresh ? 0 : HISTORY_MESSAGES,
+    })).reverse();
 
     hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string }>);
 

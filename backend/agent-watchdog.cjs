@@ -88,11 +88,20 @@ async function checkHeartbeat() {
 async function checkRouting() {
   const issues = [];
   const cfgs = await prisma.agentConfiguration.findMany({ select: { garageId: true, agentType: true, agentScript: true } });
-  const garages = await prisma.garage.findMany({ select: { id: true, name: true } });
+  const garages = await prisma.garage.findMany({
+    select: { id: true, name: true, twilioNumber: true, archivedAt: true },
+  });
   const nameById = new Map(garages.map((g) => [g.id, g.name]));
+  const byId = new Map(garages.map((g) => [g.id, g]));
   for (const c of cfgs) {
     const name = nameById.get(c.garageId) || c.garageId;
     if (SKIP_NAME_RE.test(name)) continue;
+    // No number pointing at it, or archived, means no call can arrive — so a routing mistake
+    // cannot strand a caller and is not worth waking anyone for. "ReceptionMate Demo" held this
+    // alert open permanently with twilioNumber = null, and an alarm that is always on is an alarm
+    // people learn to ignore, which costs us the real ones.
+    const g = byId.get(c.garageId);
+    if (!g || !g.twilioNumber || g.archivedAt) continue;
     const type = c.agentType === 'assist' ? 'assist' : 'automate';
     const actual2 = routesToAccount2(c.agentScript);
     if (actual2 !== EXPECTED_ACCOUNT2[type]) {

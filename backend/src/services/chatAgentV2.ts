@@ -4798,6 +4798,18 @@ TONE EXAMPLES:
     prompt += anyPriced
       ? `ONLY if the customer explicitly asks "what are the options", "what services do you offer", or "what are the prices", list these services naturally, quoting a price ONLY for those that show one above and saying the team will confirm the rest. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`
       : `This garage does not publish its prices, so you do NOT have any prices to give. ONLY if the customer explicitly asks "what are the options" or "what services do you offer", list the service NAMES only and add that the team will confirm the cost. If they ask "how much", say you can't confirm prices on chat and the team will confirm — never produce a number. Otherwise, when you reach the service selection step, just ask naturally what they need (e.g., "What sort of service were you after?") without listing everything — wait for them to tell you.\n`;
+  } else {
+    // No service list loaded yet — which is also the state a resumed conversation comes back in,
+    // because a cold resume clears it along with the vehicle. Without this the model has no
+    // pricing guidance at all and improvises "the team will confirm the price", which reads as a
+    // refusal. Great Hollands, 2026-08-19: a customer asked three times for a wheel alignment
+    // price the garage DOES publish, and was deflected every time, five days after being quoted
+    // that exact price in the same thread. We are not unable to price it — we just have not
+    // looked the vehicle up yet, and the fix is to ask for the registration.
+    prompt += `\nYOU CANNOT SEE ANY PRICES YET — the service list for this customer's vehicle has not been loaded. This does NOT mean the garage hides its prices.
+- If they ask what anything costs, do NOT say the team will confirm it and do NOT imply prices are unavailable. Say you just need their registration to pull up the right price for their car, and ask for it.
+- If they have already given a registration earlier in this conversation, call lookup_vehicle with it now rather than asking again.
+- Never state or estimate a figure from memory, including one quoted earlier in this conversation — prices must come from the loaded service list.\n`;
   }
 
   // ── Available timeslots — inject when in timeslot selection so OpenAI can handle any natural language ──

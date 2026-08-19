@@ -42,7 +42,7 @@ import supportRouter from './routes/support.js';
 import supportVoiceRouter from './routes/support-voice.js';
 import opsTasksRouter from './routes/opsTasks.js';
 import deviceTokensRouter from './routes/deviceTokens.js';
-import { errorHandler } from './middleware/errorHandler.js';
+import { errorHandler, installProcessErrorHandlers } from './middleware/errorHandler.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 import { initReminderCron } from './services/reminderScheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';
@@ -156,6 +156,10 @@ app.use('/api/webhooks', metaInstagramWebhook);
 app.use('/api/webhooks', gocardlessWebhook);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
+
+// Faults with no request behind them used to vanish silently. Install before anything starts
+// listening so a throw during startup is reported too.
+installProcessErrorHandlers();
 
 app.use(errorHandler);
 

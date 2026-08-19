@@ -45,6 +45,73 @@ async function recordLogin(
   }
 }
 
+
+/**
+ * Throttle password guessing.
+ *
+ * /auth/login had no lockout and no rate limit: an attacker could guess indefinitely, and the
+ * only trace was nothing at all until LoginEvent existed. Now that every attempt is recorded, the
+ * table itself is the counter — no extra store, and it survives a restart, which an in-memory
+ * counter would not.
+ *
+ * Two limits, deliberately different:
+ *   - per ACCOUNT, to stop one mailbox being ground down
+ *   - per IP, higher, to stop one source spraying many accounts
+ *
+ * Successful sign-ins are not counted, and the window is rolling, so a legitimate user who
+ * mistypes a few times is back in as soon as they get it right. Rejections are recorded but
+ * excluded from the counts -- otherwise every blocked attempt would extend the lock and it would
+ * never lift. Returns null when allowed, or the number of seconds to wait.
+ */
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const MAX_FAILS_PER_EMAIL = 5;
+const MAX_FAILS_PER_IP = 20;
+
+function clientIpOf(req: Request): string | null {
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || req.socket?.remoteAddress || null;
+}
+
+async function loginThrottleRetryAfter(req: Request, email: string): Promise<number | null> {
+  try {
+    const since = new Date(Date.now() - LOGIN_WINDOW_MS);
+    const ip = clientIpOf(req);
+    const [byEmail, byIp] = await Promise.all([
+      prisma.loginEvent.count({
+        where: {
+          email: email.toLowerCase(), success: false,
+          createdAt: { gte: since }, NOT: { reason: 'throttled' },
+        },
+      }),
+      ip
+        ? prisma.loginEvent.count({
+            where: { ip, success: false, createdAt: { gte: since }, NOT: { reason: 'throttled' } },
+          })
+        : Promise.resolve(0),
+    ]);
+    if (byEmail < MAX_FAILS_PER_EMAIL && byIp < MAX_FAILS_PER_IP) return null;
+
+    // Wait out the oldest failure in the window rather than a flat penalty, so the lock lifts
+    // gradually instead of everything expiring at once.
+    const oldest = await prisma.loginEvent.findFirst({
+      where: {
+        success: false,
+        createdAt: { gte: since },
+        NOT: { reason: 'throttled' },
+        ...(byEmail >= MAX_FAILS_PER_EMAIL ? { email: email.toLowerCase() } : { ip: ip as string }),
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true },
+    });
+    const readyAt = (oldest?.createdAt.getTime() ?? Date.now()) + LOGIN_WINDOW_MS;
+    return Math.max(1, Math.ceil((readyAt - Date.now()) / 1000));
+  } catch (err) {
+    // Never lock everybody out because the check itself failed.
+    console.error('[LOGIN_THROTTLE] check failed, allowing the attempt:', err);
+    return null;
+  }
+}
+
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const result = loginSchema.safeParse(req.body);
@@ -53,6 +120,17 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const { email, password, garageId: requestedGarageId } = result.data;
+
+    const retryAfter = await loginThrottleRetryAfter(req, email);
+    if (retryAfter !== null) {
+      await recordLogin(req, email, false, null, 'throttled');
+      console.warn(`[LOGIN] throttled ${email.toLowerCase()} from ${clientIpOf(req)} — ${retryAfter}s`);
+      res.setHeader('Retry-After', String(retryAfter));
+      return res.status(429).json({
+        error: 'Too many sign-in attempts. Please wait a few minutes and try again.',
+        retryAfter,
+      });
+    }
 
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 

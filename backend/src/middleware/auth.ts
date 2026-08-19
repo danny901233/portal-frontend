@@ -18,6 +18,51 @@ declare module 'express-serve-static-core' {
   }
 }
 
+/**
+ * Cache of each user's sessionsValidFrom, so revocation does not cost a database round trip on
+ * every authenticated request. Bumping sessionsValidFrom is the only way to sign somebody out
+ * when tokens are stateless, and it has to be checked on every request for that to mean anything.
+ *
+ * A 60-second TTL means a forced logout takes effect within a minute rather than instantly. That
+ * is the trade for not querying the User table on every call; if we ever need it immediate, clear
+ * the entry at the point of revocation rather than shortening this for everyone.
+ */
+const revocationCache = new Map<string, { validFrom: number | null; cachedAt: number }>();
+const REVOCATION_TTL_MS = 60_000;
+
+export function forgetRevocation(userId: string): void {
+  revocationCache.delete(userId);
+}
+
+async function tokenPredatesRevocation(userId: string, issuedAtSeconds?: number): Promise<boolean> {
+  // No iat means a token we cannot date, so we cannot say it is stale. Tokens are signed by us
+  // and always carry one; this is belt and braces rather than a real case.
+  if (!issuedAtSeconds) return false;
+  const cached = revocationCache.get(userId);
+  let validFrom: number | null;
+  if (cached && Date.now() - cached.cachedAt < REVOCATION_TTL_MS) {
+    validFrom = cached.validFrom;
+  } else {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { sessionsValidFrom: true },
+      });
+      validFrom = user?.sessionsValidFrom ? user.sessionsValidFrom.getTime() : null;
+      revocationCache.set(userId, { validFrom, cachedAt: Date.now() });
+    } catch (err) {
+      // If the lookup fails, let the request through. A database blip should not sign everybody
+      // out of the portal.
+      console.error('[AUTH] revocation check failed:', err);
+      return false;
+    }
+  }
+  if (validFrom === null) return false;
+  // iat is whole seconds, so compare at second resolution to avoid a token issued in the same
+  // second as the revocation being wrongly kept alive.
+  return issuedAtSeconds * 1000 < validFrom;
+}
+
 export const authenticate = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -34,9 +79,21 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
     if (!secret) {
       throw new Error('JWT_SECRET is not configured');
     }
-    const decoded = jwt.verify(token, secret) as JwtPayload;
-    req.user = decoded;
-    next();
+    const decoded = jwt.verify(token, secret) as JwtPayload & { iat?: number };
+    // Signed out since this token was issued? Then it is no longer valid, however fresh it looks.
+    tokenPredatesRevocation(decoded.userId, decoded.iat)
+      .then((revoked) => {
+        if (revoked) {
+          return res.status(401).json({ error: 'Session ended — please sign in again' });
+        }
+        req.user = decoded;
+        next();
+      })
+      .catch(() => {
+        req.user = decoded;
+        next();
+      });
+    return;
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
   }

@@ -11,6 +11,40 @@ import { z } from 'zod';
 
 const router = Router();
 
+
+/**
+ * Record a sign-in attempt. There was previously no record of a login at all, so "who was in the
+ * portal on Tuesday" had no answer, and a run of failures against one account was invisible.
+ *
+ * Never throws: an audit write must not be the reason somebody cannot sign in.
+ */
+async function recordLogin(
+  req: Request,
+  email: string,
+  success: boolean,
+  userId?: string | null,
+  reason?: string,
+): Promise<void> {
+  try {
+    const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    await prisma.loginEvent.create({
+      data: {
+        userId: userId ?? null,
+        email: email.toLowerCase(),
+        success,
+        reason: reason ?? null,
+        ip: fwd || req.socket?.remoteAddress || null,
+        userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null,
+      },
+    });
+    if (success && userId) {
+      await prisma.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
+    }
+  } catch (err) {
+    console.error('[LOGIN_AUDIT] could not record login attempt:', err);
+  }
+}
+
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const result = loginSchema.safeParse(req.body);
@@ -23,14 +57,18 @@ router.post('/login', async (req: Request, res: Response) => {
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
     if (!user) {
+      await recordLogin(req, email, false, null, 'no_user');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const matched = await bcrypt.compare(password, user.passwordHash);
 
     if (!matched) {
+      await recordLogin(req, email, false, user.id, 'bad_password');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    await recordLogin(req, email, true, user.id);
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {

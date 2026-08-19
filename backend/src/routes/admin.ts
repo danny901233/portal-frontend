@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
-import { authenticate, authenticateApiKey, requireAdmin } from '../middleware/auth.js';
+import { authenticate, authenticateApiKey, requireAdmin, forgetRevocation } from '../middleware/auth.js';
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 
@@ -135,6 +135,63 @@ const formatBranch = (garage: {
         notificationEmails: garage.agentConfiguration.notificationEmails ?? [],
       }
     : null,
+});
+
+/**
+ * Who signed in, when, and from where. Until this existed there was no record of a login at all,
+ * so "who was in the portal on Tuesday" had no answer and repeated failures against one account
+ * were invisible.
+ *
+ * ?email= filters to one account, ?failed=1 shows only rejected attempts.
+ */
+router.get('/admin/logins', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const take = Math.min(Number(req.query.limit) || 100, 500);
+    const email = typeof req.query.email === 'string' ? req.query.email.toLowerCase() : undefined;
+    const failedOnly = req.query.failed === '1' || req.query.failed === 'true';
+    const events = await prisma.loginEvent.findMany({
+      where: {
+        ...(email ? { email } : {}),
+        ...(failedOnly ? { success: false } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: {
+        id: true, email: true, success: true, reason: true,
+        ip: true, userAgent: true, createdAt: true, userId: true,
+      },
+    });
+    res.json({ events });
+  } catch (error) {
+    console.error('[ADMIN] failed to list login events:', error);
+    res.status(500).json({ error: 'Could not load login history' });
+  }
+});
+
+/**
+ * Sign a user out of every device.
+ *
+ * Tokens are stateless, so there is no session to delete — instead we stamp sessionsValidFrom and
+ * every token issued before that moment stops being accepted. Used when someone must re-enter
+ * their password, change it, or re-sign an agreement before carrying on.
+ */
+router.post('/admin/users/:userId/sign-out', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const now = new Date();
+    await prisma.user.update({ where: { id: userId }, data: { sessionsValidFrom: now } });
+    // Drop the cached decision so the next request re-reads it rather than waiting out the TTL.
+    forgetRevocation(userId);
+    console.log(`[ADMIN] ${req.user?.email} signed out ${user.email} — all sessions invalidated`);
+    res.json({ success: true, email: user.email, sessionsValidFrom: now });
+  } catch (error) {
+    console.error('[ADMIN] failed to sign user out:', error);
+    res.status(500).json({ error: 'Could not sign the user out' });
+  }
 });
 
 router.get('/admin/businesses', authenticate, requireAdmin, async (_req, res) => {

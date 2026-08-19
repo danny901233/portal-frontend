@@ -63,8 +63,19 @@ export async function findBillingGaps(): Promise<BillingGap[]> {
     const unpaid = await prisma.invoice.findFirst({
       where: { garageId: g.id, status: { in: ['draft', 'pending', 'failed'] } },
       orderBy: { createdAt: 'desc' },
-      select: { status: true, total: true, createdAt: true },
+      select: {
+        status: true, total: true, createdAt: true,
+        gocardlessChargeDate: true, gocardlessPaymentId: true,
+      },
     });
+
+    // A collection already booked with GoCardless is money on its way, however old the invoice
+    // is. Cairneys were reported as 54 days unpaid while GoCardless had their £240 scheduled for
+    // the 24th — the invoice was raised on 30 July but the payment was only created on the 17th,
+    // so the age of the invoice said nothing useful. The charge date does.
+    if (unpaid && unpaid.gocardlessChargeDate && unpaid.gocardlessChargeDate >= new Date(now.getTime() - 3 * 864e5)) {
+      continue;
+    }
 
     // A Direct Debit takes several working days to clear, so an invoice raised in the last week is
     // money in transit, not a missed payment. Without this, seven healthy accounts appear in the

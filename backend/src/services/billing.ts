@@ -835,6 +835,12 @@ export async function generateInvoicesForUser(userId: string) {
           data: {
             status: 'pending',
             gocardlessPaymentId: payment.id,
+            // GoCardless collects days after the payment is created, so an invoice sits
+            // "pending" while the money is already on its way. Without this date the arrears
+            // watchdog cannot tell a scheduled collection from a customer who is not paying,
+            // and reported Cairneys as 54 days unpaid while GoCardless had them collecting on
+            // the 24th.
+            gocardlessChargeDate: payment.charge_date ? new Date(payment.charge_date) : null,
           },
         });
       }
@@ -1098,6 +1104,7 @@ export async function createPaymentForInvoice(invoiceId: string) {
     data: {
       status: 'pending',
       gocardlessPaymentId: payment.id,
+      gocardlessChargeDate: payment.charge_date ? new Date(payment.charge_date) : null,
     },
   });
 

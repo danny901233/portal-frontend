@@ -138,6 +138,101 @@ const formatBranch = (garage: {
 });
 
 /**
+ * Is every garage actually working?
+ *
+ * Today's review found Ecotest and Moto Oil: both live, both with numbers assigned, both with
+ * ZERO calls ever, and Ecotest already invoiced twice at £350 a month. Nothing surfaced either of
+ * them — they were found by accident while looking at something else. Kestrels' missing FAQs and
+ * six garages with stale agent config were found the same way.
+ *
+ * One row per garage with the handful of facts that say whether a customer is getting what they
+ * pay for: are calls arriving, is the agent's config current, did anyone finish setup, and when
+ * did they last pay. Sorted worst first, so the page opens on whatever is most wrong.
+ */
+router.get('/admin/health', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const garages = await prisma.garage.findMany({
+      where: { archivedAt: null },
+      select: {
+        id: true, name: true, twilioNumber: true, isTestAccount: true,
+        hasVoiceAccess: true, hasMessagingAccess: true, accessRestricted: true,
+        subscriptionCostGbp: true, setupWizardCompleted: true,
+        trialEndDate: true, archiveScheduledAt: true,
+        agentConfiguration: { select: { agentType: true, agentScript: true, faqs: true, updatedAt: true } },
+      },
+    });
+
+    const now = Date.now();
+    const rows = await Promise.all(garages.map(async (g) => {
+      const [lastCall, callsThisMonth, lastPaid, conversations] = await Promise.all([
+        prisma.call.findFirst({
+          where: { garageId: g.id }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+        }),
+        prisma.call.count({
+          where: { garageId: g.id, createdAt: { gte: new Date(now - 30 * 864e5) } },
+        }),
+        prisma.invoice.findFirst({
+          where: { garageId: g.id, status: 'paid' }, orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        prisma.chatConversation.count({
+          where: { garageId: g.id, updatedAt: { gte: new Date(now - 30 * 864e5) } },
+        }),
+      ]);
+
+      const daysSinceCall = lastCall ? Math.floor((now - lastCall.createdAt.getTime()) / 864e5) : null;
+      const faqCount = Array.isArray(g.agentConfiguration?.faqs) ? (g.agentConfiguration!.faqs as unknown[]).length : 0;
+
+      // Worst first. A paying garage receiving nothing is the thing you most need to see, so it
+      // outranks everything else; a garage with no number simply is not live yet and is not a
+      // fault.
+      const issues: string[] = [];
+      const paying = Number(g.subscriptionCostGbp || 0) > 0;
+      if (g.twilioNumber && g.hasVoiceAccess && lastCall === null) issues.push('never received a call');
+      else if (g.twilioNumber && g.hasVoiceAccess && daysSinceCall !== null && daysSinceCall > 14) issues.push(`no calls for ${daysSinceCall} days`);
+      if (!g.twilioNumber && g.hasVoiceAccess) issues.push('voice access but no number');
+      if (faqCount === 0 && g.hasVoiceAccess) issues.push('no FAQs configured');
+      if (!g.setupWizardCompleted) issues.push('setup never finished');
+      if (g.accessRestricted) issues.push('access restricted');
+
+      const severity =
+        (paying && lastCall === null && g.twilioNumber ? 100 : 0) +
+        (paying && daysSinceCall !== null && daysSinceCall > 14 ? 60 : 0) +
+        (issues.length * 5);
+
+      return {
+        id: g.id,
+        name: g.name,
+        isTest: g.isTestAccount,
+        monthly: Number(g.subscriptionCostGbp || 0),
+        number: g.twilioNumber,
+        agentType: g.agentConfiguration?.agentType ?? null,
+        faqCount,
+        callsThisMonth,
+        conversationsThisMonth: conversations,
+        lastCallAt: lastCall?.createdAt ?? null,
+        daysSinceCall,
+        lastPaidAt: lastPaid?.createdAt ?? null,
+        daysSincePaid: lastPaid ? Math.floor((now - lastPaid.createdAt.getTime()) / 864e5) : null,
+        setupComplete: g.setupWizardCompleted,
+        accessRestricted: g.accessRestricted,
+        trialEndDate: g.trialEndDate,
+        leavingOn: g.archiveScheduledAt,
+        configUpdatedAt: g.agentConfiguration?.updatedAt ?? null,
+        issues,
+        severity,
+      };
+    }));
+
+    rows.sort((a, b) => b.severity - a.severity || a.name.localeCompare(b.name));
+    res.json({ garages: rows, checkedAt: new Date() });
+  } catch (error) {
+    console.error('[ADMIN] health check failed:', error);
+    res.status(500).json({ error: 'Could not build the health report' });
+  }
+});
+
+/**
  * Schedule a leaver.
  *
  * A customer emails their notice, you set the date they are leaving, and the nightly

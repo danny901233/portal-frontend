@@ -98,6 +98,9 @@ const baseNavigation: NavItem[] = [
 ];
 
 const adminNavigation: NavItem = { name: 'Admin', tKey: 'nav.admin', href: '/admin', icon: <ShieldIcon /> };
+// Garage health sits alongside Admin rather than inside it: the whole point is that nobody was
+// looking, so it needs to be visible without going hunting for it.
+const healthNavigation: NavItem = { name: 'Garage health', tKey: 'nav.health', href: '/admin/health', icon: <ShieldIcon /> };
 
 const supportLinks: NavItem[] = [{ name: 'Help & Guides', tKey: 'nav.helpGuides', href: '/help', icon: <HelpIcon /> }];
 
@@ -144,7 +147,7 @@ export default function Sidebar({
       return true;
     });
 
-    return (showAdminLink ? [...filteredBase, adminNavigation] : filteredBase).map((item) => ({
+    return (showAdminLink ? [...filteredBase, adminNavigation, healthNavigation] : filteredBase).map((item) => ({
       ...item,
       isActive: activePath.startsWith(item.href),
     }));

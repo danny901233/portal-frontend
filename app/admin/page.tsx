@@ -1,4 +1,5 @@
 'use client';
+import GarageHealth from './GarageHealth';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
@@ -579,6 +580,10 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6">
+      {/* What needs attention, before the garage list — a paying customer receiving nothing is
+          the thing you most need to see when you open this page. */}
+      <GarageHealth />
+
       <OnboardingModal
         isOpen={isOnboardingModalOpen}
         onClose={() => setIsOnboardingModalOpen(false)}

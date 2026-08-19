@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { isReceptionMateStaff } from '../../lib/auth';
 import { ObservabilityDashboard } from './ObservabilityDashboard';
-import GarageHealth from './GarageHealth';
 
 export default function ObservabilityPage() {
   const router = useRouter();
@@ -38,7 +37,6 @@ export default function ObservabilityPage() {
       </div>
 
       <ObservabilityDashboard />
-      <GarageHealth />
     </div>
   );
 }

@@ -1,6 +1,12 @@
 'use client';
 
-// Is every garage actually working? Rendered inside the Observability page.
+// Is every garage actually working? Rendered on the Admin page.
+//
+// It lives here rather than under Observability because of what you do next: a row that says
+// "no calls for 65 days" is answered by ringing the customer or checking their forwarding, and
+// this is the page with the garages and the buttons on it. Observability answers a different
+// question — why the agent is slow — and you act on that by changing config, not by phoning
+// anyone.
 //
 // Built after a review turned up four paying customers who had never received a single call —
 // one of them invoiced twice — plus three more whose calls had quietly stopped. All were found by
@@ -8,7 +14,7 @@
 // one. Worst first, so it opens on whatever is most wrong.
 
 import { useEffect, useState } from 'react';
-import api from '../../lib/api';
+import api from '../lib/api';
 
 interface Row {
   id: string; name: string; isTest: boolean; monthly: number; number: string | null;

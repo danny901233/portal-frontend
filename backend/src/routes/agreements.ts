@@ -495,6 +495,14 @@ async function finalisePendingSignature(
   }
   if (pending.createdGarageId) return res.status(409).json({ error: 'Already completed' });
 
+  // Check before anything is created in Stripe.
+  if (looksLikeKeyboardMash(data.signedByName) || looksLikeKeyboardMash(data.signedByPosition)) {
+    console.warn(`[AGREEMENT_SIGN] rejected junk signature for "${pending.businessName}": name="${data.signedByName}" position="${data.signedByPosition}"`);
+    return res.status(400).json({
+      error: 'Please enter your full name and your position at the business as they should appear on the agreement.',
+    });
+  }
+
   const now = new Date();
   const snapshot = buildSnapshot(pendingAgreementInputs(pending.businessName), {
     name: data.signedByName, position: data.signedByPosition, at: now, signatureImage: data.signatureDataUrl,
@@ -544,6 +552,31 @@ async function finalisePendingSignature(
     pendingSignupId: pending.id,
     agreement: { id: 'pending', status: 'signed', signedAt: now, signedByName: data.signedByName },
   });
+}
+
+
+/**
+ * Does this look like somebody actually signing, or somebody mashing the keyboard?
+ *
+ * A signature creates a real Stripe customer and a real trialing subscription before anyone has
+ * proved they exist. On 2026-08-19 "Princes End Garage" was signed by "qweq", position "qwe",
+ * email dd@mail.com — no account, no card, no money, but a live subscription in Stripe that will
+ * fail on 2026-09-02. Deferring the Stripe call to the card step does not help, because that form
+ * renders on the same page a second later. The only place to stop it is here.
+ *
+ * Deliberately conservative: it looks for keyboard runs and repeated characters, not for names
+ * that merely seem unusual. Rejecting a real customer's signature is far worse than letting a
+ * junk subscription through, and people's names are not ours to judge.
+ */
+const KEYBOARD_RUNS = ['qwe', 'wer', 'ert', 'rty', 'tyu', 'asd', 'sdf', 'dfg', 'fgh', 'zxc', 'xcv', 'cvb', '123456'];
+
+function looksLikeKeyboardMash(value: string): boolean {
+  const v = (value || '').trim().toLowerCase();
+  if (v.length < 2) return true;                             // "a" is not a name
+  if (/^(.)\1+$/.test(v)) return true;                       // "aaa", "zzzz"
+  const letters = v.replace(/[^a-z]/g, '');
+  if (!letters) return true;                                  // digits or symbols only
+  return KEYBOARD_RUNS.some((run) => letters.includes(run));
 }
 
 const SIGNED_COPY_BCC = 'hello@receptionmate.co.uk';

@@ -108,6 +108,42 @@ async function contactFor(g: TrialGarage): Promise<string | null> {
   return u?.email || null;
 }
 
+/**
+ * Render the reminder exactly as a garage would receive it, without sending it to them.
+ *
+ * Used to preview a trial email before it goes out — the same builders the cron uses, so what you
+ * check is what they get rather than an approximation of it.
+ */
+export async function buildTrialEmail(
+  garageId: string,
+  daysLeft: number,
+): Promise<{ subject: string; html: string; text: string; product: Product; to: string | null } | null> {
+  const g = (await prisma.garage.findUnique({
+    where: { id: garageId },
+    select: {
+      id: true, name: true, trialEndDate: true, accessRestricted: true,
+      hasVoiceAccess: true, hasMessagingAccess: true,
+      stripeSubscriptionId: true, stripeCustomerId: true, subscriptionCostGbp: true,
+      business: { select: { contactEmail: true } },
+      agentConfiguration: { select: { agentType: true } },
+    },
+  })) as unknown as TrialGarage | null;
+  if (!g) return null;
+  const product = productOf(g);
+  const ended = daysLeft <= 0;
+  return {
+    subject: ended
+      ? 'Your ReceptionMate trial has ended'
+      : `Your ReceptionMate trial ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
+    html: ended ? endedHtml(g) : reminderHtml(g, daysLeft),
+    text: ended
+      ? `Your trial has ended and your AI has paused. Set up ${payment(product).what}: ${payment(product).url}`
+      : `Your trial ends in ${daysLeft} day(s). Set up ${payment(product).what}: ${payment(product).url}`,
+    product,
+    to: await contactFor(g),
+  };
+}
+
 export async function runTrialCheck(): Promise<void> {
   const now = new Date();
   const garages = (await prisma.garage.findMany({
@@ -159,10 +195,50 @@ export async function runTrialCheck(): Promise<void> {
   }
 }
 
+/**
+ * Cancel Stripe subscriptions left behind by signups that never became accounts.
+ *
+ * Signing creates a trialing subscription before a card is entered, so an abandoned signup leaves
+ * a live subscription for a garage that does not exist. It will try to bill at trial end, fail,
+ * and cancel itself — but it pollutes Stripe in the meantime and produces failed-payment noise
+ * against a customer nobody can look up. Tidy them once the signup has expired.
+ */
+export async function cancelAbandonedSignupSubscriptions(): Promise<number> {
+  const stale = await prisma.pendingSignup.findMany({
+    where: {
+      stripeSubscriptionId: { not: null },
+      createdGarageId: null,
+      expiresAt: { lt: new Date() },
+    },
+    select: { id: true, businessName: true, stripeSubscriptionId: true },
+  });
+  if (!stale.length) return 0;
+
+  let cancelled = 0;
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return 0;
+  const { default: Stripe } = await import('stripe');
+  const stripe = new Stripe(key);
+
+  for (const s of stale) {
+    try {
+      const sub = await stripe.subscriptions.retrieve(s.stripeSubscriptionId as string);
+      if (sub.status === 'canceled' || sub.status === 'incomplete_expired') continue;
+      await stripe.subscriptions.cancel(s.stripeSubscriptionId as string);
+      cancelled += 1;
+      console.log(`[TRIAL] cancelled orphaned subscription for "${s.businessName}" — signup expired without an account`);
+    } catch (err) {
+      console.error(`[TRIAL] could not cancel ${s.stripeSubscriptionId}:`, (err as Error).message);
+    }
+  }
+  return cancelled;
+}
+
 export function initTrialCron(): void {
   // Daily at 09:30 UK, after the 09:00 billing jobs.
   cron.schedule('30 9 * * *', () => {
     void runTrialCheck().catch((e) => console.error('[TRIAL] cron error', e));
+    void cancelAbandonedSignupSubscriptions().catch((e) => console.error('[TRIAL] cleanup error', e));
   }, { timezone: 'Europe/London' });
   console.log('✓ Trial-end check scheduled: daily at 9:30 AM (UK time), all products');
 }

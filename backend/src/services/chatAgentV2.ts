@@ -75,6 +75,13 @@ interface ChatSession {
   // Vehicle
   vrn: string;
   vrnConfirmed: boolean;
+  // How many times we have failed to match what they asked for. Used to stop asking "did you mean
+  // a Full Service?" forever when the answer is simply that we do not list what they want.
+  serviceMatchFails?: number;
+  // A registration the customer volunteered before the flow was ready to look it up (the booking
+  // flow requires a name first). Held here so we ask for the name and then USE this, instead of
+  // asking them to type the reg out a second time.
+  pendingVrn?: string;
   sessionId: string;
   vehicleMake: string;
   vehicleModel: string;
@@ -344,6 +351,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         sessionId: sessionData.sessionId || '',
         vehicleMake: sessionData.vehicleMake || '',
         vehicleModel: sessionData.vehicleModel || '',
+        pendingVrn: sessionData.pendingVrn || undefined,
+        serviceMatchFails: sessionData.serviceMatchFails || 0,
         servicesAvailable: sessionData.servicesAvailable || [],
         serviceSelectedId: sessionData.serviceSelectedId || '',
         serviceSelectedName: sessionData.serviceSelectedName || '',
@@ -785,6 +794,21 @@ async function getChatAgentResponseInner(
       }
     }
 
+    // A complaint is not a booking. The prompt already says so, but it says it near the end of a
+    // long instruction block that opens with a booking flow marked "follow STRICTLY in order", and
+    // the model reliably lost that argument: it would apologise properly, take the name, then ask
+    // for a registration and try to sell the customer the very repair they were complaining about.
+    // Classifying in code is the same approach as the price-intent signal above, and for the same
+    // reason — the model does not reliably pass intent 'message' on its own.
+    if (!session.vrn && session.intent !== 'message' && session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
+      const complaintSignals = /\b(not happy|unhappy|not good enough|disappointed|fed up|poor service|bad service|complain(t|ing)?|still (making|not fixed|faulty|broken)|same (noise|problem|issue|fault)|didn.?t (fix|authorise|authorize)|never (called|rang|got back)|no one (called|rang|has)|charged me for|overcharged|ripped? off|damaged my|scratch(ed)? my|supposed to be ready|want (a )?refund|refund me)\b/i;
+      if (complaintSignals.test(message || '')) {
+        console.log('[COMPLAINT] Complaint signals detected — routing to message-taking, not booking');
+        session.intent = 'message';
+        session.step = Step.MESSAGE_ONLY;
+      }
+    }
+
     // ── Stale slot guard: clear past-date timeslots even within active sessions ──
     if (session.pendingSlotDate) {
       const pendingDate = new Date(session.pendingSlotDate + 'T23:59:59');
@@ -1001,8 +1025,13 @@ async function getChatAgentResponseInner(
       const isHardRestart = /\b(start (over|again)|restart|reset|begin again|wrong (garage|number|chat)|different (garage|car|vehicle)|cancel (booking|this|everything)|start from (the )?beginning)\b/.test(lower);
       const isRestart = isHardRestart || (isNevermind && ![Step.NEED_TIMESLOT, Step.NEED_SLOT_CONFIRM].includes(session.step as any));
       // Also reset if customer left a message but now wants to book
+      // Leaving a message and THEN deciding to book is real, but it has to be an actual booking
+      // request. This used to fire on the bare words "service", "actually" and "instead", which
+      // meant "I just want someone to actually call me about it" and "not happy with the service I
+      // got" both wiped the message-taking state and restarted the customer in a booking flow —
+      // mid-complaint, which is the worst possible moment to do it. Ask for a booking verb.
       const wantsBookingAfterMessage = session.step === Step.MESSAGE_ONLY &&
-        /\b(book|booking|service|mot|appointment|slot|come in|bring (it|the car)|actually|instead)\b/.test(lower);
+        /\b(book me in|book it in|get booked in|can i book|could i book|id like to book|i want to book|make an appointment|book an? (appointment|service|mot|slot)|any (slots|availability)|when can you fit)\b/.test(lower);
       if (isRestart || wantsBookingAfterMessage) {
         console.log(`[RESTART] Customer requested restart at step: ${session.step} (wantsBooking: ${wantsBookingAfterMessage})`);
         // Wipe all booking state but keep name + contact if already collected
@@ -1644,6 +1673,24 @@ async function getChatAgentResponseInner(
       };
     }
 
+    // Customers routinely put the registration in their very first message ("can you book me in
+    // for a service on LP61SUV", or just "KS26MWP"). The booking flow needs a name before it can
+    // look a vehicle up, so the model would ask for the name and then ask for the registration —
+    // which they had already given, sometimes twice. Remember it the moment we see it.
+    if (!session.vrn && !session.pendingVrn) {
+      const vrnHit = (message || '').toUpperCase().match(/\b([A-Z]{2}\d{2}\s?[A-Z]{3}|[A-Z]\d{1,3}\s?[A-Z]{3}|[A-Z]{3}\s?\d{1,3}[A-Z])\b/);
+      // A lone postcode looks similar enough to matter — GU17 0AA must not be read as a reg.
+      const isPostcode = /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i.test(message || '');
+      if (vrnHit && !isPostcode) {
+        session.pendingVrn = vrnHit[1].replace(/\s/g, '');
+        console.log(`[PENDING_VRN] Customer supplied ${session.pendingVrn} before we could look it up — holding it`);
+        // Persist immediately. If no tool runs this turn nothing else saves the session, so the
+        // held registration is gone by the next message — and since that message no longer
+        // contains the reg, it is never recaptured and the customer gets asked for it again.
+        await saveSession(conversationId, session);
+      }
+    }
+
     // Build system prompt with state awareness
     let systemPrompt = buildSystemPromptV2(config, garage.knowledgeDocuments, session);
 
@@ -1767,6 +1814,17 @@ async function getChatAgentResponseInner(
     // "contact the garage directly" rule in the system prompt instead.
     if (toolsForCall && (config as any).messagingHumanHandoff === false) {
       toolsForCall = toolsForCall.filter((t) => (t as any).function?.name !== 'take_message');
+    }
+    // confirm_vehicle only means something when a lookup has just come back and is awaiting a
+    // yes/no. Offered unconditionally, it becomes the model's default home for a bare "yes" —
+    // it fires at need_vrn with no registration and no GarageHive session, the guard inside
+    // bounces it back, and the model calls it again. That loop burned whole conversations in
+    // testing. A tool that cannot make sense in this state shouldn't be on the table.
+    // Keep it available once a lookup has succeeded, so "no, that's not my car" still works —
+    // a successful confirm moves the step straight to need_service, so gating on the step alone
+    // would withdraw the tool before the customer ever got a chance to reject the vehicle.
+    if (toolsForCall && !session.sessionId && session.step !== Step.CONFIRMING_VEHICLE) {
+      toolsForCall = toolsForCall.filter((t) => (t as any).function?.name !== 'confirm_vehicle');
     }
 
     let response = await openAIWithRetry(messages, temperature, toolsForCall);
@@ -1937,6 +1995,24 @@ async function getChatAgentResponseInner(
 
     const finalResponse = response.choices[0]?.message?.content ||
       'I apologize, but I am unable to respond at this time. Please try again later.';
+
+    // The model often greets the customer by name ("Hi Dave — what can I help with?") WITHOUT
+    // calling save_caller_name, so nothing is persisted and it asks for the name again a turn or
+    // two later. It happened in 11 of 50 test conversations. The name is right there in its own
+    // reply, so take it from there rather than trusting it to call the tool.
+    if (!session.customerNameFirst) {
+      const greeted = finalResponse.match(/^(?:hi|hello|hey|good (?:morning|afternoon|evening))[,!]?\s+([A-Za-z][a-z'-]{1,20})\b/i);
+      // "Hi there", "Hello again" and friends are greetings, not names — 'there' was being stored
+      // as a customer's first name before this list existed.
+      const NOT_NAMES = new Set(['there', 'again', 'all', 'folks', 'mate', 'everyone', 'and', 'to',
+                                 'thanks', 'thank', 'welcome', 'sorry', 'no', 'yes', 'ok', 'okay']);
+      const candidate = greeted?.[1];
+      if (candidate && !NOT_NAMES.has(candidate.toLowerCase())) {
+        session.customerNameFirst = candidate.charAt(0).toUpperCase() + candidate.slice(1);
+        console.log(`[NAME_FROM_REPLY] Persisting "${session.customerNameFirst}" — the agent used it but never called save_caller_name`);
+        await saveSession(conversationId, session);
+      }
+    }
 
     return {
       content: finalResponse,
@@ -2436,6 +2512,17 @@ async function handleSaveCallerName(args: any, session: ChatSession, conversatio
   await saveSession(conversationId, session);
   console.log(`[SAVE_NAME] Session saved for booking intent`);
 
+  // The customer already gave us their registration before we had their name. Telling the model
+  // to "call lookup_vehicle now" does not reliably work — it announces "I've already got your
+  // reg, I'll look that up now" and then does nothing, burning a turn or two before it actually
+  // does it. Chain the lookup here instead, the same way lookup_vehicle chains into
+  // confirm_vehicle, so the customer gets their vehicle back immediately.
+  if (session.pendingVrn) {
+    const heldVrn = session.pendingVrn;
+    console.log(`[SAVE_NAME] Chaining straight into lookup_vehicle for held registration ${heldVrn}`);
+    return await handleLookupVehicle({ registration: heldVrn }, session, conversationId);
+  }
+
   // Build a time-appropriate greeting so Leah sounds human and aware of the time of day
   const hourLondon = parseInt(new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }), 10);
   const timeGreeting = hourLondon < 12 ? 'morning' : hourLondon < 17 ? 'afternoon' : 'evening';
@@ -2545,6 +2632,7 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
     }
     
     session.vrn = winningReg;
+    session.pendingVrn = undefined;   // it is a real, looked-up vehicle now
     session.sessionId = sessionId;
     session.vehicleMake = make.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     session.vehicleModel = model.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
@@ -2714,6 +2802,28 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     return getNextContactInstruction(session);
   }
 
+  // Don't let a service the customer never asked for replace the one they did.
+  //
+  // After the upsell is declined the step is NEED_SERVICE, so the NEED_TIMESLOT guard below never
+  // runs. A customer who asked about brakes (£60), declined the upsell and then said "earliest
+  // please" had the model call select_service('Full Service') off its own bat — the original
+  // service was swapped out and they were quoted £289.20 for work they never mentioned. Quoting
+  // someone the wrong price is the worst thing this agent can do, so require that the service
+  // actually appears in what they just said, or that they plainly agreed to adding something.
+  if (session.serviceSelectedName && service_name) {
+    const said = (session.lastCustomerMessage || '').toLowerCase();
+    const tokens = String(service_name).toLowerCase().split(/\s+/).filter(w => w.length >= 4);
+    const namedIt = tokens.some(t => said.includes(t.slice(0, 5)));
+    const askedToAdd = /\b(also|as well|add|too|plus|instead|change|swap|and)\b/.test(said);
+    const agreed = /^(yes|yep|yeah|ok|okay|sure|go on|please do|that.?s fine|sounds good)\b/.test(said.trim());
+    if (!namedIt && !askedToAdd && !agreed) {
+      console.log(`[STATE_GUARD] select_service('${service_name}') but the customer said "${said.slice(0, 60)}" — keeping ${session.serviceSelectedName}`);
+      const pNum = parseFloat(String(session.servicePrice));
+      const pDisp = (!session.servicePrice || isNaN(pNum) || pNum < 1) ? 'POA' : `£${pNum.toFixed(2).replace(/\.00$/, '')}`;
+      return `IGNORED: the customer did not ask for ${service_name}. They are booked for ${session.serviceSelectedName} (${pDisp}) and that has NOT changed.\nDo NOT mention ${service_name} or its price. Carry on from where you were — if they have given a date or time, call select_timeslot with it; otherwise ask for a date.`;
+    }
+  }
+
   if (session.step === Step.NEED_TIMESLOT && session.serviceSelectedName && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
     // Allow if the customer is requesting a clearly different service
     const requestedNorm = (service_name || '').toLowerCase().replace(/[\s-]/g, '');
@@ -2868,7 +2978,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     const svcList = svcNames.slice(0, 4).join(', ');
     console.log(`[SELECT_SERVICE] "${service_name}" not available, no existing service — offering alternatives`);
     if (svcNames.length > 0) {
-      return `SERVICE_NOT_AVAILABLE: "${service_name}" is not available as an online booking option. A note has been added.\nSay: "I'm afraid we don't have ${service_name} as an online booking option at the moment. I've made a note so the team can follow up on that. Is there anything else I can help book in? We have ${svcList} available."\nWait for their response — call select_service if they name a service, or take_message if they want a callback.`;
+      return `SERVICE_NOT_AVAILABLE: "${service_name}" is not available as an online booking option.\nSay: "I'm afraid we don't have ${service_name} as an online booking option at the moment, but I can take your details and get someone to come back to you with a quote for it. Or if you'd rather, we have ${svcList} available to book now."\nIf they want the quote, call take_message. If they name one of ours, call select_service.`;
     } else {
       return `SERVICE_NOT_AVAILABLE: "${service_name}" is not available and there are no online alternatives.\nSay: "I'm afraid we don't have ${service_name} as an online booking option. Let me take your details and one of the team will give you a call back to get it sorted."\nThen call take_message.`;
     }
@@ -2883,9 +2993,18 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     const suggestion = svcNames.length > 0 ? svcNames[0] : null;
 
     if (suggestion) {
+      // Offer the alternatives once. If they come back still wanting something we do not list,
+      // stop asking — they have told us twice. Asking a third time is how a customer who wanted an
+      // interim service ended up going round in circles and never being quoted at all.
+      session.serviceMatchFails = (session.serviceMatchFails || 0) + 1;
+      await saveSession(conversationId, session);
+      if (session.serviceMatchFails >= 2) {
+        console.log(`[SELECT_SERVICE] '${effectiveServiceName}' unmatched ${session.serviceMatchFails}x — taking details for a quote callback`);
+        return `NO_SERVICE_MATCH (${session.serviceMatchFails}x): "${effectiveServiceName}" is not something this garage lists online, and the customer has asked for it more than once. Do NOT offer the list again.\nSay: "We don't have ${effectiveServiceName} as a set online price, but I can get someone to come back to you with a quote for it. Let me just take your details."\nThen call take_message with what they want quoting for.`;
+      }
       const cleanedSuggestion = cleanServiceName(suggestion);
       console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' — asking customer to clarify, suggesting: ${cleanedSuggestion}`);
-      return `NO_SERVICE_MATCH: "${effectiveServiceName}" didn't match any available service.\nAvailable services: ${svcNames.map(cleanServiceName).join(', ')}.\nSay: "I didn't quite catch that — did you mean a ${cleanedSuggestion}? Or one of these: ${svcNames.slice(0,3).map(cleanServiceName).join(', ')}?"\nWait for their answer, then call select_service again with what they confirm.`;
+      return `NO_SERVICE_MATCH: "${effectiveServiceName}" didn't match any available service.\nAvailable services: ${svcNames.map(cleanServiceName).join(', ')}.\nSay: "I don't have ${effectiveServiceName} as a set online price — I can get the team to come back to you with a quote for that if you like. Or if it helps, we do have ${svcNames.slice(0,3).map(cleanServiceName).join(', ')}."\nIf they want the quote, call take_message. If they name one of ours, call select_service.`;
     } else {
       // No named services at all — ask rather than silently booking "Other"
       console.log(`[SELECT_SERVICE] No match for '${effectiveServiceName}' and no named services — asking customer`);
@@ -2923,6 +3042,26 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     }
     serviceIdsToSet.push(String(serviceId));
 
+    // "How much would a full service and MOT be together?" used to be answered with the price of
+    // whichever one matched first — the MOT was silently dropped, so the customer got half an
+    // answer to the question they actually asked. Split what they said on "and"/"plus"/"+" and
+    // match each part, so every service they named is priced and booked.
+    const combinedSrc = `${service_name || ''} ${session.lastCustomerMessage || ''}`;
+    if (/\b(and|plus|both|as well|too)\b|\+/i.test(combinedSrc)) {
+      const parts = combinedSrc.split(/\band\b|\bplus\b|\+|&|,/i).map(x => x.trim()).filter(x => x.length > 2);
+      for (const part of parts) {
+        const extra = matchService(part, session.servicesAvailable);
+        if (!extra) continue;
+        const extraId = String(extra.service_price_id);
+        if (extraId === String(serviceId) || serviceIdsToSet.includes(extraId)) continue;
+        serviceIdsToSet.push(extraId);
+        session.additionalServiceName = cleanServiceName(extra.name);
+        session.additionalServicePrice = extra.hide_service_prices ? '' : String(extra.price);
+        console.log(`[SELECT_SERVICE] Combined request — also adding ${extra.name} (${extraId})`);
+        break;   // one add-on is enough; more than two services is a phone call, not a chat
+      }
+    }
+
     // Step 2: Confirm service in GarageHive immediately — price is now real
     await ghSetService(session.sessionId, serviceIdsToSet);
 
@@ -2947,15 +3086,28 @@ async function handleSelectService(args: any, session: ChatSession, conversation
     logTimeslotFetch(conversationId, serviceName, timeslots, Date.now() - _tsT0);
 
     if (timeslots.length === 0) {
-      // No online timeslots — tell customer and collect contact details
+      // No online timeslots — tell customer and collect contact details.
+      //
+      // The price is already in hand at this point: select_service returned it before we went
+      // looking for slots. This branch used to return before the price was ever formatted, so a
+      // customer who asked "how much is a full service" got told there was no availability and
+      // never got the number they actually asked for. Give them the price first — an empty diary
+      // is no reason to withhold it, and it is the whole reason they messaged.
+      const noSlotPriceNum = parseFloat(String(price));
+      const noSlotPrice = (!price || isNaN(noSlotPriceNum) || noSlotPriceNum < 1)
+        ? '' : `£${noSlotPriceNum.toFixed(2).replace(/\.00$/, '')}`;
+      console.log(`[SELECT_SERVICE] 0 timeslots for ${serviceName} — quoting ${noSlotPrice || 'POA'} anyway, then taking details`);
       session.notes = (session.notes ? session.notes + ' | ' : '') + `Callback requested: no online availability for ${serviceName}`;
       session.step = Step.NEED_CONTACT;
       await saveSession(conversationId, session);
       const nextAsk = session.contactPhone
         ? (session.contactEmail ? `What's your postcode?` : `Can I grab your email address?`)
         : `Can I just grab a contact number?`;
-      return `No online slots for ${serviceName}.
-Say: "I'm sorry, I don't have any online availability showing for that at the moment — it could be the team need to assess it first. Let me take your details and someone will give you a call to get you sorted. ${nextAsk}"
+      const priceSentence = noSlotPrice
+        ? `A ${serviceName} is ${noSlotPrice}. `
+        : '';
+      return `No online slots for ${serviceName}.${noSlotPrice ? ` The price IS known (${noSlotPrice}) — tell them the price, do NOT withhold it.` : ''}
+Say: "${priceSentence}I'm sorry, I don't have any online availability showing for that at the moment — it could be the team need to assess it first. Let me take your details and someone will give you a call to get you sorted. ${nextAsk}"
 Wait for their response.`;
     }
 
@@ -2972,6 +3124,16 @@ Wait for their response.`;
     if (isPriceAsk) {
       session.step = Step.NEED_BOOKING_CONFIRM;
       await saveSession(conversationId, session);
+      // Quote everything they asked about, with the total, rather than just the first match.
+      const addlNum = parseFloat(String(session.additionalServicePrice));
+      const hasAddl = !!session.additionalServiceName && !isNaN(addlNum) && addlNum > 0;
+      if (hasAddl && !isNaN(priceNum) && priceNum > 0) {
+        const total = `£${(priceNum + addlNum).toFixed(2).replace(/\.00$/, '')}`;
+        const addlDisplay = `£${addlNum.toFixed(2).replace(/\.00$/, '')}`;
+        return `QUOTE (combined): ${serviceName} ${priceDisplay} + ${session.additionalServiceName} ${addlDisplay} = ${total} for the ${makeTitle} ${modelTitle}.
+Say: "For your ${makeTitle} ${modelTitle} a ${serviceName} is ${priceDisplay} and ${session.additionalServiceName} is ${addlDisplay} — ${total} altogether. Would you like me to book that in?"
+Give BOTH prices and the total. Call confirm_booking(confirmed=true) if yes, confirm_booking(confirmed=false) if no.`;
+      }
       return `QUOTE: ${serviceName} for the ${makeTitle} ${modelTitle} is ${priceDisplay}.
 Say: "A ${serviceName} for your ${makeTitle} ${modelTitle} is ${priceDisplay}. Would you like me to book that in for you?"
 Call confirm_booking(confirmed=true) if yes, confirm_booking(confirmed=false) if no.`;
@@ -3899,6 +4061,38 @@ Reply with JSON ONLY:
 function matchService(query: string, services: any[]): any | null {
   const queryLower = query.toLowerCase().trim();
 
+  // "What's your cheapest service?" is a real question a real customer asks, and the price list is
+  // right here — answer it from the list rather than fuzzy-matching the word "cheapest" onto
+  // whatever happens to score highest.
+  if (/\b(cheapest|lowest|least expensive|most basic|basic(est)?|dearest|most expensive|best)\b/.test(queryLower)) {
+    const priced = services
+      .filter((x: any) => !x?.hide_service_prices && !/other|general/i.test(String(x?.name || '')))
+      .map((x: any) => ({ svc: x, p: parseFloat(String(x?.price)) }))
+      .filter((x: any) => !isNaN(x.p) && x.p > 0);
+    if (priced.length) {
+      const wantDearest = /\b(dearest|most expensive)\b/.test(queryLower);
+      priced.sort((a: any, b: any) => wantDearest ? b.p - a.p : a.p - b.p);
+      return priced[0].svc;
+    }
+  }
+
+  // Garages sell several tiers of the same job — Interim Service, Full Service, Major Service.
+  // Every stage below scores on the shared word "service", so a customer asking for an interim
+  // service was matched to Full Service and quoted £289.20 for something else entirely. Quoting
+  // the wrong tier is worse than admitting we don't list it, so if they named a tier, only a
+  // service of THAT tier may match.
+  const TIERS = ['interim', 'full', 'major', 'minor', 'basic', 'premium', 'intermediate'];
+  const askedTier = TIERS.find(t => new RegExp(`\\b${t}\\b`).test(queryLower));
+  const tierOk = (name: string) => {
+    if (!askedTier) return true;
+    const n = name.toLowerCase();
+    const nameTier = TIERS.find(t => new RegExp(`\\b${t}\\b`).test(n));
+    // A service with no tier in its name (e.g. "Service") can still satisfy any tier request.
+    return !nameTier || nameTier === askedTier;
+  };
+  services = services.filter((s: any) => tierOk(String(s?.name || '')));
+  if (services.length === 0) return null;
+
   // Exact match
   for (const service of services) {
     if (service.name.toLowerCase() === queryLower) return service;
@@ -4531,13 +4725,15 @@ TONE EXAMPLES:
 
   // ── ACTIVE SESSION guards — tell the LLM exactly what's already collected ──
   // CRITICAL: LLM must not re-ask for anything listed here
-  const hasActiveSession = !!(session.vrn || session.serviceSelectedName || session.bookingDate || session.contactPhone || session.customerNameFirst);
+  const hasActiveSession = !!(session.vrn || session.pendingVrn || session.serviceSelectedName || session.bookingDate || session.contactPhone || session.customerNameFirst);
   if (hasActiveSession) {
     const makeTitle = (session.vehicleMake || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     prompt += `\nACTIVE SESSION — CRITICAL: do NOT ask for or re-fetch anything already listed here. Never ask for name, VRN, or service again if they appear below:\n`;
     if (session.vrn) {
       prompt += `- Vehicle: ${session.vrn} (${makeTitle} ${modelTitle}) — confirmed ✓ do NOT call lookup_vehicle or confirm_vehicle again\n`;
+    } else if (session.pendingVrn) {
+      prompt += `- Registration ALREADY GIVEN by the customer: ${session.pendingVrn} — do NOT ask them for it again. As soon as you have their name, call lookup_vehicle with "${session.pendingVrn}".\n`;
     }
     if (session.serviceSelectedName) {
       const priceNum = parseFloat(String(session.servicePrice));

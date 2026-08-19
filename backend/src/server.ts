@@ -51,7 +51,7 @@ import outboundCallsRouter from './routes/outbound-calls.js';
 import publicProspectRouter from './routes/public-prospect.js';
 import connectSignupRouter from './routes/connect-signup.js';
 import connectBillingRouter from './routes/connect-billing.js';
-import { initConnectTrialCron } from './utils/connectTrialCron.js';
+import { initTrialCron } from './utils/trialCron.js';
 
 const app = express();
 
@@ -173,7 +173,7 @@ app.listen(port, '0.0.0.0', () => {
   // Staged MOT/service reminders. Dry-run unless REMINDER_SCHEDULER=on.
   initReminderCron();
   // Connect trial -> paid: ends expired/over-cap trials and puts them behind the card paywall.
-  initConnectTrialCron();
+  initTrialCron();
 
   // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.
   startArrearsSweep();

@@ -1,6 +1,6 @@
 'use client';
 
-// Is every garage actually working?
+// Is every garage actually working? Rendered inside the Observability page.
 //
 // Built after a review turned up four paying customers who had never received a single call —
 // one of them invoiced twice — plus three more whose calls had quietly stopped. All were found by
@@ -8,8 +8,7 @@
 // one. Worst first, so it opens on whatever is most wrong.
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { isReceptionMateStaff } from '../../lib/auth';
+import api from '../../lib/api';
 
 interface Row {
   id: string; name: string; isTest: boolean; monthly: number; number: string | null;
@@ -19,32 +18,23 @@ interface Row {
   issues: string[]; severity: number;
 }
 
-export default function GarageHealthPage() {
-  const router = useRouter();
-  const isStaff = isReceptionMateStaff();
+export default function GarageHealth() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hideTests, setHideTests] = useState(true);
 
-  useEffect(() => { if (!isStaff) router.replace('/calls'); }, [isStaff, router]);
-
   useEffect(() => {
     (async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await fetch('/internal-api/admin/health', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (!res.ok) { setError(data.error || 'Could not load the report'); return; }
+        // The shared client attaches the auth token; hand-rolling a fetch here is what produced
+        // "no token" — it read localStorage under the wrong key.
+        const { data } = await api.get('/api/admin/health');
         setRows(data.garages);
       } catch {
-        setError('Could not reach the server');
+        setError('Could not load the report');
       }
     })();
   }, []);
-
-  if (!isStaff) return null;
 
   const shown = (rows ?? []).filter((r) => !hideTests || !r.isTest);
   const silentPayers = shown.filter((r) => r.monthly > 0 && r.daysSinceCall === null && r.number);
@@ -53,9 +43,9 @@ export default function GarageHealthPage() {
     + wentQuiet.reduce((n, r) => n + r.monthly, 0);
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="mt-10 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Garage health</h1>
+        <h2 className="text-xl font-semibold text-slate-900">Garage health</h2>
         <p className="mt-1 text-sm text-slate-600">
           Every live garage, worst first. A paying customer receiving nothing sorts to the top.
         </p>

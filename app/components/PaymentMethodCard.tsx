@@ -8,6 +8,7 @@
 // changing a mandate is a GoCardless redirect rather than a form.
 
 import { useEffect, useState, type ReactNode } from 'react';
+import api from '../lib/api';
 import CardSetupForm from './CardSetupForm';
 
 interface Method {
@@ -24,12 +25,8 @@ export default function PaymentMethodCard({ mandateCard }: { mandateCard: ReactN
   useEffect(() => {
     (async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await fetch('/internal-api/payment/method', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return;
-        setInfo(await res.json());
+        const { data } = await api.get('/api/payment/method');
+        setInfo(data);
       } catch {
         /* leave it hidden rather than showing a broken panel */
       }

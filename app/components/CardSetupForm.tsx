@@ -11,6 +11,7 @@
 // the two to show — this component is only ever mounted for the card half.
 
 import { useEffect, useState } from 'react';
+import api from '../lib/api';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
@@ -70,15 +71,12 @@ export default function CardSetupForm({ onDone }: { onDone: () => void }) {
     let live = true;
     (async () => {
       try {
-        const token = localStorage.getItem('token');
-        const res = await fetch('/internal-api/payment/card-setup-intent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
+        // The shared client attaches the auth token. Reading localStorage directly here used the
+        // wrong key ('token' rather than 'rm_token') and the request arrived unauthenticated.
+        const { data } = await api.post('/api/payment/card-setup-intent');
         if (!live) return;
-        if (!res.ok || !data.clientSecret) {
-          setFailed(data.error || 'Could not start card setup.');
+        if (!data?.clientSecret) {
+          setFailed('Could not start card setup.');
           return;
         }
         setClientSecret(data.clientSecret);

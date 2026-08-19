@@ -23,6 +23,7 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       colStatus: 'Status',
       colDate: 'Date',
       collectsOn: 'Collects on',
+      collectedOn: 'Collected on',
       colActions: 'Actions',
       periodTo: 'to',
       downloading: 'Downloading...',
@@ -45,6 +46,7 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       colStatus: 'Statut',
       colDate: 'Date',
       collectsOn: 'Prélèvement le',
+      collectedOn: 'Prélevé le',
       colActions: 'Actions',
       periodTo: 'au',
       downloading: 'Téléchargement...',
@@ -187,6 +189,14 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
                   {invoice.status?.toLowerCase() === 'pending' && invoice.gocardlessChargeDate && (
                     <div className="mt-1 text-xs text-slate-500">
                       {c.collectsOn} {formatDate(invoice.gocardlessChargeDate)}
+                    </div>
+                  )}
+                  {/* Once it has been taken, say when. Prefer the GoCardless charge date — that
+                      is the day the money actually left the account — and fall back to when we
+                      marked it paid, which is all we have for older invoices. */}
+                  {invoice.status?.toLowerCase() === 'paid' && (invoice.gocardlessChargeDate || invoice.paidAt) && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      {c.collectedOn} {formatDate(invoice.gocardlessChargeDate || invoice.paidAt!)}
                     </div>
                   )}
                 </td>

@@ -10,6 +10,9 @@ import { prisma } from '../db.js';
  * quotes the wrong figure is worse than no welcome email.
  */
 
+// Our logo is white on transparent — it is meant to sit on a dark background. Dropped onto the
+// white card it was simply invisible, which is why the first preview looked like it had no logo
+// at all. It goes in a brand-coloured header band instead.
 const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
 const BRAND = '#3426cf';
 const PORTAL_URL = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
@@ -67,11 +70,11 @@ export async function buildAssistWelcomeEmail(garageId: string): Promise<{
   const html = `
 <div style="margin:0;padding:24px 12px;background:#f8fafc;font-family:Inter,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
-    <div style="padding:28px 32px 0;">
-      <img src="${LOGO}" alt="ReceptionMate" style="height:34px;display:block;" />
+    <div style="background:${BRAND};padding:26px 32px;">
+      <img src="${LOGO}" alt="ReceptionMate" style="height:90px;display:block;border:0;" />
     </div>
 
-    <div style="padding:24px 32px 32px;color:#0f172a;">
+    <div style="padding:26px 32px 32px;color:#0f172a;">
       <h1 style="margin:0 0 6px;font-size:21px;line-height:1.3;color:${BRAND};">Your Assist agent is live</h1>
       <p style="margin:0 0 18px;color:#475569;font-size:15px;line-height:1.6;">
         Hi ${name} — you're all set up on Assist. Your agent is answering now, so there's nothing
@@ -112,8 +115,9 @@ export async function buildAssistWelcomeEmail(garageId: string): Promise<{
 
       <div style="border-top:1px solid #e2e8f0;margin-top:22px;padding-top:16px;">
         <p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">
-          Anything not sounding right, or you'd like it to say something differently? Just reply to
-          this email and we'll sort it.
+          Anything not sounding right, or you'd like it to say something differently? Email us at
+          <a href="mailto:hello@receptionmate.co.uk" style="color:${BRAND};text-decoration:none;font-weight:600;">hello@receptionmate.co.uk</a>
+          and we'll sort it.
         </p>
         <p style="margin:12px 0 0;color:#64748b;font-size:13px;">— The ReceptionMate team</p>
       </div>
@@ -138,7 +142,7 @@ export async function buildAssistWelcomeEmail(garageId: string): Promise<{
     ``,
     `${PORTAL_URL}/dashboard`,
     ``,
-    `Anything not sounding right? Just reply to this email.`,
+    `Anything not sounding right? Email us at hello@receptionmate.co.uk and we'll sort it.`,
     `— The ReceptionMate team`,
   ].filter(Boolean).join('\n');
 

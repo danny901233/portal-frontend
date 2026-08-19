@@ -1,5 +1,6 @@
 'use client';
 
+import CardSetupForm from '../components/CardSetupForm';
 import { useMutation } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, Suspense } from 'react';
@@ -49,6 +50,26 @@ function SetupPaymentContent() {
     },
   }[lang];
   const [error, setError] = useState<string | null>(null);
+  // Which way this customer pays. Assist and Connect bill by card; Automate by Direct Debit.
+  // This page only ever knew how to do Direct Debit, so an Assist customer had nowhere to enter
+  // a card at all — they signed in, were sent here, and hit a dead end.
+  const [payMethod, setPayMethod] = useState<'card' | 'direct_debit' | null>(null);
+  const [cardSaved, setCardSaved] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/internal-api/payment/method', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setPayMethod(res.ok && data.method === 'card' ? 'card' : 'direct_debit');
+      } catch {
+        setPayMethod('direct_debit');   // the long-standing behaviour, if we cannot tell
+      }
+    })();
+  }, []);
   const [isVerifyingToken, setIsVerifyingToken] = useState(false);
 
   // Check for magic link token on mount
@@ -125,7 +146,7 @@ function SetupPaymentContent() {
     <div className="flex min-h-screen items-center justify-center bg-white px-4 text-slate-900">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-2xl shadow-slate-900/10">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-6 flex justify-center">
+          <div className="mx-auto mb-6 flex justify-center rounded-xl bg-brand-600 px-6 py-4">
             <img
               src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png"
               alt={c.logoAlt}
@@ -167,13 +188,23 @@ function SetupPaymentContent() {
             </div>
           )}
 
-          <button
-            onClick={handleSetupPayment}
-            disabled={createMandateMutation.isPending || isVerifyingToken}
-            className="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
-          >
-            {isVerifyingToken ? c.verifying : createMandateMutation.isPending ? c.settingUp : c.setUp}
-          </button>
+          {payMethod === null ? (
+            <p className="text-center text-sm text-slate-500">Loading…</p>
+          ) : cardSaved ? (
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              Card saved — you&apos;re all set. Nothing is taken until your trial ends.
+            </div>
+          ) : payMethod === 'card' ? (
+            <CardSetupForm onDone={() => setCardSaved(true)} />
+          ) : (
+            <button
+              onClick={handleSetupPayment}
+              disabled={createMandateMutation.isPending || isVerifyingToken}
+              className="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition-transform hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700"
+            >
+              {isVerifyingToken ? c.verifying : createMandateMutation.isPending ? c.settingUp : c.setUp}
+            </button>
+          )}
 
           <p className="text-center text-xs text-slate-500">
             {c.agree}

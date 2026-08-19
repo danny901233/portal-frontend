@@ -259,8 +259,17 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           intent: '',
           customerNameFirst: oldData.customerNameFirst || '',
           customerNameLast: oldData.customerNameLast || '',
+          // Their car is not stale information — people change vehicle every few years, not every
+          // few days — so hand the registration back rather than making them type it out again.
+          // It goes back as pendingVrn, NOT as a confirmed vrn: everything downstream treats a
+          // confirmed vrn as "already looked up, do not look it up again", which would leave us
+          // with no GarageHive session and therefore no prices and no slots — the exact hole that
+          // left a Great Hollands customer unable to get a wheel alignment price he had already
+          // been quoted. pendingVrn means "we know it, go and look it up", which is the truth.
           vrn: '', vrnConfirmed: false, sessionId: '',
-          vehicleMake: '', vehicleModel: '',
+          pendingVrn: oldData.vrn || undefined,
+          // Kept only so we can ask "still the Range Rover?" rather than "what's your reg?".
+          vehicleMake: oldData.vehicleMake || '', vehicleModel: oldData.vehicleModel || '',
           servicesAvailable: [], serviceSelectedId: '', serviceSelectedName: '', serviceSelectedIds: [], serviceSelectedNames: [], servicePrice: '',
           timeslotsAvailable: [], pendingSlotDate: '', pendingSlotTime: '',
           bookingDate: '', bookingTime: '',
@@ -4749,7 +4758,17 @@ TONE EXAMPLES:
     if (session.vrn) {
       prompt += `- Vehicle: ${session.vrn} (${makeTitle} ${modelTitle}) — confirmed ✓ do NOT call lookup_vehicle or confirm_vehicle again\n`;
     } else if (session.pendingVrn) {
-      prompt += `- Registration ALREADY GIVEN by the customer: ${session.pendingVrn} — do NOT ask them for it again. As soon as you have their name, call lookup_vehicle with "${session.pendingVrn}".\n`;
+      // Two ways we get here: they typed the reg before we were ready for it, or they are coming
+      // back after a long gap and we kept it. In the second case we know the car, so ask whether
+      // it is still that one instead of asking for the registration cold — that is what a person
+      // who remembered you would do.
+      const knownVehicle = [session.vehicleMake, session.vehicleModel].filter(Boolean).join(' ').trim();
+      if (knownVehicle) {
+        const kmTitle = knownVehicle.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        prompt += `- Returning customer — last time they were in they had a ${kmTitle} (${session.pendingVrn}). Do NOT ask for their registration. Ask whether it is still the ${kmTitle}, and as soon as they confirm (or at once if they have already asked for something specific), call lookup_vehicle with "${session.pendingVrn}" to load their prices and availability. If they say it is a different car now, then ask for the new registration.\n`;
+      } else {
+        prompt += `- Registration ALREADY GIVEN by the customer: ${session.pendingVrn} — do NOT ask them for it again. As soon as you have their name, call lookup_vehicle with "${session.pendingVrn}".\n`;
+      }
     }
     if (session.serviceSelectedName) {
       const priceNum = parseFloat(String(session.servicePrice));

@@ -177,8 +177,12 @@ async function sendDelayedReply(p: HumanReplyParams): Promise<void> {
   // A WhatsApp thread can sit dormant for days and then pick up again — Isaac's Great Hollands
   // conversation ran 14 to 18 August. Carrying on mid-sentence four days later is a giveaway, so
   // tell the agent how long it has been and let it open the way a person would.
+  // 8 hours, to match WARM_EXPIRY_MS in chatAgentV2: that is the point at which the session
+  // genuinely drops the loaded service list and starts treating this as a returning customer, so
+  // it is the point at which the agent has something to acknowledge. Below it the agent still
+  // remembers everything and apologising for a gap it did not have reads as odd.
   const gapHours = await hoursSinceLastMessage(p.conversationId);
-  const gapNote = gapHours === null || gapHours < 6 ? undefined
+  const gapNote = gapHours === null || gapHours < 8 ? undefined
     : gapHours < 24 ? 'earlier today'
     : gapHours < 48 ? 'yesterday'
     : `${Math.round(gapHours / 24)} days ago`;

@@ -8,6 +8,7 @@ import {
   fetchBillingConfig,
   updateBillingConfig,
   fetchUsage,
+  scheduleLeaving,
 } from '../../../lib/api';
 
 export default function GarageBillingConfigPage() {
@@ -43,6 +44,26 @@ export default function GarageBillingConfigPage() {
   });
 
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  // Leaving date. Service continues in full until this date, then the nightly job removes access,
+  // zeroes the pricing and archives them. Kept separate from the billing form so it cannot be
+  // saved by accident along with a price change.
+  const [leavingDate, setLeavingDate] = useState('');
+  const [leavingReason, setLeavingReason] = useState('');
+
+  const leavingMutation = useMutation({
+    mutationFn: ({ date, reason }: { date: string | null; reason?: string }) =>
+      scheduleLeaving(garageId, date, reason),
+    onSuccess: (res) => {
+      setFeedback(
+        res.leavingDate
+          ? `Notice recorded — service ends ${new Date(res.leavingDate).toLocaleDateString('en-GB')}`
+          : 'Notice cancelled — this garage is no longer scheduled to leave',
+      );
+      queryClient.invalidateQueries({ queryKey: ['billing-config', garageId] });
+    },
+    onError: () => setFeedback('Could not save the leaving date'),
+  });
 
   const configQuery = useQuery({
     queryKey: ['billing-config', garageId],
@@ -514,6 +535,70 @@ export default function GarageBillingConfigPage() {
               Select dates to preview usage and charges
             </div>
           )}
+        </section>
+
+        <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
+          <h2 className="text-sm font-semibold text-slate-900">Customer leaving</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            When a customer gives notice, set the date their service ends. They keep everything until
+            that morning, then their agent stops answering, messaging is switched off, billing stops
+            and the account is archived — automatically. The final month is invoiced pro rata.
+          </p>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-[200px_1fr_auto] sm:items-end">
+            <label className="block">
+              <span className="block text-xs font-medium text-slate-600">Last day of service</span>
+              <input
+                type="date"
+                value={leavingDate}
+                onChange={(e) => setLeavingDate(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-slate-600">Reason they gave</span>
+              <input
+                type="text"
+                value={leavingReason}
+                onChange={(e) => setLeavingReason(e.target.value)}
+                placeholder="e.g. emailed notice — too expensive"
+                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={!leavingDate || leavingMutation.isPending}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Schedule this garage to leave on ${new Date(leavingDate).toLocaleDateString('en-GB')}?\n\n` +
+                      'Their agent will stop answering calls that morning and the account will be archived.',
+                    )
+                  ) {
+                    leavingMutation.mutate({ date: leavingDate, reason: leavingReason || undefined });
+                  }
+                }}
+                className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-40"
+              >
+                {leavingMutation.isPending ? 'Saving…' : 'Schedule leaving'}
+              </button>
+              <button
+                type="button"
+                disabled={leavingMutation.isPending}
+                onClick={() => {
+                  if (window.confirm('Cancel this notice? The garage will stay active.')) {
+                    setLeavingDate('');
+                    setLeavingReason('');
+                    leavingMutation.mutate({ date: null });
+                  }
+                }}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel notice
+              </button>
+            </div>
+          </div>
         </section>
       </div>
     </div>

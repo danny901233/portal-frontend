@@ -197,6 +197,13 @@ model User {
 
   // Service agreement
   mustSignAgreement Boolean     @default(true)
+
+  // Session control & audit.
+  // sessionsValidFrom invalidates every JWT issued before it — the only way to log someone out
+  // when tokens are stateless. Bump it and their existing sessions stop working.
+  sessionsValidFrom DateTime?
+  lastLoginAt       DateTime?
+  loginEvents       LoginEvent[]
   agreements        Agreement[]
 
   // Magic-link tokens for "sign your agreement" links (short-lived, single-use)
@@ -375,6 +382,11 @@ model AgentConfiguration {
   messagingNotifyPhone      String?
   allowBookings             Boolean  @default(false)
   bookingLeadTimeDays       Int      @default(1)
+  // What kind of motor business this is, in the words the voice agent uses to introduce itself.
+  // Most garages are repair-only, which is what the agent assumed for everyone until Kestrels --
+  // a used car dealer AND a workshop -- told a caller it does not sell cars. Populated from the
+  // Google Places `types` at signup where we have them, editable in the portal either way.
+  businessType              String?
   customRules               Json?
   dataCollectionFields      Json?
   faqs                      Json?
@@ -779,6 +791,9 @@ model PendingSignup {
   phoneNumber        String?
   websiteUrl         String?
   weeklyOpeningHours Json?
+  // Carried from the Google Places lookup so the agent knows whether this is a repair garage,
+  // a dealership, or both, from the very first call rather than after someone complains.
+  businessType       String?
 
   // Magic-link sign token (single-use-ish; the pending row is the source of truth).
   signToken String  @unique
@@ -881,4 +896,24 @@ model OpsDailyReport {
   createdAt   DateTime  @default(now())
 
   @@index([reportDate])
+}
+
+
+// Who signed in, when, and from where. There was previously no record of a login at all, so
+// "who was in the portal on Tuesday" had no answer. Failures are recorded too — a run of them
+// against one account is worth seeing.
+model LoginEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String
+  success   Boolean  @default(true)
+  reason    String?  // why a failure was rejected: 'bad_password' | 'no_user' | 'revoked'
+  ip        String?
+  userAgent String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([email])
 }

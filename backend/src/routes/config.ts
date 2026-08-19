@@ -320,6 +320,9 @@ const extraAgentFields = (configuration: PrismaAgentConfiguration | null) => {
   const c = (configuration ?? {}) as Record<string, unknown>;
   return {
     agentName: c.agentName ?? '',
+    // What the agent tells callers this business IS. Empty means "use the agent's default",
+    // which is the repair-garage wording every garage had before this field existed.
+    businessType: c.businessType ?? '',
     customRules: c.customRules ?? [],
     dataCollectionFields: c.dataCollectionFields ?? [],
     faqs: c.faqs ?? [],
@@ -1064,6 +1067,7 @@ router.put(
       voice: data.voice || 'leah',
       // Previously dropped on write — now persisted so they save AND reach the agent.
       transferNumber: data.transferNumber || null,
+      businessType: data.businessType || null,
       customRules: (data.customRules ?? []) as Prisma.InputJsonValue,
       dataCollectionFields: (data.dataCollectionFields ?? []) as Prisma.InputJsonValue,
       faqs: (data.faqs ?? []) as Prisma.InputJsonValue,

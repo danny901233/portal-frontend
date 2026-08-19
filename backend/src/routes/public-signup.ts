@@ -134,6 +134,9 @@ export async function createAccountFromPending(
       branchAddress: pending.branchAddress,
       phoneNumber: pending.phoneNumber,
       websiteUrl: pending.websiteUrl,
+      // Null here means the agent keeps its repair-garage default, so a signup without a Places
+      // lookup is no worse off than every garage was before this existed.
+      businessType: (pending as { businessType?: string | null }).businessType || null,
       emailAddress: normalizedEmail,
       ...(pending.weeklyOpeningHours ? { weeklyOpeningHours: pending.weeklyOpeningHours as Prisma.InputJsonValue } : {}),
       greetingLine,
@@ -262,6 +265,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
           branchAddress: place?.address || address || null,
           phoneNumber: place?.phone || null,
           websiteUrl: place?.website || null,
+          businessType: place?.businessType || null,
           ...(place?.weeklyOpeningHours ? { weeklyOpeningHours: place.weeklyOpeningHours as Prisma.InputJsonValue } : {}),
           signToken,
           status: 'pending',

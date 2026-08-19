@@ -256,6 +256,10 @@ export const upsertAgentConfigurationSchema = z.object({
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
   transferNumber: z.union([z.string().max(50), z.literal('')]).nullable().optional(),
+  // Free text rather than an enum: Google's types cover the common cases but a garage may be
+  // something we haven't anticipated, and this schema silently dropping unlisted fields is
+  // exactly how ten settings stopped saving once before.
+  businessType: z.union([z.string().max(120), z.literal('')]).nullable().optional(),
   // These were missing from this schema while the save handler still wrote them. Zod strips
   // unknown keys, so every agent-config PUT silently dropped them — settings appeared to
   // "revert", and `faqs: (data.faqs ?? [])` wrote an EMPTY ARRAY, wiping the garage's FAQs

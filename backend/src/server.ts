@@ -43,6 +43,7 @@ import supportVoiceRouter from './routes/support-voice.js';
 import opsTasksRouter from './routes/opsTasks.js';
 import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler, installProcessErrorHandlers } from './middleware/errorHandler.js';
+import { trackActingUser } from './utils/actingUser.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 import { initReminderCron } from './services/reminderScheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';
@@ -108,6 +109,9 @@ app.use('/api/webhooks', stripeWebhook);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' })); // Parse form-urlencoded bodies (Twilio webhooks)
 app.use(morgan('dev'));
+// Carry the signed-in user through the request so the garage audit hook in db.ts can record who
+// made a change. Reads req.user when it is there and is harmless when it is not.
+app.use(trackActingUser);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -916,6 +916,11 @@ model OpsDailyReport {
 // fields that actually differed.
 model AgentConfigChange {
   id        String   @id @default(cuid())
+  // What kind of change this row describes: 'agent_config' for the agent's settings, 'garage' for
+  // commercial ones — price, tier, access, trial dates. Same table because the question people
+  // actually ask is "what changed on this garage and who did it", and splitting that across two
+  // places just means checking two places.
+  scope     String   @default("agent_config")
   garageId  String
   garage    Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
   userId    String?

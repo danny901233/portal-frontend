@@ -224,12 +224,18 @@ router.get('/admin/config-changes', authenticate, requireAdmin, async (req, res)
   try {
     const take = Math.min(Number(req.query.limit) || 100, 500);
     const garageId = typeof req.query.garageId === 'string' ? req.query.garageId : undefined;
+    // ?scope=garage for price, tier, access and trial changes; ?scope=agent_config for the
+    // agent's own settings; omit it for both.
+    const scope = typeof req.query.scope === 'string' ? req.query.scope : undefined;
     const changes = await prisma.agentConfigChange.findMany({
-      where: garageId ? { garageId } : {},
+      where: {
+        ...(garageId ? { garageId } : {}),
+        ...(scope ? { scope } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take,
       select: {
-        id: true, garageId: true, userEmail: true, changes: true, createdAt: true,
+        id: true, garageId: true, userEmail: true, changes: true, createdAt: true, scope: true,
         garage: { select: { name: true } },
       },
     });

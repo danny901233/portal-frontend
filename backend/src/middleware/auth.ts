@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type { BranchRole } from '../utils/branchRoles.js';
 import { prisma } from '../db.js';
+import { runWithActor } from '../utils/actingUser.js';
 
 interface JwtPayload {
   userId: string;
@@ -87,11 +88,13 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
           return res.status(401).json({ error: 'Session ended — please sign in again' });
         }
         req.user = decoded;
-        next();
+        // Everything downstream now runs knowing who this is, so the garage audit hook can
+        // attribute a change to a person rather than to "system".
+        runWithActor(decoded, next);
       })
       .catch(() => {
         req.user = decoded;
-        next();
+        runWithActor(decoded, next);
       });
     return;
   } catch (err) {

@@ -115,11 +115,27 @@ export async function runBillingWatchdog(): Promise<BillingGap[]> {
       <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666">${g.stuck || 'no invoice raised'}</td>
     </tr>`).join('');
 
-  const staff = await prisma.user.findMany({
-    where: { role: 'RECEPTIONMATE_STAFF' },
-    select: { email: true, notificationEmail: true },
-  });
-  const to = staff.map((s) => s.notificationEmail || s.email).filter(Boolean);
+  // Who sees the arrears list.
+  //
+  // This used to go to every RECEPTIONMATE_STAFF account, via notificationEmail — which for one
+  // of them is a personal Gmail, so who owes us money and how much was landing in a private
+  // inbox. Revenue and arrears are not general staff information: name the recipients explicitly.
+  // BILLING_ALERT_EMAILS is a comma-separated list; with it unset the old behaviour stands, so
+  // an environment that has not been configured still gets its alerts rather than silently
+  // sending them nowhere.
+  const configured = (process.env.BILLING_ALERT_EMAILS || '')
+    .split(',').map((x) => x.trim()).filter(Boolean);
+  let to: string[];
+  if (configured.length) {
+    to = configured;
+  } else {
+    const staff = await prisma.user.findMany({
+      where: { role: 'RECEPTIONMATE_STAFF' },
+      select: { email: true, notificationEmail: true },
+    });
+    to = staff.map((s) => s.notificationEmail || s.email).filter(Boolean) as string[];
+    console.warn('[BILLING_WATCHDOG] BILLING_ALERT_EMAILS is not set — falling back to all staff accounts');
+  }
   if (to.length) {
     await sendEmail({
       to,

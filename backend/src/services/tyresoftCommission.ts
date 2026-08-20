@@ -67,6 +67,15 @@ export async function buildStatement(from: Date, to: Date, label: string): Promi
 }
 
 const money = (n: number) => `£${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+// Our registered identity — Tyresoft raise their invoice against these details.
+const RM_LEGAL = {
+  name: 'ReceptionMate Ltd',
+  address: "Studio 9, 50–54 St. Paul's Square, Birmingham B3 1QS",
+  companyNo: '16839506',
+  vat: '494543753',
+  email: 'hello@receptionmate.co.uk',
+};
+
 const day = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 export function statementHtml(s: CommissionStatement): string {
@@ -110,6 +119,16 @@ export function statementHtml(s: CommissionStatement): string {
       </div>` : `
       <p style="color:#475569;font-size:14px;">No payments were received from Tyresoft-integrated garages in this quarter, so no commission is due.</p>`}
 
+      <div style="margin-top:22px;padding:16px 18px;border:1px solid #e2e8f0;border-radius:10px;">
+        <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;margin-bottom:8px;">Please address your invoice to</div>
+        <div style="font-size:14px;color:#0f172a;line-height:1.7;">
+          <strong>${RM_LEGAL.name}</strong><br/>
+          ${RM_LEGAL.address}<br/>
+          Company no. ${RM_LEGAL.companyNo} &nbsp;·&nbsp; VAT no. ${RM_LEGAL.vat}<br/>
+          <a href="mailto:${RM_LEGAL.email}" style="color:${BRAND};text-decoration:none;">${RM_LEGAL.email}</a>
+        </div>
+      </div>
+
       <p style="margin:22px 0 0;color:#64748b;font-size:13px;line-height:1.6;">
         Revenue is what the garage actually paid in the quarter, excluding VAT. Invoices raised but
         not yet settled are not included — they will appear in the quarter they are paid.
@@ -135,8 +154,14 @@ export function statementText(s: CommissionStatement): string {
     `Total revenue (ex VAT): ${money(s.totalExVat)}`,
     `Commission due at 7.5%: ${money(s.commission)}`,
     '',
+    'Please address your invoice to:',
+    `  ${RM_LEGAL.name}`,
+    `  ${RM_LEGAL.address}`,
+    `  Company no. ${RM_LEGAL.companyNo}  ·  VAT no. ${RM_LEGAL.vat}`,
+    `  ${RM_LEGAL.email}`,
+    '',
     'Revenue is what the garage actually paid in the quarter, excluding VAT.',
-    'Questions: hello@receptionmate.co.uk',
+    `Questions: ${RM_LEGAL.email}`,
   ].join('\n');
 }
 
@@ -159,8 +184,12 @@ export async function sendQuarterlyCommission(when = new Date()): Promise<Commis
     return statement;
   }
 
+  const cc = (process.env.TYRESOFT_COMMISSION_CC || RM_LEGAL.email)
+    .split(',').map((x) => x.trim()).filter(Boolean);
+
   await sendEmail({
     to: to_,
+    cc,
     subject: `ReceptionMate — Tyresoft commission statement, ${label}`,
     html: statementHtml(statement),
     text: statementText(statement),

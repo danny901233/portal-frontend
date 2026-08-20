@@ -123,6 +123,7 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
   await transport.sendMail({
     from: config.from,
     to: options.to.join(', '),
+    ...(options.cc?.length ? { cc: options.cc.join(', ') } : {}),
     subject: options.subject,
     text: options.text,
     html: options.html,

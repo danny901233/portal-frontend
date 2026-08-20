@@ -10,6 +10,7 @@ export interface EmailAttachment {
 
 interface EmailOptions {
   to: string[];
+  cc?: string[];
   subject: string;
   html: string;
   text: string;
@@ -66,6 +67,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     const form = new FormData();
     form.set('from', options.from ?? config.from);
     form.set('to', options.to.join(', '));
+    if (options.cc?.length) form.set('cc', options.cc.join(', '));
     form.set('subject', options.subject);
     form.set('text', options.text);
     form.set('html', options.html);
@@ -82,6 +84,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     const form = new URLSearchParams();
     form.set('from', options.from ?? config.from);
     form.set('to', options.to.join(', '));
+    if (options.cc?.length) form.set('cc', options.cc.join(', '));
     form.set('subject', options.subject);
     form.set('text', options.text);
     form.set('html', options.html);
@@ -123,6 +126,7 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
   await transport.sendMail({
     from: options.from ?? config.from,
     to: options.to.join(', '),
+    ...(options.cc?.length ? { cc: options.cc.join(', ') } : {}),
     subject: options.subject,
     text: options.text,
     html: options.html,

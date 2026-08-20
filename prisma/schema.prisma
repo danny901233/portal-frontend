@@ -230,6 +230,12 @@ model User {
   opsTasksAssigned OpsTask[] @relation("OpsTaskAssignee")
   opsTasksCreated  OpsTask[] @relation("OpsTaskCreatedBy")
 
+  // Garage-side Messages inbox: a garage's team member can own conversations
+  // from their garage's customers. Assignment is per-garage — a multi-branch
+  // user only sees/owns conversations on their allowed garages. Assignment
+  // is ownership only; it does NOT silence the AI (that's a separate action).
+  assignedChatConversations ChatConversation[] @relation("ChatConversationAssignee")
+
   // Mobile push notifications (iOS APNs device tokens). One user may have
   // several devices; tokens are registered by the mobile app on launch.
   deviceTokens String[] @default([])
@@ -531,6 +537,15 @@ model ChatConversation {
   capturedRevenue          Float?
   bookingDetails           String?
   tags                     String[]                  @default([])
+  // Auto-derived enquiry category for garage-side Messages inbox filters.
+  // App-code enum: parts | sales | booking | complaint | general. Nullable
+  // so historical rows and cases we can't classify remain untouched.
+  enquiryType              String?
+  // Optional owner within the garage. FK to User; onDelete SetNull so a
+  // staff member losing garage access drops their conversations back into
+  // the shared "unassigned" pool rather than orphaning them.
+  assigneeId               String?
+  assignee                 User?                     @relation("ChatConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   unreadCount              Int                       @default(0)
   lastMessageAt            DateTime                  @default(now())
   sessionState             Json?
@@ -543,6 +558,8 @@ model ChatConversation {
   @@index([garageId, platform])
   @@index([garageId, customerId])
   @@index([garageId, needsAttention])
+  @@index([garageId, assigneeId])
+  @@index([garageId, enquiryType])
 }
 
 model ChatMessage {

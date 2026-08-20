@@ -8,6 +8,7 @@ import { syncNegativeFeedbackToExcel } from '../services/feedbackExcelSync.js';
 import { sendInoInvoice } from '../services/inoInvoice.js';
 import { runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 import { processQueuedCampaigns } from '../services/outboundSend.js';
+import { sendQuarterlyCommission } from '../services/tyresoftCommission.js';
 import { PrismaClient } from '@prisma/client';
 import { sendEmail } from './email.js';
 import { runDailyReport } from '../services/opsDailyReport.js';
@@ -163,6 +164,23 @@ export const initializeScheduledReports = (): void => {
   });
 
   console.log("✓ In'n'out invoice scheduled: 1st of month at 9:00 AM (UK time)");
+
+  // Tyresoft commission statement: 09:00 on the 1st of Jan/Apr/Jul/Oct, covering the
+  // quarter that just closed. Tyresoft take 7.5% of what we bill (ex VAT) any garage
+  // running their integration, so they need the figure to raise their invoice to us.
+  cron.schedule('0 9 1 1,4,7,10 *', async () => {
+    console.log('Running Tyresoft quarterly commission job...');
+    try {
+      const sent = await sendQuarterlyCommission();
+      console.log(`✓ Tyresoft commission job completed (sent=${sent})`);
+    } catch (error) {
+      console.error('❌ Tyresoft commission job failed:', error);
+    }
+  }, {
+    timezone: 'Europe/London', // UK timezone
+  });
+
+  console.log('✓ Tyresoft commission scheduled: 1 Jan/Apr/Jul/Oct at 9:00 AM (UK time)');
 
   // Garage Hive service/MOT reminders: every day at 9:00 AM. For each garage with
   // an enabled Garage Hive connection, pull vehicles due in N days and send the

@@ -12,6 +12,8 @@ import { sendEmail } from '../utils/email.js';
  */
 
 const COMMISSION_RATE = 0.075;
+// Tyresoft are VAT registered, so the commission is invoiced to us plus VAT.
+const VAT_RATE = 0.20;
 const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
 const BRAND = '#3426cf';
 
@@ -28,6 +30,8 @@ export interface CommissionStatement {
   lines: CommissionLine[];
   totalExVat: number;
   commission: number;
+  vat: number;
+  gross: number;
 }
 
 /** The quarter that has just finished, relative to `when`. */
@@ -62,7 +66,9 @@ export async function buildStatement(from: Date, to: Date, label: string): Promi
   return {
     label, from, to, lines,
     totalExVat,
-    commission: Math.round(totalExVat * COMMISSION_RATE * 100) / 100,
+    commission: round2(totalExVat * COMMISSION_RATE),
+    vat: round2(totalExVat * COMMISSION_RATE * VAT_RATE),
+    gross: round2(totalExVat * COMMISSION_RATE * (1 + VAT_RATE)),
   };
 }
 
@@ -75,6 +81,8 @@ const RM_LEGAL = {
   vat: '494543753',
   email: 'hello@receptionmate.co.uk',
 };
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const day = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
@@ -115,7 +123,10 @@ export function statementHtml(s: CommissionStatement): string {
       <div style="margin-top:22px;padding:16px 18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
         <div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;">Commission due at 7.5%</div>
         <div style="font-size:24px;font-weight:700;color:#0f172a;margin-top:4px;">${money(s.commission)}</div>
-        <div style="font-size:13px;color:#64748b;margin-top:6px;">Plus VAT if applicable. Please invoice this amount.</div>
+        <table style="margin-top:12px;font-size:14px;color:#475569;border-collapse:collapse;">
+          <tr><td style="padding:2px 16px 2px 0;">VAT at 20%</td><td style="text-align:right;">${money(s.vat)}</td></tr>
+          <tr><td style="padding:2px 16px 2px 0;font-weight:600;color:#0f172a;">Total to invoice</td><td style="text-align:right;font-weight:600;color:#0f172a;">${money(s.gross)}</td></tr>
+        </table>
       </div>` : `
       <p style="color:#475569;font-size:14px;">No payments were received from Tyresoft-integrated garages in this quarter, so no commission is due.</p>`}
 
@@ -153,6 +164,8 @@ export function statementText(s: CommissionStatement): string {
     '',
     `Total revenue (ex VAT): ${money(s.totalExVat)}`,
     `Commission due at 7.5%: ${money(s.commission)}`,
+    `VAT at 20%: ${money(s.vat)}`,
+    `Total to invoice: ${money(s.gross)}`,
     '',
     'Please address your invoice to:',
     `  ${RM_LEGAL.name}`,

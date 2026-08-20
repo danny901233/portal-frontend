@@ -919,7 +919,7 @@ export default function MessagesPage() {
       <div className="flex flex-col md:flex-row h-[calc(100dvh-13rem)] md:h-[calc(100vh-220px)] gap-0">
         {/* Left Sidebar - Conversations List (single-pane on mobile: hidden once a chat is open) */}
         <div className={cn(
-          'w-full md:w-[26rem] flex-1 min-h-0 md:flex-none md:h-auto md:max-h-none bg-white border border-slate-200 rounded-2xl md:rounded-l-2xl md:rounded-tr-none md:rounded-br-none flex-col shadow-sm shadow-slate-900/5',
+          'w-full md:w-[28rem] flex-1 min-h-0 md:flex-none md:h-auto md:max-h-none bg-white border border-slate-200 rounded-2xl md:rounded-l-2xl md:rounded-tr-none md:rounded-br-none flex-col shadow-sm shadow-slate-900/5',
           selectedConversation ? 'hidden md:flex' : 'flex'
         )}>
           {/* Search and Filters */}

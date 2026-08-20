@@ -6,6 +6,7 @@ import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
 import { getVehicleAdvisories } from './garageHiveBc.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
+import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -511,6 +512,12 @@ async function saveSession(conversationId: string, session: ChatSession): Promis
       conversationId
     );
     console.log(`[SAVE_SESSION] ✅ Successfully saved session for ${conversationId}`);
+    // Fire-and-forget enquiryType update. The helper is a no-op unless the
+    // agent has moved into a stronger classification than what's on the row.
+    void maybeUpdateEnquiryType(
+      conversationId,
+      deriveEnquiryTypeFromSession({ intent: session.intent, step: session.step as any }),
+    );
   } catch (error) {
     console.error(`[SAVE_SESSION] ❌ Failed to save session for ${conversationId}:`, error);
     // Don't throw - in-memory cache is the fallback

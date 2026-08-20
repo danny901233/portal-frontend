@@ -117,6 +117,35 @@ export async function sendPushToTokens(
 }
 
 /**
+ * Notify a single user. Used for direct-address pushes like "you've been
+ * assigned a conversation" where only one recipient should be tapped.
+ * Fire-and-forget friendly — never throws.
+ */
+export async function notifyUser(
+  userId: string,
+  payload: PushPayload,
+): Promise<void> {
+  try {
+    if (!getProvider()) return;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { deviceTokens: true, pushEnabled: true },
+    });
+    if (!user || !user.pushEnabled || user.deviceTokens.length === 0) return;
+
+    const dead = await sendPushToTokens(user.deviceTokens, payload);
+    if (dead.length === 0) return;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { deviceTokens: user.deviceTokens.filter((t) => !dead.includes(t)) },
+    });
+  } catch (error) {
+    console.error('[PUSH] notifyUser failed:', error);
+  }
+}
+
+/**
  * Notify every user who has access to a garage. Collects their registered
  * device tokens, sends the push, and prunes any tokens Apple reports dead.
  * Fire-and-forget friendly — never throws.

@@ -369,8 +369,10 @@ router.get(
         if (convs.length === 1) {
           mergedConversations.push(convs[0]);
         } else {
-          // Merge multiple conversations into one
-          const platforms = convs.map(c => c.platform);
+          // Merge multiple conversations into one. Dedup platforms so a
+          // customer with several WhatsApp-only rows shows one WhatsApp icon,
+          // not N copies of it.
+          const platforms = Array.from(new Set(convs.map(c => c.platform)));
           const allMessages = convs.flatMap(c => c.messages);
           const latestMessage = allMessages.sort((a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()

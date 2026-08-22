@@ -70,7 +70,13 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction,
 ) => {
-  const status = err instanceof Error && 'status' in err ? (err as { status: number }).status : 500;
+  // A rejected CORS origin is a client error, not a server fault. Left at 500 it
+  // triggered an alert email for every scanner probing /graphql, /v1/graphql etc.
+  // with a spoofed Origin header — constant background noise on a public API.
+  const isCorsRejection = err instanceof Error && /not allowed by CORS/.test(err.message);
+  const status = isCorsRejection
+    ? 403
+    : (err instanceof Error && 'status' in err ? (err as { status: number }).status : 500);
   const message = err instanceof Error ? err.message : 'Unexpected error processing request';
 
   if (status >= 500) {

@@ -3350,6 +3350,12 @@ Do NOT propose a time that is not in that list, and do NOT offer a different dat
     // Try to find a date match from the preference
     const dateMatch = matchTimeslot(effectivePref, session.timeslotsAvailable);
     // Find the first slot on that date (or first overall if no match)
+    if (!dateMatch && /\b\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\b|\b\d{4}-\d{2}-\d{2}\b/.test(effectivePref)) {
+      const offer = [...new Set((session.timeslotsAvailable as any[]).map((t: any) => t.date))]
+        .slice(0, 3).map((d: any) => formatDateNaturally(d)).join(', ');
+      console.log(`[SELECT_TIMESLOT] Explicit date in "${effectivePref}" is not bookable — not substituting`);
+      return `That date is not available.\n\nSay: "I'm sorry, we haven't got anything on that date. I can do ${offer} — would any of those work?" and STOP. Do NOT book another date unless the customer picks one.`;
+    }
     const targetDate = dateMatch?.date || session.timeslotsAvailable[0].date;
     const slotsOnDate = session.timeslotsAvailable.filter((t: any) => t.date === targetDate);
     const dropOffSlot = slotsOnDate[0] || session.timeslotsAvailable[0];
@@ -4427,6 +4433,39 @@ function matchTimeslot(preference: string, timeslots: any[]): any | null {
     const m = String(ukDate.getMonth() + 1).padStart(2, '0');
     const d = String(ukDate.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  // Explicit calendar date — "21/10/2026", "21/10", "21-10-2026", "2026-10-21".
+  // These were previously unrecognised, so a caller naming a date fell through to the
+  // fuzzy matchers and could be booked onto a completely different day (a 21 Oct request
+  // came back as 18 Dec). An explicit date is exact: match it, or return null so the
+  // agent tells the caller that day isn't available.
+  const isoPref = prefLower.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  const ukPref = prefLower.match(/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/);
+  let explicitDate: string | null = null;
+  if (isoPref) {
+    explicitDate = `${isoPref[1]}-${isoPref[2]}-${isoPref[3]}`;
+  } else if (ukPref) {
+    const d = parseInt(ukPref[1]);
+    const mo = parseInt(ukPref[2]);
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
+      let y: number;
+      if (ukPref[3]) {
+        y = parseInt(ukPref[3]);
+        if (y < 100) y += 2000;
+      } else {
+        y = parseInt(ukDateStr(0).slice(0, 4));
+        const candidate = `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        if (candidate < ukDateStr(0)) y += 1;
+      }
+      explicitDate = `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    }
+  }
+  if (explicitDate) {
+    const onDate = timeslots.filter(t => t.date === explicitDate);
+    console.log(`[MATCH_TIMESLOT] Explicit date ${explicitDate} -> ${onDate.length} slot(s)`);
+    if (onDate.length === 0) return null;
+    return closestByTime(onDate, extractPrefHour(prefLower)) ?? onDate[0];
   }
 
   if (/\btoday\b/.test(prefLower)) {

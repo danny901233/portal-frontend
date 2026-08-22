@@ -3724,6 +3724,35 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     await saveSession(conversationId, session);
     
     console.log('[SET_CONTACT] Booking confirmed!');
+
+    // Persist headline booking fields to the ChatConversation so the booking shows
+    // in the portal inbox, the dashboard and captured revenue — the same fields the
+    // voice agent writes to Call, and that chatAgentBookar/Poole already write here.
+    // Without this, Garage Hive accepts the booking and our side reports nothing.
+    try {
+      const bookedNames = session.serviceSelectedNames?.length
+        ? session.serviceSelectedNames.join(' + ')
+        : session.serviceSelectedName;
+      const bookingSummary = `${bookedNames} on ${session.bookingDate} at ${session.bookingTime}`;
+      const basePrice = parseFloat(String(session.servicePrice));
+      const extraPrice = parseFloat(String(session.additionalServicePrice ?? '0'));
+      const revenue = (isNaN(basePrice) ? 0 : basePrice) + (isNaN(extraPrice) ? 0 : extraPrice);
+      await prisma.chatConversation.updateMany({
+        where: { id: conversationId },
+        data: {
+          customerName: `${session.customerNameFirst ?? ''} ${session.customerNameLast ?? ''}`.trim() || undefined,
+          customerPhone: session.contactPhone || undefined,
+          confirmedBooking: true,
+          confirmedBookingCategory: categoriseBooking(bookedNames),
+          bookingDetails: bookingSummary,
+          capturedRevenue: revenue > 0 ? revenue : null,
+        },
+      });
+      console.log(`[SET_CONTACT] Recorded on conversation: ${bookingSummary} (£${revenue})`);
+    } catch (e: any) {
+      // Non-fatal: the booking is already live in Garage Hive. Log and carry on.
+      console.error('[SET_CONTACT] Failed to persist booking to ChatConversation:', e?.message);
+    }
     
     const dateNatural = formatDateNaturally(session.bookingDate);
     const timeNatural = formatTimeNaturally(session.bookingTime);
@@ -3754,6 +3783,15 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     console.error('[SET_CONTACT] API error:', error.response?.data || error.message);
     return `API error confirming booking.\nSay: "Sorry ${session.customerNameFirst}, something went wrong on our end and the booking didn't go through. Please call the garage directly to get that slot locked in — really sorry about that!"\nDone.`;
   }
+}
+
+/** Group a booked service into the ConfirmedBookingCategory enum the portal stores. */
+function categoriseBooking(serviceName?: string): 'mot' | 'service' | 'diagnostic' | 'other' {
+  const n = (serviceName || '').toLowerCase();
+  if (/\bmot\b/.test(n)) return 'mot';
+  if (/diagnos/.test(n)) return 'diagnostic';
+  if (/service|interim|full/.test(n)) return 'service';
+  return 'other';   // tyres, brakes, repairs — no enum member for those
 }
 
 async function handleTakeMessage(args: any, session: ChatSession, conversationId: string): Promise<string> {

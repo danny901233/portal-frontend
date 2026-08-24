@@ -72,3 +72,6 @@ backend/scripts/svc.mjs
 backend/scripts/humanlike-*.mjs
 backend/scripts/chat-sim.mjs
 backend/scripts/cold-resume-test.mjs
+
+# git-format-patch output — working files, not source
+*.patch

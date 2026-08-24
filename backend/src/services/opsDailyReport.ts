@@ -132,7 +132,8 @@ function reportText(r: DailyReportPayload): string {
   return lines.join('\n');
 }
 
-function reportHtml(r: DailyReportPayload): string {
+/** Exported so the rendered email can be previewed without sending one. */
+export function reportHtml(r: DailyReportPayload): string {
   const esc = (s: string) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
   const pretty = new Intl.DateTimeFormat('en-GB', {
     timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -141,45 +142,78 @@ function reportHtml(r: DailyReportPayload): string {
   const perPerson = Object.entries(r.totals.byPerson)
     .map(([n, c]) => `${esc(n)} ${c}`).join(' &middot; ') || 'nobody';
 
+  // One block per task rather than a row of four columns. A four-column table cannot shrink below
+  // the width of its own content, so on a phone it either overflowed sideways or the client zoomed
+  // the whole message out to fit. Stacked blocks reflow at any width, and need no media queries —
+  // which matters because several clients strip <style> blocks entirely.
+  const SEP = 'border-bottom:1px solid #eceff1';
+  const TITLE = 'font-size:15px;line-height:1.4;color:#111827;word-break:break-word';
+  const META = 'font-size:13px;line-height:1.4;color:#6b7280;margin-top:3px;word-break:break-word';
+  const EMPTY = 'font-size:14px;color:#9ca3af;padding:10px 0;margin:0';
+  const H3 = 'margin:26px 0 4px;font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.04em';
+
+  const dot = ' &middot; ';
+
   const completedRows = r.completed.length
     ? r.completed.map((c) => `
-        <tr>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee">${esc(c.title)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666">${esc(c.cadence)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee">${esc(c.by)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666">${esc(c.at)}</td>
-        </tr>${c.notes ? `<tr><td colspan="4" style="padding:2px 10px 8px;color:#555;font-style:italic">${esc(c.notes)}</td></tr>` : ''}`).join('')
-    : `<tr><td colspan="4" style="padding:10px;color:#888">Nothing was ticked off today.</td></tr>`;
+        <div style="padding:11px 0;${SEP}">
+          <div style="${TITLE}">${esc(c.title)}</div>
+          <div style="${META}">${esc(c.by)}${dot}${esc(c.at)}${dot}${esc(c.cadence)}</div>
+          ${c.notes ? `<div style="${META};font-style:italic;color:#4b5563">${esc(c.notes)}</div>` : ''}
+        </div>`).join('')
+    : `<p style="${EMPTY}">Nothing was ticked off today.</p>`;
 
   const outstandingRows = r.outstanding.length
     ? r.outstanding.map((o) => `
-        <tr>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee">${esc(o.title)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666">${esc(o.cadence)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee">${esc(o.assignees)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666">${o.dueDate ? esc(o.dueDate) : ''}</td>
-        </tr>`).join('')
-    : `<tr><td colspan="4" style="padding:10px;color:#888">Nothing outstanding.</td></tr>`;
+        <div style="padding:11px 0;${SEP}">
+          <div style="${TITLE}">${esc(o.title)}</div>
+          <div style="${META}">${esc(o.assignees)}${dot}${esc(o.cadence)}${o.dueDate ? `${dot}due ${esc(o.dueDate)}` : ''}</div>
+        </div>`).join('')
+    : `<p style="${EMPTY}">Nothing outstanding.</p>`;
 
   const notesBlock = r.notes.length
-    ? `<h3 style="margin:22px 0 6px;font-size:15px">Notes added today</h3>
-       ${r.notes.map((n) => `<p style="margin:0 0 8px"><strong>${esc(n.title)}</strong><br><span style="color:#555">${esc(n.note)}</span></p>`).join('')}`
+    ? `<h3 style="${H3}">Notes added today</h3>
+       ${r.notes.map((n) => `
+        <div style="padding:11px 0;${SEP}">
+          <div style="${TITLE}">${esc(n.title)}</div>
+          <div style="${META}">${esc(n.note)}</div>
+        </div>`).join('')}`
     : '';
 
-  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;max-width:720px">
-    <h2 style="margin:0 0 2px;font-size:18px">Ops board — ${esc(pretty)}</h2>
-    <p style="margin:0 0 18px;color:#666;font-size:13px">
-      ${r.totals.completed} completed (${perPerson}) &middot; ${r.totals.outstanding} still open
-    </p>
-    <h3 style="margin:0 0 6px;font-size:15px">Completed</h3>
-    <table style="border-collapse:collapse;width:100%;font-size:13px">${completedRows}</table>
-    <h3 style="margin:22px 0 6px;font-size:15px">Still outstanding</h3>
-    <table style="border-collapse:collapse;width:100%;font-size:13px">${outstandingRows}</table>
-    ${notesBlock}
-    <p style="margin:24px 0 0;color:#888;font-size:12px">
-      Past reports: https://portal.receptionmate.co.uk/admin/reports
-    </p>
-  </div>`;
+  // Full document with a viewport meta, matching every other template in utils/email.ts. Without
+  // it iOS Mail and Gmail assume a desktop-width page and zoom the whole message out.
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f4f6f8;">
+    <tr><td style="padding:16px 12px;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width:600px;margin:0 auto;background-color:#ffffff;border-radius:10px;">
+        <tr><td style="padding:22px 20px;">
+          <h2 style="margin:0 0 2px;font-size:18px;line-height:1.3;color:#111827;">Ops board</h2>
+          <p style="margin:0;font-size:14px;color:#6b7280;">${esc(pretty)}</p>
+          <p style="margin:14px 0 0;font-size:14px;line-height:1.5;color:#374151;">
+            <strong style="color:#111827;">${r.totals.completed} completed</strong> (${perPerson})<br>
+            <strong style="color:#111827;">${r.totals.outstanding} still open</strong>
+          </p>
+
+          <h3 style="${H3};margin-top:22px">Completed</h3>
+          ${completedRows}
+
+          <h3 style="${H3}">Still outstanding</h3>
+          ${outstandingRows}
+
+          ${notesBlock}
+
+          <p style="margin:26px 0 0;font-size:13px;color:#9ca3af;">
+            <a href="https://portal.receptionmate.co.uk/admin/reports" style="color:#6b7280;">View past reports</a>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 }
 
 /**

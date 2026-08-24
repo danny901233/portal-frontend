@@ -28,6 +28,95 @@ const getGocardlessClient = () => {
 };
 
 // POST /api/payment/create-mandate-flow
+
+/**
+ * Which way does this customer pay, and — if it is by card — a SetupIntent to collect it.
+ *
+ * Automate bills by Direct Debit; Assist and Connect bill by card. /setup-payment only ever knew
+ * how to do Direct Debit, so an Assist customer signing in had nowhere to enter a card at all.
+ * Kestrels moved from Connect to Assist on 2026-08-18 and there was no way for them to pay.
+ *
+ * Idempotent: a garage that already has a Stripe customer gets a plain SetupIntent against it,
+ * rather than a second subscription.
+ */
+router.get('/payment/method', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Not signed in' });
+    const garageIds = Array.isArray(req.user.garageIds) ? req.user.garageIds : [];
+    const garage = await prisma.garage.findFirst({
+      where: garageIds.length ? { id: { in: garageIds } } : { id: req.user.garageId ?? '' },
+      select: {
+        id: true, name: true, hasVoiceAccess: true, hasMessagingAccess: true,
+        stripeCustomerId: true, stripeSubscriptionId: true, subscriptionCostGbp: true,
+        trialEndDate: true,
+        agentConfiguration: { select: { agentType: true } },
+      },
+    });
+    if (!garage) return res.status(404).json({ error: 'No garage found for this account' });
+
+    const isCard = !garage.hasVoiceAccess
+      ? true                                              // Connect — card
+      : garage.agentConfiguration?.agentType === 'assist'; // Assist — card; Automate — Direct Debit
+
+    res.json({
+      garageId: garage.id,
+      garageName: garage.name,
+      method: isCard ? 'card' : 'direct_debit',
+      alreadySetUp: isCard ? !!garage.stripeCustomerId : undefined,
+      monthlyCostGbp: garage.subscriptionCostGbp ?? 0,
+      trialEndDate: garage.trialEndDate,
+    });
+  } catch (error) {
+    console.error('[PAYMENT] method lookup failed:', error);
+    res.status(500).json({ error: 'Could not work out how this account pays' });
+  }
+});
+
+router.post('/payment/card-setup-intent', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Not signed in' });
+    const garageIds = Array.isArray(req.user.garageIds) ? req.user.garageIds : [];
+    const garage = await prisma.garage.findFirst({
+      where: garageIds.length ? { id: { in: garageIds } } : { id: req.user.garageId ?? '' },
+      select: { id: true, name: true, stripeCustomerId: true, stripeSubscriptionId: true },
+    });
+    if (!garage) return res.status(404).json({ error: 'No garage found for this account' });
+
+    const { stripeConfigured, getStripeClient, createAssistTrialSubscription } =
+      await import('../services/stripe.js');
+    if (!stripeConfigured()) {
+      return res.status(503).json({ error: 'Card payments are not configured yet' });
+    }
+
+    // Already a Stripe customer — just collect a card against them, do not start a second
+    // subscription.
+    if (garage.stripeCustomerId) {
+      const stripe = getStripeClient();
+      const si = await stripe.setupIntents.create({
+        customer: garage.stripeCustomerId,
+        usage: 'off_session',
+        metadata: { garageId: garage.id },
+      });
+      return res.json({ clientSecret: si.client_secret, reused: true });
+    }
+
+    const trial = await createAssistTrialSubscription({
+      email: req.user.email,
+      businessName: garage.name,
+      pendingSignupId: garage.id,     // metadata only; ties the Stripe objects back to the garage
+    });
+    await prisma.garage.update({
+      where: { id: garage.id },
+      data: { stripeCustomerId: trial.customerId, stripeSubscriptionId: trial.subscriptionId },
+    });
+    console.log(`[PAYMENT] created Stripe customer for ${garage.name} at card setup`);
+    res.json({ clientSecret: trial.clientSecret, reused: false });
+  } catch (error) {
+    console.error('[PAYMENT] card setup intent failed:', error);
+    res.status(500).json({ error: 'Could not start card setup' });
+  }
+});
+
 router.post('/payment/create-mandate-flow', authenticate, async (req: Request, res: Response) => {
   try {
     if (!req.user) {

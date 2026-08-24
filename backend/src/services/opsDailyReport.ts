@@ -207,11 +207,23 @@ export async function runDailyReport(dateStr: string = ukDateString()): Promise<
   });
   console.log(`[OPS_REPORT] ${dateStr}: ${payload.totals.completed} completed, ${payload.totals.outstanding} outstanding`);
 
-  const staff = await prisma.user.findMany({
-    where: { role: 'RECEPTIONMATE_STAFF' },
-    select: { email: true },
-  });
-  const to = staff.map((s) => s.email).filter(Boolean);
+  // Named recipients rather than "everyone with a staff role" — same reasoning as the arrears
+  // report: a role-derived list means anyone added as staff silently starts receiving internal
+  // operational detail. Unset falls back to all staff and warns, so an unconfigured environment
+  // still gets its report instead of quietly sending it nowhere.
+  const configuredOps = (process.env.OPS_REPORT_EMAILS || '')
+    .split(',').map((x) => x.trim()).filter(Boolean);
+  let to: string[];
+  if (configuredOps.length) {
+    to = configuredOps;
+  } else {
+    const staff = await prisma.user.findMany({
+      where: { role: 'RECEPTIONMATE_STAFF' },
+      select: { email: true },
+    });
+    to = staff.map((s) => s.email).filter(Boolean) as string[];
+    console.warn('[OPS_REPORT] OPS_REPORT_EMAILS is not set — falling back to all staff accounts');
+  }
   if (to.length) {
     const sent = await sendEmail({
       to,

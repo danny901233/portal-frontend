@@ -1,6 +1,8 @@
 import api from './api';
 
 export interface Invoice {
+  /** When GoCardless will collect a pending Direct Debit — money in transit, not money owed. */
+  gocardlessChargeDate?: string | null;
   id: string;
   garageId: string;
   garage: {

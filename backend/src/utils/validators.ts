@@ -157,6 +157,14 @@ const tyresoftSettingsSchema = z
     // on the way to DynamoDB so the agent can read them.
     tyreMarkupType: z.enum(['flat', 'percent']).optional(),
     tyreMarkupValue: optionalBoundedString(20),
+    // These three are already in the TyresoftSettings type and already written by the sync and
+    // CSV-import endpoints, but were never declared here. Zod strips what it does not know, so
+    // they were silently dropped on save — the same shape of bug as the validator strip in
+    // August — and the narrower inferred type is what made routes/config.ts fail to compile.
+    tsChannelId: optionalBoundedString(200),
+    tsServices: z.array(z.any()).optional(),
+    pricingRules: z.record(z.any()).optional(),
+    tsServicesUpload: z.any().optional(),
   })
   .optional();
 
@@ -255,7 +263,14 @@ export const upsertAgentConfigurationSchema = z.object({
   agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'MMH-agent', 'bookar-agent', 'Assist-agent', 'GarageHive-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
+  // Written by the save handler and already on the AgentConfiguration model, but missing here
+  // — so Zod stripped it and the field never saved.
+  agentName: z.union([z.string().max(100), z.literal('')]).nullable().optional(),
   transferNumber: z.union([z.string().max(50), z.literal('')]).nullable().optional(),
+  // Free text rather than an enum: Google's types cover the common cases but a garage may be
+  // something we haven't anticipated, and this schema silently dropping unlisted fields is
+  // exactly how ten settings stopped saving once before.
+  businessType: z.union([z.string().max(120), z.literal('')]).nullable().optional(),
   // These were missing from this schema while the save handler still wrote them. Zod strips
   // unknown keys, so every agent-config PUT silently dropped them — settings appeared to
   // "revert", and `faqs: (data.faqs ?? [])` wrote an EMPTY ARRAY, wiping the garage's FAQs

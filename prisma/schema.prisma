@@ -23,6 +23,11 @@ model Garage {
   // someone remembering to archive on the day is how a former customer's calls kept being
   // answered for free — see the voice-route gate.
   archiveScheduledAt DateTime?
+  // Why they left, captured when notice is given. Five garages have been archived with no record
+  // of the reason, so "why did our last five customers leave" had no answer at all.
+  cancellationReason      String?
+  cancellationRequestedAt DateTime?
+  cancellationRequestedBy String?
   // How this customer pays. 'invoice' customers (In'n'out) settle by bank transfer against an
   // emailed invoice, so their invoices sit 'pending' by design — chasing them needs payment TERMS,
   // not a failed-collection signal, and the billing watchdog must not treat them as unpaid.
@@ -73,6 +78,10 @@ model Garage {
   // Setup Wizard
   setupWizardCompleted   Boolean   @default(false)
   setupWizardCompletedAt DateTime?
+  // Set when the welcome email actually goes out. Column already exists in the database; it was
+  // missing from this schema copy, so the client could not see it. Doubles as the
+  // "self-serve trial already activated" marker for assistTrialActivation.
+  welcomeEmailSentAt     DateTime?
 
   // Widget Customization
   widgetLogoUrl      String?
@@ -84,7 +93,15 @@ model Garage {
   widgetButtonIcon   String  @default("chat")
 
   calls                  Call[]
+  // Outbound caller ID. These columns have been live in the database for a while but were never
+  // added here, so every reference to them in outbound-calls.ts was a type error and the backend
+  // could not build.
+  outboundCallerId         String?
+  outboundCallerIdVerified Boolean  @default(false)
+  outboundCallerIdSid      String?
+  outboundCalls            OutboundCall[]
   agentConfiguration     AgentConfiguration?
+  agentConfigChanges     AgentConfigChange[]
   knowledgeDocuments     AgentKnowledgeDocument[]
   business               Business?                @relation(fields: [businessId], references: [id])
   businessId             String?
@@ -191,12 +208,29 @@ model User {
   resetToken            String?
   resetTokenExpiry      DateTime?
 
+  // Hard account lock. Set by staff (suspected fraud, abuse, a signup we don't want live). While
+  // lockedAt is set the user cannot log in, cannot request or use a password reset, and cannot
+  // use a magic link — every auth path returns "contact us" rather than a credentials error.
+  //
+  // Deliberately on User, not Garage: garage.accessRestricted is the ARREARS mechanism and by
+  // design still lets people sign in to pay. A lock has to stop sign-in itself, and resetting a
+  // password must not route around it.
+  lockedAt              DateTime?
+  lockedReason          String?
+
   // Onboarding tracking
   setupWizardCompleted   Boolean   @default(false)
   setupWizardCompletedAt DateTime?
 
   // Service agreement
   mustSignAgreement Boolean     @default(true)
+
+  // Session control & audit.
+  // sessionsValidFrom invalidates every JWT issued before it — the only way to log someone out
+  // when tokens are stateless. Bump it and their existing sessions stop working.
+  sessionsValidFrom DateTime?
+  lastLoginAt       DateTime?
+  loginEvents       LoginEvent[]
   agreements        Agreement[]
 
   // Magic-link tokens for "sign your agreement" links (short-lived, single-use)
@@ -209,6 +243,12 @@ model User {
   // Ops-tasks board (staff-only) — a staff user may be the assignee or the creator
   opsTasksAssigned OpsTask[] @relation("OpsTaskAssignee")
   opsTasksCreated  OpsTask[] @relation("OpsTaskCreatedBy")
+
+  // Garage-side Messages inbox: a garage's team member can own conversations
+  // from their garage's customers. Assignment is per-garage — a multi-branch
+  // user only sees/owns conversations on their allowed garages. Assignment
+  // is ownership only; it does NOT silence the AI (that's a separate action).
+  assignedChatConversations ChatConversation[] @relation("ChatConversationAssignee")
 
   // Mobile push notifications (iOS APNs device tokens). One user may have
   // several devices; tokens are registered by the mobile app on launch.
@@ -375,6 +415,11 @@ model AgentConfiguration {
   messagingNotifyPhone      String?
   allowBookings             Boolean  @default(false)
   bookingLeadTimeDays       Int      @default(1)
+  // What kind of motor business this is, in the words the voice agent uses to introduce itself.
+  // Most garages are repair-only, which is what the agent assumed for everyone until Kestrels --
+  // a used car dealer AND a workshop -- told a caller it does not sell cars. Populated from the
+  // Google Places `types` at signup where we have them, editable in the portal either way.
+  businessType              String?
   customRules               Json?
   dataCollectionFields      Json?
   faqs                      Json?
@@ -506,6 +551,15 @@ model ChatConversation {
   capturedRevenue          Float?
   bookingDetails           String?
   tags                     String[]                  @default([])
+  // Auto-derived enquiry category for garage-side Messages inbox filters.
+  // App-code enum: parts | sales | booking | complaint | general. Nullable
+  // so historical rows and cases we can't classify remain untouched.
+  enquiryType              String?
+  // Optional owner within the garage. FK to User; onDelete SetNull so a
+  // staff member losing garage access drops their conversations back into
+  // the shared "unassigned" pool rather than orphaning them.
+  assigneeId               String?
+  assignee                 User?                     @relation("ChatConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   unreadCount              Int                       @default(0)
   lastMessageAt            DateTime                  @default(now())
   sessionState             Json?
@@ -518,6 +572,8 @@ model ChatConversation {
   @@index([garageId, platform])
   @@index([garageId, customerId])
   @@index([garageId, needsAttention])
+  @@index([garageId, assigneeId])
+  @@index([garageId, enquiryType])
 }
 
 model ChatMessage {
@@ -779,6 +835,9 @@ model PendingSignup {
   phoneNumber        String?
   websiteUrl         String?
   weeklyOpeningHours Json?
+  // Carried from the Google Places lookup so the agent knows whether this is a repair garage,
+  // a dealership, or both, from the very first call rather than after someone complains.
+  businessType       String?
 
   // Magic-link sign token (single-use-ish; the pending row is the source of truth).
   signToken String  @unique
@@ -881,4 +940,67 @@ model OpsDailyReport {
   createdAt   DateTime  @default(now())
 
   @@index([reportDate])
+}
+
+
+// Who signed in, when, and from where. There was previously no record of a login at all, so
+// "who was in the portal on Tuesday" had no answer. Failures are recorded too — a run of them
+// against one account is worth seeing.
+// What changed in a garage's agent settings, who changed it, and what it was before.
+//
+// Settings have "reverted" before with no way to tell whether a person did it, a bad save
+// dropped them, or the config sync overwrote them -- the validator strip in August wiped FAQs to
+// an empty list and nobody could prove what had happened. One row per save, holding only the
+// fields that actually differed.
+model AgentConfigChange {
+  id        String   @id @default(cuid())
+  // What kind of change this row describes: 'agent_config' for the agent's settings, 'garage' for
+  // commercial ones — price, tier, access, trial dates. Same table because the question people
+  // actually ask is "what changed on this garage and who did it", and splitting that across two
+  // places just means checking two places.
+  scope     String   @default("agent_config")
+  garageId  String
+  garage    Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  userId    String?
+  userEmail String?
+  // [{ field, from, to }] — values are truncated, this is for answering "who turned that off",
+  // not for restoring a backup.
+  changes   Json
+  createdAt DateTime @default(now())
+
+  @@index([garageId, createdAt])
+  @@index([createdAt])
+}
+
+// Outbound calls placed from the portal. Table has existed in the database since the outbound
+// feature shipped; the model was never written, so the route that uses it could not compile.
+model OutboundCall {
+  id              String   @id @default(cuid())
+  garageId        String
+  garage          Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  toNumber        String
+  callerId        String
+  agentPhone      String
+  twilioCallSid   String?
+  status          String   @default("initiated")
+  durationSeconds Int?
+  createdAt       DateTime @default(now())
+
+  @@index([garageId, createdAt])
+}
+
+model LoginEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String
+  success   Boolean  @default(true)
+  reason    String?  // why a failure was rejected: 'bad_password' | 'no_user' | 'revoked'
+  ip        String?
+  userAgent String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([email])
 }

@@ -268,6 +268,8 @@ export interface AgentConfiguration {
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
+  /** How the agent describes the business on calls. Empty = the repair-garage default. */
+  businessType?: string | null;
   humanEscalation?: boolean;
   // Messaging (chat) agent: whether it may hand a chat over to a human, and an
   // optional bespoke message to send when handoff is turned off. Independent of
@@ -391,6 +393,8 @@ export interface BillingCalculation {
 }
 
 export interface Invoice {
+  /** When GoCardless will collect a pending Direct Debit — money in transit, not owed. */
+  gocardlessChargeDate?: string | null;
   id: string;
   garageId: string;
   garage?: {

@@ -1,0 +1,30 @@
+DEPENDS ON PHASE 1. Executable spec for a coding agent.
+
+GOAL: noise never reaches the queue, without ever silently losing a real customer.
+
+--- 1. SPAM ---
+Use Mailgun's spam verdict (X-Mailgun-Sflag / X-Mailgun-Sscore) plus SPF/DKIM results.
+- High confidence spam → create NO ticket. Store the raw message in a quarantine table with a
+  7-day retention, visible in a "Spam" view in the UI.
+- NEVER auto-reply, NEVER unsubscribe, NEVER bounce. Backscatter to a spoofed sender damages our
+  sending reputation.
+- Start the threshold CONSERVATIVE (only clear spam). A garage's email vanishing silently is far
+  worse than ten junk emails reaching the queue. Any recovery from the Spam view should log a
+  counter so the threshold can be tuned on evidence.
+
+--- 2. MARKETING / BULK ---
+Detect List-Unsubscribe (and List-Unsubscribe-Post one-click). Create no ticket; surface in a
+"Bulk" view with a one-click unsubscribe action that calls the one-click endpoint. Confirm the
+first time for each new sender domain, then remember the decision.
+
+--- 3. TRANSACTIONAL — NEVER UNSUBSCRIBE ---
+Maintain an explicit allowlist of transactional senders: Stripe, GoCardless, Twilio, OpenAI,
+LiveKit, Mailgun, Meta/Facebook, AWS, Companies House, HMRC, the bank.
+These are never spam, never bulk, never unsubscribed. Category 'billing', assigned to Dan,
+excluded from support views and from support metrics. Their only requirement is not getting lost.
+
+--- 4. ACCEPTANCE ---
+1. Obvious spam → no ticket, appears in Spam view, nothing sent back.
+2. A marketing newsletter → no ticket, unsubscribable in one click.
+3. A Stripe receipt → billing ticket assigned to Dan, never unsubscribed, not in Gab's views.
+4. Recovering a false positive from Spam creates the ticket properly and increments the counter.

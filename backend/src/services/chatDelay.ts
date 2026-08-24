@@ -53,6 +53,101 @@ async function markSeen(p: HumanReplyParams, typing: boolean): Promise<void> {
   }
 }
 
+
+// Split a reply into the two or three messages a person would actually send, rather than one
+// paragraph. Splits on sentence boundaries only, never mid-sentence, and leaves short replies
+// alone — chunking "What's your postcode?" would be worse than not chunking at all.
+export function splitIntoMessages(text: string, maxChunks = 3): string[] {
+  const clean = (text || '').trim();
+  if (clean.length < 180) return [clean];
+
+  // Split only where a sentence genuinely ends: punctuation followed by whitespace. The lookbehind
+  // matters — an earlier version used a match() pattern that broke inside "£319.99" and silently
+  // dropped the rest of the sentence, so a customer would have been quoted a mangled price.
+  const sentences = clean.split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean);
+  if (sentences.length < 2) return [clean];
+
+  const target = Math.ceil(clean.length / Math.min(maxChunks, Math.ceil(clean.length / 200)));
+  const chunks: string[] = [];
+  let buf = '';
+  for (const sentence of sentences) {
+    if (buf && (buf.length + sentence.length) > target && chunks.length < maxChunks - 1) {
+      chunks.push(buf.trim());
+      buf = sentence;
+    } else {
+      buf = buf ? `${buf} ${sentence}` : sentence;
+    }
+  }
+  if (buf.trim()) chunks.push(buf.trim());
+
+  // Hard guard: chunking must never change a single character of what the customer reads. If the
+  // parts do not rejoin to the original, send it whole rather than risk mangling a price or a date.
+  const norm = (x: string) => x.replace(/\s+/g, ' ').trim();
+  if (norm(chunks.join(' ')) !== norm(clean)) {
+    console.warn('[chat-delay] chunking would alter the message — sending it whole');
+    return [clean];
+  }
+  return chunks.filter(Boolean);
+}
+
+/**
+ * Stop the agent repeating itself word for word.
+ *
+ * Several tool handlers return fixed lines ("I don't have any online availability showing…"),
+ * so hitting the same branch twice produces the identical sentence twice. Isaac's Great Hollands
+ * conversation on 18 Aug had two such pairs, one of them back to back. Nothing gives the game
+ * away faster — a person never repeats thirty words exactly.
+ *
+ * Rather than rewrite sixty-odd scripted lines across five agents, catch it at the point of
+ * sending: if this reply matches one the agent has just sent, ask a cheap model to say the same
+ * thing differently. Falls back to the original if the rewrite fails — repeating beats silence.
+ */
+async function avoidVerbatimRepeat(conversationId: string, content: string): Promise<string> {
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const recent = await prisma.chatMessage.findMany({
+    where: { conversationId, role: 'assistant' },
+    orderBy: { createdAt: 'desc' },
+    take: 3,
+    select: { content: true },
+  });
+  if (!recent.some(m => norm(m.content || '') === norm(content))) return content;
+
+  console.log(`[chat-delay] conv ${conversationId}: reply repeats a recent one — rephrasing`);
+  try {
+    const { default: OpenAI } = await import('openai');
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const r = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.8,
+      max_tokens: 160,
+      messages: [
+        { role: 'system', content:
+          'Rewrite the message so it means exactly the same thing but is worded differently, as a '
+          + 'British garage receptionist would say it on WhatsApp. Keep it the same length or shorter. '
+          + 'Keep every fact, name, price, date and question. Do not add anything new. Reply with the '
+          + 'rewritten message only.' },
+        { role: 'user', content },
+      ],
+    });
+    return r.choices[0]?.message?.content?.trim() || content;
+  } catch (e: any) {
+    console.warn('[chat-delay] rephrase failed, sending original:', e?.message);
+    return content;
+  }
+}
+
+/** How long since the customer was last in touch — so the agent can open like a person would. */
+async function hoursSinceLastMessage(conversationId: string): Promise<number | null> {
+  const prev = await prisma.chatMessage.findFirst({
+    where: { conversationId },
+    orderBy: { createdAt: 'desc' },
+    skip: 1,                       // skip the message we are replying to
+    select: { createdAt: true },
+  });
+  if (!prev) return null;
+  return (Date.now() - prev.createdAt.getTime()) / 3_600_000;
+}
+
 async function sendDelayedReply(p: HumanReplyParams): Promise<void> {
   pending.delete(p.conversationId);
 
@@ -79,26 +174,50 @@ async function sendDelayedReply(p: HumanReplyParams): Promise<void> {
   const seedContact = (conv?.customerPhone || conv?.customerName)
     ? { phone: conv.customerPhone || undefined, name: conv.customerName || undefined }
     : undefined;
-  const agentResponse = await routeChatMessage(p.garageId, p.agentText, p.conversationId, seedContact);
+  // A WhatsApp thread can sit dormant for days and then pick up again — Isaac's Great Hollands
+  // conversation ran 14 to 18 August. Carrying on mid-sentence four days later is a giveaway, so
+  // tell the agent how long it has been and let it open the way a person would.
+  // 8 hours, to match WARM_EXPIRY_MS in chatAgentV2: that is the point at which the session
+  // genuinely drops the loaded service list and starts treating this as a returning customer, so
+  // it is the point at which the agent has something to acknowledge. Below it the agent still
+  // remembers everything and apologising for a gap it did not have reads as odd.
+  const gapHours = await hoursSinceLastMessage(p.conversationId);
+  const gapNote = gapHours === null || gapHours < 8 ? undefined
+    : gapHours < 24 ? 'earlier today'
+    : gapHours < 48 ? 'yesterday'
+    : `${Math.round(gapHours / 24)} days ago`;
+  if (gapNote) console.log(`[chat-delay] conv ${p.conversationId}: resuming after ${gapNote}`);
+
+  const agentResponse = await routeChatMessage(
+    p.garageId, p.agentText, p.conversationId,
+    gapNote ? { ...seedContact, lastContact: gapNote } : seedContact,
+  );
   if (!agentResponse?.content) return;
 
-  // Show "typing…" for a couple of seconds right before the message lands.
-  await markSeen(p, true);
-  await new Promise((r) => setTimeout(r, rand(2_500, 5_000)));
+  const content = await avoidVerbatimRepeat(p.conversationId, agentResponse.content);
+  const chunks = splitIntoMessages(content);
 
-  await prisma.chatMessage.create({
-    data: { conversationId: p.conversationId, role: 'assistant', content: agentResponse.content },
-  });
-  try {
-    await axios.post(
-      `https://graph.facebook.com/v21.0/${p.phoneNumberId}/messages`,
-      { messaging_product: 'whatsapp', to: p.customerPhone, type: 'text', text: { body: agentResponse.content } },
-      { headers: { Authorization: `Bearer ${p.accessToken}`, 'Content-Type': 'application/json' } },
-    );
-    console.log(`[chat-delay] sent delayed reply to ${p.customerPhone}`);
-  } catch (e: any) {
-    console.error(`[chat-delay] SEND FAILED to ${p.customerPhone}:`, JSON.stringify(e?.response?.data ?? e?.message));
+  for (let i = 0; i < chunks.length; i++) {
+    // Typing before each part, so a two-part reply looks like someone still writing rather than
+    // two messages fired at once.
+    await markSeen(p, true);
+    await new Promise((r) => setTimeout(r, i === 0 ? rand(2_500, 5_000) : rand(1_200, 2_800)));
+
+    await prisma.chatMessage.create({
+      data: { conversationId: p.conversationId, role: 'assistant', content: chunks[i] },
+    });
+    try {
+      await axios.post(
+        `https://graph.facebook.com/v21.0/${p.phoneNumberId}/messages`,
+        { messaging_product: 'whatsapp', to: p.customerPhone, type: 'text', text: { body: chunks[i] } },
+        { headers: { Authorization: `Bearer ${p.accessToken}`, 'Content-Type': 'application/json' } },
+      );
+    } catch (e: any) {
+      console.error(`[chat-delay] SEND FAILED to ${p.customerPhone}:`, JSON.stringify(e?.response?.data ?? e?.message));
+      return;   // don't send part 2 if part 1 never landed
+    }
   }
+  console.log(`[chat-delay] sent delayed reply to ${p.customerPhone} in ${chunks.length} message(s)`);
 }
 
 /**

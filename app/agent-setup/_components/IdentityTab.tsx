@@ -37,6 +37,9 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
       addressHint: "Used when the caller asks where you're based",
       website: 'Website URL',
       websiteHint: 'Optional — used by the agent if it gets asked for the website',
+      businessType: 'What kind of business you are',
+      businessTypeHint:
+        "How the agent describes you on calls. Leave blank if you're a repair garage — that's the default. Set it if you also sell cars, so the agent doesn't tell callers you don't.",
     },
     fr: {
       title: "Identité de l'agence",
@@ -61,6 +64,9 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
       addressHint: "Utilisée lorsque l'appelant demande où vous êtes situé",
       website: 'URL du site web',
       websiteHint: "Facultatif — utilisé par l'agent si on lui demande le site web",
+      businessType: "Type d'établissement",
+      businessTypeHint:
+        "Comment l'agent vous décrit au téléphone. Laissez vide si vous êtes un garage de réparation — c'est la valeur par défaut. Renseignez-le si vous vendez aussi des voitures.",
     },
   }[lang];
   const [branchName, setBranchName] = useState(config.branchName ?? '');
@@ -69,6 +75,7 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
   const [emailAddress, setEmailAddress] = useState(config.emailAddress ?? '');
   const [branchAddress, setBranchAddress] = useState(config.branchAddress ?? '');
   const [websiteUrl, setWebsiteUrl] = useState(config.websiteUrl ?? '');
+  const [businessType, setBusinessType] = useState(config.businessType ?? '');
 
   useEffect(() => {
     setBranchName(config.branchName ?? '');
@@ -77,6 +84,7 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
     setEmailAddress(config.emailAddress ?? '');
     setBranchAddress(config.branchAddress ?? '');
     setWebsiteUrl(config.websiteUrl ?? '');
+    setBusinessType(config.businessType ?? '');
   }, [config]);
 
   const handleSave = () => {
@@ -87,6 +95,7 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
       emailAddress,
       branchAddress,
       websiteUrl,
+      businessType: businessType.trim(),
     });
   };
 
@@ -163,6 +172,16 @@ export default function IdentityTab({ config, save, isSaving, twilioNumber }: Pr
           onChange={(e) => setBranchAddress(e.target.value)}
           rows={2}
           placeholder="123 High Street, Reading, RG1 1AA"
+          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+        />
+      </Field>
+
+      <Field label={c.businessType} hint={c.businessTypeHint}>
+        <input
+          type="text"
+          value={businessType}
+          onChange={(e) => setBusinessType(e.target.value)}
+          placeholder="a UK car repair garage"
           className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
         />
       </Field>

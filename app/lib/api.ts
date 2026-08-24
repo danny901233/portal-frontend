@@ -423,6 +423,23 @@ export const updateBillingConfig = async (
   return data;
 };
 
+/**
+ * Set the date a garage's notice expires, with the reason they gave. On that date the nightly
+ * job removes voice and messaging access, zeroes the pricing and archives them — service runs in
+ * full until then. Pass null to cancel the notice if they change their mind.
+ */
+export const scheduleLeaving = async (
+  garageId: string,
+  leavingDate: string | null,
+  reason?: string,
+): Promise<{ success: boolean; name: string; leavingDate: string | null }> => {
+  const { data } = await api.post(`/api/admin/garages/${garageId}/schedule-leaving`, {
+    leavingDate,
+    reason,
+  });
+  return data;
+};
+
 export const fetchUsage = async (
   garageId: string,
   startDate: string,

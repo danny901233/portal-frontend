@@ -1,0 +1,60 @@
+DEPENDS ON PHASE 2 (ticket model). Executable spec for a coding agent.
+
+GOAL: an email to hello@receptionmate.co.uk becomes a ticket, gets an automatic acknowledgement,
+gets an AI-drafted reply for a human to approve, and staff replies thread back correctly.
+
+--- 1. INBOUND (Mailgun) ---
+Mailgun Inbound Route on hello@ POSTing to POST /api/webhooks/mailgun-inbound.
+Infra Dan must do (state it in your PR description, do not attempt it): MX/route config in the
+Mailgun dashboard pointing at the webhook.
+New file: backend/src/routes/webhooks/mailgun-inbound.ts. Copy the shape of
+routes/webhooks/meta-whatsapp.ts.
+1. VERIFY the Mailgun signature (timestamp, token, signature) using MAILGUN_API_KEY (HMAC-SHA256).
+   Reject 401 if it fails. Never process an unverified POST.
+2. Persist the raw payload BEFORE parsing anything, so a parse bug loses nothing.
+3. Return 200 fast; do the work after responding (Mailgun retries on non-200 and will duplicate).
+
+--- 2. THREADING (this is what stops one conversation becoming five tickets) ---
+In order of precedence:
+a) Subject contains [RM #<number>] → append to that ticket.
+b) In-Reply-To / References matches a stored outbound Message-Id → append to that ticket.
+c) Otherwise → new ticket.
+If the matched ticket is solved/closed → reopen (status open) and append.
+Dedupe on the inbound Message-Id: if already stored, drop it (Mailgun retries).
+
+--- 3. IDENTITY ---
+Resolve sender email → SupportContact (create if new). Link userId/businessId/garageId when the
+address matches a known user or garage. Unmatched senders still get a ticket, just unidentified.
+
+--- 4. CLASSIFICATION ---
+Deterministic rules FIRST, AI only for what is left:
+- Known supplier/transactional domain → category 'billing', assign to Dan, exclude from support views.
+- Sender is a known garage contact → category 'support'.
+- Complaint language + known garage → category 'complaint', priority 'high'.
+Then AI (reuse the existing OpenAI client pattern) suggests category for anything unresolved.
+Store the AI's confidence in meta. Misclassification must be one click to correct in the UI.
+
+--- 5. AUTO-ACKNOWLEDGEMENT (the only thing that sends unreviewed) ---
+On NEW ticket only (never on a reply to an existing one), never for spam/bulk/no-reply senders,
+and never to a sender whose address matches no-reply|noreply|donotreply|mailer-daemon|postmaster.
+Send via sendEmail(). Subject: "We've got your message [RM #<number>]".
+
+--- 6. AI DRAFT ---
+Generate a suggested reply and store it as a DRAFT on the ticket (not an entry, or an entry with
+kind 'note' flagged isDraft). It MUST NOT send. UI shows it above the reply box with
+"Use draft" / "Discard". A human edits and sends.
+
+--- 7. OUTBOUND ---
+Replies send from MAILGUN_FROM (hello@) with:
+- Subject carrying [RM #<number>].
+- A stored Message-Id, and In-Reply-To/References set to the customer's last message, so it lands
+  in the same email thread rather than starting a new one.
+Store the sent Message-Id in SupportEntry.meta for future threading.
+
+--- 8. ACCEPTANCE ---
+1. Email to hello@ → ticket with correct contact, category, and an acknowledgement received.
+2. Reply to that acknowledgement → appends to the SAME ticket, does not create a second.
+3. Staff reply arrives in the customer's original email thread.
+4. Replaying the same Mailgun POST twice creates exactly one ticket and one entry.
+5. An unverified/forged POST is rejected 401.
+6. No-reply sender → ticket created, NO acknowledgement sent.

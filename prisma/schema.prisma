@@ -201,6 +201,18 @@ model User {
   resetToken            String?
   resetTokenExpiry      DateTime?
 
+  // Hard account lock. Set by staff (suspected fraud, abuse, a signup we don't want live). While
+  // lockedAt is set the user cannot log in, cannot request or use a password reset, and cannot
+  // use a magic link — every auth path returns "contact us" rather than a credentials error, so
+  // a locked customer knows to get in touch instead of retrying.
+  //
+  // Deliberately on User, not Garage: garage.accessRestricted is the ARREARS mechanism (withholds
+  // call content, shows a billing blocker) and by design still lets people sign in to pay. A lock
+  // has to stop sign-in itself, and resetting a password must not route around it — the Cally
+  // Pool & Gym signup reset its password minutes after signing up.
+  lockedAt              DateTime?
+  lockedReason          String?
+
   // Onboarding tracking
   setupWizardCompleted   Boolean   @default(false)
   setupWizardCompletedAt DateTime?

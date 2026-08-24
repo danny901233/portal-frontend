@@ -15,21 +15,20 @@ import express from 'express';
 import Stripe from 'stripe';
 import { prisma } from '../../db.js';
 import { setOnboardingStageForUser } from '../../utils/onboardingStage.js';
-import { sendWelcomeEmail, sendEmail, sendArrearsWarningEmail } from '../../utils/email.js';
+import { sendEmail, sendArrearsWarningEmail } from '../../utils/email.js';
 import { ARREARS_GRACE_DAYS } from '../../utils/arrears.js';
 import { getStripeClient, STRIPE_TRIAL_DAYS } from '../../services/stripe.js';
-import { purchaseRandomTwilioNumber } from '../onboarding.js';
-import { sendAgentConfigWebhook } from '../config.js';
-import { updateOpportunity, LIVE_STAGE_ID, TRIAL_LIVE_STAGE_ID } from '../../services/highlevel.js';
+import { updateOpportunity, LIVE_STAGE_ID } from '../../services/highlevel.js';
 import { createAccountFromPending } from '../public-signup.js';
-import { sendOpsSms } from '../../utils/opsAlerts.js';
+// Provisioning + welcome + HL + ops alert used to live in this file, which meant it only ran if
+// the setup_intent.succeeded webhook arrived. It does not, so the same work is now shared with
+// /api/public/signup-complete and both call in here.
+import { activateAssistTrial, provisionGarageAccount } from '../../services/assistTrialActivation.js';
 
 const router = Router();
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? '';
 const PORTAL_URL = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
-const ONBOARDING_SERVICE_URL = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
-const ONBOARDING_SECRET = process.env.ONBOARDING_SECRET;
 const OPS_EMAIL = 'hello@receptionmate.co.uk';
 
 // The subscription reference has moved around across Stripe API versions (top-level
@@ -45,72 +44,6 @@ function invoiceSubId(invoice: Stripe.Invoice): string | undefined {
   return typeof sub === 'string' ? sub : sub?.id;
 }
 
-// ── provisioning core: buy a Twilio number, set up the SIP trunk, send the welcome email ──
-// Idempotent by contract: the caller must skip this if the garage already has a number.
-async function provisionGarageAccount(garage: { id: string; name: string }, userEmail: string): Promise<void> {
-  // Match the portal voice webhook's routing: Assist/GarageHive garages run on LiveKit Account 2
-  // with their own agent; everything else stays on Account 1. Get this wrong and the number rings
-  // into a LiveKit project with no matching trunk — the call goes nowhere.
-  const cfg = await prisma.agentConfiguration.findUnique({
-    where: { garageId: garage.id },
-    select: { agentScript: true },
-  });
-  const agentScript = cfg?.agentScript || 'receptionmate-agent';
-  const account = agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent' ? 'account2' : 'account1';
-
-  let twilioNumber: string | null = null;
-  try {
-    twilioNumber = await purchaseRandomTwilioNumber();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (ONBOARDING_SECRET) headers['x-onboarding-secret'] = ONBOARDING_SECRET;
-    const onboardResponse = await fetch(`${ONBOARDING_SERVICE_URL}/provision`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        garageId: garage.id,
-        garageName: garage.name,
-        branchName: garage.name,
-        contactEmail: userEmail,
-        twilioNumber,
-        agentName: agentScript,
-        account,
-        triggeredAt: new Date().toISOString(),
-      }),
-    });
-    if (!onboardResponse.ok) {
-      const text = await onboardResponse.text().catch(() => '');
-      throw new Error(`Onboarding service ${onboardResponse.status}: ${text.slice(0, 200)}`);
-    }
-    await prisma.garage.update({ where: { id: garage.id }, data: { twilioNumber } });
-  } catch (err) {
-    console.error(`[STRIPE_WEBHOOK] Twilio provisioning failed for garage=${garage.id}:`, err);
-    // Don't throw — the trial has started; the team can assign a number manually.
-  }
-
-  // Push the garage's agent config to the live agent (DynamoDB). Self-serve signups never saved
-  // config in the portal, so this is the FIRST push — without it the number rings but the agent
-  // has no config to load and the call goes nowhere.
-  try {
-    await sendAgentConfigWebhook(garage.id);
-  } catch (err) {
-    console.error(`[STRIPE_WEBHOOK] agent config sync failed for garage=${garage.id}:`, err);
-  }
-
-  try {
-    await sendWelcomeEmail({
-      to: userEmail,
-      businessName: garage.name,
-      branchName: garage.name,
-      email: userEmail,
-      password: 'Nomoremissedcalls',
-      portalUrl: PORTAL_URL,
-    });
-  } catch (err) {
-    console.error('[STRIPE_WEBHOOK] welcome email failed:', err);
-  }
-
-  console.log(`[STRIPE_WEBHOOK] provisioned garage=${garage.id} twilio=${twilioNumber ?? 'FAILED'}`);
-}
 
 // ── custom Payment Element path: card confirmed against the trial subscription's SetupIntent ──
 // We stored garage.stripeCustomerId when the subscription was created, so map back by customer id.
@@ -128,22 +61,8 @@ async function handleSetupIntentSucceeded(si: Stripe.SetupIntent): Promise<void>
   if (pending) {
     const created = await createAccountFromPending(pending.id);
     if (created) {
-      const g = await prisma.garage.findUnique({ where: { id: created.garageId }, select: { twilioNumber: true } });
-      if (!g?.twilioNumber) {
-        await provisionGarageAccount({ id: created.garageId, name: created.garageName }, created.userEmail);
-      }
-      if (pending.ghlOpportunityId && TRIAL_LIVE_STAGE_ID) {
-        void updateOpportunity(pending.ghlOpportunityId, { stageId: TRIAL_LIVE_STAGE_ID, monetaryValueGbp: 200 })
-          .then((ok) => console.log(`[STRIPE_WEBHOOK] HL opp ${pending.ghlOpportunityId} → Free trial live (${ok ? 'ok' : 'failed'})`));
-      }
-      // Ops alert — a real, carded trial signup.
-      void sendEmail({
-        to: ['hello@receptionmate.co.uk'],
-        subject: `New Assist trial signup — ${created.garageName}`,
-        text: `New Assist 14-day trial signup (card confirmed).\n\nBusiness: ${created.garageName}\nEmail: ${created.userEmail}`,
-        html: `<p>New Assist 14-day trial signup 🎉 (card confirmed)</p><p>Business: <strong>${created.garageName}</strong><br/>Email: ${created.userEmail}</p>`,
-      }).catch(() => {});
-      void sendOpsSms(`New Assist trial signup 🎉\n${created.garageName}\n${created.userEmail}`);
+      // Idempotent — /api/public/signup-complete has almost certainly already run this.
+      await activateAssistTrial(created, pending, 'webhook');
     }
     return;
   }

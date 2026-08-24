@@ -1280,4 +1280,66 @@ router.post('/billing/trigger-invoice-generation', authenticate, requireAdmin, a
   }
 });
 
+// ── Account lock ───────────────────────────────────────────────────────────────────────────────
+// Suspend (or restore) every customer login on a garage. Locks the USERS, because that is what
+// stops sign-in: garage.accessRestricted is the arrears blocker and deliberately still lets
+// people log in to pay. accessRestricted is set alongside so a locked account also stops serving
+// call content.
+//
+// ReceptionMate staff accounts are never locked by this — they have access to many garages, and
+// locking one fraudulent signup must not lock the team out of the other thirty.
+const lockGarageSchema = z.object({
+  locked: z.boolean(),
+  reason: z.string().max(300).optional(),
+});
+
+router.post('/admin/garages/:garageId/lock', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const parsed = lockGarageSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const { locked, reason } = parsed.data;
+    const { garageId } = req.params;
+
+    const garage = await prisma.garage.findUnique({ where: { id: garageId }, select: { id: true, name: true } });
+    if (!garage) return res.status(404).json({ error: 'Garage not found' });
+
+    const users = await prisma.user.findMany({
+      where: { garageAccessIds: { has: garageId }, role: { not: 'RECEPTIONMATE_STAFF' } },
+      select: { id: true, email: true },
+    });
+
+    await prisma.user.updateMany({
+      where: { id: { in: users.map((u) => u.id) } },
+      data: locked
+        ? { lockedAt: new Date(), lockedReason: reason ?? null }
+        : { lockedAt: null, lockedReason: null },
+    });
+
+    // Locking also withholds call content and raises the portal blocker; unlocking only clears
+    // accessRestricted if there is no unpaid-invoice reason for it to stay on.
+    if (locked) {
+      await prisma.garage.update({ where: { id: garageId }, data: { accessRestricted: true } });
+    } else {
+      const g = await prisma.garage.findUnique({ where: { id: garageId }, select: { paymentFailedAt: true } });
+      if (!g?.paymentFailedAt) {
+        await prisma.garage.update({ where: { id: garageId }, data: { accessRestricted: false } });
+      }
+    }
+
+    console.log(
+      `[ADMIN] ${locked ? 'LOCKED' : 'UNLOCKED'} garage ${garage.name} (${garageId}) — ` +
+        `${users.length} login(s): ${users.map((u) => u.email).join(', ') || 'none'}` +
+        (locked && reason ? ` — reason: ${reason}` : ''),
+    );
+
+    res.json({ success: true, locked, garage: garage.name, usersAffected: users.map((u) => u.email) });
+  } catch (error) {
+    console.error('Failed to change account lock:', error);
+    res.status(500).json({
+      error: 'Failed to change account lock',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
 export default router;

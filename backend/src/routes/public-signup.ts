@@ -12,6 +12,7 @@ import { ensureAdminAccessToGarage } from './admin.js';
 import { fetchPlaceDetails } from '../utils/googlePlaces.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { autoIngestWebsiteKnowledge } from './config.js';
+import { activateAssistTrial } from '../services/assistTrialActivation.js';
 import type { Prisma } from '@prisma/client';
 
 const router = Router();
@@ -355,6 +356,19 @@ router.post('/public/signup-complete', async (req: Request, res: Response) => {
     await prisma.user.update({
       where: { email: created.userEmail },
       data: { resetToken, resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000) },
+    });
+    // Provision the number, push the agent config, welcome them, move the HL opportunity to
+    // "Free trial live" and alert the team. This used to be done ONLY by the Stripe
+    // setup_intent.succeeded webhook, which does not reach us — so every self-serve trial was
+    // landing with no number and no notification. Fire-and-forget so a slow Twilio purchase can't
+    // stall the customer on the "Choose a password" step; activateAssistTrial is idempotent, so
+    // the webhook doing it again later is a no-op.
+    const pending = await prisma.pendingSignup.findUnique({
+      where: { id: parsed.data.pendingSignupId },
+      select: { ghlOpportunityId: true },
+    });
+    void activateAssistTrial(created, pending, 'signup-complete').catch((err) => {
+      console.error('[PUBLIC_SIGNUP] activation failed:', err);
     });
     return res.json({ ok: true, resetToken });
   } catch (err) {

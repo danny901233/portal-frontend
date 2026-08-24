@@ -11,6 +11,12 @@ import { z } from 'zod';
 
 const router = Router();
 
+// Shown on every auth path when User.lockedAt is set. Deliberately says nothing about why —
+// staff lock accounts for suspected fraud, and the detail belongs in a conversation, not an
+// error message.
+const ACCOUNT_LOCKED_MESSAGE =
+  'This account has been suspended. Please contact ReceptionMate at hello@receptionmate.co.uk to restore access.';
+
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const result = loginSchema.safeParse(req.body);
@@ -30,6 +36,13 @@ router.post('/login', async (req: Request, res: Response) => {
 
     if (!matched) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Checked AFTER the password so we don't leak which accounts are locked to someone guessing.
+    // A locked user with the right password gets told to contact us, which is the whole point.
+    if (user.lockedAt) {
+      console.warn(`[AUTH] locked account login attempt: ${user.email} (locked ${user.lockedAt.toISOString()})`);
+      return res.status(403).json({ error: ACCOUNT_LOCKED_MESSAGE, code: 'account_locked' });
     }
 
     const secret = process.env.JWT_SECRET;
@@ -176,6 +189,13 @@ router.post('/request-password-reset', async (req: Request, res: Response) => {
       return res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
     }
 
+    // A locked account must not be able to reset its way back in. Same generic response as the
+    // unknown-email case so this doesn't become a locked-account oracle.
+    if (user.lockedAt) {
+      console.warn(`[AUTH] password reset requested for locked account: ${user.email}`);
+      return res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
+    }
+
     // Generate reset token
     const resetToken = randomBytes(32).toString('hex');
     const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
@@ -306,6 +326,13 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid or expired reset token' });
     }
 
+    // Covers a token issued before the lock was applied — including the one signup-complete hands
+    // out, which is how a fraudulent signup would otherwise walk straight back in.
+    if (user.lockedAt) {
+      console.warn(`[AUTH] reset-password blocked for locked account: ${user.email}`);
+      return res.status(403).json({ error: ACCOUNT_LOCKED_MESSAGE, code: 'account_locked' });
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     const updatedUser = await prisma.user.update({
@@ -412,6 +439,12 @@ router.post('/verify-magic-link', async (req: Request, res: Response) => {
     if (!user) {
       console.log('[MAGIC LINK] Token not found or expired');
       return res.status(400).json({ error: 'Invalid or expired link' });
+    }
+
+    // A magic link mints a session directly, so it would bypass the login check entirely.
+    if (user.lockedAt) {
+      console.warn(`[AUTH] magic link blocked for locked account: ${user.email}`);
+      return res.status(403).json({ error: ACCOUNT_LOCKED_MESSAGE, code: 'account_locked' });
     }
 
     console.log('[MAGIC LINK] Token valid, logging in user:', user.email);

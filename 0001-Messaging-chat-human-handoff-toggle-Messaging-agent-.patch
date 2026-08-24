@@ -1,0 +1,487 @@
+From edfbc2ebe833ccfa242442cf21e8c33a3777be43 Mon Sep 17 00:00:00 2001
+From: DanTyldesley <dan@DanTyldesleys-MacBook-Air.local>
+Date: Thu, 9 Jul 2026 12:48:09 +0100
+Subject: [PATCH] Messaging: chat human-handoff toggle + Messaging agent-setup
+ subpage
+
+Adds a chat-specific human-handoff switch, independent of the voice-side
+humanEscalation, so a garage can allow phone transfers while keeping chat
+fully AI-handled (or vice versa).
+
+- schema: messagingHumanHandoff (default true) + messagingHandoffMessage
+- config route: exposes + persists both fields (get + save)
+- chatAgentAssist/V2/Tyresoft: read messagingHumanHandoff for chat; when off,
+  strip take-message/callback tools and use messagingHandoffMessage verbatim
+  (falls back to phone/email contact if blank)
+- new Agent Setup > Messaging subpage (MessagingTab) gated by hasMessagingAccess
+  via the per-garage messaging-access endpoint; staff always see it
+- Sidebar flyout: threads hasMessagingAccess into AgentConfigSidebarItem so the
+  gated nav item resolves correctly
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ app/agent-setup/_components/MessagingTab.tsx | 106 +++++++++++++++++++
+ app/agent-setup/_nav.ts                      |   4 +
+ app/agent-setup/layout.tsx                   |  42 +++++++-
+ app/agent-setup/messaging/page.tsx           |  14 +++
+ app/components/Sidebar.tsx                   |   9 +-
+ app/types/index.ts                           |   7 ++
+ backend/src/routes/config.ts                 |   8 ++
+ backend/src/services/chatAgentAssist.ts      |  16 ++-
+ backend/src/services/chatAgentTyresoft.ts    |  15 ++-
+ backend/src/services/chatAgentV2.ts          |  13 ++-
+ prisma/schema.prisma                         |   5 +
+ 11 files changed, 221 insertions(+), 18 deletions(-)
+ create mode 100644 app/agent-setup/_components/MessagingTab.tsx
+ create mode 100644 app/agent-setup/messaging/page.tsx
+
+diff --git a/app/agent-setup/_components/MessagingTab.tsx b/app/agent-setup/_components/MessagingTab.tsx
+new file mode 100644
+index 0000000..8821160
+--- /dev/null
++++ b/app/agent-setup/_components/MessagingTab.tsx
+@@ -0,0 +1,106 @@
++'use client';
++
++import { useState } from 'react';
++import type { AgentConfiguration } from '../../types';
++import { useLang } from '@/app/i18n/LocaleProvider';
++import TabShell from './TabShell';
++
++interface Props {
++  config: AgentConfiguration;
++  save: (patch: Partial<AgentConfiguration>) => Promise<unknown>;
++  isSaving: boolean;
++}
++
++/**
++ * Messaging (chat) agent behaviour. Independent of the voice-side transfer
++ * settings: some garages are happy for the chat agent to promise a human will
++ * follow up, others never want it to — they'd rather it politely deflects and
++ * keeps the conversation self-serve. `messagingHumanHandoff` off swaps every
++ * "I'll get someone to help" for a polite close (optionally the garage's own
++ * wording in `messagingHandoffMessage`).
++ */
++export default function MessagingTab({ config, save, isSaving }: Props) {
++  // Lazy initializer — captures config on first mount. PageGate keys the parent
++  // on garageId so this fully remounts on garage switch (no effect-driven reset).
++  const lang = useLang();
++  const c = {
++    en: {
++      title: 'Messaging agent',
++      description:
++        'How the chat agent behaves when a customer asks to speak to a real person. Turn handovers off if you never want the chat to promise a callback or transfer to a human.',
++      toggleLabel: 'Allow the chat agent to hand over to a human',
++      toggleHint:
++        "When ticked, the agent can tell customers a member of the team will follow up. Untick to keep every chat AI-handled — it'll politely explain no one's available instead.",
++      msgLabel: 'Message when a human is unavailable',
++      msgHint:
++        'Optional. The exact line the agent sends when someone asks for a human and handovers are off. Leave blank to fall back to your phone/email contact details.',
++      msgPlaceholder:
++        "Thanks for your message! Our team isn't available on chat, but I can help you book, get a quote, or answer questions right here.",
++    },
++    fr: {
++      title: 'Agent de messagerie',
++      description:
++        "Comment l'agent de chat se comporte lorsqu'un client demande à parler à une vraie personne. Désactivez les transferts si vous ne voulez jamais que le chat promette un rappel ou un transfert vers un humain.",
++      toggleLabel: "Autoriser l'agent de chat à transférer à un humain",
++      toggleHint:
++        "Lorsque cette case est cochée, l'agent peut dire aux clients qu'un membre de l'équipe fera un suivi. Décochez pour que chaque chat reste géré par l'IA — il expliquera poliment que personne n'est disponible.",
++      msgLabel: "Message lorsqu'aucun humain n'est disponible",
++      msgHint:
++        "Facultatif. La phrase exacte que l'agent envoie lorsqu'on demande un humain et que les transferts sont désactivés. Laissez vide pour utiliser vos coordonnées téléphone/e-mail.",
++      msgPlaceholder:
++        "Merci pour votre message ! Notre équipe n'est pas disponible sur le chat, mais je peux vous aider à réserver, obtenir un devis ou répondre à vos questions ici même.",
++    },
++  }[lang];
++
++  const [messagingHumanHandoff, setMessagingHumanHandoff] = useState(
++    () => config.messagingHumanHandoff ?? true,
++  );
++  const [messagingHandoffMessage, setMessagingHandoffMessage] = useState(
++    () => config.messagingHandoffMessage ?? '',
++  );
++
++  const handleSave = () => {
++    void save({
++      messagingHumanHandoff,
++      messagingHandoffMessage: messagingHandoffMessage.trim() || null,
++    });
++  };
++
++  return (
++    <TabShell
++      title={c.title}
++      description={c.description}
++      onSave={handleSave}
++      isSaving={isSaving}
++    >
++      <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
++        <input
++          type="checkbox"
++          checked={messagingHumanHandoff}
++          onChange={(e) => setMessagingHumanHandoff(e.target.checked)}
++          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
++        />
++        <div>
++          <p className="text-sm font-medium text-slate-900">{c.toggleLabel}</p>
++          <p className="mt-0.5 text-xs text-slate-500">{c.toggleHint}</p>
++        </div>
++      </label>
++
++      {!messagingHumanHandoff && (
++        <div>
++          <label className="mb-1 block text-sm font-medium text-slate-700">
++            {c.msgLabel}
++          </label>
++          <textarea
++            value={messagingHandoffMessage}
++            onChange={(e) => setMessagingHandoffMessage(e.target.value)}
++            rows={3}
++            placeholder={c.msgPlaceholder}
++            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
++          />
++          <p className="mt-1 text-xs text-slate-500">{c.msgHint}</p>
++        </div>
++      )}
++    </TabShell>
++  );
++}
+diff --git a/app/agent-setup/_nav.ts b/app/agent-setup/_nav.ts
+index 01a59fc..eb2ffa0 100644
+--- a/app/agent-setup/_nav.ts
++++ b/app/agent-setup/_nav.ts
+@@ -3,6 +3,9 @@ export interface AgentSetupNavItem {
+   label: string;
+   description: string;
+   staffOnly?: boolean;
++  // Only shown to garages that have the messaging (chat) product. The layout
++  // resolves access via /internal-api/garages/:id/messaging-access.
++  messagingOnly?: boolean;
+ }
+ 
+ /**
+@@ -21,6 +24,7 @@ export const AGENT_SETUP_NAV: AgentSetupNavItem[] = [
+   { href: '/agent-setup/questions',           label: 'Smart questions & F&Qs',     description: 'What to ask + common Q&A' },
+   { href: '/agent-setup/rules',               label: 'Rules',               description: 'Custom rules the agent must follow' },
+   { href: '/agent-setup/bookings-transfers',  label: 'Bookings & transfers', description: 'Booking behavior + where to send calls' },
++  { href: '/agent-setup/messaging',           label: 'Messaging',           description: 'Chat agent behaviour + connected channels', messagingOnly: true },
+   { href: '/agent-setup/training',            label: 'Training',            description: 'Teach the agent about you' },
+   { href: '/agent-setup/notifications',       label: 'Notifications',       description: 'Who gets emailed after a call' },
+   { href: '/agent-setup/integrations',        label: 'Integrations',        description: 'HubSpot' },
+diff --git a/app/agent-setup/layout.tsx b/app/agent-setup/layout.tsx
+index d9d613b..cf8e182 100644
+--- a/app/agent-setup/layout.tsx
++++ b/app/agent-setup/layout.tsx
+@@ -2,9 +2,9 @@
+ 
+ import Link from 'next/link';
+ import { usePathname } from 'next/navigation';
+-import type { ReactNode } from 'react';
++import { useEffect, useState, type ReactNode } from 'react';
+ import { cn } from '../lib/utils';
+-import { isReceptionMateStaff } from '../lib/auth';
++import { isReceptionMateStaff, getGarageId, getSessionToken } from '../lib/auth';
+ import { useLang } from '@/app/i18n/LocaleProvider';
+ import SetupProgress from './SetupProgress';
+ import TourBanner from './TourBanner';
+@@ -35,6 +35,10 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
+     label: 'Réservations et transferts',
+     description: 'Comportement de réservation + où diriger les appels',
+   },
++  '/agent-setup/messaging': {
++    label: 'Messagerie',
++    description: "Comportement de l'agent de chat + canaux connectés",
++  },
+   '/agent-setup/training': {
+     label: 'Formation',
+     description: 'Apprenez-en à l’agent sur vous',
+@@ -56,7 +60,39 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
+ export default function AgentSetupLayout({ children }: { children: ReactNode }) {
+   const pathname = usePathname();
+   const isStaff = isReceptionMateStaff();
+-  const visible = AGENT_SETUP_NAV.filter((n) => !n.staffOnly || isStaff);
++
++  // Messaging tab is only relevant to garages on the chat product. Resolve
++  // access the same way AppShell does (per-garage endpoint) and hide the tab
++  // otherwise. Staff always see it so they can configure on a garage's behalf.
++  const [hasMessagingAccess, setHasMessagingAccess] = useState(false);
++  useEffect(() => {
++    const garageId = getGarageId();
++    if (!garageId) {
++      setHasMessagingAccess(false);
++      return;
++    }
++    let cancelled = false;
++    (async () => {
++      try {
++        const res = await fetch(`/internal-api/garages/${garageId}/messaging-access`, {
++          headers: { Authorization: `Bearer ${getSessionToken()}` },
++        });
++        if (!cancelled && res.ok) {
++          const data = await res.json();
++          setHasMessagingAccess(Boolean(data.hasMessagingAccess));
++        }
++      } catch {
++        if (!cancelled) setHasMessagingAccess(false);
++      }
++    })();
++    return () => {
++      cancelled = true;
++    };
++  }, [pathname]);
++
++  const visible = AGENT_SETUP_NAV.filter(
++    (n) => (!n.staffOnly || isStaff) && (!n.messagingOnly || hasMessagingAccess || isStaff),
++  );
+   const lang = useLang();
+   const c = {
+     en: {
+diff --git a/app/agent-setup/messaging/page.tsx b/app/agent-setup/messaging/page.tsx
+new file mode 100644
+index 0000000..2e356dc
+--- /dev/null
++++ b/app/agent-setup/messaging/page.tsx
+@@ -0,0 +1,14 @@
++'use client';
++
++import PageGate from '../PageGate';
++import MessagingTab from '../_components/MessagingTab';
++
++export default function MessagingPage() {
++  return (
++    <PageGate>
++      {({ config, save, isSaving }) => (
++        <MessagingTab config={config} save={save} isSaving={isSaving} />
++      )}
++    </PageGate>
++  );
++}
+diff --git a/app/components/Sidebar.tsx b/app/components/Sidebar.tsx
+index c64fc86..6c58490 100644
+--- a/app/components/Sidebar.tsx
++++ b/app/components/Sidebar.tsx
+@@ -35,6 +35,10 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
+     label: 'Réservations et transferts',
+     description: 'Comportement de réservation + où diriger les appels',
+   },
++  '/agent-setup/messaging': {
++    label: 'Messagerie',
++    description: "Comportement de l'agent de chat + canaux connectés",
++  },
+   '/agent-setup/training': {
+     label: 'Formation',
+     description: 'Apprenez-en à l’agent sur vous',
+@@ -173,6 +177,7 @@ export default function Sidebar({
+                 icon={item.icon}
+                 name={item.tKey ? t(item.tKey) : item.name}
+                 activePath={activePath}
++                hasMessagingAccess={hasMessagingAccess}
+               />
+             );
+           }
+@@ -283,10 +288,12 @@ function AgentConfigSidebarItem({
+   icon,
+   name,
+   activePath,
++  hasMessagingAccess = false,
+ }: {
+   icon: React.ReactNode;
+   name: string;
+   activePath: string;
++  hasMessagingAccess?: boolean;
+ }) {
+   const lang = useLang();
+   const triggerRef = useRef<HTMLDivElement>(null);
+@@ -299,7 +306,7 @@ function AgentConfigSidebarItem({
+ 
+   const isStaff = isReceptionMateStaff();
+   const setupItems: AgentSetupNavItem[] = AGENT_SETUP_NAV.filter(
+-    (n) => !n.staffOnly || isStaff,
++    (n) => (!n.staffOnly || isStaff) && (!n.messagingOnly || hasMessagingAccess || isStaff),
+   );
+ 
+   const cancelClose = () => {
+diff --git a/app/types/index.ts b/app/types/index.ts
+index 1c6d41f..9a6850b 100644
+--- a/app/types/index.ts
++++ b/app/types/index.ts
+@@ -265,6 +265,13 @@ export interface AgentConfiguration {
+   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
+   enableSmsBookingLinks: boolean;
+   transferNumber: string;
++  humanEscalation?: boolean;
++  // Messaging (chat) agent: whether it may hand a chat over to a human, and an
++  // optional bespoke message to send when handoff is turned off. Independent of
++  // the voice-side humanEscalation so a garage can allow phone transfers while
++  // keeping chat fully AI-handled (or vice versa).
++  messagingHumanHandoff?: boolean;
++  messagingHandoffMessage?: string | null;
+   allowBookings: boolean;
+   bookingLeadTimeDays: number;
+   voice: VoiceOption;
+diff --git a/backend/src/routes/config.ts b/backend/src/routes/config.ts
+index 6c5c2b6..6455b93 100644
+--- a/backend/src/routes/config.ts
++++ b/backend/src/routes/config.ts
+@@ -225,6 +225,8 @@ const defaultConfiguration: AgentConfigurationPayload = {
+   agentType: 'assist',
+   enableSmsBookingLinks: true,
+   humanEscalation: true,
++  messagingHumanHandoff: true,
++  messagingHandoffMessage: '',
+   allowBookings: false,
+   bookingLeadTimeDays: 1,
+   voice: 'leah',
+@@ -273,6 +275,8 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
+       'receptionmate-agent',
+     enableSmsBookingLinks: config.enableSmsBookingLinks ?? true,
+     humanEscalation: config.humanEscalation ?? true,
++    messagingHumanHandoff: (config as any).messagingHumanHandoff ?? true,
++    messagingHandoffMessage: (config as any).messagingHandoffMessage ?? '',
+     allowBookings: config.allowBookings ?? false,
+     bookingLeadTimeDays: config.bookingLeadTimeDays ?? 1,
+     voice: config.voice ?? 'leah',
+@@ -324,6 +328,8 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
+     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
+     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
+     humanEscalation: (configuration as Record<string, unknown>).humanEscalation !== false,
++    messagingHumanHandoff: (configuration as Record<string, unknown>).messagingHumanHandoff !== false,
++    messagingHandoffMessage: ((configuration as Record<string, unknown>).messagingHandoffMessage as string) ?? '',
+     allowBookings: configuration.allowBookings || false,
+     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
+     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
+@@ -1009,6 +1015,8 @@ router.put(
+       agentScript: resolvedAgentScript,
+       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
+       humanEscalation: data.humanEscalation !== false,
++      messagingHumanHandoff: data.messagingHumanHandoff !== false,
++      messagingHandoffMessage: (data.messagingHandoffMessage as string) || null,
+       allowBookings: data.allowBookings ?? false,
+       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
+       voice: data.voice || 'leah',
+diff --git a/backend/src/services/chatAgentAssist.ts b/backend/src/services/chatAgentAssist.ts
+index 7e619a0..7fa7564 100644
+--- a/backend/src/services/chatAgentAssist.ts
++++ b/backend/src/services/chatAgentAssist.ts
+@@ -257,8 +257,13 @@ function buildAssistSystemPrompt(
+     }
+     prompt += `- ALWAYS GATHER THE FULL PICTURE before you take a message — never fire it off with just a name and "a booking". Ask, naturally and one at a time, for: their name, best contact number, the vehicle registration (if it's about a specific car), exactly what they need (the specific job, MOT, service, or the symptom/noise — get the detail), and roughly when would suit them. THEN call take_message with a detailed reason. take_message (or book_slot) is the ONLY way the team hears about the chat.\n`;
+   } else {
+-    const contact = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
+-    prompt += `- IMPORTANT: no one is available to follow up over chat and you CANNOT take messages or promise a callback. For anything you can't answer from the information above${allowBookings ? ' or book yourself' : ''} — a complaint, a status update, speaking to a person, ${allowBookings ? '' : 'a booking, '}or anything needing a human — do NOT offer to pass it on. Politely tell them to get in touch with the garage directly${contact ? ` on ${contact}` : ''}, as no one is available over chat.\n`;
++    const custom = ((config as any).messagingHandoffMessage || '').trim();
++    if (custom) {
++      prompt += `- IMPORTANT: no one is available to follow up over chat. When the customer asks to speak to a person, wants a callback, or needs anything you can't answer${allowBookings ? ' or book yourself' : ''}, do NOT offer to take a message — reply with this exact message: "${custom}"\n`;
++    } else {
++      const contact = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
++      prompt += `- IMPORTANT: no one is available to follow up over chat and you CANNOT take messages or promise a callback. For anything you can't answer from the information above${allowBookings ? ' or book yourself' : ''} — a complaint, a status update, speaking to a person, ${allowBookings ? '' : 'a booking, '}or anything needing a human — do NOT offer to pass it on. Politely tell them to get in touch with the garage directly${contact ? ` on ${contact}` : ''}, as no one is available over chat.\n`;
++    }
+   }
+   prompt += `\n`;
+ 
+@@ -293,7 +298,8 @@ export async function getAssistChatResponse(
+     const config = garage.agentConfiguration;
+ 
+     const allowBookings = config.allowBookings === true;
+-    const humanEscalation = config.humanEscalation !== false; // default ON
++    // Chat-specific handoff (independent of the voice humanEscalation). Default ON.
++    const messagingHandoff = (config as any).messagingHumanHandoff !== false;
+     const leadDays = Number(config.bookingLeadTimeDays ?? 1) || 1;
+     const slots = allowBookings ? generateSyntheticSlots(leadDays) : [];
+     const isOpen = checkOpeningHours(config.weeklyOpeningHours);
+@@ -301,8 +307,8 @@ export async function getAssistChatResponse(
+     const session = assistSessions.get(conversationId) || {};
+     assistSessions.set(conversationId, session);
+ 
+-    const tools = buildAssistTools(allowBookings, humanEscalation);
+-    const sysPrompt = buildAssistSystemPrompt(config, garage.knowledgeDocuments, isOpen, allowBookings, slots, humanEscalation);
++    const tools = buildAssistTools(allowBookings, messagingHandoff);
++    const sysPrompt = buildAssistSystemPrompt(config, garage.knowledgeDocuments, isOpen, allowBookings, slots, messagingHandoff);
+ 
+     const previousMessages = (
+       await prisma.chatMessage.findMany({
+diff --git a/backend/src/services/chatAgentTyresoft.ts b/backend/src/services/chatAgentTyresoft.ts
+index c6fcc85..5480ae3 100644
+--- a/backend/src/services/chatAgentTyresoft.ts
++++ b/backend/src/services/chatAgentTyresoft.ts
+@@ -360,10 +360,10 @@ export async function getTyresoftChatResponse(
+ 
+     const isOpen    = checkOpeningHours(config.weeklyOpeningHours);
+     const session   = tsSessions.get(conversationId) || {};
+-    const humanEscalation = config.humanEscalation !== false; // default ON
++    const messagingHandoff = (config as any).messagingHumanHandoff !== false; // chat handoff; default ON
+     let tools       = buildTools(tsConfig);
+-    if (!humanEscalation) tools = tools.filter((t) => !['ts_take_message', 'ts_request_callback'].includes((t as any).function?.name));
+-    const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig, humanEscalation, tsConfig);
++    if (!messagingHandoff) tools = tools.filter((t) => !['ts_take_message', 'ts_request_callback'].includes((t as any).function?.name));
++    const sysPrompt = buildSystemPrompt(config, garage.knowledgeDocuments, isOpen, session, !!tsConfig, messagingHandoff, tsConfig);
+ 
+     // Build message history
+     const previousMessages = (await prisma.chatMessage.findMany({
+@@ -1569,8 +1569,13 @@ function buildSystemPrompt(
+       prompt += `  Ask for their name and best number if not already known.\n`;
+       prompt += `  Call ts_request_callback, then tell them: "No problem — I've logged a callback request and someone will give you a ring shortly."\n\n`;
+     } else {
+-      const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
+-      prompt += `- You CANNOT take messages, pass details to the team, or arrange callbacks — no one is available over chat. If the customer wants to speak to a human, leave a message, or asks for a callback, do NOT offer to; instead tell them to contact us directly${esc ? ` on ${esc}` : ''}. You can still answer their questions and book them in.\n\n`;
++      const custom = ((config as any).messagingHandoffMessage || '').trim();
++      if (custom) {
++        prompt += `- You CANNOT take messages, pass details to the team, or arrange callbacks — no one is available over chat. If the customer wants a human, to leave a message, or a callback, do NOT offer to; instead reply with this exact message: "${custom}". You can still answer their questions and book them in.\n\n`;
++      } else {
++        const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
++        prompt += `- You CANNOT take messages, pass details to the team, or arrange callbacks — no one is available over chat. If the customer wants to speak to a human, leave a message, or asks for a callback, do NOT offer to; instead tell them to contact us directly${esc ? ` on ${esc}` : ''}. You can still answer their questions and book them in.\n\n`;
++      }
+     }
+ 
+     // Active session context — show whenever there is ANY booking state
+diff --git a/backend/src/services/chatAgentV2.ts b/backend/src/services/chatAgentV2.ts
+index 2e1f22f..cd64a80 100644
+--- a/backend/src/services/chatAgentV2.ts
++++ b/backend/src/services/chatAgentV2.ts
+@@ -1370,7 +1370,7 @@ export async function getChatAgentResponse(
+     let toolsForCall = isPostBooking ? undefined : getConversationalTools();
+     // Human escalation off → no message-taking; drop take_message so the model falls back to the
+     // "contact the garage directly" rule in the system prompt instead.
+-    if (toolsForCall && config.humanEscalation === false) {
++    if (toolsForCall && (config as any).messagingHumanHandoff === false) {
+       toolsForCall = toolsForCall.filter((t) => (t as any).function?.name !== 'take_message');
+     }
+ 
+@@ -4194,9 +4194,14 @@ RECOGNISING AFFIRMATIVE RESPONSES:
+ - NEVER ask for a registration again if the customer says yes/yh/ya/ye/yep/yup to a question about their vehicle — call confirm_vehicle(confirmed=true) instead
+ - If the customer has already confirmed their vehicle (CURRENT STATE shows Vehicle) and says any affirmative, proceed with the booking — do NOT restart the flow\n`;
+ 
+-  if (config.humanEscalation === false) {
+-    const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
+-    prompt += `\nHUMAN ESCALATION IS OFF: You cannot take messages, pass details to the team, or arrange callbacks — the take_message tool is unavailable. Any time you would normally take a message or offer a callback (including when a booking can't be completed, a vehicle or price can't be found, or the customer asks to speak to a person), do NOT offer to take details or call back. Instead tell the customer to contact the garage directly${esc ? ` on ${esc}` : ''}, as no one is available over chat. You can still answer from your knowledge and complete bookings through the diary.\n`;
++  if ((config as any).messagingHumanHandoff === false) {
++    const custom = ((config as any).messagingHandoffMessage || '').trim();
++    if (custom) {
++      prompt += `\nMESSAGING HANDOFF IS OFF: You cannot take messages, pass details to the team, or arrange callbacks — the take_message tool is unavailable. Any time you would normally take a message or offer a callback (including when a booking can't be completed, a vehicle or price can't be found, or the customer asks to speak to a person), do NOT — instead reply with this exact message: "${custom}". You can still answer from your knowledge and complete bookings through the diary.\n`;
++    } else {
++      const esc = [config.phoneNumber ? `phone ${config.phoneNumber}` : '', config.emailAddress ? `email ${config.emailAddress}` : ''].filter(Boolean).join(' or ');
++      prompt += `\nHUMAN ESCALATION IS OFF: You cannot take messages, pass details to the team, or arrange callbacks — the take_message tool is unavailable. Any time you would normally take a message or offer a callback (including when a booking can't be completed, a vehicle or price can't be found, or the customer asks to speak to a person), do NOT offer to take details or call back. Instead tell the customer to contact the garage directly${esc ? ` on ${esc}` : ''}, as no one is available over chat. You can still answer from your knowledge and complete bookings through the diary.\n`;
++    }
+   }
+ 
+   // Advisory upsell context — set when an outstanding health-check advisory was
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 9a1ff1c..63aea31 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -311,6 +311,11 @@ model AgentConfiguration {
+   agentScript               String   @default("receptionmate-agent")
+   enableSmsBookingLinks     Boolean  @default(true)
+   humanEscalation           Boolean  @default(true)
++  // Messaging (chat) human handoff — independent of the voice humanEscalation above.
++  // true  = the chat agent offers to take a message / flag the team when a human is asked for.
++  // false = the chat agent politely declines and points them at phone/email (messagingHandoffMessage).
++  messagingHumanHandoff     Boolean  @default(true)
++  messagingHandoffMessage   String?
+   transferNumber            String?
+   allowBookings             Boolean  @default(false)
+   bookingLeadTimeDays       Int      @default(1)
+-- 
+2.50.1 (Apple Git-155)
+

@@ -3712,6 +3712,10 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
       contact_address: contactAddress,
       contact_city: session.contactCity,
       contact_postcode: session.contactPostcode,
+      // Garage Hive only accepts 10 Mr / 20 Mrs / 30 Miss / 40 Ms / 50 Other.
+      // 0 is not a valid code, so any garage that marks salutation as required
+      // rejected the booking outright ("Please provide Salutation") — the caller
+      // was then told to ring the garage. 10 matches what the voice agent sends.
       contact_salutation: 10,
       contact_address2: '',
       notes: session.notes || '',

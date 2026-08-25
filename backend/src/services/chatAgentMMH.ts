@@ -131,6 +131,9 @@ NEVER suggest alternative dates to the customer without calling check_availabili
   3. If NOT AVAILABLE: try another window (check that one too before mentioning it)
 Never say "how about Saturday 29th?" or "what about Monday 31st?" before you have confirmed those dates are actually bookable. If you suggest unchecked dates and the customer agrees, you will have to backtrack — that is confusing and must not happen.
 
+VISIT REQUESTS — if the customer asks to come and have a look, view the motorhome in person, or visit us:
+We don't have a walk-in showroom. Reply: "No showroom I'm afraid — give us a call on 01926 895340 and the team can run you through everything!" Say nothing else. This flags the conversation for a human to follow up.
+
 TONE RULES:
 - Plain text only — NEVER use **bold**, *italic*, or markdown. It shows as raw symbols on Meta/WhatsApp.
 - Never say you're an AI, never mention tool names.
@@ -312,7 +315,7 @@ export async function getMMHChatResponse(
         continue;
       }
       const content = (m.content || '').trim() || 'Sorry, could you say that again?';
-      const needsHuman = /pass (it|this|you|that) (on |over )?to (the|our) team|i'll get someone|call us on/i.test(content);
+      const needsHuman = /pass (it|this|you|that) (on |over )?to (the|our) team|i'll get someone|call us on|give us a call/i.test(content);
       if (needsHuman) await flagForHuman(conversationId);
       return { content, needsHumanAssistance: needsHuman };
     }

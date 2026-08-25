@@ -1,7 +1,21 @@
 -- Support hub — Phase 2 (ticket model)
 -- Hand-written (Prisma auto-migrate is blocked on this branch by pre-existing
--- schema drift, see GH #357). Purely additive: three new tables + indexes +
--- foreign keys. No changes to any existing table. Safe to apply on prod.
+-- schema drift, see GH #357). Purely additive: 5 new enums + 3 new tables +
+-- indexes + foreign keys. No changes to any existing table. Safe to apply on prod.
+--
+-- Updated 2026-08-24 per Dan's PR #381 review:
+--   #1 Ticket_contactId_fkey ON DELETE RESTRICT (was CASCADE) — history preserved,
+--      use Contact.blocked=true for spam sender cleanup instead of hard deletion.
+--   #3 status/category/priority/channel/kind promoted from TEXT to proper enums —
+--      DB rejects invalid values instead of silently accepting 'Open' vs 'open'.
+--   #5 (minor) TicketEntry indexes on authorUserId and authorContactId.
+
+-- CreateEnum
+CREATE TYPE "TicketStatus"    AS ENUM ('new', 'open', 'pending', 'on_hold', 'solved', 'closed');
+CREATE TYPE "TicketCategory"  AS ENUM ('billing', 'agent_bug', 'setup_help', 'sales_enquiry', 'complaint', 'other', 'uncategorized');
+CREATE TYPE "TicketPriority"  AS ENUM ('low', 'normal', 'high', 'urgent');
+CREATE TYPE "TicketChannel"   AS ENUM ('email', 'whatsapp', 'portal_chat', 'phone');
+CREATE TYPE "TicketEntryKind" AS ENUM ('public_reply', 'internal_note', 'status_change', 'assignment_change', 'auto_ack');
 
 -- CreateTable
 CREATE TABLE "Contact" (
@@ -35,10 +49,10 @@ CREATE TABLE "Ticket" (
     "id" TEXT NOT NULL,
     "number" SERIAL NOT NULL,
     "title" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'new',
-    "category" TEXT NOT NULL DEFAULT 'uncategorized',
-    "priority" TEXT NOT NULL DEFAULT 'normal',
-    "channel" TEXT NOT NULL,
+    "status" "TicketStatus" NOT NULL DEFAULT 'new',
+    "category" "TicketCategory" NOT NULL DEFAULT 'uncategorized',
+    "priority" "TicketPriority" NOT NULL DEFAULT 'normal',
+    "channel" "TicketChannel" NOT NULL,
     "contactId" TEXT NOT NULL,
     "garageId" TEXT,
     "assigneeId" TEXT,
@@ -62,8 +76,10 @@ CREATE INDEX "Ticket_channel_status_idx" ON "Ticket"("channel", "status");
 CREATE INDEX "Ticket_garageId_status_idx" ON "Ticket"("garageId", "status");
 
 -- AddForeignKey
+-- #1 (Dan review): ON DELETE RESTRICT — cannot delete a Contact that still has tickets.
+-- Preserves history; spam cleanup should use Contact.blocked=true instead.
 ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_contactId_fkey"
-  FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_garageId_fkey"
   FOREIGN KEY ("garageId") REFERENCES "Garage"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_assigneeId_fkey"
@@ -73,7 +89,7 @@ ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_assigneeId_fkey"
 CREATE TABLE "TicketEntry" (
     "id" TEXT NOT NULL,
     "ticketId" TEXT NOT NULL,
-    "kind" TEXT NOT NULL,
+    "kind" "TicketEntryKind" NOT NULL,
     "authorUserId" TEXT,
     "authorContactId" TEXT,
     "body" TEXT NOT NULL,
@@ -87,6 +103,9 @@ CREATE TABLE "TicketEntry" (
 -- CreateIndex
 CREATE INDEX "TicketEntry_ticketId_createdAt_idx" ON "TicketEntry"("ticketId", "createdAt");
 CREATE INDEX "TicketEntry_outboundMessageId_idx" ON "TicketEntry"("outboundMessageId");
+-- #5 (Dan review, minor): indexes for "everything X replied to" queries.
+CREATE INDEX "TicketEntry_authorUserId_idx" ON "TicketEntry"("authorUserId");
+CREATE INDEX "TicketEntry_authorContactId_idx" ON "TicketEntry"("authorContactId");
 
 -- AddForeignKey
 ALTER TABLE "TicketEntry" ADD CONSTRAINT "TicketEntry_ticketId_fkey"

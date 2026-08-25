@@ -88,9 +88,10 @@ Key fields:
 ## Migration
 
 Hand-written SQL at `prisma/migrations/20260818125403_add_support_tickets/migration.sql`. Purely additive:
+- **5 CREATE TYPE** (enums for `status`, `category`, `priority`, `channel`, `kind`)
 - 3 CREATE TABLE
-- 12 CREATE INDEX (one unique on `Contact.email`, one unique on `Ticket.number`)
-- 8 ADD FOREIGN KEY (all `ON DELETE SET NULL` except contact→ticket which is `CASCADE` for hard-block cleanup)
+- 14 CREATE INDEX (one unique on `Contact.email`, one unique on `Ticket.number`, two extras on `TicketEntry` author fields)
+- 8 ADD FOREIGN KEY (all `ON DELETE SET NULL` except `Ticket.contactId` which is `RESTRICT` — cannot delete a Contact that still has tickets; use `Contact.blocked=true` for spam sender cleanup)
 
 No existing table is touched. No data change. Safe to apply on prod. Prisma auto-migration is still blocked on this branch by the pre-existing drift documented in [GH #357](https://github.com/danny901233/portal-frontend/issues/357), which is why this file is hand-written rather than `prisma migrate dev`-generated.
 
@@ -124,3 +125,25 @@ If Dan approves this schema shape:
 - [GH #377](https://github.com/danny901233/portal-frontend/issues/377) — tracking issue with the phase plan
 - [PR #378](https://github.com/danny901233/portal-frontend/pull/378) — Phase 0 audit doc
 - [GH #357](https://github.com/danny901233/portal-frontend/issues/357) — schema drift that blocks `prisma migrate dev` (unrelated to this PR, but why the migration file is hand-written)
+
+## Review-response changelog
+
+**2026-08-24 — addressed Dan's PR #381 review:**
+- **#1** `Ticket.contactId` cascade → `RESTRICT`. Contact deletion no longer wipes ticket history. Use `Contact.blocked=true` for spam sender cleanup.
+- **#3** `status`, `category`, `priority`, `channel`, `kind` promoted from `TEXT` to Prisma/Postgres enums (`TicketStatus`, `TicketCategory`, `TicketPriority`, `TicketChannel`, `TicketEntryKind`). Invalid values now rejected at DB level. (Note: Prisma reserves `new` as a keyword, so `TicketStatus.new_` maps to DB literal `"new"` via `@map`.)
+- **#5** Added `TicketEntry(authorUserId)` and `TicketEntry(authorContactId)` indexes for "everything X replied to" queries.
+- **#4** `Contact.email` global-unique is deliberate — see "Contacts and shared mailboxes" below.
+- **#2** Migration diff against a prod snapshot posted separately as a PR comment.
+
+## Contacts and shared mailboxes (answer to review Q4)
+
+`Contact.email @unique` is intentional. Design assumes an email address identifies a single support-worthy person. Shared mailboxes like `info@garage.co.uk` are the known edge case:
+
+- All correspondence from that mailbox collapses into **one** Contact record
+- Every ticket that Contact raises is a separate `Ticket` row (thread-per-issue, not thread-per-person)
+- `Ticket.garageId` is cached at ticket-create time from `Contact.garageId`, so re-linking the Contact later doesn't leak a ticket across garages
+- If a shared mailbox is used by two garages (rare but possible via forwarders), the second garage's ticket still lands correctly against them because `garageId` is set from the ingest context, not the Contact record
+
+Trade-off accepted: replies from that mailbox will not distinguish between individuals at the same garage (staff will see "info@garage.co.uk" as the requester on every ticket). The alternative — non-unique email — would multiply Contact rows for common cases like Dan replying from `dan@receptionmate.co.uk` across dozens of tickets, and would make cross-channel identity harder (email address as stable identity is standard in every Zendesk/HelpScout/Freshdesk-class product).
+
+Reversible: dropping the unique constraint later is a single `DROP INDEX` if the shared-mailbox pattern turns out to matter more than assumed.

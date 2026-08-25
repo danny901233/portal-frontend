@@ -946,27 +946,18 @@ model Ticket {
   // so concurrent creates cannot collide.
   number                 Int           @unique @default(autoincrement())
   title                  String        // subject line or first sentence; editable
-  // Status transitions:
-  //   new    -> nobody has looked at it yet
-  //   open   -> someone owns it, ours to act on
-  //   pending-> we replied, waiting on the customer (drops from work queue,
-  //           back to open when they reply)
-  //   on_hold-> blocked internally (e.g. waiting for Twilio, or Dan's decision)
-  //   solved -> done; auto-reopens on customer reply
-  //   closed -> archived; will not reopen automatically
-  status                 String        @default("new")
+  status                 TicketStatus   @default(new_)
   // AI-classified on ingest, staff can override at any time.
-  //   billing | agent_bug | setup_help | sales_enquiry | complaint | other | uncategorized
-  category               String        @default("uncategorized")
-  //   low | normal | high | urgent
-  priority               String        @default("normal")
+  category               TicketCategory @default(uncategorized)
+  priority               TicketPriority @default(normal)
   // Where the ticket came from. NEVER changes after create.
-  //   email | whatsapp | portal_chat | phone
-  channel                String
-  // The person who reported it. Every ticket has one Contact. Contact deletes
-  // cascade to tickets (rare — mostly for spam sender cleanup).
+  channel                TicketChannel
+  // The person who reported it. Every ticket has one Contact.
+  // Restrict = cannot delete a Contact while it has tickets. History is
+  // preserved by design; use Contact.blocked=true for spam sender cleanup
+  // instead of hard deletion (per Dan's PR #381 review).
   contactId              String
-  contact                Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact                Contact       @relation(fields: [contactId], references: [id], onDelete: Restrict)
   // Cached from contact.garageId at create time, so the ticket stays attached
   // to the right garage even if the Contact is later re-linked to another one.
   // Nullable when the Contact is not yet identified to a garage.
@@ -1003,14 +994,8 @@ model TicketEntry {
   id              String   @id @default(cuid())
   ticketId        String
   ticket          Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  // What kind of entry:
-  //   public_reply       -> seen by the customer (via email/whatsapp/chat reply)
-  //   internal_note      -> staff-only; never leaves the portal
-  //   status_change      -> auto-log for audit ("Dan changed status new->open at 09:12")
-  //   assignment_change  -> auto-log for audit ("Dan assigned to Gab at 09:15")
-  //   auto_ack           -> the auto-generated acknowledgement sent on ingest
-  //                        (rule 4: email YES, whatsapp YES-if-24h, chat NO, spam NEVER)
-  kind            String
+  // What kind of entry — see TicketEntryKind enum for values + meaning.
+  kind            TicketEntryKind
   // Exactly ONE of authorUserId / authorContactId is set for public_reply and
   // internal_note; both are null for status_change / assignment_change / auto_ack
   // (those are system-generated). Enforced in application code.
@@ -1032,4 +1017,53 @@ model TicketEntry {
 
   @@index([ticketId, createdAt])
   @@index([outboundMessageId])
+  // "Everything X replied to" — would otherwise seq-scan (Dan's PR #381 review, minor #5).
+  @@index([authorUserId])
+  @@index([authorContactId])
+}
+
+// ── Support-hub enums (PR #381 review #3: strict values, not free-text) ──
+// Prisma reserves the bare word "new" as a keyword, so the "new" status is
+// written as new_ in code and mapped to the DB literal "new" via @map.
+
+enum TicketStatus {
+  new_    @map("new")   // nobody has looked at it yet
+  open                  // someone owns it, ours to act on
+  pending               // we replied, waiting on the customer (drops from work queue, back to open when they reply)
+  on_hold               // blocked internally (waiting for Twilio, or Dan's decision)
+  solved                // done; auto-reopens on customer reply
+  closed                // archived; will not reopen automatically
+}
+
+enum TicketCategory {
+  billing
+  agent_bug
+  setup_help
+  sales_enquiry
+  complaint
+  other
+  uncategorized
+}
+
+enum TicketPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum TicketChannel {
+  email
+  whatsapp
+  portal_chat
+  phone
+}
+
+enum TicketEntryKind {
+  public_reply       // seen by the customer (via email/whatsapp/chat reply)
+  internal_note      // staff-only; never leaves the portal
+  status_change      // auto-log for audit ("Dan changed status new->open at 09:12")
+  assignment_change  // auto-log for audit ("Dan assigned to Gab at 09:15")
+  auto_ack           // the auto-generated acknowledgement sent on ingest
+                     // (rule 4: email YES, whatsapp YES-if-24h, chat NO, spam NEVER)
 }

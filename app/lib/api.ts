@@ -1036,3 +1036,122 @@ export const fetchOpsStaff = async (): Promise<{ staff: OpsStaffUser[] }> => {
   const { data } = await api.get('/api/admin/staff');
   return data;
 };
+
+// ─── Support Hub Phase 2 — tickets ─────────────────────────────────────────
+
+export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'solved' | 'closed';
+export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
+export type TicketChannel = 'email' | 'whatsapp' | 'portal_chat' | 'phone';
+export type TicketCategory =
+  | 'billing' | 'agent_bug' | 'setup_help' | 'sales_enquiry' | 'complaint' | 'other' | 'uncategorized';
+export type TicketEntryKind =
+  | 'public_reply' | 'internal_note' | 'status_change' | 'assignment_change' | 'auto_ack';
+
+export interface TicketSummary {
+  id: string;
+  number: number;
+  title: string;
+  status: TicketStatus;
+  category: TicketCategory;
+  priority: TicketPriority;
+  channel: TicketChannel;
+  contactId: string;
+  garageId: string | null;
+  assigneeId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  firstResponseAt: string | null;
+  lastCustomerActivityAt: string;
+  lastStaffActivityAt: string | null;
+  solvedAt: string | null;
+  closedAt: string | null;
+  contact: { id: string; email: string | null; phone: string | null; name: string | null };
+  assignee: { id: string; email: string } | null;
+  garage: { id: string; name: string } | null;
+  _count: { entries: number };
+}
+
+export interface TicketDetail extends Omit<TicketSummary, '_count' | 'contact'> {
+  contact: { id: string; email: string | null; phone: string | null; name: string | null; garageId: string | null };
+}
+
+export interface TicketEntry {
+  id: string;
+  ticketId: string;
+  kind: TicketEntryKind;
+  authorUserId: string | null;
+  authorContactId: string | null;
+  body: string;
+  isDraft: boolean;
+  outboundMessageId: string | null;
+  createdAt: string;
+  authorUser: { id: string; email: string } | null;
+  authorContact: { id: string; email: string | null; name: string | null } | null;
+}
+
+export interface TicketQueueCounts {
+  unassigned: number;
+  mineOpen: number;
+  pendingStale: number;
+}
+
+export interface TicketListFilters {
+  status?: TicketStatus;
+  assigneeId?: string | 'unassigned';
+  channel?: TicketChannel;
+  category?: TicketCategory;
+  priority?: TicketPriority;
+  garageId?: string;
+  limit?: number;
+}
+
+export const fetchTickets = async (filters: TicketListFilters = {}): Promise<{ tickets: TicketSummary[] }> => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') params.set(k, String(v)); });
+  const qs = params.toString();
+  const { data } = await api.get(`/api/admin/tickets${qs ? `?${qs}` : ''}`);
+  return data;
+};
+
+export const fetchTicketQueueCounts = async (): Promise<TicketQueueCounts> => {
+  const { data } = await api.get('/api/admin/tickets/queue-counts');
+  return data;
+};
+
+export const fetchTicket = async (id: string): Promise<{ ticket: TicketDetail; entries: TicketEntry[] }> => {
+  const { data } = await api.get(`/api/admin/tickets/${id}`);
+  return data;
+};
+
+export interface CreateTicketInput {
+  title: string;
+  channel: TicketChannel;
+  priority?: TicketPriority;
+  category?: TicketCategory;
+  contact: { email?: string; phone?: string; name?: string; garageId?: string };
+  initialBody?: string;
+}
+export const createTicket = async (input: CreateTicketInput): Promise<{ ticket: TicketSummary }> => {
+  const { data } = await api.post('/api/admin/tickets', input);
+  return data;
+};
+
+export const replyToTicket = async (id: string, body: string, isDraft = false): Promise<{ entry: TicketEntry }> => {
+  const { data } = await api.post(`/api/admin/tickets/${id}/reply`, { body, isDraft });
+  return data;
+};
+
+export const addTicketNote = async (id: string, body: string): Promise<{ entry: TicketEntry }> => {
+  const { data } = await api.post(`/api/admin/tickets/${id}/note`, { body });
+  return data;
+};
+
+export const changeTicketStatus = async (id: string, status: TicketStatus): Promise<{ ticket: TicketSummary }> => {
+  const { data } = await api.patch(`/api/admin/tickets/${id}/status`, { status });
+  return data;
+};
+
+export const assignTicket = async (id: string, assigneeId: string | null): Promise<{ ticket: TicketSummary }> => {
+  const { data } = await api.patch(`/api/admin/tickets/${id}/assign`, { assigneeId });
+  return data;
+};

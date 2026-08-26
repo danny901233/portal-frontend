@@ -365,6 +365,15 @@ export const callFeedbackSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
+// Same shape as callFeedbackSchema — messages feedback mirrors calls so the
+// weekly audit process uses one mental model. Kept as a separate export so a
+// future divergence (different reason set) doesn't require touching call code.
+export const chatFeedbackSchema = z.object({
+  rating: z.enum(['up', 'down']),
+  reasons: z.array(z.string().min(1).max(200)).max(10).default([]),
+  notes: z.string().max(2000).optional(),
+});
+
 export const websiteScanSchema = z.object({
   url: z.string().url().max(2048),
   selectedUrls: z.array(z.string().url().max(2048)).min(1).max(25).optional(),

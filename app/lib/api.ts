@@ -423,6 +423,23 @@ export const updateBillingConfig = async (
   return data;
 };
 
+/**
+ * Set the date a garage's notice expires, with the reason they gave. On that date the nightly
+ * job removes voice and messaging access, zeroes the pricing and archives them — service runs in
+ * full until then. Pass null to cancel the notice if they change their mind.
+ */
+export const scheduleLeaving = async (
+  garageId: string,
+  leavingDate: string | null,
+  reason?: string,
+): Promise<{ success: boolean; name: string; leavingDate: string | null }> => {
+  const { data } = await api.post(`/api/admin/garages/${garageId}/schedule-leaving`, {
+    leavingDate,
+    reason,
+  });
+  return data;
+};
+
 export const fetchUsage = async (
   garageId: string,
   startDate: string,
@@ -930,6 +947,10 @@ export interface OpsTaskUserRef {
   email: string;
 }
 
+// Which day a weekly task should be done on. Visual hint only — doesn't
+// affect the Monday auto-reset or the daily report. Null = no preferred day.
+export type OpsTaskWeeklyDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
 export interface OpsTask {
   id: string;
   title: string;
@@ -944,6 +965,7 @@ export interface OpsTask {
   createdById: string | null;
   createdBy: OpsTaskUserRef | null;
   dueDate: string | null;
+  weeklyDay: OpsTaskWeeklyDay | null;
   sortOrder: number;
   completedAt: string | null;
   createdAt: string;
@@ -994,6 +1016,7 @@ export const createOpsTask = async (input: {
   assigneeId?: string | null;
   assigneeIds?: string[];
   dueDate?: string | null;
+  weeklyDay?: OpsTaskWeeklyDay | null;
 }): Promise<{ task: OpsTask }> => {
   const { data } = await api.post('/api/admin/tasks', input);
   return data;
@@ -1011,6 +1034,7 @@ export const patchOpsTask = async (
     assigneeId: string | null;
     assigneeIds: string[];
     dueDate: string | null;
+    weeklyDay: OpsTaskWeeklyDay | null;
     sortOrder: number;
   }>,
 ): Promise<{ task: OpsTask }> => {

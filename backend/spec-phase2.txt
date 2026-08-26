@@ -1,0 +1,75 @@
+FOUNDATION — BUILD THIS BEFORE PHASE 1. Executable spec for a coding agent.
+
+GOAL: a real ticket model so support can be worked as a queue, replacing "one endless
+SupportConversation per user".
+
+--- 1. SCHEMA (prisma/schema.prisma) — additive only ---
+model SupportContact {
+  id, email String? @unique, phone String? @unique, name String?,
+  userId String?, businessId String?, garageId String?,   // resolved when we can identify them
+  createdAt, updatedAt
+}
+model SupportTicket {
+  id, number Int @default(autoincrement()) @unique,       // human ref, used as [RM #number]
+  subject String,
+  contactId String -> SupportContact,
+  channel String,          // 'email' | 'whatsapp' | 'chat' | 'feedback'
+  status String @default("new"),   // new | open | pending | on_hold | solved | closed
+  category String?,        // support | billing | sales | complaint | other
+  priority String @default("normal"),  // low | normal | high
+  assigneeId String?,      // User id, null = Unassigned (shared queue)
+  tags String[] @default([]),
+  lastPublicAt DateTime?,  // last message FROM the customer — drives the WhatsApp window
+  firstRepliedAt DateTime?, solvedAt DateTime?, closedAt DateTime?,
+  sourceCallId String?, sourceConversationId String?,     // provenance for feedback/chat tickets
+  createdAt, updatedAt
+  @@index([status]) @@index([assigneeId]) @@index([contactId]) @@index([channel, status])
+}
+model SupportEntry {
+  id, ticketId -> SupportTicket,
+  kind String,             // 'public' | 'note' | 'system'
+  direction String,        // 'in' | 'out'
+  authorUserId String?,    // null when it came from the customer
+  channel String,
+  body String @db.Text, bodyHtml String?,
+  meta Json?,              // message ids, headers, media urls, delivery status
+  createdAt
+  @@index([ticketId, createdAt])
+}
+Do NOT delete SupportConversation/SupportMessage in this phase.
+
+--- 2. MIGRATION ---
+Additive SQL only (CREATE TABLE IF NOT EXISTS, nullable columns). Write it as a .cjs script under
+backend/scripts/ for Dan to run — do not run it against production yourself.
+Backfill: one SupportTicket per existing SupportConversation (subject = first message truncated,
+channel 'chat', status mapped: ai->open, awaiting_staff->open, staff_handled->pending,
+closed->closed), entries from SupportMessage in order.
+
+--- 3. API (backend/src/routes/support.ts, staff-only via authenticate + requireAdmin) ---
+GET    /api/admin/tickets?view=unassigned|mine|pending_stale|all&status=&channel=&q=
+GET    /api/admin/tickets/:id            → ticket + contact + entries
+POST   /api/admin/tickets                → agent-created (outbound-initiated) ticket
+PATCH  /api/admin/tickets/:id            → status, assigneeId, category, priority, tags
+POST   /api/admin/tickets/:id/reply      → { body, kind: 'public'|'note' }
+  - kind 'note'   → store only, no send, no status change.
+  - kind 'public' → send on ticket.channel, set firstRepliedAt if unset, status -> pending.
+POST   /api/admin/tickets/:id/status     → explicit transition (solve/reopen/hold)
+Views: unassigned = assigneeId null AND status in (new, open);
+       mine = assigneeId = me AND status in (new, open);
+       pending_stale = status pending AND updatedAt < now - 3 days.
+
+--- 4. UI (app/admin/support) ---
+Three-pane: view switcher (Unassigned / Mine / Pending 3+ / All) → ticket list → thread.
+Thread shows public replies and notes VISUALLY DISTINCT (notes on a tinted background, labelled
+"Internal — not sent to customer"). Reply box has an explicit Public/Note toggle that defaults to
+Public and is impossible to confuse. Right rail: contact, garage, channel, status, assignee,
+category, priority, and links to that contact's other tickets.
+
+--- 5. ACCEPTANCE (verify locally, do not touch prod) ---
+1. Two issues from the same contact = two tickets.
+2. Reply sets status pending; the customer replying sets it back to open.
+3. A note never sends and never changes status.
+4. Solve then reply → reopens.
+5. Unassigned shows only unowned new/open tickets; assigning removes it from Unassigned and adds
+   it to Mine for that user.
+6. Both typechecks clean.

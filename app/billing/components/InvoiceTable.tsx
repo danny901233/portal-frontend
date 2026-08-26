@@ -22,6 +22,8 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       colAmount: 'Amount',
       colStatus: 'Status',
       colDate: 'Date',
+      collectsOn: 'Collects on',
+      collectedOn: 'Collected on',
       colActions: 'Actions',
       periodTo: 'to',
       downloading: 'Downloading...',
@@ -43,6 +45,8 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       colAmount: 'Montant',
       colStatus: 'Statut',
       colDate: 'Date',
+      collectsOn: 'Prélèvement le',
+      collectedOn: 'Prélevé le',
       colActions: 'Actions',
       periodTo: 'au',
       downloading: 'Téléchargement...',
@@ -179,6 +183,22 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
                   >
                     {c.status(invoice.status)}
                   </span>
+                  {/* A pending Direct Debit is money already on its way, not a missed payment.
+                      Saying when it collects is the difference between "you owe us" and "this is
+                      in hand" — and it is the question that gets asked most about a pending row. */}
+                  {invoice.status?.toLowerCase() === 'pending' && invoice.gocardlessChargeDate && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      {c.collectsOn} {formatDate(invoice.gocardlessChargeDate)}
+                    </div>
+                  )}
+                  {/* Once it has been taken, say when. Prefer the GoCardless charge date — that
+                      is the day the money actually left the account — and fall back to when we
+                      marked it paid, which is all we have for older invoices. */}
+                  {invoice.status?.toLowerCase() === 'paid' && (invoice.gocardlessChargeDate || invoice.paidAt) && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      {c.collectedOn} {formatDate(invoice.gocardlessChargeDate || invoice.paidAt!)}
+                    </div>
+                  )}
                 </td>
                 <td className="px-6 py-4">
                   <span className="text-sm text-slate-500">{formatDate(invoice.createdAt)}</span>

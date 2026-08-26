@@ -63,3 +63,15 @@ backend/dist.bak*
 backend/.stripe-bak*
 backend/*-state.json
 check_calls.js
+backend/dailies/
+backend/retired-scripts/
+backend/scripts/.watchdog-proof.json
+backend/scripts/test386*.mjs
+backend/scripts/one.mjs
+backend/scripts/svc.mjs
+backend/scripts/humanlike-*.mjs
+backend/scripts/chat-sim.mjs
+backend/scripts/cold-resume-test.mjs
+
+# git-format-patch output — working files, not source
+*.patch

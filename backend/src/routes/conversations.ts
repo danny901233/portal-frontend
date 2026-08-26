@@ -4,6 +4,8 @@ import axios from 'axios';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
+import { notifyUser } from '../utils/push.js';
+import { sendEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -38,7 +40,7 @@ function hasGarageAccess(req: Request, garageId: string): boolean {
 
 router.get('/conversations', authenticate, async (req: Request, res: Response) => {
   try {
-    const { status, garageId, platform } = req.query;
+    const { status, garageId, platform, enquiryType, assigneeId } = req.query;
 
     const allowedGarages = getAllowedGarages(req);
 
@@ -61,6 +63,17 @@ router.get('/conversations', authenticate, async (req: Request, res: Response) =
 
     if (status) where.status = status;
     if (platform) where.platform = platform;
+    if (enquiryType) where.enquiryType = enquiryType;
+
+    // "mine" is a sugar for the caller's own userId — saves the client having to
+    // pass its own id back. "unassigned" filters the shared pool.
+    if (assigneeId === 'mine') {
+      where.assigneeId = req.user?.userId ?? null;
+    } else if (assigneeId === 'unassigned') {
+      where.assigneeId = null;
+    } else if (typeof assigneeId === 'string' && assigneeId) {
+      where.assigneeId = assigneeId;
+    }
 
     const conversations = await prisma.chatConversation.findMany({
       where,
@@ -68,6 +81,9 @@ router.get('/conversations', authenticate, async (req: Request, res: Response) =
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
+        },
+        assignee: {
+          select: { id: true, email: true },
         },
       },
       orderBy: { lastMessageAt: 'desc' },
@@ -85,6 +101,9 @@ router.get('/conversations', authenticate, async (req: Request, res: Response) =
       needsAttention: c.needsAttention,
       confirmedBooking: c.confirmedBooking,
       unreadCount: c.unreadCount,
+      enquiryType: c.enquiryType,
+      assigneeId: c.assigneeId,
+      assignee: c.assignee ? { id: c.assignee.id, email: c.assignee.email } : null,
       lastMessageAt: c.lastMessageAt,
       lastMessage: c.messages[0]?.content?.slice(0, 120) ?? null,
       createdAt: c.createdAt,
@@ -291,6 +310,146 @@ router.post('/conversations/:id/resolve', authenticate, async (req: Request, res
   } catch (error) {
     console.error('[CONVERSATIONS] POST /conversations/:id/resolve error:', error);
     res.status(500).json({ error: 'Failed to resolve conversation' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/conversations/:id/assign
+// ---------------------------------------------------------------------------
+//
+// Assign a conversation to a garage user, or unassign it (assigneeId = null).
+// Rules from Dan's brief:
+//   - Assignment is ownership, NOT takeover — the AI keeps running. Silencing
+//     the AI is a separate, existing action (agentPaused).
+//   - The assignee must have access to this conversation's garage. A user who
+//     later loses access falls back to "unassigned" via the FK's SET NULL.
+//   - "Unassigned" is a shared queue — no round-robin, no auto-assignment.
+//   - Notify the assignee by push + email, UNLESS they assigned it to
+//     themselves (self-assign is silent).
+//   - Assignment is internal to the garage. The customer never sees it.
+
+router.post('/conversations/:id/assign', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { assigneeId } = req.body as { assigneeId: string | null };
+
+    if (assigneeId !== null && typeof assigneeId !== 'string') {
+      return res.status(400).json({ error: 'assigneeId must be a user id string or null' });
+    }
+
+    const conversation = await prisma.chatConversation.findUnique({
+      where: { id },
+      include: { garage: { select: { id: true, name: true } } },
+    });
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    if (!hasGarageAccess(req, conversation.garageId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Validate the new assignee (if any) has access to this garage.
+    let assignee: { id: string; email: string; notificationEmail: string | null } | null = null;
+    if (assigneeId) {
+      const user = await prisma.user.findUnique({
+        where: { id: assigneeId },
+        select: { id: true, email: true, notificationEmail: true, garageAccessIds: true, role: true },
+      });
+      if (!user) return res.status(404).json({ error: 'Assignee user not found' });
+      const staff = user.role === 'RECEPTIONMATE_STAFF';
+      const hasAccess = staff || user.garageAccessIds.includes(conversation.garageId);
+      if (!hasAccess) {
+        return res.status(400).json({ error: 'Assignee does not have access to this garage' });
+      }
+      assignee = { id: user.id, email: user.email, notificationEmail: user.notificationEmail };
+    }
+
+    const prevAssigneeId = conversation.assigneeId;
+    await prisma.chatConversation.update({
+      where: { id },
+      data: { assigneeId: assigneeId ?? null },
+    });
+
+    // Fire-and-forget notifications. Skip when: unassigning, no-op reassign,
+    // or the actor assigned it to themselves.
+    if (assignee && assignee.id !== prevAssigneeId && assignee.id !== req.user?.userId) {
+      const who =
+        conversation.customerName?.trim() ||
+        conversation.customerPhone?.trim() ||
+        'A customer';
+      const garageName = conversation.garage?.name || 'your garage';
+      const platformLabel =
+        conversation.platform === 'whatsapp'
+          ? 'WhatsApp'
+          : conversation.platform === 'facebook'
+          ? 'Facebook'
+          : conversation.platform === 'instagram'
+          ? 'Instagram'
+          : conversation.platform === 'livechat'
+          ? 'Live chat'
+          : conversation.platform === 'widget' || conversation.platform === 'web'
+          ? 'Web chat'
+          : conversation.platform;
+
+      void notifyUser(assignee.id, {
+        title: `Assigned: ${who}`,
+        body: `${platformLabel} conversation at ${garageName} — tap to open.`,
+        data: { type: 'message', conversationId: id, garageId: conversation.garageId },
+      });
+
+      const emailTo = assignee.notificationEmail || assignee.email;
+      const subject = `You've been assigned a ${platformLabel} conversation`;
+      const openUrl = `${(process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '')}/messages?conversation=${id}`;
+      void sendEmail({
+        to: [emailTo],
+        subject,
+        text: `${who} on ${platformLabel} at ${garageName} has been assigned to you.\n\nOpen in the portal: ${openUrl}`,
+        html: `<p><strong>${who}</strong> on ${platformLabel} at <strong>${garageName}</strong> has been assigned to you.</p><p><a href="${openUrl}">Open in the portal</a></p>`,
+      }).catch((err) => console.error('[CONVERSATIONS] Assignment email failed:', err));
+    }
+
+    res.json({ success: true, assigneeId: assigneeId ?? null });
+  } catch (error) {
+    console.error('[CONVERSATIONS] POST /conversations/:id/assign error:', error);
+    res.status(500).json({ error: 'Failed to assign conversation' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/conversations/:id/assignable-users
+// ---------------------------------------------------------------------------
+//
+// Return the users who can be assigned this conversation — those with access
+// to the conversation's garage. Used to populate the assign dropdown in the
+// Messages inbox.
+
+router.get('/conversations/:id/assignable-users', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const conversation = await prisma.chatConversation.findUnique({
+      where: { id },
+      select: { garageId: true },
+    });
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+    if (!hasGarageAccess(req, conversation.garageId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Managers + users of this garage. Staff users are excluded — Dan's rule:
+    // hello@receptionmate.co.uk stays the ONLY support address; the garage-side
+    // inbox is for the garage's own team.
+    const users = await prisma.user.findMany({
+      where: {
+        garageAccessIds: { has: conversation.garageId },
+        role: { in: ['USER', 'MANAGER'] },
+      },
+      select: { id: true, email: true },
+      orderBy: { email: 'asc' },
+    });
+
+    res.json({ users });
+  } catch (error) {
+    console.error('[CONVERSATIONS] GET /conversations/:id/assignable-users error:', error);
+    res.status(500).json({ error: 'Failed to fetch assignable users' });
   }
 });
 

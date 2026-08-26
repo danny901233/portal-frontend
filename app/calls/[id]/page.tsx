@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { notFound, useParams } from 'next/navigation';
 import { fetchCallById } from '../../lib/api';
@@ -12,6 +12,7 @@ import { cn } from '../../lib/utils';
 import type { CallRecord } from '../../types';
 import { ToolCallEntry } from './components/ToolCallEntry';
 import { LogEntry } from './components/LogEntry';
+import { WaveformPlayer, type WaveformPlayerHandle } from './components/WaveformPlayer';
 import { useLang } from '@/app/i18n/LocaleProvider';
 
 // Define transcript entry types
@@ -114,11 +115,16 @@ const TranscriptEntry = ({
   offsetSeconds,
   allEntries,
   onImprove,
+  onSeek,
 }: {
   entry: TranscriptEntry_Union;
   offsetSeconds: number;
   allEntries?: TranscriptEntry_Union[];
   onImprove?: (question: string, answer: string) => void;
+  // Click-to-seek: fired when the user clicks a message bubble. Seconds are
+  // relative to the start of the call. Only wired on message entries (not on
+  // tool_call / log / function_call / handoff rows).
+  onSeek?: (seconds: number) => void;
 }) => {
   const lang = useLang();
   const c = {
@@ -257,11 +263,26 @@ const TranscriptEntry = ({
         {label}
       </div>
       <div
+        role={onSeek ? 'button' : undefined}
+        tabIndex={onSeek ? 0 : undefined}
+        onClick={onSeek ? () => onSeek(entry.timestamp) : undefined}
+        onKeyDown={
+          onSeek
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSeek(entry.timestamp);
+                }
+              }
+            : undefined
+        }
+        title={onSeek ? 'Jump audio to this moment' : undefined}
         className={cn(
           'max-w-[85%] whitespace-pre-line px-3.5 py-2.5 text-sm leading-relaxed',
           isCaller
             ? 'rounded-2xl rounded-br-md border border-slate-200 bg-white text-slate-900'
             : 'rounded-2xl rounded-bl-md bg-brand-600 text-white',
+          onSeek && 'cursor-pointer transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-600/40',
         )}
       >
         {entry.text}
@@ -391,6 +412,11 @@ export default function CallDetailPage() {
   const garageId = getGarageId();
   const isStaff = isReceptionMateStaff();
   const lang = useLang();
+  // Ref into WaveformPlayer so the transcript click-to-seek can jump the audio.
+  // Precision today is turn-imprecise (uses entry.timestamp which is
+  // STT-finalize / LLM-response time, not real speech start). See GH #374 for
+  // the follow-up state-change-events approach that will make it sniper accurate.
+  const waveformRef = useRef<WaveformPlayerHandle>(null);
   const c = {
     en: {
       backToCalls: '← Back to calls',
@@ -924,6 +950,10 @@ export default function CallDetailPage() {
                     allEntries={transcript}
                     offsetSeconds={Math.max(0, Math.round(entry.timestamp - firstTimestamp))}
                     onImprove={openTrainModal}
+                    // Normalize to call-relative seconds — subtract firstTimestamp
+                    // so Assist calls (Unix-epoch timestamps) and the others
+                    // (already call-relative) both seek to the right spot.
+                    onSeek={(t) => waveformRef.current?.seek(Math.max(0, t - firstTimestamp))}
                   />
                 ))}
               </div>
@@ -990,28 +1020,21 @@ export default function CallDetailPage() {
             <h2 className="text-lg font-semibold text-slate-900 mb-4">{c.callRecording}</h2>
             
             {call.recordingUrl || recordingUrl ? (
-              <div className="space-y-3">
-                <audio
-                  src={
-                    (call.recordingUrl || recordingUrl || '').startsWith('/internal-api/')
-                      ? call.recordingUrl || recordingUrl || ''
-                      : `/internal-api/calls/${call.id}/recording/audio`
-                  }
-                  controls
-                  className="w-full"
-                />
-                <a
-                  href={
-                    (call.recordingUrl || recordingUrl || '').startsWith('/internal-api/')
-                      ? call.recordingUrl || recordingUrl || ''
-                      : `/internal-api/calls/${call.id}/recording/audio`
-                  }
-                  download={`call-${call.id}-recording.mp3`}
-                  className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1 text-xs text-brand-600 hover:border-slate-500 hover:text-brand-700"
-                >
-                  {c.downloadRecording}
-                </a>
-              </div>
+              <WaveformPlayer
+                ref={waveformRef}
+                src={
+                  (call.recordingUrl || recordingUrl || '').startsWith('/internal-api/')
+                    ? call.recordingUrl || recordingUrl || ''
+                    : `/internal-api/calls/${call.id}/recording/audio`
+                }
+                downloadUrl={
+                  (call.recordingUrl || recordingUrl || '').startsWith('/internal-api/')
+                    ? call.recordingUrl || recordingUrl || ''
+                    : `/internal-api/calls/${call.id}/recording/audio`
+                }
+                downloadLabel={c.downloadRecording}
+                downloadFilename={`call-${call.id}-recording.mp3`}
+              />
             ) : call.customerPhone ? (
               <div className="space-y-3">
                 <p className="text-sm text-slate-500">

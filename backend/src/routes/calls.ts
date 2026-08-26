@@ -1,5 +1,6 @@
 import type { Call, CallFeedback, Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
+import type { Readable } from 'node:stream';
 import { randomInt } from 'node:crypto';
 import { Router } from 'express';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
@@ -405,7 +406,7 @@ router.post('/calls', async (req: Request, res: Response) => {
               : {};
           await prisma.call.update({
             where: { id: createdCall.id },
-            data: { metrics: { ...base, diagnosis: diag } as Prisma.InputJsonValue },
+            data: { metrics: { ...base, diagnosis: diag } as unknown as Prisma.InputJsonValue },
           });
           console.log(`[DIAGNOSIS] ${createdCall.id}: ${diag.status} — ${diag.headline}${diag.fix ? ' | fix: ' + diag.fix : ''}`);
         }
@@ -578,6 +579,7 @@ router.post('/calls', async (req: Request, res: Response) => {
             transcript: payload.transcript as any,
           },
           {
+            enabled: hubspotSettings.enabled ?? true,
             apiToken: hubspotSettings.apiToken,
             ownerId: hubspotSettings.ownerId ?? '',
             inboxEmail: hubspotSettings.inboxEmail ?? '',
@@ -831,6 +833,81 @@ router.get('/staff/chat-tool-stats', authenticate, async (req: Request, res: Res
 
 // Staff-only cross-garage leaderboard for the observability page: per-garage totals (calls,
 // bookings, minutes, captured revenue) aggregated in SQL so we never hydrate every call row.
+/**
+ * Of the callers who wanted to book, how many did?
+ *
+ * The obvious field does not answer this. metrics.intent records what a call TURNED OUT to be —
+ * a caller who wanted to book and gave up is filed as "general enquiry", indistinguishable from
+ * someone asking the opening hours. So intent has to be inferred from what the agent actually
+ * did: reaching for a booking tool means the caller asked to book.
+ *
+ * The funnel is deliberately staged, because "did they convert" is less useful than "where did
+ * they fall out". A caller who never gives a registration is a different problem from one who
+ * hears a price and stops.
+ */
+router.get('/staff/booking-funnel', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      return res.status(403).json({ error: 'Staff only' });
+    }
+    const days = Math.min(Number(req.query.days) || 30, 180);
+    const since = new Date(Date.now() - days * 864e5);
+    const garageId = typeof req.query.garageId === 'string' && req.query.garageId !== 'all'
+      ? req.query.garageId : undefined;
+
+    const calls = await prisma.call.findMany({
+      where: { createdAt: { gte: since }, ...(garageId ? { garageId } : {}) },
+      select: { metrics: true, confirmedBooking: true },
+    });
+
+    // Tools that only get called because someone is trying to book something.
+    const BOOKING_TOOLS = new Set([
+      'start_quote', 'pick_service', 'select_service', 'quote_service', 'add_service',
+      'proceed_to_booking', 'select_timeslot', 'check_date', 'capture_postcode', 'confirm_booking',
+    ]);
+
+    const stage = { reg: 0, quoted: 0, service: 0, slot: 0, confirmed: 0 };
+    let intent = 0, booked = 0;
+
+    for (const c of calls) {
+      if (!c.metrics) continue;   // no instrumentation on this call, so nothing to infer from
+      const m = c.metrics as Record<string, unknown>;
+      const hist = Array.isArray(m.tool_call_history) ? (m.tool_call_history as Array<{ tool?: string }>) : [];
+      const used = new Set(hist.map((h) => h.tool).filter(Boolean) as string[]);
+      const wantedToBook = [...used].some((t) => BOOKING_TOOLS.has(t)) || c.confirmedBooking === true;
+      if (!wantedToBook) continue;
+
+      intent += 1;
+      if (c.confirmedBooking) booked += 1;
+      if (used.has('capture_registration') || used.has('lookup_vehicle')) stage.reg += 1;
+      if (used.has('start_quote') || used.has('quote_service')) stage.quoted += 1;
+      if (used.has('pick_service') || used.has('select_service') || used.has('add_service')) stage.service += 1;
+      if (used.has('select_timeslot') || used.has('check_date') || used.has('capture_postcode')) stage.slot += 1;
+      if (used.has('confirm_booking')) stage.confirmed += 1;
+    }
+
+    const pct = (n: number) => (intent ? Math.round((n / intent) * 1000) / 10 : 0);
+    res.json({
+      days,
+      callsAnalysed: calls.length,
+      bookingIntent: intent,
+      booked,
+      conversionRate: pct(booked),
+      funnel: [
+        { stage: 'Wanted to book', calls: intent, pct: 100 },
+        { stage: 'Gave a registration', calls: stage.reg, pct: pct(stage.reg) },
+        { stage: 'Got a quote', calls: stage.quoted, pct: pct(stage.quoted) },
+        { stage: 'Chose a service', calls: stage.service, pct: pct(stage.service) },
+        { stage: 'Reached a slot', calls: stage.slot, pct: pct(stage.slot) },
+        { stage: 'Booked', calls: booked, pct: pct(booked) },
+      ],
+    });
+  } catch (error) {
+    console.error('[OBSERVABILITY] booking funnel failed:', error);
+    res.status(500).json({ error: 'Could not build the booking funnel' });
+  }
+});
+
 router.get('/staff/garage-stats', authenticate, async (req: Request, res: Response) => {
   try {
     if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
@@ -1198,7 +1275,7 @@ router.post('/calls/:id/analyze', authenticate, async (req: Request, res: Respon
         : {};
     await prisma.call.update({
       where: { id: call.id },
-      data: { metrics: { ...base, diagnosis } as Prisma.InputJsonValue },
+      data: { metrics: { ...base, diagnosis } as unknown as Prisma.InputJsonValue },
     });
     return res.json({ diagnosis });
   } catch (err) {
@@ -1563,7 +1640,13 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
 
     const recordingValue = call.recordingUrl;
 
-    // S3 recordings — fetch securely using AWS SDK
+    // S3 recordings — STREAM through the portal instead of 302-redirecting to a
+    // pre-signed S3 URL. The old redirect version broke the audio waveform
+    // (WaveSurfer) because browsers enforce CORS on fetch() when the redirect
+    // target is a different origin, and the S3 bucket has no CORS headers.
+    // Streaming through the portal makes the audio same-origin from the
+    // browser's POV — no CORS, no redirect chain — matching how Twilio
+    // recordings are already served below.
     if (recordingValue.startsWith('http') && recordingValue.includes('amazonaws.com')) {
       const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
       const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
@@ -1583,13 +1666,32 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
         credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
       });
 
-      const signedUrl = await getSignedUrl(
-        s3Client,
-        new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }),
-        { expiresIn: 3600 }
-      );
+      // Pass through Range header so partial-content requests still work
+      // (iOS Safari + <audio> require this; WaveSurfer will fetch full audio)
+      const rangeHeader = req.headers.range;
+      const s3Response = await s3Client.send(new GetObjectCommand({
+        Bucket: s3Bucket,
+        Key: s3Key,
+        ...(rangeHeader ? { Range: rangeHeader } : {}),
+      }));
 
-      return res.redirect(302, signedUrl);
+      res.setHeader('Content-Type', s3Response.ContentType || 'audio/mpeg');
+      res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
+      res.setHeader('Accept-Ranges', 'bytes');
+      if (s3Response.ContentLength !== undefined) {
+        res.setHeader('Content-Length', String(s3Response.ContentLength));
+      }
+      if (s3Response.ContentRange) {
+        res.setHeader('Content-Range', s3Response.ContentRange);
+        res.status(206);
+      }
+
+      if (!s3Response.Body) {
+        return res.status(500).send('Empty S3 response body');
+      }
+      // In Node runtime, Body is a Readable stream; pipe straight to the response
+      (s3Response.Body as Readable).pipe(res);
+      return;
     }
 
     // Twilio recording (SID or twilio.com URL)

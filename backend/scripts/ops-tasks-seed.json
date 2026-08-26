@@ -29,9 +29,6 @@
   { "cadence":"daily", "tags":["mmh"], "title":"Confirm the 9am MMH reminders ran",
     "instructions":"1. On the EC2 box, check mmh-docs-reminders.log for today's 9am run.\n2. Confirm it ran and shows the document texts sent (0 due is fine).\n3. If the log is missing or shows errors, the cron failed — investigate/escalate: customers won't have got their upload links." },
 
-  { "cadence":"daily", "tags":["mmh"], "title":"DVLA licence check + approve documents",
-    "instructions":"1. In the MMH admin panel, find new document uploads.\n2. Run the DVLA licence check on each driver's licence + consent.\n3. Approve the documents once verified." },
-
   { "cadence":"daily", "tags":["mmh"], "title":"Answer MMH hire messages",
     "instructions":"1. Check inbound MMH hire messages (chat/SMS).\n2. Answer anything needing a human.\n3. Nudge enquiries toward a booking — offer the nearest available dates." },
 

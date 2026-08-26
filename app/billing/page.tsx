@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import PaymentMethodCard from '../components/PaymentMethodCard';
 import { getGarageId, getUserBranchRoles, isReceptionMateStaff } from '../lib/auth';
 import { ALL_ASSIGNED_BRANCHES_IDENTIFIER } from '../lib/branchScope';
 import type { GarageSummary } from '../types';
@@ -184,10 +185,9 @@ export default function BillingPage() {
         <BillingInfoForm businessInfo={businessInfo} onUpdate={handleBusinessInfoUpdate} garageId={selectedGarageId === 'all' ? undefined : selectedGarageId} />
       )}
 
-      {/* Direct Debit */}
-      {mandateQuery.data && (
-        <MandateStatusCard mandateStatus={mandateQuery.data} />
-      )}
+      {/* How they pay — card customers can change theirs here, Direct Debit customers see
+          their mandate as before. Until now a customer whose card expired had to email us. */}
+      <PaymentMethodCard mandateCard={mandateQuery.data ? <MandateStatusCard mandateStatus={mandateQuery.data} /> : null} />
     </div>
   );
 }

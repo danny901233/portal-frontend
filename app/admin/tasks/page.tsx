@@ -19,6 +19,7 @@ import {
   resetDailyOpsTasks,
   type OpsTask,
   type OpsTaskCadence,
+  type OpsTaskWeeklyDay,
   type OpsTaskStatus,
   type OpsStaffUser,
 } from '../../lib/api';
@@ -31,6 +32,12 @@ const CADENCE_LABEL: Record<OpsTaskCadence, string> = {
   weekly: 'Weekly',
   monthly: 'Monthly',
   project: 'Project',
+};
+
+// Weekly-only: which day to do the task on. Visual hint, no report/reset impact.
+const WEEKLY_DAYS: OpsTaskWeeklyDay[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const WEEKLY_DAY_LABEL: Record<OpsTaskWeeklyDay, string> = {
+  mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
 };
 
 // Display name overrides for known staff. User model has no display-name
@@ -203,6 +210,15 @@ export default function AdminOpsTasksPage() {
     }
   };
 
+  const handleChangeWeeklyDay = async (task: OpsTask, weeklyDay: OpsTaskWeeklyDay | null) => {
+    try {
+      const res = await patchOpsTask(task.id, { weeklyDay });
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? res.task : t)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update day');
+    }
+  };
+
   const handleSaveNotes = async (task: OpsTask) => {
     const draft = notesDraft[task.id] ?? '';
     setSavingNotes((prev) => ({ ...prev, [task.id]: true }));
@@ -357,6 +373,7 @@ export default function AdminOpsTasksPage() {
                       onExpandToggle={() => setExpandedId(expandedId === task.id ? null : task.id)}
                       onToggle={() => handleToggle(task)}
                       onReassign={(id) => handleReassign(task, id)}
+                      onChangeWeeklyDay={(day) => handleChangeWeeklyDay(task, day)}
                       onDelete={() => handleDelete(task)}
                       notesDraft={notesDraft[task.id] ?? ''}
                       onNotesDraftChange={(v) => setNotesDraft((prev) => ({ ...prev, [task.id]: v }))}
@@ -409,6 +426,7 @@ interface TaskRowProps {
   onExpandToggle: () => void;
   onToggle: () => void;
   onReassign: (assigneeIds: string[]) => void;
+  onChangeWeeklyDay: (day: OpsTaskWeeklyDay | null) => void;
   onDelete: () => void;
   notesDraft: string;
   onNotesDraftChange: (v: string) => void;
@@ -423,6 +441,7 @@ function TaskRow({
   onExpandToggle,
   onToggle,
   onReassign,
+  onChangeWeeklyDay,
   onDelete,
   notesDraft,
   onNotesDraftChange,
@@ -449,6 +468,14 @@ function TaskRow({
                 {tag}
               </span>
             ))}
+            {task.cadence === 'weekly' && task.weeklyDay && (
+              <span
+                title={`Do this on ${WEEKLY_DAY_LABEL[task.weeklyDay]}`}
+                className="rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700 ring-1 ring-inset ring-brand-200"
+              >
+                {WEEKLY_DAY_LABEL[task.weeklyDay]}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
@@ -483,6 +510,27 @@ function TaskRow({
               {/* Plain-text render for v1 — the seed uses "1. ...\n2. ..." format which reads fine.
                   Markdown rendering can be added later without touching the data. */}
               <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700">{task.instructions}</pre>
+            </div>
+          )}
+
+          {task.cadence === 'weekly' && (
+            <div className="mb-3">
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Preferred day</h4>
+              <select
+                value={task.weeklyDay ?? ''}
+                onChange={(e) =>
+                  onChangeWeeklyDay((e.target.value || null) as OpsTaskWeeklyDay | null)
+                }
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900"
+              >
+                <option value="">— any day —</option>
+                {WEEKLY_DAYS.map((d) => (
+                  <option key={d} value={d}>{WEEKLY_DAY_LABEL[d]}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Hint only — the weekly reset still runs every Monday morning.
+              </p>
             </div>
           )}
 
@@ -537,6 +585,7 @@ function CreateTaskModal({
   const [cadence, setCadence] = useState<OpsTaskCadence>('weekly');
   const [tagsText, setTagsText] = useState('');
   const [assigneeId, setAssigneeId] = useState<string>('');
+  const [weeklyDay, setWeeklyDay] = useState<OpsTaskWeeklyDay | ''>('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -556,6 +605,7 @@ function CreateTaskModal({
         cadence,
         tags,
         assigneeIds: idsForSelection(assigneeId, staff),
+        weeklyDay: cadence === 'weekly' && weeklyDay ? weeklyDay : null,
       });
       await onCreated(res.task);
     } catch (e) {
@@ -597,6 +647,21 @@ function CreateTaskModal({
             ))}
           </select>
         </label>
+        {cadence === 'weekly' && (
+          <label className="mb-3 block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">Preferred day (optional)</span>
+            <select
+              value={weeklyDay}
+              onChange={(e) => setWeeklyDay(e.target.value as OpsTaskWeeklyDay | '')}
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900"
+            >
+              <option value="">— any day —</option>
+              {WEEKLY_DAYS.map((d) => (
+                <option key={d} value={d}>{WEEKLY_DAY_LABEL[d]}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="mb-3 block">
           <span className="mb-1 block text-xs font-medium text-slate-600">Tags (comma-separated)</span>
           <input

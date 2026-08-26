@@ -302,7 +302,7 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
-      const { platform, status } = req.query;
+      const { platform, status, enquiryType, assigneeId } = req.query;
 
       const where: any = { garageId };
 
@@ -314,6 +314,20 @@ router.get(
         where.status = status;
       }
 
+      if (enquiryType && enquiryType !== 'all') {
+        where.enquiryType = enquiryType;
+      }
+
+      // "mine" resolves to the caller's userId. "unassigned" filters the
+      // shared pool. Anything else is treated as a literal userId.
+      if (assigneeId === 'mine') {
+        where.assigneeId = req.user?.userId ?? null;
+      } else if (assigneeId === 'unassigned') {
+        where.assigneeId = null;
+      } else if (typeof assigneeId === 'string' && assigneeId && assigneeId !== 'all') {
+        where.assigneeId = assigneeId;
+      }
+
       const allConversations = await prisma.chatConversation.findMany({
         where,
         include: {
@@ -322,6 +336,7 @@ router.get(
             take: 1,
           },
           customer: true,
+          assignee: { select: { id: true, email: true } },
         },
         orderBy: { lastMessageAt: 'desc' },
       });
@@ -343,12 +358,21 @@ router.get(
       // Merge conversations with same customer
       const mergedConversations = [];
 
+      // Priority for picking one enquiryType across a merged group. Complaint
+      // always wins so a customer's complaint on WhatsApp doesn't get hidden
+      // by a general Facebook message on the same person's card.
+      const ENQUIRY_PRIORITY: Record<string, number> = {
+        complaint: 4, booking: 3, parts: 3, sales: 2, general: 1,
+      };
+
       for (const [customerId, convs] of groupedByCustomer.entries()) {
         if (convs.length === 1) {
           mergedConversations.push(convs[0]);
         } else {
-          // Merge multiple conversations into one
-          const platforms = convs.map(c => c.platform);
+          // Merge multiple conversations into one. Dedup platforms so a
+          // customer with several WhatsApp-only rows shows one WhatsApp icon,
+          // not N copies of it.
+          const platforms = Array.from(new Set(convs.map(c => c.platform)));
           const allMessages = convs.flatMap(c => c.messages);
           const latestMessage = allMessages.sort((a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -358,6 +382,17 @@ router.get(
           const latestConv = convs.sort((a, b) =>
             new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
           )[0];
+
+          // Roll up display fields for the merged card: enquiryType is the
+          // strongest across the group; assignee is the latest conversation's
+          // owner (assignment is per-conversation and the assign action still
+          // targets a specific id).
+          const rolledEnquiryType = convs.reduce<string | null>((best, c) => {
+            const t = c.enquiryType;
+            if (!t) return best;
+            if (!best) return t;
+            return (ENQUIRY_PRIORITY[t] ?? 0) > (ENQUIRY_PRIORITY[best] ?? 0) ? t : best;
+          }, null);
 
           mergedConversations.push({
             id: latestConv.id,
@@ -370,6 +405,9 @@ router.get(
             customerName: latestConv.customer?.name || latestConv.customerName,
             status: latestConv.status,
             unreadCount: totalUnread,
+            enquiryType: rolledEnquiryType,
+            assigneeId: latestConv.assigneeId,
+            assignee: latestConv.assignee,
             lastMessageAt: latestConv.lastMessageAt,
             messages: [latestMessage],
             conversationIds: convs.map(c => c.id), // Store all conversation IDs
@@ -414,6 +452,7 @@ router.get(
               name: true,
             },
           },
+          assignee: { select: { id: true, email: true } },
         },
       });
 
@@ -442,6 +481,7 @@ router.get(
                 name: true,
               },
             },
+            assignee: { select: { id: true, email: true } },
           },
         });
 

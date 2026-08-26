@@ -1,0 +1,66 @@
+READ THIS BEFORE TOUCHING ANY "Support hub · Phase N" TASK.
+Written to be executed by a coding agent (Claude) as well as read by a human.
+
+=== GOAL ===
+One place in the portal where ALL ReceptionMate support lands — email to hello@, WhatsApp to our
+ops number, portal live chat, and negative call feedback — worked as tickets with an owner and a
+status. Scope is ReceptionMate only. MMH is OUT of scope.
+
+=== HARD RULES (do not violate — these are decisions, not preferences) ===
+1. hello@receptionmate.co.uk stays the ONLY support address. AI sorts billing/support/sales AFTER
+   arrival. Do not create new mailboxes or aliases.
+2. It lives in OUR portal. Not HighLevel, not Zendesk, not a third-party inbox.
+3. The AI never sends a customer a real ANSWER unposted by a human. It DRAFTS; a human approves.
+   The ONLY thing that sends automatically is the acknowledgement receipt (see rule 4).
+4. Auto-acknowledgement: email YES, WhatsApp YES (only inside the 24h window), live chat NO
+   (Leah has already replied), spam NEVER.
+5. NEVER unsubscribe from transactional senders (Stripe, GoCardless, Twilio, OpenAI, LiveKit,
+   Mailgun, Meta). Those are receipts and service notices we need.
+6. NEVER auto-reply to spam. A reply to a spoofed sender damages our sending reputation.
+7. Support WhatsApp = garages messaging OUR ops number. It must NEVER be mixed with
+   ChatConversation, which is the AI agent talking to GARAGES' OWN CUSTOMERS. Merging them would
+   put thousands of MOT bookings into the support queue.
+8. Unassigned is a SHARED queue. It is not defaulted to one person.
+
+=== GUARDRAILS FOR THE AGENT DOING THIS WORK ===
+- Work in the repo on a branch and open a PR. Do NOT ssh to production, do NOT run migrations
+  against the production database, do NOT restart pm2. Dan deploys.
+- NEVER send test traffic (chat, calls, bookings, WhatsApp) to a live customer garage. The only
+  test garage is "ReceptionMate Branch".
+- Secrets live in backend/.env on the server. Never paste key values into code, tasks or commits;
+  refer to them by name (MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_FROM).
+- Migrations must be ADDITIVE (new table / nullable column / default). No destructive column drops
+  or renames — this database is live.
+- Typecheck before claiming done: backend `npx tsc --noEmit -p tsconfig.json`, frontend
+  `npx tsc --noEmit -p tsconfig.json`. Next's build does NOT typecheck.
+
+=== WHERE THINGS ARE ===
+- Repo: portal-frontend. Live branch is `receptionmate-demo-branch-2` (NOT main).
+- Backend: backend/src — routes/, services/, utils/. Express + Prisma, ESM ("type": "module").
+- Frontend: app/ — Next.js 16 App Router. Admin pages under app/admin/.
+- Schema: prisma/schema.prisma. Existing support models: SupportConversation, SupportMessage.
+- Existing support route: backend/src/routes/support.ts. Admin UI: app/admin/support.
+- Email sending: backend/src/utils/email.ts → sendEmail({ to: string[], subject, html, text }).
+  Provider is Mailgun (MAILGUN_* env vars). There is currently NO inbound email of any kind.
+- Existing inbound webhooks to copy patterns from: backend/src/routes/webhooks/meta-whatsapp.ts.
+- Cron pattern: backend/src/utils/scheduler.ts (node-cron, timezone 'Europe/London').
+
+=== BUILD ORDER (dependency, not preference) ===
+Phase 2's TICKET MODEL is the foundation and must be built FIRST, before Phase 1's email ingest.
+Ingest with no ticket model just piles email onto SupportConversation, which is one-thread-per-user
+and cannot express "one ticket per issue". Order: Phase 0 → Phase 2 (ticket model) → Phase 1
+(email in) → Phase 1b (noise filter) → Phase 3 (WhatsApp) → Phase 4 (calls).
+
+=== THE TICKET MODEL IN ONE PARAGRAPH ===
+One ticket = one issue, not one customer. Statuses: new (nobody looked), open (ours to act on),
+pending (replied, waiting on the customer — drops out of the work queue), on_hold (blocked
+internally), solved (done, reopens on reply), closed (archived after a few days). Every ticket has
+a requester (a contact: email and/or phone, linked to a garage/business when we can identify them),
+an optional assignee, a channel, a category, a priority, and a thread of entries that are either
+public replies or internal staff-only notes.
+
+=== DEFINITION OF DONE FOR THE WHOLE PROJECT ===
+A garage emails hello@, WhatsApps the ops number, or escalates from live chat; each becomes a
+ticket in one queue; staff see Unassigned / Mine open / Pending 3+ days; every reply reaches the
+customer on the right channel; spam creates no tickets; supplier invoices route to Dan; and the
+9pm ops report can state how many tickets were opened, answered and left outstanding.

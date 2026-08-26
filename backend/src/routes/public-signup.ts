@@ -12,6 +12,7 @@ import { getStripeClient, stripeConfigured } from '../services/stripe.js';
 import { fetchPlaceDetails } from '../utils/googlePlaces.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { autoIngestWebsiteKnowledge } from './config.js';
+import { activateAssistTrial } from '../services/assistTrialActivation.js';
 import type { Prisma } from '@prisma/client';
 
 const router = Router();
@@ -134,6 +135,9 @@ export async function createAccountFromPending(
       branchAddress: pending.branchAddress,
       phoneNumber: pending.phoneNumber,
       websiteUrl: pending.websiteUrl,
+      // Null here means the agent keeps its repair-garage default, so a signup without a Places
+      // lookup is no worse off than every garage was before this existed.
+      businessType: (pending as { businessType?: string | null }).businessType || null,
       emailAddress: normalizedEmail,
       ...(pending.weeklyOpeningHours ? { weeklyOpeningHours: pending.weeklyOpeningHours as Prisma.InputJsonValue } : {}),
       greetingLine,
@@ -262,6 +266,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
           branchAddress: place?.address || address || null,
           phoneNumber: place?.phone || null,
           websiteUrl: place?.website || null,
+          businessType: place?.businessType || null,
           ...(place?.weeklyOpeningHours ? { weeklyOpeningHours: place.weeklyOpeningHours as Prisma.InputJsonValue } : {}),
           signToken,
           status: 'pending',
@@ -332,6 +337,19 @@ router.post('/public/signup-complete', async (req: Request, res: Response) => {
     await prisma.user.update({
       where: { email: created.userEmail },
       data: { resetToken, resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000) },
+    });
+    // Provision the number, push the agent config, welcome them, move the HL opportunity to
+    // "Free trial live" and alert the team. This used to be done ONLY by the Stripe
+    // setup_intent.succeeded webhook, which does not reach us — so every self-serve trial was
+    // landing with no number and no notification. Fire-and-forget so a slow Twilio purchase
+    // cannot stall the customer on "Choose a password"; activateAssistTrial is idempotent, so
+    // the webhook doing it again later is a no-op.
+    const pending = await prisma.pendingSignup.findUnique({
+      where: { id: parsed.data.pendingSignupId },
+      select: { ghlOpportunityId: true },
+    });
+    void activateAssistTrial(created, pending, 'signup-complete').catch((err) => {
+      console.error('[PUBLIC_SIGNUP] activation failed:', err);
     });
     return res.json({ ok: true, resetToken });
   } catch (err) {

@@ -11,6 +11,113 @@ import { z } from 'zod';
 
 const router = Router();
 
+// Shown on every auth path when User.lockedAt is set. Deliberately says nothing about why —
+// staff lock accounts for suspected fraud, and the detail belongs in a conversation, not an
+// error message.
+const ACCOUNT_LOCKED_MESSAGE =
+  'This account has been suspended. Please contact ReceptionMate at hello@receptionmate.co.uk to restore access.';
+
+
+/**
+ * Record a sign-in attempt. There was previously no record of a login at all, so "who was in the
+ * portal on Tuesday" had no answer, and a run of failures against one account was invisible.
+ *
+ * Never throws: an audit write must not be the reason somebody cannot sign in.
+ */
+async function recordLogin(
+  req: Request,
+  email: string,
+  success: boolean,
+  userId?: string | null,
+  reason?: string,
+): Promise<void> {
+  try {
+    const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    await prisma.loginEvent.create({
+      data: {
+        userId: userId ?? null,
+        email: email.toLowerCase(),
+        success,
+        reason: reason ?? null,
+        ip: fwd || req.socket?.remoteAddress || null,
+        userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null,
+      },
+    });
+    if (success && userId) {
+      await prisma.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
+    }
+  } catch (err) {
+    console.error('[LOGIN_AUDIT] could not record login attempt:', err);
+  }
+}
+
+
+/**
+ * Throttle password guessing.
+ *
+ * /auth/login had no lockout and no rate limit: an attacker could guess indefinitely, and the
+ * only trace was nothing at all until LoginEvent existed. Now that every attempt is recorded, the
+ * table itself is the counter — no extra store, and it survives a restart, which an in-memory
+ * counter would not.
+ *
+ * Two limits, deliberately different:
+ *   - per ACCOUNT, to stop one mailbox being ground down
+ *   - per IP, higher, to stop one source spraying many accounts
+ *
+ * Successful sign-ins are not counted, and the window is rolling, so a legitimate user who
+ * mistypes a few times is back in as soon as they get it right. Rejections are recorded but
+ * excluded from the counts -- otherwise every blocked attempt would extend the lock and it would
+ * never lift. Returns null when allowed, or the number of seconds to wait.
+ */
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const MAX_FAILS_PER_EMAIL = 5;
+const MAX_FAILS_PER_IP = 20;
+
+function clientIpOf(req: Request): string | null {
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || req.socket?.remoteAddress || null;
+}
+
+async function loginThrottleRetryAfter(req: Request, email: string): Promise<number | null> {
+  try {
+    const since = new Date(Date.now() - LOGIN_WINDOW_MS);
+    const ip = clientIpOf(req);
+    const [byEmail, byIp] = await Promise.all([
+      prisma.loginEvent.count({
+        where: {
+          email: email.toLowerCase(), success: false,
+          createdAt: { gte: since }, NOT: { reason: { in: ['throttled', 'cleared_by_admin'] } },
+        },
+      }),
+      ip
+        ? prisma.loginEvent.count({
+            where: { ip, success: false, createdAt: { gte: since }, NOT: { reason: { in: ['throttled', 'cleared_by_admin'] } } },
+          })
+        : Promise.resolve(0),
+    ]);
+    if (byEmail < MAX_FAILS_PER_EMAIL && byIp < MAX_FAILS_PER_IP) return null;
+
+    // Wait out the oldest failure in the window rather than a flat penalty, so the lock lifts
+    // gradually instead of everything expiring at once.
+    const oldest = await prisma.loginEvent.findFirst({
+      where: {
+        success: false,
+        createdAt: { gte: since },
+        NOT: { reason: { in: ['throttled', 'cleared_by_admin'] } },
+        ...(byEmail >= MAX_FAILS_PER_EMAIL ? { email: email.toLowerCase() } : { ip: ip as string }),
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true },
+    });
+    const readyAt = (oldest?.createdAt.getTime() ?? Date.now()) + LOGIN_WINDOW_MS;
+    return Math.max(1, Math.ceil((readyAt - Date.now()) / 1000));
+  } catch (err) {
+    // Never lock everybody out because the check itself failed.
+    console.error('[LOGIN_THROTTLE] check failed, allowing the attempt:', err);
+    return null;
+  }
+}
+
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const result = loginSchema.safeParse(req.body);
@@ -20,17 +127,39 @@ router.post('/login', async (req: Request, res: Response) => {
 
     const { email, password, garageId: requestedGarageId } = result.data;
 
+    const retryAfter = await loginThrottleRetryAfter(req, email);
+    if (retryAfter !== null) {
+      await recordLogin(req, email, false, null, 'throttled');
+      console.warn(`[LOGIN] throttled ${email.toLowerCase()} from ${clientIpOf(req)} — ${retryAfter}s`);
+      res.setHeader('Retry-After', String(retryAfter));
+      return res.status(429).json({
+        error: 'Too many sign-in attempts. Please wait a few minutes and try again.',
+        retryAfter,
+      });
+    }
+
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
     if (!user) {
+      await recordLogin(req, email, false, null, 'no_user');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const matched = await bcrypt.compare(password, user.passwordHash);
 
     if (!matched) {
+      await recordLogin(req, email, false, user.id, 'bad_password');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    // Checked AFTER the password so we don't leak which accounts are locked to someone guessing.
+    // A locked user with the right password gets told to contact us, which is the whole point.
+    if (user.lockedAt) {
+      await recordLogin(req, email, false, user.id, 'locked');
+      return res.status(403).json({ error: ACCOUNT_LOCKED_MESSAGE, code: 'account_locked' });
+    }
+
+    await recordLogin(req, email, true, user.id);
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {
@@ -176,6 +305,13 @@ router.post('/request-password-reset', async (req: Request, res: Response) => {
       return res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
     }
 
+    // A locked account must not be able to reset its way back in. Same generic response as the
+    // unknown-email case so this doesn't become a locked-account oracle.
+    if (user.lockedAt) {
+      console.warn(`[AUTH] password reset requested for locked account: ${user.email}`);
+      return res.json({ success: true, message: 'If an account exists, a reset link has been sent.' });
+    }
+
     // Generate reset token
     const resetToken = randomBytes(32).toString('hex');
     const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
@@ -306,6 +442,13 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid or expired reset token' });
     }
 
+    // Covers a token issued before the lock was applied — including the one signup-complete hands
+    // out, which is how a fraudulent signup would otherwise walk straight back in.
+    if (user.lockedAt) {
+      console.warn(`[AUTH] reset-password blocked for locked account: ${user.email}`);
+      return res.status(403).json({ error: ACCOUNT_LOCKED_MESSAGE, code: 'account_locked' });
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     const updatedUser = await prisma.user.update({
@@ -412,6 +555,12 @@ router.post('/verify-magic-link', async (req: Request, res: Response) => {
     if (!user) {
       console.log('[MAGIC LINK] Token not found or expired');
       return res.status(400).json({ error: 'Invalid or expired link' });
+    }
+
+    // A magic link mints a session directly, so it would bypass the login check entirely.
+    if (user.lockedAt) {
+      console.warn(`[AUTH] magic link blocked for locked account: ${user.email}`);
+      return res.status(403).json({ error: ACCOUNT_LOCKED_MESSAGE, code: 'account_locked' });
     }
 
     console.log('[MAGIC LINK] Token valid, logging in user:', user.email);

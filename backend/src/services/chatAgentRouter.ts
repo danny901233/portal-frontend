@@ -13,6 +13,10 @@ interface ChatAgentResponse {
 interface SeedContact {
   phone?: string;
   name?: string;
+  /** How long since the customer last messaged, e.g. "yesterday", "4 days ago". Set only when
+   *  the thread has been dormant, so the agent can open naturally instead of resuming
+   *  mid-sentence. Agents that don't read it are unaffected. */
+  lastContact?: string;
 }
 
 // Per-conversation mutex — prevents two simultaneous messages for the same

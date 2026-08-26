@@ -1,0 +1,106 @@
+The portal support inbox becomes the ONE place all support lands (email, WhatsApp, live chat, negative feedback). Rules: (1) keep hello@ as the single address — AI sorts billing/support/sales AFTER arrival, no new mailboxes; (2) NOT HighLevel's inbox — it lives in our portal; (3) ship the phases below, don't stop agent work. Scope is ReceptionMate only for now — MMH is out.
+
+================ HOW THE HUB WORKS (the Zendesk model) ================
+
+ONE TICKET = ONE ISSUE, not one customer.
+A garage that asks about billing in March and reports a broken agent in August has TWO tickets. A ticket gets opened, worked, solved and closed. This is why we can count and report on them.
+
+STATUSES — these drive everything. The status answers "who owes the next action?"
+- New       Nobody has looked at it yet.
+- Open      OURS to act on. The ball is in our court.
+- Pending   We have replied, waiting on the CUSTOMER. Drops out of the work queue.
+- On-hold   Blocked on something internal (a fix from Dan, a supplier).
+- Solved    Done. Reopens automatically if they reply.
+- Closed    Archived a few days after Solved.
+
+Use Pending properly. If you have answered and are waiting on them, set Pending — do NOT leave it Open. If everything you have already answered stays Open, the queue stops meaning anything and gets ignored.
+
+UNASSIGNED IS A SHARED QUEUE. Everyone works it — it is not "Gab's by default". If you pick something up, assign it to yourself so nobody doubles up. If you cannot action it in one pass, leave an internal note saying what you tried and reassign to Dan. Never leave it sitting silently.
+
+PUBLIC REPLY vs INTERNAL NOTE.
+- Public reply = the customer sees it.
+- Internal note = staff only. Use notes for working context, what you checked, what you suspect, and for handing over to Dan.
+Check which one you are writing before you send. This is the single easiest mistake to make.
+
+================ YOUR DAY: WORK THESE THREE VIEWS TO ZERO ================
+
+1. UNASSIGNED — triage everything. Identify, categorise, assign (usually to yourself).
+2. MINE / OPEN — the actual work. Reply, or move to Pending / On-hold with a note.
+3. PENDING 3+ DAYS — chase or close. A customer who has gone quiet for a week gets a polite close, not silence.
+
+Done for the day when all three are clear. The 9pm report shows what you completed.
+
+================ AUTO-ACKNOWLEDGEMENT ================
+
+An acknowledgement is a RECEIPT, not an answer. It goes out automatically:
+- Email: YES — automatic "we've got it" with the ticket reference.
+- WhatsApp: YES — automatic, provided we are inside the 24-hour window.
+- Live chat: NO — Leah has already replied instantly, another message is just noise.
+- Never on anything auto-closed as spam.
+
+The AI never sends a real ANSWER on its own. It drafts, a human approves. Acknowledgement is the only thing that goes out unreviewed.
+
+================ CASE PLAYBOOKS ================
+
+GENERAL ENQUIRY (e.g. "how do I change my greeting?")
+1. Confirm which garage it is — the ticket should already show them.
+2. Answer from the help docs / KB. If a KB article is missing and this is the second time it has been asked, say so in a note so we write one.
+3. Waiting on them to confirm? → Pending. They confirm → Solved.
+
+COMPLAINT (e.g. "your agent quoted my customer the wrong price")
+1. NEVER send a canned reply, and never try to sell or upsell anything.
+2. Acknowledge FAST — within the hour if at all possible. The acknowledgement matters more than the answer. An unanswered complaint becomes a cancellation.
+3. Gather the facts on the ticket: garage, date/time, call or conversation id, what the customer was told vs what was correct.
+4. Internal note with what you found, then assign to Dan and tell him. Do not promise refunds, credits or fixes yourself.
+5. Priority high — it jumps the queue over everything else.
+
+SPAM / COLD SALES
+- Auto-closed on the spam score, no ticket. It should never reach your views.
+- NEVER unsubscribe and never reply — a reply to a spoofed sender damages our sending reputation.
+- If something legitimate got auto-closed, reopen it from the Spam view (kept for 7 days) and tell Dan so the rule gets loosened. A garage's email silently vanishing is far worse than seeing ten junk emails.
+
+MARKETING / BULK (real companies, genuine mailing lists)
+- Detect List-Unsubscribe → one-click unsubscribe, confirm the first time for each sender.
+- No ticket.
+
+SUPPLIER / TRANSACTIONAL BILLING (Stripe, GoCardless, Twilio, OpenAI, LiveKit, Mailgun…)
+- NEVER unsubscribe from these — they are receipts and service notices we need.
+- Typed Billing and routed to DAN, not you. They are excluded from your views and from support metrics.
+- Your only job is that they do not get lost.
+
+NEGATIVE CALL FEEDBACK
+- A ticket opens automatically with the call attached. Nobody is sitting waiting on a reply, so it is not measured on response time — but it is still a real ticket and you do reply from it.
+- Reply from the ticket (email, or WhatsApp if a window is open). If you ring them instead, log an internal note saying you rang and what was said — otherwise there is no record.
+
+================ CHANNEL RULES ================
+
+EMAIL
+- Replies go out from hello@ with the [RM #id] token in the subject so the reply threads back to the same ticket. Do not strip it.
+- One address only. We do not create new mailboxes.
+
+WHATSAPP (garages messaging our ops number — NOT the agent's conversations with garages' customers)
+- 24-HOUR WINDOW: we can only send a free-text reply within 24 hours of THEIR last message. After that it is an approved template or nothing.
+- Our own messages do NOT extend the window. Only a new message FROM THEM restarts it.
+- The ticket shows a live countdown. If it has expired, the reply box is disabled — send the approved template, or answer by email instead.
+- Unanswered after 4 hours and still inside the window → an automatic holding message goes out ("we still have your enquiry, we're busy, someone will come back to you"). This is sent ONCE. Never chase repeatedly — that is exactly what got the MMH number banned.
+- Support replies are 1-to-1 and are NOT subject to the campaign throttle (30s drip, 8pm cut-off, 240/day). Answer a garage at 7:45pm if that is when they wrote.
+- Expect photos — warning lights, portal screenshots. They attach to the ticket.
+
+PORTAL LIVE CHAT
+- Leah handles it first. If she resolves it, there is NO ticket — it is just logged.
+- A ticket is created when she ESCALATES, with the full transcript attached. That is what lands in Unassigned.
+- If the customer is still on the portal your reply is live chat. If they have left, it emails them and badges the portal for their return.
+
+================ ESCALATE TO DAN ================
+
+Immediately, no matter what else is in the queue:
+- Any complaint about money, damage, or an agent giving a customer wrong information.
+- Anything threatening to cancel, chargeback, or go legal.
+- Anything you would have to promise a refund, credit or code change to resolve.
+- An agent down / not answering for a live garage.
+
+Internal note first with the facts, then reassign. Never leave an escalation only in your head.
+
+================ DONE WHEN ================
+
+Unassigned is empty, nothing of yours is Open without a next action, nothing has sat in Pending over 3 days unchased, and every escalation has a note explaining what was found.

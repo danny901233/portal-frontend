@@ -88,11 +88,20 @@ async function checkHeartbeat() {
 async function checkRouting() {
   const issues = [];
   const cfgs = await prisma.agentConfiguration.findMany({ select: { garageId: true, agentType: true, agentScript: true } });
-  const garages = await prisma.garage.findMany({ select: { id: true, name: true } });
+  const garages = await prisma.garage.findMany({
+    select: { id: true, name: true, twilioNumber: true, archivedAt: true },
+  });
   const nameById = new Map(garages.map((g) => [g.id, g.name]));
+  const byId = new Map(garages.map((g) => [g.id, g]));
   for (const c of cfgs) {
     const name = nameById.get(c.garageId) || c.garageId;
     if (SKIP_NAME_RE.test(name)) continue;
+    // No number pointing at it, or archived, means no call can arrive — so a routing mistake
+    // cannot strand a caller and is not worth waking anyone for. "ReceptionMate Demo" held this
+    // alert open permanently with twilioNumber = null, and an alarm that is always on is an alarm
+    // people learn to ignore, which costs us the real ones.
+    const g = byId.get(c.garageId);
+    if (!g || !g.twilioNumber || g.archivedAt) continue;
     const type = c.agentType === 'assist' ? 'assist' : 'automate';
     const actual2 = routesToAccount2(c.agentScript);
     if (actual2 !== EXPECTED_ACCOUNT2[type]) {
@@ -151,6 +160,85 @@ async function checkResponseHealth() {
 }
 
 // ---- state ----
+
+/**
+ * Does the config the agent READS match the config the portal SHOWS?
+ *
+ * The portal writes settings to Postgres; the voice and chat agents read a copy from DynamoDB.
+ * Nothing reconciled the two, so a write that bypassed the config route left the agent serving
+ * stale settings with no error anywhere. On 2026-08-19 Kestrels told a caller they do not sell
+ * cars while their portal held sixteen FAQs saying otherwise, and Moto Oil Auto Centre Poole had
+ * no DynamoDB record at all. Six garages were adrift and nobody could have known.
+ *
+ * Compares FAQ counts and the stored timestamp. Cheap, and it catches the whole class.
+ */
+async function checkConfigSync() {
+  const issues = [];
+  let client;
+  try {
+    const { DynamoDBClient, GetItemCommand } = require('@aws-sdk/client-dynamodb');
+    const region = process.env.AWS_REGION || 'eu-west-2';
+    const creds = process.env.AWS_ACCESS_KEY_ID
+      ? { accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY }
+      : undefined;
+    client = new DynamoDBClient(creds ? { region, credentials: creds } : { region });
+    var GetItem = GetItemCommand;
+  } catch (err) {
+    console.error('[watchdog] config-sync check unavailable:', err.message);
+    return issues;
+  }
+
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT g.id, g.name, ac."updatedAt" AS cfg_updated,
+           COALESCE(jsonb_array_length(ac.faqs), 0)::int AS faq_count
+    FROM "Garage" g JOIN "AgentConfiguration" ac ON ac."garageId" = g.id
+    WHERE g."archivedAt" IS NULL AND g."isTestAccount" = false`);
+
+  for (const row of rows) {
+    if (SKIP_NAME_RE.test(row.name)) continue;
+    let item = null;
+    try {
+      const res = await client.send(new GetItem({
+        TableName: 'AgentConfig',
+        Key: { garageId: { S: row.id } },
+      }));
+      item = res.Item || null;
+    } catch (err) {
+      console.error(`[watchdog] dynamo read failed for ${row.name}:`, err.message);
+      continue;   // a read error is not evidence of drift
+    }
+
+    if (!item) {
+      issues.push({
+        key: `cfgsync:${row.id}`,
+        msg: `CONFIG MISSING: "${row.name}" has no agent config in DynamoDB at all — the agent is running on defaults, without their hours, FAQs or services. Re-save their agent config to push it.`,
+      });
+      continue;
+    }
+
+    let dynFaqs = 0;
+    try {
+      dynFaqs = (JSON.parse((item.configuration && item.configuration.S) || '{}').faqs || []).length;
+    } catch (_) { /* unparseable config counts as drift below */ }
+
+    const dynUpdated = item.updatedAt && item.updatedAt.S ? new Date(item.updatedAt.S) : null;
+    const pgUpdated = row.cfg_updated ? new Date(row.cfg_updated) : null;
+    // A minute of slack: the two writes are never simultaneous.
+    const stale = pgUpdated && dynUpdated && pgUpdated.getTime() - dynUpdated.getTime() > 60000;
+
+    if (dynFaqs !== row.faq_count || stale) {
+      const bits = [];
+      if (dynFaqs !== row.faq_count) bits.push(`portal has ${row.faq_count} FAQ(s), the agent has ${dynFaqs}`);
+      if (stale) bits.push(`agent copy last written ${dynUpdated.toISOString().slice(0, 16).replace('T', ' ')}, portal changed since`);
+      issues.push({
+        key: `cfgsync:${row.id}`,
+        msg: `CONFIG DRIFT: "${row.name}" — ${bits.join('; ')}. The agent is answering on older settings than the portal shows. Re-save their agent config to push it.`,
+      });
+    }
+  }
+  return issues;
+}
+
 function loadState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return {}; }
 }
@@ -203,6 +291,7 @@ async function main() {
 
   const prev = loadState(); // { key: msg }
   const routing = await checkRouting();
+  const configSync = await checkConfigSync();
 
   // Heartbeat only judged during business hours; outside hours, carry prior heartbeat state untouched
   // so we don't fire false "down"/"recovered" pings overnight.
@@ -216,7 +305,7 @@ async function main() {
   }
 
   const current = {};
-  [...heartbeat, ...responseHealth, ...routing].forEach((i) => { current[i.key] = i.msg; });
+  [...heartbeat, ...responseHealth, ...routing, ...configSync].forEach((i) => { current[i.key] = i.msg; });
 
   const newIssues = Object.entries(current).filter(([k]) => !(k in prev));
   const resolved = Object.keys(prev).filter((k) => !(k in current));

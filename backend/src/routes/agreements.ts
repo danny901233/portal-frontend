@@ -349,13 +349,42 @@ async function finaliseSignature(opts: {
   // SetupIntent client_secret; the sign page mounts the card form and confirms it. Provisioning +
   // welcome email fire from the Stripe webhook (setup_intent.succeeded) once the card is confirmed.
   let checkoutClientSecret: string | null = null;
-  if (user?.mustChangePassword && stripeConfigured()) {
+
+  // Who gets asked for a card at signing?
+  //
+  // Self-serve signups (mustChangePassword) always did. But a customer we onboard by hand never
+  // could: they set their password first, which clears mustChangePassword, so by the time they
+  // reached the agreement the card step had silently switched itself off. That left no way to
+  // take a card for a manually-created trial at all.
+  //
+  // So also offer it when the garage is plainly set up for one: on a trial, billing by Stripe
+  // card, and no subscription created yet. Additive — the self-serve path is untouched.
+  let wantsTrialCard = !!user?.mustChangePassword;
+  if (!wantsTrialCard && user && stripeConfigured()) {
+    const gid = user.garageAccessIds?.[0] ?? null;
+    if (gid) {
+      const g = await prisma.garage.findUnique({
+        where: { id: gid },
+        select: {
+          stripeSubscriptionId: true, trialEndsAt: true, trialEndDate: true,
+          business: { select: { billingMethod: true } },
+        },
+      });
+      const trialEnd = g?.trialEndsAt ?? g?.trialEndDate ?? null;
+      wantsTrialCard = !!g
+        && !g.stripeSubscriptionId
+        && g.business?.billingMethod === 'stripe_card'
+        && !!trialEnd && trialEnd > new Date();
+    }
+  }
+
+  if (wantsTrialCard && stripeConfigured()) {
     try {
-      const garageId = user.garageAccessIds?.[0] ?? null;
+      const garageId = user!.garageAccessIds?.[0] ?? null;
       if (garageId) {
         const trial = await createAssistTrialSubscription({
-          userId: user.id,
-          email: user.email,
+          userId: user!.id,
+          email: user!.email,
           businessName: agreement.clientName,
           garageId,
           agreementId: agreement.id,
@@ -466,6 +495,14 @@ async function finalisePendingSignature(
   }
   if (pending.createdGarageId) return res.status(409).json({ error: 'Already completed' });
 
+  // Check before anything is created in Stripe.
+  if (looksLikeKeyboardMash(data.signedByName) || looksLikeKeyboardMash(data.signedByPosition)) {
+    console.warn(`[AGREEMENT_SIGN] rejected junk signature for "${pending.businessName}": name="${data.signedByName}" position="${data.signedByPosition}"`);
+    return res.status(400).json({
+      error: 'Please enter your full name and your position at the business as they should appear on the agreement.',
+    });
+  }
+
   const now = new Date();
   const snapshot = buildSnapshot(pendingAgreementInputs(pending.businessName), {
     name: data.signedByName, position: data.signedByPosition, at: now, signatureImage: data.signatureDataUrl,
@@ -515,6 +552,31 @@ async function finalisePendingSignature(
     pendingSignupId: pending.id,
     agreement: { id: 'pending', status: 'signed', signedAt: now, signedByName: data.signedByName },
   });
+}
+
+
+/**
+ * Does this look like somebody actually signing, or somebody mashing the keyboard?
+ *
+ * A signature creates a real Stripe customer and a real trialing subscription before anyone has
+ * proved they exist. On 2026-08-19 "Princes End Garage" was signed by "qweq", position "qwe",
+ * email dd@mail.com — no account, no card, no money, but a live subscription in Stripe that will
+ * fail on 2026-09-02. Deferring the Stripe call to the card step does not help, because that form
+ * renders on the same page a second later. The only place to stop it is here.
+ *
+ * Deliberately conservative: it looks for keyboard runs and repeated characters, not for names
+ * that merely seem unusual. Rejecting a real customer's signature is far worse than letting a
+ * junk subscription through, and people's names are not ours to judge.
+ */
+const KEYBOARD_RUNS = ['qwe', 'wer', 'ert', 'rty', 'tyu', 'asd', 'sdf', 'dfg', 'fgh', 'zxc', 'xcv', 'cvb', '123456'];
+
+function looksLikeKeyboardMash(value: string): boolean {
+  const v = (value || '').trim().toLowerCase();
+  if (v.length < 2) return true;                             // "a" is not a name
+  if (/^(.)\1+$/.test(v)) return true;                       // "aaa", "zzzz"
+  const letters = v.replace(/[^a-z]/g, '');
+  if (!letters) return true;                                  // digits or symbols only
+  return KEYBOARD_RUNS.some((run) => letters.includes(run));
 }
 
 const SIGNED_COPY_BCC = 'hello@receptionmate.co.uk';

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
-import { authenticate, authenticateApiKey, requireAdmin } from '../middleware/auth.js';
+import { authenticate, authenticateApiKey, requireAdmin, forgetRevocation } from '../middleware/auth.js';
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 
@@ -135,6 +135,296 @@ const formatBranch = (garage: {
         notificationEmails: garage.agentConfiguration.notificationEmails ?? [],
       }
     : null,
+});
+
+/**
+ * Is every garage actually working?
+ *
+ * Today's review found Ecotest and Moto Oil: both live, both with numbers assigned, both with
+ * ZERO calls ever, and Ecotest already invoiced twice at £350 a month. Nothing surfaced either of
+ * them — they were found by accident while looking at something else. Kestrels' missing FAQs and
+ * six garages with stale agent config were found the same way.
+ *
+ * One row per garage with the handful of facts that say whether a customer is getting what they
+ * pay for: are calls arriving, is the agent's config current, did anyone finish setup, and when
+ * did they last pay. Sorted worst first, so the page opens on whatever is most wrong.
+ */
+router.get('/admin/health', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const garages = await prisma.garage.findMany({
+      where: { archivedAt: null },
+      select: {
+        id: true, name: true, twilioNumber: true, isTestAccount: true,
+        hasVoiceAccess: true, hasMessagingAccess: true, accessRestricted: true,
+        subscriptionCostGbp: true, setupWizardCompleted: true,
+        trialEndDate: true, archiveScheduledAt: true,
+        agentConfiguration: { select: { agentType: true, agentScript: true, faqs: true, updatedAt: true } },
+      },
+    });
+
+    const now = Date.now();
+    const rows = await Promise.all(garages.map(async (g) => {
+      const [lastCall, callsThisMonth, lastPaid, conversations] = await Promise.all([
+        prisma.call.findFirst({
+          where: { garageId: g.id }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+        }),
+        prisma.call.count({
+          where: { garageId: g.id, createdAt: { gte: new Date(now - 30 * 864e5) } },
+        }),
+        prisma.invoice.findFirst({
+          where: { garageId: g.id, status: 'paid' }, orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        prisma.chatConversation.count({
+          where: { garageId: g.id, updatedAt: { gte: new Date(now - 30 * 864e5) } },
+        }),
+      ]);
+
+      const daysSinceCall = lastCall ? Math.floor((now - lastCall.createdAt.getTime()) / 864e5) : null;
+      const faqCount = Array.isArray(g.agentConfiguration?.faqs) ? (g.agentConfiguration!.faqs as unknown[]).length : 0;
+
+      // Worst first. A paying garage receiving nothing is the thing you most need to see, so it
+      // outranks everything else; a garage with no number simply is not live yet and is not a
+      // fault.
+      const issues: string[] = [];
+      const paying = Number(g.subscriptionCostGbp || 0) > 0;
+      if (g.twilioNumber && g.hasVoiceAccess && lastCall === null) issues.push('never received a call');
+      else if (g.twilioNumber && g.hasVoiceAccess && daysSinceCall !== null && daysSinceCall > 14) issues.push(`no calls for ${daysSinceCall} days`);
+      if (!g.twilioNumber && g.hasVoiceAccess) issues.push('voice access but no number');
+      if (faqCount === 0 && g.hasVoiceAccess) issues.push('no FAQs configured');
+      if (!g.setupWizardCompleted) issues.push('setup never finished');
+      if (g.accessRestricted) issues.push('access restricted');
+
+      const severity =
+        (paying && lastCall === null && g.twilioNumber ? 100 : 0) +
+        (paying && daysSinceCall !== null && daysSinceCall > 14 ? 60 : 0) +
+        (issues.length * 5);
+
+      return {
+        id: g.id,
+        name: g.name,
+        isTest: g.isTestAccount,
+        monthly: Number(g.subscriptionCostGbp || 0),
+        number: g.twilioNumber,
+        agentType: g.agentConfiguration?.agentType ?? null,
+        faqCount,
+        callsThisMonth,
+        conversationsThisMonth: conversations,
+        lastCallAt: lastCall?.createdAt ?? null,
+        daysSinceCall,
+        lastPaidAt: lastPaid?.createdAt ?? null,
+        daysSincePaid: lastPaid ? Math.floor((now - lastPaid.createdAt.getTime()) / 864e5) : null,
+        setupComplete: g.setupWizardCompleted,
+        accessRestricted: g.accessRestricted,
+        trialEndDate: g.trialEndDate,
+        leavingOn: g.archiveScheduledAt,
+        configUpdatedAt: g.agentConfiguration?.updatedAt ?? null,
+        issues,
+        severity,
+      };
+    }));
+
+    rows.sort((a, b) => b.severity - a.severity || a.name.localeCompare(b.name));
+    res.json({ garages: rows, checkedAt: new Date() });
+  } catch (error) {
+    console.error('[ADMIN] health check failed:', error);
+    res.status(500).json({ error: 'Could not build the health report' });
+  }
+});
+
+/**
+ * Schedule a leaver.
+ *
+ * A customer emails their notice, you set the date they are leaving, and the nightly
+ * archiveDueGarages job switches them off that morning — voice and messaging access removed,
+ * pricing zeroed, billing stopped, calls no longer answered. That engine already existed; there
+ * was no way to set the date except editing the database by hand, which is why five garages have
+ * been archived with no record of why they left.
+ *
+ * Service continues in full until the date arrives, so notice periods work the way a customer
+ * expects. Pass leavingDate: null to cancel it if they change their mind.
+ */
+router.post('/admin/garages/:garageId/schedule-leaving', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { garageId } = req.params;
+    const { leavingDate, reason } = req.body ?? {};
+
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      select: { id: true, name: true, archivedAt: true },
+    });
+    if (!garage) return res.status(404).json({ error: 'Garage not found' });
+    if (garage.archivedAt) return res.status(400).json({ error: 'That garage is already archived' });
+
+    // Cancelling the notice.
+    if (leavingDate === null) {
+      await prisma.garage.update({
+        where: { id: garageId },
+        data: { archiveScheduledAt: null, cancellationReason: null, cancellationRequestedAt: null, cancellationRequestedBy: null },
+      });
+      console.log(`[LEAVER] ${req.user?.email} cancelled the notice on ${garage.name}`);
+      return res.json({ success: true, name: garage.name, leavingDate: null });
+    }
+
+    const when = new Date(leavingDate);
+    if (Number.isNaN(when.getTime())) {
+      return res.status(400).json({ error: 'leavingDate must be a valid date, or null to cancel' });
+    }
+    // Archiving runs at 00:20, so a date without a time means "gone at the end of that day".
+    when.setHours(23, 59, 0, 0);
+
+    await prisma.garage.update({
+      where: { id: garageId },
+      data: {
+        archiveScheduledAt: when,
+        cancellationReason: typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 500) : null,
+        cancellationRequestedAt: new Date(),
+        cancellationRequestedBy: req.user?.email ?? null,
+      },
+    });
+    console.log(`[LEAVER] ${req.user?.email} scheduled ${garage.name} to leave on ${when.toISOString().slice(0, 10)}${reason ? ` — ${reason}` : ''}`);
+    res.json({ success: true, name: garage.name, leavingDate: when, reason: reason ?? null });
+  } catch (error) {
+    console.error('[ADMIN] failed to schedule leaving date:', error);
+    res.status(500).json({ error: 'Could not set the leaving date' });
+  }
+});
+
+/** Everyone with notice in, and everyone who has already gone, with the reason. */
+router.get('/admin/leavers', authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const leavers = await prisma.garage.findMany({
+      where: { OR: [{ archiveScheduledAt: { not: null } }, { archivedAt: { not: null } }] },
+      orderBy: [{ archiveScheduledAt: 'asc' }],
+      select: {
+        id: true, name: true, archiveScheduledAt: true, archivedAt: true,
+        cancellationReason: true, cancellationRequestedAt: true, cancellationRequestedBy: true,
+        subscriptionCostGbp: true,
+      },
+    });
+    res.json({ leavers });
+  } catch (error) {
+    console.error('[ADMIN] failed to list leavers:', error);
+    res.status(500).json({ error: 'Could not load leavers' });
+  }
+});
+
+/**
+ * What changed in a garage's agent settings, and who changed it.
+ *
+ * ?garageId= narrows it to one garage. Answers the question that had no answer before: a setting
+ * looks different from how somebody left it — was that a person, a bad save, or the sync?
+ */
+router.get('/admin/config-changes', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const take = Math.min(Number(req.query.limit) || 100, 500);
+    const garageId = typeof req.query.garageId === 'string' ? req.query.garageId : undefined;
+    // ?scope=garage for price, tier, access and trial changes; ?scope=agent_config for the
+    // agent's own settings; omit it for both.
+    const scope = typeof req.query.scope === 'string' ? req.query.scope : undefined;
+    const changes = await prisma.agentConfigChange.findMany({
+      where: {
+        ...(garageId ? { garageId } : {}),
+        ...(scope ? { scope } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: {
+        id: true, garageId: true, userEmail: true, changes: true, createdAt: true, scope: true,
+        garage: { select: { name: true } },
+      },
+    });
+    res.json({ changes });
+  } catch (error) {
+    console.error('[ADMIN] failed to list config changes:', error);
+    res.status(500).json({ error: 'Could not load configuration history' });
+  }
+});
+
+/**
+ * Who signed in, when, and from where. Until this existed there was no record of a login at all,
+ * so "who was in the portal on Tuesday" had no answer and repeated failures against one account
+ * were invisible.
+ *
+ * ?email= filters to one account, ?failed=1 shows only rejected attempts.
+ */
+router.get('/admin/logins', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const take = Math.min(Number(req.query.limit) || 100, 500);
+    const email = typeof req.query.email === 'string' ? req.query.email.toLowerCase() : undefined;
+    const failedOnly = req.query.failed === '1' || req.query.failed === 'true';
+    const events = await prisma.loginEvent.findMany({
+      where: {
+        ...(email ? { email } : {}),
+        ...(failedOnly ? { success: false } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: {
+        id: true, email: true, success: true, reason: true,
+        ip: true, userAgent: true, createdAt: true, userId: true,
+      },
+    });
+    res.json({ events });
+  } catch (error) {
+    console.error('[ADMIN] failed to list login events:', error);
+    res.status(500).json({ error: 'Could not load login history' });
+  }
+});
+
+/**
+ * Lift a sign-in block before it expires on its own.
+ *
+ * Five wrong passwords locks an account for fifteen minutes. That is right for an attacker and
+ * annoying for a customer on the phone who has just remembered their password, so there has to be
+ * a way to release it without waiting.
+ *
+ * The failed attempts are marked rather than deleted: they stop counting toward the limit but stay
+ * in the audit trail, so "why was this account locked" is still answerable afterwards.
+ */
+router.post('/admin/logins/unblock', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ error: 'An email address is required' });
+    }
+    const since = new Date(Date.now() - 15 * 60 * 1000);
+    const { count } = await prisma.loginEvent.updateMany({
+      where: { email, success: false, createdAt: { gte: since }, NOT: { reason: 'cleared_by_admin' } },
+      data: { reason: 'cleared_by_admin' },
+    });
+    console.log(`[ADMIN] ${req.user?.email} lifted the sign-in block on ${email} (${count} attempt(s) cleared)`);
+    res.json({ success: true, email, cleared: count });
+  } catch (error) {
+    console.error('[ADMIN] failed to lift sign-in block:', error);
+    res.status(500).json({ error: 'Could not lift the block' });
+  }
+});
+
+/**
+ * Sign a user out of every device.
+ *
+ * Tokens are stateless, so there is no session to delete — instead we stamp sessionsValidFrom and
+ * every token issued before that moment stops being accepted. Used when someone must re-enter
+ * their password, change it, or re-sign an agreement before carrying on.
+ */
+router.post('/admin/users/:userId/sign-out', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const now = new Date();
+    await prisma.user.update({ where: { id: userId }, data: { sessionsValidFrom: now } });
+    // Drop the cached decision so the next request re-reads it rather than waiting out the TTL.
+    forgetRevocation(userId);
+    console.log(`[ADMIN] ${req.user?.email} signed out ${user.email} — all sessions invalidated`);
+    res.json({ success: true, email: user.email, sessionsValidFrom: now });
+  } catch (error) {
+    console.error('[ADMIN] failed to sign user out:', error);
+    res.status(500).json({ error: 'Could not sign the user out' });
+  }
 });
 
 router.get('/admin/businesses', authenticate, requireAdmin, async (_req, res) => {
@@ -990,6 +1280,68 @@ router.post('/billing/trigger-invoice-generation', authenticate, requireAdmin, a
     res.status(500).json({
       error: 'Failed to trigger invoice generation',
       details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// ── Account lock ───────────────────────────────────────────────────────────────────────────────
+// Suspend (or restore) every customer login on a garage. Locks the USERS, because that is what
+// stops sign-in: garage.accessRestricted is the arrears blocker and deliberately still lets
+// people log in to pay. accessRestricted is set alongside so a locked account also stops serving
+// call content.
+//
+// ReceptionMate staff accounts are never locked by this — they have access to many garages, and
+// locking one fraudulent signup must not lock the team out of the other thirty.
+const lockGarageSchema = z.object({
+  locked: z.boolean(),
+  reason: z.string().max(300).optional(),
+});
+
+router.post('/admin/garages/:garageId/lock', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const parsed = lockGarageSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const { locked, reason } = parsed.data;
+    const { garageId } = req.params;
+
+    const garage = await prisma.garage.findUnique({ where: { id: garageId }, select: { id: true, name: true } });
+    if (!garage) return res.status(404).json({ error: 'Garage not found' });
+
+    const users = await prisma.user.findMany({
+      where: { garageAccessIds: { has: garageId }, role: { not: 'RECEPTIONMATE_STAFF' } },
+      select: { id: true, email: true },
+    });
+
+    await prisma.user.updateMany({
+      where: { id: { in: users.map((u) => u.id) } },
+      data: locked
+        ? { lockedAt: new Date(), lockedReason: reason ?? null }
+        : { lockedAt: null, lockedReason: null },
+    });
+
+    // Locking also withholds call content and raises the portal blocker; unlocking only clears
+    // accessRestricted if there is no unpaid-invoice reason for it to stay on.
+    if (locked) {
+      await prisma.garage.update({ where: { id: garageId }, data: { accessRestricted: true } });
+    } else {
+      const g = await prisma.garage.findUnique({ where: { id: garageId }, select: { paymentFailedAt: true } });
+      if (!g?.paymentFailedAt) {
+        await prisma.garage.update({ where: { id: garageId }, data: { accessRestricted: false } });
+      }
+    }
+
+    console.log(
+      `[ADMIN] ${locked ? 'LOCKED' : 'UNLOCKED'} garage ${garage.name} (${garageId}) — ` +
+        `${users.length} login(s): ${users.map((u) => u.email).join(', ') || 'none'}` +
+        (locked && reason ? ` — reason: ${reason}` : ''),
+    );
+
+    res.json({ success: true, locked, garage: garage.name, usersAffected: users.map((u) => u.email) });
+  } catch (error) {
+    console.error('Failed to change account lock:', error);
+    res.status(500).json({
+      error: 'Failed to change account lock',
+      details: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });

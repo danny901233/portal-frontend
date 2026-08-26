@@ -26,6 +26,29 @@ export interface PlaceDetails {
   phone?: string;
   website?: string;
   weeklyOpeningHours?: WeeklyOpeningHours;
+  businessType?: string;
+}
+
+/**
+ * Turn Google's place `types` into the phrase the voice agent uses to say what this business is.
+ *
+ * The agent used to call every customer "a UK car repair garage", which is true of nearly all of
+ * them and false of the ones that also sell cars -- Kestrels told a caller they don't sell cars
+ * while sitting on FAQs saying they've sold them for thirty years. Google already draws the
+ * distinction (`car_dealer` alongside `car_repair`), so take it from there rather than asking.
+ *
+ * Returns undefined when Google says nothing useful, so the caller keeps the repair-garage
+ * default and an unrecognised listing can never leave a garage worse off than before.
+ */
+export function businessTypeFromPlaceTypes(types?: string[] | null): string | undefined {
+  if (!Array.isArray(types) || !types.length) return undefined;
+  const has = (t: string) => types.includes(t);
+  const dealer = has('car_dealer');
+  const repair = has('car_repair');
+  if (dealer && repair) return 'a UK car dealership and repair garage';
+  if (dealer) return 'a UK car dealership';
+  if (repair) return 'a UK car repair garage';
+  return undefined;
 }
 
 function allClosed(): WeeklyOpeningHours {
@@ -87,7 +110,9 @@ export async function fetchPlaceDetails(placeId: string | undefined | null): Pro
     return null;
   }
   try {
-    const fields = ['name', 'formatted_address', 'formatted_phone_number', 'international_phone_number', 'website', 'opening_hours'].join(',');
+    // `types` costs nothing extra -- it's Basic Data on the same request -- and is the only
+    // signal that tells a dealership apart from a repair-only garage without asking the customer.
+    const fields = ['name', 'formatted_address', 'formatted_phone_number', 'international_phone_number', 'website', 'opening_hours', 'types'].join(',');
     const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(id)}&fields=${fields}&key=${encodeURIComponent(PLACES_KEY)}`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6000);
@@ -104,6 +129,7 @@ export async function fetchPlaceDetails(placeId: string | undefined | null): Pro
       phone: r.international_phone_number || r.formatted_phone_number || undefined,
       website: r.website || undefined,
       weeklyOpeningHours: mapOpeningHours(r.opening_hours?.periods),
+      businessType: businessTypeFromPlaceTypes(r.types),
     };
   } catch (err) {
     console.error('[PLACES] details lookup failed:', err);

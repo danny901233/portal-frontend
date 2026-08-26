@@ -35,11 +35,39 @@ interface Conversation {
   capturedRevenue?: number | null;
   bookingDetails?: string;
   tags?: string[];
+  // Auto-derived enquiry category (parts|sales|booking|complaint|general).
+  // Null when unclassified. Display + filter only — never drives the agent.
+  enquiryType?: string | null;
+  // Optional garage-team-member owner of this conversation. Assignment is
+  // ownership, not takeover: the AI keeps replying regardless.
+  assigneeId?: string | null;
+  assignee?: { id: string; email: string } | null;
   unreadCount: number;
   lastMessageAt: string;
   messages: Message[];
   conversationIds?: string[];
 }
+
+// Fixed enquiry-type vocabulary. Kept in sync with backend + migration —
+// free-text tags would become forty spellings of the same thing.
+type EnquiryType = 'parts' | 'sales' | 'booking' | 'complaint' | 'general';
+const ENQUIRY_TYPES: EnquiryType[] = ['parts', 'sales', 'booking', 'complaint', 'general'];
+const ENQUIRY_LABELS: Record<EnquiryType, string> = {
+  parts: 'Parts',
+  sales: 'Sales',
+  booking: 'Booking',
+  complaint: 'Complaint',
+  general: 'General',
+};
+// Card colours picked to give complaints the loudest signal in a busy list
+// (red), bookings the "money is on the table" green, and the rest neutral.
+const ENQUIRY_CHIP_CLASSES: Record<EnquiryType, string> = {
+  parts: 'bg-amber-50 text-amber-700 ring-amber-200',
+  sales: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
+  booking: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  complaint: 'bg-red-50 text-red-700 ring-red-200',
+  general: 'bg-slate-50 text-slate-700 ring-slate-200',
+};
 
 interface ToolCall {
   id: string;
@@ -101,6 +129,35 @@ function ToolCallChip({ call }: { call: ToolCall }) {
         )}
       </div>
     </div>
+  );
+}
+
+// Small pill button used in the triage filter row (tags + owner).
+// Kept as a plain component so the filter row stays scannable.
+function FilterChip({
+  active,
+  onClick,
+  label,
+  toneClass,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  toneClass?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-full px-2.5 py-1 text-xs font-medium ring-1 transition-colors',
+        active
+          ? toneClass || 'bg-brand-600 text-white ring-brand-600'
+          : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -266,6 +323,19 @@ export default function MessagesPage() {
   const [selectedConversation, setSelectedConversation] = useState<ConversationDetail | null>(null);
   const [viewMode, setViewMode] = useState<'active' | 'resolved' | 'needsAttention'>('active');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
+  // Garage-side triage filters (auto-tag + owner). Live server-side via query
+  // params on the garage conversations route.
+  const [enquiryTypeFilter, setEnquiryTypeFilter] = useState<'all' | EnquiryType>('all');
+  const [assigneeFilter, setAssigneeFilter] = useState<'all' | 'mine' | 'unassigned'>('all');
+  // Per-conversation assign menu — opens the assignable-users list on demand.
+  const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [assignableUsers, setAssignableUsers] = useState<Array<{ id: string; email: string }>>([]);
+  const [assigning, setAssigning] = useState(false);
+  // Tag + owner-filter menus live on the sidebar toolbar (Option 2 layout —
+  // tags behind a sliders button next to search, owner as a dropdown chip
+  // right-aligned on the tabs row). Both start closed.
+  const [showTagPopover, setShowTagPopover] = useState(false);
+  const [showOwnerMenu, setShowOwnerMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [messageInput, setMessageInput] = useState('');
   const [loading, setLoading] = useState(true);
@@ -409,6 +479,8 @@ export default function MessagesPage() {
       const token = getSessionToken();
       const params = new URLSearchParams();
       if (platformFilter !== 'all') params.append('platform', platformFilter);
+      if (enquiryTypeFilter !== 'all') params.append('enquiryType', enquiryTypeFilter);
+      if (assigneeFilter !== 'all') params.append('assigneeId', assigneeFilter);
 
       // Handle different view modes
       if (viewMode === 'needsAttention') {
@@ -707,13 +779,60 @@ export default function MessagesPage() {
     }
   };
 
+  // Load the "who can I assign this to" list on demand — only fetched when
+  // the assign dropdown is opened for the current conversation, so we don't
+  // hit the endpoint for every row in the sidebar.
+  const openAssignMenu = async () => {
+    if (!selectedConversation) return;
+    setShowAssignDropdown(true);
+    try {
+      const token = getSessionToken();
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/assignable-users`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setAssignableUsers(data.users || []);
+      }
+    } catch (error) {
+      console.error('Error loading assignable users:', error);
+    }
+  };
+
+  // Fire the assign / unassign. Backend handles the push + email + garage-
+  // access guard; we only need to refresh once the write succeeds.
+  const assignConversation = async (userId: string | null) => {
+    if (!selectedConversation) return;
+    setAssigning(true);
+    try {
+      const token = getSessionToken();
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/assign`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ assigneeId: userId }),
+        }
+      );
+      if (!response.ok) throw new Error('Assign failed');
+      setShowAssignDropdown(false);
+      await fetchConversationDetail(selectedConversation.id);
+      await fetchConversations();
+    } catch (error) {
+      console.error('Error assigning conversation:', error);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   useEffect(() => {
     if (!selectedGarageId) return;
 
     fetchConversations();
     const interval = setInterval(fetchConversations, 10000);
     return () => clearInterval(interval);
-  }, [selectedGarageId, platformFilter, viewMode]);
+  }, [selectedGarageId, platformFilter, viewMode, enquiryTypeFilter, assigneeFilter]);
 
   useEffect(() => {
     if (!selectedConversation) return;
@@ -800,7 +919,7 @@ export default function MessagesPage() {
       <div className="flex flex-col md:flex-row h-[calc(100dvh-13rem)] md:h-[calc(100vh-220px)] gap-0">
         {/* Left Sidebar - Conversations List (single-pane on mobile: hidden once a chat is open) */}
         <div className={cn(
-          'w-full md:w-96 flex-1 min-h-0 md:flex-none md:h-auto md:max-h-none bg-white border border-slate-200 rounded-2xl md:rounded-l-2xl md:rounded-tr-none md:rounded-br-none flex-col shadow-sm shadow-slate-900/5',
+          'w-full md:w-[28rem] flex-1 min-h-0 md:flex-none md:h-auto md:max-h-none bg-white border border-slate-200 rounded-2xl md:rounded-l-2xl md:rounded-tr-none md:rounded-br-none flex-col shadow-sm shadow-slate-900/5',
           selectedConversation ? 'hidden md:flex' : 'flex'
         )}>
           {/* Search and Filters */}
@@ -817,6 +936,52 @@ export default function MessagesPage() {
               <svg className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
+            </div>
+
+            {/* Tag popover — opens a small chip grid for enquiry-type filter.
+                Kept separate from platform filter (different axis of triage). */}
+            <div className="relative">
+              <button
+                onClick={() => setShowTagPopover((v) => !v)}
+                title="Filter by tag"
+                className={cn(
+                  'p-2 border rounded-lg transition-colors',
+                  enquiryTypeFilter !== 'all'
+                    ? 'bg-white border-brand-300 text-brand-700'
+                    : 'bg-slate-100 border-slate-300 text-slate-500 hover:text-slate-900'
+                )}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                </svg>
+                {enquiryTypeFilter !== 'all' && (
+                  <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-brand-600" />
+                )}
+              </button>
+              {showTagPopover && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowTagPopover(false)} />
+                  <div className="absolute right-0 mt-2 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg z-20">
+                    <div className="px-2 pt-1 pb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Filter by tag</div>
+                    <div className="flex flex-wrap gap-1.5 px-1 pb-1">
+                      <FilterChip
+                        active={enquiryTypeFilter === 'all'}
+                        onClick={() => { setEnquiryTypeFilter('all'); setShowTagPopover(false); }}
+                        label="All"
+                      />
+                      {ENQUIRY_TYPES.map((t) => (
+                        <FilterChip
+                          key={t}
+                          active={enquiryTypeFilter === t}
+                          onClick={() => { setEnquiryTypeFilter(t); setShowTagPopover(false); }}
+                          label={ENQUIRY_LABELS[t]}
+                          toneClass={ENQUIRY_CHIP_CLASSES[t]}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Platform Filter Dropdown */}
@@ -924,50 +1089,106 @@ export default function MessagesPage() {
             </div>
           </div>
 
-          {/* Active / Needs Attention / Resolved Tabs */}
-          <div className="flex gap-4 border-b border-slate-300">
-            <button
-              onClick={() => setViewMode('active')}
-              className={cn(
-                'pb-2 px-1 text-sm font-medium transition-colors relative',
-                viewMode === 'active'
-                  ? 'text-brand-600'
-                  : 'text-slate-500 hover:text-slate-600'
+          {/* Tabs (Active / Needs Attention / Resolved) on the left, owner
+              dropdown right-aligned. One row instead of two chip rows plus
+              tabs — the "Option 2" hierarchy from the mockup. Owner sits
+              on the same visual line as tabs so it reads as a sub-filter of
+              the active view, not a separate nav element. Count on the
+              active tab (derived from what's already in the client). */}
+          <div className="flex items-end justify-between gap-2 border-b border-slate-300">
+            <div className="flex gap-3">
+              <button
+                onClick={() => setViewMode('active')}
+                className={cn(
+                  'pb-2 px-1 text-sm font-medium transition-colors relative',
+                  viewMode === 'active'
+                    ? 'text-brand-600'
+                    : 'text-slate-500 hover:text-slate-600'
+                )}
+              >
+                {c.tabActive}
+                {viewMode === 'active' && (
+                  <>
+                    <span className="ml-1 text-xs font-normal text-slate-400">{filteredConversations.length}</span>
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600" />
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setViewMode('needsAttention')}
+                className={cn(
+                  'pb-2 px-1 text-sm font-medium transition-colors relative',
+                  viewMode === 'needsAttention'
+                    ? 'text-orange-400'
+                    : 'text-slate-500 hover:text-slate-600'
+                )}
+              >
+                {c.tabNeedsAttention}
+                {viewMode === 'needsAttention' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-400" />
+                )}
+              </button>
+              <button
+                onClick={() => setViewMode('resolved')}
+                className={cn(
+                  'pb-2 px-1 text-sm font-medium transition-colors relative',
+                  viewMode === 'resolved'
+                    ? 'text-slate-500'
+                    : 'text-slate-500 hover:text-slate-600'
+                )}
+              >
+                {c.tabResolved}
+                {viewMode === 'resolved' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-400" />
+                )}
+              </button>
+            </div>
+
+            {/* Owner dropdown chip — small, right-aligned. Recedes so tabs
+                stay primary. Person icon + current selection + caret. */}
+            <div className="relative mb-1.5">
+              <button
+                onClick={() => setShowOwnerMenu((v) => !v)}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors',
+                  assigneeFilter !== 'all'
+                    ? 'border-brand-300 bg-brand-50 text-brand-700'
+                    : 'border-slate-300 bg-white text-slate-700 hover:border-slate-500'
+                )}
+              >
+                <svg className="h-3.5 w-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                  <path d="M10 9a3 3 0 100-6 3 3 0 000 6zM3 17a7 7 0 1114 0H3z" />
+                </svg>
+                <span>{assigneeFilter === 'mine' ? 'Mine' : assigneeFilter === 'unassigned' ? 'Unassigned' : 'All'}</span>
+                <svg className="h-3 w-3 text-slate-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+              {showOwnerMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowOwnerMenu(false)} />
+                  <div className="absolute right-0 mt-1 w-40 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg z-20">
+                    {(['all', 'mine', 'unassigned'] as const).map((key) => (
+                      <button
+                        key={key}
+                        onClick={() => { setAssigneeFilter(key); setShowOwnerMenu(false); }}
+                        className={cn(
+                          'flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-50',
+                          assigneeFilter === key ? 'text-brand-700 font-semibold' : 'text-slate-700'
+                        )}
+                      >
+                        <span className="flex-1">{key === 'all' ? 'All' : key === 'mine' ? 'Mine' : 'Unassigned'}</span>
+                        {assigneeFilter === key && (
+                          <svg className="h-4 w-4 text-brand-600" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
-            >
-              {c.tabActive}
-              {viewMode === 'active' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600" />
-              )}
-            </button>
-            <button
-              onClick={() => setViewMode('needsAttention')}
-              className={cn(
-                'pb-2 px-1 text-sm font-medium transition-colors relative',
-                viewMode === 'needsAttention'
-                  ? 'text-orange-400'
-                  : 'text-slate-500 hover:text-slate-600'
-              )}
-            >
-              {c.tabNeedsAttention}
-              {viewMode === 'needsAttention' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-400" />
-              )}
-            </button>
-            <button
-              onClick={() => setViewMode('resolved')}
-              className={cn(
-                'pb-2 px-1 text-sm font-medium transition-colors relative',
-                viewMode === 'resolved'
-                  ? 'text-slate-500'
-                  : 'text-slate-500 hover:text-slate-600'
-              )}
-            >
-              {c.tabResolved}
-              {viewMode === 'resolved' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-400" />
-              )}
-            </button>
+            </div>
           </div>
         </div>
 
@@ -1016,7 +1237,10 @@ export default function MessagesPage() {
                   <p className="mt-0.5 truncate text-[13px] text-slate-500">
                     {conv.messages[0]?.content || c.noMessages}
                   </p>
-                  {(conv.platforms && conv.platforms.length > 1) || conv.unreadCount > 0 ? (
+                  {(conv.platforms && conv.platforms.length > 1) ||
+                  conv.unreadCount > 0 ||
+                  conv.enquiryType ||
+                  conv.assignee ? (
                     <div className="mt-1.5 flex items-center gap-2">
                       {conv.platforms && conv.platforms.length > 1 && (
                         <div className="flex gap-1.5">
@@ -1033,6 +1257,27 @@ export default function MessagesPage() {
                             ) : null;
                           })}
                         </div>
+                      )}
+                      {conv.enquiryType && ENQUIRY_TYPES.includes(conv.enquiryType as EnquiryType) && (
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1',
+                            ENQUIRY_CHIP_CLASSES[conv.enquiryType as EnquiryType]
+                          )}
+                        >
+                          {ENQUIRY_LABELS[conv.enquiryType as EnquiryType]}
+                        </span>
+                      )}
+                      {conv.assignee && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200"
+                          title={`Owner: ${conv.assignee.email}`}
+                        >
+                          <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                            <path d="M10 9a3 3 0 100-6 3 3 0 000 6zM3 17a7 7 0 1114 0H3z" />
+                          </svg>
+                          {conv.assignee.email.split('@')[0]}
+                        </span>
                       )}
                       {conv.unreadCount > 0 && (
                         <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-600 px-1.5 text-xs font-semibold text-white">
@@ -1183,6 +1428,74 @@ export default function MessagesPage() {
                     )}
                   </div>
                 )}
+
+                {/* Assign menu — Dan's rule: ownership, not takeover. The AI keeps
+                    replying regardless. Assigning fires a push + email to the owner
+                    from the backend (silent on self-assign). */}
+                <div className="relative">
+                  <button
+                    onClick={() => (showAssignDropdown ? setShowAssignDropdown(false) : void openAssignMenu())}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold',
+                      selectedConversation.assignee
+                        ? 'border-slate-300 bg-white text-slate-700 hover:border-slate-500'
+                        : 'border-brand-300 bg-brand-50 text-brand-700 hover:border-brand-500'
+                    )}
+                    title={selectedConversation.assignee ? `Owner: ${selectedConversation.assignee.email}` : 'Assign to a team member'}
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                    </svg>
+                    <span className="max-w-[8rem] truncate">
+                      {selectedConversation.assignee
+                        ? selectedConversation.assignee.email.split('@')[0]
+                        : 'Assign'}
+                    </span>
+                    <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                  {showAssignDropdown && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowAssignDropdown(false)} />
+                      <div className="absolute right-0 mt-2 w-56 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg shadow-slate-900/10 z-20">
+                        <button
+                          onClick={() => assignConversation(null)}
+                          disabled={assigning || !selectedConversation.assigneeId}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white"
+                        >
+                          <svg className="h-4 w-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                          Unassign (leave in shared pool)
+                        </button>
+                        <div className="border-t border-slate-100" />
+                        {assignableUsers.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-slate-400">No teammates yet</div>
+                        ) : (
+                          assignableUsers.map((u) => {
+                            const isCurrent = selectedConversation.assigneeId === u.id;
+                            return (
+                              <button
+                                key={u.id}
+                                onClick={() => assignConversation(u.id)}
+                                disabled={assigning || isCurrent}
+                                className={cn(
+                                  'flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-50 disabled:opacity-60 disabled:hover:bg-white',
+                                  isCurrent ? 'text-slate-500' : 'text-slate-700'
+                                )}
+                                title={u.email}
+                              >
+                                <span className="truncate flex-1">{u.email}</span>
+                                {isCurrent && (
+                                  <svg className="h-4 w-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                )}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Kebab menu: Unread, Flag, Tags, Resolve */}
                 <div className="relative">

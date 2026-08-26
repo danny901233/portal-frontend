@@ -1,0 +1,50 @@
+DEPENDS ON PHASE 2. Executable spec for a coding agent.
+
+GOAL: garages messaging our WhatsApp ops number land in the same ticket queue, with the 24-hour
+window handled honestly.
+
+--- 1. SCOPE — READ THIS TWICE ---
+ONLY the ops number (the internal ReceptionMate WhatsApp line) becomes support tickets.
+routes/webhooks/meta-whatsapp.ts currently routes garage-customer traffic into ChatConversation for
+the AI agents. That must be untouched. Branch on the phone_number_id: ops number → support ticket
+pipeline; anything else → existing behaviour, unchanged.
+
+--- 2. INGEST ---
+In the ops-number branch: resolve the sender phone → SupportContact (link to garage when the number
+matches a known garage/user). Ticket boundary rule, since WhatsApp has no subject:
+- Open ticket for that contact on channel 'whatsapp' → append.
+- Otherwise, or if the last one is solved/closed, or the thread has been idle > 12 hours → new ticket.
+Set ticket.lastPublicAt = the inbound message time on EVERY inbound. This drives the window.
+Store media (images) and show them in the thread.
+
+--- 3. THE 24-HOUR WINDOW ---
+Free-text sends are only permitted within 24h of the CUSTOMER's last message. Our own outbound does
+NOT extend it — only a new inbound message does.
+- Expose windowExpiresAt = lastPublicAt + 24h on the ticket API.
+- UI shows a live countdown. When expired, the free-text reply box is DISABLED and the UI offers
+  (a) an approved template, or (b) reply by email instead. Never leave a reply box that silently fails.
+- Send failures with Meta's re-engagement/window errors must surface on the ticket, not just in logs.
+
+--- 4. AUTO HOLDING MESSAGE ---
+Cron every 15 min (utils/scheduler.ts pattern, Europe/London): for each whatsapp ticket that is
+new/open, unanswered by staff, where now - lastPublicAt is between 4h and 24h, and no holding
+message has been sent for this inbound:
+  send ONCE: "Thanks for your message — we've still got your enquiry. We're extremely busy at the
+  moment but someone will come back to you as soon as possible."
+  Record it as a system entry with a holdingSentFor = lastPublicAt marker so it cannot repeat.
+NEVER send more than one per inbound message. Repeated unsolicited chasing is what got the MMH
+number banned — a second chase is not an improvement, it is a risk to the whole number.
+After the window has closed, only an approved template may be used, never free text.
+
+--- 5. THROTTLE EXEMPTION ---
+1-to-1 support replies must NOT go through the outbound campaign rails in
+services/outboundSend.ts (30s drip, 08:00-20:00 window, 240/day cap). Those exist for bulk
+campaigns. A garage messaging at 19:50 gets an answer at 19:50. Use the direct send path.
+
+--- 6. ACCEPTANCE ---
+1. A message to the ops number creates a support ticket; a message to a garage's own number still
+   goes to the AI agent and creates NO ticket.
+2. Two messages 5 minutes apart = one ticket; a new message 2 days later after solve = a new ticket.
+3. Countdown correct; at expiry the reply box disables and offers template/email.
+4. Holding message fires once at 4h and never twice for the same inbound.
+5. A reply at 19:50 sends immediately, unthrottled.

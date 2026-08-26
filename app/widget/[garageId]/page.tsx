@@ -587,8 +587,8 @@ export default function ChatWidget() {
 
       {/* Menu Options - Overlay Style: Large background with smaller white rectangle */}
       {viewState === 'menu' && (
-        <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '380px',
+        <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{
+          width: 'min(380px, calc(100vw - 48px))',
           borderRadius: '32px',
           background: config?.primaryColor || '#1e3a8a',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
@@ -769,8 +769,8 @@ export default function ChatWidget() {
 
       {/* Pre-Chat Form - Overlay Style */}
       {viewState === 'pre-chat' && (
-        <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{ 
-          width: '380px',
+        <div className="fixed bottom-28 right-6 z-50 animate-in slide-in-from-bottom-4 duration-200" style={{
+          width: 'min(380px, calc(100vw - 48px))',
           borderRadius: '32px',
           background: config?.primaryColor || '#1e3a8a',
           boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',

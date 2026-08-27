@@ -53,7 +53,9 @@ export interface UpsertContactArgs {
   // step of the funnel we only have the garage's Google phone (no user email yet).
   email?: string;
   phone?: string;
-  companyName: string;
+  // Optional: the name+email CTAs (e.g. "Hear Leah answer a call") collect no company,
+  // so callers may omit it rather than inventing a placeholder.
+  companyName?: string;
   website?: string;
   source?: string;
   tags?: string[];
@@ -76,7 +78,7 @@ export async function upsertContact(args: UpsertContactArgs): Promise<ContactRes
     firstName,
     lastName,
     name: args.name,
-    companyName: args.companyName,
+    ...(args.companyName ? { companyName: args.companyName } : {}),
     source: args.source || 'website',
     tags: args.tags ?? ['website-lead'],
   };

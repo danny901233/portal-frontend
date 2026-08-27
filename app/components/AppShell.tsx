@@ -48,7 +48,8 @@ function useIsMobile() {
   return isMobile;
 }
 
-const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo']);
+// '/demo-embed' is the same demo in a frame-friendly shell, iframed into the marketing site.
+const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/demo-embed']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {

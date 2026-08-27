@@ -33,62 +33,90 @@ export default function DemoEmbedPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const analysersRef = useRef<{ agent: AnalyserNode | null; caller: AnalyserNode | null }>({
+    agent: null,
+    caller: null,
+  });
 
   // ── waveform ────────────────────────────────────────────────────────────────────────────────
-  // Driven off the agent's own audio track via a Web Audio AnalyserNode. Deliberately hand-rolled
-  // rather than pulling in the shader-based visualiser from @livekit/components-react: that would
-  // add three packages and a WebGL dependency for what is a row of bars.
-  const startWaveform = useCallback((stream: MediaStream) => {
+  // Two-way: one analyser on the agent's track, one on the caller's mic, so the bars move for
+  // whoever is talking. Each bar takes the louder of the two sides and is tinted to match, which
+  // makes the turn-taking legible — you can see the agent stop and listen.
+  //
+  // Deliberately hand-rolled rather than pulling in the shader-based visualiser from
+  // @livekit/components-react: that would add three packages and a WebGL dependency for what is
+  // a row of bars.
+  const AGENT_RGB = '52, 38, 207';   // brand-600
+  const CALLER_RGB = '100, 112, 237'; // brand-400 — same family, clearly lighter
+
+  /** Attach one side's audio to its own analyser. Safe to call in either order. */
+  const attachToWaveform = useCallback((stream: MediaStream, side: 'agent' | 'caller') => {
     try {
       const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new Ctx();
+      const ctx = audioCtxRef.current ?? new Ctx();
       audioCtxRef.current = ctx;
+      // Autoplay policy can hand back a suspended context even after a click.
+      if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
+
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.75;
+      // Connected to the analyser ONLY — never to ctx.destination, which would echo the caller
+      // back into their own speakers.
       ctx.createMediaStreamSource(stream).connect(analyser);
-
-      const bins = new Uint8Array(analyser.frequencyBinCount);
-      const BARS = 28;
-
-      const draw = () => {
-        rafRef.current = requestAnimationFrame(draw);
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const dpr = window.devicePixelRatio || 1;
-        const w = canvas.clientWidth;
-        const h = canvas.clientHeight;
-        if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-          canvas.width = w * dpr;
-          canvas.height = h * dpr;
-        }
-        const g = canvas.getContext('2d');
-        if (!g) return;
-        g.setTransform(dpr, 0, 0, dpr, 0, 0);
-        g.clearRect(0, 0, w, h);
-
-        analyser.getByteFrequencyData(bins);
-        const step = Math.floor(bins.length / BARS) || 1;
-        const barW = w / (BARS * 1.8);
-
-        for (let i = 0; i < BARS; i++) {
-          // Bias toward the lower bins where speech energy actually sits, so the bars move with
-          // the voice rather than twitching on sibilance.
-          const v = bins[i * step] / 255;
-          const amp = Math.pow(v, 1.35);
-          const barH = Math.max(3, amp * h * 0.9);
-          const x = i * (w / BARS) + (w / BARS - barW) / 2;
-          const y = (h - barH) / 2;
-          g.fillStyle = `rgba(52, 38, 207, ${0.35 + amp * 0.65})`;
-          g.beginPath();
-          g.roundRect(x, y, barW, barH, barW / 2);
-          g.fill();
-        }
-      };
-      draw();
+      analysersRef.current[side] = analyser;
     } catch {
       /* visualisation is decorative — never break the call for it */
     }
+  }, []);
+
+  /** Start the render loop. Runs regardless of which sides have attached yet. */
+  const startWaveform = useCallback(() => {
+    if (rafRef.current) return;
+    const BARS = 28;
+    const agentBins = new Uint8Array(128);
+    const callerBins = new Uint8Array(128);
+
+    const draw = () => {
+      rafRef.current = requestAnimationFrame(draw);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+      }
+      const g = canvas.getContext('2d');
+      if (!g) return;
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, w, h);
+
+      const { agent, caller } = analysersRef.current;
+      if (agent) agent.getByteFrequencyData(agentBins); else agentBins.fill(0);
+      if (caller) caller.getByteFrequencyData(callerBins); else callerBins.fill(0);
+
+      const step = Math.floor(agentBins.length / BARS) || 1;
+      const barW = w / (BARS * 1.8);
+
+      for (let i = 0; i < BARS; i++) {
+        // Bias toward the lower bins where speech energy actually sits, so the bars move with
+        // the voice rather than twitching on sibilance.
+        const a = agentBins[i * step] / 255;
+        const c = callerBins[i * step] / 255;
+        const speaking = c > a ? 'caller' : 'agent';
+        const amp = Math.pow(Math.max(a, c), 1.35);
+        const barH = Math.max(3, amp * h * 0.9);
+        const x = i * (w / BARS) + (w / BARS - barW) / 2;
+        const y = (h - barH) / 2;
+        g.fillStyle = `rgba(${speaking === 'caller' ? CALLER_RGB : AGENT_RGB}, ${0.35 + amp * 0.65})`;
+        g.beginPath();
+        g.roundRect(x, y, barW, barH, barW / 2);
+        g.fill();
+      }
+    };
+    draw();
   }, []);
 
   const cleanup = useCallback(() => {
@@ -96,6 +124,7 @@ export default function DemoEmbedPage() {
     rafRef.current = null;
     audioCtxRef.current?.close().catch(() => {});
     audioCtxRef.current = null;
+    analysersRef.current = { agent: null, caller: null };
     try { micRef.current?.stop(); } catch { /* already stopped */ }
     try { roomRef.current?.disconnect(); } catch { /* already gone */ }
     micRef.current = null;
@@ -136,13 +165,15 @@ export default function DemoEmbedPage() {
         el.setAttribute('data-demo', '1');
         document.body.appendChild(el);
         const ms = (track as unknown as { mediaStream?: MediaStream }).mediaStream;
-        if (ms) startWaveform(ms);
+        if (ms) attachToWaveform(ms, 'agent');
       });
       room.on(RoomEvent.Disconnected, () => setPhase((prev) => (prev === 'live' ? 'ended' : prev)));
 
       await room.connect(url, token);
       const mic = await createLocalAudioTrack();
       await room.localParticipant.publishTrack(mic);
+      attachToWaveform(new MediaStream([mic.mediaStreamTrack]), 'caller');
+      startWaveform();
       roomRef.current = room;
       micRef.current = mic;
       setPhase('live');
@@ -154,7 +185,7 @@ export default function DemoEmbedPage() {
       setError(/permission|denied|notallowed/i.test(msg) ? 'We need microphone access to run the demo — allow it and try again.' : msg);
       setPhase('failed');
     }
-  }, [voice, cleanup, startWaveform]);
+  }, [voice, cleanup, attachToWaveform, startWaveform]);
 
   const end = useCallback(() => { cleanup(); setPhase('ended'); }, [cleanup]);
 

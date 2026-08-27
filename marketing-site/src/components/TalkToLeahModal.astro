@@ -1,44 +1,73 @@
 ---
 // "Talk to Leah" — a live voice call in a modal, so the visitor never leaves the page.
 //
+// Styled to match LeadModal exactly: same brand band, same logo lockup, same card and close
+// button. The visitor arrives here straight from that form, so anything else reads as a second,
+// unrelated product.
+//
 // The call UI itself is iframed from the portal (/demo-embed) rather than reimplemented here.
 // livekit-client lives in the portal, the connect/dispatch logic is already proven there, and this
 // site cannot be built locally — iterating on WebRTC through blind Cloudflare deploys would be a
 // poor trade. A cross-origin frame can still request the microphone because we delegate it with
 // allow="microphone".
-//
-// Opened by any element carrying data-talk-to-leah. The lead modal hands over to it after
-// capturing a name and email, so an anonymous listener still leaves us a contactable lead.
+import { getLang } from '../i18n/ui';
+const lang = getLang(Astro.url);
+
+const LOGO = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
 const EMBED_URL = import.meta.env.PUBLIC_DEMO_EMBED_URL
   || 'https://portal.receptionmate.co.uk/demo-embed';
+
+const c = {
+  en: {
+    title: 'Talk to Leah',
+    intro: 'Pretend you’re ringing a garage. Leah answers, takes the booking, and reminds you it’s a demo.',
+    close: 'Close',
+  },
+  fr: {
+    title: 'Parlez à Leah',
+    intro: 'Imaginez que vous appelez un garage. Leah répond, prend le rendez-vous et vous rappelle que c’est une démo.',
+    close: 'Fermer',
+  },
+}[lang];
 ---
 
 <div
   id="leah-modal"
-  class="fixed inset-0 z-[100] hidden items-center justify-center bg-ink-900/60 p-4 backdrop-blur-sm"
+  class="fixed inset-0 z-[100] hidden items-center justify-center bg-ink-900/70 p-4 backdrop-blur-sm"
   role="dialog"
   aria-modal="true"
-  aria-label="Talk to Leah"
+  aria-labelledby="leah-modal-title"
 >
-  <div class="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+  <div class="relative w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-ink-900/5">
     <button
-      id="leah-modal-close"
       type="button"
-      aria-label="Close"
-      class="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-ink-100 text-ink-600 transition hover:bg-ink-200"
+      id="leah-modal-close"
+      aria-label={c.close}
+      class="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
     >
-      <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
     </button>
+
+    <!-- Brand band — identical treatment to LeadModal, which the visitor has just come through -->
+    <div class="relative overflow-hidden bg-gradient-to-br from-brand-600 via-brand-600 to-brand-800 px-8 pb-7 pt-7 text-white">
+      <div class="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" aria-hidden="true"></div>
+      <div class="absolute -bottom-16 -left-10 h-40 w-40 rounded-full bg-brand-400/20 blur-2xl" aria-hidden="true"></div>
+      <img src={LOGO} alt="ReceptionMate" class="relative h-28 w-auto" />
+      <h2 id="leah-modal-title" class="relative mt-4 text-2xl font-bold leading-tight tracking-tight">
+        {c.title}
+      </h2>
+      <p class="relative mt-2 text-sm leading-relaxed text-brand-100">{c.intro}</p>
+    </div>
 
     <!-- allow="microphone" delegates mic permission to the cross-origin frame; without it the
          call fails with a permissions error the visitor cannot act on. -->
     <iframe
       id="leah-frame"
-      title="Talk to Leah"
+      title={c.title}
       src="about:blank"
       data-src={EMBED_URL}
       allow="microphone; autoplay"
-      class="h-[560px] w-full border-0"
+      class="h-[420px] w-full border-0"
       loading="lazy"
     ></iframe>
   </div>
@@ -53,7 +82,7 @@ const EMBED_URL = import.meta.env.PUBLIC_DEMO_EMBED_URL
     const open = () => {
       // Load on first open, not on page load — an idle iframe would pull the portal bundle for
       // every visitor whether or not they ever click.
-      if (frame.src === 'about:blank' || !frame.src) {
+      if (!frame.src || frame.src === 'about:blank') {
         frame.src = frame.getAttribute('data-src') || '';
       }
       modal.classList.remove('hidden');
@@ -65,8 +94,8 @@ const EMBED_URL = import.meta.env.PUBLIC_DEMO_EMBED_URL
       modal.classList.add('hidden');
       modal.classList.remove('flex');
       document.body.style.overflow = '';
-      // Reloading the frame hangs up any live call and releases the microphone. Leaving it
-      // running would keep a demo slot occupied and the mic indicator lit after closing.
+      // Reloading the frame hangs up any live call and releases the microphone. Leaving it running
+      // would hold a demo slot open and keep the browser's mic indicator lit after closing.
       frame.src = 'about:blank';
     };
 
@@ -80,7 +109,7 @@ const EMBED_URL = import.meta.env.PUBLIC_DEMO_EMBED_URL
       if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
     });
 
-    // The lead modal calls this after a successful capture, instead of redirecting away.
+    // LeadModal calls this after a successful capture, instead of redirecting away.
     window.openTalkToLeah = open;
   }
 </script>

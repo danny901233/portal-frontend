@@ -1,0 +1,86 @@
+---
+// "Talk to Leah" — a live voice call in a modal, so the visitor never leaves the page.
+//
+// The call UI itself is iframed from the portal (/demo-embed) rather than reimplemented here.
+// livekit-client lives in the portal, the connect/dispatch logic is already proven there, and this
+// site cannot be built locally — iterating on WebRTC through blind Cloudflare deploys would be a
+// poor trade. A cross-origin frame can still request the microphone because we delegate it with
+// allow="microphone".
+//
+// Opened by any element carrying data-talk-to-leah. The lead modal hands over to it after
+// capturing a name and email, so an anonymous listener still leaves us a contactable lead.
+const EMBED_URL = import.meta.env.PUBLIC_DEMO_EMBED_URL
+  || 'https://portal.receptionmate.co.uk/demo-embed';
+---
+
+<div
+  id="leah-modal"
+  class="fixed inset-0 z-[100] hidden items-center justify-center bg-ink-900/60 p-4 backdrop-blur-sm"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Talk to Leah"
+>
+  <div class="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+    <button
+      id="leah-modal-close"
+      type="button"
+      aria-label="Close"
+      class="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-ink-100 text-ink-600 transition hover:bg-ink-200"
+    >
+      <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
+    </button>
+
+    <!-- allow="microphone" delegates mic permission to the cross-origin frame; without it the
+         call fails with a permissions error the visitor cannot act on. -->
+    <iframe
+      id="leah-frame"
+      title="Talk to Leah"
+      src="about:blank"
+      data-src={EMBED_URL}
+      allow="microphone; autoplay"
+      class="h-[560px] w-full border-0"
+      loading="lazy"
+    ></iframe>
+  </div>
+</div>
+
+<script>
+  const modal = document.getElementById('leah-modal');
+  const frame = document.getElementById('leah-frame');
+  const closeBtn = document.getElementById('leah-modal-close');
+
+  if (modal && frame) {
+    const open = () => {
+      // Load on first open, not on page load — an idle iframe would pull the portal bundle for
+      // every visitor whether or not they ever click.
+      if (frame.src === 'about:blank' || !frame.src) {
+        frame.src = frame.getAttribute('data-src') || '';
+      }
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.body.style.overflow = 'hidden';
+    };
+
+    const close = () => {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      document.body.style.overflow = '';
+      // Reloading the frame hangs up any live call and releases the microphone. Leaving it
+      // running would keep a demo slot occupied and the mic indicator lit after closing.
+      frame.src = 'about:blank';
+    };
+
+    document.querySelectorAll('[data-talk-to-leah]').forEach((el) => {
+      el.addEventListener('click', (e) => { e.preventDefault(); open(); });
+    });
+
+    closeBtn?.addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+    });
+
+    // The lead modal calls this after a successful capture, instead of redirecting away.
+    window.openTalkToLeah = open;
+  }
+</script>

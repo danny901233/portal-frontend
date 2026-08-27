@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css';
 import LeadModal from '../components/LeadModal.astro';
+import TalkToLeahModal from '../components/TalkToLeahModal.astro';
 import { getLang, L, altLangHref, t as tShell } from '../i18n/ui';
 
 interface Props {
@@ -264,6 +265,7 @@ const footerYear = 2026;
 
     <!-- Global lead-capture modal — triggered by any [data-lead-cta] element -->
     <LeadModal />
+    <TalkToLeahModal />
 
     <!-- Cookie consent banner. Vanilla, no library. Shows on first visit only;
          stores `receptionmate.cookie-consent` in localStorage as either

@@ -303,9 +303,12 @@ const c = {
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           if (pendingRedirect) {
-            // Straight through to the demo — the success panel would be a pointless extra click
-            // when the whole point was to hear the agent.
-            window.location.href = pendingRedirect;
+            // Hand over to the in-page call modal so the visitor never leaves the site. Falls back
+            // to the old redirect if that modal is not mounted on this page.
+            const openCall = window.openTalkToLeah;
+            close();
+            if (typeof openCall === 'function') openCall();
+            else window.location.href = pendingRedirect;
             return;
           }
           form.classList.add('hidden');

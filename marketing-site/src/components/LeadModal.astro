@@ -27,6 +27,12 @@ const c = {
     sendIt: 'Send it',
     sending: 'Sending…',
     noCommitment: "No commitment · we'll be in touch within one working day",
+    // Demo variant: this CTA connects the visitor to a live call immediately, so promising a
+    // callback would be wrong — and would read as a bait and switch when the call starts.
+    demoTitleLead: 'Hear Leah answer',
+    demoIntro: 'Just your name and email, then we will connect you straight through. Leah answers in your browser — you will need a microphone.',
+    demoSendIt: 'Start the call',
+    demoNoCommitment: 'Takes about a minute · no card, no commitment',
     successTitle: 'Thanks — we’ve got your details.',
     successBody: 'Someone from the team will be in touch within one working day.',
     errorMsg: "Couldn't send that — please try again in a moment.",
@@ -46,6 +52,10 @@ const c = {
     sendIt: 'Envoyer',
     sending: 'Envoi…',
     noCommitment: "Sans engagement · nous vous recontactons sous un jour ouvré",
+    demoTitleLead: 'Écoutez Leah répondre pour',
+    demoIntro: 'Votre nom et votre e-mail, puis nous vous mettons en relation. Leah répond dans votre navigateur — un microphone est nécessaire.',
+    demoSendIt: 'Démarrer l’appel',
+    demoNoCommitment: 'Environ une minute · sans carte, sans engagement',
     successTitle: 'Merci — nous avons bien reçu vos coordonnées.',
     successBody: 'Un membre de l’équipe vous recontactera sous un jour ouvré.',
     errorMsg: "Impossible d'envoyer — veuillez réessayer dans un instant.",
@@ -76,9 +86,9 @@ const c = {
       <div class="absolute -bottom-16 -left-10 h-40 w-40 rounded-full bg-brand-400/20 blur-2xl" aria-hidden="true"></div>
       <img src={LOGO} alt="ReceptionMate" class="relative h-28 w-auto" />
       <h2 id="lead-modal-title" class="relative mt-4 text-2xl font-bold leading-tight tracking-tight">
-        {c.titleLead} <span id="lead-modal-tier">ReceptionMate</span>
+        <span id="lead-modal-titlelead">{c.titleLead}</span> <span id="lead-modal-tier">ReceptionMate</span>
       </h2>
-      <p class="relative mt-2 text-sm leading-relaxed text-brand-100">{c.intro}</p>
+      <p id="lead-modal-intro" class="relative mt-2 text-sm leading-relaxed text-brand-100">{c.intro}</p>
     </div>
 
     <form id="lead-modal-form" class="space-y-3.5 p-7">
@@ -120,7 +130,7 @@ const c = {
 
       <button type="submit" id="lead-modal-submit" class="lead-submit group mt-1.5 w-full rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand-600/30 transition hover:shadow-brand-600/50 disabled:cursor-not-allowed disabled:opacity-70">
         <span class="seg-idle">
-          {c.sendIt}
+          <span id="lead-modal-send-label">{c.sendIt}</span>
           <svg class="h-4 w-4 transition group-hover:translate-x-0.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
         </span>
         <span class="seg-loading">
@@ -134,7 +144,7 @@ const c = {
 
       <p class="flex items-center justify-center gap-1.5 pt-0.5 text-center text-xs text-ink-400">
         <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
-        {c.noCommitment}
+        <span id="lead-modal-nocommit">{c.noCommitment}</span>
       </p>
     </form>
 
@@ -188,7 +198,13 @@ const c = {
   .lead-submit.is-loading .seg-loading { display: inline-flex; }
 </style>
 
-<script define:vars={{ LEAD_ENDPOINT, ERROR_MSG: c.errorMsg }}>
+<script define:vars={{
+  LEAD_ENDPOINT, ERROR_MSG: c.errorMsg,
+  COPY: {
+    standard: { titleLead: c.titleLead, intro: c.intro, sendIt: c.sendIt, noCommit: c.noCommitment },
+    demo:     { titleLead: c.demoTitleLead, intro: c.demoIntro, sendIt: c.demoSendIt, noCommit: c.demoNoCommitment },
+  },
+}}>
   const modal     = document.getElementById('lead-modal');
   const form      = document.getElementById('lead-modal-form');
   const closeBtn  = document.getElementById('lead-modal-close');
@@ -199,9 +215,27 @@ const c = {
   const tierLabelEl = document.getElementById('lead-modal-tier');
 
   if (modal && form) {
-    const open = (source, tier, prefill) => {
+    const open = (source, tier, prefill, isDemo) => {
       sourceInput.value = source || 'website';
       tierLabelEl.textContent = tier || 'ReceptionMate';
+
+      // The live-demo CTA connects the caller immediately, so it gets its own copy — promising a
+      // callback here would be wrong. It also drops to name + email: asking a visitor who just
+      // wants to listen for their phone number is friction that buys us nothing at this point.
+      const copy = isDemo ? COPY.demo : COPY.standard;
+      const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+      set('lead-modal-titlelead', copy.titleLead);
+      set('lead-modal-intro', copy.intro);
+      set('lead-modal-send-label', copy.sendIt);
+      set('lead-modal-nocommit', copy.noCommit);
+
+      ['lead-modal-company', 'lead-modal-phone'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (isDemo) el.removeAttribute('required'); else el.setAttribute('required', '');
+        const field = el.closest('div')?.parentElement;
+        if (field) field.classList.toggle('hidden', !!isDemo);
+      });
       errorEl.classList.add('hidden');
       successEl.classList.add('hidden');
       form.classList.remove('hidden');
@@ -241,7 +275,7 @@ const c = {
         const source = el.getAttribute('data-lead-cta') || 'website';
         const tier = el.getAttribute('data-lead-tier') || '';
         pendingRedirect = el.getAttribute('data-lead-redirect') || '';
-        open(source, tier);
+        open(source, tier, null, !!pendingRedirect);
       });
     });
 

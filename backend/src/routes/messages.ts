@@ -453,6 +453,7 @@ router.get(
             },
           },
           assignee: { select: { id: true, email: true } },
+          feedback: true,
         },
       });
 
@@ -482,6 +483,7 @@ router.get(
               },
             },
             assignee: { select: { id: true, email: true } },
+            feedback: true,
           },
         });
 

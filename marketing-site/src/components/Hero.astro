@@ -9,6 +9,7 @@ const c = {
     sub: 'ReceptionMate answers every call, captures the booking, and sends it straight to your team. 24/7.',
     getStarted: 'Start your free trial',
     seeHow: 'See how it works',
+    talkToLeah: 'Hear Leah answer a call',
     billing: '14-day free trial on Assist · then £200/mo + VAT',
     trusted: 'trusted by UK garages',
     demoPrompt: 'Not ready to sign up?',
@@ -21,6 +22,7 @@ const c = {
     sub: 'ReceptionMate répond à chaque appel, enregistre la réservation et la transmet directement à votre équipe. 24h/24, 7j/7.',
     getStarted: 'Démarrer votre essai gratuit',
     seeHow: 'Voir comment ça marche',
+    talkToLeah: 'Écoutez Leah répondre',
     billing: 'Essai gratuit 14 jours sur Assist · puis 200 £/mois + TVA',
     trusted: 'adopté par des garages au Royaume-Uni',
     demoPrompt: 'Pas encore prêt à vous inscrire ?',
@@ -68,6 +70,16 @@ const c = {
         >
           {c.seeHow}
         </a>
+        <button
+          type="button"
+          data-lead-cta="website-hero-talk-to-leah"
+          data-lead-tier={c.demoTier}
+          data-lead-redirect={L('/demo', lang)}
+          class="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-brand-600 bg-white px-7 py-3.5 text-base font-semibold text-brand-700 transition hover:bg-brand-50 sm:w-auto"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M2 3.5A1.5 1.5 0 013.5 2h1.148a1.5 1.5 0 011.465 1.175l.716 3.223a1.5 1.5 0 01-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 006.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 011.767-1.052l3.223.716A1.5 1.5 0 0118 15.352V16.5a1.5 1.5 0 01-1.5 1.5H15C7.82 18 2 12.18 2 5V3.5z"/></svg>
+          {c.talkToLeah}
+        </button>
       </div>
 
       <p class="mt-5 text-sm text-ink-500">

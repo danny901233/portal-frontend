@@ -230,11 +230,17 @@ const c = {
       document.body.style.overflow = '';
     };
 
+    // A trigger may carry data-lead-redirect. The lead is captured first, then the visitor is
+    // sent on — used by "Talk to Leah", so a live demo still leaves us a contactable lead rather
+    // than an anonymous session we can never follow up.
+    let pendingRedirect = '';
+
     document.querySelectorAll('[data-lead-cta]').forEach((el) => {
       el.addEventListener('click', (e) => {
         e.preventDefault();
         const source = el.getAttribute('data-lead-cta') || 'website';
         const tier = el.getAttribute('data-lead-tier') || '';
+        pendingRedirect = el.getAttribute('data-lead-redirect') || '';
         open(source, tier);
       });
     });
@@ -262,6 +268,12 @@ const c = {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
+          if (pendingRedirect) {
+            // Straight through to the demo — the success panel would be a pointless extra click
+            // when the whole point was to hear the agent.
+            window.location.href = pendingRedirect;
+            return;
+          }
           form.classList.add('hidden');
           successEl.classList.remove('hidden');
         } else {

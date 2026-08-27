@@ -26,6 +26,10 @@ const VOICES: { key: string; name: string; desc: string }[] = [
 const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
 // Where the "Sign up" CTA sends prospects — the marketing-site onboarding.
 const SIGNUP_URL = 'https://receptionmate.co.uk/get-started/';
+// The demo is reached from a marketing-site CTA and has no site nav, so the visitor needs a way
+// back — the browser back button lands them in the lead modal they came through.
+const SITE_URL = 'https://receptionmate.co.uk/';
+const HOW_URL = 'https://receptionmate.co.uk/how-it-works/';
 
 export default function DemoPage() {
   const [phase, setPhase] = useState<Phase>('idle');
@@ -185,7 +189,9 @@ export default function DemoPage() {
       <div className="w-full max-w-lg">
         {/* brand lockup — logo + Sign up CTA */}
         <div className="mb-8 flex items-center justify-between gap-3">
-          <img src={LOGO_URL} alt="ReceptionMate" className="h-[5.5rem] w-auto" />
+          <a href={SITE_URL} aria-label="Back to receptionmate.co.uk" className="transition hover:opacity-80">
+            <img src={LOGO_URL} alt="ReceptionMate" className="h-[5.5rem] w-auto" />
+          </a>
           <a
             href={SIGNUP_URL}
             target="_blank"
@@ -387,9 +393,11 @@ export default function DemoPage() {
               Couldn’t start the demo — please allow microphone access and try again.
             </p>
           ) : null}
-          {phase === 'ended' ? (
+          {phase !== 'connecting' && phase !== 'live' ? (
             <div className="mt-5 flex flex-col items-center gap-3">
-              <p className="text-sm text-brand-100/90">Thanks for trying ReceptionMate. 👋</p>
+              {phase === 'ended' ? (
+                <p className="text-sm text-brand-100/90">Thanks for trying ReceptionMate. 👋</p>
+              ) : null}
               <a
                 href={SIGNUP_URL}
                 target="_blank"
@@ -398,12 +406,16 @@ export default function DemoPage() {
               >
                 Get started with ReceptionMate →
               </a>
+              <a href={HOW_URL} className="text-sm font-semibold text-brand-100 underline underline-offset-4 transition hover:text-white">
+                See how it works
+              </a>
             </div>
           ) : null}
         </div>
 
         <p className="mt-6 text-center text-xs text-brand-100/70">
-          A live demo of ReceptionMate’s AI receptionist · no real booking is made · receptionmate.co.uk
+          A live demo of ReceptionMate’s AI receptionist · no real booking is made ·{' '}
+          <a href={SITE_URL} className="underline underline-offset-2 transition hover:text-white">receptionmate.co.uk</a>
         </p>
       </div>
 

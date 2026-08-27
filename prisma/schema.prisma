@@ -565,6 +565,7 @@ model ChatConversation {
   sessionState             Json?
   messages                 ChatMessage[]
   toolCalls                ChatToolCall[]
+  feedback                 ChatFeedback?
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
 
@@ -612,6 +613,23 @@ model ChatToolCall {
   @@index([conversationId, createdAt])
   @@index([garageId, createdAt])
   @@index([toolName, success])
+}
+
+// Garage-side rating of an AI conversation. Mirrors CallFeedback exactly so
+// the weekly negative-feedback audit process (Monday SOP) can classify calls
+// and messages with the same buckets. One row per conversation — upsert on
+// re-rating. rating is 'up' | 'down' in app code; reasons are free-form now
+// but constrained to a small fixed set in the UI (wrong_info, ghost_booking,
+// complaint_mishandled, tone, handover_failed, other).
+model ChatFeedback {
+  id             String           @id @default(cuid())
+  conversationId String           @unique
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  rating         String
+  reasons        String[]         @default([])
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 }
 
 model SocialMediaConnection {

@@ -6,6 +6,8 @@ import { authenticate } from '../middleware/auth.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { notifyUser } from '../utils/push.js';
 import { sendEmail } from '../utils/email.js';
+import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
+import { chatFeedbackSchema } from '../utils/validators.js';
 
 const router = Router();
 
@@ -450,6 +452,105 @@ router.get('/conversations/:id/assignable-users', authenticate, async (req: Requ
   } catch (error) {
     console.error('[CONVERSATIONS] GET /conversations/:id/assignable-users error:', error);
     res.status(500).json({ error: 'Failed to fetch assignable users' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/conversations/:id/feedback
+// ---------------------------------------------------------------------------
+//
+// Mirror of the call-feedback endpoint (routes/calls.ts). Garage staff or
+// ReceptionMate staff rate a conversation up/down; negative ratings ping
+// Discord so the Monday audit process picks them up. One row per
+// conversation — upsert on re-rating. Kept in the same shape as CallFeedback
+// so the weekly audit process uses the same buckets across calls + messages.
+
+router.post('/conversations/:id/feedback', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const conversation = await prisma.chatConversation.findUnique({
+      where: { id },
+      include: { garage: { select: { id: true, name: true } } },
+    });
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    if (!hasGarageAccess(req, conversation.garageId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const parseResult = chatFeedbackSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ error: parseResult.error.flatten() });
+    }
+
+    const { rating, reasons, notes } = parseResult.data;
+    const normalizedReasons = Array.from(
+      new Set((reasons ?? []).map((reason) => reason.trim()).filter(Boolean)),
+    );
+    const sanitizedNotes = notes?.trim() ? notes.trim() : null;
+
+    const feedback = await prisma.chatFeedback.upsert({
+      where: { conversationId: id },
+      update: { rating, reasons: normalizedReasons, notes: sanitizedNotes },
+      create: {
+        conversationId: id,
+        rating,
+        reasons: normalizedReasons,
+        notes: sanitizedNotes,
+      },
+    });
+
+    // Fire the same Discord alert pattern as CallFeedback so ops see negatives
+    // in one channel across calls + messages. Email alert is deliberately not
+    // wired here yet — sendNegativeFeedbackEmail is call-specific and adding a
+    // chat variant is a separate follow-up.
+    if (rating === 'down') {
+      const platformLabel =
+        conversation.platform === 'whatsapp'
+          ? 'WhatsApp'
+          : conversation.platform === 'facebook'
+          ? 'Facebook'
+          : conversation.platform === 'instagram'
+          ? 'Instagram'
+          : conversation.platform === 'livechat'
+          ? 'Live chat'
+          : conversation.platform === 'widget' || conversation.platform === 'web'
+          ? 'Web chat'
+          : conversation.platform;
+
+      const fields = [
+        { name: 'Branch', value: conversation.garage.name, inline: true },
+        { name: 'Platform', value: platformLabel, inline: true },
+        { name: 'Conversation ID', value: id, inline: false },
+      ];
+      if (conversation.customerName) {
+        fields.push({ name: 'Customer', value: conversation.customerName, inline: true });
+      }
+      if (normalizedReasons.length) {
+        fields.push({ name: 'Reasons', value: normalizedReasons.join(', '), inline: false });
+      }
+      if (sanitizedNotes) {
+        fields.push({ name: 'Notes', value: sanitizedNotes, inline: false });
+      }
+      if (req.user?.email) {
+        fields.push({ name: 'Flagged by', value: req.user.email, inline: false });
+      }
+
+      void sendDiscordNotification({
+        title: 'Negative Message Rating',
+        description: `A ${platformLabel} conversation at **${conversation.garage.name}** was rated thumbs down.`,
+        color: DISCORD_COLORS.error,
+        fields,
+      }).catch((error) => {
+        console.error('[CONVERSATIONS] Discord notification failed:', error);
+      });
+    }
+
+    res.json({ feedback });
+  } catch (error) {
+    console.error('[CONVERSATIONS] POST /conversations/:id/feedback error:', error);
+    res.status(500).json({ error: 'Failed to save feedback' });
   }
 });
 

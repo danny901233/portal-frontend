@@ -955,7 +955,16 @@ async function getChatAgentResponseInner(
       take: isOutboundFresh ? 0 : HISTORY_MESSAGES,
     })).reverse();
 
-    hydrateSessionFromMessageHistory(session, previousMessages as Array<{ role: string; content: string }>);
+    // Exclude the current message from hydration — it was already persisted by the
+    // webhook before the agent runs, so hydration would set session fields (email,
+    // postcode, etc.) before the NEED_CONTACT fast-path can process them. That causes
+    // the fast-path to treat the user's contact info as a "note" instead of saving it
+    // via handleSetContactInfo (which does validation + postcodes.io lookup).
+    const lastPrev = previousMessages[previousMessages.length - 1];
+    const historyForHydration = (lastPrev?.role === 'user' && lastPrev.content === message)
+      ? previousMessages.slice(0, -1)
+      : previousMessages;
+    hydrateSessionFromMessageHistory(session, historyForHydration as Array<{ role: string; content: string }>);
 
     // Re-apply seed after hydration to ensure it wins over any contradictory history
     if (seedContact?.phone && !session.contactPhone) {

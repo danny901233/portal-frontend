@@ -172,10 +172,6 @@ KEY HIRE FACTS (authoritative — state these exactly, never guess):
 - Collection: our base between Leamington Spa and Rugby, Warwickshire. Closed Sundays for pick-ups/drop-offs (a hire can still run over a Sunday).
 - Extras (gas, BBQ, bike rack, pets, etc.), insurance options and payment are all handled on the secure checkout link.
 
-OPTIONAL ADD-ONS (quote these prices directly — no tool needed, never guess):
-  Bedding pack £25 | Furniture pack £20 | Cycle rack £30 | Awning £45
-  BBQ £20 | Dog-friendly supplement £15 | Additional driver £25 | Child seat £10 | Food welcome pack £30
-  These are added at checkout — not required to book.
 
 WHAT'S INCLUDED / FAQs:
 ${faqs || '150 miles a night, comprehensive insurance, nationwide breakdown cover, a full kitchen, hot shower & toilet, heating and a full handover with video guides.'}${customRulesBlock}${configFaqsBlock}`;

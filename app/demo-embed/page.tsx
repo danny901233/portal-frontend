@@ -162,9 +162,9 @@ export default function DemoEmbedPage() {
   const idle = phase === 'idle' || phase === 'failed' || phase === 'ended';
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-transparent px-6 py-8 text-center">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-white px-6 py-6 text-center">
       {/* phone + waveform */}
-      <div className="relative mb-6 flex h-32 w-full max-w-sm items-center justify-center">
+      <div className="relative mb-4 flex h-28 w-full max-w-sm items-center justify-center">
         {phase === 'live' ? (
           <canvas ref={canvasRef} className="h-24 w-full" aria-hidden="true" />
         ) : (
@@ -176,13 +176,14 @@ export default function DemoEmbedPage() {
         )}
       </div>
 
-      <h2 className="text-xl font-bold text-slate-900">
-        {phase === 'live' ? 'You’re talking to Leah' : phase === 'connecting' ? 'Connecting…' : 'Talk to Leah'}
-      </h2>
-      <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-600">
+      {/* The modal band above the frame carries the name and the pitch; this line only reports
+          what is happening right now. */}
+      <p className="min-h-[2.5rem] max-w-sm text-sm leading-relaxed text-slate-600">
         {phase === 'live'
-          ? 'Try booking your car in — she’ll take your details and read the registration back. Nothing is really scheduled.'
-          : 'Pretend you’re ringing a garage. Leah answers, takes the booking, and reminds you it’s a demo.'}
+          ? 'Try booking your car in — she’ll take your details and read the registration back.'
+          : phase === 'connecting'
+            ? 'Connecting you to Leah…'
+            : 'Pick a voice, then start the call.'}
       </p>
 
       {phase === 'live' ? <p className="mt-3 text-sm font-semibold tabular-nums text-brand-700">{mmss}</p> : null}

@@ -7,6 +7,7 @@ import { routeChatMessage, invalidateSessionCache } from '../../services/chatAge
 import { scheduleHumanReply } from '../../services/chatDelay.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
 import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
+import { handleSupportWhatsappInbound } from '../../services/supportWhatsappInbound.js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 
@@ -97,6 +98,43 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
         if (!phoneNumberId) {
           console.log('No phone_number_id in WhatsApp webhook');
           continue;
+        }
+
+        // ── SUPPORT HUB (RM's own WhatsApp support line) ─────────────────────
+        // Route inbound to the support-ticket handler when the message came to
+        // the RM support number (env: SUPPORT_WHATSAPP_PHONE_NUMBER_ID).
+        // If the env isn't set, this branch is skipped and everything falls
+        // through to the existing garage-connection flow — safe no-op.
+        const SUPPORT_PHONE_ID = process.env.SUPPORT_WHATSAPP_PHONE_NUMBER_ID;
+        const SUPPORT_ACCESS_TOKEN = process.env.SUPPORT_WHATSAPP_ACCESS_TOKEN;
+        if (SUPPORT_PHONE_ID && phoneNumberId === SUPPORT_PHONE_ID) {
+          if (!SUPPORT_ACCESS_TOKEN) {
+            console.warn('[SUPPORT_WA] SUPPORT_WHATSAPP_ACCESS_TOKEN not set — auto-ack will fail');
+          }
+          if (value.messages && Array.isArray(value.messages)) {
+            for (const message of value.messages) {
+              if (message.type !== 'text' || !message.text?.body) continue;
+              // Skip stale replays — Meta occasionally retries queued messages.
+              const msgTimestamp = message.timestamp ? parseInt(message.timestamp, 10) * 1000 : null;
+              if (msgTimestamp && Date.now() - msgTimestamp > 5 * 60 * 1000) {
+                console.log(`[SUPPORT_WA] Ignoring stale message from ${message.from}`);
+                continue;
+              }
+              try {
+                await handleSupportWhatsappInbound({
+                  fromPhone: message.from,
+                  senderName: value.contacts?.[0]?.profile?.name || null,
+                  bodyText: message.text.body,
+                  messageId: message.id || null,
+                  supportPhoneNumberId: phoneNumberId,
+                  supportAccessToken: SUPPORT_ACCESS_TOKEN || '',
+                });
+              } catch (err) {
+                console.error('[SUPPORT_WA] handler error:', err);
+              }
+            }
+          }
+          continue;  // skip the garage-connection flow for the support number
         }
 
         // Find garage by phone_number_id

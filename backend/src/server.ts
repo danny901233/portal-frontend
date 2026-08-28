@@ -31,6 +31,7 @@ import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
 import metaInstagramWebhook from './routes/webhooks/meta-instagram.js';
 import gocardlessWebhook from './routes/webhooks/gocardless.js';
 import stripeWebhook from './routes/webhooks/stripe.js';
+import mailgunInboundWebhook from './routes/webhooks/mailgun-inbound.js';
 import livekitDemoRouter from './routes/livekit-demo.js';
 import featureAnnouncementRouter from './routes/featureAnnouncement.js';
 import usersRouter from './routes/users.js';
@@ -156,6 +157,7 @@ app.use('/api/webhooks', metaWhatsappWebhook);
 app.use('/api/webhooks', metaFacebookWebhook);
 app.use('/api/webhooks', metaInstagramWebhook);
 app.use('/api/webhooks', gocardlessWebhook);
+app.use('/api/webhooks', mailgunInboundWebhook);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
 

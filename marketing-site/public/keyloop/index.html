@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>ReceptionMate × Keyloop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+</head>
+<body>
+<style>
+  :root {
+    --ground:   #ffffff;
+    --ink:      #14152b;
+    --muted:    #62647e;
+    --hairline: #e2e2ee;
+    --brand:    #3426cf;
+    --navy:     #1d1a72;
+    --wash:     #eeeefb;
+    --bar:      #3426cf;
+    --bar-soft: #b9b4ee;
+
+    --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --sans:  "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:   #0e0f1e;
+      --ink:      #eaeaf4;
+      --muted:    #9a9cb4;
+      --hairline: #282a44;
+      --brand:    #9c97f4;
+      --navy:     #c3bffa;
+      --wash:     #1b1c35;
+      --bar:      #7b74e8;
+      --bar-soft: #3a3a63;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:   #0e0f1e;
+    --ink:      #eaeaf4;
+    --muted:    #9a9cb4;
+    --hairline: #282a44;
+    --brand:    #9c97f4;
+    --navy:     #c3bffa;
+    --wash:     #1b1c35;
+    --bar:      #7b74e8;
+    --bar-soft: #3a3a63;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 48rem; margin: 0 auto; padding: 0 1.6rem 5rem; }
+
+  /* ── masthead + nav ───────────────────────────────────────── */
+  .top { padding: 2.75rem 0 0; }
+  .brandline {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.35rem;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.3rem;
+  }
+  .brandline .x { color: var(--brand); font-weight: 400; padding: 0 0.12em; }
+  .stamp {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 1.5rem;
+  }
+
+  nav {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 2.5rem;
+  }
+  nav button {
+    appearance: none;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 0.6rem 0.75rem;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  nav button:hover { color: var(--ink); }
+  nav button[aria-selected="true"] { color: var(--brand); border-bottom-color: var(--brand); }
+  nav button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 2px; }
+
+  /* ── panels ───────────────────────────────────────────────── */
+  [role="tabpanel"][hidden] { display: none; }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.7rem, 4.2vw, 2.15rem);
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 0.7rem;
+  }
+  .lede { font-size: 1.03rem; color: var(--muted); max-width: 34rem; margin: 0 0 2rem; }
+  p { margin: 0 0 1rem; max-width: 36rem; }
+  strong { font-weight: 600; color: var(--ink); }
+
+  /* ── figures ──────────────────────────────────────────────── */
+  .figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1px;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    margin: 0 0 1rem;
+  }
+  .fig { background: var(--ground); padding: 1.05rem 1.1rem 1.15rem; }
+  .fig b {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.6rem;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    color: var(--navy);
+    display: block;
+    line-height: 1.1;
+  }
+  .fig span { font-size: 0.8rem; color: var(--muted); display: block; margin-top: 0.4rem; line-height: 1.35; }
+  .note { font-size: 0.8rem; color: var(--muted); font-style: italic; margin: 0; }
+
+  /* ── chart ────────────────────────────────────────────────── */
+  figure { margin: 2.25rem 0 0; }
+  .chart {
+    display: grid; grid-template-columns: repeat(8, 1fr);
+    align-items: end; gap: 0.5rem; height: 10rem;
+    padding-bottom: 0.5rem; border-bottom: 1px solid var(--hairline);
+  }
+  .col { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+  .col i {
+    font-family: var(--mono); font-variant-numeric: tabular-nums; font-style: normal;
+    font-size: 0.65rem; color: var(--muted); text-align: center; margin-bottom: 0.25rem;
+  }
+  .col .calls { background: var(--bar-soft); width: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+  .col .books { background: var(--bar); width: 100%; }
+  .col.partial .calls { opacity: 0.6; }
+  .xaxis { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.5rem; margin-top: 0.45rem; }
+  .xaxis span { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); text-align: center; }
+  .legend { display: flex; flex-wrap: wrap; gap: 1.1rem; margin-top: 0.9rem; font-size: 0.8rem; color: var(--muted); }
+  .legend em { display: inline-block; width: 0.65rem; height: 0.65rem; margin-right: 0.35rem; }
+
+  /* ── rows ─────────────────────────────────────────────────── */
+  dl { border-top: 1px solid var(--hairline); margin: 0; }
+  dl > div {
+    display: grid; grid-template-columns: 10rem 1fr; gap: 1.3rem;
+    padding: 0.95rem 0; border-bottom: 1px solid var(--hairline); align-items: baseline;
+  }
+  dt { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--brand); }
+  dd { margin: 0; }
+  dd p { margin: 0; max-width: none; }
+
+  /* ── funnel ───────────────────────────────────────────────── */
+  .big {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: clamp(3rem, 12vw, 4.75rem); font-weight: 500; letter-spacing: -0.04em;
+    color: var(--brand); line-height: 1; margin: 0 0 0.5rem;
+  }
+  .bigsub { font-size: 1.03rem; color: var(--muted); max-width: 28rem; margin: 0 0 2.25rem; }
+
+  table { border-collapse: collapse; width: 100%; margin: 0 0 1rem; font-size: 0.93rem; }
+  caption {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--muted); text-align: left; padding-bottom: 0.7rem;
+  }
+  th, td { text-align: left; padding: 0.6rem 0.7rem 0.6rem 0; border-bottom: 1px solid var(--hairline); }
+  th { font-weight: 500; color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; padding-right: 0; width: 4.5rem; }
+  tr.ours td { color: var(--brand); }
+  tr.ours td:first-child { font-weight: 600; }
+
+  blockquote {
+    margin: 0 0 1.5rem; padding: 1rem 1.3rem; background: var(--wash);
+    border-left: 2px solid var(--brand); font-family: var(--serif); font-size: 1rem;
+  }
+  blockquote p { margin: 0; max-width: none; }
+  blockquote cite {
+    display: block; margin-top: 0.6rem; font-family: var(--mono); font-size: 0.7rem;
+    font-style: normal; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+  }
+
+  ol { margin: 0; padding: 0; list-style: none; counter-reset: q; border-top: 1px solid var(--hairline); }
+  ol li {
+    counter-increment: q; display: grid; grid-template-columns: 1.9rem 1fr; gap: 0.8rem;
+    padding: 0.85rem 0; border-bottom: 1px solid var(--hairline);
+  }
+  ol li::before { content: counter(q); font-family: var(--mono); font-size: 0.8rem; color: var(--brand); }
+
+  footer {
+    margin-top: 3rem; padding-top: 1.4rem; border-top: 1px solid var(--hairline);
+    font-size: 0.8rem; color: var(--muted);
+  }
+  footer p { max-width: 38rem; margin: 0 0 0.5rem; }
+  a { color: var(--brand); text-underline-offset: 2px; }
+
+  @media (max-width: 34rem) {
+    body { font-size: 16px; }
+    dl > div { grid-template-columns: 1fr; gap: 0.25rem; }
+    .chart { height: 8rem; }
+    .col i, .xaxis span { font-size: 0.56rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <div class="top">
+    <p class="brandline">ReceptionMate <span class="x">×</span> Keyloop</p>
+    <p class="stamp">Progress update · 28 August 2026 · Confidential</p>
+  </div>
+
+  <nav role="tablist" aria-label="Sections">
+    <button role="tab" id="t-progress" aria-controls="p-progress" aria-selected="true">Progress</button>
+    <button role="tab" id="t-built"    aria-controls="p-built"    aria-selected="false">What we built</button>
+    <button role="tab" id="t-bookings" aria-controls="p-bookings" aria-selected="false">Bookings</button>
+    <button role="tab" id="t-cases"    aria-controls="p-cases"    aria-selected="false">In practice</button>
+    <button role="tab" id="t-next"     aria-controls="p-next"     aria-selected="false">Roadmap</button>
+  </nav>
+
+  <!-- ── 1. PROGRESS ─────────────────────────────────────────── -->
+  <section role="tabpanel" id="p-progress" aria-labelledby="t-progress">
+    <h1>Where we've got to</h1>
+
+    <div class="figures">
+      <div class="fig"><b>29%</b><span>Average growth in calls, every month</span></div>
+      <div class="fig"><b>5.2&times;</b><span>More calls a month than in February</span></div>
+      <div class="fig"><b>+127%</b><span>Growth in live sites</span></div>
+      <div class="fig"><b>+24%</b><span>Further sites contracted, in set-up</span></div>
+      <div class="fig"><b>2.4&times;</b><span>Call volume per site since February</span></div>
+    </div>
+    <p class="note">February to August 2026. February is our first full month of trading. Excludes our own test and demo accounts.</p>
+
+    <figure>
+      <div class="chart" role="img" aria-label="Monthly call volume rising steadily from January to August 2026, with August a partial month.">
+        <div class="col"><div class="calls" style="height:2%"></div></div>
+        <div class="col"><div class="calls" style="height:18.8%"></div></div>
+        <div class="col"><div class="calls" style="height:38.7%"></div></div>
+        <div class="col"><div class="calls" style="height:39.8%"></div></div>
+        <div class="col"><div class="calls" style="height:55%"></div></div>
+        <div class="col"><div class="calls" style="height:75.7%"></div></div>
+        <div class="col"><div class="calls" style="height:98.2%"></div></div>
+        <div class="col partial"><div class="calls" style="height:87.1%"></div></div>
+      </div>
+      <div class="xaxis"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span></div>
+      <div class="legend">
+        <span><em style="background:var(--bar-soft)"></em>Monthly call volume</span>
+        <span>August is 28 days</span>
+      </div>
+    </figure>
+
+    <p style="margin-top:2rem">Growth is the same motion repeating rather than one large account — the biggest garage on the platform is about a tenth of total call volume.</p>
+  </section>
+
+  <!-- ── 2. WHAT WE BUILT ────────────────────────────────────── -->
+  <section role="tabpanel" id="p-built" aria-labelledby="t-built" hidden>
+    <h1>The hard part was never the voice</h1>
+    <p class="lede">Answering the phone convincingly is close to solved, and cheaper every quarter. Eighteen months went into what sits behind it.</p>
+
+    <dl>
+      <div><dt>Diary writes</dt><dd><p>Nearly two-thirds of our sites run against a live DMS. Real availability, the garage's own price list, a confirmed booking written into the workshop diary — not a message for someone to action later.</p></dd></div>
+      <div><dt>Integrations</dt><dd><p>Five systems in production: Garage Hive, Tyresoft, Bookar, Autosage and our own. The sixth is a fortnight, not a quarter.</p></dd></div>
+      <div><dt>Vehicle capture</dt><dd><p>Registration capture over a bad line is the most failure-prone moment in a garage call. Phonetic read-back, escalation to spelling when a caller stalls, validation against DVLA data.</p></dd></div>
+      <div><dt>Out of hours</dt><dd><p>A fifth of calls arrive outside 8am–6pm. Those are the ones a garage loses entirely, and the easiest value for an owner to see in month one.</p></dd></div>
+    </dl>
+  </section>
+
+  <!-- ── 3. BOOKINGS ─────────────────────────────────────────── -->
+  <section role="tabpanel" id="p-bookings" aria-labelledby="t-bookings" hidden>
+    <h1>What happens on a booking call</h1>
+    <p class="lede">Measured from the agent's own tool trace, so it cannot flatter itself — each step is recorded as it happens, before the outcome is known.</p>
+
+    <p class="big">60%</p>
+    <p class="bigsub">of callers who get as far as choosing a service leave with a confirmed booking.</p>
+
+    <table>
+      <caption>Where the other 40% go</caption>
+      <thead><tr><th>Reason</th><th class="n">Calls</th><th class="n">Share</th></tr></thead>
+      <tbody>
+        <tr><td>Price enquiry only — never a booking</td><td class="n">223</td><td class="n">28%</td></tr>
+        <tr><td>Caller declined, or wanted to think</td><td class="n">112</td><td class="n">14%</td></tr>
+        <tr class="ours"><td>Our vehicle lookup failed</td><td class="n">78</td><td class="n">10%</td></tr>
+        <tr><td>No slot that suited</td><td class="n">24</td><td class="n">3%</td></tr>
+        <tr class="ours"><td>Our diary connection was unavailable</td><td class="n">23</td><td class="n">3%</td></tr>
+        <tr><td>Wanted a person</td><td class="n">16</td><td class="n">2%</td></tr>
+        <tr><td>Not classified</td><td class="n">315</td><td class="n">40%</td></tr>
+      </tbody>
+    </table>
+    <p class="note">12 June – 28 August 2026, the period we capture full traces for. Calls under 30 seconds are never logged, so hang-ups were never in the denominator.</p>
+
+    <p style="margin-top:1.75rem">The two lines in blue are ours — about a hundred bookings in eleven weeks lost to our own systems. It is the most valuable engineering backlog we have, and we would rather show it than round it away.</p>
+  </section>
+
+
+  <!-- ── CASE STUDIES ────────────────────────────────────────── -->
+  <section role="tabpanel" id="p-cases" aria-labelledby="t-cases" hidden>
+    <h1>Three garages, three different wins</h1>
+    <p class="lede">All live six months or more. Conversion is measured the same way throughout: of the callers who got as far as choosing a service, how many left with a confirmed booking.</p>
+
+    <dl>
+      <div>
+        <dt>80% converted</dt>
+        <dd><p><strong>An independent workshop</strong> where four in five callers who reach service selection leave with a job in the diary — the highest on the platform. Its diary is well kept and its service list is clean, which is what the ceiling looks like when the data behind the AI is right.</p></dd>
+      </div>
+      <div>
+        <dt>Five branches</dt>
+        <dd><p><strong>A fast-fit chain</strong> that came on as a single account and rolled out branch by branch — four live, the fifth in set-up — each with its own diary, number and opening hours. It converts at 65% and is the closest thing we have to a franchise model.</p></dd>
+      </div>
+      <div>
+        <dt>Out of hours</dt>
+        <dd><p><strong>A performance and tuning specialist</strong> taking 23% of its calls outside 8am–6pm, converting those at 63%. Nearly one call in four would previously have reached an answerphone.</p></dd>
+      </div>
+    </dl>
+
+    <p class="note" style="margin-top:1.5rem">Named references available on request.</p>
+  </section>
+
+  <!-- ── ROADMAP ─────────────────────────────────────────────── -->
+  <section role="tabpanel" id="p-next" aria-labelledby="t-next" hidden>
+    <h1>Where we're taking it</h1>
+    <p class="lede">Two tracks: more garages we can reach, and more the AI can do for each one.</p>
+
+    <dl>
+      <div>
+        <dt>Networks</dt>
+        <dd><p>Beyond the DMS integrations, we sell through garage networks and parts distribution — <strong>ServiceSure</strong>, <strong>GSF</strong> and <strong>Select</strong>, alongside our existing platform partners, with more in the pipeline. One agreement puts us in front of hundreds of garages rather than one.</p></dd>
+      </div>
+      <div>
+        <dt>Outbound</dt>
+        <dd><p>Two jobs, both on the phone. Pre-appointment calls that confirm tomorrow's bookings and cut no-shows, and service and MOT reminder calls that ring a customer when the vehicle is due and book it straight back in. This is the step that turns us from a cost the garage saves into revenue it would not otherwise have had.</p></dd>
+      </div>
+      <div>
+        <dt>Territory</dt>
+        <dd><p>Little in the stack is UK-specific beyond the vehicle lookup and the accent. <strong>We are adding French now</strong>, with further languages to follow — our site already runs in it. The speech and language models underneath are multilingual as they stand, so the work sits in the garage-specific parts rather than the voice. Relevant if the territory model is the direction you take.</p></dd>
+      </div>
+    </dl>
+  </section>
+
+  <footer>
+    <p>All operational figures are drawn live from the ReceptionMate platform and exclude internal test accounts. Booking conversion is measured from the agent's tool trace, 12 June to 28 August 2026.</p>
+    <p>ReceptionMate Ltd · <a href="mailto:hello@receptionmate.co.uk">hello@receptionmate.co.uk</a> · <a href="https://receptionmate.co.uk">receptionmate.co.uk</a></p>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+
+    function show(tab, push) {
+      tabs.forEach(function (t) {
+        var panel = document.getElementById(t.getAttribute('aria-controls'));
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        panel.hidden = !on;
+      });
+      if (push) history.replaceState(null, '', '#' + tab.id.slice(2));
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () { show(tab, true); });
+      // Left/right arrows move between tabs, as a tablist should.
+      tab.addEventListener('keydown', function (e) {
+        var i = tabs.indexOf(tab);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          var next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+          next.focus();
+          show(next, true);
+        }
+      });
+    });
+
+    // Deep link: #progress, #built, #bookings, #next
+    var hash = (location.hash || '').slice(1);
+    var initial = hash && document.getElementById('t-' + hash);
+    if (initial) show(initial, false);
+  })();
+</script>
+</body>
+</html>

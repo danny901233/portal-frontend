@@ -65,6 +65,7 @@ router.post('/voice', async (req: Request, res: Response) => {
   const isAccount2 = agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent';
   const isMMH = agentScript === 'MMH-agent';
   const isBookar = agentScript === 'bookar-agent';
+  const isPoole = agentScript === 'poole-agent';
   const livekitSipDomain =
     isTyresoftTest && process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
       ? process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
@@ -74,11 +75,13 @@ router.post('/voice', async (req: Request, res: Response) => {
           ? process.env.LIVEKIT_SIP_DOMAIN_MMH
           : isBookar && process.env.LIVEKIT_SIP_DOMAIN_BOOKAR
             ? process.env.LIVEKIT_SIP_DOMAIN_BOOKAR
-            : (
-              process.env.LIVEKIT_SIP_DOMAIN ||
-              process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
-              process.env.LIVEKIT_SIP_DOMAIN_ASSIST
-            );
+            : isPoole && process.env.LIVEKIT_SIP_DOMAIN_POOLE
+              ? process.env.LIVEKIT_SIP_DOMAIN_POOLE
+              : (
+                process.env.LIVEKIT_SIP_DOMAIN ||
+                process.env.LIVEKIT_SIP_DOMAIN_AUTOMATE ||
+                process.env.LIVEKIT_SIP_DOMAIN_ASSIST
+              );
 
   if (!livekitSipDomain) {
     return res
@@ -86,7 +89,7 @@ router.post('/voice', async (req: Request, res: Response) => {
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Call routing is not configured.</Say><Hangup/></Response>');
   }
 
-  const account = isTyresoftTest ? 'tyresoft-test' : isAccount2 ? 'account2' : isMMH ? 'mmh' : isBookar ? 'bookar' : 'account1';
+  const account = isTyresoftTest ? 'tyresoft-test' : isAccount2 ? 'account2' : isMMH ? 'mmh' : isBookar ? 'bookar' : isPoole ? 'poole' : 'account1';
   console.log(`[VOICE] Routing garage ${garageId} (agentType=${agentType}, agentScript=${agentScript}, account=${account}) via ${livekitSipDomain}`);
 
   // Build recording status callback URL

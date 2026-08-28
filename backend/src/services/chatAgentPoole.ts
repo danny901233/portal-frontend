@@ -278,6 +278,9 @@ function splitName(fullName: string): { firstName: string; lastName: string } {
 // how Bookar and Tyresoft read their creds.
 interface PooleCreds {
   branchKey: string;
+  tenant: string;      // Required on multi-tenant prod (e.g. "tgc" for The Gearbox Centre).
+                        // Empty string is allowed for old single-tenant sandbox garages
+                        // where the header wasn't required.
   branchCode?: string;
 }
 
@@ -288,8 +291,9 @@ function resolvePooleCreds(integrationProviderConfig: unknown): PooleCreds | nul
   const src = ((raw.poole as Record<string, unknown>) || (raw.pooleSettings as Record<string, unknown>) || raw) as Record<string, unknown>;
   const branchKey = String(src.branchKey || src.pooleBranchKey || process.env.POOLE_API_KEY || '').trim();
   const branchCode = String(src.branchCode || src.pooleBranchCode || process.env.POOLE_BRANCH_CODE || '').trim() || undefined;
+  const tenant = String(src.tenant || src.pooleTenant || process.env.POOLE_TENANT || '').trim();
   if (!branchKey) return null;
-  return { branchKey, branchCode };
+  return { branchKey, tenant, branchCode };
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +316,7 @@ async function ensureDraft(
   const callReference = `poole-chat-${conversationId}-${attempt}`.slice(0, 100);
   const { bookingRef } = await createDraftBooking(
     creds.branchKey,
+    creds.tenant,
     callReference,
     creds.branchCode,
     /* notes */ session.customerName ? `Chat with ${session.customerName}` : undefined,
@@ -811,7 +816,7 @@ async function executeTool(
         if (!creds) return { error: 'Poole API not configured for this garage' };
         const phone = normalisePhone(String(args.phone || session.customerPhone || ''));
         if (!phone) return { found: false, message: 'No phone number provided.' };
-        const matches = await findCustomerByPhone(creds.branchKey, phone);
+        const matches = await findCustomerByPhone(creds.branchKey, creds.tenant, phone);
         if (!matches.length) {
           console.log(`[POOLE_AGENT] findCustomerByPhone: no match for ${phone}`);
           return { found: false };
@@ -846,7 +851,7 @@ async function executeTool(
         if (!creds) return { error: 'Poole API not configured for this garage' };
         const reg = cleanVrm(String(args.registration || ''));
         if (!reg) return { error: 'registration required' };
-        const vehicle = await lookupVehicleByVrm(creds.branchKey, reg);
+        const vehicle = await lookupVehicleByVrm(creds.branchKey, creds.tenant, reg);
         if (!vehicle) {
           // 404 → unknown reg. Persist just the VRM so the LLM can continue
           // (Poole confirm accepts a bare registration for unknown vehicles).
@@ -890,7 +895,7 @@ async function executeTool(
         if (!creds) return { error: 'Poole API not configured for this garage' };
         // Bootstrap a draft if we don't have one yet.
         const ref = await ensureDraft(session, conversationId, creds);
-        const services = await listServices(creds.branchKey, ref);
+        const services = await listServices(creds.branchKey, creds.tenant, ref);
         session.servicesOptions = services;
         await saveSession(conversationId, session);
         console.log(`[POOLE_AGENT] listServices: ref=${ref}, count=${services.length}`);
@@ -927,7 +932,7 @@ async function executeTool(
           }
         }
         const ref = await ensureDraft(session, conversationId, creds);
-        await addServicesToBooking(creds.branchKey, ref, serviceIds);
+        await addServicesToBooking(creds.branchKey, creds.tenant, ref, serviceIds);
         session.selectedServiceIds = serviceIds;
         // Clear any previously-picked slot — the service set changed so
         // availability may have shifted.
@@ -954,7 +959,7 @@ async function executeTool(
         }
         const dateFrom = String(args.date_from || todayIso());
         const dateTo   = String(args.date_to   || addDaysIso(7));
-        const days = await listAvailableSlots(creds.branchKey, session.bookingRef, dateFrom, dateTo);
+        const days = await listAvailableSlots(creds.branchKey, creds.tenant, session.bookingRef, dateFrom, dateTo);
         session.availabilityOptions = days;
         session.selectedSlot = undefined;
         await saveSession(conversationId, session);
@@ -999,7 +1004,7 @@ async function executeTool(
         }
 
         try {
-          await reserveSlot(creds.branchKey, session.bookingRef, date, time);
+          await reserveSlot(creds.branchKey, creds.tenant, session.bookingRef, date, time);
         } catch (e: any) {
           if (e instanceof PooleError && e.status === 409) {
             // Slot went while we were talking — clear + prompt re-list.
@@ -1058,7 +1063,7 @@ async function executeTool(
         if (!creds) return { error: 'Poole API not configured for this garage' };
         const ref = String(args.booking_ref || '').trim();
         if (!ref) return { error: 'booking_ref required' };
-        const booking = await getBooking(creds.branchKey, ref);
+        const booking = await getBooking(creds.branchKey, creds.tenant, ref);
         session.existingBookingRef = ref;
         await saveSession(conversationId, session);
         console.log(`[POOLE_AGENT] getBooking OK: ${ref} status=${booking.status}`);
@@ -1100,7 +1105,7 @@ async function executeTool(
           };
         }
         try {
-          await rescheduleBooking(creds.branchKey, ref, date, time);
+          await rescheduleBooking(creds.branchKey, creds.tenant, ref, date, time);
         } catch (e: any) {
           if (e instanceof PooleError && e.status === 409) {
             session.availabilityOptions = undefined;
@@ -1121,7 +1126,7 @@ async function executeTool(
         const ref    = String(args.booking_ref || session.existingBookingRef || '').trim();
         const reason = String(args.reason || 'customer request').trim();
         if (!ref) return { error: 'booking_ref required' };
-        await cancelBooking(creds.branchKey, ref, reason);
+        await cancelBooking(creds.branchKey, creds.tenant, ref, reason);
         console.log(`[POOLE_AGENT] cancelBooking OK: ${ref} reason=${reason}`);
         // If we just cancelled the booking we made this session, clear our state.
         if (session.bookingRef === ref || session.bookingReference === ref) {
@@ -1135,7 +1140,7 @@ async function executeTool(
 
       case 'pl_get_branches': {
         if (!creds) return { error: 'Poole API not configured for this garage' };
-        const branches = await getBranches(creds.branchKey);
+        const branches = await getBranches(creds.branchKey, creds.tenant);
         console.log(`[POOLE_AGENT] getBranches OK: ${branches.length} branch(es)`);
         return { count: branches.length, branches };
       }
@@ -1235,6 +1240,7 @@ async function pooleConfirmDraft(
   try {
     booking = await confirmBooking(
       creds.branchKey,
+      creds.tenant,
       session.bookingRef,
       customer,
       vehicle,

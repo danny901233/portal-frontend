@@ -244,7 +244,6 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [agreementCentres, setAgreementCentres] = useState('1');
   const [agreementLicences, setAgreementLicences] = useState<('assist' | 'automate' | 'connect')[]>(['assist']);
   const [agreementGoLive, setAgreementGoLive] = useState('');
-  const [previewing, setPreviewing] = useState(false);
   // Optional extras for the sign link, mirroring the Agreements page's Send dialog: text it as
   // well as emailing it, and/or send it to someone other than the portal account holder (the
   // director signs, the manager uses the system).
@@ -270,58 +269,6 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     freeUntilBookings: billingStart === 'bookings' ? (Number(activationBookings) || 4) : null,
   });
 
-  /**
-   * Render the exact agreement these terms would produce, without creating anything. Opens in a
-   * new tab so it can be read or printed. The endpoint persists nothing — a draft would gate the
-   * customer's login, and checking the wording shouldn't cost them that.
-   */
-  const previewAgreement = async () => {
-    setPreviewing(true);
-    try {
-      // Match what the real draft will send: an existing business counts its current branches
-      // plus the new ones; a new business counts this branch plus any extras.
-      const added = extraBranches.filter((b) => b.name.trim()).length + 1;
-      const branches = businessMode === 'new'
-        ? (added > 1 ? added : (Number(agreementCentres) || 1))
-        : (selectedExistingBiz?.branchCount ?? 0) + added;
-      const res = await api.post('/admin/agreements/preview', {
-        clientName: (businessMode === 'new' ? businessName : bizSearch).trim() || 'The Client',
-        setupFeeGbp: Number(agreementSetupFee) || 0,
-        licenceFeeGbp: Number(subscriptionCost) || 0,
-        messagingFeeGbp: Number(messagingSubscription) || 0,
-        ...agreementFreePeriod(),
-        centresCount: branches > 1 ? branches : (Number(agreementCentres) || 1),
-        licences: agreementLicences,
-        goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
-      });
-      const w = window.open('', '_blank');
-      if (!w) {
-        alert('Your browser blocked the preview window — allow pop-ups for the portal.');
-        return;
-      }
-      const { html, css, summary } = res.data as {
-        html: string; css: string;
-        summary: { perBranchGbp: number; centresCount: number; monthlyTotalGbp: number };
-      };
-      const gbp = (n: number) => `£${n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8">
-        <title>Agreement preview — not sent</title><style>${css}
-        body{margin:0;padding:24px;background:#f1f2f9}
-        .rm-preview-bar{max-width:820px;margin:0 auto 16px;padding:12px 16px;border-radius:10px;
-          background:#fff7e6;border:1px solid #f6dfb8;color:#7c4408;font:14px/1.5 -apple-system,sans-serif}
-        .rm-preview-doc{max-width:820px;margin:0 auto;background:#fff;padding:32px;border-radius:10px}
-        </style></head><body>
-        <div class="rm-preview-bar"><b>Preview only — nothing has been created or sent.</b><br>
-          ${gbp(summary.perBranchGbp)} per branch × ${summary.centresCount} =
-          <b>${gbp(summary.monthlyTotalGbp)}/month</b> ex VAT.</div>
-        <div class="rm-preview-doc">${html}</div></body></html>`);
-      w.document.close();
-    } catch (err) {
-      alert(serverError(err, 'Could not render the preview'));
-    } finally {
-      setPreviewing(false);
-    }
-  };
 
   // Debounced Google Places type-ahead (proxied through the backend — no browser key).
   const placePickedRef = useRef(false);
@@ -1260,16 +1207,8 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                     <p className="text-xs text-slate-500">
                       {Number(messagingSubscription) > 0
                         ? `£${Number(subscriptionCost) || 0} voice + £${Number(messagingSubscription)} Connect = £${(Number(subscriptionCost) || 0) + Number(messagingSubscription)} per branch, per month.`
-                        : 'Read the exact contract before the customer does — nothing is created or sent.'}
+                        : 'These terms go into the agreement the customer signs.'}
                     </p>
-                    <button
-                      type="button"
-                      onClick={previewAgreement}
-                      disabled={previewing || !(Number(subscriptionCost) > 0)}
-                      className="shrink-0 rounded-md border border-violet-300 bg-white px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50"
-                    >
-                      {previewing ? 'Rendering…' : 'Preview agreement'}
-                    </button>
                   </div>
 
                   <div className="col-span-2 grid grid-cols-2 gap-3 border-t border-slate-200 pt-3">

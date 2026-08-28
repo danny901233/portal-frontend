@@ -982,23 +982,6 @@ const batchBranchSchema = z.object({
   userId: z.string().optional(), // existing user to grant MANAGER access to the new branches
 });
 
-const batchBranchSchema = z.object({
-  branches: z.array(z.object({
-    name: z.string().min(1).max(200),
-    googlePlaceId: z.string().trim().max(400).optional(),
-    twilioNumber: z.string().min(1).max(100).optional(),
-    subscriptionCostGbp: z.number().min(0).max(10000).optional(),
-    includedMinutes: z.number().int().min(0).max(100000).optional(),
-    costPerMinuteGbp: z.number().min(0).max(100).optional(),
-    vatRate: z.number().min(0).max(1).optional().default(0.2),
-    messagingSubscriptionCostGbp: z.number().min(0).max(10000).optional(),
-    includedMessages: z.number().int().min(0).max(1000000).optional(),
-    costPerMessageGbp: z.number().min(0).max(100).optional(),
-    agentScript: z.enum(['Assist-agent', 'GarageHive-agent', 'tyresoft-agent', 'receptionmate-agent-v3', 'receptionmate-agent']).optional().default('Assist-agent'),
-  })).min(1).max(20),
-  userId: z.string().optional(), // existing user to grant MANAGER access to the new branches
-});
-
 router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res) => {
   const parsed = completeOnboardingSchema.safeParse(req.body);
   if (!parsed.success) {

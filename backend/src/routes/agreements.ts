@@ -804,6 +804,9 @@ function escapeForEmail(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Same terms as a draft, minus the ids — a preview belongs to nobody.
+const previewSchema = draftSchema.omit({ userId: true, businessId: true });
+
 /**
  * POST /api/admin/agreements/preview
  *
@@ -821,7 +824,6 @@ router.post('/admin/agreements/preview', authenticate, requireAdmin, async (req:
     clientName: d.clientName,
     setupFeeGbp: d.setupFeeGbp,
     licenceFeeGbp: d.licenceFeeGbp,
-    messagingFeeGbp: d.messagingFeeGbp,
     freeTrialDays: d.freeTrialDays ?? null,
     freeUntilBookings: d.freeUntilBookings ?? null,
     centresCount: d.centresCount,
@@ -835,14 +837,13 @@ router.post('/admin/agreements/preview', authenticate, requireAdmin, async (req:
 
   // Computed the same way the contract computes it, so the UI can't quote a total the document
   // disagrees with.
-  const perBranch = d.licenceFeeGbp + d.messagingFeeGbp;
+  const perBranch = d.licenceFeeGbp;
   return res.json({
     html,
     css: AGREEMENT_CSS,
     version: TEMPLATE_VERSION,
     summary: {
       voicePerBranchGbp: d.licenceFeeGbp,
-      messagingPerBranchGbp: d.messagingFeeGbp,
       perBranchGbp: perBranch,
       centresCount: d.centresCount,
       monthlyTotalGbp: perBranch * d.centresCount,

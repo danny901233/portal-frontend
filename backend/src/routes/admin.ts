@@ -4,6 +4,9 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, authenticateApiKey, requireAdmin, forgetRevocation } from '../middleware/auth.js';
+import { accountForAgentScript } from '../utils/agentAccount.js';
+import { fetchPlaceDetails, placesAutocomplete } from '../utils/googlePlaces.js';
+import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 
@@ -926,6 +929,76 @@ const completeOnboardingSchema = z.object({
 
 const DEFAULT_PASSWORD = 'Nomoremissedcalls';
 
+// Batch-add branches to an existing business — multi-branch onboarding. Each branch is
+// Google-enriched (address/phone/website/hours + seeded greeting & FAQs), gets billing +
+// routing config, and (optionally) an existing user is granted MANAGER access to all of them
+// so they bill together on the business's mandate.
+// Provision a branch's Twilio number → SIP trunk + dispatch, and store it on the garage.
+// Mirrors onboard step 5. Throws on failure so the caller can decide (batch treats it non-fatal).
+async function provisionBranchTwilio(opts: { garageId: string; garageName: string; branchName: string; contactEmail?: string | null; twilioNumber: string; agentScript?: string | null; }) {
+  const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
+  const agentName = opts.agentScript === 'tyresoft-agent' ? 'tyresoft-agent'
+    : opts.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3'
+      : opts.agentScript === 'MMH-agent' ? 'MMH-agent'
+        : opts.agentScript === 'bookar-agent' ? 'bookar-agent'
+          : opts.agentScript === 'Assist-agent' ? 'Assist-agent'
+            : opts.agentScript === 'GarageHive-agent' ? 'GarageHive-agent'
+              : 'receptionmate-agent';
+  const account = accountForAgentScript(opts.agentScript);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (process.env.ONBOARDING_SECRET) headers['x-onboarding-secret'] = process.env.ONBOARDING_SECRET;
+  const resp = await fetch(`${onboardingUrl}/provision`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      garageId: opts.garageId,
+      garageName: opts.garageName,
+      branchName: opts.branchName,
+      contactEmail: opts.contactEmail || undefined,
+      twilioNumber: opts.twilioNumber,
+      agentName,
+      account,
+      triggeredAt: new Date().toISOString(),
+    }),
+  });
+  if (!resp.ok) throw new Error(`Onboarding service failed: ${await resp.text()}`);
+  await prisma.garage.update({ where: { id: opts.garageId }, data: { twilioNumber: opts.twilioNumber } });
+}
+
+const batchBranchSchema = z.object({
+  branches: z.array(z.object({
+    name: z.string().min(1).max(200),
+    googlePlaceId: z.string().trim().max(400).optional(),
+    twilioNumber: z.string().min(1).max(100).optional(),
+    subscriptionCostGbp: z.number().min(0).max(10000).optional(),
+    includedMinutes: z.number().int().min(0).max(100000).optional(),
+    costPerMinuteGbp: z.number().min(0).max(100).optional(),
+    vatRate: z.number().min(0).max(1).optional().default(0.2),
+    messagingSubscriptionCostGbp: z.number().min(0).max(10000).optional(),
+    includedMessages: z.number().int().min(0).max(1000000).optional(),
+    costPerMessageGbp: z.number().min(0).max(100).optional(),
+    agentScript: z.enum(['Assist-agent', 'GarageHive-agent', 'tyresoft-agent', 'receptionmate-agent-v3', 'receptionmate-agent']).optional().default('Assist-agent'),
+  })).min(1).max(20),
+  userId: z.string().optional(), // existing user to grant MANAGER access to the new branches
+});
+
+const batchBranchSchema = z.object({
+  branches: z.array(z.object({
+    name: z.string().min(1).max(200),
+    googlePlaceId: z.string().trim().max(400).optional(),
+    twilioNumber: z.string().min(1).max(100).optional(),
+    subscriptionCostGbp: z.number().min(0).max(10000).optional(),
+    includedMinutes: z.number().int().min(0).max(100000).optional(),
+    costPerMinuteGbp: z.number().min(0).max(100).optional(),
+    vatRate: z.number().min(0).max(1).optional().default(0.2),
+    messagingSubscriptionCostGbp: z.number().min(0).max(10000).optional(),
+    includedMessages: z.number().int().min(0).max(1000000).optional(),
+    costPerMessageGbp: z.number().min(0).max(100).optional(),
+    agentScript: z.enum(['Assist-agent', 'GarageHive-agent', 'tyresoft-agent', 'receptionmate-agent-v3', 'receptionmate-agent']).optional().default('Assist-agent'),
+  })).min(1).max(20),
+  userId: z.string().optional(), // existing user to grant MANAGER access to the new branches
+});
+
 router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res) => {
   const parsed = completeOnboardingSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -995,7 +1068,17 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
             ? 'receptionmate-agent-v3'
             : agentConfig?.agentScript === 'MMH-agent'
               ? 'MMH-agent'
-              : 'receptionmate-agent';
+              : agentConfig?.agentScript === 'bookar-agent'
+                ? 'bookar-agent'
+                : agentConfig?.agentScript === 'Assist-agent'
+                  ? 'Assist-agent'
+                  : agentConfig?.agentScript === 'GarageHive-agent'
+                    ? 'GarageHive-agent'
+                    : 'receptionmate-agent';
+      // Assist + GarageHive live on LiveKit Account 2. Without this the onboarding service
+      // defaults to account1, so the SIP trunk lands on the wrong tenant and the phone rings
+      // out — every Assist garage onboarded this way has had to be fixed by hand.
+      const account = accountForAgentScript(agentConfig?.agentScript);
       const onboardingSecret = process.env.ONBOARDING_SECRET;
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1013,6 +1096,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
           contactEmail: parsed.data.userEmail,
           twilioNumber: parsed.data.twilioNumber,
           agentName,
+          account,
           triggeredAt: new Date().toISOString(),
         }),
       });
@@ -1343,6 +1427,107 @@ router.post('/admin/garages/:garageId/lock', authenticate, requireAdmin, async (
       error: 'Failed to change account lock',
       details: error instanceof Error ? error.message : 'Unknown error',
     });
+  }
+});
+
+router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, requireAdmin, async (req, res) => {
+  const { businessId } = req.params;
+  const parsed = batchBranchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const business = await prisma.business.findUnique({ where: { id: businessId } });
+  if (!business) return res.status(404).json({ error: 'Business not found.' });
+
+  let grantUser = parsed.data.userId
+    ? await prisma.user.findUnique({ where: { id: parsed.data.userId } })
+    : null;
+  if (parsed.data.userId && !grantUser) return res.status(404).json({ error: 'User not found.' });
+
+  const created: { id: string; name: string; twilioNumber?: string | null; twilioWarning?: string }[] = [];
+  for (const b of parsed.data.branches) {
+    let place: Awaited<ReturnType<typeof fetchPlaceDetails>> = null;
+    if (b.googlePlaceId) { try { place = await fetchPlaceDetails(b.googlePlaceId); } catch (e) { console.error('[BATCH-BRANCH] place lookup failed:', e); } }
+    const greetingLine = `[timeofday], ${b.name}, Leah speaking, how can I help?`;
+    const seededFaqs = industryDefaultFaqs(b.name);
+
+    const garage = await prisma.garage.create({
+      data: {
+        name: b.name,
+        businessId,
+        ...(b.subscriptionCostGbp != null ? { subscriptionCostGbp: b.subscriptionCostGbp } : {}),
+        ...(b.includedMinutes != null ? { includedMinutes: b.includedMinutes } : {}),
+        ...(b.costPerMinuteGbp != null ? { costPerMinuteGbp: b.costPerMinuteGbp } : {}),
+        vatRate: b.vatRate,
+        ...(b.messagingSubscriptionCostGbp != null ? { messagingSubscriptionCostGbp: b.messagingSubscriptionCostGbp } : {}),
+        ...(b.includedMessages != null ? { includedMessages: b.includedMessages } : {}),
+        ...(b.costPerMessageGbp != null ? { costPerMessageGbp: b.costPerMessageGbp } : {}),
+        ...((b.messagingSubscriptionCostGbp ?? 0) > 0 ? { hasMessagingAccess: true } : {}),
+      },
+    });
+    await prisma.agentConfiguration.create({
+      data: {
+        garageId: garage.id,
+        branchName: b.name,
+        ...(place?.address ? { branchAddress: place.address } : {}),
+        ...(place?.phone ? { phoneNumber: place.phone } : {}),
+        ...(place?.website ? { websiteUrl: place.website } : {}),
+        emailAddress: grantUser?.email,
+        ...(place?.weeklyOpeningHours ? { weeklyOpeningHours: place.weeklyOpeningHours as Prisma.InputJsonValue } : {}),
+        greetingLine,
+        faqs: seededFaqs as unknown as Prisma.InputJsonValue,
+        tonePreference: 'standard',
+        responseSpeed: 'normal',
+        interruptionSensitivity: 0.5,
+        allowFastFitOnly: false,
+        integrationProvider: 'none',
+        agentScript: b.agentScript,
+      },
+    });
+    await ensureAdminAccessToGarage(garage.id);
+
+    if (grantUser) {
+      const ids = Array.isArray(grantUser.garageAccessIds) ? grantUser.garageAccessIds : [];
+      if (!ids.includes(garage.id)) {
+        const roles = sanitizeBranchRoles(grantUser.branchRoles);
+        grantUser = await prisma.user.update({
+          where: { id: grantUser.id },
+          data: { garageAccessIds: [...ids, garage.id], branchRoles: { ...roles, [garage.id]: 'MANAGER' } },
+        });
+      }
+    }
+
+    if (place?.website) {
+      const site = place.website; const gid = garage.id; const bn = b.name;
+      void (async () => {
+        try { const f = await generateFaqsFromWebsite(site, bn); if (f.length >= 3) await prisma.agentConfiguration.update({ where: { garageId: gid }, data: { faqs: f as unknown as Prisma.InputJsonValue } }); }
+        catch (e) { console.error('[BATCH-BRANCH] background FAQ failed:', e); }
+      })();
+    }
+    // Twilio: provision this branch's number (SIP trunk + dispatch). Non-fatal — one bad
+    // number must not roll back the other branches that already succeeded.
+    let twilioWarning: string | undefined;
+    if (b.twilioNumber) {
+      try {
+        await provisionBranchTwilio({ garageId: garage.id, garageName: garage.name, branchName: b.name, contactEmail: grantUser?.email, twilioNumber: b.twilioNumber, agentScript: b.agentScript });
+      } catch (e) {
+        console.error('[BATCH-BRANCH] Twilio provision failed:', e);
+        twilioWarning = e instanceof Error ? e.message : 'Twilio provision failed';
+      }
+    }
+    created.push({ id: garage.id, name: garage.name, twilioNumber: b.twilioNumber || null, twilioWarning });
+  }
+
+  res.status(201).json({ branches: created });
+});
+
+// Google Places type-ahead for the quick-onboard modal. Proxied server-side so the
+// browser never needs a Maps key; reuses GOOGLE_PLACES_API_KEY.
+router.get('/admin/places-autocomplete', authenticateApiKey, requireAdmin, async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  try {
+    res.json({ predictions: await placesAutocomplete(q) });
+  } catch {
+    res.json({ predictions: [] });
   }
 });
 

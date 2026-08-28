@@ -804,4 +804,51 @@ function escapeForEmail(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * POST /api/admin/agreements/preview
+ *
+ * Render the agreement from draft terms and return the HTML — no Agreement row, no sign token,
+ * no email, nothing persisted. Deliberately side-effect free: creating a draft immediately gates
+ * that customer's login, so "let me read the wording first" must not cost them anything.
+ */
+router.post('/admin/agreements/preview', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const parsed = previewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid terms', details: parsed.error.flatten() });
+  }
+  const d = parsed.data;
+  const html = renderAgreementHtml({
+    clientName: d.clientName,
+    setupFeeGbp: d.setupFeeGbp,
+    licenceFeeGbp: d.licenceFeeGbp,
+    messagingFeeGbp: d.messagingFeeGbp,
+    freeTrialDays: d.freeTrialDays ?? null,
+    freeUntilBookings: d.freeUntilBookings ?? null,
+    centresCount: d.centresCount,
+    licences: d.licences as LicenceTier[],
+    goLiveDate: d.goLiveDate ? new Date(d.goLiveDate) : null,
+    effectiveDate: null,
+    signedByName: null,
+    signedByPosition: null,
+    signatureImage: null,
+  });
+
+  // Computed the same way the contract computes it, so the UI can't quote a total the document
+  // disagrees with.
+  const perBranch = d.licenceFeeGbp + d.messagingFeeGbp;
+  return res.json({
+    html,
+    css: AGREEMENT_CSS,
+    version: TEMPLATE_VERSION,
+    summary: {
+      voicePerBranchGbp: d.licenceFeeGbp,
+      messagingPerBranchGbp: d.messagingFeeGbp,
+      perBranchGbp: perBranch,
+      centresCount: d.centresCount,
+      monthlyTotalGbp: perBranch * d.centresCount,
+      setupFeeGbp: d.setupFeeGbp,
+    },
+  });
+});
+
 export default router;

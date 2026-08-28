@@ -429,11 +429,11 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                   onChange={(e) => setAgentScript(e.target.value as typeof agentScript)}
                   className="w-full rounded-md bg-slate-100 border border-slate-300 px-3 py-2 text-slate-900 focus:border-violet-500 focus:outline-none"
                 >
-                  <option value="Assist-agent">RMB-Assist (account 2) — default for Assist tier</option>
-                  <option value="GarageHive-agent">RMB-GarageHive (account 2) — Automate / GarageHive booking</option>
+                  <option value="Assist-agent">RMB-Assist — default for Assist tier</option>
+                  <option value="GarageHive-agent">RMB-GarageHive — Automate / GarageHive booking</option>
                   <option value="tyresoft-agent">Tyresoft Agent — tyre centres</option>
-                  <option value="receptionmate-agent-v3">Legacy New Agent (account 1)</option>
-                  <option value="receptionmate-agent">Legacy Agent (account 1)</option>
+                  <option value="receptionmate-agent-v3">Legacy New Agent</option>
+                  <option value="receptionmate-agent">Legacy Agent</option>
                 </select>
                 <p className="mt-1 text-xs text-slate-500">
                   Sets the dispatch routing for this garage so you don&rsquo;t need to open Agent Configurations after onboarding.

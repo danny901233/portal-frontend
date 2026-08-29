@@ -78,6 +78,12 @@ export type BookarSettings = {
   bookarApiBase?: string;
 };
 
+export type PooleSettings = {
+  branchKey?: string;
+  tenant?: string;
+  branchCode?: string;
+};
+
 export type TyresoftSettings = {
   tsWorkspace: string;
   tsUsername: string;
@@ -242,7 +248,7 @@ export type AgentConfigurationPayload = {
   agentType: AgentType;
   // 'bookar-agent' is accepted by the validator and used in config.ts but was missing here,
   // which is what made three of the agentScript comparisons fail to compile.
-  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent';
+  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent';
   enableSmsBookingLinks?: boolean;
   humanEscalation?: boolean;
   messagingHumanHandoff?: boolean;

@@ -18,7 +18,7 @@ interface Props {
 }
 
 type AgentType = 'assist' | 'automate';
-type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent';
+type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent';
 
 const EMPTY_GH: GarageHiveSettings = {
   instanceUrl: '',
@@ -41,6 +41,21 @@ const EMPTY_BK: BookarSettings = {
   bookarClientId: '',
   bookarClientSecret: '',
   bookarApiBase: '',
+};
+
+// Inline type to match backend PooleSettings — kept local since app/types/index.ts
+// has no other integration types either (BookarSettings is likewise imported but
+// missing from app/types — Next.js typescript.ignoreBuildErrors covers it).
+type PooleSettings = {
+  branchKey?: string;
+  tenant?: string;
+  branchCode?: string;
+};
+
+const EMPTY_PL: PooleSettings = {
+  branchKey: '',
+  tenant: '',
+  branchCode: '',
 };
 
 export default function AdminTab({ config, save, isSaving }: Props) {
@@ -73,6 +88,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Tyresoft tyre-centre integration (Account 1)' },
         { value: 'Assist-agent', label: 'Assist', description: 'New assist-mode agent on LiveKit Account 2 — ElevenLabs voice + per-garage rules' },
         { value: 'bookar-agent', label: 'Bookar', description: 'Bookar SIP agent — routes to bookar-yw3ukuz1.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_BOOKAR)' },
+        { value: 'poole-agent', label: 'Poole (AutoSage)', description: 'Poole/AutoSage booking agent — routes to 1v7xp0zgd5x.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_POOLE, receptionmate-2 project)' },
       ],
       agentScriptHint:
         'Saving with a different agent script triggers the onboarding service to update the SIP dispatch rule. Assist-agent routes to LiveKit Account 2; the others stay on Account 1.',
@@ -110,6 +126,14 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       bkClientSecretPlaceholder: 'sk_...',
       bkApiBase: 'API base URL (optional)',
       bkApiBaseHint: 'Leave blank to use https://partners.bookar.app (default). Only override if Vitara has issued a custom endpoint.',
+      plCredsTitle: 'Poole (AutoSage) credentials',
+      plBranchKey: 'Branch API key',
+      plBranchKeyPlaceholder: 'Per-branch key issued by Poole/AutoSage',
+      plTenant: 'Tenant slug',
+      plTenantPlaceholder: 'e.g. tgc for The Gearbox Centre',
+      plTenantHint: 'Multi-tenant slug from AutoSage. Required on live prod (alpha.autosage.co.uk); leave blank only for single-tenant sandbox garages.',
+      plBranchCode: 'Branch code (optional)',
+      plBranchCodeHint: 'Optional sanity check. If set, must match the branch this API key belongs to — otherwise requests fail with 400.',
     },
     fr: {
       title: 'Routage (personnel uniquement)',
@@ -138,6 +162,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         { value: 'tyresoft-agent', label: 'Tyresoft Agent', description: 'Intégration centre pneus Tyresoft (Account 1)' },
         { value: 'Assist-agent', label: 'Assist', description: 'Nouvel agent en mode assist sur LiveKit Account 2 — voix ElevenLabs + règles par agence' },
         { value: 'bookar-agent', label: 'Bookar', description: 'Agent SIP Bookar — routé vers bookar-yw3ukuz1.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_BOOKAR)' },
+        { value: 'poole-agent', label: 'Poole (AutoSage)', description: 'Agent de réservation Poole/AutoSage — routé vers 1v7xp0zgd5x.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_POOLE, projet receptionmate-2)' },
       ],
       agentScriptHint:
         'Enregistrer avec un script d’agent différent déclenche la mise à jour de la règle de dispatch SIP par le service de mise en service. Assist-agent est routé vers LiveKit Account 2 ; les autres restent sur Account 1.',
@@ -175,6 +200,14 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       bkClientSecretPlaceholder: 'sk_...',
       bkApiBase: "URL de base de l'API (optionnel)",
       bkApiBaseHint: 'Laissez vide pour utiliser https://partners.bookar.app (par défaut). Ne remplacez que si Vitara a fourni un endpoint personnalisé.',
+      plCredsTitle: 'Identifiants Poole (AutoSage)',
+      plBranchKey: "Clé API d'agence",
+      plBranchKeyPlaceholder: 'Clé par agence délivrée par Poole/AutoSage',
+      plTenant: 'Identifiant de locataire (tenant)',
+      plTenantPlaceholder: 'ex. tgc pour The Gearbox Centre',
+      plTenantHint: "Slug multi-locataire d'AutoSage. Requis en production (alpha.autosage.co.uk) ; laissez vide uniquement pour les agences sandbox mono-locataire.",
+      plBranchCode: "Code d'agence (optionnel)",
+      plBranchCodeHint: "Vérification optionnelle. S'il est renseigné, il doit correspondre à l'agence de la clé API — sinon les requêtes échouent avec 400.",
     },
   }[lang];
   const AGENT_TYPE_OPTIONS = c.agentTypeOptions as { value: AgentType; label: string; description: string }[];
@@ -200,6 +233,10 @@ export default function AdminTab({ config, save, isSaving }: Props) {
     ...EMPTY_BK,
     ...(config.bookarSettings ?? {}),
   });
+  const [pl, setPl] = useState<PooleSettings>({
+    ...EMPTY_PL,
+    ...((config as unknown as { pooleSettings?: PooleSettings }).pooleSettings ?? {}),
+  });
   useEffect(() => {
     setAgentType((config.agentType as AgentType) ?? 'assist');
     setAgentScript((config.agentScript as AgentScript) ?? 'receptionmate-agent-v3');
@@ -207,6 +244,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
     setGh({ ...EMPTY_GH, ...(config.garageHiveSettings ?? {}) });
     setTs({ ...EMPTY_TS, ...(config.tyresoftSettings ?? {}) });
     setBk({ ...EMPTY_BK, ...(config.bookarSettings ?? {}) });
+    setPl({ ...EMPTY_PL, ...((config as unknown as { pooleSettings?: PooleSettings }).pooleSettings ?? {}) });
   }, [config]);
 
   // GH misconfig warning: fires on GH-family agents when any of the 4 required
@@ -238,7 +276,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       garageHiveSettings: gh,
       tyresoftSettings: ts,
       bookarSettings: bk,
-    });
+      pooleSettings: pl,
+    } as Partial<AgentConfiguration>);
   };
 
   return (
@@ -350,6 +389,44 @@ export default function AdminTab({ config, save, isSaving }: Props) {
                 value={bk.bookarApiBase}
                 onChange={(e) => setBk({ ...bk, bookarApiBase: e.target.value })}
                 placeholder="https://partners.bookar.app"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </Field>
+          </div>
+        </div>
+      )}
+
+      {agentScript === 'poole-agent' && (
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-700">
+            {c.diaryLabel}
+          </label>
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">{c.plCredsTitle}</h3>
+            <Field label={c.plBranchKey}>
+              <input
+                type="password"
+                value={pl.branchKey ?? ''}
+                onChange={(e) => setPl({ ...pl, branchKey: e.target.value })}
+                placeholder={c.plBranchKeyPlaceholder}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </Field>
+            <Field label={c.plTenant} hint={c.plTenantHint}>
+              <input
+                type="text"
+                value={pl.tenant ?? ''}
+                onChange={(e) => setPl({ ...pl, tenant: e.target.value })}
+                placeholder={c.plTenantPlaceholder}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </Field>
+            <Field label={c.plBranchCode} hint={c.plBranchCodeHint}>
+              <input
+                type="text"
+                value={pl.branchCode ?? ''}
+                onChange={(e) => setPl({ ...pl, branchCode: e.target.value })}
+                placeholder=""
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
               />
             </Field>

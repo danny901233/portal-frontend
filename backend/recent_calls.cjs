@@ -1,44 +1,46 @@
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const p = new PrismaClient();
 
-function userTurn(t) { return t.speaker === 'user' || t.speaker === 'customer'; }
+(async () => {
+  const rows = await p.$queryRawUnsafe(`
+    WITH recent AS (
+      SELECT c.id, g.name AS garage,
+             c."createdAt", c."callType", c."confirmedBooking",
+             c."customerName", c."registrationNumber" AS reg,
+             c."durationSeconds",
+             LEFT(COALESCE(c.summary,''), 300) AS summary,
+             ROW_NUMBER() OVER (PARTITION BY g.name ORDER BY c."createdAt" DESC) AS rn
+      FROM "Call" c
+      JOIN "Garage" g ON g.id = c."garageId"
+      JOIN "AgentConfiguration" ac ON ac."garageId" = c."garageId"
+      WHERE c."createdAt" >= NOW() - INTERVAL '48 hours'
+    ),
+    withfb AS (
+      SELECT r.*, cf.rating AS feedback, cf.notes AS fb_notes
+      FROM recent r
+      LEFT JOIN "CallFeedback" cf ON cf."callId" = r.id
+      WHERE r.rn <= 2
+    )
+    SELECT * FROM withfb
+    ORDER BY garage, rn
+  `);
 
-async function main() {
-  const deployTime = new Date('2026-06-19T06:59:16Z');
-  const calls = await prisma.call.findMany({
-    where: { createdAt: { gte: deployTime } },
-    orderBy: { createdAt: 'asc' },
-    select: { id: true, createdAt: true, garageId: true, customerPhone: true, durationSeconds: true, transcript: true, callType: true, confirmedBooking: true },
+  const byGarage = {};
+  rows.forEach(r => {
+    (byGarage[r.garage] ||= []).push(r);
   });
 
-  const gids = [...new Set(calls.map(c => c.garageId))];
-  const garages = await prisma.garage.findMany({
-    where: { id: { in: gids } },
-    select: { id: true, name: true, agentConfiguration: { select: { agentScript: true } } },
+  Object.keys(byGarage).sort().forEach(garage => {
+    console.log(`\n=== ${garage} ===`);
+    byGarage[garage].forEach(r => {
+      const dt = new Date(r.createdAt).toISOString().replace('T',' ').slice(0,19);
+      const dur = r.durationSeconds ? `${r.durationSeconds}s` : '-';
+      const booked = r.confirmedBooking === true ? '✓BOOKED' : '';
+      const fb = r.feedback ? ` [FEEDBACK:${r.feedback}]` : '';
+      console.log(`  ${r.id} | ${dt} | ${dur} | ${r.callType || '-'} | ${r.customerName || '-'} | reg=${r.reg || '-'} ${booked}${fb}`);
+      console.log(`    ${r.summary || '(no summary)'}`);
+      if (r.fb_notes) console.log(`    FB_NOTES: ${r.fb_notes}`);
+    });
   });
-  const gmap = Object.fromEntries(garages.map(g => [g.id, g]));
-
-  console.log(`\nServer time now: ${new Date().toISOString()}`);
-  console.log(`Deploy time:    ${deployTime.toISOString()}`);
-  console.log(`Window so far:  ${Math.round((Date.now() - deployTime.getTime()) / 1000 / 60)} min\n`);
-  console.log(`=== POST-DEPLOY CALLS (${calls.length}) ===\n`);
-  console.log('time   | garage                          | script        | dur | userTurns | flag');
-  console.log('-------|--------------------------------|---------------|-----|-----------|------');
-  let assistN=0, assistS=0, ghN=0, ghS=0;
-  for (const c of calls) {
-    const g = gmap[c.garageId];
-    const script = g?.agentConfiguration?.agentScript || '?';
-    const userTurns = Array.isArray(c.transcript) ? c.transcript.filter(userTurn).length : 0;
-    const isShort = (c.durationSeconds ?? 0) < 60 && userTurns === 0;
-    const flag = isShort ? '⚠ SHORT' : '✓';
-    const isAssist = script === 'Assist-agent' || script === 'receptionmate-agent';
-    const isGH = script === 'GarageHive-agent';
-    if (isAssist) { assistN++; if (isShort) assistS++; }
-    if (isGH) { ghN++; if (isShort) ghS++; }
-    const t = c.createdAt.toISOString().slice(11, 16);
-    console.log(`${t} | ${(g?.name||'?').padEnd(31)} | ${script.padEnd(13)} | ${String(c.durationSeconds).padStart(3)}s | ${String(userTurns).padStart(9)} | ${flag}`);
-  }
-  console.log(`\nAssist (new V1+static): ${assistS}/${assistN} short = ${assistN ? ((assistS/assistN)*100).toFixed(1)+'%' : '-'}`);
-  console.log(`GarageHive (still V1+dynamic): ${ghS}/${ghN} short = ${ghN ? ((ghS/ghN)*100).toFixed(1)+'%' : '-'}`);
-}
-main().catch(e=>{console.error(e);process.exit(1);}).finally(()=>prisma.$disconnect());
+  await p.$disconnect();
+})().catch(e => { console.error(e.message); process.exit(1); });

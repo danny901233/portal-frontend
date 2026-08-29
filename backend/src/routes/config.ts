@@ -30,7 +30,7 @@ import {
   createDefaultGarageHiveSettings,
   createDefaultHubspotSettings,
   createDefaultTyresoftSettings,
-  createDefaultWeeklyOpeningHours, BookarSettings } from '../utils/types.js';
+  createDefaultWeeklyOpeningHours, BookarSettings, PooleSettings } from '../utils/types.js';
 import type {
   AgentConfigurationPayload,
   GarageHiveSettings,
@@ -111,7 +111,7 @@ const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings?: BookarSettings } => {
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings?: BookarSettings; pooleSettings?: PooleSettings } => {
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
     if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
@@ -185,6 +185,34 @@ const parseIntegrationSettings = (
       garageHiveSettings: createDefaultGarageHiveSettings(),
       tyresoftSettings: createDefaultTyresoftSettings(),
       bookarSettings: { bookarClientId: '', bookarClientSecret: '', bookarApiBase: 'https://partners.bookar.app' },
+    };
+  }
+
+  if (agentScript === 'poole-agent') {
+    // Poole creds live under integrationProviderConfig.poole (nested), matching what
+    // chatAgentPoole.ts reads via resolvePooleCreds. `apiKey` accepted as legacy alias
+    // for `branchKey` to stay compatible with any old rows written before this UI shipped.
+    if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+      const raw = rawSettings as Record<string, unknown>;
+      const pooleRaw = (raw.poole && typeof raw.poole === 'object' && !Array.isArray(raw.poole))
+        ? (raw.poole as Record<string, unknown>)
+        : raw;
+      return {
+        integrationProvider: 'none' as IntegrationProvider,
+        garageHiveSettings: createDefaultGarageHiveSettings(),
+        tyresoftSettings: createDefaultTyresoftSettings(),
+        pooleSettings: {
+          branchKey: typeof pooleRaw.branchKey === 'string' ? pooleRaw.branchKey : (typeof pooleRaw.apiKey === 'string' ? pooleRaw.apiKey : ''),
+          tenant: typeof pooleRaw.tenant === 'string' ? pooleRaw.tenant : '',
+          branchCode: typeof pooleRaw.branchCode === 'string' ? pooleRaw.branchCode : '',
+        },
+      };
+    }
+    return {
+      integrationProvider: 'none' as IntegrationProvider,
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
+      pooleSettings: { branchKey: '', tenant: '', branchCode: '' },
     };
   }
 
@@ -295,6 +323,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       config.agentScript === 'Assist-agent' ? 'Assist-agent' :
       config.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       config.agentScript === 'MMH-agent' ? 'MMH-agent' : config.agentScript === 'bookar-agent' ? 'bookar-agent' :
+      config.agentScript === 'poole-agent' ? 'poole-agent' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
@@ -431,6 +460,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       configuration.agentScript === 'Assist-agent' ? 'Assist-agent' :
       configuration.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       configuration.agentScript === 'MMH-agent' ? 'MMH-agent' : configuration.agentScript === 'bookar-agent' ? 'bookar-agent' :
+      configuration.agentScript === 'poole-agent' ? 'poole-agent' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent'
@@ -450,7 +480,16 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       }
       return createDefaultHubspotSettings();
     })(),
-  }), ...extraAgentFields(configuration) };
+  }), ...extraAgentFields(configuration),
+    // Also surface the raw integrationProviderConfig JSONB unchanged, so the DDB sync
+    // (which the voice agent reads) preserves per-provider blobs like `poole` and any
+    // fields parseIntegrationSettings didn't flatten. Chat side reads Postgres directly
+    // and doesn't rely on this — this is specifically for the DDB→voice-agent path.
+    // Discovered 2026-08-29 when the voice agent couldn't find Poole creds even though
+    // Postgres had them, because the sanitizer stripped integrationProviderConfig before
+    // writeAgentConfigToDynamo serialized the response.
+    integrationProviderConfig: configuration.integrationProviderConfig ?? null,
+  };
 };
 
 const serializeKnowledgeDocument = (document: PrismaKnowledgeDocument) => ({
@@ -885,7 +924,7 @@ router.put(
 
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : 'receptionmate-agent';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : data.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
 
     // Only staff can change which agent serves the garage; everyone else keeps the saved script.
     if (!canEditAgentType) {
@@ -893,7 +932,7 @@ router.put(
         where: { garageId },
         select: { agentScript: true },
       });
-      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : 'receptionmate-agent';
+      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : existingConfig?.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
     }
 
     // agentType is DERIVED from the agent script — the script is the single source of truth.
@@ -1078,6 +1117,20 @@ router.put(
         : resolvedAgentScript === 'bookar-agent' && data.bookarSettings
         ? { bookarClientId: (data.bookarSettings.bookarClientId || '').trim(), bookarClientSecret: (data.bookarSettings.bookarClientSecret || '').trim(), bookarApiBase: (data.bookarSettings.bookarApiBase || 'https://partners.bookar.app').trim(), ...hubspotPayload }
         : resolvedAgentScript === 'bookar-agent' && existingConfig?.integrationProviderConfig
+        ? { ...(existingConfig.integrationProviderConfig as object), ...hubspotPayload }
+        : resolvedAgentScript === 'poole-agent' && data.pooleSettings
+        ? {
+            // Nested under `poole` — matches what chatAgentPoole.ts and the voice agent read.
+            // Preserve any siblings already present (e.g. hubspot config) via spread.
+            ...(existingConfig?.integrationProviderConfig && typeof existingConfig.integrationProviderConfig === 'object' && !Array.isArray(existingConfig.integrationProviderConfig) ? (existingConfig.integrationProviderConfig as object) : {}),
+            poole: {
+              branchKey: (data.pooleSettings.branchKey || '').trim(),
+              tenant: (data.pooleSettings.tenant || '').trim(),
+              branchCode: (data.pooleSettings.branchCode || '').trim(),
+            },
+            ...hubspotPayload,
+          }
+        : resolvedAgentScript === 'poole-agent' && existingConfig?.integrationProviderConfig
         ? { ...(existingConfig.integrationProviderConfig as object), ...hubspotPayload }
         : Object.keys(hubspotPayload).length > 0 ? hubspotPayload : null;
 

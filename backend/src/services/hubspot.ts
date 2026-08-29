@@ -92,6 +92,24 @@ const createContact = async (call: HubSpotCallData, apiToken: string): Promise<C
     });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
+      // Handle duplicate contact — extract existing ID and use it
+      try {
+        const errBody = JSON.parse(text);
+        if (errBody.category === 'CONFLICT' && errBody.message?.includes('Existing ID:')) {
+          const idMatch = errBody.message.match(/Existing ID:\s*(\d+)/);
+          if (idMatch) {
+            console.log(`[HUBSPOT] Contact already exists (${idMatch[1]}) — using existing`);
+            return { id: idMatch[1], email: properties.email || null };
+          }
+        }
+        if (errBody.category === 'VALIDATION_ERROR' && errBody.message?.includes('already has that value')) {
+          const idMatch = errBody.message.match(/(\d+) already has that value/);
+          if (idMatch) {
+            console.log(`[HUBSPOT] Contact email conflict — using existing contact ${idMatch[1]}`);
+            return { id: idMatch[1], email: properties.email || null };
+          }
+        }
+      } catch {}
       console.error(`[HUBSPOT] Failed to create contact: ${response.status} ${text}`);
       return null;
     }

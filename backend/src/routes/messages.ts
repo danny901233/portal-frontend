@@ -328,6 +328,9 @@ router.get(
         where.assigneeId = assigneeId;
       }
 
+      const take = Math.min(Number(req.query.limit) || 100, 500);
+      const skip = Math.max(Number(req.query.offset) || 0, 0);
+
       const allConversations = await prisma.chatConversation.findMany({
         where,
         include: {
@@ -339,6 +342,8 @@ router.get(
           assignee: { select: { id: true, email: true } },
         },
         orderBy: { lastMessageAt: 'desc' },
+        take,
+        skip,
       });
 
       // Group conversations by customer

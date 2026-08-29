@@ -77,6 +77,9 @@ router.get('/conversations', authenticate, async (req: Request, res: Response) =
       where.assigneeId = assigneeId;
     }
 
+    const take = Math.min(Number(req.query.limit) || 50, 200);
+    const skip = Math.max(Number(req.query.offset) || 0, 0);
+
     const conversations = await prisma.chatConversation.findMany({
       where,
       include: {
@@ -89,6 +92,8 @@ router.get('/conversations', authenticate, async (req: Request, res: Response) =
         },
       },
       orderBy: { lastMessageAt: 'desc' },
+      take,
+      skip,
     });
 
     const result = conversations.map((c) => ({

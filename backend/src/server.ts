@@ -109,6 +109,22 @@ app.use('/api/webhooks', stripeWebhook);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' })); // Parse form-urlencoded bodies (Twilio webhooks)
 app.use(morgan('dev'));
+
+// Kill slow requests after 30s instead of letting them hang until the socket resets.
+// Webhooks and streaming endpoints are excluded — they have their own lifecycle.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/webhooks') || req.path.includes('/recording/')) return next();
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) {
+      console.error(`[TIMEOUT] ${req.method} ${req.originalUrl} exceeded 30s`);
+      res.status(408).json({ error: 'Request timeout' });
+    }
+  }, 30_000);
+  res.on('finish', () => clearTimeout(timeout));
+  res.on('close', () => clearTimeout(timeout));
+  next();
+});
+
 // Carry the signed-in user through the request so the garage audit hook in db.ts can record who
 // made a change. Reads req.user when it is there and is harmless when it is not.
 app.use(trackActingUser);

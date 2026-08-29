@@ -24,12 +24,17 @@ const createSchema = z.object({
   // Which landing page this came from. /mot was already sending it and this schema silently
   // dropped it, so no signup could be attributed to a page.
   source: z.string().trim().max(100).optional(),
+  // The Google Ads click id. It was only ever sent at the later signup steps, so a prospect who
+  // stopped at step 1 — which is most of them, and the whole point of the abandoned stage —
+  // could never be traced back to the ad that produced them.
+  gclid: z.string().trim().max(200).optional(),
 });
 
 const enrichSchema = z.object({
   name: z.string().trim().max(120).optional(),
   email: z.string().trim().email().max(254).optional(),
   phone: z.string().trim().max(40).optional(),
+  gclid: z.string().trim().max(200).optional(),
   product: z.enum(['assist', 'automate', 'connect', 'multibranch', 'custom']).optional(),
 });
 
@@ -99,7 +104,7 @@ router.post('/public/prospect', async (req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: 'invalid_request' });
-  const { businessName, googlePlaceId, address, source } = parsed.data;
+  const { businessName, googlePlaceId, address, source, gclid } = parsed.data;
 
   try {
     const place = googlePlaceId ? await fetchPlaceDetails(googlePlaceId) : null;
@@ -120,6 +125,7 @@ router.post('/public/prospect', async (req: Request, res: Response) => {
         // The only record of which page produced this signup: a cross-origin POST sends just the
         // origin as Referer, so the path never reaches us.
         source: source ?? null,
+        gclid: gclid ?? null,
         expiresAt: new Date(Date.now() + SIGN_LINK_TTL_MS),
       },
     });
@@ -161,6 +167,8 @@ router.patch('/public/prospect/:id', async (req: Request, res: Response) => {
         email: parsed.data.email ? parsed.data.email.toLowerCase() : pending.email,
         contactPhone: parsed.data.phone ?? pending.contactPhone,
         product: parsed.data.product ?? pending.product,
+        // Keep the earliest click id — the first touch is the one that won the click.
+        gclid: pending.gclid || parsed.data.gclid || null,
       },
     });
 

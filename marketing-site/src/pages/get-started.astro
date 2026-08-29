@@ -870,7 +870,9 @@ const c = {
         // Tells the backend which page produced the signup. Without it no prospect can be
         // attributed to a landing page, because a cross-origin POST sends only the origin as
         // Referer — the path never arrives.
-        body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined, source: 'website-getstarted' }),
+        // gclid goes with the FIRST post, not just the later steps: most prospects stop here,
+        // and those are exactly the ones we want to trace back to the ad that paid for them.
+        body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined, source: 'website-getstarted', gclid: rmGclid() }),
       }).then((r) => r.json()).then((d) => { if (d && d.prospectId) state.prospectId = d.prospectId; }).catch(() => {});
     } catch (e) {}
   }

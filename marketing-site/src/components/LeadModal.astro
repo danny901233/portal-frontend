@@ -93,6 +93,9 @@ const c = {
 
     <form id="lead-modal-form" class="space-y-3.5 p-7">
       <input type="hidden" name="source" id="lead-modal-source" value="" />
+    <!-- Google Ads click id, filled on open. The lead endpoint has always accepted this;
+         nothing ever sent it, so no enquiry could be tied back to an ad. -->
+    <input type="hidden" name="gclid" id="lead-modal-gclid" value="" />
 
       <div>
         <label class="lead-label" for="lead-modal-name">{c.nameLabel}</label>
@@ -217,6 +220,15 @@ const c = {
   if (modal && form) {
     const open = (source, tier, prefill, isDemo) => {
       sourceInput.value = source || 'website';
+      // Read at open rather than at load: a visitor can arrive on one page and click through
+      // to another before the modal is ever used.
+      try {
+        const fromUrl = new URLSearchParams(location.search).get('gclid');
+        if (fromUrl) localStorage.setItem('rm_gclid', fromUrl);
+        const g = fromUrl || localStorage.getItem('rm_gclid') || '';
+        const gclidInput = document.getElementById('lead-modal-gclid');
+        if (gclidInput) gclidInput.value = g;
+      } catch (_e) {}
       tierLabelEl.textContent = tier || 'ReceptionMate';
 
       // The live-demo CTA connects the caller immediately, so it gets its own copy — promising a
@@ -295,6 +307,9 @@ const c = {
 
       try {
         const payload = Object.fromEntries(new FormData(form));
+        // A hidden field always submits, so an absent click id arrives as "" rather than being
+        // omitted — and the backend's ?? fallbacks treat "" as a value. Drop the blanks.
+        Object.keys(payload).forEach((k) => { if (payload[k] === '') delete payload[k]; });
         const res = await fetch(LEAD_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

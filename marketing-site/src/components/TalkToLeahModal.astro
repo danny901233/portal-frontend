@@ -88,6 +88,10 @@ const c = {
       modal.classList.remove('hidden');
       modal.classList.add('flex');
       document.body.style.overflow = 'hidden';
+      // Opening the call is the strongest intent signal on the site short of signing up. The
+      // call itself runs in a cross-origin iframe, so connection cannot be observed from here
+      // without postMessage — opening is the honest thing to measure.
+      if (typeof window.rmTrack === 'function') window.rmTrack('demo');
     };
 
     const close = () => {

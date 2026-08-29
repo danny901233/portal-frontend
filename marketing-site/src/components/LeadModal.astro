@@ -302,6 +302,8 @@ const c = {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
+          // Report before branching — both outcomes below are a captured lead.
+          if (typeof window.rmTrack === 'function') window.rmTrack('lead');
           if (pendingRedirect) {
             // Hand over to the in-page call modal so the visitor never leaves the site. Falls back
             // to the old redirect if that modal is not mounted on this page.

@@ -80,6 +80,22 @@ const footerYear = 2026;
       // gtag's own _gcl_aw cookie already handles browser-side attribution; this is the
       // server-side record, so we can prove which signups came from an ad click.
       try{var _gp=new URLSearchParams(location.search);var _g=_gp.get('gclid');if(_g){localStorage.setItem('rm_gclid',_g);}}catch(_e){}
+
+      // Google Ads conversions. Until now the only conversion the account could see was a
+      // completed signup in the portal — the far end of a five-step funnel — so Smart Bidding
+      // had nothing to learn from and we could not tell where visitors dropped out. These two
+      // report the steps before it. Labels come from the conversion actions in the Ads account.
+      window.rmConversions = {
+        lead: 'AW-16449651971/NRRpCLelkuocEIOK56M9',  // RM – Lead submitted
+        demo: 'AW-16449651971/XxQlCLqlkuocEIOK56M9',  // RM – Demo opened
+      };
+      // Never let a reporting failure break the thing the visitor was actually doing.
+      window.rmTrack = function (name) {
+        try {
+          var sendTo = window.rmConversions[name];
+          if (sendTo && typeof gtag === 'function') gtag('event', 'conversion', { send_to: sendTo });
+        } catch (_e) {}
+      };
     </script>
 
     <!-- Microsoft Clarity (session recordings + heatmaps) -->

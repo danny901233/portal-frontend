@@ -865,6 +865,7 @@ export interface LatePaymentEmailData {
 export interface PaymentFailedEmailData {
   branchName: string;
   retryDays: number;
+  cc?: string[];        // keep ourselves copied in, so a reply lands somewhere we watch
   ddSetupUrl?: string;  // only when the mandate itself is dead and needs re-authorising
   mandateDead?: boolean;
 }
@@ -950,7 +951,13 @@ export const sendPaymentFailedEmail = async (
     '', "If something has changed with your bank details, or you'd like to sort it over the phone, just reply and we'll take care of it.",
   ].join('\n');
 
-  return sendEmail({ to: recipients, subject: "Your Direct Debit didn't go through", html, text });
+  return sendEmail({
+    to: recipients,
+    ...(data.cc?.length ? { cc: data.cc } : {}),
+    subject: "Your Direct Debit didn't go through",
+    html,
+    text,
+  });
 };
 export const sendLatePaymentEmail = async (
   recipients: string[],

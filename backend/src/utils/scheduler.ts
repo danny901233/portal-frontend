@@ -3,7 +3,7 @@ import { generateWeeklyReports, generateMonthlyReports } from './reportGenerator
 import { processMonthlyBilling } from '../services/billing.js';
 import { processInvoicePreviewEmails } from '../services/invoicePreview.js';
 import { refreshTemplateToken } from '../services/metaTemplateToken.js';
-import { syncGocardlessPayments } from '../services/gocardlessSync.js';
+import { syncGocardlessPayments, syncGocardlessMandates } from '../services/gocardlessSync.js';
 import { syncNegativeFeedbackToExcel } from '../services/feedbackExcelSync.js';
 import { sendInoInvoice } from '../services/inoInvoice.js';
 import { runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
@@ -269,6 +269,9 @@ export const initializeScheduledReports = (): void => {
     console.log('[GC Sync] Running daily GoCardless payment sync...');
     try {
       await syncGocardlessPayments();
+      // Mandate health is checked in the same pass: a cancelled Direct Debit stops payments
+      // being created at all, so it never shows up as a failed payment above.
+      await syncGocardlessMandates();
     } catch (error) {
       console.error('[GC Sync] Daily sync failed:', error);
     }

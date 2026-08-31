@@ -32,6 +32,33 @@ function verifyWebhookSignature(payload: string, signature: string): boolean {
 }
 
 /**
+ * Put every garage this user pays for into arrears, unless it is already counting down.
+ *
+ * Only touches garages where this user is the payer — a manager with access to a branch someone
+ * else pays for must not drag it into arrears. Existing paymentFailedAt values are preserved so
+ * a second event can't keep pushing the grace period back.
+ */
+async function startArrearsForMandateHolder(userId: string, reason: string) {
+  const payer = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { garageAccessIds: true },
+  });
+  if (!payer?.garageAccessIds?.length) return;
+
+  const res = await prisma.garage.updateMany({
+    where: {
+      id: { in: payer.garageAccessIds },
+      archivedAt: null,
+      paymentFailedAt: null,
+    },
+    data: { paymentFailedAt: new Date() },
+  });
+  if (res.count > 0) {
+    console.warn(`[GoCardless] ⚠️ ${res.count} garage(s) now in arrears — ${reason}`);
+  }
+}
+
+/**
  * Handle mandate status changes
  */
 async function handleMandateEvent(event: any) {
@@ -73,6 +100,12 @@ async function handleMandateEvent(event: any) {
           gocardlessCustomerId: null,
         },
       });
+      // ...and start the arrears clock on the garages this mandate pays for. Without this the
+      // flag above only nags one user: paymentFailedAt stays null, so the grace period never
+      // starts, accessRestricted never flips, and the garage keeps receiving full call summaries
+      // for a subscription that can no longer be collected. A cancelled mandate is a payment
+      // failure that simply hasn't been attempted yet — treat it as one.
+      await startArrearsForMandateHolder(user.id, `mandate ${action}`);
       console.log(`[GoCardless] User ${user.email} mandate ${action} - payment setup required`);
       break;
 

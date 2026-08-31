@@ -505,6 +505,23 @@ model Business {
   garages      Garage[]
   billingMethod String @default("directdebit") // 'directdebit' | 'stripe_card' | 'invoice'
 
+  // The Direct Debit mandate belongs to the BUSINESS, not to whoever happened to sign it up.
+  // Held on User historically, which meant only the original signatory was ever prompted to
+  // fix a cancelled mandate — colleagues just saw the portal go blank.
+  //
+  // These two columns already existed in the database but were undeclared and unread since
+  // July, and had gone stale enough to be dangerous (cancelled ids where the User row held
+  // the live one). They are re-synced and now written alongside User on every mandate change.
+  // Billing deliberately still reads the User copy: it runs daily at 9am and moving it is a
+  // separate, verifiable step.
+  gocardlessMandateId  String?
+  gocardlessCustomerId String?
+
+  // Set when the business needs to authorise a (new) mandate before it can be billed. An
+  // explicit flag rather than "has no mandate": trial and not-yet-onboarded businesses also
+  // have no mandate and must not be nagged for one.
+  mustSetupPayment     Boolean @default(false)
+
   // Billing Information
   billingAddress       String?
   billingCity          String?

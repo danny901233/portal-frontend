@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../../db.js';
+import { markBusinessNeedsMandate } from '../../utils/businessBilling.js';
 import { sendPaymentFailedEmail } from '../../utils/email.js';
 import { createPaymentSetupLink } from '../../services/directDebitRequestEmail.js';
 
@@ -106,6 +107,9 @@ async function handleMandateEvent(event: any) {
       // for a subscription that can no longer be collected. A cancelled mandate is a payment
       // failure that simply hasn't been attempted yet — treat it as one.
       await startArrearsForMandateHolder(user.id, `mandate ${action}`);
+      // Raise the prompt on the business so ANY of their users can re-authorise, and clear the
+      // dead id so nothing can try to bill against it.
+      await markBusinessNeedsMandate(user.garageAccessIds as string[] | null, `mandate ${action}`);
       console.log(`[GoCardless] User ${user.email} mandate ${action} - payment setup required`);
       break;
 

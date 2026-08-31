@@ -1,5 +1,6 @@
 import https from 'https';
 import { prisma } from '../db.js';
+import { markBusinessNeedsMandate } from '../utils/businessBilling.js';
 
 const GC_HOST = 'api.gocardless.com';
 const GC_VERSION = '2015-07-06';
@@ -151,6 +152,7 @@ export async function syncGocardlessMandates(): Promise<void> {
         where: { id: payer.id },
         data: { mustSetupPayment: true, gocardlessMandateId: null, gocardlessCustomerId: null },
       });
+      await markBusinessNeedsMandate(payer.garageAccessIds as string[] | null, `mandate ${status}`);
 
       if (payer.garageAccessIds?.length) {
         const res = await prisma.garage.updateMany({

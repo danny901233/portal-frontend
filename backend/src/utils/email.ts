@@ -731,8 +731,9 @@ const arrearsEmailShell = (bodyHtml: string): string => `
 /**
  * Arrears notice — sent instead of the full call summary when a garage is flagged
  * accessRestricted. Deliberately contains NO call content (no caller, summary, transcript
- * or recording): it only confirms a call was handled and that the details are on hold
- * until the account is brought up to date.
+ * or recording): it only confirms a call was handled, explains that the Direct Debit has failed,
+ * and points at setting it back up. The portal link is /login deliberately — with
+ * mustSetupPayment set, signing in lands them straight on /setup-payment.
  */
 export const sendArrearsCallNoticeEmail = async (
   notificationEmails: string[],
@@ -762,18 +763,23 @@ export const sendArrearsCallNoticeEmail = async (
           <tr>
             <td style="padding: 20px 32px 0;">
               <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
-                Your ReceptionMate AI receptionist answered a call for you on <strong>${formattedDate}</strong>.
+                Good news first — your ReceptionMate receptionist answered a call for you on
+                <strong>${formattedDate}</strong>, and we're still picking up every call as normal.
+              </p>
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                The reason we're emailing rather than sending the usual summary is that your
+                <strong>Direct Debit has failed</strong> and the account has fallen into arrears. Until that's
+                sorted, the caller's details, the summary, transcript and recording are on hold.
               </p>
               <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
-                Your account is currently <strong>in arrears</strong>, so the caller's details, the call summary,
-                transcript and recording are <strong>on hold</strong>. As soon as your account is brought up to
-                date, everything will be unlocked in your portal.
+                Setting your Direct Debit back up takes a couple of minutes, and everything unlocks in your
+                portal straight away — including this call and any others we've handled in the meantime.
               </p>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td style="padding: 16px 20px; background-color: #fff8ec; border: 1px solid #f6dfae; border-radius: 10px; font-size: 14px; line-height: 1.5; color: #8a6417;">
                     <strong>📞 Call handled:</strong> ${formattedDate}<br/>
-                    <strong>🔒 Details:</strong> locked until your account is up to date
+                    <strong>🔓 Details:</strong> unlocked as soon as your Direct Debit is set up
                   </td>
                 </tr>
               </table>
@@ -782,14 +788,15 @@ export const sendArrearsCallNoticeEmail = async (
           <tr>
             <td style="padding: 28px 32px 4px; text-align: center;">
               <a href="${data.portalUrl}/login" style="display: inline-block; padding: 14px 30px; background-color: ${RM_BRAND}; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 10px;">
-                Bring my account up to date
+                Set up my Direct Debit
               </a>
             </td>
           </tr>
           <tr>
             <td style="padding: 20px 32px 32px; text-align: center;">
               <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #8b90b0;">
-                Questions? Contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>
+                If you think this is a mistake, or you'd rather sort it over the phone, just reply to this
+                email or contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a> — we're happy to help.
               </p>
             </td>
           </tr>`);
@@ -799,16 +806,18 @@ WE HANDLED A CALL FOR YOU
 
 ${data.branchName}
 
-Your ReceptionMate AI receptionist answered a call for you on ${formattedDate}.
+Good news first - your ReceptionMate receptionist answered a call for you on ${formattedDate}, and we're still picking up every call as normal.
 
-Your account is currently IN ARREARS, so the caller's details, the call summary, transcript and recording are on hold. As soon as your account is brought up to date, everything will be unlocked in your portal.
+The reason we're emailing rather than sending the usual summary is that your DIRECT DEBIT HAS FAILED and the account has fallen into arrears. Until that's sorted, the caller's details, the summary, transcript and recording are on hold.
+
+Setting your Direct Debit back up takes a couple of minutes, and everything unlocks in your portal straight away - including this call and any others we've handled in the meantime.
 
 Call handled: ${formattedDate}
-Details: locked until your account is up to date
+Details: unlocked as soon as your Direct Debit is set up
 
-Bring your account up to date: ${data.portalUrl}/login
+Set up your Direct Debit: ${data.portalUrl}/login
 
-Questions? Contact us at hello@receptionmate.co.uk
+If you think this is a mistake, or you'd rather sort it over the phone, just reply to this email or contact us at hello@receptionmate.co.uk - we're happy to help.
 
 ---
 This is an automated email from ReceptionMate
@@ -816,7 +825,7 @@ This is an automated email from ReceptionMate
 
   return sendEmail({
     to: notificationEmails,
-    subject: 'We handled a call for you — account update needed',
+    subject: 'We handled a call for you — your Direct Debit needs setting up',
     html,
     text,
   });

@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { startArrearsForFailedInvoice } from './paymentArrears.js';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -871,6 +872,18 @@ export async function generateInvoicesForUser(userId: string) {
           where: { id: item.invoice.id },
           data: { status: 'failed' },
         }).catch(() => {});
+
+        // ...and start the arrears clock, which marking the invoice does not do on its own.
+        //
+        // This is the path a cancelled mandate actually takes: GoCardless refuses to CREATE the
+        // payment, so there is no payment id and the invoice is 'failed' from the outset —
+        // invisible to the daily sync, which only reconciles pending payments it can look up.
+        // EAC Telford failed here on 27 August for £709.92 and stayed unrestricted, receiving
+        // full call summaries, until it was found by hand on the 31st.
+        await startArrearsForFailedInvoice(
+          { id: item.invoice.id, garageId: item.invoice.garageId, total: item.invoice.total },
+          'Billing',
+        ).catch((e) => console.error('[Billing] could not start arrears:', e));
       }
       results.forEach(r => {
         if (r.success && !r.error) {

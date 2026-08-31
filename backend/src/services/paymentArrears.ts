@@ -18,7 +18,7 @@ import { createPaymentSetupLink } from './directDebitRequestEmail.js';
  * hand a non-paying account another two days.
  */
 export async function startArrearsForFailedInvoice(
-  invoice: { id: string; garageId: string; total: number },
+  invoice: { id: string; garageId: string },
   source: string,
 ): Promise<void> {
   const garage = await prisma.garage.findUnique({
@@ -59,7 +59,6 @@ export async function startArrearsForFailedInvoice(
     }
     await sendPaymentFailedEmail(to, {
       branchName: cfg?.branchName || garage.name,
-      amount: `£${(invoice.total / 100).toFixed(2)}`,
       retryDays: 4,
       mandateDead,
       ddSetupUrl,

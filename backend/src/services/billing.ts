@@ -881,7 +881,7 @@ export async function generateInvoicesForUser(userId: string) {
         // EAC Telford failed here on 27 August for £709.92 and stayed unrestricted, receiving
         // full call summaries, until it was found by hand on the 31st.
         await startArrearsForFailedInvoice(
-          { id: item.invoice.id, garageId: item.invoice.garageId, total: item.invoice.total },
+          { id: item.invoice.id, garageId: item.invoice.garageId },
           'Billing',
         ).catch((e) => console.error('[Billing] could not start arrears:', e));
       }

@@ -864,7 +864,6 @@ export interface LatePaymentEmailData {
  */
 export interface PaymentFailedEmailData {
   branchName: string;
-  amount: string;
   retryDays: number;
   ddSetupUrl?: string;  // only when the mandate itself is dead and needs re-authorising
   mandateDead?: boolean;
@@ -877,6 +876,11 @@ export interface PaymentFailedEmailData {
  * for card customers. Direct Debit customers got nothing at all: Caldwell & Dempster bounced on
  * 30 June, kept taking 40 calls a month, and were never told. Most BACS failures are just funds
  * on the day, so the tone is "no action needed, we'll retry" unless the mandate is actually gone.
+ *
+ * Deliberately no amount, anywhere. A failed collection can carry several months at once —
+ * EAC Telford's was £709.92 against a £325 subscription — and leading with a figure like that
+ * turns a two-minute admin fix into an argument about the bill. The amount is in the portal and
+ * on the invoice for anyone who wants it; the email's job is to get the mandate reinstated.
  */
 export const sendPaymentFailedEmail = async (
   recipients: string[],
@@ -888,10 +892,10 @@ export const sendPaymentFailedEmail = async (
     ? `
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
-                  <td style="padding: 16px 20px; background-color: #fef3f2; border: 1px solid #fbd5d0; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #7a2b23;">
-                    It looks like the Direct Debit instruction is no longer active with your bank, so
-                    we can't retry this one automatically. Setting it up again takes about a minute
-                    and we'll collect the outstanding amount on the next working day.
+                  <td style="padding: 16px 20px; background-color: #f7f7fb; border: 1px solid #e9eaf5; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #3a3f5c;">
+                    <strong>Don't worry — your receptionist is still answering your calls.</strong>
+                    Some features and call details may be unavailable in your portal until the
+                    Direct Debit is reactivated. Setting it up again takes about a minute.
                   </td>
                 </tr>
               </table>`
@@ -926,30 +930,28 @@ export const sendPaymentFailedEmail = async (
           <tr>
             <td style="padding: 20px 32px 32px;">
               <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
-                We tried to collect <strong>${data.amount}</strong> for your ReceptionMate
-                subscription, but the payment didn't clear.
+                We weren't able to collect your latest ReceptionMate payment by Direct Debit.
               </p>
               ${body}
               ${button}
               <p style="margin: 22px 0 0; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
-                If something's changed with your bank details, or you'd like to pay this one another
-                way, just reply to this email and we'll sort it out.
+                If something's changed with your bank details, or you'd like to sort it over the
+                phone, just reply to this email and we'll take care of it.
               </p>
             </td>
           </tr>`);
 
   const text = [
     `Your Direct Debit didn't go through — ${data.branchName}`, '',
-    `We tried to collect ${data.amount} for your ReceptionMate subscription, but the payment didn't clear.`, '',
+    "We weren't able to collect your latest ReceptionMate payment by Direct Debit.", '',
     data.mandateDead
-      ? `The Direct Debit instruction is no longer active with your bank, so we can't retry automatically.${data.ddSetupUrl ? ` Set it up again here: ${data.ddSetupUrl}` : ''}`
+      ? `Don't worry - your receptionist is still answering your calls. Some features and call details may be unavailable in your portal until the Direct Debit is reactivated. Setting it up again takes about a minute.${data.ddSetupUrl ? `\n\nSet up Direct Debit: ${data.ddSetupUrl}` : ''}`
       : `There's nothing you need to do — we'll automatically try again in about ${data.retryDays} days. Your service carries on as normal.`,
-    '', 'If something has changed with your bank details, just reply and we will sort it out.',
+    '', "If something has changed with your bank details, or you'd like to sort it over the phone, just reply and we'll take care of it.",
   ].join('\n');
 
-  return sendEmail({ to: recipients, subject: `Your Direct Debit didn't go through — ${data.amount}`, html, text });
+  return sendEmail({ to: recipients, subject: "Your Direct Debit didn't go through", html, text });
 };
-
 export const sendLatePaymentEmail = async (
   recipients: string[],
   data: LatePaymentEmailData,

@@ -3,8 +3,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../../db.js';
 import { markBusinessNeedsMandate } from '../../utils/businessBilling.js';
-import { sendPaymentFailedEmail } from '../../utils/email.js';
-import { createPaymentSetupLink } from '../../services/directDebitRequestEmail.js';
+import { startArrearsForFailedInvoice, clearArrearsForGarage } from '../../services/paymentArrears.js';
 
 const router = Router();
 
@@ -171,71 +170,18 @@ async function handlePaymentEvent(event: any) {
       console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked PAID (payment ${action})`);
     }
     // Recovered: clear the arrears clock so access and full call details are restored.
-    const garage = await prisma.garage.findUnique({
-      where: { id: invoice.garageId }, select: { paymentFailedAt: true },
-    });
-    if (garage?.paymentFailedAt) {
-      await prisma.garage.update({
-        where: { id: invoice.garageId },
-        data: { paymentFailedAt: null, accessRestricted: false },
-      });
-      console.log(`[GoCardless Webhook] Garage ${invoice.garageId} out of arrears — payment received`);
-    }
+    await clearArrearsForGarage(invoice.garageId, 'GoCardless Webhook');
   } else if (action === 'failed' || action === 'charged_back' || action === 'late_failure_settled') {
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'failed' } });
     console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked FAILED (payment ${action})`);
 
-    // Start the arrears clock. Without this a bounced Direct Debit was recorded on the invoice and
-    // NOWHERE else: paymentFailedAt stayed null, so the grace period never started, the garage was
-    // never restricted, and the customer was never told. Caldwell & Dempster bounced on 30 June and
-    // took 79 more calls before anyone noticed — in August, by hand.
-    //
-    // Only stamp if not already set, so a second failure does not restart the grace period and
-    // give a non-paying account another two days.
-    const garage = await prisma.garage.findUnique({
-      where: { id: invoice.garageId }, select: { paymentFailedAt: true, name: true },
-    });
-    if (garage && !garage.paymentFailedAt) {
-      await prisma.garage.update({
-        where: { id: invoice.garageId }, data: { paymentFailedAt: new Date() },
-      });
-      console.warn(`[GoCardless Webhook] ⚠️ ${garage.name} payment ${action} — arrears clock started`);
-
-      // Tell them. Until now a bounced Direct Debit was silent on the customer's side — they had
-      // no idea anything had failed, and neither did we.
-      void (async () => {
-        try {
-          const cfg = await prisma.agentConfiguration.findUnique({
-            where: { garageId: invoice.garageId },
-            select: { notificationEmails: true, branchName: true },
-          });
-          const to = cfg?.notificationEmails?.length ? cfg.notificationEmails : [];
-          if (!to.length) return;
-          const user = await prisma.user.findFirst({
-            where: { garageAccessIds: { has: invoice.garageId } },
-            select: { email: true, gocardlessMandateId: true },
-          });
-          // If the mandate is gone we cannot retry, so the email has to ask them to re-authorise.
-          const mandateDead = !user?.gocardlessMandateId;
-          let ddSetupUrl: string | undefined;
-          if (mandateDead && user?.email) {
-            try { ddSetupUrl = await createPaymentSetupLink(user.email); } catch { /* no portal user */ }
-          }
-          await sendPaymentFailedEmail(to, {
-            branchName: cfg?.branchName || garage.name,
-            amount: `£${(invoice.total / 100).toFixed(2)}`,
-            retryDays: 4,
-            mandateDead,
-            ddSetupUrl,
-          });
-          console.log(`[GoCardless Webhook] payment-failed email sent to ${to.join(', ')}`);
-        } catch (e: any) {
-          console.error('[GoCardless Webhook] could not send payment-failed email:', e?.message);
-        }
-      })();
-    } else {
-      console.warn(`[GoCardless Webhook] ⚠️ ${garage?.name} payment ${action} — already in arrears since ${garage?.paymentFailedAt?.toISOString().slice(0,10)}`);
-    }
+    // Start the arrears clock and tell them. Without this a bounced Direct Debit was recorded on
+    // the invoice and NOWHERE else: paymentFailedAt stayed null, so the grace period never
+    // started, the garage was never restricted, and the customer was never told. Caldwell &
+    // Dempster bounced on 30 June and took 79 more calls before anyone noticed — in August, by
+    // hand. Shared with the daily sync, which is the copy that actually runs: no GoCardless
+    // webhook has ever reached this box.
+    await startArrearsForFailedInvoice(invoice, 'GoCardless Webhook');
   } else if (action === 'cancelled') {
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'cancelled' } });
     console.log(`[GoCardless Webhook] Invoice ${invoice.id} marked CANCELLED (payment ${action})`);

@@ -1,6 +1,7 @@
 import https from 'https';
 import { prisma } from '../db.js';
 import { markBusinessNeedsMandate } from '../utils/businessBilling.js';
+import { startArrearsForFailedInvoice, clearArrearsForGarage } from './paymentArrears.js';
 
 const GC_HOST = 'api.gocardless.com';
 const GC_VERSION = '2015-07-06';
@@ -102,6 +103,15 @@ export async function syncGocardlessPayments(): Promise<void> {
         });
         console.log(`[GC Sync] ✓ ${invoice.garage.name} invoice ${invoice.id}: ${invoice.status} → ${newStatus} (GC: ${payment.status})`);
         updated++;
+
+        // Marking the invoice was never enough on its own — the arrears clock lives on the
+        // garage. The webhook did this and has never once been delivered, so a bounced Direct
+        // Debit only ever showed up as a 'failed' invoice nobody was watching.
+        if (newStatus === 'failed') {
+          await startArrearsForFailedInvoice(invoice, 'GC Sync');
+        } else if (newStatus === 'paid') {
+          await clearArrearsForGarage(invoice.garageId, 'GC Sync');
+        }
       }
     } catch (err: any) {
       console.error(`[GC Sync] Error checking payment ${invoice.gocardlessPaymentId}:`, err.message);

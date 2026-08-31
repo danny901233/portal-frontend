@@ -13,6 +13,7 @@ import type { CallRecord } from '../../types';
 import { ToolCallEntry } from './components/ToolCallEntry';
 import { LogEntry } from './components/LogEntry';
 import { WaveformPlayer, type WaveformPlayerHandle } from './components/WaveformPlayer';
+import { TurnTimeline, type TurnMetric } from './components/TurnTimeline';
 import { useLang } from '@/app/i18n/LocaleProvider';
 
 // Define transcript entry types
@@ -728,6 +729,11 @@ export default function CallDetailPage() {
         turns_measured?: number; llm_ttft_max_s?: number; tts_ttfb_max_s?: number }
     | undefined;
 
+  // Per-turn timings the agents have always shipped but nothing rendered: LLM first-token, TTS
+  // first-byte and end-to-end per agent turn, transcription delay per caller turn.
+  const turnMetrics = ((call.metrics as Record<string, unknown> | null | undefined)?.['turns'] ??
+    []) as TurnMetric[];
+
   // Filter transcript based on user role.
   // Sort chronologically so tool calls land INLINE at the point they were invoked. Use a NaN-safe
   // timestamp resolver (older entries use `created_at`, not `timestamp`) and a stable index tie-break,
@@ -917,6 +923,16 @@ export default function CallDetailPage() {
           <MetricCard label="Response gap (max)" value={latencyStats.response_gap_max_s != null ? `${latencyStats.response_gap_max_s.toFixed(2)}s` : '—'} />
           <MetricCard label="Slow replies >3s" value={`${latencyStats.slow_responses_over_3s ?? 0} / ${latencyStats.turns_measured ?? 0}`} />
           <MetricCard label="LLM first-token (max)" value={latencyStats.llm_ttft_max_s != null ? `${latencyStats.llm_ttft_max_s.toFixed(2)}s` : '—'} />
+        </section>
+      ) : null}
+
+      {isStaff && Array.isArray(turnMetrics) && turnMetrics.length > 0 ? (
+        <section className={cn(detailTab !== 'details' && 'hidden md:block')}>
+          <TurnTimeline
+            turns={turnMetrics}
+            transcript={allTranscript as unknown as { speaker?: string; text?: string; timestamp?: number; type?: string }[]}
+            onSeek={(t) => waveformRef.current?.seek(Math.max(0, t - firstTimestamp))}
+          />
         </section>
       ) : null}
 

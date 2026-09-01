@@ -44,6 +44,7 @@ function loadCampaign(id: string) {
 export interface SendContext {
   campaign: SendableCampaign;
   garageName: string;
+  garagePhone: string;
   variableMapping: Record<string, string>;
   whatsappPhoneNumberId: string;
   accessToken: string;
@@ -88,7 +89,7 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
   const [agentConfig, waConnection, template] = await Promise.all([
     prisma.agentConfiguration.findUnique({
       where: { garageId: campaign.garageId },
-      select: { branchName: true },
+      select: { branchName: true, phoneNumber: true },
     }),
     prisma.socialMediaConnection.findFirst({
       where: { garageId: campaign.garageId, platform: 'whatsapp', isActive: true },
@@ -120,6 +121,7 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
     ctx: {
       campaign,
       garageName: agentConfig?.branchName || 'our garage',
+      garagePhone: (agentConfig?.phoneNumber || '').trim(),
       variableMapping: (campaign.variableMapping as Record<string, string> | null) || {},
       whatsappPhoneNumberId: waConnection.whatsappPhoneNumberId,
       accessToken: waConnection.accessToken,
@@ -318,7 +320,7 @@ function escapeHtml(s: string): string {
 
 /** Run the actual per-contact send loop and finalise the campaign status. */
 export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number; total: number }> {
-  const { campaign, garageName, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
+  const { campaign, garageName, garagePhone, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
 
   // The garage-level cap is the real ceiling: staff-set, deliberately under Meta's tier, and
   // counted across every campaign. The per-campaign tierLimit stays as a stricter-only override.
@@ -408,6 +410,10 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
         mot_due_date: contact.motDueDate || '',
         service_due_date: contact.serviceDueDate || '',
         garage_name: garageName,
+        // The garage's own number, for the "call us on ..." sentence almost every reminder wants.
+        // `phone` above is the CUSTOMER's number and always was; there was simply nothing else to
+        // choose, so templates picked it and texted people their own mobile.
+        garage_phone: garagePhone,
       };
 
       let payload: Record<string, unknown>;

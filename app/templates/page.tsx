@@ -72,7 +72,11 @@ const VARIABLE_FIELDS = [
   { label: 'Service Due Date', sample: '20-May-26', field: 'service_due_date' },
   { label: 'Vehicle Reg', sample: 'AB12 CDE', field: 'registration' },
   { label: 'Garage Name', sample: 'City Garage', field: 'garage_name' },
-  { label: 'Phone Number', sample: '07700 900123', field: 'phone' },
+  // Two different numbers, so both say whose they are. This one used to be the only phone option,
+  // labelled just "Phone Number" and sampled like a landline, so templates saying "call us on
+  // {{x}}" picked it and texted every customer their own mobile back.
+  { label: 'Garage Phone', sample: '01234 567890', field: 'garage_phone' },
+  { label: "Customer's Own Number", sample: '07700 900123', field: 'phone' },
   { label: 'Custom Text', sample: '', field: '' },
 ];
 
@@ -174,7 +178,8 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
         service_due_date: 'Service Due Date',
         registration: 'Vehicle Reg',
         garage_name: 'Garage Name',
-        phone: 'Phone Number',
+        garage_phone: 'Garage Phone',
+        phone: "Customer's Own Number",
         '': 'Custom Text',
       } as Record<string, string>,
     },
@@ -272,7 +277,8 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
         service_due_date: 'Date d’entretien',
         registration: 'Immatriculation du véhicule',
         garage_name: 'Nom du garage',
-        phone: 'Numéro de téléphone',
+        garage_phone: 'Téléphone du garage',
+        phone: 'Numéro du client',
         '': 'Texte personnalisé',
       } as Record<string, string>,
     },

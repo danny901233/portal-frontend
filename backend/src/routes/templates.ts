@@ -298,7 +298,50 @@ router.post(
 
       if (!metaRes.ok) {
         console.error('[TEMPLATES] Meta API error:', metaData);
-        const errorMsg = metaData.error?.message || 'Meta rejected the template';
+        // Meta's `message` is usually just "Invalid parameter". The reason a person can act on is
+        // in error_user_msg / error_user_title, so prefer those.
+        const err = metaData.error || {};
+        const errorMsg =
+          err.error_user_msg || err.error_user_title || err.message || 'Meta rejected the template';
+
+        // "There is already English (UK) content for this template" is not a rejection — it means
+        // the template is alive and approved at Meta and cannot be overwritten. Editing cleared
+        // our copy of its id, so restore that from Meta rather than marking a working template
+        // rejected and withdrawing it from the campaign picker.
+        const alreadyExists =
+          /already exists|already .* content for this template/i.test(
+            `${err.error_user_title || ''} ${err.error_user_msg || ''}`,
+          );
+        if (alreadyExists) {
+          try {
+            const lookup = await fetch(
+              `https://graph.facebook.com/v18.0/${wabaId}/message_templates?name=${encodeURIComponent(template.name)}`,
+              { headers: { Authorization: `Bearer ${primaryToken}` } },
+            );
+            const found = await lookup.json();
+            const match = (found?.data || []).find(
+              (m: any) => m.name === template.name && m.language === template.language,
+            );
+            if (match) {
+              const liveStatus = String(match.status || '').toLowerCase();
+              await prisma.messageTemplate.update({
+                where: { id: templateId },
+                data: { metaTemplateId: match.id, status: liveStatus, rejectionReason: null },
+              });
+              console.warn(
+                `[TEMPLATES] ${template.name} already exists at Meta (${liveStatus}) — restored id ${match.id} instead of marking it rejected`,
+              );
+              return res.status(400).json({
+                error:
+                  `WhatsApp does not allow an approved template to be changed. Your existing "${template.name}" is still live and has been restored. ` +
+                  `To use different wording, create a new template with a different name.`,
+              });
+            }
+          } catch (e) {
+            console.error('[TEMPLATES] Could not reconcile an already-exists conflict:', e);
+          }
+        }
+
         await prisma.messageTemplate.update({
           where: { id: templateId },
           data: { status: 'rejected', rejectionReason: errorMsg },

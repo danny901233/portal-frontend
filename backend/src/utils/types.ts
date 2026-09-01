@@ -259,6 +259,8 @@ export type AgentConfigurationPayload = {
   messagingNotifyPhone?: string | null;
   transferNumber?: string | null;
   allowBookings?: boolean;
+  // 'auto' books from a reminder reply; 'enquire' captures a date preference for a human.
+  outboundBookingMode?: string;
   bookingLeadTimeDays?: number;
   voice?: VoiceOption;
   customRules?: Array<{ text: string; active: boolean }> | null;

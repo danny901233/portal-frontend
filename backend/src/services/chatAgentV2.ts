@@ -78,6 +78,8 @@ interface ChatSession {
   // We have their dates and have asked whether they need anything else.
   awaitingAnythingElse?: boolean;
   anythingElseJob?: string;
+  // The dates they gave, kept so a follow-up request is recorded alongside them.
+  enquiryPreference?: string;
   customerNameLast: string;
   
   // Vehicle
@@ -916,10 +918,11 @@ async function getChatAgentResponseInner(
       // nothing is lost if they never reply.
       session.awaitingAnythingElse = true;
       session.anythingElseJob = job;
+      session.enquiryPreference = preference;
       await saveSession(conversationId, session);
       return {
         content: `${firstName ? `Perfect, thanks ${firstName}` : 'Perfect, thank you'} — I've `
-          + `got those noted. Is there anything else I can help you with?`,
+          + `got those noted. Is there anything else you need us to check whilst the vehicle's in?`,
         // Flag now rather than waiting for a reply that may never come.
         needsHumanAssistance: true,
       };
@@ -942,7 +945,22 @@ async function getChatAgentResponseInner(
           needsHumanAssistance: true,
         };
       }
-      // Something else on their mind — carry on as normal.
+      // They have named something to look at. That is work for the team, not just a question, so
+      // add it to the message they already have rather than leaving it in the transcript for
+      // someone to notice. Then carry on and answer them normally.
+      try {
+        await handleTakeMessage({
+          message: `Reminder reply — wants their ${session.anythingElseJob || 'appointment'} booked`
+            + (session.vrn ? ` (${session.vrn})` : '')
+            + `. Preferred dates: ${session.enquiryPreference || 'not given'}`
+            + `. Also asked us to check: ${reply}`,
+          phone: session.contactPhone || '',
+        }, session, conversationId);
+        await saveSession(conversationId, session);
+        console.log(`[OUTBOUND_ENQUIRE] extra request noted: ${reply}`);
+      } catch (e) {
+        console.error('[OUTBOUND_ENQUIRE] could not record the extra request:', e);
+      }
     }
 
     // Outbound service fastpath: auto-select service for outbound reminders (MOT or Full Service)

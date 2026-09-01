@@ -75,6 +75,9 @@ interface ChatSession {
   greetedOutbound?: boolean;
   // Enquire mode: we have asked what dates suit and are waiting for the answer.
   awaitingDatePreference?: boolean;
+  // We have their dates and have asked whether they need anything else.
+  awaitingAnythingElse?: boolean;
+  anythingElseJob?: string;
   customerNameLast: string;
   
   // Vehicle
@@ -907,14 +910,39 @@ async function getChatAgentResponseInner(
       await saveSession(conversationId, session);
       console.log(`[OUTBOUND_ENQUIRE] preference captured: ${preference}`);
       const firstName = (session.customerNameFirst || '').trim().split(/\s+/)[0];
+      // Ask what else they need BEFORE signing off. Closing on "I'll get those over to the team"
+      // the instant they give a date ends the conversation on our terms, and anyone with a second
+      // question has to start again. The message is recorded and flagged for a person already, so
+      // nothing is lost if they never reply.
+      session.awaitingAnythingElse = true;
+      session.anythingElseJob = job;
+      await saveSession(conversationId, session);
       return {
-        content: `${firstName ? `Brilliant, thanks ${firstName}` : 'Brilliant, thank you'} — I've `
-          + `got those down and sent them straight over to the team. They'll be in touch very `
-          + `shortly to get your ${job} booked in around that. Thanks for getting back to us, `
-          + `it's much appreciated.`,
-        // A person has to put this in the diary, so it must land in front of one.
+        content: `${firstName ? `Perfect, thanks ${firstName}` : 'Perfect, thank you'} — I've `
+          + `got those noted. Is there anything else I can help you with?`,
+        // Flag now rather than waiting for a reply that may never come.
         needsHumanAssistance: true,
       };
+    }
+
+    // They have answered "anything else?". A no signs off properly; anything else drops the
+    // flag and lets the normal flow handle whatever they asked.
+    if (session.awaitingAnythingElse) {
+      const reply = (message || '').trim();
+      const nothingElse = /^(no|nope|nah|none|nothing( else)?|no that.?s (it|all)|that.?s (it|all|everything|fine|great|perfect)|that.?ll be all|all good|no thanks?|no thank you|nothing thanks|cheers|thanks|thank you|ta|perfect|great|lovely|ok|okay)[\s!.,\u2019]*$/i.test(reply);
+      session.awaitingAnythingElse = false;
+      await saveSession(conversationId, session);
+      if (nothingElse) {
+        const closeName = (session.customerNameFirst || '').trim().split(/\s+/)[0];
+        const closeJob = session.anythingElseJob || 'appointment';
+        return {
+          content: `${closeName ? `Brilliant, thanks ${closeName}` : 'Brilliant, thank you'} — `
+            + `I'll get those over to the team and they'll be in touch very shortly to confirm `
+            + `your ${closeJob}. Thanks for getting back to us, it's much appreciated.`,
+          needsHumanAssistance: true,
+        };
+      }
+      // Something else on their mind — carry on as normal.
     }
 
     // Outbound service fastpath: auto-select service for outbound reminders (MOT or Full Service)

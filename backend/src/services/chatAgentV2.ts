@@ -73,6 +73,8 @@ interface ChatSession {
   customerNameFirst: string;
   // Set once we have greeted an outbound replier, so later turns do not say hello again.
   greetedOutbound?: boolean;
+  // Enquire mode: we have asked what dates suit and are waiting for the answer.
+  awaitingDatePreference?: boolean;
   customerNameLast: string;
   
   // Vehicle
@@ -887,6 +889,52 @@ async function getChatAgentResponseInner(
         await saveSession(conversationId, session);
         return { content: vehicleMsg, needsHumanAssistance: false };
       }
+    }
+
+    // ── Enquire mode: capture a date preference, let a human confirm ────────────────────
+    //
+    // Great Hollands, Ecotest and JDK do not want the assistant putting anything in the diary off
+    // the back of a reminder. They want the reminder sent, the customer's preferred dates taken
+    // warmly, and a person to confirm. Any garage not set to 'enquire' books exactly as before.
+    const enquireMode = (config as any)?.outboundBookingMode === 'enquire';
+
+    // Second turn: they have said when suits. Record it and hand over.
+    if (enquireMode && session.awaitingDatePreference) {
+      const preference = (message || '').trim();
+      const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
+      session.awaitingDatePreference = false;
+      await handleTakeMessage({
+        message: `Reminder reply — wants their ${job} booked`
+          + (session.vrn ? ` (${session.vrn})` : '')
+          + `. Preferred dates: ${preference}`,
+        phone: session.contactPhone || '',
+      }, session, conversationId);
+      await saveSession(conversationId, session);
+      console.log(`[OUTBOUND_ENQUIRE] preference captured: ${preference}`);
+      const firstName = (session.customerNameFirst || '').trim().split(/\s+/)[0];
+      return {
+        content: `${firstName ? `Lovely, thanks ${firstName}` : 'Lovely, thank you'} — I've passed that `
+          + `over to the team and they'll be in touch shortly to get your ${job} confirmed.`,
+        // A person has to put this in the diary, so it must land in front of one.
+        needsHumanAssistance: true,
+      };
+    }
+
+    // First turn: greet, then ask when suits. No diary lookup, no booking.
+    if (enquireMode && session.outboundServiceType && session.step === Step.NEED_SERVICE
+        && !session.awaitingDatePreference && !session.greetedOutbound) {
+      session.greetedOutbound = true;
+      session.awaitingDatePreference = true;
+      await saveSession(conversationId, session);
+      const firstName = (session.customerNameFirst || '').trim().split(/\s+/)[0];
+      const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
+      console.log(`[OUTBOUND_ENQUIRE] asking for a date preference (${job})`);
+      return {
+        content: `${firstName ? `Hi ${firstName}` : 'Hi'}, thanks for getting back to us — that's great. `
+          + `Have you any days or times in mind for your ${job}? I'll pass them straight to the team `
+          + `and they'll confirm your appointment.`,
+        needsHumanAssistance: false,
+      };
     }
 
     // Outbound service fastpath: auto-select service for outbound reminders (MOT or Full Service)

@@ -899,7 +899,9 @@ async function getChatAgentResponseInner(
     const enquireMode = (config as any)?.outboundBookingMode === 'enquire';
 
     // Second turn: they have said when suits. Record it and hand over.
-    if (enquireMode && session.awaitingDatePreference) {
+    // Not gated on enquireMode: the same flag is set when a garage that normally books hits an
+    // empty diary, and the answer to "when would suit?" is handled identically either way.
+    if (session.awaitingDatePreference) {
       const preference = (message || '').trim();
       const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
       session.awaitingDatePreference = false;
@@ -913,8 +915,10 @@ async function getChatAgentResponseInner(
       console.log(`[OUTBOUND_ENQUIRE] preference captured: ${preference}`);
       const firstName = (session.customerNameFirst || '').trim().split(/\s+/)[0];
       return {
-        content: `${firstName ? `Lovely, thanks ${firstName}` : 'Lovely, thank you'} — I've passed that `
-          + `over to the team and they'll be in touch shortly to get your ${job} confirmed.`,
+        content: `${firstName ? `Brilliant, thanks ${firstName}` : 'Brilliant, thank you'} — I've `
+          + `got those down and sent them straight over to the team. They'll be in touch very `
+          + `shortly to get your ${job} booked in around that. Thanks for getting back to us, `
+          + `it's much appreciated.`,
         // A person has to put this in the diary, so it must land in front of one.
         needsHumanAssistance: true,
       };
@@ -3225,6 +3229,11 @@ async function handleSelectService(args: any, session: ChatSession, conversation
         ? '' : `£${noSlotPriceNum.toFixed(2).replace(/\.00$/, '')}`;
       console.log(`[SELECT_SERVICE] 0 timeslots for ${serviceName} — quoting ${noSlotPrice || 'POA'} anyway, then taking details`);
       session.notes = (session.notes ? session.notes + ' | ' : '') + `Callback requested: no online availability for ${serviceName}`;
+      // Ask when would suit rather than just apologising. An empty diary is not the customer's
+      // problem, and "I've no availability, can I grab your email" makes the whole exchange feel
+      // wasted. Same flow the JDK garages use by choice — take a preference, hand it to a person
+      // — and awaitingDatePreference is picked up by the handler above when they reply.
+      session.awaitingDatePreference = true;
       session.step = Step.NEED_CONTACT;
       await saveSession(conversationId, session);
       const nextAsk = session.contactPhone
@@ -3234,7 +3243,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
         ? `A ${serviceName} is ${noSlotPrice}. `
         : '';
       return `No online slots for ${serviceName}.${noSlotPrice ? ` The price IS known (${noSlotPrice}) — tell them the price, do NOT withhold it.` : ''}
-Say: "${priceSentence}I'm sorry, I don't have any online availability showing for that at the moment — it could be the team need to assess it first. Let me take your details and someone will give you a call to get you sorted. ${nextAsk}"
+Say: "${priceSentence}I haven't got any times showing online for that one, but I can still get you sorted — the team book those in directly. Have you any days or times in mind? I'll pass them straight over and they'll confirm your appointment."
 Wait for their response.`;
     }
 

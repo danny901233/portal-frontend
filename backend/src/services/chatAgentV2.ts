@@ -80,6 +80,8 @@ interface ChatSession {
   anythingElseJob?: string;
   // The dates they gave, kept so a follow-up request is recorded alongside them.
   enquiryPreference?: string;
+  // Set once we have nudged a customer who answered "not sure", so we never ask a third time.
+  datePreferenceReasked?: boolean;
   customerNameLast: string;
   
   // Vehicle
@@ -901,6 +903,20 @@ async function getChatAgentResponseInner(
     // Their answer is captured against the vehicle and handed to a person to confirm.
     if (session.awaitingDatePreference) {
       const preference = (message || '').trim();
+      // "I'm not sure, what days have you got?" is a question, not an answer. Filing it as their
+      // preferred dates sends the team a message saying the customer does not know when they want
+      // to come in, which helps nobody. Nudge once for something rough instead.
+      const noDateGiven = /(not sure|dont know|don.t know|no idea|unsure|what (days?|times?|have) )/i.test(preference)
+        && !/\b(mon|tue|wed|thu|fri|sat|sun|morning|afternoon|evening|next week|this week|\d)/i.test(preference);
+      if (noDateGiven && !session.datePreferenceReasked) {
+        session.datePreferenceReasked = true;
+        await saveSession(conversationId, session);
+        return {
+          content: `No problem at all — the team will find you the earliest that works. Roughly what `
+            + `suits you best, mornings or afternoons? And any days you'd rather avoid?`,
+          needsHumanAssistance: false,
+        };
+      }
       const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
       session.awaitingDatePreference = false;
       await handleTakeMessage({
@@ -2090,7 +2106,10 @@ async function getChatAgentResponseInner(
 
         // If select_service (or confirm_vehicle with serviceHint) transitioned to NEED_TIMESLOT, short-circuit
         if ((functionName === 'select_service' || functionName === 'confirm_vehicle') && (session.step as Step) === Step.NEED_TIMESLOT) {
-          const sayMatch = instructions.match(/Say(?:\s+EXACTLY)?:\s*"([\s\S]*?)"/i);
+          // Accepts "Say:", "Say EXACTLY:" and "Say ONLY:" — all three are used in this file, and an
+          // instruction using the wrong one fell silently through to the catch-all. That is how a
+          // customer got "sorry, could you say that again for me?" instead of a real question.
+          const sayMatch = instructions.match(/Say(?:\s+(?:EXACTLY|ONLY))?:\s*"([\s\S]*?)"/i);
           if (sayMatch) {
             needTimeslotFastPath = true;
             timeslotFastPathContent = sayMatch[1].trim();

@@ -42,6 +42,30 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
     // the reminder scheduler has a real date to work from. Unparseable dates land as null and
     // are counted below — never guessed, because a reminder sent on the wrong day is worse than
     // one not sent at all.
+    // A chosen template is an explicit statement of intent — "this is a service campaign" — and it
+    // should beat anything inferred from a spreadsheet column. Great Hollands picked
+    // gh_service_overdue_reminder, the rows were typed from the date columns instead, and the two
+    // disagreed: the customer was told his service was overdue and then offered an MOT.
+    //
+    // Only for MANUAL uploads. The automatic GarageHive sweep has no human in the loop and decides
+    // per vehicle, which is right there — this does not touch it.
+    let templateType: 'mot' | 'service' | null = null;
+    if (messageTemplateId) {
+      try {
+        const tpl = await prisma.messageTemplate.findUnique({
+          where: { id: messageTemplateId }, select: { name: true },
+        });
+        const tn = (tpl?.name || '').toLowerCase();
+        const hasService = /service/.test(tn);
+        const hasMot = /\bmot\b/.test(tn);
+        // Only when it says one and not the other. A template naming both settles nothing, so fall
+        // back to the dates rather than guessing.
+        if (hasService && !hasMot) templateType = 'service';
+        else if (hasMot && !hasService) templateType = 'mot';
+        if (templateType) console.log(`[OUTBOUND] template "${tpl?.name}" -> chasing ${templateType}`);
+      } catch { /* fall back to the dates */ }
+    }
+
     const normalisedRaw = contacts.map((c) => {
       const motRaw = c.motDueDate?.trim() || null;
       const svcRaw = c.serviceDueDate?.trim() || null;
@@ -59,9 +83,11 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
       // every one carried both dates.
       //
       // Whichever falls first is the one to chase; the other comes round on its own sweep.
-      const useService = svcDue !== null && (motDue === null || svcDue < motDue);
-      const messageType = useService ? 'service' : (motDue !== null ? 'mot' : (svcDue !== null ? 'service' : 'mot'));
-      const dueDate = useService ? svcDue : (motDue ?? svcDue);
+      const byDate = svcDue !== null && (motDue === null || svcDue < motDue);
+      const messageType = templateType
+        ?? (byDate ? 'service' : (motDue !== null ? 'mot' : (svcDue !== null ? 'service' : 'mot')));
+      // Chase the date that belongs to whatever we settled on, so the reminder lands on the right day.
+      const dueDate = messageType === 'service' ? (svcDue ?? motDue) : (motDue ?? svcDue);
 
       return {
         garageId,

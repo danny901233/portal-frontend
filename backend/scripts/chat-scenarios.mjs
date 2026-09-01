@@ -38,11 +38,31 @@ export const SEEDS = {
     sessionId: 'scenario-test-session', servicesAvailable: SERVICES,
     intent: '', notes: '', servicePrice: '',
   },
+  // Exactly what the no-slots branch leaves behind: a reminder reply at a garage whose service
+  // items return zero timeslots, so we are collecting when would suit instead of booking.
+  reminderNoSlots: {
+    step: 'need_contact', vrn: 'V20ALA', vrnConfirmed: true,
+    vehicleMake: 'Land Rover', vehicleModel: 'Range Rover Evoque',
+    sessionId: 'scenario-test-session', servicesAvailable: SERVICES,
+    serviceSelectedId: '5910', serviceSelectedName: 'Carry out Full Service',
+    outboundServiceType: 'service', outboundRegistration: 'V20ALA',
+    customerNameFirst: 'Sarah', contactPhone: '447700900199', contactPhoneSeeded: true,
+    greetedOutbound: true, awaitingDatePreference: true, timeslotsAvailable: [],
+    intent: '', notes: '', servicePrice: '',
+  },
 };
 
 const ASKS_FOR_SERVICE = /what (sort|kind|type) of service|which service|what service|were you after/i;
 const CALLBACK = /call (you )?back|ring you back|give you a (call|ring)|be in touch|pass (that|it|your details) on|passed (that|it) on/i;
 const ASKS_REG = /registration|reg\b|number plate/i;
+
+// The reminder flow has two rules that matter more than any wording. It must never let on that
+// the garage has nothing bookable online — the customer does not need to know and it only makes
+// them doubt they will be seen — and it must not close before it actually has dates.
+const MENTIONS_AVAILABILITY = /no (online )?(availability|times|slots)|nothing (showing|available)|not? (any )?availability|fully booked|diary is full|can'?t book (you )?in online|online booking system/i;
+const CLOSES_THE_CHAT = /(pass|get|send) (those|these|that|it|them) (over |on |straight )?to the team|team will (be in touch|confirm|call|ring)|someone will (confirm|be in touch)|(I'?ve|I have) got (those|that|these) noted/i;
+const ASKS_SOMETHING = /\?/;
+const ANYTHING_ELSE = /anything else|whilst the vehicle|while the vehicle|whilst it'?s in|while it'?s in/i;
 
 export const SCENARIOS = [
   // ── BOOKINGS ────────────────────────────────────────────────────────────────
@@ -237,4 +257,42 @@ export const SCENARIOS = [
   { id: 'EDGE-06', cat: 'edge', desc: 'Asks for a free service', seed: 'fresh',
     turns: ['Can you do my service for free since I am a regular?'],
     expect: { notSay: /yes,? (of course|sure),? (it|that)('s| is) free/i } },
+
+  // ── REMINDER REPLIES, NOTHING BOOKABLE ONLINE ───────────────────────────────────────
+  // Great Hollands, Ecotest and JDK keep their diaries offline, so every service item returns
+  // zero timeslots and the agent collects a preference for a person to ring back on. This path
+  // broke three times on 2026-09-01 and had no coverage at all.
+
+  { id: 'REM-01', cat: 'reminder', desc: 'Asks what dates are soonest — a question, not an answer', seed: 'reminderNoSlots',
+    turns: ['What dates the soonest'],
+    expect: { say: ASKS_SOMETHING, notSay: CLOSES_THE_CHAT, flagged: false } },
+
+  { id: 'REM-02', cat: 'reminder', desc: 'Gives dates — records them and asks what else', seed: 'reminderNoSlots',
+    turns: ['Tuesday or Wednesday would suit'],
+    expect: { say: ANYTHING_ELSE, flagged: true } },
+
+  { id: 'REM-03', cat: 'reminder', desc: 'Question first, then a real preference', seed: 'reminderNoSlots',
+    turns: ['what dates are the soonest?', 'mornings would be best, as soon as you can'],
+    expect: { say: ANYTHING_ELSE, flagged: true } },
+
+  { id: 'REM-04', cat: 'reminder', desc: 'No preference — nudged, not closed', seed: 'reminderNoSlots',
+    turns: ["I don't mind really"],
+    expect: { say: ASKS_SOMETHING, notSay: MENTIONS_AVAILABILITY } },
+
+  { id: 'REM-05', cat: 'reminder', desc: 'Dates then nothing else — warm sign-off', seed: 'reminderNoSlots',
+    turns: ['Tuesday or Wednesday', "No that's it thanks"],
+    expect: { say: CALLBACK, notSay: MENTIONS_AVAILABILITY, flagged: true } },
+
+  { id: 'REM-06', cat: 'reminder', desc: 'Asks outright if anything is free — no diary talk', seed: 'reminderNoSlots',
+    turns: ['Have you got anything free this week?'],
+    expect: { notSay: MENTIONS_AVAILABILITY } },
+
+  { id: 'REM-07', cat: 'reminder', desc: 'Names something else to check — captured, not dropped', seed: 'reminderNoSlots',
+    turns: ['Friday morning please', 'can you check the brakes as well'],
+    expect: { notSay: MENTIONS_AVAILABILITY, flagged: true } },
+
+  { id: 'REM-08', cat: 'reminder', desc: 'Never invents a specific time', seed: 'reminderNoSlots',
+    turns: ['What dates the soonest'],
+    expect: { notSay: /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b/i } },
+
 ];

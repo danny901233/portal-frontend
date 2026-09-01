@@ -921,109 +921,14 @@ async function getChatAgentResponseInner(
     // Second turn: they have said when suits. Record it and hand over.
     // Set when a booking attempt found nothing in the diary and we asked what dates would suit.
     // Their answer is captured against the vehicle and handed to a person to confirm.
-    if (session.awaitingDatePreference) {
-      const preference = (message || '').trim();
-      // "I'm not sure, what days have you got?" is a question, not an answer. Filing it as their
-      // preferred dates sends the team a message saying the customer does not know when they want
-      // to come in, which helps nobody. Nudge once for something rough instead.
-      // Two tests, deliberately. The first catches asking-or-vague — "what dates are the
-      // soonest?", "when can you fit me in?", "I don't mind". The second lets anything carrying
-      // a real day, part of day or number through untouched, because "soonest Monday" and
-      // "asap but not the 3rd" ARE answers and must not be nudged.
-      const asksOrVague = new RegExp([
-        'not sure', 'dont know', 'don.t know', 'no idea', 'unsure',
-        'soonest', 'earliest', 'asap', 'as soon as possible',
-        'when can', 'when could', 'when are you', 'when have you', 'when is',
-        'what (?:dates?|days?|times?|have)',
-        'what.?s (?:the )?(?:soonest|earliest|available|free)',
-        'any (?:availability|dates?|days?|times?|slots?)',
-        'you (?:tell me|choose|pick)', 'up to you', 'whenever', 'any ?time',
-        'whatever suits', 'flexible', 'no preference', 'not fussed',
-        'dont mind', 'don.t mind', 'doesn.?t matter', 'either',
-      ].join('|'), 'i').test(preference);
-      const noDateGiven = asksOrVague
-        && !/\b(mon|tue|wed|thu|fri|sat|sun|morning|afternoon|evening|next week|this week|\d)/i.test(preference);
-      if (noDateGiven && !session.datePreferenceReasked) {
-        session.datePreferenceReasked = true;
-        // Keep the original wording. If they answer the nudge with "mornings", the team should
-        // still see that what they actually asked for was the earliest available.
-        session.enquiryPreference = preference;
-        await saveSession(conversationId, session);
-        return {
-          content: `No problem at all — the team will find you the earliest that works. Roughly what `
-            + `suits you best, mornings or afternoons? And any days you'd rather avoid?`,
-          needsHumanAssistance: false,
-        };
-      }
-      const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
-      session.awaitingDatePreference = false;
-      // If we nudged them, the team should see both halves: what they asked first ("as soon as
-      // possible") and what they narrowed it to ("mornings"). Either alone loses information.
-      const earlierRemark = session.datePreferenceReasked
-        ? (session.enquiryPreference || '').trim()
-        : '';
-      const preferenceNote = earlierRemark && earlierRemark !== preference
-        ? `${earlierRemark} / ${preference}`
-        : preference;
-      await handleTakeMessage({
-        message: `Reminder reply — wants their ${job} booked`
-          + (session.vrn ? ` (${session.vrn})` : '')
-          + `. Preferred dates: ${preferenceNote}`,
-        phone: session.contactPhone || '',
-      }, session, conversationId);
-      await saveSession(conversationId, session);
-      console.log(`[OUTBOUND_ENQUIRE] preference captured: ${preference}`);
-      const firstName = (session.customerNameFirst || '').trim().split(/\s+/)[0];
-      // Ask what else they need BEFORE signing off. Closing on "I'll get those over to the team"
-      // the instant they give a date ends the conversation on our terms, and anyone with a second
-      // question has to start again. The message is recorded and flagged for a person already, so
-      // nothing is lost if they never reply.
-      session.awaitingAnythingElse = true;
-      session.anythingElseJob = job;
-      session.enquiryPreference = preferenceNote;
-      await saveSession(conversationId, session);
-      return {
-        content: `${firstName ? `Perfect, thanks ${firstName}` : 'Perfect, thank you'} — I've `
-          + `got those noted. Is there anything else you need us to check whilst the vehicle's in?`,
-        // Flag now rather than waiting for a reply that may never come.
-        needsHumanAssistance: true,
-      };
-    }
-
-    // They have answered "anything else?". A no signs off properly; anything else drops the
-    // flag and lets the normal flow handle whatever they asked.
-    if (session.awaitingAnythingElse) {
-      const reply = (message || '').trim();
-      const nothingElse = /^(no|nope|nah|none|nothing( else)?|no that.?s (it|all)|that.?s (it|all|everything|fine|great|perfect)|that.?ll be all|all good|no thanks?|no thank you|nothing thanks|cheers|thanks|thank you|ta|perfect|great|lovely|ok|okay)[\s!.,\u2019]*$/i.test(reply);
-      session.awaitingAnythingElse = false;
-      await saveSession(conversationId, session);
-      if (nothingElse) {
-        const closeName = (session.customerNameFirst || '').trim().split(/\s+/)[0];
-        const closeJob = session.anythingElseJob || 'appointment';
-        return {
-          content: `${closeName ? `Brilliant, thanks ${closeName}` : 'Brilliant, thank you'} — `
-            + `I'll get those over to the team and they'll be in touch very shortly to confirm `
-            + `your ${closeJob}. Thanks for getting back to us, it's much appreciated.`,
-          needsHumanAssistance: true,
-        };
-      }
-      // They have named something to look at. That is work for the team, not just a question, so
-      // add it to the message they already have rather than leaving it in the transcript for
-      // someone to notice. Then carry on and answer them normally.
-      try {
-        await handleTakeMessage({
-          message: `Reminder reply — wants their ${session.anythingElseJob || 'appointment'} booked`
-            + (session.vrn ? ` (${session.vrn})` : '')
-            + `. Preferred dates: ${session.enquiryPreference || 'not given'}`
-            + `. Also asked us to check: ${reply}`,
-          phone: session.contactPhone || '',
-        }, session, conversationId);
-        await saveSession(conversationId, session);
-        console.log(`[OUTBOUND_ENQUIRE] extra request noted: ${reply}`);
-      } catch (e) {
-        console.error('[OUTBOUND_ENQUIRE] could not record the extra request:', e);
-      }
-    }
+    // The reminder date-preference conversation used to be intercepted here: two hardcoded
+    // turns that never reached the model, with the customer's reply classified by regex. It could
+    // only understand phrasings someone had thought of in advance — "What dates the soonest"
+    // was filed as a preferred date because the pattern looked for "days", not "dates", so the
+    // agent answered a question with "I've got those noted". Every new phrasing needed another
+    // pattern. The conversation is the model's now (see the COLLECTING PREFERRED DATES block in
+    // buildSystemPromptV2); record_date_preference keeps the parts that must not be left to a
+    // model — the message being recorded and the conversation flagged — deterministic.
 
     // Outbound service fastpath: auto-select service for outbound reminders (MOT or Full Service)
     // The webhook seeds step=need_service with vrn already set, so the vehicle fast-path above
@@ -1729,7 +1634,12 @@ async function getChatAgentResponseInner(
     // BUT skip this if booking is already confirmed — post-booking messages should go to LLM
     const bookingComplete = !!(session.bookingDate && session.bookingTime);
     const isAlreadyConfirmed = session.step === Step.CONFIRMED || session.step === Step.DONE;
-    if ((session.step === Step.NEED_CONTACT || bookingComplete) && !isAlreadyConfirmed) {
+    // Collecting a date preference also sits at need_contact, but there is no booking to collect
+    // contact details for — the whole point of that path is that nothing is bookable. Letting this
+    // block run swallowed the turn before the model ever saw it, so "Tuesday or Wednesday" came
+    // back as "Can I grab your email address?" and record_date_preference was never called.
+    if ((session.step === Step.NEED_CONTACT || bookingComplete) && !isAlreadyConfirmed
+        && !session.awaitingDatePreference && !session.awaitingAnythingElse) {
       // Ensure step is correct
       if (bookingComplete) {
         session.step = Step.NEED_CONTACT;
@@ -2034,6 +1944,23 @@ async function getChatAgentResponseInner(
       toolsForCall = toolsForCall.filter((t) => (t as any).function?.name !== 'confirm_vehicle');
     }
 
+    // Collecting when someone would like to come in is a different conversation from booking
+    // them in. Leaving select_service and select_timeslot on the table invites the model to
+    // restart a flow that cannot finish — there is nothing bookable, which is why we are here.
+    // Off that path, withdraw record_date_preference for the same reason.
+    if (toolsForCall) {
+      const collectingPreference = !!(session.awaitingDatePreference || session.awaitingAnythingElse);
+      const allowed = new Set(['record_date_preference', 'save_caller_name', 'take_message']);
+      toolsForCall = toolsForCall.filter((t) => {
+        const n = (t as any).function?.name;
+        return collectingPreference ? allowed.has(n) : n !== 'record_date_preference';
+      });
+      if (collectingPreference) {
+        console.log(`[OUTBOUND_ENQUIRE] preference mode — tools offered: `
+          + toolsForCall.map((t) => (t as any).function?.name).join(', '));
+      }
+    }
+
     let response = await openAIWithRetry(messages, temperature, toolsForCall);
 
     // Handle function calls (tools return instructions)
@@ -2067,8 +1994,14 @@ async function getChatAgentResponseInner(
         console.log(`[CHAT_AGENT_V2] Calling: ${functionName}`, functionArgs);
 
         // If we're already in NEED_CONTACT (set by a prior tool in this batch),
-        // skip any remaining tool calls - hand off to the fast-path instead
-        if ((session.step as Step) === Step.NEED_CONTACT) {
+        // skip any remaining tool calls - hand off to the fast-path instead.
+        //
+        // Except while collecting a date preference. That path sits at need_contact too, but
+        // there is no booking and no contact details to collect — record_date_preference IS the
+        // work of the turn. Skipping it meant the model called it with the right dates and we
+        // threw the call away, replying "Can I grab your email address?" and losing the lead.
+        if ((session.step as Step) === Step.NEED_CONTACT
+            && !session.awaitingDatePreference && !session.awaitingAnythingElse) {
           console.log(`[CHAT_AGENT_V2] Skipping ${functionName} - already in NEED_CONTACT, using fast-path`);
           needContactFastPath = true;
           // Still need to push a placeholder tool result so OpenAI message history is valid
@@ -2145,8 +2078,16 @@ async function getChatAgentResponseInner(
           content: instructions,
         });
 
-        // Check immediately after each tool call
-        if ((session.step as Step) === Step.NEED_CONTACT) {
+        console.log(`[CHAT_TOOL] ${functionName} → step=${session.step}`);
+
+        // Check immediately after each tool call.
+        //
+        // Not while we are collecting a date preference. That path also sits at need_contact but
+        // has no booking to collect details for, and this hand-off DISCARDS the model's reply and
+        // the tool's own instruction in favour of "Can I grab your email address?" — which is
+        // exactly what a customer got after answering "Tuesday or Wednesday".
+        if ((session.step as Step) === Step.NEED_CONTACT
+            && !session.awaitingDatePreference && !session.awaitingAnythingElse) {
           needContactFastPath = true;
         }
 
@@ -2222,6 +2163,13 @@ async function getChatAgentResponseInner(
         console.log(`[NAME_FROM_REPLY] Persisting "${session.customerNameFirst}" — the agent used it but never called save_caller_name`);
         await saveSession(conversationId, session);
       }
+    }
+
+    // One-shot. "Anything else?" applies to the turn right after we asked it; if they said no
+    // and we signed off, the flag must not linger and re-scope whatever they say next.
+    if (session.awaitingAnythingElse) {
+      session.awaitingAnythingElse = false;
+      await saveSession(conversationId, session);
     }
 
     return {
@@ -2385,6 +2333,32 @@ function instructionToCustomerReply(instructions: string): string {
 // Conversational tools that return INSTRUCTIONS (like voice agent)
 function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
   return [
+    {
+      type: 'function',
+      function: {
+        name: 'record_date_preference',
+        description: 'Record when a reminder customer would like to come in, for a garage that has '
+          + 'no bookable times showing online. Call this ONLY once they have said something usable '
+          + '— a day, a part of the day, a week, or "as soon as possible" all count. A question '
+          + 'back ("what dates are the soonest?") is NOT an answer; answer it and ask again.',
+        parameters: {
+          type: 'object',
+          properties: {
+            preference: {
+              type: 'string',
+              description: 'When suits them, in their own words — e.g. "as soon as possible, '
+                + 'mornings", "Tuesday or Wednesday", "flexible, but not Fridays".',
+            },
+            anything_else: {
+              type: 'string',
+              description: 'Anything else they have asked us to check whilst the vehicle is in. '
+                + 'Omit on the first call.',
+            },
+          },
+          required: ['preference'],
+        },
+      },
+    },
     {
       type: 'function',
       function: {
@@ -2595,6 +2569,9 @@ async function executeConversationalTool(
       case 'set_contact_info':
         return await handleSetContactInfo(args, session, conversationId);
       
+      case 'record_date_preference':
+        return await handleRecordDatePreference(args, session, conversationId);
+
       case 'take_message':
         return await handleTakeMessage(args, session, conversationId);
       
@@ -3319,7 +3296,8 @@ async function handleSelectService(args: any, session: ChatSession, conversation
       // Ask when would suit rather than just apologising. An empty diary is not the customer's
       // problem, and "I've no availability, can I grab your email" makes the whole exchange feel
       // wasted. Same flow the JDK garages use by choice — take a preference, hand it to a person
-      // — and awaitingDatePreference is picked up by the handler above when they reply.
+      // — and awaitingDatePreference scopes the model's next turn, via the COLLECTING
+      // PREFERRED DATES block in buildSystemPromptV2 and the record_date_preference tool.
       session.awaitingDatePreference = true;
       session.step = Step.NEED_CONTACT;
       await saveSession(conversationId, session);
@@ -3989,6 +3967,53 @@ function categoriseBooking(serviceName?: string): 'mot' | 'service' | 'diagnosti
   return 'other';   // tyres, brakes, repairs — no enum member for those
 }
 
+/**
+ * The customer replied to a reminder, the garage has nothing bookable showing online, and we are
+ * finding out when would suit so a person can ring them back.
+ *
+ * Safe to call twice: the first call records the dates and flags the conversation, so nothing is
+ * lost if they go quiet; a second call replaces the note with one that also carries whatever else
+ * they want looking at.
+ */
+async function handleRecordDatePreference(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  const preference = String(args?.preference || '').trim();
+  const anythingElse = String(args?.anything_else || '').trim();
+  const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
+
+  if (!preference) {
+    return `No preference given yet.\n\nDo NOT call this tool until the customer has actually told `
+      + `you when would suit — a day, a part of the day, a week, or "as soon as possible" all count. `
+      + `Ask them, and do not treat a question back as their answer.`;
+  }
+
+  session.enquiryPreference = preference;
+  session.anythingElseJob = job;
+  await handleTakeMessage({
+    message: `Reminder reply — wants their ${job} booked`
+      + (session.vrn ? ` (${session.vrn})` : '')
+      + `. Preferred dates: ${preference}`
+      + (anythingElse ? `. Also asked us to check: ${anythingElse}` : ''),
+    phone: session.contactPhone || '',
+  }, session, conversationId);
+  console.log(`[OUTBOUND_ENQUIRE] preference="${preference}"${anythingElse ? ` extra="${anythingElse}"` : ''}`);
+
+  session.awaitingDatePreference = false;
+  session.awaitingAnythingElse = !anythingElse;
+  await saveSession(conversationId, session);
+
+  if (!anythingElse) {
+    return `Recorded and flagged for the team.\n\nNow ask what else they need looking at — word it `
+      + `as "is there anything else you need us to check whilst the vehicle's in?". Do NOT sign off `
+      + `yet and do NOT thank them for the details yet.\n\nIf they name something, call this tool `
+      + `again with the same preference plus anything_else. If they say no or nothing else, sign off `
+      + `warmly: the team will be in touch shortly to confirm their ${job}.`;
+  }
+
+  return `Recorded, including the extra request.\n\nSign off warmly now — you have everything, and `
+    + `the team will be in touch very shortly to confirm their ${job}. Thank them for getting back `
+    + `to us.\n\nConversation complete.`;
+}
+
 async function handleTakeMessage(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { message, phone, callback_time = '' } = args;
   
@@ -4007,8 +4032,13 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
     where: { id: conversationId },
     data: { needsAttention: true },
   });
-  void notifyFlaggedConversation(conversationId);
-  void notifyMessaging({ conversationId, event: 'escalated' });
+  // A scenario run drives the real agent against a real test garage, so it trips these too —
+  // one "a customer needs a human" alert per flagged scenario, times every run of the suite.
+  // Nobody should be paged by a regression run.
+  if (process.env.CHAT_SCENARIO_RUN !== '1') {
+    void notifyFlaggedConversation(conversationId);
+    void notifyMessaging({ conversationId, event: 'escalated' });
+  }
 
   const serviceContext = session.serviceSelectedName ? ` about ${session.serviceSelectedName}` : '';
   return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've passed that on${serviceContext}. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'} — have a great day!"\n\nConversation complete.`;
@@ -5060,7 +5090,9 @@ TONE EXAMPLES:
   // flow and the service list, so the very next turn the agent goes back to "what sort of
   // service were you after?" — which is what happened on Great Hollands 2026-08-12 even after
   // the state was corrected. State the situation plainly and name the one tool that finishes it.
-  if (session.step === Step.MESSAGE_ONLY) {
+  // take_message has already run by the time we are collecting dates, which sets MESSAGE_ONLY.
+  // Both blocks firing would tell the model to ask for a name and call take_message mid-flow.
+  if (session.step === Step.MESSAGE_ONLY && !session.awaitingDatePreference && !session.awaitingAnythingElse) {
     const seededUnconfirmed = !!(session.contactPhone && session.contactPhoneSeeded && !session.contactPhoneConfirmed);
     const missing = [
       !session.customerNameFirst ? 'their full name' : '',
@@ -5391,6 +5423,48 @@ RECOGNISING AFFIRMATIVE RESPONSES:
   if (session.advisoryText) {
     prompt += `\nADVISORY UPSELL: This customer was offered outstanding health-check advisories on their vehicle: ${session.advisoryText}. If they agree to any of them, briefly confirm and add it to the booking notes (via confirm_booking's notes) so the garage sorts it while the car's in. If they decline, drop it gracefully and don't offer again. Never invent advisories beyond the ones listed here.\n`;
   }
+
+  // Reminder reply, nothing bookable online: we are collecting when would suit, not booking.
+  // The rules below are the ones the hardcoded version enforced by simply not having a model.
+  if (session.awaitingDatePreference || session.awaitingAnythingElse) {
+    const prefJob = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
+    prompt += `\nCOLLECTING PREFERRED DATES — THIS SECTION OVERRIDES EVERYTHING ABOVE IT, including the BOOKING FLOW, anything about collecting contact details, and any rule about not ending the chat until a booking is confirmed. None of that applies here.\n`
+      + `This customer replied to a ${prefJob} reminder${session.vrn ? ` for ${session.vrn}` : ''}. `
+      + `You are NOT booking them in and you have no times to offer. Your only job is to find out `
+      + `when would suit them and get that to the team.\n`;
+    if (session.awaitingDatePreference) {
+      prompt += `- You have already asked whether they have any days or times in mind. Talk to them `
+        + `normally until they give you something usable: a day, a part of the day, a week, or "as `
+        + `soon as possible" all count.\n`
+        + `- If they ask YOU a question back ("what dates are the soonest?", "when can you fit me `
+        + `in?"), that is a question, NOT their answer. Answer it honestly — you cannot see the live `
+        + `diary, and the team will come back with the earliest that works — then ask what generally `
+        + `suits, mornings or afternoons, and any days they would rather avoid.\n`
+        + `- If they genuinely do not mind, ask once for mornings or afternoons. If they still have `
+        + `no preference, "flexible" is a fine answer — take it.\n`
+        + `- You already have their name and their phone number, and no booking is being made, so `
+        + `you need nothing else from them. Do NOT ask for an email address, a postcode or a house `
+        + `number. Do NOT ask which service they want and do NOT offer or list services — that is `
+        + `already settled.\n`
+        + `- The moment you have something usable, call record_date_preference. Do not reply to `
+        + `them again without calling it first.\n`;
+    } else {
+      prompt += `- You have their dates and have asked what else they need checking whilst the `
+        + `vehicle is in. If they name something, call record_date_preference again with the same `
+        + `preference plus anything_else. If they say no or nothing else, sign off warmly: the team `
+        + `will be in touch shortly to confirm their ${prefJob}.\n`
+        + `- You need nothing else from them. Do NOT ask for an email address, a postcode or a `
+        + `house number, and do NOT start a booking.\n`;
+    }
+    prompt += `NEVER say there is no availability, nothing showing online, that the diary is full, `
+      + `or anything about the online booking system — the customer does not need to know, and it `
+      + `only makes them doubt they will be seen.\n`
+      + `NEVER say you will pass it to the team, that someone will confirm, or thank them for the `
+      + `details BEFORE record_date_preference has been called — that closes the conversation `
+      + `before they have answered.\n`
+      + `NEVER invent or promise a specific date, time or price.\n`;
+  }
+
 
   return prompt;
 }

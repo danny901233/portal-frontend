@@ -33,6 +33,10 @@ const QUIET = args.includes('--quiet');
 const GARAGE_ID = (args.find(a => a.startsWith('--garage=')) || '').split('=')[1]
   || 'd51dfa55-15d0-4d60-ad81-c675579d16f6';
 
+// Suppress the "a customer needs a human" alerts — see handleTakeMessage. Set before any
+// conversation is driven, and read at call time, so the import order does not matter.
+process.env.CHAT_SCENARIO_RUN = '1';
+
 const prisma = new PrismaClient();
 const rx = v => (v instanceof RegExp ? v : new RegExp(v, 'i'));
 

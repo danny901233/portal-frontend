@@ -137,29 +137,46 @@ router.put(
         return res.status(400).json({ error: 'bodyText is required' });
       }
 
-      // Editing resets the template to draft so it must be resubmitted to Meta
+      // Everything Meta receives, and therefore everything that can invalidate its approval.
+      const metaVisible = {
+        category: category || template.category,
+        language: language || template.language,
+        headerType: headerType ?? template.headerType,
+        headerContent: headerContent ?? template.headerContent,
+        headerSample: headerSample ?? template.headerSample,
+        bodyText,
+        footerText: footerText ?? template.footerText,
+        buttonType: buttonType ?? template.buttonType,
+        buttonText: buttonText ?? template.buttonText,
+        buttonValue: buttonValue ?? template.buttonValue,
+      };
+
+      // variableSamples (which contact field each {{n}} draws from) and templateType are ours
+      // alone — Meta never sees either. Resetting on those knocked Great Hollands' live service
+      // reminder out of approved for re-pointing {{3}} at the garage's phone number, and the
+      // forced resubmission then failed because the template already existed at Meta. An approved
+      // template must survive an edit Meta cannot see.
+      const contentChanged = (Object.keys(metaVisible) as Array<keyof typeof metaVisible>).some(
+        (k) => (metaVisible[k] ?? null) !== ((template as any)[k] ?? null),
+      );
+
       const updated = await prisma.messageTemplate.update({
         where: { id: templateId },
         data: {
-          category: category || template.category,
+          ...metaVisible,
           templateType: TEMPLATE_TYPES.includes(templateType) ? templateType : template.templateType,
-          language: language || template.language,
-          headerType: headerType ?? template.headerType,
-          headerContent: headerContent ?? template.headerContent,
-          headerSample: headerSample ?? template.headerSample,
-          bodyText,
           variableSamples: variableSamples ?? template.variableSamples,
-          footerText: footerText ?? template.footerText,
-          buttonType: buttonType ?? template.buttonType,
-          buttonText: buttonText ?? template.buttonText,
-          buttonValue: buttonValue ?? template.buttonValue,
-          status: 'draft',
-          metaTemplateId: null,
-          rejectionReason: null,
+          ...(contentChanged
+            ? { status: 'draft', metaTemplateId: null, rejectionReason: null }
+            : {}),
         },
       });
 
-      console.log(`[TEMPLATES] Updated: ${template.name} → draft`);
+      console.log(
+        contentChanged
+          ? `[TEMPLATES] Updated: ${template.name} → draft (wording changed, needs resubmitting)`
+          : `[TEMPLATES] Updated: ${template.name} — no change Meta can see, keeping ${template.status}`,
+      );
       res.json({ success: true, template: updated });
     } catch (error) {
       console.error('[TEMPLATES] Update error:', error);

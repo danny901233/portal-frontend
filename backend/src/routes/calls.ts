@@ -1675,8 +1675,17 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
         ...(rangeHeader ? { Range: rangeHeader } : {}),
       }));
 
-      res.setHeader('Content-Type', s3Response.ContentType || 'audio/mpeg');
-      res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
+      // Content-Type used to be hard-coded to audio/mpeg regardless of the
+      // actual file. LiveKit-recorded calls are .mp4 (AAC in an MP4 container)
+      // and browsers were re-probing the file on that mismatch, blowing up the
+      // "0:00 / 0:00" wait. Prefer S3's ContentType; fall back to sniffing the
+      // file extension; then to audio/mpeg only as a last resort.
+      const isMp4 = /\.mp4$/i.test(s3Key);
+      const inferredType = isMp4 ? 'audio/mp4' : (/\.mp3$/i.test(s3Key) ? 'audio/mpeg' : null);
+      const contentType = s3Response.ContentType || inferredType || 'audio/mpeg';
+      const filenameExt = isMp4 ? 'mp4' : 'mp3';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="recording-${id}.${filenameExt}"`);
       res.setHeader('Accept-Ranges', 'bytes');
       if (s3Response.ContentLength !== undefined) {
         res.setHeader('Content-Length', String(s3Response.ContentLength));

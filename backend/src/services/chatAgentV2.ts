@@ -895,7 +895,18 @@ async function getChatAgentResponseInner(
       const serviceName = session.outboundServiceType === 'service' ? 'Full Service' : 'MOT';
       console.log(`[OUTBOUND_SERVICE_FASTPATH] Auto-selecting ${serviceName} for outbound ${session.outboundServiceType} reminder`);
       if (!session.sessionId) {
-        await handleLookupVehicle({ registration: session.vrn }, session, conversationId);
+        // Don't discard the lookup result. A registration on an outbound row can be wrong or
+        // simply not on the garage's system, and ploughing into select_service anyway throws away
+        // the one message that explains what happened — the customer got "could you repeat that
+        // contact detail for me?", the generic catch-all, which mentions neither the vehicle nor
+        // the registration.
+        const lookup = await handleLookupVehicle({ registration: session.vrn }, session, conversationId);
+        if (!session.sessionId) {
+          session.step = Step.NEED_VRN;
+          await saveSession(conversationId, session);
+          console.log(`[OUTBOUND_SERVICE_FASTPATH] ${session.vrn} not found — asking for the registration`);
+          return { content: instructionToCustomerReply(lookup), needsHumanAssistance: false };
+        }
         await handleConfirmVehicle({ confirmed: true }, session, conversationId);
       }
       const serviceResult = await handleSelectService({ service_name: serviceName }, session, conversationId);
@@ -2205,7 +2216,10 @@ function instructionToCustomerReply(instructions: string): string {
     return "And what's your house number or name?";
   }
 
-  return 'Thanks — could you repeat that contact detail for me?';
+  // Last resort when a tool returned no Say: line. It used to guess "contact detail", which is
+  // wrong whenever the missing thing is a registration, a date or a service — and confusing every
+  // time. Asking them to repeat what they just said is at least always true.
+  return 'Sorry, could you say that again for me?';
 }
 
 // Conversational tools that return INSTRUCTIONS (like voice agent)

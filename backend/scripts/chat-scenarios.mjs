@@ -50,6 +50,18 @@ export const SEEDS = {
     greetedOutbound: true, awaitingDatePreference: true, timeslotsAvailable: [],
     intent: '', notes: '', servicePrice: '',
   },
+  // Same again for an MOT reminder. The job word comes from outboundServiceType in both the
+  // prompt and the note to the team, so it is worth proving rather than assuming.
+  reminderNoSlotsMot: {
+    step: 'need_contact', vrn: 'V20ALA', vrnConfirmed: true,
+    vehicleMake: 'Land Rover', vehicleModel: 'Range Rover Evoque',
+    sessionId: 'scenario-test-session', servicesAvailable: SERVICES,
+    serviceSelectedId: '5757', serviceSelectedName: 'Oil & Filter Service with MOT',
+    outboundServiceType: 'mot', outboundRegistration: 'V20ALA',
+    customerNameFirst: 'Sarah', contactPhone: '447700900199', contactPhoneSeeded: true,
+    greetedOutbound: true, awaitingDatePreference: true, timeslotsAvailable: [],
+    intent: '', notes: '', servicePrice: '',
+  },
 };
 
 const ASKS_FOR_SERVICE = /what (sort|kind|type) of service|which service|what service|were you after/i;
@@ -306,5 +318,13 @@ export const SCENARIOS = [
   { id: 'REM-08', cat: 'reminder', desc: 'Never invents a specific time', seed: 'reminderNoSlots',
     turns: ['What dates the soonest'],
     expect: { notSay: /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b/i } },
+
+  { id: 'REM-11', cat: 'reminder', desc: 'MOT reminder — question back is still answered', seed: 'reminderNoSlotsMot',
+    turns: ['Yes please', 'when can you fit me in?'],
+    expect: { say: ASKS_SOMETHING, notSay: ANYTHING_ELSE, flagged: false } },
+
+  { id: 'REM-12', cat: 'reminder', desc: 'MOT reminder — dates recorded, note says MOT not service', seed: 'reminderNoSlotsMot',
+    turns: ['Yes please', 'Thursday or Friday morning'],
+    expect: { say: ANYTHING_ELSE, notSay: /wants their service booked/i, flagged: true } },
 
 ];

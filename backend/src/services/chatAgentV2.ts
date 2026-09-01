@@ -926,10 +926,28 @@ async function getChatAgentResponseInner(
       // "I'm not sure, what days have you got?" is a question, not an answer. Filing it as their
       // preferred dates sends the team a message saying the customer does not know when they want
       // to come in, which helps nobody. Nudge once for something rough instead.
-      const noDateGiven = /(not sure|dont know|don.t know|no idea|unsure|what (days?|times?|have) )/i.test(preference)
+      // Two tests, deliberately. The first catches asking-or-vague — "what dates are the
+      // soonest?", "when can you fit me in?", "I don't mind". The second lets anything carrying
+      // a real day, part of day or number through untouched, because "soonest Monday" and
+      // "asap but not the 3rd" ARE answers and must not be nudged.
+      const asksOrVague = new RegExp([
+        'not sure', 'dont know', 'don.t know', 'no idea', 'unsure',
+        'soonest', 'earliest', 'asap', 'as soon as possible',
+        'when can', 'when could', 'when are you', 'when have you', 'when is',
+        'what (?:dates?|days?|times?|have)',
+        'what.?s (?:the )?(?:soonest|earliest|available|free)',
+        'any (?:availability|dates?|days?|times?|slots?)',
+        'you (?:tell me|choose|pick)', 'up to you', 'whenever', 'any ?time',
+        'whatever suits', 'flexible', 'no preference', 'not fussed',
+        'dont mind', 'don.t mind', 'doesn.?t matter', 'either',
+      ].join('|'), 'i').test(preference);
+      const noDateGiven = asksOrVague
         && !/\b(mon|tue|wed|thu|fri|sat|sun|morning|afternoon|evening|next week|this week|\d)/i.test(preference);
       if (noDateGiven && !session.datePreferenceReasked) {
         session.datePreferenceReasked = true;
+        // Keep the original wording. If they answer the nudge with "mornings", the team should
+        // still see that what they actually asked for was the earliest available.
+        session.enquiryPreference = preference;
         await saveSession(conversationId, session);
         return {
           content: `No problem at all — the team will find you the earliest that works. Roughly what `
@@ -939,10 +957,18 @@ async function getChatAgentResponseInner(
       }
       const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
       session.awaitingDatePreference = false;
+      // If we nudged them, the team should see both halves: what they asked first ("as soon as
+      // possible") and what they narrowed it to ("mornings"). Either alone loses information.
+      const earlierRemark = session.datePreferenceReasked
+        ? (session.enquiryPreference || '').trim()
+        : '';
+      const preferenceNote = earlierRemark && earlierRemark !== preference
+        ? `${earlierRemark} / ${preference}`
+        : preference;
       await handleTakeMessage({
         message: `Reminder reply — wants their ${job} booked`
           + (session.vrn ? ` (${session.vrn})` : '')
-          + `. Preferred dates: ${preference}`,
+          + `. Preferred dates: ${preferenceNote}`,
         phone: session.contactPhone || '',
       }, session, conversationId);
       await saveSession(conversationId, session);
@@ -954,7 +980,7 @@ async function getChatAgentResponseInner(
       // nothing is lost if they never reply.
       session.awaitingAnythingElse = true;
       session.anythingElseJob = job;
-      session.enquiryPreference = preference;
+      session.enquiryPreference = preferenceNote;
       await saveSession(conversationId, session);
       return {
         content: `${firstName ? `Perfect, thanks ${firstName}` : 'Perfect, thank you'} — I've `

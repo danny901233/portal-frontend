@@ -242,6 +242,9 @@ export default function OutboundPage() {
       colReg: 'Reg',
       colMotDue: 'MOT Due',
       colServiceDue: 'Service Due',
+      colChasing: 'Chasing',
+      chasingMot: 'MOT',
+      chasingService: 'Service',
       andMore: (n: number) => `…and ${n} more`,
       sending: 'Sending…',
       sendReminders: (n: number) => `Send ${n} Reminders`,
@@ -391,6 +394,9 @@ export default function OutboundPage() {
       colReg: 'Immat.',
       colMotDue: 'Contrôle technique dû',
       colServiceDue: 'Entretien dû',
+      colChasing: 'Relance',
+      chasingMot: 'CT',
+      chasingService: 'Révision',
       andMore: (n: number) => `…et ${n} de plus`,
       sending: 'Envoi…',
       sendReminders: (n: number) => `Envoyer ${n} rappels`,
@@ -1532,6 +1538,10 @@ export default function OutboundPage() {
                     <tr>
                       <th className="px-4 py-2">{c.colName}</th>
                       <th className="px-4 py-2">{c.colPhone}</th>
+                      <th className="px-4 py-2">{c.colReg}</th>
+                      <th className="px-4 py-2">{c.colMotDue}</th>
+                      <th className="px-4 py-2">{c.colServiceDue}</th>
+                      <th className="px-4 py-2">{c.colChasing}</th>
                       <th className="px-4 py-2">{c.thStatus}</th>
                       <th className="px-4 py-2">{c.cOutcome}</th>
                       <th className="px-4 py-2">{c.cDetail}</th>
@@ -1568,6 +1578,17 @@ export default function OutboundPage() {
                         <tr key={contact.id} className="text-slate-600">
                           <td className="px-4 py-2">{contact.customerName}</td>
                           <td className="px-4 py-2 font-mono text-xs">{contact.phone}</td>
+                          <td className="px-4 py-2 font-mono text-xs">{contact.registration || '—'}</td>
+                          <td className="px-4 py-2 text-xs">{contact.motDueDate || '—'}</td>
+                          <td className="px-4 py-2 text-xs">{contact.serviceDueDate || '—'}</td>
+                          {/* Which job the import decided to chase. Shown because it drives what the chat agent
+                              offers when the customer replies: a contact typed as an MOT gets offered an MOT even
+                              if the reminder text talked about a service. */}
+                          <td className="px-4 py-2 text-xs">
+                            <span className={contact.messageType === 'service' ? 'text-sky-600' : 'text-amber-600'}>
+                              {contact.messageType === 'service' ? c.chasingService : c.chasingMot}
+                            </span>
+                          </td>
                           <td className={`px-4 py-2 text-xs font-medium ${statusColor[contact.status] ?? 'text-slate-500'}`}>
                             {statusLabel[contact.status] ?? contact.status}
                           </td>

@@ -4981,6 +4981,11 @@ export function buildSystemPromptV2(config: any, knowledgeDocuments: any[], sess
   const branchName = config.branchName || 'our garage';
   const agentName = (config.agentName || '').trim() || 'Leah';
 
+  // Reminder reply at a garage with nothing bookable online. Nothing is being booked, so the
+  // booking half of this prompt is not just useless — it actively pulls the model the wrong way,
+  // and every rule added to counteract it is a rule fighting our own prompt.
+  const reminderMode = !!(session.awaitingDatePreference || session.awaitingAnythingElse);
+
   // ── Persona ──────────────────────────────────────────────────────────────
   let prompt = `You are ${agentName}, the friendly AI receptionist at ${branchName}, a British car repair garage.
 ${config.greetingLine ? config.greetingLine + '\n' : ''}
@@ -5052,6 +5057,9 @@ TONE EXAMPLES:
   prompt += '\n';
 
   // ── Knowledge base — only before vehicle is looked up to keep token count low ──
+  // Left as-is for reminderMode too. Switching it on here cost 14,418 characters — more than the
+  // whole rest of the prompt — for a conversation whose job is "when would suit you?". The
+  // service list below already answers the common "what do you do?" question.
   if (!session.sessionId && knowledgeDocuments.length > 0) {
     for (const doc of knowledgeDocuments) {
       if (doc.title) prompt += `${doc.title}:\n`;
@@ -5091,7 +5099,7 @@ TONE EXAMPLES:
           return `- ${label} ${tag}${instr}`;
         })
     : [];
-  if (_fields.length > 0) {
+  if (_fields.length > 0 && !reminderMode) {
     prompt += `INFORMATION TO COLLECT during the chat (ask naturally, one at a time, don't interrogate):\n${_fields.join('\n')}\n\n`;
   }
 
@@ -5161,7 +5169,7 @@ TONE EXAMPLES:
   // ── ACTIVE SESSION guards — tell the LLM exactly what's already collected ──
   // CRITICAL: LLM must not re-ask for anything listed here
   const hasActiveSession = !!(session.vrn || session.pendingVrn || session.serviceSelectedName || session.bookingDate || session.contactPhone || session.customerNameFirst);
-  if (hasActiveSession) {
+  if (hasActiveSession && !reminderMode) {
     const makeTitle = (session.vehicleMake || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     const modelTitle = (session.vehicleModel || '').toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     prompt += `\nACTIVE SESSION — CRITICAL: do NOT ask for or re-fetch anything already listed here. Never ask for name, VRN, or service again if they appear below:\n`;
@@ -5258,7 +5266,7 @@ TONE EXAMPLES:
   }
 
   // ── Available timeslots — inject when in timeslot selection so OpenAI can handle any natural language ──
-  if (session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
+  if (!reminderMode && session.step === Step.NEED_TIMESLOT && session.timeslotsAvailable && session.timeslotsAvailable.length > 0) {
     const lastSlot = session.timeslotsAvailable[session.timeslotsAvailable.length - 1];
 
     // Drop-off bookings are date-only. Listing times here would put them in front of the model,
@@ -5287,7 +5295,7 @@ TONE EXAMPLES:
   }
 
   // ── Slot confirmation context — LLM handles all responses at NEED_SLOT_CONFIRM ──
-  if (session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
+  if (!reminderMode && session.step === Step.NEED_SLOT_CONFIRM && session.pendingSlotDate && session.pendingSlotTime) {
     const pendDate = formatDateNaturally(session.pendingSlotDate);
     const pendTime = formatTimeNaturally(session.pendingSlotTime);
     prompt += `\nSLOT CONFIRMATION: You proposed ${pendDate} at ${pendTime} for the customer's booking.\n`;
@@ -5397,7 +5405,7 @@ YOUR ROLE NOW: You are a human-like customer service rep following up on WhatsAp
     ? `0. Ask which branch (${branchListStr}) → call select_branch\n1. `
     : `1. `;
   
-  prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):\n${bookingFlowStart}Get customer name + intent → call save_caller_name
+  if (!reminderMode) prompt += `BOOKING FLOW (follow STRICTLY in order — never skip or reorder steps):\n${bookingFlowStart}Get customer name + intent → call save_caller_name
 2. Get vehicle registration → call lookup_vehicle
 3. IMMEDIATELY call confirm_vehicle(confirmed=true) — do NOT wait for customer input, do NOT ask them to confirm, just call it silently
 4. ONLY after confirm_vehicle succeeds → customer says what work is needed → call select_service
@@ -5476,10 +5484,6 @@ RECOGNISING AFFIRMATIVE RESPONSES:
         + `mornings or afternoons, and any days they would rather avoid.\n`
         + `- If they genuinely do not mind, ask once for mornings or afternoons. If they still have `
         + `no preference, "flexible" is a fine answer — take it.\n`
-        + `- You already have their name and their phone number, and no booking is being made, so `
-        + `you need nothing else from them. Do NOT ask for an email address, a postcode or a house `
-        + `number. Do NOT ask which service they want and do NOT offer or list services — that is `
-        + `already settled.\n`
         + `- The moment you have something usable, call record_date_preference. Do not reply to `
         + `them again without calling it first.\n`;
     } else {
@@ -5497,12 +5501,15 @@ RECOGNISING AFFIRMATIVE RESPONSES:
       + `details BEFORE record_date_preference has been called — that closes the conversation `
       + `before they have answered.\n`
       + `NEVER invent or promise a specific date, time or price.\n`
-      + `NEVER re-introduce yourself, give the garage name, or ask "how can I help?" — they are `
-      + `replying to a message WE sent them, so you are already mid-conversation. If they only say `
-      + `"hi" or "yes please", just warmly pick the thread back up and ask about days or times.\n`
-      + `Do NOT work through any information-to-collect list in this conversation — no service `
-      + `book, no mileage, no paperwork. Nothing is being booked here and the team will pick all `
-      + `that up when they ring.\n`
+      + `They are replying to a message WE sent them, so you are already mid-conversation. Do NOT `
+      + `open with the garage's greeting, do NOT introduce yourself, and do NOT ask "how can I `
+      + `help?" — pick the thread back up instead.\n`
+      + `The garage's rules and questions above were written for someone BOOKING. Nothing is being `
+      + `booked here, so anything that only applies to a booking does not apply — no service book, `
+      + `no paperwork, no mileage. You already have their name and their number and need nothing `
+      + `else from them: do NOT ask for their phone number (you are already messaging them on it), `
+      + `and do NOT ask for an email address, a postcode or a house number. The team `
+      + `will pick all that up when they ring.\n`
       + `Write like a person on the front desk: acknowledge what they just told you before you ask `
       + `the next thing ("Tuesday, got it —"), keep it to one or two sentences, and never send a `
       + `bare question with no reaction to what they said.\n`;

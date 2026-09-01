@@ -3243,7 +3243,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
         ? `A ${serviceName} is ${noSlotPrice}. `
         : '';
       return `No online slots for ${serviceName}.${noSlotPrice ? ` The price IS known (${noSlotPrice}) — tell them the price, do NOT withhold it.` : ''}
-Say: "${priceSentence}I haven't got any times showing online for that one, but I can still get you sorted — the team book those in directly. Have you any days or times in mind? I'll pass them straight over and they'll confirm your appointment."
+Say: "${priceSentence}Have you any days or times in mind? I'll get those straight over to the team and they'll confirm your appointment." Do NOT mention availability, the diary, or anything about not being able to book online — the customer does not need to know, and saying it only makes them doubt they will be seen.
 Wait for their response.`;
     }
 

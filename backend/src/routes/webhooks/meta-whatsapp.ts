@@ -9,6 +9,7 @@ import { findOrCreateCustomer, linkConversationToCustomer } from '../../services
 import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
+import { buildTemplateFields } from '../../services/outboundSend.js';
 
 const router = Router();
 
@@ -235,16 +236,17 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                   const varMap = (campaign.variableMapping as Record<string, string>) || {};
                   const agentCfg = await prisma.agentConfiguration.findUnique({
                     where: { garageId: connection.garageId },
-                    select: { branchName: true },
+                    select: { branchName: true, phoneNumber: true },
                   });
-                  const contactFields: Record<string, string> = {
-                    customer_name: nameParts[0] || outboundContact.customerName,
-                    full_name: outboundContact.customerName,
-                    registration: reg || '',
-                    mot_due_date: outboundContact.motDueDate || '',
-                    service_due_date: outboundContact.serviceDueDate || '',
-                    garage_name: agentCfg?.branchName || 'our garage',
-                  };
+                  const contactFields = buildTemplateFields({
+                    customerName: outboundContact.customerName,
+                    phone: outboundContact.phone,
+                    registration: reg,
+                    motDueDate: outboundContact.motDueDate,
+                    serviceDueDate: outboundContact.serviceDueDate,
+                    garageName: agentCfg?.branchName,
+                    garagePhone: agentCfg?.phoneNumber,
+                  });
                   let body = tmpl.bodyText;
                   for (const [varNum, field] of Object.entries(varMap)) {
                     body = body.replace(new RegExp(`\\{\\{${varNum}\\}\\}`, 'g'), contactFields[field] || '');

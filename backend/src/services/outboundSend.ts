@@ -41,6 +41,40 @@ function loadCampaign(id: string) {
   });
 }
 
+/**
+ * The values a WhatsApp template's {{n}} placeholders can be filled from.
+ *
+ * Shared deliberately. This existed as two hand-maintained copies — one here for sending, one in
+ * the webhook for rebuilding the sent message so the portal can display it — and they drifted:
+ * the webhook's copy had no `phone` key, so that placeholder rendered empty in the transcript
+ * while Meta had already delivered the customer their own number. Anything that renders a
+ * template must use this.
+ *
+ * `phone` is the CUSTOMER's number and always has been. `garage_phone` is the garage's, and is
+ * what "call us on ..." wants.
+ */
+export function buildTemplateFields(args: {
+  customerName?: string | null;
+  phone?: string | null;
+  registration?: string | null;
+  motDueDate?: string | null;
+  serviceDueDate?: string | null;
+  garageName?: string | null;
+  garagePhone?: string | null;
+}): Record<string, string> {
+  const fullName = (args.customerName || '').trim();
+  return {
+    customer_name: fullName.split(/\s+/)[0] || fullName,
+    full_name: fullName,
+    phone: (args.phone || '').trim(),
+    registration: (args.registration || '').toUpperCase(),
+    mot_due_date: args.motDueDate || '',
+    service_due_date: args.serviceDueDate || '',
+    garage_name: (args.garageName || '').trim() || 'our garage',
+    garage_phone: (args.garagePhone || '').trim(),
+  };
+}
+
 export interface SendContext {
   campaign: SendableCampaign;
   garageName: string;
@@ -402,19 +436,15 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
 
     try {
       const e164 = normalisePhone(contact.phone);
-      const contactFields: Record<string, string> = {
-        customer_name: contact.customerName?.trim().split(/\s+/)[0] || contact.customerName,
-        full_name: contact.customerName,
+      const contactFields = buildTemplateFields({
+        customerName: contact.customerName,
         phone: contact.phone,
-        registration: contact.registration?.toUpperCase() || '',
-        mot_due_date: contact.motDueDate || '',
-        service_due_date: contact.serviceDueDate || '',
-        garage_name: garageName,
-        // The garage's own number, for the "call us on ..." sentence almost every reminder wants.
-        // `phone` above is the CUSTOMER's number and always was; there was simply nothing else to
-        // choose, so templates picked it and texted people their own mobile.
-        garage_phone: garagePhone,
-      };
+        registration: contact.registration,
+        motDueDate: contact.motDueDate,
+        serviceDueDate: contact.serviceDueDate,
+        garageName,
+        garagePhone,
+      });
 
       let payload: Record<string, unknown>;
       if (template && campaign.messageTemplateId) {

@@ -454,7 +454,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     messagingNotifySms: (configuration as Record<string, unknown>).messagingNotifySms === true,
     messagingNotifyPhone: ((configuration as Record<string, unknown>).messagingNotifyPhone as string) ?? '',
     allowBookings: configuration.allowBookings || false,
-    outboundBookingMode: (configuration as Record<string, unknown>).outboundBookingMode ?? 'auto',
+    outboundBookingMode: ((configuration as Record<string, unknown>).outboundBookingMode as string) || 'auto',
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
     agentScript: (

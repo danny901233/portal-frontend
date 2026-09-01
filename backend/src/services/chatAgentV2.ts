@@ -71,6 +71,8 @@ interface ChatSession {
 
   // Customer
   customerNameFirst: string;
+  // Set once we have greeted an outbound replier, so later turns do not say hello again.
+  greetedOutbound?: boolean;
   customerNameLast: string;
   
   // Vehicle
@@ -911,6 +913,25 @@ async function getChatAgentResponseInner(
       }
       const serviceResult = await handleSelectService({ service_name: serviceName }, session, conversationId);
       let serviceMsg = instructionToCustomerReply(serviceResult);
+
+      // Greet them before anything else. This branch replies straight to the customer without
+      // going through the LLM, so whatever select_service produced was the FIRST thing they heard
+      // — Kris replied "Hi" to a service reminder and got "I'm sorry, I don't have any online
+      // availability showing for that at the moment", with no hello and no sign we had noticed he
+      // had spoken. The comment above this block always said the agent should greet; nothing did.
+      //
+      // First message only — on later turns they are mid-conversation and a fresh hello is odd.
+      if (!session.greetedOutbound) {
+        session.greetedOutbound = true;
+        const first = (session.customerNameFirst || '').trim().split(/\s+/)[0];
+        const hello = first ? `Hi ${first}` : 'Hi';
+        // Lower-case the tool's opening word so it reads as one sentence after the greeting,
+        // unless it is a word that has to keep its capital.
+        const body = /^[A-Z][a-z]/.test(serviceMsg) && !/^(I|I'm|MOT|Your)\b/.test(serviceMsg)
+          ? serviceMsg[0].toLowerCase() + serviceMsg.slice(1)
+          : serviceMsg;
+        serviceMsg = `${hello}, thanks for getting back to us — ${body}`;
+      }
 
       // Advisory upsell: if the garage has it enabled and this vehicle has outstanding
       // health-check advisories, offer them as an add-on to the reminder booking.

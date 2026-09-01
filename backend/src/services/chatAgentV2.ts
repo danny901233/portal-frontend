@@ -338,6 +338,16 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           // ── Preserved: outbound context ──
           outboundRegistration: oldData.outboundRegistration || undefined,
           outboundServiceType: oldData.outboundServiceType || undefined,
+          // Outbound reminder flow. These MUST be listed here: the session is rebuilt from an
+          // explicit field list, so anything missing is silently dropped on reload — the flag gets
+          // set, saved, and is gone by the next message. That is why three test conversations in a
+          // row asked for dates and then failed to recognise the answer.
+          greetedOutbound: oldData.greetedOutbound || false,
+          awaitingDatePreference: oldData.awaitingDatePreference || false,
+          datePreferenceReasked: oldData.datePreferenceReasked || false,
+          awaitingAnythingElse: oldData.awaitingAnythingElse || false,
+          anythingElseJob: oldData.anythingElseJob || undefined,
+          enquiryPreference: oldData.enquiryPreference || undefined,
           outboundDueDate: oldData.outboundDueDate || undefined,
           outboundUpsellOffered: false, // reset — allow upsell again
           // ── Preserved: branch ──
@@ -401,6 +411,16 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         useDropOffBooking: sessionData.useDropOffBooking || false,
         outboundRegistration: sessionData.outboundRegistration || undefined,
         outboundServiceType: sessionData.outboundServiceType || undefined,
+        // Outbound reminder flow. These MUST be listed here: the session is rebuilt from an
+        // explicit field list, so anything missing is silently dropped on reload — the flag gets
+        // set, saved, and is gone by the next message. That is why three test conversations in a
+        // row asked for dates and then failed to recognise the answer.
+        greetedOutbound: sessionData.greetedOutbound || false,
+        awaitingDatePreference: sessionData.awaitingDatePreference || false,
+        datePreferenceReasked: sessionData.datePreferenceReasked || false,
+        awaitingAnythingElse: sessionData.awaitingAnythingElse || false,
+        anythingElseJob: sessionData.anythingElseJob || undefined,
+        enquiryPreference: sessionData.enquiryPreference || undefined,
         outboundDueDate: sessionData.outboundDueDate || undefined,
         outboundUpsellOffered: sessionData.outboundUpsellOffered || false,
         upsellServiceId: sessionData.upsellServiceId || undefined,

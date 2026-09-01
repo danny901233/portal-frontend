@@ -891,16 +891,9 @@ async function getChatAgentResponseInner(
       }
     }
 
-    // ── Enquire mode: capture a date preference, let a human confirm ────────────────────
-    //
-    // Great Hollands, Ecotest and JDK do not want the assistant putting anything in the diary off
-    // the back of a reminder. They want the reminder sent, the customer's preferred dates taken
-    // warmly, and a person to confirm. Any garage not set to 'enquire' books exactly as before.
-    const enquireMode = (config as any)?.outboundBookingMode === 'enquire';
-
     // Second turn: they have said when suits. Record it and hand over.
-    // Not gated on enquireMode: the same flag is set when a garage that normally books hits an
-    // empty diary, and the answer to "when would suit?" is handled identically either way.
+    // Set when a booking attempt found nothing in the diary and we asked what dates would suit.
+    // Their answer is captured against the vehicle and handed to a person to confirm.
     if (session.awaitingDatePreference) {
       const preference = (message || '').trim();
       const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
@@ -921,23 +914,6 @@ async function getChatAgentResponseInner(
           + `it's much appreciated.`,
         // A person has to put this in the diary, so it must land in front of one.
         needsHumanAssistance: true,
-      };
-    }
-
-    // First turn: greet, then ask when suits. No diary lookup, no booking.
-    if (enquireMode && session.outboundServiceType && session.step === Step.NEED_SERVICE
-        && !session.awaitingDatePreference && !session.greetedOutbound) {
-      session.greetedOutbound = true;
-      session.awaitingDatePreference = true;
-      await saveSession(conversationId, session);
-      const firstName = (session.customerNameFirst || '').trim().split(/\s+/)[0];
-      const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
-      console.log(`[OUTBOUND_ENQUIRE] asking for a date preference (${job})`);
-      return {
-        content: `${firstName ? `Hi ${firstName}` : 'Hi'}, thanks for getting back to us — that's great. `
-          + `Have you any days or times in mind for your ${job}? I'll pass them straight to the team `
-          + `and they'll confirm your appointment.`,
-        needsHumanAssistance: false,
       };
     }
 

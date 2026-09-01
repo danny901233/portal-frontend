@@ -281,7 +281,6 @@ const defaultConfiguration: AgentConfigurationPayload = {
   messagingNotifySms: false,
   messagingNotifyPhone: '',
   allowBookings: false,
-  outboundBookingMode: 'auto',
   bookingLeadTimeDays: 1,
   voice: 'leah',
 };
@@ -337,7 +336,6 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     messagingNotifySms: (config as any).messagingNotifySms ?? false,
     messagingNotifyPhone: (config as any).messagingNotifyPhone ?? '',
     allowBookings: config.allowBookings ?? false,
-    outboundBookingMode: (config as any).outboundBookingMode ?? 'auto',
     bookingLeadTimeDays: config.bookingLeadTimeDays ?? 1,
     voice: config.voice ?? 'leah',
   };
@@ -454,7 +452,6 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     messagingNotifySms: (configuration as Record<string, unknown>).messagingNotifySms === true,
     messagingNotifyPhone: ((configuration as Record<string, unknown>).messagingNotifyPhone as string) ?? '',
     allowBookings: configuration.allowBookings || false,
-    outboundBookingMode: ((configuration as Record<string, unknown>).outboundBookingMode as string) || 'auto',
     bookingLeadTimeDays: configuration.bookingLeadTimeDays || 1,
     voice: (['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia'].includes(configuration.voice) ? configuration.voice : 'leah') as 'tom' | 'leah' | 'sophie' | 'gemma' | 'isobel' | 'fraser' | 'amelia',
     agentScript: (
@@ -1173,8 +1170,6 @@ router.put(
       messagingNotifySms: data.messagingNotifySms === true,
       messagingNotifyPhone: (data.messagingNotifyPhone as string)?.trim() || null,
       allowBookings: data.allowBookings ?? false,
-      // Only the two known modes are stored; anything else falls back to booking as normal.
-      outboundBookingMode: data.outboundBookingMode === 'enquire' ? 'enquire' : 'auto',
       bookingLeadTimeDays: data.bookingLeadTimeDays ?? 1,
       voice: data.voice || 'leah',
       // Previously dropped on write — now persisted so they save AND reach the agent.

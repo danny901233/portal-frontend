@@ -287,7 +287,6 @@ export const upsertAgentConfigurationSchema = z.object({
   faqs: z.array(z.any()).optional().nullable(),
   pronunciations: z.array(z.any()).optional().nullable(),
   allowBookings: z.boolean().optional(),
-  outboundBookingMode: z.enum(['auto', 'enquire']).optional(),
   bookingLeadTimeDays: z.number().int().min(1).max(30).optional(),
   voice: z.enum(['tom', 'leah', 'sophie', 'gemma', 'isobel', 'fraser', 'amelia']).optional(),
   customRules: z.array(z.object({ text: z.string(), active: z.boolean() })).optional().nullable(),

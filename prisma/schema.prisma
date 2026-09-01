@@ -418,18 +418,6 @@ model AgentConfiguration {
   // true  = the chat agent offers to take a message / flag the team when a human is asked for.
   // false = the chat agent politely declines and points them at phone/email (messagingHandoffMessage).
   messagingHumanHandoff     Boolean  @default(true)
-
-  // How a reply to an outbound reminder is handled.
-  //
-  // 'auto'   — the assistant checks the diary and books the appointment itself (default; what
-  //            every garage has done until now).
-  // 'enquire'— the assistant does NOT book. It asks what dates would suit, takes the answer
-  //            warmly, and flags the conversation for a human to confirm.
-  //
-  // Great Hollands, Ecotest and JDK run their diaries this way: they want the reminder and the
-  // preference captured, but a person decides what actually goes in the book. Per-garage on
-  // purpose — everyone else keeps booking automatically.
-  outboundBookingMode       String   @default("auto") // auto | enquire
   messagingHandoffMessage   String?
   // Messaging notifications: when to alert the garage and how.
   messagingNotifyScope      String   @default("off")

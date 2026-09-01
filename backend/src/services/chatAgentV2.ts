@@ -824,6 +824,8 @@ async function getChatAgentResponseInner(
 
     // Get or create session state
     const session = await getOrCreateSession(conversationId);
+    // Snapshot before anything in this turn can change it — see the one-shot clear at the end.
+    const wasAwaitingAnythingElse = !!session.awaitingAnythingElse;
 
     // Store raw customer message so tool handlers (e.g. handleSelectService) can check it
     session.lastCustomerMessage = message;
@@ -1950,7 +1952,12 @@ async function getChatAgentResponseInner(
     // Off that path, withdraw record_date_preference for the same reason.
     if (toolsForCall) {
       const collectingPreference = !!(session.awaitingDatePreference || session.awaitingAnythingElse);
-      const allowed = new Set(['record_date_preference', 'save_caller_name', 'take_message']);
+      // take_message is deliberately NOT here. Offered alongside record_date_preference the model
+      // reached for it every time and wrote its own summary, so the dates never reach the team —
+      // one transcript captured "mornings" and filed "Please call her back to confirm details and
+      // pricing". record_date_preference flags the conversation itself and carries anything else
+      // they ask for, so nothing is lost by withdrawing it.
+      const allowed = new Set(['record_date_preference', 'save_caller_name']);
       toolsForCall = toolsForCall.filter((t) => {
         const n = (t as any).function?.name;
         return collectingPreference ? allowed.has(n) : n !== 'record_date_preference';
@@ -2165,9 +2172,10 @@ async function getChatAgentResponseInner(
       }
     }
 
-    // One-shot. "Anything else?" applies to the turn right after we asked it; if they said no
-    // and we signed off, the flag must not linger and re-scope whatever they say next.
-    if (session.awaitingAnythingElse) {
+    // One-shot, and only for a flag that was already set when this turn STARTED. Clearing one
+    // that record_date_preference set during this turn wiped it before the customer had answered,
+    // so the next turn dropped out of preference mode and the model went back to take_message.
+    if (wasAwaitingAnythingElse && session.awaitingAnythingElse) {
       session.awaitingAnythingElse = false;
       await saveSession(conversationId, session);
     }
@@ -3976,9 +3984,25 @@ function categoriseBooking(serviceName?: string): 'mot' | 'service' | 'diagnosti
  * they want looking at.
  */
 async function handleRecordDatePreference(args: any, session: ChatSession, conversationId: string): Promise<string> {
-  const preference = String(args?.preference || '').trim();
   const anythingElse = String(args?.anything_else || '').trim();
   const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
+
+  // The dates are recorded once and never rewritten. A second call can only ADD something they
+  // have asked us to look at. Without this, "no that's all thanks" on the anything-else turn came
+  // back through here as the preference and replaced "mornings" — the team would have been told
+  // the customer's preferred date was "no that's all".
+  const already = (session.enquiryPreference || '').trim();
+  const preference = already || String(args?.preference || '').trim();
+
+  if (already && !anythingElse) {
+    session.awaitingDatePreference = false;
+    session.awaitingAnythingElse = false;
+    await saveSession(conversationId, session);
+    return `Their dates are already recorded and the team have it. There is nothing more to `
+      + `capture.\n\nSign off warmly now — confirm the team will be in touch shortly about their `
+      + `${job}, and thank them for getting back to us. Do NOT call this tool again and do NOT ask `
+      + `what else they need.`;
+  }
 
   if (!preference) {
     return `No preference given yet.\n\nDo NOT call this tool until the customer has actually told `
@@ -4020,6 +4044,11 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
   console.log(`[TAKE_MESSAGE] Phone: ${phone}, Message: ${message.substring(0, 50)}...`);
   
   session.message = message;
+  // Mark it taken here rather than in the safety net, so this counts for every caller, not just
+  // the model. record_date_preference and the no-slots branch call this directly; without the
+  // flag the safety net treated their note as "never recorded" and overwrote it with a generic
+  // summary, which is how "Preferred dates: mornings" became "Latest message: ...".
+  session.messageTaken = true;
   session.contactPhone = phone;
   session.preferredCallbackTime = callback_time;
   if (session.step !== Step.CONFIRMED && session.step !== Step.DONE) {
@@ -5434,12 +5463,17 @@ RECOGNISING AFFIRMATIVE RESPONSES:
       + `when would suit them and get that to the team.\n`;
     if (session.awaitingDatePreference) {
       prompt += `- You have already asked whether they have any days or times in mind. Talk to them `
-        + `normally until they give you something usable: a day, a part of the day, a week, or "as `
-        + `soon as possible" all count.\n`
-        + `- If they ask YOU a question back ("what dates are the soonest?", "when can you fit me `
-        + `in?"), that is a question, NOT their answer. Answer it honestly — you cannot see the live `
-        + `diary, and the team will come back with the earliest that works — then ask what generally `
-        + `suits, mornings or afternoons, and any days they would rather avoid.\n`
+        + `normally until they STATE something usable: a day, a part of the day, a week, or "as `
+        + `soon as possible" all count when they tell you, not when they ask you.\n`
+        + `- A message phrased as a QUESTION is never a preference, however strongly it implies `
+        + `one. "What dates are the soonest?" and "when can you fit me in?" are asking YOU `
+        + `something — they are not the customer saying "as soon as possible". Do NOT call `
+        + `record_date_preference on a turn like that, and do NOT translate the question into a `
+        + `preference and record it: that leaves their question unanswered, which is exactly what `
+        + `they will notice.\n`
+        + `- Answer the question honestly instead — you cannot see the live diary, and the team `
+        + `will come back to them with the earliest that works — and then ask what generally suits, `
+        + `mornings or afternoons, and any days they would rather avoid.\n`
         + `- If they genuinely do not mind, ask once for mornings or afternoons. If they still have `
         + `no preference, "flexible" is a fine answer — take it.\n`
         + `- You already have their name and their phone number, and no booking is being made, so `
@@ -5462,7 +5496,16 @@ RECOGNISING AFFIRMATIVE RESPONSES:
       + `NEVER say you will pass it to the team, that someone will confirm, or thank them for the `
       + `details BEFORE record_date_preference has been called — that closes the conversation `
       + `before they have answered.\n`
-      + `NEVER invent or promise a specific date, time or price.\n`;
+      + `NEVER invent or promise a specific date, time or price.\n`
+      + `NEVER re-introduce yourself, give the garage name, or ask "how can I help?" — they are `
+      + `replying to a message WE sent them, so you are already mid-conversation. If they only say `
+      + `"hi" or "yes please", just warmly pick the thread back up and ask about days or times.\n`
+      + `Do NOT work through any information-to-collect list in this conversation — no service `
+      + `book, no mileage, no paperwork. Nothing is being booked here and the team will pick all `
+      + `that up when they ring.\n`
+      + `Write like a person on the front desk: acknowledge what they just told you before you ask `
+      + `the next thing ("Tuesday, got it —"), keep it to one or two sentences, and never send a `
+      + `bare question with no reaction to what they said.\n`;
   }
 
 

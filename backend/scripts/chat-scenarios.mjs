@@ -265,7 +265,19 @@ export const SCENARIOS = [
 
   { id: 'REM-01', cat: 'reminder', desc: 'Asks what dates are soonest — a question, not an answer', seed: 'reminderNoSlots',
     turns: ['What dates the soonest'],
-    expect: { say: ASKS_SOMETHING, notSay: CLOSES_THE_CHAT, flagged: false } },
+    expect: { say: ASKS_SOMETHING, notSay: ANYTHING_ELSE, flagged: false } },
+
+  // The live version of REM-01. With two turns behind it the model feels pushed to move on, and
+  // on 2026-09-01 it did: it translated "What dates the soonest" into preference 'as soon as
+  // possible', recorded it, and replied "Is there anything else...", leaving the question
+  // unanswered. Single-turn REM-01 passed throughout — the history is what makes this bite.
+  { id: 'REM-09', cat: 'reminder', desc: 'Question after a couple of turns — still answered, not recorded', seed: 'reminderNoSlots',
+    turns: ['Hi', 'Yes please', 'What dates the soonest'],
+    expect: { say: ASKS_SOMETHING, notSay: ANYTHING_ELSE, flagged: false } },
+
+  { id: 'REM-10', cat: 'reminder', desc: 'Question answered, then a real preference is recorded', seed: 'reminderNoSlots',
+    turns: ['Yes please', 'What dates the soonest', 'mornings, as early as you can'],
+    expect: { say: ANYTHING_ELSE, flagged: true } },
 
   { id: 'REM-02', cat: 'reminder', desc: 'Gives dates — records them and asks what else', seed: 'reminderNoSlots',
     turns: ['Tuesday or Wednesday would suit'],

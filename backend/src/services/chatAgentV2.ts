@@ -4191,10 +4191,37 @@ function matchService(query: string, services: any[]): any | null {
   }
 
   // Service name contains query or query contains service name (only if query >= 3 chars)
+  //
+  // Rank the candidates instead of taking the first one the garage happens to list. A customer at
+  // Great Hollands asking for an "MOT" was matched to "Carry out Full Service With a MOT Test",
+  // which has no online availability, purely because it appeared earlier in the array than "MOT
+  // Class 4 ( car )" — which had 72 bookable slots. They were told there was no availability and
+  // pushed to a callback, off the back of an MOT reminder.
+  //
+  // Most specific wins: the query standing as a whole word at the START of the name beats it
+  // appearing anywhere else, which beats a bare substring; ties break on the shorter name, since
+  // extra words mean a bigger, different job.
   if (queryLower.length >= 3) {
-    for (const service of services) {
-      const sn = service.name.toLowerCase();
-      if (sn.includes(queryLower) || queryLower.includes(sn)) return service;
+    const esc = queryLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const candidates = services.filter((service: any) => {
+      const sn = String(service?.name || '').toLowerCase();
+      return sn.includes(queryLower) || queryLower.includes(sn);
+    });
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length > 1) {
+      // Tie-break on the garage's OWN ordering, not on name length. Length looks like a proxy for
+      // specificity and is not: it would rank "MOT Class 7" above "MOT Class 4 ( car )", and Class
+      // 7 is for larger vans. Garages list the common one first, so their order is the better
+      // signal once specificity is equal.
+      const tier = (service: any) => {
+        const sn = String(service?.name || '').toLowerCase().trim();
+        if (new RegExp(`^${esc}\\b`).test(sn)) return 0;      // starts with it — "MOT Class 4"
+        if (new RegExp(`\\b${esc}\\b`).test(sn)) return 1;   // whole word further in
+        return 2;                                             // bare substring
+      };
+      const order = new Map(candidates.map((c: any, i: number) => [c, i]));
+      return candidates.slice().sort((a: any, b: any) =>
+        tier(a) - tier(b) || (order.get(a)! - order.get(b)!))[0];
     }
   }
 

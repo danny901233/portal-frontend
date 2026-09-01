@@ -53,16 +53,25 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
     if (messageTemplateId) {
       try {
         const tpl = await prisma.messageTemplate.findUnique({
-          where: { id: messageTemplateId }, select: { name: true },
+          where: { id: messageTemplateId }, select: { name: true, templateType: true },
         });
-        const tn = (tpl?.name || '').toLowerCase();
-        const hasService = /service/.test(tn);
-        const hasMot = /\bmot\b/.test(tn);
-        // Only when it says one and not the other. A template naming both settles nothing, so fall
-        // back to the dates rather than guessing.
-        if (hasService && !hasMot) templateType = 'service';
-        else if (hasMot && !hasService) templateType = 'mot';
-        if (templateType) console.log(`[OUTBOUND] template "${tpl?.name}" -> chasing ${templateType}`);
+        // The template's own type first — it is what the garage actually chose. Reading intent out
+        // of the NAME is a guess, and only worth making when nothing better was recorded.
+        if (tpl?.templateType === 'service' || tpl?.templateType === 'mot') {
+          templateType = tpl.templateType;
+        } else if (tpl?.templateType === 'deferred' || tpl?.templateType === 'marketing') {
+          // Neither is a service or MOT reminder, so there is nothing to chase and nothing the
+          // chat agent should pre-select. Leave the rows on the date-based rule and let the
+          // conversation decide.
+          templateType = null;
+        } else {
+          const tn = (tpl?.name || '').toLowerCase();
+          const hasService = /service/.test(tn);
+          const hasMot = /\bmot\b/.test(tn);
+          if (hasService && !hasMot) templateType = 'service';
+          else if (hasMot && !hasService) templateType = 'mot';
+        }
+        if (templateType) console.log(`[OUTBOUND] template "${tpl?.name}" (type=${tpl?.templateType ?? 'unset'}) -> chasing ${templateType}`);
       } catch { /* fall back to the dates */ }
     }
 

@@ -106,6 +106,13 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
       nameNoChange: 'Template name cannot be changed after creation.',
       nameRules: 'Lowercase, underscores only. No spaces.',
       category: 'Category',
+      templateType: 'What is this for?',
+      templateTypeNone: 'Not set — work it out from the dates',
+      ttService: 'Service reminder',
+      ttMot: 'MOT reminder',
+      ttDeferred: 'Deferred work',
+      ttMarketing: 'Marketing / promotion',
+      templateTypeHint: 'Decides what a campaign chases, and what the assistant offers when someone replies. Marketing never pre-selects a job.',
       offerFlagTitle: 'This looks like a promotion, not a reminder',
       offerFlagBody: (what: string) =>
         `The message mentions ${what}. WhatsApp treats anything that promotes a new purchase as MARKETING, whichever category you pick here — and a discount sent under a Utility template is what got a customer of ours permanently banned. Meta approving it doesn\u2019t mean the category was right.`,
@@ -197,6 +204,13 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
       nameNoChange: 'Le nom du modèle ne peut pas être modifié après la création.',
       nameRules: 'Minuscules et traits de soulignement uniquement. Pas d’espaces.',
       category: 'Catégorie',
+      templateType: 'À quoi sert ce modèle ?',
+      templateTypeNone: 'Non défini — déduire des dates',
+      ttService: 'Rappel de révision',
+      ttMot: 'Rappel de contrôle technique',
+      ttDeferred: 'Travaux reportés',
+      ttMarketing: 'Marketing / promotion',
+      templateTypeHint: "Détermine ce que relance une campagne, et ce que l'assistant propose en réponse. Marketing ne présélectionne jamais de prestation.",
       offerFlagTitle: 'Cela ressemble à une promotion, pas à un rappel',
       offerFlagBody: (what: string) =>
         `Le message mentionne ${what}. WhatsApp considère comme MARKETING tout ce qui incite à un nouvel achat, quelle que soit la catégorie choisie ici — et une remise envoyée sous un modèle Utilitaire a fait bannir définitivement l\u2019un de nos clients. Une approbation de Meta ne signifie pas que la catégorie était correcte.`,
@@ -280,6 +294,9 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
   // Form state
   const [formName, setFormName] = useState('');
   const [formCategory, setFormCategory] = useState('UTILITY');
+  // What the template is FOR, as opposed to Meta's billing category. Drives what an
+  // outbound campaign chases and what the assistant offers when someone replies.
+  const [formTemplateType, setFormTemplateType] = useState<string>('');
   const [formBody, setFormBody] = useState('');
   /** Set when the user says the offer-language flag is a false alarm, so it stops nagging. */
   const [offerFlagDismissed, setOfferFlagDismissed] = useState(false);
@@ -366,6 +383,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
     const body = JSON.stringify({
       name: formName,
       category: formCategory,
+      templateType: formTemplateType || null,
       bodyText: formBody,
       variableSamples: Object.keys(formVariableSamples).length > 0 ? formVariableSamples : null,
       headerType: formHeader ? 'text' : null,
@@ -410,6 +428,7 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
     setEditingTemplateId(t.id);
     setFormName(t.name);
     setFormCategory(t.category);
+    setFormTemplateType((t as { templateType?: string }).templateType || '');
     setFormBody(t.bodyText);
     setOfferFlagDismissed(false);
     setFormHeader(t.headerContent || '');
@@ -660,6 +679,21 @@ export default function TemplatesPage({ embedded = false }: { embedded?: boolean
                       <option key={cat.value} value={cat.value}>{c.categoryLabels[cat.value]} — {c.categoryDescs[cat.value]}</option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">{c.templateType}</label>
+                  <select
+                    value={formTemplateType}
+                    onChange={e => setFormTemplateType(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">{c.templateTypeNone}</option>
+                    <option value="service">{c.ttService}</option>
+                    <option value="mot">{c.ttMot}</option>
+                    <option value="deferred">{c.ttDeferred}</option>
+                    <option value="marketing">{c.ttMarketing}</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">{c.templateTypeHint}</p>
                 </div>
               </div>
 

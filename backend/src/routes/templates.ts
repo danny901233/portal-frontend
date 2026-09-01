@@ -4,6 +4,9 @@ import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { getTemplateToken } from '../services/metaTemplateToken.js';
 
+// What a template is FOR. Separate from Meta's `category`, which is a billing classification.
+const TEMPLATE_TYPES = ['service', 'mot', 'deferred', 'marketing'] as const;
+
 const router = Router();
 
 // ---------------------------------------------------------------------------
@@ -41,6 +44,7 @@ router.post(
       const {
         name,
         category,
+        templateType,
         language,
         headerType,
         headerContent,
@@ -68,6 +72,9 @@ router.post(
           garageId,
           name: cleanName,
           category,
+          // Unrecognised values are dropped rather than stored: a bad type would silently send the
+          // wrong reminder, and null simply falls back to the date-based rule.
+          templateType: TEMPLATE_TYPES.includes(templateType) ? templateType : null,
           language: language || 'en_GB',
           headerType: headerType || null,
           headerContent: headerContent || null,
@@ -115,6 +122,7 @@ router.put(
         buttonType,
         buttonText,
         buttonValue,
+          templateType,
       } = req.body;
 
       const template = await prisma.messageTemplate.findFirst({
@@ -134,6 +142,7 @@ router.put(
         where: { id: templateId },
         data: {
           category: category || template.category,
+          templateType: TEMPLATE_TYPES.includes(templateType) ? templateType : template.templateType,
           language: language || template.language,
           headerType: headerType ?? template.headerType,
           headerContent: headerContent ?? template.headerContent,

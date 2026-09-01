@@ -278,7 +278,13 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 customerNameFirst: nameParts[0] || '',
                 customerNameLast: nameParts.slice(1).join(' ') || '',
                 ...(reg && { outboundRegistration: reg }),
-                outboundServiceType: outboundContact.messageType || 'mot',
+                // Only pre-select a job when the reminder was actually about one. Defaulting to
+                // 'mot' meant a service reminder — or a promotion — put the agent straight into an
+                // MOT booking, which is how a Great Hollands customer chasing an overdue service
+                // was offered an MOT against a service with no slots.
+                ...(outboundContact.messageType === 'service' || outboundContact.messageType === 'mot'
+                  ? { outboundServiceType: outboundContact.messageType }
+                  : {}),
                 ...(dueDate && { outboundDueDate: dueDate }),
                 // Vehicle is already known from the CSV — trust it, skip VRN confirmation.
                 // Start at need_service so the agent greets + upsells, then goes straight

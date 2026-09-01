@@ -687,6 +687,18 @@ model MessageTemplate {
   category String // UTILITY, MARKETING, AUTHENTICATION
   language String @default("en_GB")
 
+  // What this template is FOR, as opposed to Meta's `category` which is a billing classification.
+  // Drives what an outbound campaign chases and what the chat agent offers when someone replies:
+  // a reply to a service reminder must be offered a service, not an MOT.
+  //
+  // This was previously inferred from the template NAME with a regex, which is exactly as fragile
+  // as it sounds — Great Hollands sent a service reminder whose rows were typed 'mot', and a
+  // customer was offered the wrong job. Null means "not stated": fall back to the due dates.
+  //
+  // 'marketing' deliberately means DON'T auto-select anything — a reply to a promotion is a
+  // conversation, not a booking for a job nobody mentioned.
+  templateType String? // service | mot | deferred | marketing
+
   // Template content
   headerType      String? // none, text, image, document
   headerContent   String? // Header text or media URL

@@ -3265,7 +3265,7 @@ async function handleSelectService(args: any, session: ChatSession, conversation
         ? `A ${serviceName} is ${noSlotPrice}. `
         : '';
       return `No online slots for ${serviceName}.${noSlotPrice ? ` The price IS known (${noSlotPrice}) — tell them the price, do NOT withhold it.` : ''}
-Say: "${priceSentence}Have you any days or times in mind? I'll get those straight over to the team and they'll confirm your appointment." Do NOT mention availability, the diary, or anything about not being able to book online — the customer does not need to know, and saying it only makes them doubt they will be seen.
+Say ONLY: "${priceSentence}Have you any days or times in mind?" and STOP. Do NOT say you will pass it to the team, do NOT say anyone will confirm their appointment, and do NOT thank them for anything yet. All of that comes LATER, once they have actually given you their dates; saying it now closes the conversation before they have answered. Do NOT mention availability, the diary, or anything about not being able to book online either — the customer does not need to know, and it only makes them doubt they will be seen.
 Wait for their response.`;
     }
 

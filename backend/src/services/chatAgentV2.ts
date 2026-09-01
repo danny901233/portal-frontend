@@ -4233,9 +4233,41 @@ function matchService(query: string, services: any[]): any | null {
         if (new RegExp(`\\b${esc}\\b`).test(sn)) return 1;   // whole word further in
         return 2;                                             // bare substring
       };
+      // Then prefer one we can actually quote. Great Hollands carries four near-identical
+      // "Carry out Full Service..." entries — 15272 at £174.99 alongside 5876, 5907 and 5908 with
+      // no price at all, which look like older items left on the price list. Matching a priceless
+      // one means the customer gets POA for a job the garage does have a price for.
+      //
+      // A garage that hides prices deliberately sets hide_service_prices, and then ALL its
+      // services score the same here, so this only breaks ties where the data genuinely differs.
+      // Never bolt on a job they did not ask for. The garage lists both "Carry out Full Service"
+      // and "Carry out Full Service With a MOT Test"; a SERVICE reminder must not land on the one
+      // that adds an MOT — it is a longer, dearer appointment nobody asked for, and it would be
+      // booked and charged. Works both ways: someone asking for an MOT should not be handed a
+      // service-and-MOT package either.
+      //
+      // Only when the query is silent on the other job. Ask for "full service and MOT" and the
+      // combined item is exactly right, so this steps out of the way.
+      const wantsMot = /\bmot\b/.test(queryLower);
+      const wantsService = /\bservic(e|ing)\b/.test(queryLower);
+      const addsUnasked = (service: any) => {
+        const n = String(service?.name || '').toLowerCase();
+        if (!wantsMot && /\bmot\b/.test(n)) return 1;
+        if (!wantsService && /\bservic(e|ing)\b/.test(n)) return 1;
+        return 0;
+      };
+      const priced = (service: any) => {
+        if (service?.hide_service_prices) return 0;
+        const n = parseFloat(String(service?.price));
+        return !isNaN(n) && n > 0 ? 0 : 1;
+      };
       const order = new Map(candidates.map((c: any, i: number) => [c, i]));
+      // Specificity, then don't-add-an-unasked-job, then quotable, then the garage's own order.
+      // addsUnasked outranks priced deliberately: the combined item often carries the price while
+      // the plain one does not, and a cheap quote is no consolation for the wrong appointment.
       return candidates.slice().sort((a: any, b: any) =>
-        tier(a) - tier(b) || (order.get(a)! - order.get(b)!))[0];
+        tier(a) - tier(b) || addsUnasked(a) - addsUnasked(b)
+        || priced(a) - priced(b) || (order.get(a)! - order.get(b)!))[0];
     }
   }
 

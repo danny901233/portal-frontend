@@ -43,16 +43,35 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
     // are counted below — never guessed, because a reminder sent on the wrong day is worse than
     // one not sent at all.
     const normalisedRaw = contacts.map((c) => {
-      const rawDue = c.motDueDate?.trim() || c.serviceDueDate?.trim() || null;
+      const motRaw = c.motDueDate?.trim() || null;
+      const svcRaw = c.serviceDueDate?.trim() || null;
+      const motDue = parseDueDate(motRaw);
+      const svcDue = parseDueDate(svcRaw);
+
+      // Classify on which job is actually DUE, not on which column happens to be filled.
+      //
+      // This was `motDueDate ? 'mot' : 'service'`, so any row carrying an MOT date became an MOT
+      // reminder even when the MOT was years away and the service was long overdue. A Great
+      // Hollands customer was reminded his service was overdue — correctly; it was due March 2025
+      // — but the row was typed 'mot' with a due date of April 2027. When he replied "Book", the
+      // chat agent read that type, auto-selected MOT, matched a service with no online slots and
+      // told him there was no availability. Every contact that garage had was typed 'mot', and
+      // every one carried both dates.
+      //
+      // Whichever falls first is the one to chase; the other comes round on its own sweep.
+      const useService = svcDue !== null && (motDue === null || svcDue < motDue);
+      const messageType = useService ? 'service' : (motDue !== null ? 'mot' : (svcDue !== null ? 'service' : 'mot'));
+      const dueDate = useService ? svcDue : (motDue ?? svcDue);
+
       return {
         garageId,
         customerName: c.customerName?.trim() || 'Customer',
         phone: normalisePhone(c.phone || ''),
         registration: c.registration?.trim() || null,
-        motDueDate: c.motDueDate?.trim() || null,
-        serviceDueDate: c.serviceDueDate?.trim() || null,
-        dueDate: parseDueDate(rawDue),
-        messageType: c.motDueDate?.trim() ? 'mot' : 'service',
+        motDueDate: motRaw,
+        serviceDueDate: svcRaw,
+        dueDate,
+        messageType,
       };
     });
     const unreadableDates = normalisedRaw.filter((c) => !c.dueDate).length;

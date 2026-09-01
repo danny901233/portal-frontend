@@ -1569,7 +1569,7 @@ async function getChatAgentResponseInner(
         const serviceIntent = serviceMatch ? serviceMatch[1] : (serviceKeywords || message);
         console.log(`[ADDSERVICE_FASTPATH] Customer wants to add service during upsell: "${message}" → extracted: "${serviceIntent}"`);
         const addResult = await handleSelectService({ service_name: serviceIntent }, session, conversationId);
-        const addSayMatch = addResult.match(/Say(?:\s+EXACTLY)?:\s*"([\s\S]*?)"/i);
+        const addSayMatch = addResult.match(/Say(?:\s+(?:EXACTLY|ONLY))?:\s*"([\s\S]*?)"/i);
         if (addSayMatch) {
           await saveSession(conversationId, session);
           return { content: addSayMatch[1].trim(), needsHumanAssistance: false };
@@ -2332,7 +2332,7 @@ function hydrateSessionFromMessageHistory(session: ChatSession, messages: Array<
 }
 
 function instructionToCustomerReply(instructions: string): string {
-  const sayMatch = instructions.match(/Say(?:\s+EXACTLY)?:\s*"([\s\S]*?)"/i);
+  const sayMatch = instructions.match(/Say(?:\s+(?:EXACTLY|ONLY))?:\s*"([\s\S]*?)"/i);
   if (sayMatch && sayMatch[1]) {
     return sayMatch[1].trim();
   }

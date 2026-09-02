@@ -33,6 +33,33 @@ function humanDelayMs(): number {
   return rand(120_000, 300_000); // 5%: 2–5min
 }
 
+/**
+ * How long THIS garage waits before replying.
+ *
+ * The human-like spread above is a preference, not a rule: it exists so the agent does not read as
+ * a bot, and most garages want it. Some would rather their customers were answered promptly, so
+ * the shape is theirs to choose. Anything unreadable falls back to the old behaviour — a config
+ * lookup failing must never turn into a customer who is answered strangely, or not at all.
+ */
+async function delayForGarage(garageId: string): Promise<number> {
+  try {
+    const cfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { messagingReplyDelay: true, messagingReplyDelaySeconds: true },
+    });
+    const mode = (cfg as any)?.messagingReplyDelay ?? 'random';
+    if (mode === 'none') return 0;
+    if (mode === 'custom') {
+      const secs = Number((cfg as any)?.messagingReplyDelaySeconds ?? 10);
+      return Math.min(600, Math.max(0, Number.isFinite(secs) ? secs : 10)) * 1000;
+    }
+    return humanDelayMs();
+  } catch (e) {
+    console.warn('[chat-delay] delay config lookup failed — using the human-like default:', (e as any)?.message);
+    return humanDelayMs();
+  }
+}
+
 // Mark the customer's message as read (blue ticks) and optionally show a typing indicator.
 // Best-effort — never let this block or fail the reply.
 async function markSeen(p: HumanReplyParams, typing: boolean): Promise<void> {
@@ -234,10 +261,20 @@ export function scheduleHumanReply(p: HumanReplyParams): void {
   if (existing) clearTimeout(existing); // batch: customer sent another message — restart the wait
 
   void markSeen(p, false); // "seen" now
-  const delay = humanDelayMs();
-  const timer = setTimeout(() => {
-    sendDelayedReply(p).catch((e) => console.error('[chat-delay] fire error', e));
-  }, delay);
-  pending.set(p.conversationId, timer);
-  console.log(`[chat-delay] conv ${p.conversationId}: reply scheduled in ${Math.round(delay / 1000)}s`);
+
+  // The garage's setting decides the wait. Reading it is async, so the arming happens in a
+  // promise — the webhook still returns immediately, which is the contract that matters here.
+  void delayForGarage(p.garageId).then((delay) => {
+    if (delay <= 0) {
+      console.log(`[chat-delay] conv ${p.conversationId}: no delay configured — sending now`);
+      pending.delete(p.conversationId);
+      void sendDelayedReply(p).catch((e) => console.error('[chat-delay] fire error', e));
+      return;
+    }
+    const timer = setTimeout(() => {
+      sendDelayedReply(p).catch((e) => console.error('[chat-delay] fire error', e));
+    }, delay);
+    pending.set(p.conversationId, timer);
+    console.log(`[chat-delay] conv ${p.conversationId}: reply scheduled in ${Math.round(delay / 1000)}s`);
+  });
 }

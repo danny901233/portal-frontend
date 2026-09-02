@@ -426,6 +426,14 @@ model AgentConfiguration {
   messagingHumanHandoff     Boolean  @default(true)
   messagingHandoffMessage   String?
   // Messaging notifications: when to alert the garage and how.
+  // How long the chat agent waits before replying on WhatsApp. Replying instantly reads as a
+  // bot, so the default is a human-like random spread — but that is a preference, not a rule, and
+  // some garages would rather their customers were answered promptly.
+  //   "random" (default) — weighted spread, ~70% under 30s, up to 5 min at the tail
+  //   "none"             — reply as soon as the agent has an answer
+  //   "custom"           — wait exactly messagingReplyDelaySeconds
+  messagingReplyDelay       String   @default("random")
+  messagingReplyDelaySeconds Int     @default(10)
   messagingNotifyScope      String   @default("off")
   messagingNotifyEmail      Boolean  @default(false)
   messagingNotifySms        Boolean  @default(false)

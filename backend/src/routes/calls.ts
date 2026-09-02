@@ -27,6 +27,27 @@ import { cloneHubspotSettings } from '../utils/types.js';
 
 const router = Router();
 
+/**
+ * Is this call from one of our own test numbers?
+ *
+ * Set TEST_CALLER_NUMBERS to a comma-separated list. Such a call is recorded in full — it appears
+ * in the portal like any other — but the garage is not emailed or pushed about it, so we can
+ * exercise a real line without a customer wondering who rang.
+ *
+ * Compares the last 9 digits, so 07506629135, +447506629135 and "07506 629135" all match.
+ */
+function isTestCaller(...numbers: Array<string | null | undefined>): boolean {
+  const configured = (process.env.TEST_CALLER_NUMBERS || '')
+    .split(',')
+    .map((n) => n.replace(/\D/g, ''))
+    .filter((n) => n.length >= 9);
+  if (!configured.length) return false;
+  return numbers.some((raw) => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    return digits.length >= 9 && configured.some((n) => digits.endsWith(n.slice(-9)));
+  });
+}
+
 const CALL_ID_LENGTH = 8;
 
 const generateCandidateCallId = () => randomInt(0, 10 ** CALL_ID_LENGTH).toString().padStart(CALL_ID_LENGTH, '0');
@@ -492,7 +513,10 @@ router.post('/calls', async (req: Request, res: Response) => {
       const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
       const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
 
-      if (createdCall.garage?.accessRestricted) {
+      if (isTestCaller(payload.customerPhone, payload.fromNumber)) {
+        // Our own test call. Recorded in full, but the garage hears nothing about it.
+        console.log(`[EMAIL] 🧪 Test caller — call ${callId} recorded, garage NOT emailed`);
+      } else if (createdCall.garage?.accessRestricted) {
         // Arrears: don't reveal any call content by email — just notify that a call was handled
         // and that the details are locked until the account is brought up to date.
         console.log(`[EMAIL] ⛔ Garage in arrears - sending arrears call notice (details withheld)`);
@@ -555,6 +579,10 @@ router.post('/calls', async (req: Request, res: Response) => {
         ? 'Your account is in arrears — settle up to view this call.'
         : summary || 'Tap to see the call details.';
       void (async () => {
+        if (isTestCaller(payload.customerPhone, payload.fromNumber)) {
+          console.log(`[PUSH] 🧪 Test caller — call ${callId} recorded, garage NOT pushed`);
+          return;
+        }
         const badge = await garageUnreadBadge(payload.garageId);
         await notifyGarageUsers(payload.garageId, {
           title: `${personaName} handled a call for you`,

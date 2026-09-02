@@ -1913,7 +1913,13 @@ async function getChatAgentResponseInner(
       const stepContext = session.step === Step.NEED_TIMESLOT ? "you still need a date/time preference from them"
         : session.step === Step.NEED_SERVICE ? "they have not settled on a service yet"
         : session.step === Step.NEED_SLOT_CONFIRM ? "they have not confirmed the proposed slot yet"
-        : "you still need their contact details";
+        // NEED_CONTACT is borrowed by the reminder flow, where nothing is actually missing:
+        // they replied to us, on a number we already hold. Telling the model otherwise is how
+        // "who is this?" got answered with "what's the best number to reach you on?".
+        : (session.awaitingDatePreference || session.awaitingAnythingElse || session.enquiryPreference)
+          ? "they replied to a reminder and you still need to know when would suit them — you "
+            + "already have their number and their name, so do not ask for either"
+          : "you still need their contact details";
       messages.push({
         role: 'system' as any,
         content: `The customer just asked a side question. Answer it helpfully in 1-2 sentences using your knowledge of the garage, then carry on with whatever genuinely helps them next — for context, ${stepContext}. If the garage's rules mean what they are asking for cannot be booked, follow those rules (for example take their details and arrange a callback) rather than steering back to the booking flow. Do NOT ignore the question or just repeat the booking prompt.`,
@@ -4115,9 +4121,8 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
     const askChannel = session.contactChannel
       ? ` They have asked to be contacted by ${session.contactChannel === 'whatsapp'
           ? 'a message here on WhatsApp' : 'a phone call'} — say that, and do not ask again.`
-      : ` Say only that the team "will be in touch" — do NOT say how, because you have not asked `
-        + `yet. Then ask them, as the last thing in the message: "would you rather the team gave `
-        + `you a call, or messaged you here?" Them being on WhatsApp is not them choosing it.`;
+      : ` Say only that the team "will be in touch" — do NOT say how, because they have not told `
+        + `you yet.`;
   if (already && !anythingElse && !extraDetails) {
     session.awaitingDatePreference = false;
     session.awaitingAnythingElse = false;
@@ -5689,6 +5694,13 @@ RECOGNISING AFFIRMATIVE RESPONSES:
     // Unset up to and INCLUDING the turn the dates are recorded (the prompt is built before the
     // tool runs), set from then on. So this block is in the prompt for exactly the reply that
     // should carry it, and absent afterwards — which is what "say it once" has to mean.
+    if (session.serviceSuggestion && session.serviceSuggestionSaid) {
+      // Dropping the instruction was not enough — the model read its own earlier message and said
+      // it again. Silence is not an instruction; this is.
+      prompt += `- You have already told them what is likely due next. Do NOT mention it again in `
+        + `any form, even if it appears in your own earlier messages — saying it twice reads as `
+        + `nagging, and they heard you the first time.\n`;
+    }
     if (session.serviceSuggestion && !session.serviceSuggestionSaid) {
       prompt += `- ${session.serviceSuggestion} Say it WITHOUT being asked, in the reply where you `
         + `acknowledge their dates — not before, because their dates come first.\n`
@@ -5719,10 +5731,14 @@ RECOGNISING AFFIRMATIVE RESPONSES:
       + (session.contactChannel
         ? `They have told you how they want contacting: ${session.contactChannel === 'whatsapp'
             ? 'a message here on WhatsApp' : 'a phone call'}. Say that, and do not ask again.\n`
-        : `You have NOT been told how they want contacting, so never invent one: say the team `
-          + `"will be in touch" and stop there — not "here on WhatsApp", not "we'll ring you". Them `
-          + `being on WhatsApp is not them choosing WhatsApp. You will be told when to ask; do not `
-          + `ask before then.\n`)
+        : session.enquiryPreference
+          ? `You have their dates but you have NOT asked how they want contacting. Ask it as the `
+            + `last thing in your next message: "would you rather the team gave you a call, or `
+            + `messaged you here?" Until they answer, say only that the team "will be in touch" — `
+            + `never "here on WhatsApp", never "we'll ring you". Them being on WhatsApp is not them `
+            + `choosing WhatsApp, which is the whole reason to ask.\n`
+          : `Do NOT ask how they want contacting yet — their dates come first. And never say how `
+            + `they will be contacted: the team "will be in touch", nothing more specific.\n`)
       + `NOTHING HAS BEEN BOOKED and nothing here books anything. Never say they are booked in, `
       + `never say an appointment is confirmed or held, never give a date as though it were `
       + `arranged, and never promise a confirmation by text or email. What is true, and all you may `

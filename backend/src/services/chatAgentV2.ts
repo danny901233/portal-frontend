@@ -83,6 +83,10 @@ interface ChatSession {
   anythingElseJob?: string;
   // The dates they gave, kept so a follow-up request is recorded alongside them.
   enquiryPreference?: string;
+  /** "whatsapp" | "call" — how they asked to be contacted, in their own words. */
+  contactChannel?: string;
+  /** Set once the recommendation has gone out, so it cannot come round a second time. */
+  serviceSuggestionSaid?: boolean;
   // Set once we have nudged a customer who answered "not sure", so we never ask a third time.
   datePreferenceReasked?: boolean;
   customerNameLast: string;
@@ -352,6 +356,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           awaitingAnythingElse: oldData.awaitingAnythingElse || false,
           anythingElseJob: oldData.anythingElseJob || undefined,
           enquiryPreference: oldData.enquiryPreference || undefined,
+          contactChannel: oldData.contactChannel || undefined,
+          serviceSuggestionSaid: oldData.serviceSuggestionSaid || false,
           outboundDueDate: oldData.outboundDueDate || undefined,
           outboundUpsellOffered: false, // reset — allow upsell again
           // ── Preserved: branch ──
@@ -426,6 +432,8 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         awaitingAnythingElse: sessionData.awaitingAnythingElse || false,
         anythingElseJob: sessionData.anythingElseJob || undefined,
         enquiryPreference: sessionData.enquiryPreference || undefined,
+        contactChannel: sessionData.contactChannel || undefined,
+        serviceSuggestionSaid: sessionData.serviceSuggestionSaid || false,
         outboundDueDate: sessionData.outboundDueDate || undefined,
         outboundUpsellOffered: sessionData.outboundUpsellOffered || false,
         upsellServiceId: sessionData.upsellServiceId || undefined,
@@ -743,6 +751,33 @@ export async function getChatAgentResponse(
   conversationId: string,
   seedContact?: { phone?: string; name?: string; lastContact?: string }
 ): Promise<ChatAgentResponse> {
+  // Pin the contact channel from their own words before the prompt is built, so the reply on
+  // THIS turn can already use it. Left to the model, "you're on WhatsApp so I'll say WhatsApp"
+  // won every time — which is an assumption, not an answer.
+  try {
+    const pre = await getOrCreateSession(conversationId);
+    if ((pre.awaitingDatePreference || pre.awaitingAnythingElse || pre.enquiryPreference)
+        && !pre.contactChannel) {
+      const t = String(message || '');
+      // Only a clear answer counts. "call me back about it" is not them choosing a channel.
+      const wantsMsg = /\b(whats ?app|message|text|here is fine|on here|this chat)\b/i.test(t);
+      const wantsCall = /\b(call|phone|ring|speak to (me|someone)|give me a (call|ring))\b/i.test(t);
+      if (wantsMsg !== wantsCall) {
+        pre.contactChannel = wantsMsg ? 'whatsapp' : 'call';
+        // The note went to the team the moment the dates were recorded, usually a turn or two
+        // before this answer arrived, so append rather than wait — otherwise the preference is
+        // collected and never passed on. The alert email has already gone; the inbox note, which
+        // is what someone reads before picking the phone up, is now right.
+        const pref = wantsMsg ? 'Prefers WhatsApp' : 'Prefers a phone call';
+        if (pre.message && !/prefers (whatsapp|a phone call)/i.test(pre.message)) {
+          pre.message = `${pre.message.replace(/\s*$/, '')}. ${pref}`;
+        }
+        await saveSession(conversationId, pre);
+        console.log(`[OUTBOUND_ENQUIRE] contact channel = ${pre.contactChannel}`);
+      }
+    }
+  } catch { /* never break a conversation over this */ }
+
   const res = await getChatAgentResponseInner(garageId, message, conversationId, seedContact);
   try {
     const session = await getOrCreateSession(conversationId);
@@ -3342,8 +3377,11 @@ async function handleSelectService(args: any, session: ChatSession, conversation
             ? await getLastServiceSuggestion(conv.garageId, session.vrn)
             : null;
           if (s) {
+            // "a A service" reads badly and the model only sometimes tidies it.
+            const article = (w: string) => (/^[aeiou]/i.test(w.trim()) ? 'an' : 'a');
             session.serviceSuggestion =
-              `They last had a ${s.had}${s.when ? ` (${s.when})` : ''}, so a ${s.suggest} is likely due next.`;
+              `They last had ${article(s.had)} ${s.had}${s.when ? ` (${s.when})` : ''}, `
+              + `so ${article(s.suggest)} ${s.suggest} is likely due next.`;
           }
         } catch (e) {
           console.error('[OUTBOUND_ENQUIRE] service suggestion failed:', e);
@@ -4074,14 +4112,20 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
   const already = (session.enquiryPreference || '').trim();
   const preference = already || String(args?.preference || '').trim();
 
+    const askChannel = session.contactChannel
+      ? ` They have asked to be contacted by ${session.contactChannel === 'whatsapp'
+          ? 'a message here on WhatsApp' : 'a phone call'} — say that, and do not ask again.`
+      : ` Say only that the team "will be in touch" — do NOT say how, because you have not asked `
+        + `yet. Then ask them, as the last thing in the message: "would you rather the team gave `
+        + `you a call, or messaged you here?" Them being on WhatsApp is not them choosing it.`;
   if (already && !anythingElse && !extraDetails) {
     session.awaitingDatePreference = false;
     session.awaitingAnythingElse = false;
     await saveSession(conversationId, session);
     return `Their dates are already recorded and the team have it. There is nothing more to `
       + `capture.\n\nSign off warmly now — confirm the team will be in touch shortly about their `
-      + `${job}, and thank them for getting back to us. Do NOT call this tool again and do NOT ask `
-      + `what else they need.`;
+      + `${job}, and thank them for getting back to us.${askChannel} Do NOT call this tool again `
+      + `and do NOT ask what else they need.`;
   }
 
   if (!preference) {
@@ -4107,13 +4151,23 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
   await saveSession(conversationId, session);
 
   if (!anythingElse && !extraDetails) {
+    // The reply the customer reads is generated from here, not from the system prompt, so this
+    // is the only place the recommendation reliably lands. Marked said in the same breath: the
+    // flag is what stops it repeating, not an instruction asking the model to remember.
+    let suggestLine = '';
+    if (session.serviceSuggestion && !session.serviceSuggestionSaid) {
+      session.serviceSuggestionSaid = true;
+      suggestLine = ` In the SAME message, tell them this ONCE, in passing: `
+        + `${session.serviceSuggestion} Say the team will double-check it — never insist, never `
+        + `price it, and drop it entirely if they say different, because they know their own car.`;
+    }
     const extras = await reminderExtraAsks(conversationId);
     const alsoAsk = extras.length
       ? ` In the SAME message, also ask ${extras.join(' and ')} — word it as helping the team get `
         + `ready, not as a form. It is optional: if they skip it, let it go and never ask twice.`
       : '';
     return `Recorded and flagged for the team.\n\nNow ask what else they need looking at — word it `
-      + `as "is there anything else you need us to check whilst the vehicle's in?".${alsoAsk} Do NOT `
+      + `as "is there anything else you need us to check whilst the vehicle's in?".${suggestLine}${alsoAsk} Do NOT `
       + `sign off yet and do NOT thank them for the details yet.\n\nIf they tell you anything, call `
       + `this tool again with the same preference plus anything_else and extra_details. If they say `
       + `no or nothing else, sign off warmly: the team will be in touch shortly to confirm `
@@ -4122,7 +4176,7 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
 
   return `Recorded, including the extra request.\n\nSign off warmly now — you have everything, and `
     + `the team will be in touch very shortly to confirm their ${job}. Thank them for getting back `
-    + `to us.\n\nConversation complete.`;
+    + `to us.${askChannel}\n\nConversation complete.`;
 }
 
 async function handleTakeMessage(args: any, session: ChatSession, conversationId: string): Promise<string> {
@@ -5632,12 +5686,19 @@ RECOGNISING AFFIRMATIVE RESPONSES:
           + `record_date_preference as extra_details.\n`;
       }
     }
-    if (session.serviceSuggestion) {
-      prompt += `- ${session.serviceSuggestion} Mention it ONCE, in passing, as something helpful `
-        + `rather than a decision: say what they last had and what you would expect this time, and `
-        + `always add that the team will double-check it when they ring. Never insist, never price `
-        + `it, and drop it entirely if they say something different — they know their car and this `
-        + `is only what the records show.\n`;
+    // Unset up to and INCLUDING the turn the dates are recorded (the prompt is built before the
+    // tool runs), set from then on. So this block is in the prompt for exactly the reply that
+    // should carry it, and absent afterwards — which is what "say it once" has to mean.
+    if (session.serviceSuggestion && !session.serviceSuggestionSaid) {
+      prompt += `- ${session.serviceSuggestion} Say it WITHOUT being asked, in the reply where you `
+        + `acknowledge their dates — not before, because their dates come first.\n`
+        + `- Say it EXACTLY ONCE in the whole conversation. If it already appears earlier in this `
+        + `conversation, do not mention it again in any form: repeating it every turn reads as `
+        + `nagging, not helping.\n`
+        + `- Word it as something helpful rather than a decision: what they last had, what you would `
+        + `expect this time, and that the team will confirm it. Never insist, never price it, never `
+        + `name a DIFFERENT service in the same breath, and drop it entirely if they say otherwise — `
+        + `they know their car and this is only what our records show.\n`;
     }
     prompt += `NEVER say there is no availability, nothing showing online, that the diary is full, `
       + `or anything about the online booking system — the customer does not need to know, and it `
@@ -5654,13 +5715,21 @@ RECOGNISING AFFIRMATIVE RESPONSES:
       + `no paperwork, no mileage. You already have their name and their number and need nothing `
       + `else from them: do NOT ask for their phone number (you are already messaging them on it), `
       + `and do NOT ask for an email address, a postcode or a house number. The team `
-      + `will pick all that up when they ring.\n`
+      + `will pick all that up when they get in touch.\n`
+      + (session.contactChannel
+        ? `They have told you how they want contacting: ${session.contactChannel === 'whatsapp'
+            ? 'a message here on WhatsApp' : 'a phone call'}. Say that, and do not ask again.\n`
+        : `You have NOT been told how they want contacting, so never invent one: say the team `
+          + `"will be in touch" and stop there — not "here on WhatsApp", not "we'll ring you". Them `
+          + `being on WhatsApp is not them choosing WhatsApp. You will be told when to ask; do not `
+          + `ask before then.\n`)
       + `NOTHING HAS BEEN BOOKED and nothing here books anything. Never say they are booked in, `
       + `never say an appointment is confirmed or held, never give a date as though it were `
       + `arranged, and never promise a confirmation by text or email. What is true, and all you may `
-      + `say, is that their details are with the team and someone will ring to arrange it and `
-      + `confirm the cost.\n`
-      + `Lead with what WILL happen, never with what will not. "The team will ring you to arrange `
+      + `say, is that their details are with the team and someone will be in touch to arrange it `
+      + `and confirm the cost. Say "be in touch", not "ring" or "call" — you do not yet know how `
+      + `they want to be contacted, and once they have told you, use their words.\n`
+      + `Lead with what WILL happen, never with what will not. "The team will be in touch to arrange `
       + `it and confirm the cost" answers "will I get a confirmation?" completely, and warmly; `
       + `"you won't get a confirmation just yet" answers the same question as a disappointment. `
       + `Never open a reply with a negative.\n`

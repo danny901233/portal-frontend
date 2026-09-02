@@ -717,6 +717,12 @@ export interface AdvisoryItem {
   estimateNo?: string;
   date?: string;
   status?: string;
+  /** "Urgent" | "Advisory" — the garage's own RAG grade from the health check. */
+  severity?: string;
+  /** The garage flagged this one as dangerous. */
+  dangerous?: boolean;
+  /** When the garage diaried it to be chased — this is their deferred-work date. */
+  reminderDate?: string;
 }
 
 interface RawVIE {
@@ -728,31 +734,60 @@ interface RawVIE {
   amountIncludingVAT?: number;
 }
 
-interface RawVIELine {
+/** The JOB level of a health check: one row per thing the garage recommended. */
+interface RawVIEGroup {
   documentNo?: string;
-  lineType?: string;
+  lineNo?: number;
   description?: string;
-  quantity?: number;
-  unitPrice?: number;
-  lineAmount?: number;
+  dangerous?: boolean;
+  customerAuthorised?: boolean;
+  reminderDate?: string;
   amountIncludingVAT?: number;
 }
 
-// NOTE: the exact status values Garage Hive uses for "advised but not yet booked"
-// vs "converted to a job / done" must be validated against a real garage's data
-// (the sandbox has no VHC records). Until then keep the garage toggle OFF. We
-// conservatively DROP anything that looks already-actioned.
-const CLOSED_VIE_STATUS = /(convert|complete|closed|done|invoiced|cancel)/i;
+/** Checklist rows carry the RAG grade, and point back at the group they produced. */
+interface RawChecklistLine {
+  vehicleInspectionEstimateNo?: string;
+  vehicleInspectionEstimateGroupNo?: number;
+  valueCategory?: string;
+  attention?: boolean;
+}
+
+const EMPTY_DATE_PREFIX = '0001-01-01';
+
+/**
+ * How many advisories the agent may raise in one conversation.
+ *
+ * Reading a full health check down the phone is a lecture, not an offer, and someone told about
+ * eight jobs agrees to none of them. Filtering to the latest check and dropping what they have
+ * already authorised usually leaves one or two, so this is a backstop for the rare long list
+ * rather than the thing doing the work.
+ */
+const MAX_ADVISORIES = 3;
 
 async function serviceQuery<T>(creds: GarageHiveCreds, entity: string, query: string): Promise<T[]> {
   const url = `${apiBase(creds)}/service/v2.0/companies(${creds.companyId})/${entity}?${query}`;
   return get<T>(creds, url);
 }
 
+/** Dangerous first, then the garage's own grading, then whatever is left. */
+function advisoryRank(a: AdvisoryItem): number {
+  if (a.dangerous) return 0;
+  if ((a.severity || '').toLowerCase() === 'urgent') return 1;
+  if ((a.severity || '').toLowerCase() === 'advisory') return 2;
+  return 3;
+}
+
 /**
- * Outstanding advisory line-items for a vehicle, for the voice agent to offer at
- * booking time. Returns { enabled:false } when the garage toggle is off (so the
- * switch is enforced server-side and the agent simply gets nothing).
+ * Work this vehicle was advised at its most recent health check and has not agreed to.
+ *
+ * Only the latest check: an older one describes a car that has since been worked on, and offering
+ * from it means raising things already done or already declined. Anything the customer authorised
+ * is dropped — that is the garage recording the decision, and it is the only "has this been dealt
+ * with" signal the API actually has.
+ *
+ * Returns { enabled:false } when the garage toggle is off, so the switch is enforced here rather
+ * than trusted to the agent.
  */
 export async function getVehicleAdvisories(
   garageId: string,
@@ -767,42 +802,79 @@ export async function getVehicleAdvisories(
   const creds = await resolveCreds(garageId);
   if (!creds || !registration) return { enabled: true, advisories: [] };
 
-  const reg = registration.trim().replace(/'/g, "''");
-  const estimates = await serviceQuery<RawVIE>(
-    creds,
-    'vehicleInspectionEstimates',
-    `$select=number,vehicleRegistrationNo,status,vieStatus,documentDate,amountIncludingVAT` +
-      `&$filter=${encodeURIComponent(`vehicleRegistrationNo eq '${reg}'`)}&$orderby=documentDate desc&$top=20`,
-  );
+  try {
+    const reg = registration.trim().toUpperCase().replace(/'/g, "''");
 
-  const open = estimates.filter(
-    (e) => !CLOSED_VIE_STATUS.test(`${e.status || ''} ${e.vieStatus || ''}`),
-  );
-
-  const advisories: AdvisoryItem[] = [];
-  for (const est of open) {
-    if (!est.number) continue;
-    const lines = await serviceQuery<RawVIELine>(
+    // The most recent health check, and only that one.
+    const estimates = await serviceQuery<RawVIE>(
       creds,
-      'vehicleInspectionEstimateLines',
-      `$select=documentNo,lineType,description,quantity,unitPrice,lineAmount,amountIncludingVAT` +
-        `&$filter=${encodeURIComponent(`documentNo eq '${est.number.replace(/'/g, "''")}'`)}`,
+      'vehicleInspectionEstimates',
+      `$select=number,vehicleRegistrationNo,status,vieStatus,documentDate,amountIncludingVAT`
+        + `&$filter=${encodeURIComponent(`vehicleRegistrationNo eq '${reg}'`)}`
+        + `&$orderby=documentDate desc&$top=1`,
     );
-    for (const ln of lines) {
-      const desc = (ln.description || '').trim();
-      // Skip heading/comment lines (no description or no chargeable amount).
-      const amount = ln.amountIncludingVAT ?? ln.lineAmount;
-      if (!desc || !amount) continue;
-      advisories.push({
-        description: desc,
-        price: typeof amount === 'number' ? amount : undefined,
-        estimateNo: est.number,
-        date: est.documentDate && est.documentDate !== EMPTY_DATE ? est.documentDate : undefined,
-        status: est.status || est.vieStatus || undefined,
-      });
+    const latest = estimates[0];
+    if (!latest?.number) return { enabled: true, advisories: [] };
+
+    const docNo = latest.number.replace(/'/g, "''");
+    const groups = await serviceQuery<RawVIEGroup>(
+      creds,
+      'vehicleInspectionEstimateGroups',
+      `$select=documentNo,lineNo,description,dangerous,customerAuthorised,reminderDate,amountIncludingVAT`
+        + `&$filter=${encodeURIComponent(`documentNo eq '${docNo}'`)}&$top=40`,
+    );
+
+    // The RAG grade lives on the checklist rows, which point back at the group they produced.
+    // Best-effort: a health check with no checklist attached still yields advisories, just unranked.
+    const severityByGroup = new Map<number, string>();
+    try {
+      const lines = await serviceQuery<RawChecklistLine>(
+        creds,
+        'checklistLines',
+        `$select=vehicleInspectionEstimateNo,vehicleInspectionEstimateGroupNo,valueCategory,attention`
+          + `&$filter=${encodeURIComponent(`vehicleInspectionEstimateNo eq '${docNo}'`)}&$top=200`,
+      );
+      for (const ln of lines) {
+        const g = ln.vehicleInspectionEstimateGroupNo;
+        const cat = (ln.valueCategory || '').trim();
+        // Keep the most severe grade seen for a group — one job can come from several checks.
+        if (!g || !cat || cat === '_x0020_') continue;
+        const existing = severityByGroup.get(g);
+        if (!existing || cat.toLowerCase() === 'urgent') severityByGroup.set(g, cat);
+      }
+    } catch (e) {
+      console.warn('[GH_ADVISORY] checklist grades unavailable — advisories will be unranked:', e);
     }
+
+    const advisories: AdvisoryItem[] = groups
+      // Authorised means they already said yes. Offering it again is asking twice for the same job.
+      .filter((g) => !g.customerAuthorised)
+      .filter((g) => (g.description || '').trim())
+      .map((g) => ({
+        description: (g.description || '').trim(),
+        price: typeof g.amountIncludingVAT === 'number' && g.amountIncludingVAT > 0
+          ? g.amountIncludingVAT : undefined,
+        estimateNo: latest.number,
+        date: latest.documentDate && !latest.documentDate.startsWith(EMPTY_DATE_PREFIX)
+          ? latest.documentDate : undefined,
+        status: latest.status || latest.vieStatus || undefined,
+        severity: g.lineNo ? severityByGroup.get(g.lineNo) : undefined,
+        dangerous: g.dangerous === true,
+        reminderDate: g.reminderDate && !g.reminderDate.startsWith(EMPTY_DATE_PREFIX)
+          ? g.reminderDate : undefined,
+      }))
+      .sort((a, b) => advisoryRank(a) - advisoryRank(b));
+
+    const total = advisories.length;
+    const capped = advisories.slice(0, MAX_ADVISORIES);
+    console.log(`[GH_ADVISORY] ${reg}: ${latest.number} (${latest.documentDate}) — `
+      + `${groups.length} advised, ${total} outstanding, offering ${capped.length}`);
+    return { enabled: true, advisories: capped };
+  } catch (e) {
+    // An upsell is never worth failing a booking over.
+    console.error('[GH_ADVISORY] lookup failed:', e);
+    return { enabled: true, advisories: [] };
   }
-  return { enabled: true, advisories };
 }
 
 /** Look up a single customer by their Garage Hive customer number. */

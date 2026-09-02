@@ -19,6 +19,9 @@
 
 import axios from 'axios';
 import { prisma } from '../db.js';
+import { NAME_TITLES, usableFirstName } from '../utils/personName.js';
+
+export { usableFirstName };
 
 export interface GarageHiveCreds {
   tenantId: string;
@@ -420,38 +423,6 @@ export interface CallerVehicle {
  * bare titles. Returning those verbatim gets you "Hello Mr" on a real call, so anything that is
  * not clearly a given name returns undefined and the agent simply greets them without one.
  */
-const NAME_TITLES = new Set([
-  'mr', 'mrs', 'ms', 'miss', 'mstr', 'master', 'dr', 'prof', 'professor', 'sir', 'madam',
-  'rev', 'reverend', 'lord', 'lady', 'capt', 'captain', 'major', 'sgt',
-]);
-
-export function usableFirstName(raw?: string | null): string | undefined {
-  const trimmed = String(raw || '').trim();
-  if (!trimmed) return undefined;
-
-  // "SMITH, John" puts the given name AFTER the comma — taking the first word would greet them
-  // by surname, which sounds like a debt collector rather than their garage.
-  const source = trimmed.includes(',')
-    ? trimmed.split(',').slice(1).join(' ')
-    : trimmed;
-
-  const all = source.replace(/[.]/g, ' ').split(/\s+/).filter(Boolean);
-  const words = all.filter((w) => !NAME_TITLES.has(w.toLowerCase()));
-  const hadTitle = words.length !== all.length;
-
-  // "Mr Smith" is a surname, and "Hello Smith" sounds like a summons. After a title, only trust
-  // the next word as a given name when something follows it too ("Dr Emily Watts" → Emily).
-  // A bare "Mr Smith" gets no name at all, which is the better of the two wrong answers.
-  if (hadTitle && words.length < 2) return undefined;
-
-  const candidate = words[0];
-  if (!candidate) return undefined;                       // the whole field was a title
-  if (candidate.length < 2) return undefined;             // an initial, not a name
-  if (!/^[A-Za-z][A-Za-z'\u2019-]+$/.test(candidate)) return undefined;  // company names, refs
-
-  return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
-}
-
 /** Levenshtein distance. Names are short, so the naive version is fine. */
 function editDistance(a: string, b: string): number {
   if (!a.length || !b.length) return Math.max(a.length, b.length);

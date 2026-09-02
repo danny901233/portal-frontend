@@ -7,6 +7,7 @@ import { imageMessageContent } from './chatMedia.js';
 import { getVehicleAdvisories } from './garageHiveBc.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
+import { splitPersonName } from '../utils/personName.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -898,9 +899,11 @@ async function getChatAgentResponseInner(
       seedApplied = true;
     }
     if (seedContact?.name && !session.customerNameFirst) {
-      const parts = seedContact.name.trim().split(/\s+/);
-      session.customerNameFirst = parts[0] || '';
-      session.customerNameLast = parts.slice(1).join(' ') || '';
+      // Drops titles, so a seeded "Mr Kris Cottrell" greets as Kris and a bare "Mr" greets as
+      // nobody rather than as "Mr".
+      const seeded = splitPersonName(seedContact.name);
+      session.customerNameFirst = seeded.first;
+      session.customerNameLast = seeded.last;
       console.log(`[SEED_CONTACT] Name seeded: ${session.customerNameFirst} ${session.customerNameLast}`);
       seedApplied = true;
     }

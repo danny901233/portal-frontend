@@ -10,6 +10,7 @@ import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappO
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { buildTemplateFields } from '../../services/outboundSend.js';
+import { splitPersonName } from '../../utils/personName.js';
 
 const router = Router();
 
@@ -277,8 +278,9 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             await prisma.$executeRawUnsafe(
               `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
               JSON.stringify({
-                customerNameFirst: nameParts[0] || '',
-                customerNameLast: nameParts.slice(1).join(' ') || '',
+                // Titles dropped — a CSV "Mr Kris Cottrell" seeded "Mr" and the agent said "Hi Mr".
+                customerNameFirst: splitPersonName(outboundContact.customerName).first,
+                customerNameLast: splitPersonName(outboundContact.customerName).last,
                 ...(reg && { outboundRegistration: reg }),
                 // Only pre-select a job when the reminder was actually about one. Defaulting to
                 // 'mot' meant a service reminder — or a promotion — put the agent straight into an

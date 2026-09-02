@@ -5,6 +5,7 @@ import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
+import { splitPersonName } from '../utils/personName.js';
 import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
@@ -835,9 +836,11 @@ router.post('/sms/inbound', async (req: Request, res: Response) => {
       const sessionState: Record<string, string> = {
         contactPhone: normalFrom,
       };
-      const nameParts = contact.customerName.trim().split(/\s+/);
-      sessionState.customerNameFirst = nameParts[0] || '';
-      sessionState.customerNameLast = nameParts.slice(1).join(' ') || '';
+      // Titles are dropped: a campaign CSV holding "Mr Kris Cottrell" used to seed "Mr" as the
+      // first name, and the agent opened with "Hi Mr".
+      const seededName = splitPersonName(contact.customerName);
+      sessionState.customerNameFirst = seededName.first;
+      sessionState.customerNameLast = seededName.last;
 
       const dueDate = contact.motDueDate || contact.serviceDueDate || '';
       const contextNote = [

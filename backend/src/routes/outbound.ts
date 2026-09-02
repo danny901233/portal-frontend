@@ -5,7 +5,7 @@ import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
-import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories } from '../services/garageHiveBc.js';
+import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
@@ -302,6 +302,11 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
     res.json({
       connected: true,
       isGarageHiveAgent,
+      // Returned so the connect panel can show what this garage currently points at. No secret
+      // is included: clientId/clientSecret are the shared Azure AD app and never per-garage.
+      tenantId: conn.tenantId,
+      environmentName: conn.environmentName,
+      companyId: conn.companyId,
       remindersEnabled: conn.remindersEnabled,
       reminderDaysAhead: conn.reminderDaysAhead,
       reminderTemplateId: conn.reminderTemplateId,
@@ -401,6 +406,91 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
 // (the same job the daily cron runs). Body: { garageId? } — run one garage, or
 // all enabled connections when omitted. For testing + on-demand sends.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Business Central connection — the new Garage Hive API, not the Automate diary
+// ---------------------------------------------------------------------------
+// A Garage Hive ACCOUNT is one BC environment (tenant + environmentName), and the branches
+// inside it are COMPANIES. JDK Group is the first: JDK Automotive, Ecotest and Great Hollands
+// share one environment and differ only by companyId.
+//
+// So the tenant and environment are entered once and the company is PICKED from what BC returns,
+// never typed — they are GUIDs, and a silent typo in one is indistinguishable from a permissions
+// problem when something fails three days later.
+//
+// Nothing here asks for a client secret. The Azure AD app is ours and shared across accounts;
+// what the garage does on their side is grant that app access inside their own BC.
+
+router.get(
+  '/outbound/garagehive/companies',
+  authenticate,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const tenantId = String(req.query.tenantId || '').trim();
+      const environmentName = String(req.query.environmentName || '').trim();
+      if (!tenantId || !environmentName) {
+        return res.status(400).json({ error: 'tenantId and environmentName are both required' });
+      }
+      const companies = await listCompanies(tenantId, environmentName);
+      console.log(`[GH_BC] ${companies.length} companies in ${environmentName} (${tenantId})`);
+      res.json({ companies });
+    } catch (e: any) {
+      const status = e?.response?.status;
+      console.error('[GH_BC] Could not list companies:', e?.response?.data || e?.message || e);
+      // 401/403 here almost always means the garage has not granted our app access yet, which is
+      // the one failure the person reading this can actually do something about.
+      res.status(400).json({
+        error:
+          status === 401 || status === 403
+            ? 'Business Central rejected our app. Check the garage has granted it access inside their environment, and that the tenant ID and environment name are right.'
+            : e?.response?.data?.error?.message || e?.message || 'Could not reach Business Central',
+      });
+    }
+  },
+);
+
+router.post(
+  '/outbound/garagehive/connect',
+  authenticate,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId, tenantId, environmentName, companyId } = req.body || {};
+      if (!garageId || !tenantId || !environmentName || !companyId) {
+        return res
+          .status(400)
+          .json({ error: 'garageId, tenantId, environmentName and companyId are all required' });
+      }
+
+      await prisma.garageHiveConnection.upsert({
+        where: { garageId },
+        create: {
+          garageId,
+          tenantId: String(tenantId).trim(),
+          environmentName: String(environmentName).trim(),
+          companyId: String(companyId).trim(),
+        },
+        update: {
+          tenantId: String(tenantId).trim(),
+          environmentName: String(environmentName).trim(),
+          companyId: String(companyId).trim(),
+        },
+      });
+
+      // Prove it reads before reporting success. A wrong company or a missing permission set both
+      // look perfectly healthy right up until something tries to fetch data.
+      const test = await testConnection(garageId);
+      console.log(
+        `[GH_BC] Connected ${garageId} → ${environmentName}/${companyId} (test ${test.ok ? 'passed' : 'FAILED'})`,
+      );
+      res.json({ success: true, test });
+    } catch (e: any) {
+      console.error('[GH_BC] connect failed:', e);
+      res.status(500).json({ error: e?.message || 'Could not save the connection' });
+    }
+  },
+);
+
 router.post('/outbound/garagehive/run-now', authenticate, async (req: Request, res: Response) => {
   try {
     const { garageId } = (req.body || {}) as { garageId?: string };

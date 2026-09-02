@@ -287,6 +287,40 @@ async function patchVehicle(
  * vehicles were changed. Keeps Garage Hive as the source of truth so future
  * daily pulls exclude them at source.
  */
+export interface BcCompany {
+  id: string;
+  name?: string;
+  displayName?: string;
+}
+
+/**
+ * The companies inside a Business Central environment — which, in Garage Hive's model, are the
+ * branches of one account.
+ *
+ * Takes the tenant and environment directly rather than a garageId, because this runs BEFORE any
+ * connection exists: it is what turns "here are our BC details" into a list you can point at a
+ * garage. The Azure AD app credentials are ours and shared, so the only thing the garage has to
+ * do on their side is grant that app access.
+ */
+export async function listCompanies(
+  tenantId: string,
+  environmentName: string,
+): Promise<BcCompany[]> {
+  const clientId = process.env.GARAGEHIVE_CLIENT_ID;
+  const clientSecret = process.env.GARAGEHIVE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error('The shared Garage Hive app credentials are not configured on this server');
+  }
+  const creds: GarageHiveCreds = {
+    tenantId,
+    environmentName,
+    companyId: '',
+    clientId,
+    clientSecret,
+  };
+  return get<BcCompany>(creds, `${apiBase(creds)}/general/v2.0/companies`);
+}
+
 export async function disableRemindersForRegistration(
   creds: GarageHiveCreds,
   registration: string,

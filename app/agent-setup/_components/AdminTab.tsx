@@ -10,6 +10,7 @@ import type {
 } from '../../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
 import TabShell from './TabShell';
+import BusinessCentralPanel from './BusinessCentralPanel';
 
 interface Props {
   config: AgentConfiguration;
@@ -477,6 +478,12 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
+          </div>
+          {/* The Business Central API is a separate connection from the Automate diary above:
+              different credentials, different capabilities (reminders, caller recognition,
+              advisory upsells). Same panel so both live where a garage is wired up. */}
+          <div className="mt-3">
+            <BusinessCentralPanel />
           </div>
         </div>
       )}

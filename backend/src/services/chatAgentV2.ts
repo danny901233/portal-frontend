@@ -1954,7 +1954,15 @@ async function getChatAgentResponseInner(
     // restart a flow that cannot finish — there is nothing bookable, which is why we are here.
     // Off that path, withdraw record_date_preference for the same reason.
     if (toolsForCall) {
-      const collectingPreference = !!(session.awaitingDatePreference || session.awaitingAnythingElse);
+      // Keep take_message away for the REST of a conversation that has already recorded a
+      // reminder preference, not just while the flow is open. On "no that's all" the model called
+      // it and replaced "Preferred dates: Tuesday morning. about 78,000. Also asked us to check:
+      // brakes squeak" with its own summary — the dates, the mileage and the fault all lost at the
+      // final turn. Anything further belongs in record_date_preference.
+      const reminderRecorded = !!session.enquiryPreference;
+      const collectingPreference = !!(
+        session.awaitingDatePreference || session.awaitingAnythingElse || reminderRecorded
+      );
       // take_message is deliberately NOT here. Offered alongside record_date_preference the model
       // reached for it every time and wrote its own summary, so the dates never reach the team —
       // one transcript captured "mornings" and filed "Please call her back to confirm details and
@@ -2364,6 +2372,13 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
               type: 'string',
               description: 'Anything else they have asked us to check whilst the vehicle is in. '
                 + 'Omit on the first call.',
+            },
+            extra_details: {
+              type: 'string',
+              description: 'Anything the garage specifically wanted to know that the customer has '
+                + 'now told you. Label it so the team can read it at a glance — "Mileage: about '
+                + '78,000" rather than "about 78,000". Omit when they did not say, or when the '
+                + 'garage asked for nothing.',
             },
           },
           required: ['preference'],
@@ -3986,8 +4001,46 @@ function categoriseBooking(serviceName?: string): 'mot' | 'service' | 'diagnosti
  * lost if they go quiet; a second call replaces the note with one that also carries whatever else
  * they want looking at.
  */
+/**
+ * The garage's own optional questions that are worth asking during a reminder reply.
+ *
+ * Mirrors the filter in buildSystemPromptV2: optional, not a contact detail, and not something the
+ * reminder already told them. Duplicated deliberately — the prompt describes the NEXT turn, while
+ * this writes the wording of THIS one, and the two are read at different moments.
+ */
+async function reminderExtraAsks(conversationId: string): Promise<string[]> {
+  try {
+    // The session does not carry the garage, so resolve it from the conversation.
+    const conv = await prisma.chatConversation.findUnique({
+      where: { id: conversationId },
+      select: { garageId: true },
+    });
+    if (!conv?.garageId) return [];
+    const cfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId: conv.garageId },
+      select: { dataCollectionFields: true },
+    });
+    const SKIP_KEYS = new Set([
+      'caller_name', 'full_name', 'callback_phone', 'phone', 'mobile', 'reason',
+      'vehicle_registration', 'registration', 'email', 'postcode', 'house_number', 'address',
+    ]);
+    const SKIP_LABEL =
+      /\b(mot|service)\b[^.]*\bdue\b|\bdue\b[^.]*\b(mot|service)\b|registration|number plate|e-?mail|postcode|address|house (number|name)|phone|mobile|\bname\b/i;
+    const fields = (cfg?.dataCollectionFields as any[]) || [];
+    return fields
+      .filter((f) => f && typeof f === 'object' && f.active && !f.required)
+      .filter((f) => !SKIP_KEYS.has(String(f.key || '').toLowerCase()))
+      .filter((f) => !SKIP_LABEL.test(String(f.label || '')))
+      .map((f) => String(f.label || f.key || '').trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 async function handleRecordDatePreference(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const anythingElse = String(args?.anything_else || '').trim();
+  const extraDetails = String(args?.extra_details || '').trim();
   const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
 
   // The dates are recorded once and never rewritten. A second call can only ADD something they
@@ -3997,7 +4050,7 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
   const already = (session.enquiryPreference || '').trim();
   const preference = already || String(args?.preference || '').trim();
 
-  if (already && !anythingElse) {
+  if (already && !anythingElse && !extraDetails) {
     session.awaitingDatePreference = false;
     session.awaitingAnythingElse = false;
     await saveSession(conversationId, session);
@@ -4019,6 +4072,7 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
     message: `Reminder reply — wants their ${job} booked`
       + (session.vrn ? ` (${session.vrn})` : '')
       + `. Preferred dates: ${preference}`
+      + (extraDetails ? `. ${extraDetails}` : '')
       + (anythingElse ? `. Also asked us to check: ${anythingElse}` : ''),
     phone: session.contactPhone || '',
   }, session, conversationId);
@@ -4028,12 +4082,18 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
   session.awaitingAnythingElse = !anythingElse;
   await saveSession(conversationId, session);
 
-  if (!anythingElse) {
+  if (!anythingElse && !extraDetails) {
+    const extras = await reminderExtraAsks(conversationId);
+    const alsoAsk = extras.length
+      ? ` In the SAME message, also ask ${extras.join(' and ')} — word it as helping the team get `
+        + `ready, not as a form. It is optional: if they skip it, let it go and never ask twice.`
+      : '';
     return `Recorded and flagged for the team.\n\nNow ask what else they need looking at — word it `
-      + `as "is there anything else you need us to check whilst the vehicle's in?". Do NOT sign off `
-      + `yet and do NOT thank them for the details yet.\n\nIf they name something, call this tool `
-      + `again with the same preference plus anything_else. If they say no or nothing else, sign off `
-      + `warmly: the team will be in touch shortly to confirm their ${job}.`;
+      + `as "is there anything else you need us to check whilst the vehicle's in?".${alsoAsk} Do NOT `
+      + `sign off yet and do NOT thank them for the details yet.\n\nIf they tell you anything, call `
+      + `this tool again with the same preference plus anything_else and extra_details. If they say `
+      + `no or nothing else, sign off warmly: the team will be in touch shortly to confirm `
+      + `their ${job}.`;
   }
 
   return `Recorded, including the extra request.\n\nSign off warmly now — you have everything, and `
@@ -5468,6 +5528,39 @@ RECOGNISING AFFIRMATIVE RESPONSES:
   // The rules below are the ones the hardcoded version enforced by simply not having a model.
   if (session.awaitingDatePreference || session.awaitingAnythingElse) {
     const prefJob = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
+
+    // The garage's own configured questions, minus everything that has no business being asked
+    // in a reminder reply.
+    //
+    // Excluded by key: the contact details. We are not booking, and a person is ringing them back
+    // on the number they just messaged from — asking for an email or a postcode here is the
+    // behaviour that made customers feel they were filling in a form.
+    //
+    // Excluded by label as well as key, because "When is your Service due?" is stored under a
+    // generated key like custom_1784195133092: anything the reminder ALREADY told them. We
+    // messaged them to say the service is due on a named vehicle. Asking either back reads as
+    // though we have not read our own message.
+    //
+    // Required fields are excluded on purpose. Requiring an answer in a flow whose entire point is
+    // "give us a rough preference and someone will call you" turns a two-line exchange into an
+    // interrogation, and the customer is already a known customer of theirs.
+    const REMINDER_SKIP_KEYS = new Set([
+      'caller_name', 'full_name', 'callback_phone', 'phone', 'mobile', 'reason',
+      'vehicle_registration', 'registration', 'email', 'postcode', 'house_number', 'address',
+    ]);
+    const REMINDER_SKIP_LABEL =
+      /\b(mot|service)\b[^.]*\bdue\b|\bdue\b[^.]*\b(mot|service)\b|registration|number plate|e-?mail|postcode|address|house (number|name)|phone|mobile|\bname\b/i;
+
+    const reminderExtras = (Array.isArray(config.dataCollectionFields) ? config.dataCollectionFields : [])
+      .filter((f: any) => f && typeof f === 'object' && f.active && !f.required)
+      .filter((f: any) => !REMINDER_SKIP_KEYS.has(String(f.key || '').toLowerCase()))
+      .filter((f: any) => !REMINDER_SKIP_LABEL.test(String(f.label || '')))
+      .map((f: any) => {
+        const label = String(f.label || f.key || '').trim();
+        const instr = String(f.instruction || '').trim();
+        return instr ? `${label} (${instr})` : label;
+      })
+      .filter(Boolean);
     prompt += `\nCOLLECTING PREFERRED DATES — THIS SECTION OVERRIDES EVERYTHING ABOVE IT, including the BOOKING FLOW, anything about collecting contact details, and any rule about not ending the chat until a booking is confirmed. None of that applies here.\n`
       + `This customer replied to a ${prefJob} reminder${session.vrn ? ` for ${session.vrn}` : ''}. `
       + `You are NOT booking them in and you have no times to offer. Your only job is to find out `
@@ -5494,8 +5587,17 @@ RECOGNISING AFFIRMATIVE RESPONSES:
         + `vehicle is in. If they name something, call record_date_preference again with the same `
         + `preference plus anything_else. If they say no or nothing else, sign off warmly: the team `
         + `will be in touch shortly to confirm their ${prefJob}.\n`
-        + `- You need nothing else from them. Do NOT ask for an email address, a postcode or a `
-        + `house number, and do NOT start a booking.\n`;
+        + `- Do NOT ask for an email address, a postcode or a house number, and do NOT start a `
+        + `booking.\n`;
+      if (reminderExtras.length) {
+        // Asked here rather than up front: the first turn is for when suits them, and nothing
+        // should come between that question and their answer.
+        prompt += `- This garage would also like to know: ${reminderExtras.join('; ')}. Ask for `
+          + `it in the SAME message as "anything else", not as a separate question, and word it as `
+          + `helping the team get ready rather than as a form. It is optional — if they skip it or `
+          + `do not know, let it go and never ask twice. Pass whatever they say to `
+          + `record_date_preference as extra_details.\n`;
+      }
     }
     prompt += `NEVER say there is no availability, nothing showing online, that the diary is full, `
       + `or anything about the online booking system — the customer does not need to know, and it `

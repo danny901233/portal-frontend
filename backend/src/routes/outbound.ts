@@ -6,7 +6,7 @@ import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
 import { splitPersonName } from '../utils/personName.js';
-import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection } from '../services/garageHiveBc.js';
+import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection, getLastServiceSuggestion } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
@@ -263,6 +263,34 @@ router.get('/agent/garagehive/advisories', async (req: Request, res: Response) =
     const detail = (error as { response?: { data?: unknown } })?.response?.data;
     console.error('[AGENT] Garage Hive advisories error:', detail ?? error);
     res.status(502).json({ error: 'Failed to look up advisories in Garage Hive' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/agent/garagehive/service-history?garageId=...&registration=... — what
+// the vehicle last had done and what is therefore likely due, for the voice
+// agent to answer "what did I have last time?" and to recommend the next
+// service. Agent-secret auth. Returns { suggestion: null } whenever we cannot
+// say confidently — no configured service pairs, more than one vehicle on the
+// account, or nothing recognisable on the last invoice.
+// ---------------------------------------------------------------------------
+router.get('/agent/garagehive/service-history', async (req: Request, res: Response) => {
+  const configured = process.env.WEBHOOK_SECRET;
+  const provided = req.headers['x-webhook-secret'] ?? req.headers['webhook-secret'];
+  if (configured && provided !== configured) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const { garageId, registration } = req.query as { garageId: string; registration: string };
+    if (!garageId || !registration) {
+      return res.status(400).json({ error: 'garageId and registration are required' });
+    }
+    const suggestion = await getLastServiceSuggestion(garageId, registration);
+    res.json({ suggestion });
+  } catch (error: unknown) {
+    const detail = (error as { response?: { data?: unknown } })?.response?.data;
+    console.error('[AGENT] Garage Hive service-history error:', detail ?? error);
+    res.status(502).json({ error: 'Failed to look up service history in Garage Hive' });
   }
 });
 

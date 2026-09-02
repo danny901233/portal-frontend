@@ -945,6 +945,29 @@ async function branchForRegistration(
  * Posted invoices carry no registration, which is why the single-vehicle check exists. It is not
  * a nicety: a two-car household would otherwise be told about the wrong car's service.
  */
+/**
+ * The garage's configured service pairs, as plain labels.
+ *
+ * The agent needs these when the lookup finds nothing and it has to ask the customer instead:
+ * "a full service" is only actionable if you know this garage pairs full with interim.
+ */
+export async function getServicePairLabels(garageId: string): Promise<Array<{ a: string; b: string }>> {
+  try {
+    const cfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { servicePairs: true },
+    });
+    const pairs = (cfg?.servicePairs as unknown as ServicePair[]) || [];
+    if (!Array.isArray(pairs)) return [];
+    return pairs
+      .filter((p) => p && String(p.aLabel || '').trim() && String(p.bLabel || '').trim())
+      .map((p) => ({ a: String(p.aLabel).trim(), b: String(p.bLabel).trim() }));
+  } catch (e) {
+    console.warn('[GH_SERVICE] could not read service pairs:', e);
+    return [];
+  }
+}
+
 export async function getLastServiceSuggestion(
   garageId: string,
   registration: string,

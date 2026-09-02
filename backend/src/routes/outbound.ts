@@ -6,7 +6,7 @@ import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
 import { splitPersonName } from '../utils/personName.js';
-import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection, getLastServiceSuggestion } from '../services/garageHiveBc.js';
+import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection, getLastServiceSuggestion, getServicePairLabels } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
@@ -285,8 +285,13 @@ router.get('/agent/garagehive/service-history', async (req: Request, res: Respon
     if (!garageId || !registration) {
       return res.status(400).json({ error: 'garageId and registration are required' });
     }
-    const suggestion = await getLastServiceSuggestion(garageId, registration);
-    res.json({ suggestion });
+    const [suggestion, pairs] = await Promise.all([
+      getLastServiceSuggestion(garageId, registration),
+      // Sent whether or not we found a history: the agent needs them precisely when it did not,
+      // so it can act on what the customer tells it instead.
+      getServicePairLabels(garageId),
+    ]);
+    res.json({ suggestion, pairs });
   } catch (error: unknown) {
     const detail = (error as { response?: { data?: unknown } })?.response?.data;
     console.error('[AGENT] Garage Hive service-history error:', detail ?? error);

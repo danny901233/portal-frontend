@@ -19,6 +19,7 @@
 
 import axios from 'axios';
 import { prisma } from '../db.js';
+import { nextServiceAfter, type ServicePair } from '../utils/servicePairs.js';
 import { NAME_TITLES, usableFirstName } from '../utils/personName.js';
 
 export { usableFirstName };
@@ -852,6 +853,83 @@ async function branchForRegistration(
     // Never let an attribution lookup break a reminder run; an unknown branch is handled by the
     // caller, which skips rather than guesses.
     console.error('[GH] branch lookup failed for', reg, e);
+    return null;
+  }
+}
+
+/**
+ * What the vehicle last had done, and therefore what is likely due next.
+ *
+ * Returns null unless we are genuinely confident, which is most of the time:
+ *   - the garage has configured no service pairs
+ *   - the customer has more than one vehicle, so an invoice cannot be tied to this car
+ *   - no invoice, or no line naming a service we recognise
+ *
+ * Posted invoices carry no registration, which is why the single-vehicle check exists. It is not
+ * a nicety: a two-car household would otherwise be told about the wrong car's service.
+ */
+export async function getLastServiceSuggestion(
+  garageId: string,
+  registration: string,
+): Promise<{ had: string; suggest: string; when?: string } | null> {
+  try {
+    const reg = String(registration || '').trim().toUpperCase();
+    if (!reg) return null;
+
+    const cfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { servicePairs: true },
+    });
+    const pairs = (cfg?.servicePairs as unknown as ServicePair[]) || [];
+    if (!Array.isArray(pairs) || pairs.length === 0) return null;   // not configured → silent
+
+    const creds = await resolveCreds(garageId);
+    if (!creds) return null;
+
+    const esc = (s: string) => s.replace(/'/g, "''");
+    const gen = `${apiBase(creds)}/general/v2.0/companies(${creds.companyId})`;
+    const std =
+      `https://api.businesscentral.dynamics.com/v2.0/${creds.tenantId}/${creds.environmentName}`
+      + `/api/v2.0/companies(${creds.companyId})`;
+
+    // Whose vehicle is it?
+    const vehicles = await get<{ customerNo?: string }>(
+      creds, `${gen}/vehicles?$filter=registrationNo eq '${esc(reg)}'&$top=1&$select=customerNo`);
+    const customerNo = vehicles[0]?.customerNo;
+    if (!customerNo) return null;
+
+    // Only safe when they have exactly one vehicle — invoices carry no registration.
+    const theirs = await get<{ registrationNo?: string }>(
+      creds,
+      `${gen}/vehicles?$filter=customerNo eq '${esc(customerNo)}'&$top=3&$select=registrationNo`);
+    if (theirs.length !== 1) {
+      console.log(`[GH_SERVICE] ${reg}: customer has ${theirs.length} vehicles — no suggestion`);
+      return null;
+    }
+
+    // Their most recent invoice, newest first.
+    const invoices = await get<{ id: string; number?: string; invoiceDate?: string }>(
+      creds,
+      `${std}/salesInvoices?$filter=customerNumber eq '${esc(customerNo)}'`
+      + `&$orderby=invoiceDate desc&$top=1&$select=id,number,invoiceDate`);
+    const invoice = invoices[0];
+    if (!invoice?.id) return null;
+
+    const lines = await get<{ description?: string }>(
+      creds, `${std}/salesInvoices(${invoice.id})/salesInvoiceLines?$top=40&$select=description`);
+
+    for (const line of lines) {
+      const hit = nextServiceAfter(line.description, pairs);
+      if (hit) {
+        console.log(
+          `[GH_SERVICE] ${reg}: last had ${hit.had} (${invoice.invoiceDate}) → suggest ${hit.suggest}`);
+        return { ...hit, when: invoice.invoiceDate };
+      }
+    }
+    return null;
+  } catch (e) {
+    // Never break a reminder conversation over a nicety.
+    console.error('[GH_SERVICE] suggestion lookup failed:', e);
     return null;
   }
 }

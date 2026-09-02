@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
-import { getVehicleAdvisories } from './garageHiveBc.js';
+import { getVehicleAdvisories, getLastServiceSuggestion } from './garageHiveBc.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
 import { splitPersonName } from '../utils/personName.js';
@@ -76,6 +76,8 @@ interface ChatSession {
   greetedOutbound?: boolean;
   // Enquire mode: we have asked what dates suit and are waiting for the answer.
   awaitingDatePreference?: boolean;
+  /** "you had a full service last time, so an interim is likely due" — resolved once, then reused. */
+  serviceSuggestion?: string;
   // We have their dates and have asked whether they need anything else.
   awaitingAnythingElse?: boolean;
   anythingElseJob?: string;
@@ -345,6 +347,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           // row asked for dates and then failed to recognise the answer.
           greetedOutbound: oldData.greetedOutbound || false,
           awaitingDatePreference: oldData.awaitingDatePreference || false,
+          serviceSuggestion: oldData.serviceSuggestion || undefined,
           datePreferenceReasked: oldData.datePreferenceReasked || false,
           awaitingAnythingElse: oldData.awaitingAnythingElse || false,
           anythingElseJob: oldData.anythingElseJob || undefined,
@@ -418,6 +421,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         // row asked for dates and then failed to recognise the answer.
         greetedOutbound: sessionData.greetedOutbound || false,
         awaitingDatePreference: sessionData.awaitingDatePreference || false,
+        serviceSuggestion: sessionData.serviceSuggestion || undefined,
         datePreferenceReasked: sessionData.datePreferenceReasked || false,
         awaitingAnythingElse: sessionData.awaitingAnythingElse || false,
         anythingElseJob: sessionData.anythingElseJob || undefined,
@@ -3325,6 +3329,26 @@ async function handleSelectService(args: any, session: ChatSession, conversation
       // — and awaitingDatePreference scopes the model's next turn, via the COLLECTING
       // PREFERRED DATES block in buildSystemPromptV2 and the record_date_preference tool.
       session.awaitingDatePreference = true;
+      // What did this car last have in? Resolved once here, not per turn: it needs three API
+      // calls and the answer cannot change mid-conversation. Silent unless the garage has
+      // configured service pairs AND the customer has a single vehicle.
+      if (!session.serviceSuggestion && session.vrn) {
+        try {
+          const conv = await prisma.chatConversation.findUnique({
+            where: { id: conversationId },
+            select: { garageId: true },
+          });
+          const s = conv?.garageId
+            ? await getLastServiceSuggestion(conv.garageId, session.vrn)
+            : null;
+          if (s) {
+            session.serviceSuggestion =
+              `They last had a ${s.had}${s.when ? ` (${s.when})` : ''}, so a ${s.suggest} is likely due next.`;
+          }
+        } catch (e) {
+          console.error('[OUTBOUND_ENQUIRE] service suggestion failed:', e);
+        }
+      }
       session.step = Step.NEED_CONTACT;
       await saveSession(conversationId, session);
       const nextAsk = session.contactPhone
@@ -5607,6 +5631,13 @@ RECOGNISING AFFIRMATIVE RESPONSES:
           + `do not know, let it go and never ask twice. Pass whatever they say to `
           + `record_date_preference as extra_details.\n`;
       }
+    }
+    if (session.serviceSuggestion) {
+      prompt += `- ${session.serviceSuggestion} Mention it ONCE, in passing, as something helpful `
+        + `rather than a decision: say what they last had and what you would expect this time, and `
+        + `always add that the team will double-check it when they ring. Never insist, never price `
+        + `it, and drop it entirely if they say something different — they know their car and this `
+        + `is only what the records show.\n`;
     }
     prompt += `NEVER say there is no availability, nothing showing online, that the diary is full, `
       + `or anything about the online booking system — the customer does not need to know, and it `

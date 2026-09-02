@@ -7,6 +7,14 @@
  * actually received on 2026-09-02.
  */
 
+/**
+ * Garage records carry bookkeeping inside the name field: "Mr Kris Cottrell (Internal Jobs)",
+ * "Stratstone Jardine Select Bracknell (Trade) - L1035". It tells the office which ledger the job
+ * belongs to and means nothing to the customer, so it is stripped before the name is used to
+ * greet anyone or written onto a booking.
+ */
+const accountAnnotation = /\s*\([^)]*\)|\s+[-\u2013]\s*[A-Z]{1,3}\d{2,}\s*$/g;
+
 export const NAME_TITLES = new Set([
   'mr', 'mrs', 'ms', 'miss', 'mstr', 'master', 'dr', 'prof', 'professor', 'sir', 'madam',
   'rev', 'reverend', 'lord', 'lady', 'capt', 'captain', 'major', 'sgt',
@@ -19,7 +27,7 @@ export const NAME_TITLES = new Set([
  * and is much better than greeting with the wrong one.
  */
 export function usableFirstName(raw?: string | null): string | undefined {
-  const trimmed = String(raw || '').trim();
+  const trimmed = String(raw || '').replace(accountAnnotation, '').trim();
   if (!trimmed) return undefined;
 
   // "SMITH, John" puts the given name AFTER the comma — taking the first word would greet them
@@ -48,7 +56,7 @@ export function usableFirstName(raw?: string | null): string | undefined {
  * Returns an empty first name rather than a title, so a greeting falls back to a plain "Hi".
  */
 export function splitPersonName(raw?: string | null): { first: string; last: string } {
-  const trimmed = String(raw || '').trim();
+  const trimmed = String(raw || '').replace(accountAnnotation, '').trim();
   if (!trimmed) return { first: '', last: '' };
   const source = trimmed.includes(',') ? trimmed.split(',').slice(1).join(' ') : trimmed;
   const words = source.split(/\s+/).filter((w) => w && !NAME_TITLES.has(w.replace(/[.]/g, '').toLowerCase()));

@@ -376,10 +376,52 @@ export interface CallerVehicle {
   serviceDueDate?: string;
 }
 
+/**
+ * A first name the agent can safely say, or nothing.
+ *
+ * Garage phonebooks are typed by hand over years, so the name field holds whatever a receptionist
+ * put there: "Mr", "Mrs J Smith", "SMITH, John", "j smith". Great Hollands' entries are mostly
+ * bare titles. Returning those verbatim gets you "Hello Mr" on a real call, so anything that is
+ * not clearly a given name returns undefined and the agent simply greets them without one.
+ */
+const NAME_TITLES = new Set([
+  'mr', 'mrs', 'ms', 'miss', 'mstr', 'master', 'dr', 'prof', 'professor', 'sir', 'madam',
+  'rev', 'reverend', 'lord', 'lady', 'capt', 'captain', 'major', 'sgt',
+]);
+
+export function usableFirstName(raw?: string | null): string | undefined {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return undefined;
+
+  // "SMITH, John" puts the given name AFTER the comma — taking the first word would greet them
+  // by surname, which sounds like a debt collector rather than their garage.
+  const source = trimmed.includes(',')
+    ? trimmed.split(',').slice(1).join(' ')
+    : trimmed;
+
+  const all = source.replace(/[.]/g, ' ').split(/\s+/).filter(Boolean);
+  const words = all.filter((w) => !NAME_TITLES.has(w.toLowerCase()));
+  const hadTitle = words.length !== all.length;
+
+  // "Mr Smith" is a surname, and "Hello Smith" sounds like a summons. After a title, only trust
+  // the next word as a given name when something follows it too ("Dr Emily Watts" → Emily).
+  // A bare "Mr Smith" gets no name at all, which is the better of the two wrong answers.
+  if (hadTitle && words.length < 2) return undefined;
+
+  const candidate = words[0];
+  if (!candidate) return undefined;                       // the whole field was a title
+  if (candidate.length < 2) return undefined;             // an initial, not a name
+  if (!/^[A-Za-z][A-Za-z'\u2019-]+$/.test(candidate)) return undefined;  // company names, refs
+
+  return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
+}
+
 export interface CallerProfile {
   matched: boolean;
   customerNo?: string;
   name?: string;
+  /** Safe to greet with. Absent when the stored name is a title, an initial or a company. */
+  firstName?: string;
   contactNo?: string;
   matchedField?: string;
   vehicles: CallerVehicle[];
@@ -525,10 +567,18 @@ export async function getCallerProfile(garageId: string, phone: string): Promise
   );
 
   const clean = (d?: string) => (d && d !== EMPTY_DATE ? d : undefined);
+  const firstName = usableFirstName(match.name);
+  console.log(
+    `[GH_CALLER] ${garageId} matched customerNo=${match.customerNo}` +
+      ` name=${match.name ? 'set' : 'none'} greetable=${firstName ? 'yes' : 'no'}` +
+      ` vehicles=${vehicles.length}`,
+  );
+
   return {
     matched: true,
     customerNo: match.customerNo,
     name: match.name,
+    firstName,
     contactNo: match.contactNo,
     vehicles: vehicles.map((v) => ({
       registration: v.registrationNo,

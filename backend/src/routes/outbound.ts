@@ -221,6 +221,13 @@ router.get('/agent/garagehive/caller', async (req: Request, res: Response) => {
   try {
     const { garageId, phone } = req.query as { garageId: string; phone: string };
     if (!garageId || !phone) {
+      // Logged rather than silently 400'd: caller recognition matching nothing looks identical to
+      // "not a customer", and the difference matters. Every Call row for the Garage Hive garages
+      // has an empty fromNumber, so an agent passing that through would land here every time.
+      console.warn(
+        `[GH_CALLER] lookup called without a number (garageId=${garageId || 'missing'}) — ` +
+          `the agent must send the caller's number, or every caller reads as unrecognised`,
+      );
       return res.status(400).json({ error: 'garageId and phone are required' });
     }
     const profile = await getCallerProfile(garageId, phone);

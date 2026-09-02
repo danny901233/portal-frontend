@@ -138,6 +138,11 @@ model GarageHiveConnection {
   reminderDaysAhead  Int       @default(30)
   reminderTemplateId String? // approved WhatsApp MessageTemplate id used for auto-sends
   reminderChannel    String    @default("whatsapp") // "whatsapp" | "sms"
+  // Which branch this garage IS, inside a shared Business Central company. Garage Hive groups
+  // that trade as one legal entity put every branch in one company and separate them by location
+  // (GREAT, ECO, CAMBERLEY...). Empty means "this company is this garage" — no filtering, which
+  // is the case for every single-site garage.
+  locationCode       String?
   // Caller recognition — on an inbound call, look the caller's number up in the
   // Garage Hive phonebook so the agent confirms their vehicle instead of asking
   // for the reg. Off by default; GarageHive-agent only.
@@ -395,6 +400,7 @@ model AgentConfiguration {
   websiteUrl                String?
   weeklyOpeningHours        Json?
   holidayClosures           String?
+  bankHolidayDates          Json?
   greetingLine              String?
   tonePreference            String   @default("standard")
   responseSpeed             String   @default("normal")

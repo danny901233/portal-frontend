@@ -29,6 +29,8 @@ export interface GarageHiveCreds {
   clientSecret: string;
   environmentName: string;
   companyId: string;
+  /** Branch within a shared company. Empty = the whole company belongs to this garage. */
+  locationCode?: string;
 }
 
 /** A vehicle whose MOT or service falls due, joined to its owner's contact. */
@@ -89,6 +91,7 @@ export async function resolveCreds(garageId?: string): Promise<GarageHiveCreds |
           tenantId: conn.tenantId,
           environmentName: conn.environmentName,
           companyId: conn.companyId,
+          locationCode: ((conn as any).locationCode || '').trim() || undefined,
           clientId,
           clientSecret,
         };
@@ -824,6 +827,35 @@ async function getCustomer(creds: GarageHiveCreds, customerNo: string): Promise<
  *
  * `now` is injectable for testing.
  */
+/**
+ * The branch that last had this vehicle in, or null if we have never seen it.
+ *
+ * Garage Hive groups that trade as one legal entity share a single Business Central company and
+ * separate their branches by location code. Jobsheets carry one, but only for OPEN work — 276 rows
+ * against 46,808 vehicles — so they answer almost nothing. Vehicle inspections are the history:
+ * 29,482 records going back to 2019, each with a registration, a date and a location.
+ */
+async function branchForRegistration(
+  creds: GarageHiveCreds,
+  registration: string,
+): Promise<string | null> {
+  const reg = String(registration || '').trim().toUpperCase().replace(/'/g, "''");
+  if (!reg) return null;
+  try {
+    const url =
+      `${apiBase(creds)}/service/v2.0/companies(${creds.companyId})/vehicleInspectionEstimates`
+      + `?$filter=vehicleRegistrationNo eq '${reg}'`
+      + `&$orderby=documentDate desc&$top=1&$select=locationCode,documentDate`;
+    const rows = await get<{ locationCode?: string }>(creds, url);
+    return (rows[0]?.locationCode || '').trim() || null;
+  } catch (e) {
+    // Never let an attribution lookup break a reminder run; an unknown branch is handled by the
+    // caller, which skips rather than guesses.
+    console.error('[GH] branch lookup failed for', reg, e);
+    return null;
+  }
+}
+
 export async function getReminderContacts(
   creds: GarageHiveCreds,
   daysAhead = 30,
@@ -849,11 +881,35 @@ export async function getReminderContacts(
   // Cache customer lookups within a run (one owner can have several vehicles).
   const customerCache = new Map<string, RawCustomer | null>();
 
+  // Branch attribution is only meaningful when several garages share one company. A garage with
+  // no locationCode set owns the whole company, which is every single-site customer, and nothing
+  // below runs for them.
+  const branchCache = new Map<string, string | null>();
+
   for (const { v, dueType } of tagged) {
     const reg = v.registrationNo || '(unknown)';
     if (!v.customerNo) {
       skipped.push({ reg, reason: 'no customer linked' });
       continue;
+    }
+
+    if (creds.locationCode) {
+      let branch = branchCache.get(reg);
+      if (branch === undefined) {
+        branch = await branchForRegistration(creds, reg);
+        branchCache.set(reg, branch);
+      }
+      if (!branch) {
+        // Never been in for an inspection, so we cannot say whose customer they are. Skipped on
+        // purpose: messaging someone on another branch's behalf, about work that branch did not
+        // do, is worse than not messaging them.
+        skipped.push({ reg, reason: 'no branch history — cannot attribute' });
+        continue;
+      }
+      if (branch.toUpperCase() !== creds.locationCode.toUpperCase()) {
+        skipped.push({ reg, reason: `belongs to ${branch}, not ${creds.locationCode}` });
+        continue;
+      }
     }
 
     let customer = customerCache.get(v.customerNo);

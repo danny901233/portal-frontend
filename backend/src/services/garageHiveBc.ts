@@ -416,6 +416,103 @@ export function usableFirstName(raw?: string | null): string | undefined {
   return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase();
 }
 
+/** Levenshtein distance. Names are short, so the naive version is fine. */
+function editDistance(a: string, b: string): number {
+  if (!a.length || !b.length) return Math.max(a.length, b.length);
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Two spellings of one surname, or two different names?
+ *
+ * The edit-distance test catches a mishearing (Sanders/Saunders, Tideman/Tydeman). The prefix
+ * test catches the ones distance cannot, where the garage holds a longer or hyphenated form:
+ * "Turnow" against "Turner-Howe" is five edits apart but obviously the same family — and since
+ * both records hang off the SAME phone number, the shared opening is strong evidence.
+ */
+function sameSurname(ours: string, theirs: string): boolean {
+  if (!ours || !theirs) return false;
+  const a = ours.replace(/[^a-z]/gi, '').toLowerCase();
+  const b = theirs.replace(/[^a-z]/gi, '').toLowerCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const longest = Math.max(a.length, b.length);
+  if (editDistance(a, b) <= Math.max(2, Math.floor(longest * 0.34))) return true;
+  return a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4);
+}
+
+const nameWords = (raw?: string | null): string[] =>
+  String(raw || '')
+    .replace(/[^A-Za-z'\u2019-]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w) => !NAME_TITLES.has(w.toLowerCase()));
+
+// Capitalises after hyphens and apostrophes too, so Turner-Howe and O'Brien survive being
+// normalised out of whatever case the garage typed them in.
+const titleCase = (w: string) =>
+  w.toLowerCase().replace(/(^|[-'\u2019])([a-z])/g, (_m, sep, ch) => sep + ch.toUpperCase());
+
+/**
+ * The best version of a caller's name, or null to leave ours alone.
+ *
+ * Returns null rather than an identical string when nothing improves, so callers can tell "no
+ * change needed" from "changed to the same thing" without comparing.
+ */
+export function mergeCallerName(ours?: string | null, theirs?: string | null): string | null {
+  const o = nameWords(ours);
+  const t = nameWords(theirs);
+  const theirsDisplay = String(theirs || '').trim();
+
+  // Nothing of ours: take theirs as stored. "Mr Smith" is fine to SHOW in a list — it is only
+  // bad to say out loud, which is usableFirstName's job, not this one.
+  if (!o.length) return theirsDisplay || null;
+  // Nothing usable of theirs (a bare title, or a trade account with no personal name): keep ours.
+  if (!t.length) return null;
+
+  const oSurname = o[o.length - 1];
+  const tSurname = t[t.length - 1];
+
+  // One word of ours: is it their first name or their surname? Either way theirs is fuller.
+  if (o.length === 1) {
+    const asFirst = t[0] && sameSurname(o[0], t[0]);
+    const asLast = sameSurname(o[0], tSurname);
+    if (!asFirst && !asLast) return null;             // unrelated to their record
+    const merged = t.map(titleCase).join(' ');
+    return merged.toLowerCase() === o[0].toLowerCase() ? null : merged;
+  }
+
+  // Different surnames entirely — a partner, a driver, a trade account. Ours stands.
+  if (!sameSurname(oSurname, tSurname)) return null;
+
+  // Their first word only counts as a given name when a surname follows it; otherwise it IS the
+  // surname and tells us nothing about who rang.
+  const theirFirst = t.length >= 2 && t[0].length > 1 ? t[0] : '';
+  const ourFirst = o[0].length > 1 ? o[0] : '';
+  const first = ourFirst || theirFirst;
+  const middles = o.slice(1, -1);                     // keep "Janet Irene Davies"
+
+  // Spelling: theirs wins when it differs, since it is typed from paperwork rather than heard.
+  const surname =
+    oSurname.toLowerCase() === tSurname.toLowerCase() ? oSurname : tSurname;
+
+  const merged = [first, ...middles, surname].filter(Boolean).map(titleCase).join(' ');
+  const current = o.map(titleCase).join(' ');
+  return merged && merged !== current ? merged : null;
+}
+
 export interface CallerProfile {
   matched: boolean;
   customerNo?: string;

@@ -21,8 +21,12 @@ export interface HumanReplyParams {
   metaMid?: string | null;
 }
 
-// conversationId -> pending reply timer (single process under pm2; lost on restart, which is fine).
+// conversationId -> pending reply timer. The timer is the fast path; the PendingChatReply row is
+// the durable one, so a restart re-arms rather than silently dropping the reply (see resumePendingReplies).
 const pending = new Map<string, NodeJS.Timeout>();
+
+/** Nothing older than this is resurrected: past it the exchange has moved on without us. */
+const MAX_RESUME_AGE_MS = 6 * 60 * 60 * 1000;
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
@@ -177,6 +181,10 @@ async function hoursSinceLastMessage(conversationId: string): Promise<number | n
 
 async function sendDelayedReply(p: HumanReplyParams): Promise<void> {
   pending.delete(p.conversationId);
+  // The promise is being kept now, so drop it. Deleted BEFORE the work, not after: if the send
+  // throws, the row must not survive to be replayed on the next boot.
+  await prisma.pendingChatReply.deleteMany({ where: { conversationId: p.conversationId } })
+    .catch((e) => console.warn('[chat-delay] could not clear pending row:', e?.message));
 
   // If a human took over during the wait, don't send the bot's reply.
   const conv = await prisma.chatConversation.findUnique({
@@ -264,17 +272,101 @@ export function scheduleHumanReply(p: HumanReplyParams): void {
 
   // The garage's setting decides the wait. Reading it is async, so the arming happens in a
   // promise — the webhook still returns immediately, which is the contract that matters here.
-  void delayForGarage(p.garageId).then((delay) => {
+  const recordPending = (dueAt: Date) =>
+    prisma.pendingChatReply.upsert({
+      where: { conversationId: p.conversationId },
+      create: {
+        conversationId: p.conversationId, garageId: p.garageId, phoneNumberId: p.phoneNumberId,
+        customerPhone: p.customerPhone, agentText: p.agentText, metaMid: p.metaMid ?? null, dueAt,
+      },
+      // A second message re-arms the same conversation: replace the promise, never duplicate it.
+      update: { agentText: p.agentText, metaMid: p.metaMid ?? null, dueAt },
+    }).catch((e) => console.warn('[chat-delay] could not record pending reply:', e?.message));
+
+  void delayForGarage(p.garageId).then(async (delay) => {
     if (delay <= 0) {
       console.log(`[chat-delay] conv ${p.conversationId}: no delay configured — sending now`);
       pending.delete(p.conversationId);
       void sendDelayedReply(p).catch((e) => console.error('[chat-delay] fire error', e));
       return;
     }
+    // Written down BEFORE the timer is armed. The other order leaves a window where the reply
+    // exists only in memory, which is the exact failure this is here to stop.
+    await recordPending(new Date(Date.now() + delay));
     const timer = setTimeout(() => {
       sendDelayedReply(p).catch((e) => console.error('[chat-delay] fire error', e));
     }, delay);
     pending.set(p.conversationId, timer);
     console.log(`[chat-delay] conv ${p.conversationId}: reply scheduled in ${Math.round(delay / 1000)}s`);
   });
+}
+
+/**
+ * Re-arm every reply that was owed when the process stopped.
+ *
+ * Called once on boot. A reply whose time has already passed goes out now — the answer is composed
+ * at send time from the live conversation, so a late reply is a correct reply, and the agent is
+ * already told how long the gap was. Anything beyond MAX_RESUME_AGE_MS is dropped and logged
+ * rather than sent into a conversation that has moved on.
+ */
+export async function resumePendingReplies(): Promise<void> {
+  let rows: Array<{
+    conversationId: string; garageId: string; phoneNumberId: string;
+    customerPhone: string; agentText: string; metaMid: string | null; dueAt: Date; createdAt: Date;
+  }>;
+  try {
+    rows = await prisma.pendingChatReply.findMany({ orderBy: { dueAt: 'asc' } });
+  } catch (e: any) {
+    console.error('[chat-delay] could not read pending replies on boot:', e?.message);
+    return;
+  }
+  if (!rows.length) return;
+
+  let armed = 0, now_ = 0, dropped = 0;
+  for (const row of rows) {
+    const age = Date.now() - row.createdAt.getTime();
+    if (age > MAX_RESUME_AGE_MS) {
+      dropped++;
+      console.warn(`[chat-delay] dropping stale pending reply for ${row.conversationId} `
+        + `(${Math.round(age / 60000)} min old) — the conversation has moved on`);
+      await prisma.pendingChatReply.deleteMany({ where: { conversationId: row.conversationId } })
+        .catch(() => {});
+      continue;
+    }
+
+    // The token is not stored — resolve it from the connection that owns this number.
+    const conn = await prisma.socialMediaConnection.findFirst({
+      where: { platform: 'whatsapp', whatsappPhoneNumberId: row.phoneNumberId, isActive: true },
+      select: { accessToken: true },
+    }).catch(() => null);
+    if (!conn?.accessToken) {
+      console.warn(`[chat-delay] no active connection for ${row.phoneNumberId} — cannot resume `
+        + `${row.conversationId}`);
+      continue;
+    }
+
+    const p: HumanReplyParams = {
+      garageId: row.garageId,
+      conversationId: row.conversationId,
+      phoneNumberId: row.phoneNumberId,
+      customerPhone: row.customerPhone,
+      accessToken: conn.accessToken,
+      agentText: row.agentText,
+      metaMid: row.metaMid,
+    };
+
+    const remaining = row.dueAt.getTime() - Date.now();
+    if (remaining <= 0) {
+      now_++;
+      void sendDelayedReply(p).catch((e) => console.error('[chat-delay] resume fire error', e));
+    } else {
+      armed++;
+      const timer = setTimeout(() => {
+        sendDelayedReply(p).catch((e) => console.error('[chat-delay] resume fire error', e));
+      }, remaining);
+      pending.set(row.conversationId, timer);
+    }
+  }
+  console.log(`[chat-delay] resumed ${rows.length} pending repl${rows.length === 1 ? 'y' : 'ies'}: `
+    + `${now_} sent now, ${armed} re-armed, ${dropped} dropped as stale`);
 }

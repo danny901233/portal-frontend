@@ -53,6 +53,7 @@ import publicProspectRouter from './routes/public-prospect.js';
 import connectSignupRouter from './routes/connect-signup.js';
 import connectBillingRouter from './routes/connect-billing.js';
 import { initTrialCron } from './utils/trialCron.js';
+import { resumePendingReplies } from './services/chatDelay.js';
 
 const app = express();
 
@@ -187,6 +188,10 @@ app.listen(port, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Server listening on port ${port}`);
   console.log('Effective WEBHOOK_SECRET:', JSON.stringify(process.env.WEBHOOK_SECRET ?? null));
+
+  // Anything we owed a customer when the last process stopped. Deploys land mid-conversation
+  // and the reply must outlive them.
+  void resumePendingReplies();
 
   // Initialize scheduled report jobs
   initializeScheduledReports();

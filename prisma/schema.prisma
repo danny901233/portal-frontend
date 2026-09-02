@@ -125,6 +125,29 @@ model Garage {
 // branches are companies (companyId). The Azure AD app clientId/secret are shared
 // across accounts via env once each account grants the app access, but can be
 // overridden here per garage if needed.
+/// A reply the agent owes a customer but has not sent yet.
+///
+/// The human-like delay means there is a window — up to five minutes on the default setting —
+/// where we have decided to reply and have not yet done it. That intent used to live only in a
+/// setTimeout, so a deploy silently dropped it and the customer was never answered. This row IS
+/// the promise; the in-memory timer is just a faster way of keeping it.
+///
+/// No access token here on purpose: it is a live credential, re-resolved from the connection when
+/// the reply is actually sent.
+model PendingChatReply {
+  id             String   @id @default(cuid())
+  conversationId String   @unique
+  garageId       String
+  phoneNumberId  String
+  customerPhone  String
+  agentText      String
+  metaMid        String?
+  dueAt          DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([dueAt])
+}
+
 model GarageHiveConnection {
   id                 String    @id @default(cuid())
   garageId           String    @unique

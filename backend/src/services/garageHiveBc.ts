@@ -795,9 +795,11 @@ export async function getVehicleAdvisories(
 ): Promise<{ enabled: boolean; advisories: AdvisoryItem[] }> {
   const cfg = await prisma.agentConfiguration.findUnique({
     where: { garageId },
-    select: { advisoryUpsellsEnabled: true },
+    select: { advisoryUpsellsEnabled: true, advisoryUpsellPrices: true },
   });
   if (!cfg?.advisoryUpsellsEnabled) return { enabled: false, advisories: [] };
+  // Defaults to showing, so a garage that has never touched this behaves as it always has.
+  const showPrices = (cfg as any).advisoryUpsellPrices !== false;
 
   const creds = await resolveCreds(garageId);
   if (!creds || !registration) return { enabled: true, advisories: [] };
@@ -852,7 +854,10 @@ export async function getVehicleAdvisories(
       .filter((g) => (g.description || '').trim())
       .map((g) => ({
         description: (g.description || '').trim(),
-        price: typeof g.amountIncludingVAT === 'number' && g.amountIncludingVAT > 0
+        // Withheld at source when the garage has prices off. Telling an agent "do not say the
+        // price" and handing it the price is not the same as not having it: the only reliable
+        // version of that instruction is for the number never to arrive.
+        price: showPrices && typeof g.amountIncludingVAT === 'number' && g.amountIncludingVAT > 0
           ? g.amountIncludingVAT : undefined,
         estimateNo: latest.number,
         date: latest.documentDate && !latest.documentDate.startsWith(EMPTY_DATE_PREFIX)

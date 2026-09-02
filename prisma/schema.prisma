@@ -432,6 +432,10 @@ model AgentConfiguration {
   // Garage Hive voice-agent booking behaviours (only for the GarageHive/automate agent)
   callerRecognitionEnabled  Boolean  @default(false)
   advisoryUpsellsEnabled    Boolean  @default(false)
+  // Whether the agent may say what the advisory was quoted at. The figure comes from the health
+  // check, which can be a year old, so a garage that has since put its prices up will want the
+  // work offered without the number. Defaults true = unchanged behaviour.
+  advisoryUpsellPrices      Boolean  @default(true)
   enableDropOffBookings     Boolean  @default(false)
   dropOffMessage            String   @default("drop your vehicle off between 8am and half ten in the morning")
   dropOffExcludeServices    String[] @default(["MOT"])

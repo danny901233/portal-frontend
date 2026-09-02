@@ -41,6 +41,10 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       advisoryLabel: 'Advisory upsells',
       advisoryHint:
         'When a customer books, the agent checks Garage Hive for outstanding health-check advisories on their vehicle and offers to add them. Needs Garage Hive connected.',
+      advisoryPricesLabel: 'Include the price when offering advisory work',
+      advisoryPricesHint:
+        "The price quoted at the health check, which may be months old. Turn this off to have "
+        + "the agent offer the work without a figure and leave the cost to your team.",
     },
     fr: {
       title: 'Comportement de réservation',
@@ -70,6 +74,10 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       advisoryLabel: 'Ventes additionnelles de recommandations',
       advisoryHint:
         "Lorsqu'un client réserve, l'agent vérifie dans Garage Hive les recommandations de contrôle en attente sur son véhicule et propose de les ajouter. Nécessite Garage Hive connecté.",
+      advisoryPricesLabel: "Indiquer le prix lors de la proposition de travaux recommandés",
+      advisoryPricesHint:
+        "Le prix indiqué lors du contrôle, qui peut dater de plusieurs mois. Désactivez pour "
+        + "que l'agent propose les travaux sans chiffre et laisse le coût à votre équipe.",
     },
   }[lang];
   const [allowBookings, setAllowBookings] = useState(config.allowBookings ?? false);
@@ -97,6 +105,9 @@ export default function BookingTab({ config, save, isSaving }: Props) {
   const [advisoryUpsellsEnabled, setAdvisoryUpsellsEnabled] = useState(
     config.advisoryUpsellsEnabled ?? false
   );
+  const [advisoryUpsellPrices, setAdvisoryUpsellPrices] = useState(
+    config.advisoryUpsellPrices ?? true
+  );
 
   useEffect(() => {
     setAllowBookings(config.allowBookings ?? false);
@@ -108,6 +119,7 @@ export default function BookingTab({ config, save, isSaving }: Props) {
     setAllowFastFitOnly(config.allowFastFitOnly ?? false);
     setCallerRecognitionEnabled(config.callerRecognitionEnabled ?? false);
     setAdvisoryUpsellsEnabled(config.advisoryUpsellsEnabled ?? false);
+    setAdvisoryUpsellPrices(config.advisoryUpsellPrices ?? true);
   }, [config]);
 
   const handleSave = () => {
@@ -125,6 +137,7 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       allowFastFitOnly,
       callerRecognitionEnabled,
       advisoryUpsellsEnabled,
+      advisoryUpsellPrices,
     });
   };
 
@@ -252,6 +265,18 @@ export default function BookingTab({ config, save, isSaving }: Props) {
             checked={advisoryUpsellsEnabled}
             onChange={setAdvisoryUpsellsEnabled}
           />
+          {/* Only meaningful when advisories are being offered at all, so it appears with them
+              and is indented to read as part of that setting rather than a separate one. */}
+          {advisoryUpsellsEnabled && (
+            <div className="ml-6">
+              <Toggle
+                label={c.advisoryPricesLabel}
+                hint={c.advisoryPricesHint}
+                checked={advisoryUpsellPrices}
+                onChange={setAdvisoryUpsellPrices}
+              />
+            </div>
+          )}
         </>
       )}
     </TabShell>

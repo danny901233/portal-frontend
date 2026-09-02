@@ -907,23 +907,27 @@ export async function getLastServiceSuggestion(
       return null;
     }
 
-    // Their most recent invoice, newest first.
+    // Walk BACK through invoices, not just the latest one. A customer whose last visit was an
+    // MOT, a repair or a diagnostic still had a service before that, and looking only at the most
+    // recent document hid it: checking ten instead of one doubled how often this finds an answer.
+    const INVOICE_LOOKBACK = 10;
     const invoices = await get<{ id: string; number?: string; invoiceDate?: string }>(
       creds,
       `${std}/salesInvoices?$filter=customerNumber eq '${esc(customerNo)}'`
-      + `&$orderby=invoiceDate desc&$top=1&$select=id,number,invoiceDate`);
-    const invoice = invoices[0];
-    if (!invoice?.id) return null;
+      + `&$orderby=invoiceDate desc&$top=${INVOICE_LOOKBACK}&$select=id,number,invoiceDate`);
+    if (!invoices.length) return null;
 
-    const lines = await get<{ description?: string }>(
-      creds, `${std}/salesInvoices(${invoice.id})/salesInvoiceLines?$top=40&$select=description`);
-
-    for (const line of lines) {
-      const hit = nextServiceAfter(line.description, pairs);
-      if (hit) {
-        console.log(
-          `[GH_SERVICE] ${reg}: last had ${hit.had} (${invoice.invoiceDate}) → suggest ${hit.suggest}`);
-        return { ...hit, when: invoice.invoiceDate };
+    for (const invoice of invoices) {
+      if (!invoice?.id) continue;
+      const lines = await get<{ description?: string }>(
+        creds, `${std}/salesInvoices(${invoice.id})/salesInvoiceLines?$top=40&$select=description`);
+      for (const line of lines) {
+        const hit = nextServiceAfter(line.description, pairs);
+        if (hit) {
+          console.log(
+            `[GH_SERVICE] ${reg}: last had ${hit.had} (${invoice.invoiceDate}) → suggest ${hit.suggest}`);
+          return { ...hit, when: invoice.invoiceDate };
+        }
       }
     }
     return null;

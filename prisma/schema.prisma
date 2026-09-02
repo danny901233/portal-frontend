@@ -439,6 +439,11 @@ model AgentConfiguration {
   businessType              String?
   customRules               Json?
   dataCollectionFields      Json?
+  // Routine servicing alternates: full then interim, Mercedes A then B, Audi oil then
+  // inspection. Same logic everywhere, different names per garage — so the pairs are configured
+  // rather than hardcoded. Shape: [{ aMatch, aLabel, bMatch, bLabel }]. Empty means the agent
+  // never suggests a next service, which is the safe default.
+  servicePairs         Json?
   faqs                      Json?
   pronunciations            Json?
   voice                     String   @default("leah")

@@ -475,6 +475,11 @@ model AgentConfiguration {
   // rather than hardcoded. Shape: [{ aMatch, aLabel, bMatch, bLabel }]. Empty means the agent
   // never suggests a next service, which is the safe default.
   servicePairs         Json?
+  // Servicing falls due on time OR distance, whichever comes first, and neither is universal —
+  // 12 months is common, some manufacturers run two years, some fleets six months. Configured
+  // rather than assumed, for the same reason as servicePairs above.
+  serviceIntervalMonths Int      @default(12)
+  serviceIntervalMiles  Int      @default(10000)
   faqs                      Json?
   pronunciations            Json?
   voice                     String   @default("leah")

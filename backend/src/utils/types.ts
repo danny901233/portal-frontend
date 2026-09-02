@@ -253,6 +253,8 @@ export type AgentConfigurationPayload = {
   humanEscalation?: boolean;
   messagingHumanHandoff?: boolean;
   messagingHandoffMessage?: string | null;
+  serviceIntervalMonths?: number;
+  serviceIntervalMiles?: number;
   messagingReplyDelay?: string;
   messagingReplyDelaySeconds?: number;
   messagingNotifyScope?: string;

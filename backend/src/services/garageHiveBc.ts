@@ -943,14 +943,25 @@ async function branchForRegistration(
 export async function getLastServiceSuggestion(
   garageId: string,
   registration: string,
-): Promise<{ had: string; suggest: string; when?: string } | null> {
+): Promise<{
+  had: string;
+  suggest: string;
+  when?: string;
+  /** Whole months since that service — always available, the invoice is dated. */
+  monthsSince?: number;
+  /** Odometer at that service, from the health check. Absent when none was done. */
+  mileageAtService?: number;
+  /** The garage's own interval, so the caller of this can judge rather than assume. */
+  intervalMonths?: number;
+  intervalMiles?: number;
+} | null> {
   try {
     const reg = String(registration || '').trim().toUpperCase();
     if (!reg) return null;
 
     const cfg = await prisma.agentConfiguration.findUnique({
       where: { garageId },
-      select: { servicePairs: true },
+      select: { servicePairs: true, serviceIntervalMonths: true, serviceIntervalMiles: true },
     });
     const pairs = (cfg?.servicePairs as unknown as ServicePair[]) || [];
     if (!Array.isArray(pairs) || pairs.length === 0) return null;   // not configured → silent
@@ -995,11 +1006,51 @@ export async function getLastServiceSuggestion(
         creds, `${std}/salesInvoices(${invoice.id})/salesInvoiceLines?$top=40&$select=description`);
       for (const line of lines) {
         const hit = nextServiceAfter(line.description, pairs);
-        if (hit) {
-          console.log(
-            `[GH_SERVICE] ${reg}: last had ${hit.had} (${invoice.invoiceDate}) → suggest ${hit.suggest}`);
-          return { ...hit, when: invoice.invoiceDate };
+        if (!hit) continue;
+
+        const when = invoice.invoiceDate;
+        const intervalMonths = Number((cfg as any)?.serviceIntervalMonths ?? 12);
+        const intervalMiles = Number((cfg as any)?.serviceIntervalMiles ?? 10000);
+
+        // How long ago, in whole months. This half always works: the invoice is dated.
+        let monthsSince: number | undefined;
+        if (when && !when.startsWith('0001-01-01')) {
+          const then = new Date(when).getTime();
+          if (!Number.isNaN(then)) {
+            monthsSince = Math.max(0, Math.round((Date.now() - then) / (30.44 * 86_400_000)));
+          }
         }
+
+        // Mileage is on the health check, not the invoice — posted invoices have no mileage field
+        // at all. So it is there when a health check was done that visit, and absent otherwise.
+        // Matched within a fortnight of the invoice: the check and the work are the same visit,
+        // but they are not always dated the same day.
+        let mileageAtService: number | undefined;
+        if (when) {
+          try {
+            const checks = await serviceQuery<{ documentDate?: string; mileage?: number }>(
+              creds,
+              'vehicleInspectionEstimates',
+              `$select=documentDate,mileage`
+                + `&$filter=${encodeURIComponent(`vehicleRegistrationNo eq '${reg}'`)}`
+                + `&$orderby=documentDate desc&$top=20`,
+            );
+            const target = new Date(when).getTime();
+            const near = checks
+              .filter((c) => c.mileage && c.documentDate)
+              .map((c) => ({ m: c.mileage as number, d: Math.abs(new Date(c.documentDate as string).getTime() - target) }))
+              .filter((c) => Number.isFinite(c.d) && c.d <= 14 * 86_400_000)
+              .sort((a, b) => a.d - b.d)[0];
+            if (near) mileageAtService = near.m;
+          } catch (e) {
+            console.warn('[GH_SERVICE] mileage lookup failed — continuing without it:', e);
+          }
+        }
+
+        console.log(`[GH_SERVICE] ${reg}: last had ${hit.had} (${when}) → suggest ${hit.suggest}`
+          + `${monthsSince !== undefined ? `, ${monthsSince} months ago` : ''}`
+          + `${mileageAtService ? `, at ${mileageAtService} miles` : ''}`);
+        return { ...hit, when, monthsSince, mileageAtService, intervalMonths, intervalMiles };
       }
     }
     return null;

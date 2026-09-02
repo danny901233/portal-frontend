@@ -278,6 +278,8 @@ export interface AgentConfiguration {
   // keeping chat fully AI-handled (or vice versa).
   messagingHumanHandoff?: boolean;
   messagingHandoffMessage?: string | null;
+  serviceIntervalMonths?: number;
+  serviceIntervalMiles?: number;
   messagingReplyDelay?: 'none' | 'random' | 'custom';
   messagingReplyDelaySeconds?: number;
   messagingNotifyScope?: 'off' | 'escalated' | 'all';

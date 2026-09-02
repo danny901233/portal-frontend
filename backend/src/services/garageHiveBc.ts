@@ -321,6 +321,42 @@ export async function listCompanies(
   return get<BcCompany>(creds, `${apiBase(creds)}/general/v2.0/companies`);
 }
 
+/**
+ * Bring one call's caller name into line with the garage's phonebook.
+ *
+ * Fire and forget: call it as `void reconcileCallerName(...)` after the row is saved. Every exit
+ * is a quiet no-op — no Garage Hive connection, no phone number, no phonebook match, or nothing
+ * worth changing — because a wrong name is a small problem and a failed call save is a large one.
+ *
+ * Not matching is normal. A new customer has no phonebook entry, and their absence says nothing
+ * about whether the name we heard is right, so we keep it exactly as the agent wrote it.
+ */
+export async function reconcileCallerName(
+  garageId: string,
+  callId: string,
+  phone?: string | null,
+  heardName?: string | null,
+): Promise<void> {
+  try {
+    if (!phone) return;
+    const creds = await resolveCreds(garageId);
+    if (!creds) return;                       // garage not connected to Business Central
+
+    const match = await lookupPhonebookByPhone(creds, phone);
+    if (!match?.name) return;                 // not a customer of theirs — keep what we heard
+
+    const merged = mergeCallerName(heardName, match.name);
+    if (!merged) return;                      // ours is already as good or better
+
+    await prisma.call.update({ where: { id: callId }, data: { customerName: merged } });
+    console.log(
+      `[GH_CALLER] ${callId}: name "${heardName || '(blank)'}" → "${merged}" from the phonebook`,
+    );
+  } catch (e) {
+    console.error('[GH_CALLER] name reconcile failed (call record left as-is):', e);
+  }
+}
+
 export async function disableRemindersForRegistration(
   creds: GarageHiveCreds,
   registration: string,

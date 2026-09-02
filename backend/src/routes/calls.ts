@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../db.js';
+import { reconcileCallerName } from '../services/garageHiveBc.js';
 import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
 import { classifyCallCategory } from '../utils/callClassifier.js';
@@ -368,6 +369,17 @@ router.post('/calls', async (req: Request, res: Response) => {
         },
       },
     });
+
+    // Correct the caller's name from the garage's phonebook, if they are in it. Deliberately not
+    // awaited: the call is already saved, and Business Central being slow must not hold up the
+    // response or risk losing the record. A caller who is not in the phonebook keeps the name the
+    // agent heard.
+    void reconcileCallerName(
+      payload.garageId,
+      callId,
+      payload.customerPhone || payload.fromNumber,
+      payload.customerName,
+    );
 
     // Stage 2 — automatic AI call diagnosis (gpt-4o-mini). Fire-and-forget so it never
     // delays the agent's webhook response; the verdict is merged into the call's metrics
@@ -1675,8 +1687,17 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
         ...(rangeHeader ? { Range: rangeHeader } : {}),
       }));
 
-      res.setHeader('Content-Type', s3Response.ContentType || 'audio/mpeg');
-      res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
+      // Content-Type used to be hard-coded to audio/mpeg regardless of the
+      // actual file. LiveKit-recorded calls are .mp4 (AAC in an MP4 container)
+      // and browsers were re-probing the file on that mismatch, blowing up the
+      // "0:00 / 0:00" wait. Prefer S3's ContentType; fall back to sniffing the
+      // file extension; then to audio/mpeg only as a last resort.
+      const isMp4 = /\.mp4$/i.test(s3Key);
+      const inferredType = isMp4 ? 'audio/mp4' : (/\.mp3$/i.test(s3Key) ? 'audio/mpeg' : null);
+      const contentType = s3Response.ContentType || inferredType || 'audio/mpeg';
+      const filenameExt = isMp4 ? 'mp4' : 'mp3';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="recording-${id}.${filenameExt}"`);
       res.setHeader('Accept-Ranges', 'bytes');
       if (s3Response.ContentLength !== undefined) {
         res.setHeader('Content-Length', String(s3Response.ContentLength));

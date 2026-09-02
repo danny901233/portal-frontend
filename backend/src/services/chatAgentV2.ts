@@ -5526,7 +5526,11 @@ RECOGNISING AFFIRMATIVE RESPONSES:
 
   // Reminder reply, nothing bookable online: we are collecting when would suit, not booking.
   // The rules below are the ones the hardcoded version enforced by simply not having a model.
-  if (session.awaitingDatePreference || session.awaitingAnythingElse) {
+  // Also applies once the preference has been RECORDED, not just while it is being collected.
+  // Scoping it to the open flow meant the guardrails disappeared the moment the dates were taken,
+  // and the ordinary booking prompt took back over — which is how a customer who asked a question
+  // one turn later was told he was booked in.
+  if (session.awaitingDatePreference || session.awaitingAnythingElse || session.enquiryPreference) {
     const prefJob = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
 
     // The garage's own configured questions, minus everything that has no business being asked
@@ -5582,6 +5586,11 @@ RECOGNISING AFFIRMATIVE RESPONSES:
         + `no preference, "flexible" is a fine answer — take it.\n`
         + `- The moment you have something usable, call record_date_preference. Do not reply to `
         + `them again without calling it first.\n`;
+    } else if (!session.awaitingAnythingElse) {
+      prompt += `- Their details are already with the team and there is nothing left to collect. `
+        + `Answer whatever they ask, warmly and honestly, and leave it there. If they raise `
+        + `something new that the team should know, call record_date_preference again with the same `
+        + `preference and it in anything_else.\n`;
     } else {
       prompt += `- You have their dates and have asked what else they need checking whilst the `
         + `vehicle is in. If they name something, call record_date_preference again with the same `
@@ -5615,9 +5624,21 @@ RECOGNISING AFFIRMATIVE RESPONSES:
       + `else from them: do NOT ask for their phone number (you are already messaging them on it), `
       + `and do NOT ask for an email address, a postcode or a house number. The team `
       + `will pick all that up when they ring.\n`
-      + `Write like a person on the front desk: acknowledge what they just told you before you ask `
-      + `the next thing ("Tuesday, got it —"), keep it to one or two sentences, and never send a `
-      + `bare question with no reaction to what they said.\n`;
+      + `NOTHING HAS BEEN BOOKED and nothing here books anything. Never say they are booked in, `
+      + `never say an appointment is confirmed or held, never give a date as though it were `
+      + `arranged, and never promise a confirmation by text or email. What is true, and all you may `
+      + `say, is that their details are with the team and someone will ring to arrange it and `
+      + `confirm the cost.\n`
+      + `Any garage rule that starts after a booking is confirmed does NOT apply here, because no `
+      + `booking has been confirmed. That includes anything about sending confirmations.\n`
+      + `Write like a warm, unhurried person on the front desk who is glad they got in touch. `
+      + `Acknowledge what they just told you before you ask the next thing — echo back the words `
+      + `they actually used, never a day or time from anywhere else. A customer who said Friday at `
+      + `3pm and was answered with "Tuesday, got it" has just been told we were not listening. `
+      + `Use their name naturally when you have one, and never send a bare question with no `
+      + `reaction to what they said. Keep it to a couple of sentences: friendly, not chatty. Warmth `
+      + `never means adding detail you do not have — an invented booking reads as friendly right `
+      + `up until they turn up on a day nobody expected them.\n`;
   }
 
 

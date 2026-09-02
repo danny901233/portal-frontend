@@ -954,7 +954,12 @@ export const sendPaymentFailedEmail = async (
   return sendEmail({
     to: recipients,
     ...(data.cc?.length ? { cc: data.cc } : {}),
-    subject: "Your Direct Debit didn't go through",
+    // A cancelled mandate is not a blip: nothing will be collected until someone re-authorises
+    // it, and a subject that reads like a temporary hiccup gets treated like one. EAC Telford ran
+    // 16 days on the old wording.
+    subject: data.mandateDead
+      ? 'Action needed — your Direct Debit is no longer active'
+      : "Your Direct Debit didn't go through",
     html,
     text,
   });

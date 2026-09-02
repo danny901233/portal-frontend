@@ -47,12 +47,35 @@ export async function startArrearsForFailedInvoice(
     const to = cfg?.notificationEmails?.length ? cfg.notificationEmails : [];
     if (!to.length) return;
 
-    const user = await prisma.user.findFirst({
-      where: { garageAccessIds: { has: invoice.garageId } },
-      select: { email: true, gocardlessMandateId: true },
+    // Direct Debit is a business-level mandate — one business, one mandate, however many portal
+    // users it has. Asking the first user we happen to find gave an answer that depended on row
+    // order, and told businesses paying perfectly well through a business-level mandate that their
+    // Direct Debit had failed, because some colleague's half-finished invite had none of its own.
+    const garageRow = await prisma.garage.findUnique({
+      where: { id: invoice.garageId },
+      select: { businessId: true },
     });
+    const business = garageRow?.businessId
+      ? await prisma.business.findUnique({
+          where: { id: garageRow.businessId },
+          select: { gocardlessMandateId: true },
+        })
+      : null;
+
+    // Whoever the link is addressed to has to be able to act on it, so prefer the user already
+    // flagged as needing to set payment up over whoever happens to come back first.
+    const user =
+      (await prisma.user.findFirst({
+        where: { garageAccessIds: { has: invoice.garageId }, mustSetupPayment: true },
+        select: { email: true },
+      })) ||
+      (await prisma.user.findFirst({
+        where: { garageAccessIds: { has: invoice.garageId } },
+        select: { email: true },
+      }));
+
     // If the mandate is gone we cannot retry, so the email has to ask them to re-authorise.
-    const mandateDead = !user?.gocardlessMandateId;
+    const mandateDead = !business?.gocardlessMandateId;
     let ddSetupUrl: string | undefined;
     if (mandateDead && user?.email) {
       try { ddSetupUrl = await createPaymentSetupLink(user.email); } catch { /* no portal user */ }

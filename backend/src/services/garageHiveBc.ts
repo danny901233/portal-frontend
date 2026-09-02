@@ -476,11 +476,17 @@ export function mergeCallerName(ours?: string | null, theirs?: string | null): s
   const t = nameWords(theirs);
   const theirsDisplay = String(theirs || '').trim();
 
+  // Nothing usable of theirs (a bare title, or a record whose "name" is a phone number): keep
+  // ours. Checked FIRST, because when neither side has a real name the old order returned theirs
+  // verbatim without comparing — so a record holding "07376146198" was rewritten to itself on
+  // every run, and the backfill never converged.
+  if (!t.length) return null;
   // Nothing of ours: take theirs as stored. "Mr Smith" is fine to SHOW in a list — it is only
   // bad to say out loud, which is usableFirstName's job, not this one.
-  if (!o.length) return theirsDisplay || null;
-  // Nothing usable of theirs (a bare title, or a trade account with no personal name): keep ours.
-  if (!t.length) return null;
+  if (!o.length) return theirsDisplay && theirsDisplay !== String(ours || '').trim() ? theirsDisplay : null;
+
+  // The two records already agree — nothing to merge, whatever shape the name is in.
+  if (o.join(' ').toLowerCase() === t.join(' ').toLowerCase()) return null;
 
   const oSurname = o[o.length - 1];
   const tSurname = t[t.length - 1];
@@ -490,7 +496,10 @@ export function mergeCallerName(ours?: string | null, theirs?: string | null): s
     const asFirst = t[0] && sameSurname(o[0], t[0]);
     const asLast = sameSurname(o[0], tSurname);
     if (!asFirst && !asLast) return null;             // unrelated to their record
-    const merged = t.map(titleCase).join(' ');
+    // Drop bare initials: "Crawford" plus their "N Crawford" is not an improvement, and it
+    // oscillated — the next pass stripped the initial straight back off again.
+    const meaningful = t.filter((w) => w.length > 1);
+    const merged = (meaningful.length ? meaningful : t).map(titleCase).join(' ');
     return merged.toLowerCase() === o[0].toLowerCase() ? null : merged;
   }
 

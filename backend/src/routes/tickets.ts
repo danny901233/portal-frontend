@@ -21,9 +21,11 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
+import { randomBytes } from 'crypto';
 import { Prisma, TicketStatus, TicketCategory, TicketPriority, TicketChannel, TicketEntryKind } from '@prisma/client';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { sendEmail } from '../utils/email.js';
 
 const router = Router();
 
@@ -212,16 +214,150 @@ router.post('/admin/tickets', authenticate, requireAdmin, async (req: Request, r
 
 // ─── REPLY (public — customer-facing) ──────────────────────────────────────
 
+// ─── Outbound Message-Id + threading helpers (spec §7) ─────────────────────
+// A stored, deterministic Message-Id lets a customer's reply come back with
+// In-Reply-To pointing at us — the inbound webhook then threads it to the
+// correct ticket by looking up TicketEntry.outboundMessageId. Format follows
+// RFC5322: <local@domain>, angle brackets included when sent as a header.
+
+const OUTBOUND_MSGID_DOMAIN = process.env.MAILGUN_DOMAIN || 'receptionmate.co.uk';
+
+const generateOutboundMessageId = (ticketNumber: number): string => {
+  // <ticket-{number}.{random}.{ts}@domain>. Ticket number in the id itself
+  // is belt-and-braces if the DB row ever gets corrupted; random suffix
+  // guarantees uniqueness within the second.
+  const rand = randomBytes(6).toString('hex');
+  const ts = Date.now();
+  return `<rm-t${ticketNumber}.${ts}.${rand}@${OUTBOUND_MSGID_DOMAIN}>`;
+};
+
+// Build In-Reply-To + References from the latest inbound entry on this ticket,
+// so our outbound message lands in the customer's original email thread.
+// References follows RFC 5322 §3.6.4: chain the previous References + the
+// message being replied to.
+async function buildThreadingHeaders(
+  ticketId: string,
+  outboundMessageId: string,
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Message-Id': outboundMessageId,
+  };
+
+  // Most-recent inbound entry that carries an inbound Message-Id in its meta.
+  // (Only inbound entries have `meta.inboundMessageId`; outbound entries have
+  // their own id on `outboundMessageId`.)
+  const lastInbound = await prisma.ticketEntry.findFirst({
+    where: {
+      ticketId,
+      authorContactId: { not: null },
+      kind: TicketEntryKind.public_reply,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { meta: true },
+  });
+
+  const inboundMeta =
+    lastInbound?.meta && typeof lastInbound.meta === 'object' && !Array.isArray(lastInbound.meta)
+      ? (lastInbound.meta as Record<string, unknown>)
+      : null;
+  const lastInboundMsgId =
+    inboundMeta && typeof inboundMeta.inboundMessageId === 'string' && inboundMeta.inboundMessageId
+      ? inboundMeta.inboundMessageId
+      : null;
+  const lastInboundInReplyTo =
+    inboundMeta && typeof inboundMeta.inReplyTo === 'string' && inboundMeta.inReplyTo
+      ? inboundMeta.inReplyTo
+      : null;
+
+  if (lastInboundMsgId) {
+    const bracketed = lastInboundMsgId.startsWith('<') ? lastInboundMsgId : `<${lastInboundMsgId}>`;
+    headers['In-Reply-To'] = bracketed;
+    // References = customer's earlier References chain (if any) + the id we're
+    // replying to. Minimal but valid: just the id we're replying to.
+    const prior = lastInboundInReplyTo
+      ? (lastInboundInReplyTo.startsWith('<') ? lastInboundInReplyTo : `<${lastInboundInReplyTo}>`)
+      : '';
+    headers.References = [prior, bracketed].filter(Boolean).join(' ');
+  }
+
+  return headers;
+}
+
+// Convert plain-text staff reply into a minimal HTML body — one <p> per
+// paragraph, line breaks preserved. Keeps outbound emails readable in HTML
+// clients without any of us writing raw HTML.
+const textToHtml = (text: string): string => {
+  const escape = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const paragraphs = text.split(/\n{2,}/).map((p) => `<p>${escape(p).replace(/\n/g, '<br>')}</p>`);
+  return paragraphs.join('\n');
+};
+
 router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: Request, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
   const parsed = replySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
 
-  const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: req.params.id },
+    include: { contact: { select: { id: true, email: true, name: true } } },
+  });
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
   const isDraft = parsed.data.isDraft ?? false;
   const now = new Date();
+
+  // Draft path: same as before — no email leaves the building, no timestamps
+  // bumped, no threading headers generated. UI still shows the draft.
+  if (isDraft) {
+    const entry = await prisma.ticketEntry.create({
+      data: {
+        ticketId: ticket.id,
+        kind: TicketEntryKind.public_reply,
+        authorUserId: req.user.userId,
+        body: parsed.data.body,
+        isDraft: true,
+      },
+    });
+    return res.status(201).json({ entry });
+  }
+
+  // ── Sent-reply path (spec §7): actually send the email. ────────────────
+  // Only wired for email channel today. Other channels (whatsapp/portal_chat)
+  // land in Phases 3/5 — for those, still create the entry + bump timestamps
+  // but skip the email send.
+
+  const isEmailChannel = ticket.channel === TicketChannel.email;
+  const canSendEmail = isEmailChannel && ticket.contact.email;
+
+  let outboundMessageId: string | null = null;
+  let sendOk = true;
+  const sendMeta: Record<string, unknown> = {};
+
+  if (canSendEmail) {
+    outboundMessageId = generateOutboundMessageId(ticket.number);
+    const threadingHeaders = await buildThreadingHeaders(ticket.id, outboundMessageId);
+
+    // Subject always carries [RM #N] so a customer reply threads back via the
+    // subject-tag rule in mailgun-inbound (spec §2 rule a). Strip any prior tag
+    // from the ticket title so we don't double up like "[RM #12] [RM #12] ...".
+    const cleanTitle = ticket.title.replace(/\[RM\s*#\d+\]/gi, '').trim() || 'Your ticket';
+    const subject = `[RM #${ticket.number}] ${cleanTitle}`.slice(0, 300);
+
+    sendOk = await sendEmail({
+      to: [ticket.contact.email as string],
+      subject,
+      text: parsed.data.body,
+      html: textToHtml(parsed.data.body),
+      headers: threadingHeaders,
+    });
+
+    sendMeta.outboundMessageId = outboundMessageId;
+    sendMeta.threadingHeaders = threadingHeaders;
+    sendMeta.sentBy = req.user.email;
+    sendMeta.sentAt = now.toISOString();
+    if (!sendOk) sendMeta.sendFailed = true;
+  }
 
   const entry = await prisma.ticketEntry.create({
     data: {
@@ -229,24 +365,33 @@ router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: 
       kind: TicketEntryKind.public_reply,
       authorUserId: req.user.userId,
       body: parsed.data.body,
-      isDraft,
+      isDraft: false,
+      // Store the outbound Message-Id here (the field's original purpose) so
+      // the inbound webhook can thread a customer reply back to this ticket
+      // via the In-Reply-To lookup.
+      outboundMessageId: outboundMessageId,
+      meta: Object.keys(sendMeta).length > 0 ? (sendMeta as Prisma.InputJsonValue) : undefined,
     },
   });
 
-  // Only bump staff timestamps + first-response for actually-sent replies (not drafts).
-  if (!isDraft) {
-    await prisma.ticket.update({
-      where: { id: ticket.id },
-      data: {
-        lastStaffActivityAt: now,
-        firstResponseAt: ticket.firstResponseAt ?? now,
-        // Sending a reply flips the ticket to pending (waiting on customer).
-        // Staff can override via status endpoint if that's not right.
-        status: ticket.status === TicketStatus.new_ || ticket.status === TicketStatus.open
-          ? TicketStatus.pending
-          : ticket.status,
-      },
-    });
+  await prisma.ticket.update({
+    where: { id: ticket.id },
+    data: {
+      lastStaffActivityAt: now,
+      firstResponseAt: ticket.firstResponseAt ?? now,
+      // Sending a reply flips the ticket to pending (waiting on customer).
+      // Staff can override via status endpoint if that's not right.
+      status: ticket.status === TicketStatus.new_ || ticket.status === TicketStatus.open
+        ? TicketStatus.pending
+        : ticket.status,
+    },
+  });
+
+  // 502 to the client if the underlying email send failed — the entry is
+  // still recorded (so staff can see + retry) but the customer never got it.
+  // UI can surface the failure and offer a retry button.
+  if (canSendEmail && !sendOk) {
+    return res.status(502).json({ entry, error: 'Email send failed — entry saved as unsent' });
   }
 
   return res.status(201).json({ entry });

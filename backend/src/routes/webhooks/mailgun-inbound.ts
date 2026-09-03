@@ -26,10 +26,11 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import crypto from 'crypto';
-import { Prisma, TicketChannel, TicketEntryKind, TicketStatus } from '@prisma/client';
+import { Prisma, TicketChannel, TicketEntryKind, TicketStatus, TicketPriority } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { sendEmail } from '../../utils/email.js';
 import { enrichNewTicket } from '../../services/ticketAi.js';
+import { classifyDeterministic } from '../../services/emailClassifier.js';
 
 const router = Router();
 
@@ -106,7 +107,29 @@ const extractSenderName = (body: Record<string, unknown>): string | null => {
   return m ? m[1].trim() : null;
 };
 
-// ─── Contact upsert ─────────────────────────────────────────────────────────
+// ─── No-reply sender guard (spec §5) ────────────────────────────────────────
+// These senders never receive an auto-acknowledgement. Replying to a system
+// mailbox loops (mailer-daemon) or damages sending reputation (no-reply
+// aliases that discard). Regex matches the LOCAL PART of the address so
+// noreply@anything, no-reply.foo@bar and support-noreply@baz all fire.
+const NO_REPLY_LOCAL = /(^|[.\-_])(no[-_.]?reply|donot[-_.]?reply|mailer[-_.]?daemon|postmaster|bounce[s]?|notifications?)([.\-_]|$)/i;
+
+const isNoReplySender = (email: string): boolean => {
+  const local = email.split('@')[0] || '';
+  if (NO_REPLY_LOCAL.test(local)) return true;
+  // Full-address literals for special-case senders that don't match the
+  // pattern (Google's mail-noreply@ variants are already covered).
+  if (email === 'mailer-daemon@' || email.startsWith('mailer-daemon@')) return true;
+  return false;
+};
+
+// ─── Contact upsert + identity linking (spec §3) ────────────────────────────
+// On FIRST sight of a contact, try to link them to an existing portal User
+// (exact email match) and, if that user has garage access, cache the first
+// garage id onto the Contact so downstream ticket creation attaches to the
+// right place. Users with multi-branch access get the first garage — staff
+// can re-point via the admin UI. Nothing here fails the ingest if identity
+// resolution comes up empty; unmatched senders still get a ticket.
 
 async function getOrCreateContactByEmail(email: string, name: string | null) {
   const existing = await prisma.contact.findUnique({ where: { email } });
@@ -117,7 +140,33 @@ async function getOrCreateContactByEmail(email: string, name: string | null) {
     }
     return existing;
   }
-  return prisma.contact.create({ data: { email, name } });
+
+  // New contact — best-effort identity link.
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, garageAccessIds: true },
+  });
+  const linkedUserId = user?.id ?? null;
+  const linkedGarageId =
+    user && Array.isArray(user.garageAccessIds) && user.garageAccessIds.length > 0
+      ? user.garageAccessIds[0]
+      : null;
+
+  if (linkedUserId) {
+    console.log(
+      `[MAILGUN_INBOUND] New contact ${email} linked to user ${linkedUserId}` +
+      (linkedGarageId ? ` + garage ${linkedGarageId}` : ' (no garage access)'),
+    );
+  }
+
+  return prisma.contact.create({
+    data: {
+      email,
+      name,
+      userId: linkedUserId,
+      garageId: linkedGarageId,
+    },
+  });
 }
 
 // ─── Ticket threading ───────────────────────────────────────────────────────
@@ -217,24 +266,73 @@ async function sendAutoAck(args: {
 // ─── Route ──────────────────────────────────────────────────────────────────
 
 router.post('/mailgun-inbound', async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  // 1. Signature check — reject anything that isn't provably from Mailgun.
+  //    Runs BEFORE audit persistence so we don't record garbage from random
+  //    internet POSTs and give attackers a way to fill up our audit table.
+  const sig: MailgunSignatureFields = {
+    timestamp: String(body.timestamp ?? ''),
+    token: String(body.token ?? ''),
+    signature: String(body.signature ?? ''),
+  };
+  if (!verifyMailgunSignature(sig)) {
+    console.warn('[MAILGUN_INBOUND] Rejected: bad or missing Mailgun signature');
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  // 2. AUDIT + DEDUP (spec §1.2 + §2 dedupe).
+  //    Persist the raw payload BEFORE parsing anything, so a parser bug
+  //    downstream never loses a customer's email. The @unique on messageId is
+  //    the retry guard — Mailgun retries aggressively on non-200; a duplicate
+  //    POST for the same message-id fails the insert and we drop it clean
+  //    without ever touching the Ticket or TicketEntry tables.
+  const inboundMessageId = stripMessageId(String(body['Message-Id'] ?? body['message-id'] ?? ''));
+
+  let eventId: string;
   try {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-
-    // 1. Signature check — reject anything that isn't provably from Mailgun.
-    const sig: MailgunSignatureFields = {
-      timestamp: String(body.timestamp ?? ''),
-      token: String(body.token ?? ''),
-      signature: String(body.signature ?? ''),
-    };
-    if (!verifyMailgunSignature(sig)) {
-      console.warn('[MAILGUN_INBOUND] Rejected: bad or missing Mailgun signature');
-      return res.status(401).json({ error: 'Invalid signature' });
+    const ev = await prisma.mailgunInboundEvent.create({
+      data: {
+        messageId: inboundMessageId,
+        rawPayload: body as Prisma.InputJsonValue,
+        status: 'received',
+      },
+      select: { id: true },
+    });
+    eventId = ev.id;
+  } catch (err) {
+    // P2002 = unique constraint violation on messageId → this is a Mailgun
+    // retry of a message we've already fully processed. Return 200 so Mailgun
+    // stops retrying; do NOT create another ticket.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      console.log(`[MAILGUN_INBOUND] Dropped duplicate (message-id already seen): ${inboundMessageId}`);
+      return res.status(200).json({ status: 'dropped_dupe' });
     }
+    // Any other insert error → 500 so Mailgun retries. Losing a customer email
+    // is worse than a duplicate ticket (dedup can happen; loss is silent).
+    console.error('[MAILGUN_INBOUND] Failed to persist inbound event:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
 
-    // 2. Sender resolution — email is the identity anchor.
+  // Small helper to mark the event terminal state for later audit. Never throws
+  // — audit failures shouldn't tank the response.
+  const finalizeEvent = async (status: string, ticketId: string | null) => {
+    try {
+      await prisma.mailgunInboundEvent.update({
+        where: { id: eventId },
+        data: { status, ticketId },
+      });
+    } catch (auditErr) {
+      console.error('[MAILGUN_INBOUND] audit finalize failed:', auditErr);
+    }
+  };
+
+  try {
+    // 3. Sender resolution — email is the identity anchor.
     const email = extractSenderEmail(body);
     if (!email) {
       console.warn('[MAILGUN_INBOUND] Rejected: no parseable sender email');
+      void finalizeEvent('dropped_empty', null);
       return res.status(400).json({ error: 'No sender email' });
     }
     const senderName = extractSenderName(body);
@@ -244,20 +342,22 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     const bodyText = String(body['stripped-text'] ?? body['body-plain'] ?? '').trim();
     if (!bodyText) {
       console.warn(`[MAILGUN_INBOUND] Rejected: empty body from ${email} subject=${JSON.stringify(subject)}`);
+      void finalizeEvent('dropped_empty', null);
       return res.status(400).json({ error: 'Empty body' });
     }
 
     const inReplyTo = stripMessageId(String(body['In-Reply-To'] ?? body['in-reply-to'] ?? ''));
-    const messageId = stripMessageId(String(body['Message-Id'] ?? body['message-id'] ?? ''));
+    const noReplySender = isNoReplySender(email);
 
-    // 3. Contact upsert + block check.
+    // 4. Contact upsert + block check.
     const contact = await getOrCreateContactByEmail(email, senderName);
     if (contact.blocked) {
       console.log(`[MAILGUN_INBOUND] Dropped blocked contact ${email}`);
+      void finalizeEvent('dropped_blocked', null);
       return res.status(200).json({ status: 'dropped_blocked' });
     }
 
-    // 4. Ticket threading (or create).
+    // 5. Ticket threading (or create).
     const { ticket, created } = await resolveOrCreateTicket({
       subject,
       contactId: contact.id,
@@ -265,18 +365,30 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
       inReplyTo,
     });
 
-    // 5. Log the inbound email as a public_reply from the contact.
+    // 6. Log the inbound email as a public_reply from the contact.
+    //    outboundMessageId is DELIBERATELY left null — that field is for OUR
+    //    outbound Message-Id (so future customer replies can thread back to
+    //    our sent messages via In-Reply-To). Storing the customer's inbound
+    //    Message-Id here would pollute that index. Dedup + audit live on
+    //    MailgunInboundEvent instead.
     await prisma.ticketEntry.create({
       data: {
         ticketId: ticket.id,
         kind: TicketEntryKind.public_reply,
         authorContactId: contact.id,
         body: bodyText,
-        outboundMessageId: messageId,  // stored so future replies can thread back
+        // meta carries the original headers we might need later — Message-Id
+        // for future In-Reply-To lookups when staff reply (spec §7), plus the
+        // In-Reply-To the customer's client sent so we can build a proper
+        // References chain on our reply.
+        meta: {
+          inboundMessageId,
+          inReplyTo,
+        } as Prisma.InputJsonValue,
       },
     });
 
-    // 6. Bump lastCustomerActivityAt. If ticket had been solved, reopen it — a
+    // 7. Bump lastCustomerActivityAt. If ticket had been solved, reopen it — a
     //    customer reply on a "solved" ticket is a signal we didn't actually solve it.
     const patch: Prisma.TicketUpdateInput = { lastCustomerActivityAt: new Date() };
     if (ticket.status === TicketStatus.solved || ticket.status === TicketStatus.closed) {
@@ -286,17 +398,67 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     }
     await prisma.ticket.update({ where: { id: ticket.id }, data: patch });
 
-    // 7. Respond 200 to Mailgun BEFORE firing side effects. Two reasons:
+    // 8. Deterministic classification (spec §4): supplier domains + complaint
+    //    keywords go through hand-rolled rules FIRST. Only what remains falls
+    //    through to the AI classifier in enrichNewTicket.
+    let deterministicHit = false;
+    if (created) {
+      const det = classifyDeterministic({
+        senderEmail: email,
+        subject,
+        bodyText,
+        contactGarageId: contact.garageId,
+      });
+      if (det) {
+        deterministicHit = true;
+        try {
+          // Resolve the assignee email to a userId at write time — we don't
+          // want a hardcoded id in the classifier config.
+          let assigneeId: string | null | undefined = undefined;
+          if (det.assigneeEmail) {
+            const staff = await prisma.user.findUnique({
+              where: { email: det.assigneeEmail.toLowerCase() },
+              select: { id: true },
+            });
+            assigneeId = staff?.id ?? null;
+          }
+          await prisma.ticket.update({
+            where: { id: ticket.id },
+            data: {
+              category: det.category,
+              ...(det.priority ? { priority: det.priority } : {}),
+              ...(assigneeId !== undefined ? { assigneeId } : {}),
+            },
+          });
+          console.log(
+            `[MAILGUN_INBOUND] Deterministic rule "${det.rule}" matched ticket #${ticket.number}` +
+            ` → category=${det.category}` +
+            (det.priority ? ` priority=${det.priority}` : '') +
+            (det.assigneeEmail ? ` assignee=${det.assigneeEmail}` : ''),
+          );
+        } catch (detErr) {
+          // Rule application failures should not block the pipeline — the
+          // ticket exists, staff can classify manually.
+          console.error(`[MAILGUN_INBOUND] Deterministic rule apply failed for #${ticket.number}:`, detErr);
+          deterministicHit = false; // let the AI have another go
+        }
+      }
+    }
+
+    // 9. Respond 200 to Mailgun BEFORE firing side effects. Two reasons:
     //    (a) LLM enrichment + auto-ack send can each take 1-5s; Mailgun will
     //        retry if we take too long, causing duplicate tickets on the retry.
     //    (b) The essentials (ticket + entry + timestamps) are already committed
     //        above — the customer's email is safely stored. Auto-ack and AI draft
     //        are enhancements, not correctness-critical.
     console.log(`[MAILGUN_INBOUND] ${created ? 'Created' : 'Threaded to'} ticket #${ticket.number} from ${email}`);
+    void finalizeEvent(created ? 'created' : 'threaded', ticket.id);
     res.status(200).json({ status: 'ok', ticketNumber: ticket.number, created });
 
-    // Fire-and-forget: auto-ack for new tickets (rule 4: email YES).
-    if (created) {
+    // 10. Fire-and-forget: auto-ack for new tickets (spec §5).
+    //     Suppressed for no-reply senders — replying to mailer-daemon /
+    //     noreply@ addresses either loops or damages our sending reputation.
+    if (created && !noReplySender) {
       void sendAutoAck({
         ticketNumber: ticket.number,
         ticketId: ticket.id,
@@ -304,12 +466,15 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
         contactName: contact.name,
         originalSubject: subject,
       }).catch((err) => console.error('[MAILGUN_INBOUND] auto-ack error:', err));
+    } else if (created && noReplySender) {
+      console.log(`[MAILGUN_INBOUND] Skipping auto-ack for no-reply sender ${email} (ticket #${ticket.number})`);
     }
 
-    // Fire-and-forget: AI classification + draft reply on new tickets only.
-    // Skip on threaded replies — the ticket is already categorized and a fresh
-    // AI draft on every reply would spam the staff UI. (Future: consider re-draft
-    // if staff explicitly requests it.)
+    // 11. Fire-and-forget: AI classification + draft reply on new tickets only.
+    //     Skip on threaded replies — the ticket is already categorized and a
+    //     fresh AI draft on every reply would spam the staff UI. Skip AI
+    //     classification if a deterministic rule already fired — the draft
+    //     still runs (rules don't produce a suggested reply).
     if (created) {
       void enrichNewTicket({
         ticketId: ticket.id,
@@ -317,6 +482,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
         subject,
         body: bodyText,
         contactName: contact.name,
+        skipClassification: deterministicHit,
       }).catch((err) => console.error('[MAILGUN_INBOUND] AI enrichment error:', err));
     }
     return;
@@ -324,6 +490,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     // Log + 500 so Mailgun retries. We WANT Mailgun to retry — losing a customer
     // email is worse than a duplicate ticket (dedup can happen; loss is silent).
     console.error('[MAILGUN_INBOUND] Handler error:', err);
+    void finalizeEvent('failed', null);
     if (!res.headersSent) {
       return res.status(500).json({ error: 'Internal error' });
     }

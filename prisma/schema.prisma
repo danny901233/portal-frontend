@@ -1013,6 +1013,11 @@ model TicketEntry {
   // (Mailgun message-id, WhatsApp wa_id). Lets inbound webhooks thread replies
   // back to this ticket by looking up the In-Reply-To header.
   outboundMessageId String?
+  // Free-form metadata: AI-classification confidence + model on drafts, sent
+  // headers (In-Reply-To, References) on outbound entries, spam-filter scores
+  // when noise-filter (Phase 1b) lands. Anything not first-class enough to
+  // deserve a column but too useful to throw away.
+  meta            Json?
   createdAt       DateTime @default(now())
 
   @@index([ticketId, createdAt])
@@ -1066,4 +1071,34 @@ enum TicketEntryKind {
   assignment_change  // auto-log for audit ("Dan assigned to Gab at 09:15")
   auto_ack           // the auto-generated acknowledgement sent on ingest
                      // (rule 4: email YES, whatsapp YES-if-24h, chat NO, spam NEVER)
+}
+
+// Audit + dedup for Mailgun inbound webhook POSTs. Written before any parsing,
+// so a parser bug loses nothing; and the @unique on messageId is what makes
+// Mailgun's aggressive retry logic safe — a duplicate POST is dropped at the
+// first insert attempt without ever touching Ticket / TicketEntry.
+model MailgunInboundEvent {
+  id          String   @id @default(cuid())
+  // The RFC5322 Message-Id from the customer's email (angle brackets stripped).
+  // Unique so a retried POST for the same message is dropped cleanly. Nullable
+  // because a rare inbound has no Message-Id at all — those get through but
+  // aren't dedup-guarded.
+  messageId   String?  @unique
+  // Full Mailgun POST body verbatim. Big-ish (100kb+ for attachments) but
+  // priceless when a parse bug shows up and we need to replay.
+  rawPayload  Json
+  // Which ticket this event contributed to. Nullable when the event was
+  // dropped (blocked contact, empty body, dedupe) — the row still exists as
+  // audit but points at no ticket.
+  ticketId    String?
+  // Terminal state for this event. 'created' = made a new ticket,
+  // 'threaded' = appended to an existing one, 'dropped_dupe' = same messageId
+  // already seen, 'dropped_blocked' = blocked contact, 'dropped_empty' = no
+  // body/sender, 'failed' = handler threw. Powers ops-side "why did we miss
+  // this email?" diagnosis without SSH-ing to the box.
+  status      String
+  receivedAt  DateTime @default(now())
+
+  @@index([receivedAt])
+  @@index([ticketId])
 }

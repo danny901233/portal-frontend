@@ -8,6 +8,12 @@
 // unassisted — it only puts a draft in front of staff, who edit and send.
 // Only `auto_ack` bypasses this (see Phase 1 handler).
 //
+// Classification is only invoked when the deterministic rules
+// (services/emailClassifier.ts) return no match — rules are cheap, instant,
+// and business-policy driven, so they get first refusal. The AI only sees
+// what the rules couldn't settle. Drafting always runs (deterministic rules
+// don't produce a suggested reply).
+//
 // Both calls are best-effort. Failures log and move on — the ticket exists,
 // staff can classify + reply manually. We do NOT want AI hiccups to block
 // the ingest pipeline.
@@ -34,10 +40,23 @@ const VALID_CATEGORIES = new Set<string>([
   'billing', 'agent_bug', 'setup_help', 'sales_enquiry', 'complaint', 'other',
 ]);
 
-async function classifyEmail(subject: string, body: string): Promise<TicketCategory | null> {
+// Return shape includes a confidence proxy so we can:
+//  - store it on the draft entry meta for later audit
+//  - down the line, gate auto-actions on it (only auto-assign at >0.8, etc.)
+// Confidence is derived from the model's log-probability of the chosen token,
+// so it needs logprobs enabled on the completion request.
+export interface AiClassification {
+  category: TicketCategory;
+  confidence: number;   // 0.0–1.0
+  model: string;        // e.g. 'gpt-4.1-mini'
+}
+
+const CLASSIFIER_MODEL = 'gpt-4.1-mini';
+
+async function classifyEmail(subject: string, body: string): Promise<AiClassification | null> {
   try {
     const r = await oa().chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: CLASSIFIER_MODEL,
       messages: [
         {
           role: 'system',
@@ -52,11 +71,26 @@ async function classifyEmail(subject: string, body: string): Promise<TicketCateg
       ],
       temperature: 0,
       max_tokens: 12,
+      // Ask for token-level log-probabilities on the chosen category token so we
+      // can surface a confidence score. Falls back to 0.5 if the API doesn't
+      // return them (older model versions, etc.).
+      logprobs: true,
     });
     const raw = (r.choices[0]?.message?.content ?? '').trim().toLowerCase();
-    if (VALID_CATEGORIES.has(raw)) return raw as TicketCategory;
-    console.warn(`[TICKET_AI] classifyEmail returned unknown value: ${JSON.stringify(raw)}`);
-    return null;
+    if (!VALID_CATEGORIES.has(raw)) {
+      console.warn(`[TICKET_AI] classifyEmail returned unknown value: ${JSON.stringify(raw)}`);
+      return null;
+    }
+    const firstTokenLogprob = r.choices[0]?.logprobs?.content?.[0]?.logprob;
+    const confidence =
+      typeof firstTokenLogprob === 'number' && Number.isFinite(firstTokenLogprob)
+        ? Math.exp(firstTokenLogprob)
+        : 0.5;
+    return {
+      category: raw as TicketCategory,
+      confidence,
+      model: CLASSIFIER_MODEL,
+    };
   } catch (err) {
     console.error('[TICKET_AI] classifyEmail failed:', err);
     return null;
@@ -111,6 +145,10 @@ async function draftReply(args: {
 // Called async (fire-and-forget) from the mailgun-inbound handler after a new
 // ticket + auto-ack have been committed. Both LLM calls are independent — a
 // failure of one doesn't block the other. Both persist their result directly.
+//
+// `skipClassification` = the deterministic classifier (services/emailClassifier)
+// already settled the category, so we don't call the AI classifier at all. The
+// draft still runs — rules can settle a category but can't write a reply.
 
 export async function enrichNewTicket(args: {
   ticketId: string;
@@ -118,9 +156,10 @@ export async function enrichNewTicket(args: {
   subject: string;
   body: string;
   contactName: string | null;
+  skipClassification?: boolean;
 }): Promise<void> {
-  const [category, draft] = await Promise.all([
-    classifyEmail(args.subject, args.body),
+  const [classification, draft] = await Promise.all([
+    args.skipClassification ? Promise.resolve(null) : classifyEmail(args.subject, args.body),
     draftReply({
       subject: args.subject,
       body: args.body,
@@ -129,13 +168,16 @@ export async function enrichNewTicket(args: {
     }),
   ]);
 
-  if (category) {
+  if (classification) {
     try {
       await prisma.ticket.update({
         where: { id: args.ticketId },
-        data: { category },
+        data: { category: classification.category },
       });
-      console.log(`[TICKET_AI] ticket #${args.ticketNumber} classified as ${category}`);
+      console.log(
+        `[TICKET_AI] ticket #${args.ticketNumber} classified as ${classification.category} ` +
+        `(confidence=${classification.confidence.toFixed(3)}, model=${classification.model})`,
+      );
     } catch (err) {
       console.error(`[TICKET_AI] failed to persist category for ticket #${args.ticketNumber}:`, err);
     }
@@ -150,6 +192,19 @@ export async function enrichNewTicket(args: {
           // No author — system-drafted. Staff who approves + sends will replace with a signed entry.
           body: draft,
           isDraft: true,
+          // Store classification confidence + model on the draft so the UI (and
+          // future audit) can see how sure the classifier was. Null when the
+          // deterministic classifier handled it — the rule name is on the
+          // Mailgun event row instead.
+          meta: classification
+            ? {
+                aiClassification: {
+                  category: classification.category,
+                  confidence: classification.confidence,
+                  model: classification.model,
+                },
+              }
+            : undefined,
         },
       });
       console.log(`[TICKET_AI] ticket #${args.ticketNumber} draft reply saved (${draft.length} chars)`);

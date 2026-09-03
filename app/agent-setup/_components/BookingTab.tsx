@@ -37,7 +37,7 @@ export default function BookingTab({ config, save, isSaving }: Props) {
         'If on, the agent only offers quick services (tyres, oil, basics) — full diagnostic / engine work is escalated.',
       callerRecLabel: 'Caller recognition',
       callerRecHint:
-        'On an inbound call, look the caller’s number up in Garage Hive and confirm the vehicle on file (“is it still the Focus?”) instead of asking for the reg. Needs Garage Hive connected.',
+        'On an inbound call, look the caller’s number up in your booking system and confirm the vehicle on file (“is it still the Focus?”) instead of asking for the reg.',
       advisoryLabel: 'Advisory upsells',
       advisoryHint:
         'When a customer books, the agent checks Garage Hive for outstanding health-check advisories on their vehicle and offers to add them. Needs Garage Hive connected.',
@@ -70,7 +70,7 @@ export default function BookingTab({ config, save, isSaving }: Props) {
         "Si activé, l'agent ne propose que des prestations rapides (pneus, vidange, entretien de base) — les diagnostics complets / travaux moteur sont escaladés.",
       callerRecLabel: "Reconnaissance de l'appelant",
       callerRecHint:
-        "Lors d'un appel entrant, rechercher le numéro de l'appelant dans Garage Hive et confirmer le véhicule au dossier (« est-ce toujours la Focus ? ») au lieu de demander l'immatriculation. Nécessite Garage Hive connecté.",
+        "Lors d'un appel entrant, rechercher le numéro de l'appelant dans votre système de réservation et confirmer le véhicule au dossier (« est-ce toujours la Focus ? ») au lieu de demander l'immatriculation.",
       advisoryLabel: 'Ventes additionnelles de recommandations',
       advisoryHint:
         "Lorsqu'un client réserve, l'agent vérifie dans Garage Hive les recommandations de contrôle en attente sur son véhicule et propose de les ajouter. Nécessite Garage Hive connecté.",
@@ -141,7 +141,17 @@ export default function BookingTab({ config, save, isSaving }: Props) {
     });
   };
 
-  // Caller recognition + advisory upsells only apply to the Garage Hive agent.
+  // Caller-recognition tool is wired into these agent codebases (each looks the caller
+  // up in its own integration — GH v3/GarageHive-agent hit Garage Hive, poole-agent
+  // hits AutoSage, bookar-agent hits Vitara Commerce). Assist has no such tool.
+  const supportsCallerRecognition = [
+    'receptionmate-agent-v3',
+    'GarageHive-agent',
+    'poole-agent',
+    'bookar-agent',
+  ].includes(config.agentScript);
+
+  // Advisory upsells remain Garage Hive-specific (VHC data source).
   const isGarageHiveAgent = ['receptionmate-agent-v3', 'GarageHive-agent'].includes(
     config.agentScript,
   );
@@ -241,6 +251,18 @@ export default function BookingTab({ config, save, isSaving }: Props) {
         </>
       )}
 
+      {/* Caller-recognition is now a regular setting for any agent whose codebase has
+          the lookup wired (Poole, Bookar, GH v3, GarageHive-agent). Sits after drop-off
+          per product spec — before fast-fit / GH-only extras. */}
+      {supportsCallerRecognition && (
+        <Toggle
+          label={c.callerRecLabel}
+          hint={c.callerRecHint}
+          checked={callerRecognitionEnabled}
+          onChange={setCallerRecognitionEnabled}
+        />
+      )}
+
       <Toggle
         label={c.fastFitLabel}
         hint={c.fastFitHint}
@@ -253,12 +275,6 @@ export default function BookingTab({ config, save, isSaving }: Props) {
           <div className="mt-6 border-t border-slate-200 pt-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Garage Hive</p>
           </div>
-          <Toggle
-            label={c.callerRecLabel}
-            hint={c.callerRecHint}
-            checked={callerRecognitionEnabled}
-            onChange={setCallerRecognitionEnabled}
-          />
           <Toggle
             label={c.advisoryLabel}
             hint={c.advisoryHint}

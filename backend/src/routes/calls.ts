@@ -625,9 +625,12 @@ router.get(
         return res.status(400).json({ error: 'Invalid query parameters' });
       }
 
-      // Parse pagination parameters
+      // Parse pagination parameters. Default page size dropped from 100 → 25
+      // because 100 was returning ~1.6MB per page (transcript + metrics for
+      // every row) and blocking the list for 3–20 seconds on busy garages.
+      // Callers that need more can still request it via ?pageSize=.
       const currentPage = typeof page === 'string' ? Math.max(1, parseInt(page, 10)) : 1;
-      const itemsPerPage = typeof pageSize === 'string' ? Math.min(50000, Math.max(1, parseInt(pageSize, 10))) : 100;
+      const itemsPerPage = typeof pageSize === 'string' ? Math.min(50000, Math.max(1, parseInt(pageSize, 10))) : 25;
       const skip = (currentPage - 1) * itemsPerPage;
 
       const where: Prisma.CallWhereInput = {};
@@ -707,8 +710,35 @@ router.get(
         }
       }
 
+      // List-payload trim: drop the fields the /calls page never renders, so
+      // this response goes from ~1.6MB → ~200KB on a busy garage. The single-
+      // call detail endpoint (/garages/:garageId/calls/:callId) still returns
+      // everything — full transcript, timestamps, confidence, metrics — so
+      // the call-detail page is unaffected.
+      //
+      // - `metrics`: never displayed on the list, only on the call detail page
+      // - `transcript`: kept as an array so the frontend's phone-number
+      //   fallback + transcript-text search keep working, but each entry is
+      //   trimmed to { speaker, text }. Timestamps / confidence / latency_ms
+      //   are only shown on the detail page.
+      const trimmedCalls = outCalls.map((c) => {
+        const src = c as {
+          transcript?: Array<{ speaker?: string | null; text?: string | null }>;
+          metrics?: unknown;
+        };
+        const rest = { ...(c as Record<string, unknown>) };
+        delete rest.metrics;
+        rest.transcript = Array.isArray(src.transcript)
+          ? src.transcript.map((entry) => ({
+              speaker: entry.speaker ?? null,
+              text: entry.text ?? null,
+            }))
+          : [];
+        return rest;
+      });
+
       res.json({
-        calls: outCalls,
+        calls: trimmedCalls,
         pagination: {
           page: currentPage,
           pageSize: itemsPerPage,

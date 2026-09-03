@@ -944,6 +944,14 @@ model Ticket {
   // "[RM #123]" so customer replies thread back to the same ticket via
   // Mailgun inbound routing (Phase 1). Autoincrementing SERIAL — DB-managed
   // so concurrent creates cannot collide.
+  //
+  // GAPPINESS: Postgres SERIAL burns a value on every rolled-back INSERT and
+  // does NOT reuse it, so the sequence is monotonically increasing but not
+  // gap-free. Fine internally — but before ticket numbers ever appear in
+  // customer-facing places (email subjects, portal share links) we must
+  // decide whether the gaps are acceptable. Two paths if not: (a) swap to a
+  // per-year counter + display id, or (b) present a display-only ordinal
+  // computed at read time. Flagged by Dan on PR #392 review.
   number                 Int           @unique @default(autoincrement())
   title                  String        // subject line or first sentence; editable
   status                 TicketStatus   @default(new_)
@@ -1010,8 +1018,16 @@ model TicketEntry {
   // the ONLY thing the AI can send unassisted is an auto_ack (see kind above).
   isDraft         Boolean  @default(false)
   // For sent public_reply on email/whatsapp: the outbound provider message id
-  // (Mailgun message-id, WhatsApp wa_id). Lets inbound webhooks thread replies
-  // back to this ticket by looking up the In-Reply-To header.
+  // (Mailgun RFC5322 Message-Id including angle brackets for the email channel;
+  // WhatsApp wa_id for the whatsapp channel). Lets inbound webhooks thread
+  // replies back to this ticket by looking up the In-Reply-To header (email)
+  // or the referenced_message_id (whatsapp).
+  //
+  // Not a foreign key by design: the value points at a provider-owned message
+  // that lives in Mailgun / Meta, never in our own DB. The @@index below
+  // exists purely to make the "which ticket owns this outbound id?" lookup on
+  // inbound webhooks fast — do not add a FK, there is nothing on our side to
+  // point at. Flagged by Dan on PR #392 review.
   outboundMessageId String?
   // Free-form metadata: AI-classification confidence + model on drafts, sent
   // headers (In-Reply-To, References) on outbound entries, spam-filter scores

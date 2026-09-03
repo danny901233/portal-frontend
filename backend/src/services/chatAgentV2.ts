@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
-import { getVehicleAdvisories, getLastServiceSuggestion } from './garageHiveBc.js';
+import { getVehicleAdvisories, getLastServiceSuggestion, getServicePairLabels } from './garageHiveBc.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
 import { splitPersonName } from '../utils/personName.js';
@@ -78,6 +78,8 @@ interface ChatSession {
   awaitingDatePreference?: boolean;
   /** "you had a full service last time, so an interim is likely due" — resolved once, then reused. */
   serviceSuggestion?: string;
+  /** The garage's alternation, for when we cannot see the history and have to ask instead. */
+  serviceAskPairs?: string;
   // We have their dates and have asked whether they need anything else.
   awaitingAnythingElse?: boolean;
   anythingElseJob?: string;
@@ -352,6 +354,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           greetedOutbound: oldData.greetedOutbound || false,
           awaitingDatePreference: oldData.awaitingDatePreference || false,
           serviceSuggestion: oldData.serviceSuggestion || undefined,
+          serviceAskPairs: oldData.serviceAskPairs || undefined,
           datePreferenceReasked: oldData.datePreferenceReasked || false,
           awaitingAnythingElse: oldData.awaitingAnythingElse || false,
           anythingElseJob: oldData.anythingElseJob || undefined,
@@ -428,6 +431,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         greetedOutbound: sessionData.greetedOutbound || false,
         awaitingDatePreference: sessionData.awaitingDatePreference || false,
         serviceSuggestion: sessionData.serviceSuggestion || undefined,
+        serviceAskPairs: sessionData.serviceAskPairs || undefined,
         datePreferenceReasked: sessionData.datePreferenceReasked || false,
         awaitingAnythingElse: sessionData.awaitingAnythingElse || false,
         anythingElseJob: sessionData.anythingElseJob || undefined,
@@ -3382,6 +3386,19 @@ async function handleSelectService(args: any, session: ChatSession, conversation
           const s = conv?.garageId
             ? await getLastServiceSuggestion(conv.garageId, session.vrn)
             : null;
+          if (!s && conv?.garageId) {
+            // Not knowing is the ordinary case, not the exception: the single-vehicle guard rules
+            // out every multi-vehicle household on its own. Keep the garage's alternation so the
+            // agent can ask what they last had and still land the right recommendation.
+            try {
+              const pairs = await getServicePairLabels(conv.garageId);
+              if (pairs.length) {
+                session.serviceAskPairs = pairs.map((p) => `${p.a} then ${p.b}`).join('; ');
+              }
+            } catch (e) {
+              console.error('[OUTBOUND_ENQUIRE] service pairs lookup failed:', e);
+            }
+          }
           if (s) {
             // "a A service" reads badly and the model only sometimes tidies it.
             const article = (w: string) => (/^[aeiou]/i.test(w.trim()) ? 'an' : 'a');
@@ -4165,6 +4182,14 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
       suggestLine = ` In the SAME message, tell them this ONCE, in passing: `
         + `${session.serviceSuggestion} Say the team will double-check it — never insist, never `
         + `price it, and drop it entirely if they say different, because they know their own car.`;
+    } else if (session.serviceAskPairs && !session.serviceSuggestionSaid) {
+      // We cannot see their history, so ask. It is a fair question precisely because we cannot,
+      // and their answer plus the garage's alternation is as good as a lookup.
+      session.serviceSuggestionSaid = true;
+      suggestLine = ` In the SAME message, also ask ONCE: "do you know what service it had last?" `
+        + `— we cannot see it from here and plenty of people know. This garage alternates: `
+        + `${session.serviceAskPairs}. If they tell you, say which one is likely due next and that `
+        + `the team will double-check. If they do not know, let it go entirely and never ask twice.`;
     }
     const extras = await reminderExtraAsks(conversationId);
     const alsoAsk = extras.length
@@ -5694,6 +5719,15 @@ RECOGNISING AFFIRMATIVE RESPONSES:
     // Unset up to and INCLUDING the turn the dates are recorded (the prompt is built before the
     // tool runs), set from then on. So this block is in the prompt for exactly the reply that
     // should carry it, and absent afterwards — which is what "say it once" has to mean.
+    // Available on EVERY turn, because the customer can answer at any point and the tool return
+    // that asked the question is long gone by then.
+    if (session.serviceAskPairs && !session.serviceSuggestion) {
+      prompt += `- We cannot see this vehicle's service history, so if they have told you what `
+        + `they last had, use it: this garage alternates ${session.serviceAskPairs}. Say which one `
+        + `is likely due next and that the team will double-check when the vehicle is in. Never `
+        + `insist and never price it. If they have not said, do not ask again — asking twice for `
+        + `something they have already told you they do not know is worse than letting it go.\n`;
+    }
     if (session.serviceSuggestion && session.serviceSuggestionSaid) {
       // Dropping the instruction was not enough — the model read its own earlier message and said
       // it again. Silence is not an instruction; this is.

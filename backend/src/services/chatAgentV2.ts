@@ -80,6 +80,12 @@ interface ChatSession {
   serviceSuggestion?: string;
   /** The garage's alternation, for when we cannot see the history and have to ask instead. */
   serviceAskPairs?: string;
+  /** Mileage the customer gave during a reminder reply, in their own words. */
+  reminderMileage?: string;
+  /** What they said the vehicle last had, when we could not see it ourselves. */
+  reminderLastService?: string;
+  /** The other half of the garage's pair — worked out here, not left to the model. */
+  reminderNextService?: string;
   // We have their dates and have asked whether they need anything else.
   awaitingAnythingElse?: boolean;
   anythingElseJob?: string;
@@ -355,6 +361,9 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           awaitingDatePreference: oldData.awaitingDatePreference || false,
           serviceSuggestion: oldData.serviceSuggestion || undefined,
           serviceAskPairs: oldData.serviceAskPairs || undefined,
+          reminderMileage: oldData.reminderMileage || undefined,
+          reminderLastService: oldData.reminderLastService || undefined,
+          reminderNextService: oldData.reminderNextService || undefined,
           datePreferenceReasked: oldData.datePreferenceReasked || false,
           awaitingAnythingElse: oldData.awaitingAnythingElse || false,
           anythingElseJob: oldData.anythingElseJob || undefined,
@@ -432,6 +441,9 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         awaitingDatePreference: sessionData.awaitingDatePreference || false,
         serviceSuggestion: sessionData.serviceSuggestion || undefined,
         serviceAskPairs: sessionData.serviceAskPairs || undefined,
+        reminderMileage: sessionData.reminderMileage || undefined,
+        reminderLastService: sessionData.reminderLastService || undefined,
+        reminderNextService: sessionData.reminderNextService || undefined,
         datePreferenceReasked: sessionData.datePreferenceReasked || false,
         awaitingAnythingElse: sessionData.awaitingAnythingElse || false,
         anythingElseJob: sessionData.anythingElseJob || undefined,
@@ -778,6 +790,64 @@ export async function getChatAgentResponse(
         }
         await saveSession(conversationId, pre);
         console.log(`[OUTBOUND_ENQUIRE] contact channel = ${pre.contactChannel}`);
+      }
+    }
+
+    // Mileage and what they last had, from the same message. Both were being asked for, answered,
+    // and then dropped — the note read "Preferred dates: Tuesday morning" and nothing else.
+    if (pre.awaitingDatePreference || pre.awaitingAnythingElse || pre.enquiryPreference) {
+      const t = String(message || '');
+      let touched = false;
+
+      if (!pre.reminderMileage) {
+        // Narrow on purpose: a bare "62" is a date or a house number as easily as a mileage.
+        // Needs a separator, a k suffix, or the word miles nearby to count.
+        const m = t.match(/\b(\d{1,3},\d{3}|\d{2,3}\s?k|\d{4,6})\b(?=[^.]{0,18}\bmiles?\b)/i)
+          || t.match(/\bmiles?\b[^.]{0,18}?\b(\d{1,3},\d{3}|\d{2,3}\s?k|\d{4,6})\b/i);
+        if (m) {
+          pre.reminderMileage = m[1].trim();
+          touched = true;
+          console.log(`[OUTBOUND_ENQUIRE] mileage = ${pre.reminderMileage}`);
+        }
+      }
+
+      if (!pre.reminderLastService && pre.serviceAskPairs) {
+        // Only labels this garage actually uses, so "a service" alone does not count as an answer.
+        const labels = pre.serviceAskPairs.split(';')
+          .flatMap((p) => p.split(' then '))
+          .map((x) => x.trim())
+          .filter(Boolean);
+        const hit = labels.find((l) =>
+          new RegExp(`\\b${l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(t));
+        if (hit) {
+          pre.reminderLastService = hit;
+          // The other half of whichever pair it came from. A lookup, not a judgement.
+          for (const pair of pre.serviceAskPairs.split(';')) {
+            const [a, b] = pair.split(' then ').map((x) => x.trim());
+            if (a && b && (a.toLowerCase() === hit.toLowerCase() || b.toLowerCase() === hit.toLowerCase())) {
+              pre.reminderNextService = a.toLowerCase() === hit.toLowerCase() ? b : a;
+              break;
+            }
+          }
+          touched = true;
+          console.log(`[OUTBOUND_ENQUIRE] last service (from the customer) = ${hit}`
+            + `${pre.reminderNextService ? ` → ${pre.reminderNextService} likely due` : ''}`);
+        }
+      }
+
+      if (touched) {
+        // Append to the note the team reads before ringing. It was written when the dates were
+        // recorded, which is before any of this arrives.
+        const bits = [
+          pre.reminderMileage && !/current mileage/i.test(pre.message || '')
+            ? `Current mileage: ${pre.reminderMileage}` : '',
+          pre.reminderLastService && !/last had/i.test(pre.message || '')
+            ? `They say it last had a ${pre.reminderLastService}` : '',
+        ].filter(Boolean);
+        if (pre.message && bits.length) {
+          pre.message = `${pre.message.replace(/\s*$/, '')}. ${bits.join('. ')}`;
+        }
+        await saveSession(conversationId, pre);
       }
     }
   } catch { /* never break a conversation over this */ }
@@ -5721,7 +5791,23 @@ RECOGNISING AFFIRMATIVE RESPONSES:
     // should carry it, and absent afterwards — which is what "say it once" has to mean.
     // Available on EVERY turn, because the customer can answer at any point and the tool return
     // that asked the question is long gone by then.
-    if (session.serviceAskPairs && !session.serviceSuggestion) {
+    // What we already hold, so nothing is asked for twice.
+    const alreadyHave = [
+      session.reminderMileage ? `their current mileage (${session.reminderMileage})` : '',
+      session.reminderLastService ? `what it last had (${session.reminderLastService})` : '',
+    ].filter(Boolean);
+    if (alreadyHave.length) {
+      prompt += `- They have already given you ${alreadyHave.join(' and ')}, and it is recorded. `
+        + `Do NOT ask for it again — asking someone for something they just told you reads as not `
+        + `listening. Acknowledge it if it fits, then move on.\n`;
+    }
+    if (session.reminderNextService && !session.serviceSuggestionSaid) {
+      session.serviceSuggestionSaid = true;
+      prompt += `- They told you it last had a ${session.reminderLastService}, so a `
+        + `${session.reminderNextService} is likely due next. Say that ONCE, in passing, and add `
+        + `that the team will double-check when the vehicle is in. Never insist and never price it.\n`;
+    }
+    if (session.serviceAskPairs && !session.serviceSuggestion && !session.reminderLastService) {
       prompt += `- We cannot see this vehicle's service history, so if they have told you what `
         + `they last had, use it: this garage alternates ${session.serviceAskPairs}. Say which one `
         + `is likely due next and that the team will double-check when the vehicle is in. Never `

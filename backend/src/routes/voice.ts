@@ -62,12 +62,20 @@ router.post('/voice', async (req: Request, res: Response) => {
   // (sandbox project). Only RM Branch should use 'tyresoft-agent-test' as
   // agentScript; production Elite stays on 'tyresoft-agent' → Account 1.
   const isTyresoftTest = agentScript === 'tyresoft-agent-test';
+  // The unified (one agent, many diaries) prototype lives in its own LiveKit project,
+  // receptionmate-automotive-h83idqna, precisely so it shares nothing with a live slot.
+  // Same arrangement as tyresoft-agent-test above: only ReceptionMate Branch should ever
+  // carry this agentScript. If the env var is unset this falls through to Account 1, so a
+  // missing variable degrades to today's behaviour rather than dropping calls.
+  const isUnified = agentScript === 'unified-agent';
   const isAccount2 = agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent';
   const isMMH = agentScript === 'MMH-agent';
   const isBookar = agentScript === 'bookar-agent';
   const isPoole = agentScript === 'poole-agent';
   const livekitSipDomain =
-    isTyresoftTest && process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
+    isUnified && process.env.LIVEKIT_SIP_DOMAIN_UNIFIED
+      ? process.env.LIVEKIT_SIP_DOMAIN_UNIFIED
+      : isTyresoftTest && process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
       ? process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
       : isAccount2 && process.env.LIVEKIT_SIP_DOMAIN_ACCOUNT2
         ? process.env.LIVEKIT_SIP_DOMAIN_ACCOUNT2

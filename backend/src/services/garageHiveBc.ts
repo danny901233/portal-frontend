@@ -364,6 +364,29 @@ export async function reconcileCallerName(
   }
 }
 
+/**
+ * Stop reminders for a vehicle, by garage.
+ *
+ * disableRemindersForRegistration takes resolved credentials; every caller outside this file has
+ * a garageId instead, which is why the chat path never called it and customers were told their
+ * reminders would stop while nothing did so.
+ *
+ * Returns the number of vehicle records changed, 0 when we cannot act — the caller logs loudly
+ * either way, because the customer has already been told it is done.
+ */
+export async function optOutRemindersForVehicle(
+  garageId: string,
+  registration: string,
+): Promise<number> {
+  const creds = await resolveCreds(garageId);
+  if (!creds) {
+    console.warn(`[GH_OPTOUT] no Garage Hive credentials for ${garageId} — cannot stop reminders `
+      + `for ${registration}; this needs doing by hand`);
+    return 0;
+  }
+  return disableRemindersForRegistration(creds, registration);
+}
+
 export async function disableRemindersForRegistration(
   creds: GarageHiveCreds,
   registration: string,

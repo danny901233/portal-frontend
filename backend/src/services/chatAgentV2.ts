@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
-import { getVehicleAdvisories, getLastServiceSuggestion, getServicePairLabels } from './garageHiveBc.js';
+import { getVehicleAdvisories, getLastServiceSuggestion, getServicePairLabels, optOutRemindersForVehicle } from './garageHiveBc.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
 import { splitPersonName } from '../utils/personName.js';
@@ -160,6 +160,8 @@ interface ChatSession {
   outboundServiceType?: string;
   outboundDueDate?: string;
   outboundUpsellOffered?: boolean;
+  /** "sold" | "already_done" | "opt_out" — a reminder reply that was never a booking. */
+  reminderOutcome?: string;
   // Advisory upsells (VHC) — outstanding health-check advisories on this vehicle,
   // offered as an add-on during a reminder booking. Server-side toggle gates the data.
   advisoryText?: string;
@@ -372,6 +374,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
           serviceSuggestionSaid: oldData.serviceSuggestionSaid || false,
           outboundDueDate: oldData.outboundDueDate || undefined,
           outboundUpsellOffered: false, // reset — allow upsell again
+          reminderOutcome: oldData.reminderOutcome || undefined,
           // ── Preserved: branch ──
           selectedBranch: oldData.selectedBranch || '',
           // ── Cleared: GH session (expired after hours) ──
@@ -452,6 +455,7 @@ async function getOrCreateSession(conversationId: string): Promise<ChatSession> 
         serviceSuggestionSaid: sessionData.serviceSuggestionSaid || false,
         outboundDueDate: sessionData.outboundDueDate || undefined,
         outboundUpsellOffered: sessionData.outboundUpsellOffered || false,
+        reminderOutcome: sessionData.reminderOutcome || undefined,
         upsellServiceId: sessionData.upsellServiceId || undefined,
         upsellServiceName: sessionData.upsellServiceName || undefined,
         preferredDate: sessionData.preferredDate || '',
@@ -1048,11 +1052,72 @@ async function getChatAgentResponseInner(
     // buildSystemPromptV2); record_date_preference keeps the parts that must not be left to a
     // model — the message being recorded and the conversation flagged — deterministic.
 
+    // Three answers to a reminder that are NOT bookings. The fast-path below replies without
+    // going through the model, so anything it does not recognise here gets a booking question in
+    // reply — which is how "I have sold my car please remove me from your mailing list" was
+    // answered with "have you any days or times in mind?".
+    //
+    // Deliberately narrow, and only ever consulted on a reminder reply. A bare "no" is someone
+    // declining a slot, not an opt-out.
+    const REMINDER_NOT_A_BOOKING: Array<{ kind: string; re: RegExp }> = [
+      // Checked first: "I've sold it, please remove me" is both, and the reply should confirm
+      // what they actually asked for rather than what we worked out.
+      { kind: 'opt_out',
+        re: /\b(remove me|take me off|unsubscribe|opt[ -]?out|stop (sending|the|these|contacting)|no more (reminders|messages|texts)|don'?t (contact|message|text) me|mailing list)\b/i },
+      { kind: 'sold',
+        re: /\b(sold|scrapped|written off|write[ -]?off|part[ -]?ex|traded (it )?in|don'?t (have|own) (it|the car)|no longer (have|own)|got rid of|gone now)\b/i },
+      { kind: 'already_done',
+        re: /\b(already (had|been) (done|serviced|in)|had (it|the work|the service) done|been done|got (it )?done|serviced (last|in|elsewhere)|done (last month|elsewhere|already)|records? need updating)\b/i },
+    ];
+
     // Outbound service fastpath: auto-select service for outbound reminders (MOT or Full Service)
     // The webhook seeds step=need_service with vrn already set, so the vehicle fast-path above
     // doesn't fire. We need to auto-select the service here instead of relying on the LLM.
     if (session.outboundServiceType && session.vrn && session.vrnConfirmed &&
         session.step === Step.NEED_SERVICE && !session.serviceSelectedName && !session.outboundUpsellOffered) {
+      const notBooking = REMINDER_NOT_A_BOOKING.find((r) => r.re.test(String(message || '')));
+      if (notBooking) {
+        // Hand it to the model to answer in its own words, and make sure the garage hears about
+        // it — these were ending with an empty note and no flag, so nobody knew.
+        console.log(`[OUTBOUND_REMINDER] "${String(message).slice(0, 60)}" is not a booking `
+          + `(${notBooking.kind}) — skipping the service fast-path`);
+        session.reminderOutcome = notBooking.kind;
+        session.awaitingDatePreference = false;
+        session.step = Step.MESSAGE_ONLY;
+
+        const vehicle = session.vrn || 'their vehicle';
+        const summary = notBooking.kind === 'sold'
+          ? `Reminder reply — they no longer have ${vehicle}. Stop reminders for it and check the `
+            + `record. Their words: "${String(message).slice(0, 160)}"`
+          : notBooking.kind === 'already_done'
+          ? `Reminder reply — the work on ${vehicle} has already been done, so the record is out of `
+            + `date. Their words: "${String(message).slice(0, 160)}"`
+          : `Reminder reply — they asked to STOP receiving reminders about ${vehicle}. Their `
+            + `words: "${String(message).slice(0, 160)}"`;
+        await handleTakeMessage({ message: summary, phone: session.contactPhone || '' },
+                                session, conversationId);
+
+        // An opt-out is honoured, not just noted. The agent has been telling people it would stop
+        // the reminders while nothing on this path ever called the write-back that does it.
+        if (notBooking.kind === 'opt_out' || notBooking.kind === 'sold') {
+          try {
+            const conv = await prisma.chatConversation.findUnique({
+              where: { id: conversationId }, select: { garageId: true },
+            });
+            if (conv?.garageId && session.vrn) {
+              const n = await optOutRemindersForVehicle(conv.garageId, session.vrn);
+              console.log(`[OUTBOUND_REMINDER] reminders disabled on ${n} vehicle(s) for ${session.vrn}`);
+            }
+          } catch (e) {
+            // Never break the reply over it — but it MUST be visible, because the customer has
+            // just been told it is done.
+            console.error('[OUTBOUND_REMINDER] opt-out write-back FAILED — the customer was told '
+              + 'reminders would stop:', e);
+          }
+        }
+        await saveSession(conversationId, session);
+        // Fall through to the model with the flags set, so it answers them like a person.
+      } else {
       const serviceName = session.outboundServiceType === 'service' ? 'Full Service' : 'MOT';
       console.log(`[OUTBOUND_SERVICE_FASTPATH] Auto-selecting ${serviceName} for outbound ${session.outboundServiceType} reminder`);
       if (!session.sessionId) {
@@ -1117,6 +1182,7 @@ async function getChatAgentResponseInner(
       await saveSession(conversationId, session);
       console.log(`[OUTBOUND_SERVICE_FASTPATH] ${serviceName} selected, step now: ${session.step}`);
       return { content: serviceMsg, needsHumanAssistance: false };
+      }
     }
 
     // Build conversation context
@@ -4311,6 +4377,15 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
   }
 
   const serviceContext = session.serviceSelectedName ? ` about ${session.serviceSelectedName}` : '';
+  // A reminder reply that was never a booking gets no scripted close. The customer has sold the
+  // car, had the work done, or asked us to stop — they are owed no callback, and the prompt has
+  // the right words for each case. Handing the model a quoted "the team will give you a call soon"
+  // here is how Jess was told she was off the mailing list AND that someone would ring her.
+  if (session.reminderOutcome) {
+    return `Message recorded and the team have it.\n- Message: ${message}\n\nReply in your own `
+      + `words following the REMINDER REPLY THAT IS NOT A BOOKING rules above. Do NOT promise a `
+      + `callback and do NOT ask anything further.\n\nConversation complete.`;
+  }
   return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've passed that on${serviceContext}. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'} — have a great day!"\n\nConversation complete.`;
 }
 
@@ -5708,6 +5783,34 @@ RECOGNISING AFFIRMATIVE RESPONSES:
   // Scoping it to the open flow meant the guardrails disappeared the moment the dates were taken,
   // and the ordinary booking prompt took back over — which is how a customer who asked a question
   // one turn later was told he was booked in.
+  if (session.reminderOutcome) {
+    const what = session.reminderOutcome;
+    prompt += `\nREMINDER REPLY THAT IS NOT A BOOKING — THIS OVERRIDES THE BOOKING FLOW ENTIRELY.\n`
+      + `They replied to a ${session.outboundServiceType === 'mot' ? 'MOT' : 'service'} reminder`
+      + `${session.vrn ? ` for ${session.vrn}` : ''} and they are NOT booking anything. Do not ask `
+      + `for dates, do not offer times, do not mention availability, and do not try to rescue the `
+      + `booking. Their reply is already recorded and the team have it.\n`;
+    if (what === 'sold') {
+      prompt += `- They no longer have the vehicle. Thank them for telling us, say you will let the `
+        + `team know and that they will not hear from us about it again — that is true, we have `
+        + `stopped the reminders. Wish them well with the next car. Do NOT ask what they are driving `
+        + `now or try to sell them anything: they have just told you they are not a customer for `
+        + `this, and pitching at them is how a polite reply becomes a complaint.\n`;
+    } else if (what === 'already_done') {
+      prompt += `- The work has already been done, so OUR record is out of date, not theirs. Thank `
+        + `them, apologise briefly for the reminder landing when it was not needed, and say the team `
+        + `will update the record. Never imply they are due anyway or ask them to prove it. If they `
+        + `said where or when it was done, acknowledge it — they are doing us a favour by saying so.\n`;
+    } else {
+      prompt += `- They have asked us to STOP contacting them. Confirm plainly that you have done `
+        + `it and they will not get any more reminders — that is true now, we have switched them `
+        + `off. Do not ask why, do not offer an alternative, and do not try to keep them. One clear `
+        + `sentence and a thank you is the whole reply.\n`;
+    }
+    prompt += `Keep it short and warm. Do not ask a follow-up question — there is nothing else we `
+      + `need from them.\n`;
+  }
+
   if (session.awaitingDatePreference || session.awaitingAnythingElse || session.enquiryPreference) {
     const prefJob = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
 

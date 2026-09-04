@@ -4,6 +4,7 @@ import { getTyresoftChatResponse } from './chatAgentTyresoft.js';
 import { getAssistChatResponse } from './chatAgentAssist.js';
 import { getMMHChatResponse } from './chatAgentMMH.js';
 import { getPooleChatResponse } from './chatAgentPoole.js';
+import { getBookarChatResponse } from './chatAgentBookar.js';
 
 interface ChatAgentResponse {
   content: string;
@@ -54,6 +55,7 @@ function hasGarageHiveCreds(ipc: unknown): boolean {
  * Route an incoming chat message to the correct agent — one per garage type,
  * mirroring the three voice agents:
  *   agentScript === 'tyresoft-agent'  → Tyresoft chat agent
+ *   agentScript === 'bookar-agent'    → Bookar chat agent (Vitara Commerce API)
  *   live GarageHive diary (creds)     → GarageHive chat agent (chatAgentV2) — real bookings + GH tools
  *   agentType === 'assist' (no diary) → Assist chat agent (message-taking + synthetic slots)
  *   otherwise                         → GarageHive chat agent (chatAgentV2)
@@ -91,6 +93,10 @@ export async function routeChatMessage(
 
     if (agentScript === 'tyresoft-agent') {
       return getTyresoftChatResponse(garageId, message, conversationId, seedContact);
+    }
+
+    if (agentScript === 'bookar-agent') {
+      return getBookarChatResponse(garageId, message, conversationId, seedContact);
     }
 
     // A live GarageHive diary always wins — real bookings + GarageHive tool calls.

@@ -1283,7 +1283,14 @@ router.put(
       twilioNumber: garageRecord?.twilioNumber
     });
     
-    if (resolvedAgentScript === 'MMH-agent') {
+    if (resolvedAgentScript === 'unified-agent') {
+      // Same arrangement as MMH below: the unified agent lives in its own LiveKit project
+      // (receptionmate-automotive) and is reached by voice.ts via LIVEKIT_SIP_DOMAIN_UNIFIED,
+      // not by a dispatch rule in the fleet project. Provisioning one here points the garage's
+      // number at an agent name nothing is serving, and the line simply drops — which is what
+      // happened to the GH v3 test garage on 2026-09-07 the first time it was switched over.
+      console.log('[UPDATE_AGENT] Skipping dispatch rule update for unified-agent (routing via voice.ts to receptionmate-automotive)');
+    } else if (resolvedAgentScript === 'MMH-agent') {
       // MMH's SIP trunk + dispatch rule live in the dedicated 'new-gh-agent' LiveKit project,
       // which the onboarding service does NOT manage. Routing is handled entirely by voice.ts
       // (agentScript='MMH-agent' -> LIVEKIT_SIP_DOMAIN_MMH). Re-provisioning here would create a

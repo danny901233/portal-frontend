@@ -292,7 +292,12 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   const weeklyOpeningHours = config.weeklyOpeningHours
     ? cloneWeeklyOpeningHours(config.weeklyOpeningHours)
     : createDefaultWeeklyOpeningHours();
-  const sanitizedProvider: IntegrationProvider = config.integrationProvider === 'garage_hive' ? 'garage_hive' : 'none';
+  // Every diary the unified agent supports is a legitimate provider now. Collapsing anything
+  // but garage_hive to 'none' is what reset a Bookar garage to no diary on every save.
+  const KNOWN_PROVIDERS: IntegrationProvider[] = ['garage_hive', 'bookar', 'poole', 'tyresoft'];
+  const sanitizedProvider: IntegrationProvider =
+    KNOWN_PROVIDERS.includes(config.integrationProvider as IntegrationProvider)
+      ? (config.integrationProvider as IntegrationProvider) : 'none';
   const garageHiveSettings = sanitizedProvider === 'garage_hive'
     ? cloneGarageHiveSettings(config.garageHiveSettings)
     : createDefaultGarageHiveSettings();
@@ -329,6 +334,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       config.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       config.agentScript === 'MMH-agent' ? 'MMH-agent' : config.agentScript === 'bookar-agent' ? 'bookar-agent' :
       config.agentScript === 'poole-agent' ? 'poole-agent' :
+      config.agentScript === 'unified-agent' ? 'unified-agent' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
@@ -475,6 +481,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       configuration.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       configuration.agentScript === 'MMH-agent' ? 'MMH-agent' : configuration.agentScript === 'bookar-agent' ? 'bookar-agent' :
       configuration.agentScript === 'poole-agent' ? 'poole-agent' :
+      configuration.agentScript === 'unified-agent' ? 'unified-agent' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent'
@@ -869,7 +876,7 @@ export const autoIngestWebsiteKnowledge = async (garageId: string, url: string):
   }
 };
 
-const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent') => {
+const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent') => {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
   if (!onboardingUrl) {
     console.log('[UPDATE_SIP] No onboarding service URL configured');
@@ -938,7 +945,7 @@ router.put(
 
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : data.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent' = data.agentScript === 'unified-agent' ? 'unified-agent' : data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : data.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
 
     // Only staff can change which agent serves the garage; everyone else keeps the saved script.
     if (!canEditAgentType) {
@@ -946,7 +953,7 @@ router.put(
         where: { garageId },
         select: { agentScript: true },
       });
-      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : existingConfig?.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
+      resolvedAgentScript = existingConfig?.agentScript === 'unified-agent' ? 'unified-agent' : existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : existingConfig?.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
     }
 
     // agentType is DERIVED from the agent script — the script is the single source of truth.
@@ -1104,7 +1111,53 @@ router.put(
     };
 
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
+      resolvedAgentScript === 'unified-agent'
+        ? {
+            // The unified agent picks its diary from integrationProvider, not from the script,
+            // so ANY provider's credentials are valid on this garage. Start from what is already
+            // stored — otherwise a save that touches an unrelated field wipes the diary, which
+            // took a live line down twice on 2026-09-07 — then layer on whatever was supplied.
+            ...(existingConfig?.integrationProviderConfig
+                && typeof existingConfig.integrationProviderConfig === 'object'
+                && !Array.isArray(existingConfig.integrationProviderConfig)
+                  ? (existingConfig.integrationProviderConfig as object) : {}),
+            ...(requestedProvider === 'garage_hive' && garageHiveSettings.apiKey
+              ? {
+                  instanceUrl: garageHiveSettings.instanceUrl,
+                  apiKey: garageHiveSettings.apiKey,
+                  customerId: garageHiveSettings.customerId,
+                  locationId: garageHiveSettings.locationId,
+                }
+              : {}),
+            ...(data.bookarSettings?.bookarClientId
+              ? {
+                  bookarClientId: (data.bookarSettings.bookarClientId || '').trim(),
+                  bookarClientSecret: (data.bookarSettings.bookarClientSecret || '').trim(),
+                  bookarApiBase: (data.bookarSettings.bookarApiBase || 'https://partners.bookar.app').trim(),
+                }
+              : {}),
+            ...(data.pooleSettings?.branchKey
+              ? {
+                  poole: {
+                    branchKey: (data.pooleSettings.branchKey || '').trim(),
+                    tenant: (data.pooleSettings.tenant || '').trim(),
+                    branchCode: (data.pooleSettings.branchCode || '').trim(),
+                  },
+                }
+              : {}),
+            ...(typeof rawTyresoft.tsWorkspace === 'string' && rawTyresoft.tsWorkspace
+              ? {
+                  tsWorkspace: rawTyresoft.tsWorkspace.trim(),
+                  tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',
+                  tsPassword: typeof rawTyresoft.tsPassword === 'string' ? rawTyresoft.tsPassword.trim() : '',
+                  tsApiKey: typeof rawTyresoft.tsApiKey === 'string' ? rawTyresoft.tsApiKey.trim() : '',
+                  tsDepotId: rawTyresoft.tsDepotId != null ? Number(rawTyresoft.tsDepotId) : 1,
+                  ...tsStructuredPayload,
+                }
+              : {}),
+            ...hubspotPayload,
+          }
+        :       resolvedAgentScript === 'tyresoft-agent' && rawTyresoft.tsWorkspace
         ? {
             tsWorkspace: typeof rawTyresoft.tsWorkspace === 'string' ? rawTyresoft.tsWorkspace.trim() : '',
             tsUsername: typeof rawTyresoft.tsUsername === 'string' ? rawTyresoft.tsUsername.trim() : '',

@@ -46,7 +46,7 @@ export type WeeklyOpeningHours = Record<DayOfWeek, DailyOpeningHours>;
 
 export type ResponseSpeed = 'slow' | 'normal' | 'fast';
 
-export type IntegrationProvider = 'none' | 'garage_hive';
+export type IntegrationProvider = 'none' | 'garage_hive' | 'bookar' | 'poole' | 'tyresoft';
 
 export type AgentType = 'assist' | 'automate';
 

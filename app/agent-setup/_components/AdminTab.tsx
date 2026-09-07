@@ -19,7 +19,7 @@ interface Props {
 }
 
 type AgentType = 'assist' | 'automate';
-type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent';
+type AgentScript = 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent';
 
 const EMPTY_GH: GarageHiveSettings = {
   instanceUrl: '',
@@ -90,9 +90,17 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         { value: 'Assist-agent', label: 'Assist', description: 'New assist-mode agent on LiveKit Account 2 — ElevenLabs voice + per-garage rules' },
         { value: 'bookar-agent', label: 'Bookar', description: 'Bookar SIP agent — routes to bookar-yw3ukuz1.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_BOOKAR)' },
         { value: 'poole-agent', label: 'Poole (AutoSage)', description: 'Poole/AutoSage booking agent — routes to 1v7xp0zgd5x.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_POOLE, receptionmate-2 project)' },
+        { value: 'unified-agent', label: 'Unified Agent', description: 'One agent for every diary — set the booking system below and it uses that adapter (receptionmate-automotive project)' },
       ],
       agentScriptHint:
         'Saving with a different agent script triggers the onboarding service to update the SIP dispatch rule. Assist-agent routes to LiveKit Account 2; the others stay on Account 1.',
+      bookingSystemLabel: 'Booking system',
+      bookingSystemHint: 'Which diary this garage books into. The unified agent uses the adapter you pick here.',
+      bsNone: 'None — take messages only',
+      bsGarageHive: 'Garage Hive',
+      bsBookar: 'Bookar (Vitara Commerce)',
+      bsPoole: 'Poole (AutoSage)',
+      bsTyresoft: 'Tyresoft',
       diaryLabel: 'Diary integration',
       notConnected: 'Not connected',
       garageHive: 'Garage Hive',
@@ -164,9 +172,17 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         { value: 'Assist-agent', label: 'Assist', description: 'Nouvel agent en mode assist sur LiveKit Account 2 — voix ElevenLabs + règles par agence' },
         { value: 'bookar-agent', label: 'Bookar', description: 'Agent SIP Bookar — routé vers bookar-yw3ukuz1.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_BOOKAR)' },
         { value: 'poole-agent', label: 'Poole (AutoSage)', description: 'Agent de réservation Poole/AutoSage — routé vers 1v7xp0zgd5x.sip.livekit.cloud (LIVEKIT_SIP_DOMAIN_POOLE, projet receptionmate-2)' },
+        { value: 'unified-agent', label: 'Unified Agent', description: 'Un seul agent pour tous les agendas — choisissez le système de réservation ci-dessous' },
       ],
       agentScriptHint:
         'Enregistrer avec un script d’agent différent déclenche la mise à jour de la règle de dispatch SIP par le service de mise en service. Assist-agent est routé vers LiveKit Account 2 ; les autres restent sur Account 1.',
+      bookingSystemLabel: 'Système de réservation',
+      bookingSystemHint: 'L’agenda dans lequel ce garage réserve. L’agent unifié utilise l’adaptateur choisi ici.',
+      bsNone: 'Aucun — messages uniquement',
+      bsGarageHive: 'Garage Hive',
+      bsBookar: 'Bookar (Vitara Commerce)',
+      bsPoole: 'Poole (AutoSage)',
+      bsTyresoft: 'Tyresoft',
       diaryLabel: 'Intégration d’agenda',
       notConnected: 'Non connecté',
       garageHive: 'Garage Hive',
@@ -359,7 +375,30 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         </p>
       </div>
 
-      {agentScript === 'bookar-agent' && (
+      {/* The unified agent's diary comes from integrationProvider, not from the script, so this
+          is the one place staff choose it. Every other agent is tied to a single diary. */}
+      {agentScript === 'unified-agent' && (
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-700">
+            {c.bookingSystemLabel}
+          </label>
+          <select
+            value={integrationProvider}
+            onChange={(e) => setIntegrationProvider(e.target.value as IntegrationProvider)}
+            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+          >
+            <option value="none">{c.bsNone}</option>
+            <option value="garage_hive">{c.bsGarageHive}</option>
+            <option value="bookar">{c.bsBookar}</option>
+            <option value="poole">{c.bsPoole}</option>
+            <option value="tyresoft">{c.bsTyresoft}</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-500">{c.bookingSystemHint}</p>
+        </div>
+      )}
+
+      {(agentScript === 'bookar-agent'
+        || (agentScript === 'unified-agent' && integrationProvider === 'bookar')) && (
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700">
             {c.diaryLabel}
@@ -397,7 +436,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         </div>
       )}
 
-      {agentScript === 'poole-agent' && (
+      {(agentScript === 'poole-agent'
+        || (agentScript === 'unified-agent' && integrationProvider === 'poole')) && (
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700">
             {c.diaryLabel}
@@ -435,7 +475,9 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         </div>
       )}
 
-      {(agentScript === 'receptionmate-agent' || agentScript === 'receptionmate-agent-v3' || agentScript === 'GarageHive-agent') && (
+      {(agentScript === 'receptionmate-agent' || agentScript === 'receptionmate-agent-v3'
+        || agentScript === 'GarageHive-agent'
+        || (agentScript === 'unified-agent' && integrationProvider === 'garage_hive')) && (
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700">
             {c.diaryLabel}
@@ -488,7 +530,8 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         </div>
       )}
 
-      {agentScript === 'tyresoft-agent' && (
+      {(agentScript === 'tyresoft-agent'
+        || (agentScript === 'unified-agent' && integrationProvider === 'tyresoft')) && (
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700">
             {c.diaryLabel}

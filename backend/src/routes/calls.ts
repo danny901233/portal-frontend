@@ -492,20 +492,8 @@ router.post('/calls', async (req: Request, res: Response) => {
       }
     }
 
-    // Numbers we test from. A garage should not get a "you missed a call" email every time we
-    // ring their line to try something, and during the unified-agent trial that is several a
-    // day. Compared on digits only, so +44 / 0044 / 07 forms all match.
-    const TEST_CALLER_NUMBERS = ['07976500282', '07506629135'];
-    const callerDigits = String(payload.customerPhone || payload.fromNumber || '').replace(/\D/g, '');
-    const isTestCaller = callerDigits.length >= 9
-      && TEST_CALLER_NUMBERS.some((n) => callerDigits.endsWith(n.replace(/\D/g, '').slice(-9)));
-    if (isTestCaller) {
-      console.log(`[EMAIL] Suppressed notification for call ${callId}: test caller ${callerDigits}`);
-    }
-
     // Send notification email (agent already filtered to only send calls >= 30s)
-    if (!isTestCaller &&
-        createdCall.garage?.agentConfiguration?.notificationEmails &&
+    if (createdCall.garage?.agentConfiguration?.notificationEmails &&
         createdCall.garage.agentConfiguration.notificationEmails.length > 0) {
       console.log(`[EMAIL] Checking payment status for call ${callId} notification (duration ${actualDuration}s)`);
 

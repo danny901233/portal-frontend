@@ -1034,6 +1034,25 @@ router.put(
     // Tyresoft takes priority — if agentScript is tyresoft-agent and credentials provided, store them.
     // If credentials are not provided in this save, fall back to existing saved config to avoid wiping it.
     // Build hubspot sub-object to merge into integrationProviderConfig
+    // Bookar credentials are only taken from a save that actually carries them. The form sends
+    // bookarSettings on every save - the reader defaults it to empty strings - so keying off its
+    // presence wrote '' over EAC Telford's real credentials from a page that never showed those
+    // fields, and the wipe had synced to DynamoDB before anyone noticed.
+    //
+    // An empty field is NOT treated as "clear it": there is no way to tell a deliberate clear from
+    // a form that never rendered the input, and one of those two readings silently takes a
+    // customer's booking integration down. Clearing can be done deliberately elsewhere.
+    const existingBookarConfig =
+      existingConfig?.integrationProviderConfig &&
+      typeof existingConfig.integrationProviderConfig === 'object' &&
+      !Array.isArray(existingConfig.integrationProviderConfig)
+        ? (existingConfig.integrationProviderConfig as Record<string, string>)
+        : undefined;
+    const bookarHasCredentials = !!(
+      (data.bookarSettings?.bookarClientId || '').trim() ||
+      (data.bookarSettings?.bookarClientSecret || '').trim()
+    );
+
     const hubspotPayload = data.hubspotSettings
       ? { hubspot: cloneHubspotSettings(data.hubspotSettings) }
       : (() => {
@@ -1227,8 +1246,8 @@ router.put(
             locationId: garageHiveSettings.locationId,
             ...hubspotPayload,
           }
-        : resolvedAgentScript === 'bookar-agent' && data.bookarSettings
-        ? { bookarClientId: (data.bookarSettings.bookarClientId || '').trim(), bookarClientSecret: (data.bookarSettings.bookarClientSecret || '').trim(), bookarApiBase: (data.bookarSettings.bookarApiBase || 'https://partners.bookar.app').trim(), ...hubspotPayload }
+        : resolvedAgentScript === 'bookar-agent' && bookarHasCredentials
+        ? { ...(existingBookarConfig ?? {}), bookarClientId: (data.bookarSettings?.bookarClientId || '').trim(), bookarClientSecret: (data.bookarSettings?.bookarClientSecret || '').trim(), bookarApiBase: (data.bookarSettings?.bookarApiBase || existingBookarConfig?.bookarApiBase || 'https://partners.bookar.app').trim(), ...hubspotPayload }
         : resolvedAgentScript === 'bookar-agent' && existingConfig?.integrationProviderConfig
         ? { ...(existingConfig.integrationProviderConfig as object), ...hubspotPayload }
         : resolvedAgentScript === 'poole-agent' && data.pooleSettings

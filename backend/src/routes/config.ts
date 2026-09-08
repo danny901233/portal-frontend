@@ -112,6 +112,52 @@ const parseIntegrationSettings = (
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
 ): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings?: BookarSettings; pooleSettings?: PooleSettings } => {
+  // The unified agent can carry ANY of the diaries, so unlike the single-diary scripts below it
+  // has to surface every credential block it holds — the Booking system dropdown decides which
+  // one it actually uses. Without this the read fell straight through to the generic case and
+  // every unified-agent garage showed an EMPTY credentials panel while its keys sat safely in
+  // the database. That is what the five Gearbox branches looked like the moment they moved off
+  // poole-agent, and Norwich reads the same way.
+  if (agentScript === 'unified-agent') {
+    const raw = (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings))
+      ? (rawSettings as Record<string, unknown>)
+      : {};
+    const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+    // Poole is stored nested under `poole`; older rows wrote it flat, and `apiKey` was the
+    // original name for branchKey.
+    const pooleRaw = (raw.poole && typeof raw.poole === 'object' && !Array.isArray(raw.poole))
+      ? (raw.poole as Record<string, unknown>)
+      : raw;
+    const pooleSettings: PooleSettings = {
+      branchKey: str(pooleRaw.branchKey) || str(pooleRaw.apiKey),
+      tenant: str(pooleRaw.tenant),
+      branchCode: str(pooleRaw.branchCode),
+    };
+    const bookarSettings: BookarSettings = {
+      bookarClientId: str(raw.bookarClientId),
+      bookarClientSecret: str(raw.bookarClientSecret),
+      bookarApiBase: str(raw.bookarApiBase) || 'https://partners.bookar.app',
+    };
+    const garageHiveSettings = cloneGarageHiveSettings(raw as unknown as GarageHiveSettings);
+    const tyresoftSettings = cloneTyresoftSettings(raw as unknown as TyresoftSettings);
+    // Mirror the agent. build_diary() infers the diary from whichever credentials are present
+    // when the provider still says "none", so the dropdown must read the same way — otherwise
+    // it says "None" while the agent is booking into Poole.
+    const declared = (['garage_hive', 'bookar', 'poole', 'tyresoft'] as IntegrationProvider[])
+      .find((k) => k === providerValue);
+    const integrationProvider: IntegrationProvider = declared
+      ?? (pooleSettings.branchKey && pooleSettings.tenant
+        ? 'poole'
+        : bookarSettings.bookarClientId
+        ? 'bookar'
+        : (tyresoftSettings.tsApiKey || tyresoftSettings.tsWorkspace)
+        ? 'tyresoft'
+        : (garageHiveSettings.apiKey && garageHiveSettings.customerId)
+        ? 'garage_hive'
+        : 'none');
+    return { integrationProvider, garageHiveSettings, tyresoftSettings, bookarSettings, pooleSettings };
+  }
+
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
     if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {

@@ -599,6 +599,12 @@ export default function AdminPage() {
           Support inbox
         </button>
         <button
+          onClick={() => router.push('/admin/pipeline')}
+          className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-sm font-medium transition-colors shadow-sm"
+        >
+          Onboarding pipeline
+        </button>
+        <button
           onClick={() => router.push('/admin/agreements')}
           className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-sm font-medium transition-colors shadow-sm"
         >

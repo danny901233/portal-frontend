@@ -922,9 +922,18 @@ const completeOnboardingSchema = z.object({
     'Assist-agent',
     'GarageHive-agent',
     'tyresoft-agent',
+    'unified-agent',
     'receptionmate-agent-v3',
     'receptionmate-agent',
   ]).optional().default('Assist-agent'),
+  // Which diary the garage books into. Only the unified agent reads this — every other script
+  // is tied to one diary by the script itself — but it has to be settable HERE, or a garage
+  // onboarded onto the unified agent starts with provider 'none' and books nothing until
+  // somebody remembers to open Agent Configurations.
+  integrationProvider: z
+    .enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft'])
+    .optional()
+    .default('none'),
 });
 
 const DEFAULT_PASSWORD = 'Nomoremissedcalls';
@@ -1028,7 +1037,8 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         responseSpeed: 'normal',
         interruptionSensitivity: 0.5,
         allowFastFitOnly: false,
-        integrationProvider: 'none',
+        // Booking system pick from the quick-onboard modal (defaults to 'none').
+        integrationProvider: parsed.data.integrationProvider,
         // Routing pick from the quick-onboard modal (defaults to Assist-agent).
         agentScript: parsed.data.agentScript,
       },
@@ -1045,7 +1055,14 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         where: { garageId: garage.id },
         select: { agentScript: true },
       });
-      const agentName = agentConfig?.agentScript === 'tyresoft-agent'
+      // The unified agent lives in its own LiveKit project, which the onboarding service does
+      // not manage — so /provision's trunk step will no-op or fail for it, which that endpoint
+      // already catches and continues past. We still call it, because step 4 is what points the
+      // Twilio number at our /voice webhook, and /voice is precisely how a unified-agent garage
+      // is routed. Passing the real script keeps the log honest about what the garage runs.
+      const agentName = agentConfig?.agentScript === 'unified-agent'
+        ? 'unified-agent'
+        : agentConfig?.agentScript === 'tyresoft-agent'
           ? 'tyresoft-agent'
           : agentConfig?.agentScript === 'receptionmate-agent-v3'
             ? 'receptionmate-agent-v3'

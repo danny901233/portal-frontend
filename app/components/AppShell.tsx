@@ -49,7 +49,11 @@ function useIsMobile() {
 }
 
 // '/demo-embed' is the same demo in a frame-friendly shell, iframed into the marketing site.
-const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/demo-embed']);
+// '/connect-garagehive' is opened by GarageHive from the onboarding email. They are not a
+// portal user and never will be — the link is token-gated instead, and the page validates that
+// token against the API itself. Leaving it off this list sent them to a login screen they have
+// no account for, which is a dead end for the one action we need them to take.
+const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/demo-embed', '/connect-garagehive']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {

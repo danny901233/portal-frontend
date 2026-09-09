@@ -23,6 +23,10 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail } from '../utils/email.js';
+import {
+  sendGarageHiveConnectRequest,
+  sendGarageHiveGettingReady,
+} from '../services/garageHiveConnect.js';
 import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS } from '../services/stripe.js';
 import {
   renderAgreementHtml,
@@ -343,6 +347,26 @@ async function finaliseSignature(opts: {
     signerEmail: opts.signerEmail || user?.email || null,
     clientName: agreement.clientName,
   });
+
+  // Signing is the trigger for the GarageHive onboarding pair, and both had stopped: the
+  // service they live in was lost with the rest of the connect flow, so nothing has called
+  // either since August. Ask GarageHive for the instance, and tell the garage what to set up
+  // while we build their agent. Fire-and-forget, and both are internally no-ops for a business
+  // that isn't on GarageHive, so this is safe for every other agreement.
+  void (async () => {
+    try {
+      if (agreement.businessId) await sendGarageHiveConnectRequest(agreement.businessId);
+      const garages = agreement.businessId
+        ? await prisma.garage.findMany({
+            where: { businessId: agreement.businessId },
+            select: { id: true },
+          })
+        : [];
+      for (const g of garages) await sendGarageHiveGettingReady(g.id);
+    } catch (err) {
+      console.error('[AGREEMENT] GarageHive onboarding emails failed:', err);
+    }
+  })();
 
   // Public-signup customers (mustChangePassword === true) start their 14-day free trial with a
   // custom Stripe Payment Element (no redirect). We create a trial subscription now and return its

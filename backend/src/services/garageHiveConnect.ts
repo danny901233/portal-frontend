@@ -322,6 +322,57 @@ export const sendGarageHiveGettingReady = async (garageId: string): Promise<bool
   return true;
 };
 
+// The email to GarageHive asking them to connect the diary. This is the one piece of the flow
+// that had no surviving copy anywhere — not in dist, not in the 19 Aug pre-loss backup — so it
+// is rebuilt from a sent copy (20 Jul, Mallory Performance Ltd) rather than recovered. The
+// wording, the button and the "Link valid 14 days" line are reproduced from that email; the
+// token is the same signConnectToken the restored /garagehive-connect endpoints verify.
+//
+// Recipient comes from GARAGEHIVE_CONNECT_EMAIL_TO. Deliberately no default: sending an
+// onboarding request to a guessed address is worse than not sending it, and a missing value is
+// logged loudly rather than swallowed.
+export const sendGarageHiveConnectRequest = async (businessId: string): Promise<boolean> => {
+  const to = (process.env.GARAGEHIVE_CONNECT_EMAIL_TO || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (!to.length) {
+    console.warn(
+      '[GH-CONNECT] GARAGEHIVE_CONNECT_EMAIL_TO is not set — NOT sending the connect request for',
+      businessId,
+    );
+    return false;
+  }
+  if (!(await businessUsesGarageHive(businessId))) return false;
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { name: true },
+  });
+  const name = business?.name || 'This garage';
+  const link = `${PORTAL_URL}/connect-garagehive?token=${signConnectToken(businessId)}`;
+  const body =
+    `<tr><td style="padding: 32px;">` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">New ReceptionMate onboard</h1>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${name}</strong> is being onboarded to ReceptionMate Automate.</p>` +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">Open the link below and paste the garage's GarageHive <strong>instance</strong> — that's all that's needed.</p>` +
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
+    `<td style="background:#3426cf;border-radius:10px;"><a href="${link}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Connect GarageHive diary</a></td>` +
+    `</tr></table>` +
+    `<p style="margin:0;font-size:13px;line-height:1.5;color:#94a3b8;text-align:center;">Or paste this link: <a href="${link}" style="color:#3426cf;word-break:break-all;">${link}</a><br>Link valid 14 days.</p>` +
+    `</td></tr>`;
+  void sendEmail({
+    to,
+    subject: 'New ReceptionMate onboard',
+    text:
+      `${name} is being onboarded to ReceptionMate Automate.\n\n` +
+      `Open the link below and paste the garage's GarageHive instance — that's all that's needed.\n\n` +
+      `${link}\n\nLink valid 14 days.`,
+    html: brandedEmailShell(body),
+  });
+  console.log(`[GH-CONNECT] connect request sent to ${to.join(', ')} for ${name}`);
+  return true;
+};
+
 // Auto go-live convergence: a GarageHive garage is "live" once BOTH tracks are done — the
 // agreement is signed AND the diary is connected. Whichever finishes last calls this; the first
 // time both are true we email the garage "you're live" and mark them live. Idempotent via a

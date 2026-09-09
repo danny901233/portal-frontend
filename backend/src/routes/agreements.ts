@@ -24,6 +24,7 @@ import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail } from '../utils/email.js';
 import {
+  announceGoLiveIfReady,
   sendGarageHiveConnectRequest,
   sendGarageHiveGettingReady,
 } from '../services/garageHiveConnect.js';
@@ -362,7 +363,14 @@ async function finaliseSignature(opts: {
             select: { id: true },
           })
         : [];
-      for (const g of garages) await sendGarageHiveGettingReady(g.id);
+      for (const g of garages) {
+        await sendGarageHiveGettingReady(g.id);
+        // Go-live needs BOTH tracks done, and either can finish last. It was only ever checked
+        // when the diary connected, so a garage whose diary was already wired and who signed
+        // afterwards would never have gone live — signing is the last piece there, and nothing
+        // re-asked. Checking from both sides is what makes it converge.
+        await announceGoLiveIfReady(g.id);
+      }
     } catch (err) {
       console.error('[AGREEMENT] GarageHive onboarding emails failed:', err);
     }

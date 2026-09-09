@@ -13,7 +13,9 @@
 // checkout removed it and every rebuild since produced a server.js that no longer mounted the
 // routes. Restored from dist/services/garageHiveConnect.js and committed this time.
 import { createHmac, timingSafeEqual } from 'crypto';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
+import { sendOpsSms } from '../utils/opsAlerts.js';
 import { sendAgentConfigWebhook } from '../routes/config.js';
 import { sendEmail, brandedEmailShell } from '../utils/email.js';
 
@@ -25,6 +27,8 @@ const GH_OTHER_GUIDE_URL = 'https://garagehive-co.slite.com/app/docs/YzHdXMeW8Cw
 // The agent a newly connected GarageHive garage is put on. Was receptionmate-agent-v3; the
 // unified agent now serves GarageHive garages, so new connections land there.
 const GH_AGENT_SCRIPT = 'unified-agent';
+// The standard starting password, same as admin.ts / public-signup.ts / onboarding.ts.
+const DEFAULT_PASSWORD = 'Nomoremissedcalls';
 // Garages connected before the switch still run v3, so anything ASKING "is this a GarageHive
 // garage?" has to accept both — narrowing it would silently un-recognise every existing one.
 const GH_AGENT_SCRIPTS = ['unified-agent', 'receptionmate-agent-v3'];
@@ -385,6 +389,7 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
       name: true,
       businessId: true,
       twilioNumber: true,
+      welcomeEmailSentAt: true,
       agentConfiguration: { select: { integrationProviderConfig: true, agentScript: true } },
     },
   });
@@ -411,31 +416,91 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
   // Dropped rather than carried forward as a no-op; add the column first if the stage is wanted.
   const users = await prisma.user.findMany({
     where: { garageAccessIds: { has: garageId }, role: { not: 'RECEPTIONMATE_STAFF' } },
-    select: { email: true, branchRoles: true },
+    select: { id: true, email: true, branchRoles: true, mustChangePassword: true },
   });
   const manager = users.find((u) => asObject(u.branchRoles)[garageId] === 'MANAGER') || users[0];
-  if (manager?.email) {
-    const number = garage.twilioNumber || 'your ReceptionMate number';
-    const body =
-      `<tr><td style="padding: 32px;">` +
-      `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">You're live 🎉</h1>` +
-      `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${garage.name}</strong> is now connected to your GarageHive diary.</p>` +
-      `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Your agent is live and ready to be connected to your phone system. If you haven't already, please <a href="${PORTAL_URL}" style="color:#3426cf;font-weight:600;">log in to the portal</a> to customise your agent, then set up call forwarding on your line to your ReceptionMate number:</p>` +
-      `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr><td style="background:#f1f2f9;border-radius:10px;padding:14px 26px;text-align:center;"><span style="font-size:22px;font-weight:800;color:#3426cf;letter-spacing:0.5px;">${number}</span></td></tr></table>` +
-      `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">One last thing in Garage Hive: add an <strong>“Other”</strong> service package so the agent can book custom jobs. Garage Hive's guide walks you through it — <a href="${GH_OTHER_GUIDE_URL}" style="color:#3426cf;font-weight:600;">How to set up an “Other” service package</a>.</p>` +
-      `</td></tr>`;
-    void sendEmail({
-      to: [manager.email],
-      subject: `${garage.name} is live on ReceptionMate`,
-      text:
-        `${garage.name} is now connected to your GarageHive diary.\n\n` +
-        `Your agent is live and ready to be connected to your phone system. If you haven't already, ` +
-        `log in to the portal (${PORTAL_URL}) to customise your agent, then set up call forwarding on ` +
-        `your line to your ReceptionMate number: ${number}.\n\n` +
-        `One last thing in Garage Hive: add an "Other" service package so the agent can book custom jobs. ` +
-        `Garage Hive's guide walks you through it: ${GH_OTHER_GUIDE_URL}`,
-      html: brandedEmailShell(body),
+  if (!manager?.email) return true;
+
+  // Credentials ride along with go-live, because go-live IS the moment there is something to log
+  // in to — which is exactly why the welcome email was deferred at onboarding in the first place.
+  // Previously a human had to notice and press Invite; nothing joined the two facts up.
+  //
+  // Two guards, both carried over from that invite endpoint:
+  //  - never rotate a password somebody is already using. mustChangePassword only goes false once
+  //    they have logged in and chosen their own; reissuing would silently lock out a live user.
+  //    They still get the go-live email, just without credentials.
+  //  - welcomeEmailSentAt means they have already been sent a password. Don't mint another.
+  const alreadyInvited = !!garage.welcomeEmailSentAt;
+  const issueCredentials = manager.mustChangePassword && !alreadyInvited;
+  let password = '';
+  if (issueCredentials) {
+    // We never keep plaintext, so the password has to be (re)set here to be able to send it.
+    password = DEFAULT_PASSWORD;
+    await prisma.user.update({
+      where: { id: manager.id },
+      data: { passwordHash: await bcrypt.hash(password, 10), mustChangePassword: true },
     });
+    await prisma.garage.update({
+      where: { id: garageId },
+      data: { welcomeEmailSentAt: new Date() },
+    });
+  }
+
+  const number = garage.twilioNumber || 'your ReceptionMate number';
+  const steps = issueCredentials
+    ? `<ol style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:#475569;">` +
+      `<li>Log in with the details above — you'll be asked to set your own password.</li>` +
+      `<li>Set up your Direct Debit.</li>` +
+      `<li>Finish your agent setup — greeting, opening hours, services.</li>` +
+      `</ol>`
+    : '';
+  const creds = issueCredentials
+    ? `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 18px;background:#f1f2f9;border-radius:10px;">` +
+      `<tr><td style="padding:16px 20px;font-size:15px;line-height:1.7;color:#0f172a;">` +
+      `<strong>Email:</strong> ${manager.email}<br><strong>Password:</strong> ${password}` +
+      `</td></tr></table>`
+    : '';
+  const body =
+    `<tr><td style="padding: 32px;">` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">You're live 🎉</h1>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${garage.name}</strong> is now connected to your GarageHive diary.</p>` +
+    (issueCredentials
+      ? `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Here are your login details — there are three quick things to finish off:</p>${creds}${steps}`
+      : `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Log in to finish your agent setup.</p>`) +
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
+    `<td style="background:#3426cf;border-radius:10px;"><a href="${PORTAL_URL}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Log in to finish setting up</a></td>` +
+    `</tr></table>` +
+    `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Once that's done, set up call forwarding on your line to your ReceptionMate number:</p>` +
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr><td style="background:#f1f2f9;border-radius:10px;padding:14px 26px;text-align:center;"><span style="font-size:22px;font-weight:800;color:#3426cf;letter-spacing:0.5px;">${number}</span></td></tr></table>` +
+    `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">One last thing in Garage Hive: add an <strong>“Other”</strong> service package so the agent can book custom jobs. Garage Hive's guide walks you through it — <a href="${GH_OTHER_GUIDE_URL}" style="color:#3426cf;font-weight:600;">How to set up an “Other” service package</a>.</p>` +
+    `</td></tr>`;
+
+  const sent = await sendEmail({
+    to: [manager.email],
+    subject: `${garage.name} is live on ReceptionMate`,
+    text:
+      `${garage.name} is now connected to your GarageHive diary.\n\n` +
+      (issueCredentials
+        ? `Log in at ${PORTAL_URL}\n  Email: ${manager.email}\n  Password: ${password}\n\n` +
+          `Three quick things to finish off:\n  1. Log in — you'll be asked to set your own password.\n` +
+          `  2. Set up your Direct Debit.\n  3. Finish your agent setup.\n\n`
+        : `Log in at ${PORTAL_URL} to finish your agent setup.\n\n`) +
+      `Then set up call forwarding on your line to your ReceptionMate number: ${number}.\n\n` +
+      `One last thing in Garage Hive: add an "Other" service package so the agent can book custom jobs: ${GH_OTHER_GUIDE_URL}`,
+    html: brandedEmailShell(body),
+  }).catch(() => false);
+
+  // A rotated password that never reached the customer locks them out of an account nobody has
+  // the password for. There is no human in this flow to hand a 502 to, so undo the stamp — which
+  // lets the next run retry — and make noise.
+  if (!sent && issueCredentials) {
+    await prisma.garage
+      .update({ where: { id: garageId }, data: { welcomeEmailSentAt: null } })
+      .catch(() => {});
+    console.error('[GH-CONNECT] go-live email FAILED after rotating the password for', manager.email);
+    void sendOpsSms(
+      `ReceptionMate: go-live email failed for ${garage.name} (${manager.email}). Password was reset — re-send before they try to log in.`,
+    ).catch(() => {});
   }
   return true;
 };

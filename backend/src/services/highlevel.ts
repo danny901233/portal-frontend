@@ -298,6 +298,18 @@ export type OpportunityCandidate = {
   updatedAt: string | null;
 };
 
+// The search response carries pipelineStageId but NO stage name, so give staff something
+// readable by mapping the ids we already configure. Anything unmapped falls back to the id.
+const STAGE_NAMES: Record<string, string> = {
+  [process.env.GHL_LEAD_STAGE_ID ?? '']: 'Enquiry received & demo links sent',
+  [process.env.GHL_ABANDONED_STAGE_ID ?? '']: 'Abandoned checkout',
+  [process.env.GHL_TRIAL_STAGE_ID ?? '']: 'Free trial live',
+  [process.env.GHL_AWAITING_CREDENTIALS_STAGE_ID ?? '']: 'Awaiting integration credentials',
+  [process.env.GHL_AGENT_BUILT_STAGE_ID ?? '']: 'Agent set up, awaiting go-live',
+  [process.env.GHL_INVITED_STAGE_ID ?? '']: 'Invited — awaiting DD mandate',
+  [process.env.GHL_SIGNUP_STAGE_ID ?? '']: 'Live and £££',
+};
+
 const asCandidate = (o: unknown): OpportunityCandidate | null => {
   if (!o || typeof o !== 'object') return null;
   const r = o as Record<string, any>;
@@ -306,7 +318,9 @@ const asCandidate = (o: unknown): OpportunityCandidate | null => {
   return {
     id: r.id,
     name: typeof r.name === 'string' ? r.name : '(unnamed opportunity)',
-    stageName: typeof r.pipelineStageName === 'string' ? r.pipelineStageName : null,
+    stageName:
+      (typeof r.pipelineStageId === 'string' && STAGE_NAMES[r.pipelineStageId]) ||
+      (typeof r.pipelineStageId === 'string' ? r.pipelineStageId : null),
     status: typeof r.status === 'string' ? r.status : null,
     monetaryValue: typeof r.monetaryValue === 'number' ? r.monetaryValue : null,
     contactName: typeof c.name === 'string' ? c.name : null,
@@ -331,7 +345,10 @@ export async function findOpportunityCandidates(args: {
   ] as const) {
     const v = (value || '').trim();
     if (!v) continue;
-    const qs = new URLSearchParams({ location_id: GHL_LOCATION_ID, [key]: v, limit: '20' });
+    // `q`, not `email`/`phone`: HighLevel answers those two with a 422 and no explanation,
+    // which is why every search came back empty. `q` is the free-text search the API accepts,
+    // and it matches on the contact's email and phone as well as the opportunity name.
+    const qs = new URLSearchParams({ location_id: GHL_LOCATION_ID, q: v, limit: '20' });
     if (PIPELINE_ID) qs.set('pipeline_id', PIPELINE_ID);
     try {
       const res = await fetch(`${GHL_BASE_URL}/opportunities/search?${qs.toString()}`, {

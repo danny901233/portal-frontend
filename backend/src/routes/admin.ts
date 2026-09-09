@@ -9,6 +9,7 @@ import { fetchPlaceDetails, placesAutocomplete } from '../utils/googlePlaces.js'
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
+import { ensureUnifiedSipRouting } from '../services/unifiedSip.js';
 
 const router = Router();
 
@@ -1114,6 +1115,23 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         where: { id: garage.id },
         data: { twilioNumber: parsed.data.twilioNumber },
       });
+    }
+
+    // 5b. The unified agent lives in its own LiveKit project, which /provision above does not
+    // manage — it wires Account 1. Without a trunk there the number is configured correctly at
+    // Twilio, resolves the right SIP domain, and then rings out because nothing accepts the
+    // call. Every unified garage before this had its trunk made by hand.
+    if (parsed.data.twilioNumber && parsed.data.agentScript === 'unified-agent') {
+      const wired = await ensureUnifiedSipRouting({
+        garageId: garage.id,
+        garageName: garage.name,
+        twilioNumber: parsed.data.twilioNumber,
+      });
+      if (!wired.ok) {
+        console.error(
+          `[ONBOARD] ${garage.name} is on the unified agent but its SIP trunk was NOT created (${wired.reason}) — calls will ring out until it is.`,
+        );
+      }
     }
 
     // 6. Create user account

@@ -790,7 +790,9 @@ router.get(
       if (process.env.NODE_ENV !== 'production') {
         console.error('Failed to fetch calls', error);
       }
-      res.status(500).json({ error: 'Failed to fetch calls' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to fetch calls' });
+      }
     }
   },
 );
@@ -1739,11 +1741,20 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       // Pass through Range header so partial-content requests still work
       // (iOS Safari + <audio> require this; WaveSurfer will fetch full audio)
       const rangeHeader = req.headers.range;
-      const s3Response = await s3Client.send(new GetObjectCommand({
-        Bucket: s3Bucket,
-        Key: s3Key,
-        ...(rangeHeader ? { Range: rangeHeader } : {}),
-      }));
+      let s3Response;
+      try {
+        s3Response = await s3Client.send(new GetObjectCommand({
+          Bucket: s3Bucket,
+          Key: s3Key,
+          ...(rangeHeader ? { Range: rangeHeader } : {}),
+        }));
+      } catch (s3Err: any) {
+        if (s3Err?.name === 'NoSuchKey') {
+          console.warn(`[RECORDING] S3 key not found: ${s3Key}`);
+          return res.status(404).send('Recording file not found in storage');
+        }
+        throw s3Err;
+      }
 
       // Content-Type used to be hard-coded to audio/mpeg regardless of the
       // actual file. LiveKit-recorded calls are .mp4 (AAC in an MP4 container)
@@ -1826,7 +1837,9 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
     return res.end(buffer);
   } catch (error) {
     console.error('[RECORDING] Error streaming recording:', error);
-    res.status(500).send('Failed to stream recording');
+    if (!res.headersSent) {
+      res.status(500).send('Failed to stream recording');
+    }
   }
 });
 

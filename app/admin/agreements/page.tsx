@@ -24,6 +24,23 @@ type AdminAgreement = {
   user: { email: string };
 };
 
+type GhBranch = {
+  garageId: string;
+  garageName: string;
+  matchedLocationId: number | null;
+  confidence: 'auto' | 'high' | 'low' | 'none';
+  score: number;
+  runnerUpScore: number;
+  currentLocationId: string | null;
+};
+type GhPreview = {
+  instance: string;
+  locations: { id: number; name: string; address: string }[];
+  branches: GhBranch[];
+  garageCount: number;
+  agreementCentresCount: number | null;
+};
+
 export default function AdminAgreementsPage() {
   const router = useRouter();
   const [agreements, setAgreements] = useState<AdminAgreement[]>([]);
@@ -34,6 +51,81 @@ export default function AdminAgreementsPage() {
   const [search, setSearch] = useState('');
 
   // Mark-external dialog
+  // Connect GarageHive. GarageHive give us an instance and we resolve which location each branch
+  // is; where the matcher is not confident it flags the branch for a human, and this is that
+  // human. Completing it here also releases the go-live email, so it is the last step of a
+  // sales-led onboarding, not just a data-entry screen.
+  const [connectFor, setConnectFor] = useState<AdminAgreement | null>(null);
+  const [ghInstance, setGhInstance] = useState('');
+  const [ghBusy, setGhBusy] = useState(false);
+  const [ghError, setGhError] = useState<string | null>(null);
+  const [ghPreview, setGhPreview] = useState<GhPreview | null>(null);
+  const [ghChoice, setGhChoice] = useState<Record<string, string>>({});
+  const [ghDone, setGhDone] = useState<string | null>(null);
+
+  const openConnect = (a: AdminAgreement) => {
+    setConnectFor(a);
+    setGhInstance('');
+    setGhPreview(null);
+    setGhChoice({});
+    setGhError(null);
+    setGhDone(null);
+  };
+
+  const previewConnect = async () => {
+    if (!connectFor || !ghInstance.trim()) return;
+    setGhBusy(true);
+    setGhError(null);
+    setGhPreview(null);
+    try {
+      const { data } = await api.post<GhPreview>('/admin/garagehive/preview', {
+        agreementId: connectFor.id,
+        instance: ghInstance.trim(),
+      });
+      setGhPreview(data);
+      // Pre-select the matcher's guess so a confident row needs no clicks; a flagged one starts
+      // blank rather than pre-filled with something we did not trust.
+      const initial: Record<string, string> = {};
+      for (const b of data.branches) {
+        if (b.matchedLocationId != null && (b.confidence === 'auto' || b.confidence === 'high')) {
+          initial[b.garageId] = String(b.matchedLocationId);
+        }
+      }
+      setGhChoice(initial);
+    } catch (e: any) {
+      setGhError(e?.response?.data?.error ?? 'Could not reach GarageHive for that instance.');
+    } finally {
+      setGhBusy(false);
+    }
+  };
+
+  const commitConnect = async () => {
+    if (!ghPreview) return;
+    const mappings = Object.entries(ghChoice)
+      .filter(([, locationId]) => locationId)
+      .map(([garageId, locationId]) => ({ garageId, locationId }));
+    if (!mappings.length) {
+      setGhError('Pick a location for at least one branch.');
+      return;
+    }
+    setGhBusy(true);
+    setGhError(null);
+    try {
+      const { data } = await api.post<{ connected: number }>('/admin/garagehive/connect', {
+        instance: ghPreview.instance,
+        mappings,
+      });
+      setGhDone(
+        `Connected ${data.connected} branch${data.connected === 1 ? '' : 'es'}. If the agreement is signed, the go-live email with their login has gone out.`,
+      );
+      setGhPreview(null);
+    } catch (e: any) {
+      setGhError(e?.response?.data?.error ?? 'Could not save the connection.');
+    } finally {
+      setGhBusy(false);
+    }
+  };
+
   const [markFor, setMarkFor] = useState<AdminAgreement | null>(null);
   const [externalRef, setExternalRef] = useState('');
   const [externalDate, setExternalDate] = useState('');
@@ -191,6 +283,14 @@ export default function AdminAgreementsPage() {
                   <Td className="text-xs text-slate-500">{fmtDate(a.createdAt)}</Td>
                   <Td>
                     <div className="flex flex-wrap gap-2">
+                      {(a.status === 'signed' || a.status === 'externally_signed') && (
+                        <button
+                          onClick={() => openConnect(a)}
+                          className="rounded-md border border-brand-600 bg-white px-2.5 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50"
+                        >
+                          Connect GarageHive
+                        </button>
+                      )}
                       {(a.status === 'draft' || a.status === 'sent') && (
                         <>
                           <button
@@ -216,6 +316,121 @@ export default function AdminAgreementsPage() {
           </tbody>
         </table>
       </div>
+
+      {connectFor ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-slate-900">Connect GarageHive diary</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              For <strong>{connectFor.clientName}</strong>. Paste the instance GarageHive gave us — we
+              work out which location each branch is. Connecting also sends their go-live email.
+            </p>
+
+            {ghDone ? (
+              <>
+                <p className="mt-5 rounded-lg bg-green-50 p-4 text-sm text-green-800">{ghDone}</p>
+                <div className="mt-5 flex justify-end">
+                  <button
+                    onClick={() => setConnectFor(null)}
+                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                  >
+                    Done
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-4 flex gap-2">
+                  <input
+                    value={ghInstance}
+                    onChange={(e) => setGhInstance(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void previewConnect(); }}
+                    className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
+                  />
+                  <button
+                    onClick={() => void previewConnect()}
+                    disabled={!ghInstance.trim() || ghBusy}
+                    className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {ghBusy && !ghPreview ? 'Checking…' : 'Look up'}
+                  </button>
+                </div>
+
+                {ghError ? <p className="mt-3 text-sm text-red-600">{ghError}</p> : null}
+
+                {ghPreview ? (
+                  <div className="mt-5">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      {ghPreview.branches.length} branch{ghPreview.branches.length === 1 ? '' : 'es'} ·{' '}
+                      {ghPreview.locations.length} location{ghPreview.locations.length === 1 ? '' : 's'} in this instance
+                      {ghPreview.agreementCentresCount != null
+                        ? ` · agreement says ${ghPreview.agreementCentresCount} centre${ghPreview.agreementCentresCount === 1 ? '' : 's'}`
+                        : ''}
+                    </p>
+                    <div className="mt-3 space-y-3">
+                      {ghPreview.branches.map((b) => (
+                        <div key={b.garageId} className="rounded-lg border border-slate-200 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-medium text-slate-900">{b.garageName}</span>
+                            <span
+                              className={
+                                'rounded-full px-2 py-0.5 text-xs font-medium ' +
+                                (b.confidence === 'auto' || b.confidence === 'high'
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-amber-100 text-amber-800')
+                              }
+                            >
+                              {b.confidence === 'auto' || b.confidence === 'high'
+                                ? 'matched'
+                                : 'needs a pick'}
+                            </span>
+                          </div>
+                          <select
+                            value={ghChoice[b.garageId] ?? ''}
+                            onChange={(e) =>
+                              setGhChoice((c) => ({ ...c, [b.garageId]: e.target.value }))
+                            }
+                            className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
+                          >
+                            <option value="">— don&rsquo;t connect this branch —</option>
+                            {ghPreview.locations.map((l) => (
+                              <option key={l.id} value={String(l.id)}>
+                                {l.name}
+                                {l.address ? ` — ${l.address}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          {b.currentLocationId ? (
+                            <p className="mt-1 text-xs text-slate-500">
+                              Already connected to location {b.currentLocationId}.
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-6 flex justify-end gap-2">
+                  <button
+                    onClick={() => setConnectFor(null)}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void commitConnect()}
+                    disabled={!ghPreview || ghBusy}
+                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+                  >
+                    {ghBusy && ghPreview ? 'Connecting…' : 'Connect'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {markFor ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

@@ -17,6 +17,7 @@ import paymentRouter from './routes/payment.js';
 import messagesRouter from './routes/messages.js';
 import billingRouter from './routes/billing.js';
 import billingActivationRouter from './routes/billing-activation.js';
+import garageHiveConnectRouter from './routes/garagehive-connect.js';
 import customerBillingRouter from './routes/customer-billing.js';
 import socialConnectionsRouter from './routes/social-connections.js';
 import oauthRouter from './routes/oauth.js';
@@ -146,6 +147,10 @@ app.use('/api', paymentRouter);
 app.use('/api', messagesRouter);
 app.use('/api', billingRouter);
 app.use('/api', billingActivationRouter);
+// The GarageHive connect flow: the token-gated form GarageHive fill in, plus the staff
+// preview/commit endpoints. Its source was lost once already and the mount went with it —
+// if this line is missing, the emailed link 404s and nobody finds out until a garage asks.
+app.use('/api', garageHiveConnectRouter);
 app.use('/api/customer/billing', customerBillingRouter);
 app.use('/api', billingStatusRouter);
 app.use('/api', outboundCallsRouter);

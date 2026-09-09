@@ -934,6 +934,11 @@ const completeOnboardingSchema = z.object({
     .enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft'])
     .optional()
     .default('none'),
+  // Sales-led deals: create the account but do NOT email the customer their login yet — there
+  // is nothing for them to log in to until the agreement is signed and the agent is built. The
+  // modal has been sending this since it was written; the backend never read it, and zod strips
+  // unknown keys, so every sales-led onboard emailed the customer their password immediately.
+  deferWelcomeEmail: z.boolean().optional().default(false),
 });
 
 const DEFAULT_PASSWORD = 'Nomoremissedcalls';
@@ -1126,8 +1131,15 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       },
     });
 
-    // 7. Send welcome email with login credentials
+    // 7. Send welcome email with login credentials — unless this is a sales-led deal, in which
+    // case they are invited later (automatically at go-live for GarageHive garages, or from the
+    // onboarding pipeline for everyone else) once there is something to log in to.
     const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+    if (parsed.data.deferWelcomeEmail) {
+      console.log(
+        `[ONBOARD] welcome email deferred for ${parsed.data.userEmail} — sales-led deal, invited at go-live`,
+      );
+    } else {
     await sendWelcomeEmail({
       to: parsed.data.userEmail,
       businessName: parsed.data.businessName,
@@ -1139,6 +1151,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       console.error('Failed to send welcome email:', error);
       // Don't fail the onboarding if email fails
     });
+    }
 
     res.status(201).json({
       success: true,

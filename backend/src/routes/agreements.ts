@@ -22,7 +22,8 @@ import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import { sendEmail } from '../utils/email.js';
+import { sendEmail, brandedEmailShell } from '../utils/email.js';
+import twilio from 'twilio';
 import {
   announceGoLiveIfReady,
   sendGarageHiveConnectRequest,
@@ -740,7 +741,20 @@ router.post('/admin/agreements/draft', authenticate, requireAdmin, async (req: R
  * POST /api/admin/agreements/:id/send
  * Send the magic-link sign email to the customer.
  */
+const sendAgreementSchema = z.object({
+  // The director signs; the manager uses the system. Both optional — empty means "as normal".
+  toEmail: z.string().email().max(200).optional(),
+  toSms: z.string().min(6).max(30).optional(),
+});
+
 router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  // The Quick Onboard modal and the Agreements Send dialog have always posted { toEmail, toSms }.
+  // Nothing here read them, and zod strips unknown keys, so the override was silently ignored
+  // and the SMS was never sent at all.
+  const opts = sendAgreementSchema.safeParse(req.body ?? {});
+  if (!opts.success) {
+    return res.status(400).json({ error: 'toEmail must be an email and toSms a phone number.' });
+  }
   const agreement = await prisma.agreement.findUnique({
     where: { id: req.params.id },
     include: { user: true },
@@ -752,32 +766,55 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
 
   const token = await issueSignLinkToken(agreement.userId, agreement.id);
   const signUrl = `${PORTAL_URL}/agreement/sign?token=${encodeURIComponent(token)}`;
+  const toEmail = opts.data.toEmail || agreement.user.email;
 
   const subject = 'Your ReceptionMate service agreement is ready to sign';
-  const html = `
-    <div style="font-family:Inter,system-ui,sans-serif;max-width:560px;margin:0 auto;color:#0f172a;">
-      <h2 style="color:#3426cf;margin:0 0 12px;">Hi ${escapeForEmail(agreement.clientName)},</h2>
-      <p>Your ReceptionMate service agreement is ready. Click the button below to review the terms and sign — it should only take a minute.</p>
-      <p style="text-align:center;margin:28px 0;">
-        <a href="${signUrl}" style="display:inline-block;background:#3426cf;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;">Review and sign</a>
-      </p>
-      <p style="color:#475569;font-size:14px;">This link is valid for 14 days. If you have any questions, reply to this email.</p>
-      <p style="margin-top:32px;color:#64748b;font-size:13px;">— The ReceptionMate team</p>
-    </div>
-  `;
+  const body =
+    `<tr><td style="padding: 32px;">` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">Hi ${escapeForEmail(agreement.clientName)},</h1>` +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">Your ReceptionMate service agreement is ready. Have a read through and sign below — it should only take a minute.</p>` +
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
+    `<td style="background:#3426cf;border-radius:10px;"><a href="${signUrl}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Review and sign</a></td>` +
+    `</tr></table>` +
+    `<p style="margin:0;font-size:14px;line-height:1.55;color:#475569;">This link is valid for 14 days. If you have any questions, just reply to this email.</p>` +
+    `</td></tr>`;
   const text = `Your ReceptionMate service agreement is ready to sign.\n\nReview and sign here: ${signUrl}\n\nThis link is valid for 14 days.\n\n— The ReceptionMate team`;
 
-  const sent = await sendEmail({ to: [agreement.user.email], subject, html, text });
+  const sent = await sendEmail({ to: [toEmail], subject, html: brandedEmailShell(body), text });
   if (!sent) {
     return res.status(500).json({ error: 'Failed to send email' });
   }
 
+  // Text the link too when asked. Reported back rather than thrown: the email is the thing that
+  // matters, and the modal shows smsError to whoever pressed the button.
+  let smsError: string | null = null;
+  if (opts.data.toSms) {
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const tok = process.env.TWILIO_AUTH_TOKEN;
+    if (!sid || !tok) {
+      smsError = 'Agreement emailed, but SMS is not configured on this server.';
+    } else {
+      try {
+        await twilio(sid, tok).messages.create({
+          to: opts.data.toSms,
+          from: process.env.TWILIO_SMS_FROM || 'ReceptMate',
+          body: `Your ReceptionMate service agreement is ready to sign: ${signUrl} (valid 14 days)`,
+        });
+      } catch (err) {
+        smsError = `Agreement emailed, but the text to ${opts.data.toSms} failed: ${
+          err instanceof Error ? err.message : 'unknown error'
+        }`;
+        console.error('[AGREEMENT] sign-link SMS failed:', err);
+      }
+    }
+  }
+
   await prisma.agreement.update({
     where: { id: agreement.id },
-    data: { status: 'sent' },
+    data: { status: 'sent', sentAt: new Date(), sentToEmail: toEmail },
   });
 
-  return res.json({ success: true, signUrl });
+  return res.json({ success: true, signUrl, sentTo: toEmail, smsError });
 });
 
 /**

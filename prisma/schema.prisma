@@ -82,6 +82,14 @@ model Garage {
   // missing from this schema copy, so the client could not see it. Doubles as the
   // "self-serve trial already activated" marker for assistTrialActivation.
   welcomeEmailSentAt     DateTime?
+  // Sales-led onboarding pipeline. Defaults to 'live' ON PURPOSE: every garage that already
+  // exists is already onboarded, and a default of anything else would drag the whole estate
+  // into the pipeline the moment this column lands. setOnboardingStage refuses to move a
+  // garage that is already 'live', which is what protects them from then on.
+  onboardingStage        String    @default("live")
+  // { stage: ISO timestamp } — when each stage was FIRST entered. Merged, never replaced, so
+  // the map is the garage's whole history.
+  onboardingStageAt      Json?
 
   // Widget Customization
   widgetLogoUrl      String?
@@ -118,6 +126,7 @@ model Garage {
   // (many people at one garage email us) and to multiple Tickets over time.
   supportContacts        Contact[]
   supportTickets         Ticket[]                 @relation("SupportTicketGarage")
+  @@index([onboardingStage])
 }
 
 // Per-garage Garage Hive (Business Central) integration + daily reminder config.
@@ -366,6 +375,13 @@ model Agreement {
 
   // Signature audit
   signedAt        DateTime?
+  // Chase data for the onboarding pipeline: when it went out, to whom, and whether
+  // they have opened it. Read by /admin/onboarding-pipeline.
+  sentAt          DateTime?
+  sentToEmail     String?
+  firstViewedAt   DateTime?
+  lastViewedAt    DateTime?
+  viewCount       Int       @default(0)
   signedByName    String?
   signedByEmail   String?
   signedFromIp    String?

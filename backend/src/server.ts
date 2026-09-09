@@ -18,6 +18,7 @@ import messagesRouter from './routes/messages.js';
 import billingRouter from './routes/billing.js';
 import billingActivationRouter from './routes/billing-activation.js';
 import garageHiveConnectRouter from './routes/garagehive-connect.js';
+import onboardingPipelineRouter from './routes/onboarding-pipeline.js';
 import customerBillingRouter from './routes/customer-billing.js';
 import socialConnectionsRouter from './routes/social-connections.js';
 import oauthRouter from './routes/oauth.js';
@@ -151,6 +152,9 @@ app.use('/api', billingActivationRouter);
 // preview/commit endpoints. Its source was lost once already and the mount went with it —
 // if this line is missing, the emailed link 404s and nobody finds out until a garage asks.
 app.use('/api', garageHiveConnectRouter);
+// Sales-led onboarding pipeline. Lost the same way as the connect flow above; the pipeline
+// board and the HighLevel opportunity picker in Quick Onboard both 404 without this line.
+app.use('/api', onboardingPipelineRouter);
 app.use('/api/customer/billing', customerBillingRouter);
 app.use('/api', billingStatusRouter);
 app.use('/api', outboundCallsRouter);

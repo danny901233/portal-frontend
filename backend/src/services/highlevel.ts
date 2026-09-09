@@ -31,6 +31,12 @@ export const TRIAL_LIVE_STAGE_ID = TRIAL_STAGE_ID;
 // The "Enquiry Received & Demo Links sent" stage a non-Assist lead moves to (it passes
 // through Abandoned checkout first, per the get-started flow).
 export const ENQUIRY_STAGE_ID = LEAD_STAGE_ID;
+// Sales-led onboarding pipeline stages. These three, and the two lookup functions at the bottom
+// of this file, were lost with the rest of the pipeline feature in August — the stage IDs
+// survived only because they live in .env, which is not in git.
+export const HL_AWAITING_CREDENTIALS_STAGE_ID = process.env.GHL_AWAITING_CREDENTIALS_STAGE_ID ?? '';
+export const HL_AGENT_BUILT_STAGE_ID = process.env.GHL_AGENT_BUILT_STAGE_ID ?? '';
+export const HL_INVITED_STAGE_ID = process.env.GHL_INVITED_STAGE_ID ?? '';
 
 const HEADERS = {
   Authorization: `Bearer ${GHL_PIT}`,
@@ -268,4 +274,102 @@ export async function pushSignupToHighlevel(args: {
     kind: args.kind,
   });
   return { opportunityId: opp.id, contactId: contact.contactId };
+}
+
+
+// ---- Opportunity lookup for the onboarding pipeline ------------------------
+// Staff pick their deal from a list rather than pasting an id (there is nowhere in the HL UI to
+// copy one) or us matching on email (which silently picks the wrong opportunity — customers
+// routinely have several, and the portal's own contact often has no email on it at all).
+//
+// REBUILT 2026-09-09: the originals did not survive anywhere, including the pre-loss backup, so
+// these are written against the HighLevel API rather than recovered. Both are tolerant by
+// design — a CRM lookup failing must never break onboarding.
+
+export type OpportunityCandidate = {
+  id: string;
+  name: string;
+  stageName: string | null;
+  status: string | null;
+  monetaryValue: number | null;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  updatedAt: string | null;
+};
+
+const asCandidate = (o: unknown): OpportunityCandidate | null => {
+  if (!o || typeof o !== 'object') return null;
+  const r = o as Record<string, any>;
+  if (typeof r.id !== 'string') return null;
+  const c = (r.contact && typeof r.contact === 'object' ? r.contact : {}) as Record<string, any>;
+  return {
+    id: r.id,
+    name: typeof r.name === 'string' ? r.name : '(unnamed opportunity)',
+    stageName: typeof r.pipelineStageName === 'string' ? r.pipelineStageName : null,
+    status: typeof r.status === 'string' ? r.status : null,
+    monetaryValue: typeof r.monetaryValue === 'number' ? r.monetaryValue : null,
+    contactName: typeof c.name === 'string' ? c.name : null,
+    contactEmail: typeof c.email === 'string' ? c.email : null,
+    contactPhone: typeof c.phone === 'string' ? c.phone : null,
+    updatedAt: typeof r.updatedAt === 'string' ? r.updatedAt : null,
+  };
+};
+
+/** Opportunities matching an email and/or phone, newest first. Never throws. */
+export async function findOpportunityCandidates(args: {
+  email?: string | null;
+  phone?: string | null;
+}): Promise<OpportunityCandidate[]> {
+  if (!highlevelConfigured()) return [];
+  const found = new Map<string, OpportunityCandidate>();
+  // Search each identifier separately and merge: HL treats multiple params as AND, and a
+  // customer whose contact carries only a phone would vanish from an email+phone query.
+  for (const [key, value] of [
+    ['email', args.email],
+    ['phone', args.phone],
+  ] as const) {
+    const v = (value || '').trim();
+    if (!v) continue;
+    const qs = new URLSearchParams({ location_id: GHL_LOCATION_ID, [key]: v, limit: '20' });
+    if (PIPELINE_ID) qs.set('pipeline_id', PIPELINE_ID);
+    try {
+      const res = await fetch(`${GHL_BASE_URL}/opportunities/search?${qs.toString()}`, {
+        headers: HEADERS,
+      });
+      if (!res.ok) {
+        console.error(`[HL] opportunity search by ${key} failed ${res.status}`);
+        continue;
+      }
+      const body = (await res.json()) as { opportunities?: unknown };
+      for (const raw of Array.isArray(body.opportunities) ? body.opportunities : []) {
+        const c = asCandidate(raw);
+        if (c && !found.has(c.id)) found.set(c.id, c);
+      }
+    } catch (err) {
+      console.error(`[HL] opportunity search by ${key} threw:`, err);
+    }
+  }
+  return [...found.values()].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+}
+
+/** One opportunity by id, or null if it no longer exists. Never throws. */
+export async function fetchOpportunity(
+  opportunityId: string,
+): Promise<OpportunityCandidate | null> {
+  if (!highlevelConfigured() || !opportunityId) return null;
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/opportunities/${opportunityId}`, { headers: HEADERS });
+    if (!res.ok) {
+      // 404 is a real answer here — the pipeline uses it to tell "deleted in HL" apart from
+      // "our contact is phone-only so the email search missed it".
+      if (res.status !== 404) console.error(`[HL] opportunity fetch failed ${res.status}`);
+      return null;
+    }
+    const body = (await res.json()) as { opportunity?: unknown };
+    return asCandidate(body.opportunity ?? body);
+  } catch (err) {
+    console.error('[HL] opportunity fetch threw:', err);
+    return null;
+  }
 }

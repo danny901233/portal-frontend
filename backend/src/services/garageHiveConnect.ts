@@ -341,6 +341,12 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
     .split(',')
     .map((x) => x.trim())
     .filter(Boolean);
+  // A real cc rather than a second To recipient, so it reads to GarageHive as addressed to them
+  // and a reply still lands with us.
+  const cc = (process.env.GARAGEHIVE_CONNECT_EMAIL_CC || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
   if (!to.length) {
     console.warn(
       '[GH-CONNECT] GARAGEHIVE_CONNECT_EMAIL_TO is not set — NOT sending the connect request for',
@@ -367,6 +373,7 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
     `</td></tr>`;
   void sendEmail({
     to,
+    ...(cc.length ? { cc } : {}),
     subject: 'New ReceptionMate onboard',
     text:
       `${name} is being onboarded to ReceptionMate Automate.\n\n` +
@@ -374,7 +381,9 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
       `${link}\n\nLink valid 14 days.`,
     html: brandedEmailShell(body),
   });
-  console.log(`[GH-CONNECT] connect request sent to ${to.join(', ')} for ${name}`);
+  console.log(
+    `[GH-CONNECT] connect request sent to ${to.join(', ')}${cc.length ? ` (cc ${cc.join(', ')})` : ''} for ${name}`,
+  );
   return true;
 };
 

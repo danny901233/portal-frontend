@@ -32,16 +32,19 @@ function AgreementSignInner() {
       signedTitle: 'Agreement signed.',
       thanks: (name: string) => `Thanks ${name} — a PDF copy is on its way to your inbox.`,
       whatHappensNext: 'What happens next',
-      step1Title: 'Check your email for your login',
-      step1Body: "We've sent your portal username and a temporary password.",
-      step2Title: 'Sign in and set your own password',
-      step2Body: "You'll be prompted to change it on first login.",
-      step3Title: 'Set up your Direct Debit',
-      step3Body: "Takes 30 seconds — we'll bill on the day your minutes go live.",
-      step4Title: 'Complete the setup wizard',
-      step4Body: "Pick your voice, branch hours, greetings and we'll spin up your number.",
-      openPortal: 'Open the portal',
-      cantFindEmail: 'Can’t find the email? Check your spam folder, or write to',
+      step1Title: 'We set up your agent',
+      step1Body: 'Nothing needed from you — we build it and get it ready.',
+      step2Title: 'We connect your Garage Hive diary',
+      step2Body: 'So your agent books straight into the diary you already use.',
+      step3Title: "You'll get an email when your agent is ready",
+      step3Body: 'It carries your login details — that’s your cue to get started.',
+      step4Title: 'Sign in and set your own password',
+      step4Body: "You'll be prompted to change it on first login.",
+      step5Title: 'Set up your Direct Debit',
+      step5Body: "Takes 30 seconds — we'll bill on the day your minutes go live.",
+      step6Title: 'Complete the setup wizard, then forward your calls',
+      step6Body: 'Pick your voice, hours and greeting, then point your line at your ReceptionMate number.',
+      cantFindEmail: 'Any questions in the meantime, write to',
       settingUpDd: 'Setting up your Direct Debit next…',
       brand: 'ReceptionMate',
       signYourAgreement: 'Sign your service agreement',
@@ -80,15 +83,18 @@ function AgreementSignInner() {
       signedTitle: 'Contrat signé.',
       thanks: (name: string) => `Merci ${name} — une copie PDF est en route vers votre boîte de réception.`,
       whatHappensNext: 'Prochaines étapes',
-      step1Title: 'Consultez votre e-mail pour vos identifiants',
-      step1Body: 'Nous vous avons envoyé votre nom d’utilisateur du portail et un mot de passe temporaire.',
-      step2Title: 'Connectez-vous et définissez votre propre mot de passe',
-      step2Body: 'Vous serez invité à le modifier lors de votre première connexion.',
-      step3Title: 'Configurez votre prélèvement automatique',
-      step3Body: 'Cela prend 30 secondes — nous facturerons le jour où vos minutes seront activées.',
-      step4Title: 'Terminez l’assistant de configuration',
-      step4Body: 'Choisissez votre voix, les horaires de votre agence, les messages d’accueil et nous activerons votre numéro.',
-      openPortal: 'Ouvrir le portail',
+      step1Title: 'Nous configurons votre agent',
+      step1Body: 'Rien à faire de votre côté — nous le préparons pour vous.',
+      step2Title: 'Nous connectons votre agenda Garage Hive',
+      step2Body: 'Votre agent réserve directement dans l’agenda que vous utilisez déjà.',
+      step3Title: 'Vous recevrez un e-mail dès que votre agent est prêt',
+      step3Body: 'Il contient vos identifiants de connexion — c’est votre signal de départ.',
+      step4Title: 'Connectez-vous et choisissez votre mot de passe',
+      step4Body: 'Vous serez invité à le modifier lors de la première connexion.',
+      step5Title: 'Configurez votre prélèvement automatique',
+      step5Body: 'Cela prend 30 secondes — la facturation commence le jour de la mise en service.',
+      step6Title: 'Terminez l’assistant, puis transférez vos appels',
+      step6Body: 'Choisissez la voix, les horaires et l’accueil, puis redirigez votre ligne vers votre numéro ReceptionMate.',
       cantFindEmail: 'Vous ne trouvez pas l’e-mail ? Vérifiez votre dossier de courrier indésirable ou écrivez à',
       settingUpDd: 'Configuration de votre prélèvement automatique…',
       brand: 'ReceptionMate',
@@ -309,17 +315,15 @@ function AgreementSignInner() {
                   <NextStep n={2} title={c.step2Title} body={c.step2Body} />
                   <NextStep n={3} title={c.step3Title} body={c.step3Body} />
                   <NextStep n={4} title={c.step4Title} body={c.step4Body} />
+                  <NextStep n={5} title={c.step5Title} body={c.step5Body} />
+                  <NextStep n={6} title={c.step6Title} body={c.step6Body} />
                 </ol>
               </div>
 
-              <a
-                href="/login"
-                className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-brand-600/30 hover:bg-brand-700 transition"
-              >
-                {c.openPortal}
-                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd"/></svg>
-              </a>
-              <p className="mt-3 text-center text-xs text-slate-500">
+              {/* No "Open the portal" button here any more. The login is not sent until the agent
+                  is built and the diary connected, so sending them to a sign-in page they cannot
+                  yet use was the natural next click and a dead end. */}
+              <p className="mt-6 text-center text-xs text-slate-500">
                 {c.cantFindEmail}{' '}
                 <a href="mailto:hello@receptionmate.co.uk" className="underline">hello@receptionmate.co.uk</a>.
               </p>

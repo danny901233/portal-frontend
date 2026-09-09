@@ -25,6 +25,7 @@ import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail, brandedEmailShell } from '../utils/email.js';
 import twilio from 'twilio';
 import { normalisePhone } from '../services/outboundSend.js';
+import { setOnboardingStage } from '../utils/onboardingStage.js';
 import {
   announceGoLiveIfReady,
   sendGarageHiveConnectRequest,
@@ -376,6 +377,8 @@ async function finaliseSignature(opts: {
           })
         : [];
       for (const g of garages) {
+        // Signed — now we are waiting on GarageHive for the instance. Mirrors to HighLevel.
+        await setOnboardingStage(g.id, 'awaiting_credentials', { reason: 'agreement signed' });
         await sendGarageHiveGettingReady(g.id);
         // Go-live needs BOTH tracks done, and either can finish last. It was only ever checked
         // when the diary connected, so a garage whose diary was already wired and who signed

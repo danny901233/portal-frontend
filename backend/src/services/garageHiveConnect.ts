@@ -16,6 +16,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
 import { sendOpsSms } from '../utils/opsAlerts.js';
+import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { sendAgentConfigWebhook } from '../routes/config.js';
 import { sendEmail, brandedEmailShell } from '../utils/email.js';
 
@@ -502,6 +503,9 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
       `ReceptionMate: go-live email failed for ${garage.name} (${manager.email}). Password was reset — re-send before they try to log in.`,
     ).catch(() => {});
   }
+  // They have their login and the diary is connected; what is left is the Direct Debit. That is
+  // exactly the "Invited — awaiting DD mandate" stage, and this is the moment it becomes true.
+  await setOnboardingStage(garageId, 'invited', { reason: 'go-live email sent' });
   return true;
 };
 

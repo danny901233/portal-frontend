@@ -940,6 +940,10 @@ const completeOnboardingSchema = z.object({
   // modal has been sending this since it was written; the backend never read it, and zod strips
   // unknown keys, so every sales-led onboard emailed the customer their password immediately.
   deferWelcomeEmail: z.boolean().optional().default(false),
+  // The HighLevel opportunity this deal came from. The modal has a picker for it and has always
+  // posted the choice; nothing here read it, so no garage onboarded through Quick Onboard was
+  // ever linked — which is why their opportunities never moved through the pipeline stages.
+  ghlOpportunityId: z.string().trim().max(100).optional(),
 });
 
 const DEFAULT_PASSWORD = 'Nomoremissedcalls';
@@ -1031,6 +1035,14 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         includedMinutes: parsed.data.includedMinutes,
         costPerMinuteGbp: parsed.data.costPerMinuteGbp,
         vatRate: parsed.data.vatRate,
+        // Link the deal to its HighLevel opportunity so stage changes can be mirrored there.
+        ghlOpportunityId: parsed.data.ghlOpportunityId || null,
+        // onboardingStage defaults to 'live', which is right for the garages that already
+        // existed when the column landed and wrong for every new one: setOnboardingStage
+        // refuses to move a garage that is already live, so a new deal could never enter the
+        // pipeline or move an opportunity. A sales-led onboard starts at the beginning; a
+        // no-agreement one is live immediately, which is what 'live' means.
+        onboardingStage: parsed.data.deferWelcomeEmail ? 'awaiting_agreement' : 'live',
       },
     });
 

@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { setOnboardingStageForUser } from '../utils/onboardingStage.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { createRequire } from 'module';
@@ -354,6 +355,10 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
         nextBillingDate: nextBillingDate,
       },
     });
+    // The mandate was the last thing outstanding after go-live, so this is where a deal actually
+    // becomes live. User-scoped because a multi-branch business completes one mandate for all
+    // its branches, and the helper skips staff so a staff-triggered path cannot sweep the estate.
+    await setOnboardingStageForUser(req.user!.userId, 'live', { reason: 'DD mandate confirmed' });
 
     // ...and against the business, which is what the mandate actually authorises. Writing only
     // User is how the two copies drifted apart before, leaving cancelled ids on Business.

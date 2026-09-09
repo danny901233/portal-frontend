@@ -154,7 +154,6 @@ function ConnectGarageHiveForm() {
           id="instance"
           value={instance}
           onChange={(e) => setInstance(e.target.value)}
-          placeholder="e.g. mallory-performance"
           autoComplete="off"
           autoFocus
           className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 focus:border-[#3426cf] focus:outline-none focus:ring-1 focus:ring-[#3426cf]"

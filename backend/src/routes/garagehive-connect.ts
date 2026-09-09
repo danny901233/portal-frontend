@@ -15,6 +15,7 @@ import {
   matchBranch,
   verifyConnectToken,
   autoConnectBusiness,
+  announceGoLiveIfReady,
 } from '../services/garageHiveConnect.js';
 import { sendAgentConfigWebhook } from './config.js';
 import { sendEmail } from '../utils/email.js';
@@ -228,6 +229,12 @@ router.post(
         });
         // Push to the runtime config the agent reads (DynamoDB). Best-effort inside the helper.
         await sendAgentConfigWebhook(garageId);
+        // Connecting the diary is the second of the two things go-live waits for, and a branch
+        // finished HERE is one the matcher was not confident enough to do automatically — so
+        // this is the path a flagged garage always takes. Without it, staff complete the
+        // connection and the customer is never told, never gets their login, and the deal
+        // quietly stalls at the last step.
+        await announceGoLiveIfReady(garageId).catch(() => {});
         results.push({ garageId, ok: true, locationId });
       } catch (e) {
         results.push({ garageId, ok: false, error: e instanceof Error ? e.message : 'failed' });

@@ -24,6 +24,7 @@ import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail, brandedEmailShell } from '../utils/email.js';
 import twilio from 'twilio';
+import { normalisePhone } from '../services/outboundSend.js';
 import {
   announceGoLiveIfReady,
   sendGarageHiveConnectRequest,
@@ -60,6 +61,11 @@ const draftSchema = z.object({
   centresCount: z.number().int().positive().default(1),
   licences: z.array(z.enum(LICENCE_VALUES)).min(1).default(['assist']),
   goLiveDate: z.string().datetime().optional().nullable(),
+  // The free period before billing starts, from the modal's billing-start choice. Both were
+  // being sent and silently dropped, so every agreement rendered a 14-day free trial — even
+  // ones sold without one. Null/absent means billing starts at Go Live.
+  freeTrialDays: z.number().int().positive().max(365).optional().nullable(),
+  freeUntilBookings: z.number().int().positive().max(1000).optional().nullable(),
 });
 
 const signSchema = z.object({
@@ -92,6 +98,8 @@ function buildSnapshot(agreement: {
   centresCount: number;
   licences: string[];
   goLiveDate: Date | null;
+  freeTrialDays?: number | null;
+  freeUntilBookings?: number | null;
 }, signed?: { name: string; position: string; at: Date; signatureImage?: string | null }): string {
   if (agreement.type === 'partnership') {
     return renderPartnershipHtml({
@@ -109,6 +117,8 @@ function buildSnapshot(agreement: {
     centresCount: agreement.centresCount,
     licences: agreement.licences as LicenceTier[],
     goLiveDate: agreement.goLiveDate,
+    freeTrialDays: agreement.freeTrialDays ?? null,
+    freeUntilBookings: agreement.freeUntilBookings ?? null,
     effectiveDate: signed?.at ?? null,
     signedByName: signed?.name ?? null,
     signedByPosition: signed?.position ?? null,
@@ -729,6 +739,8 @@ router.post('/admin/agreements/draft', authenticate, requireAdmin, async (req: R
       centresCount: parsed.data.centresCount,
       licences: parsed.data.licences,
       goLiveDate,
+      freeTrialDays: parsed.data.freeTrialDays ?? null,
+      freeUntilBookings: parsed.data.freeUntilBookings ?? null,
       templateSnapshot: '', // populated on send/sign
       issuedByUserId: req.user!.userId,
     },
@@ -794,14 +806,18 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
     if (!sid || !tok) {
       smsError = 'Agreement emailed, but SMS is not configured on this server.';
     } else {
+      // Twilio needs E.164 and rejects a UK number typed the way anyone actually types one —
+      // "07976500282" comes back as Invalid 'To' Phone Number. Reuse the normaliser the
+      // outbound sender already uses rather than a second opinion on what a phone number is.
+      const toSms = normalisePhone(opts.data.toSms);
       try {
         await twilio(sid, tok).messages.create({
-          to: opts.data.toSms,
+          to: toSms,
           from: process.env.TWILIO_SMS_FROM || 'ReceptMate',
           body: `Your ReceptionMate service agreement is ready to sign: ${signUrl} (valid 14 days)`,
         });
       } catch (err) {
-        smsError = `Agreement emailed, but the text to ${opts.data.toSms} failed: ${
+        smsError = `Agreement emailed, but the text to ${toSms} failed: ${
           err instanceof Error ? err.message : 'unknown error'
         }`;
         console.error('[AGREEMENT] sign-link SMS failed:', err);

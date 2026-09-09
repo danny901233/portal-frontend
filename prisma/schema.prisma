@@ -377,6 +377,10 @@ model Agreement {
   signedAt        DateTime?
   // Chase data for the onboarding pipeline: when it went out, to whom, and whether
   // they have opened it. Read by /admin/onboarding-pipeline.
+  // The free period before billing starts, chosen at onboarding. Null means none — the
+  // agreement then omits the free-trial clauses entirely rather than rewording them.
+  freeTrialDays     Int?
+  freeUntilBookings Int?
   sentAt          DateTime?
   sentToEmail     String?
   firstViewedAt   DateTime?

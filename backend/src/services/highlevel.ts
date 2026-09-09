@@ -37,6 +37,11 @@ export const ENQUIRY_STAGE_ID = LEAD_STAGE_ID;
 export const HL_AWAITING_CREDENTIALS_STAGE_ID = process.env.GHL_AWAITING_CREDENTIALS_STAGE_ID ?? '';
 export const HL_AGENT_BUILT_STAGE_ID = process.env.GHL_AGENT_BUILT_STAGE_ID ?? '';
 export const HL_INVITED_STAGE_ID = process.env.GHL_INVITED_STAGE_ID ?? '';
+// "Contract Sent". Not one of our onboarding stages — internally a deal sits at
+// awaiting_agreement from the moment it is created until it is signed — but sending the
+// contract is exactly the event sales want reflected in the CRM, so the send endpoint moves it
+// directly rather than pretending we changed stage.
+export const HL_CONTRACT_SENT_STAGE_ID = process.env.GHL_CONTRACT_SENT_STAGE_ID ?? '';
 
 const HEADERS = {
   Authorization: `Bearer ${GHL_PIT}`,

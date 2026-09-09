@@ -26,6 +26,7 @@ import { sendEmail, brandedEmailShell } from '../utils/email.js';
 import twilio from 'twilio';
 import { normalisePhone } from '../services/outboundSend.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
+import { updateOpportunity, HL_CONTRACT_SENT_STAGE_ID } from '../services/highlevel.js';
 import {
   announceGoLiveIfReady,
   sendGarageHiveConnectRequest,
@@ -843,6 +844,29 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
     where: { id: agreement.id },
     data: { status: 'sent', sentAt: new Date(), sentToEmail: toEmail },
   });
+
+  // Move the deal to "Contract Sent" in HighLevel. Deliberately not via setOnboardingStage: our
+  // own stage is awaiting_agreement from the moment the garage is created until it is signed, so
+  // there is no transition for that helper to act on and it would no-op. This used to be set by
+  // hand by whoever sent the contract; the portal sends them now, so nobody was.
+  if (HL_CONTRACT_SENT_STAGE_ID && agreement.businessId) {
+    void (async () => {
+      try {
+        const garages = await prisma.garage.findMany({
+          where: { businessId: agreement.businessId, ghlOpportunityId: { not: null } },
+          select: { ghlOpportunityId: true, name: true },
+        });
+        for (const g of garages) {
+          const ok = await updateOpportunity(g.ghlOpportunityId!, {
+            stageId: HL_CONTRACT_SENT_STAGE_ID,
+          });
+          console.log(`[AGREEMENT] HL opp ${g.ghlOpportunityId} -> Contract Sent (${ok ? 'ok' : 'failed'})`);
+        }
+      } catch (err) {
+        console.error('[AGREEMENT] could not move opportunity to Contract Sent:', err);
+      }
+    })();
+  }
 
   return res.json({ success: true, signUrl, sentTo: toEmail, smsError });
 });

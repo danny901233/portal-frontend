@@ -395,29 +395,39 @@ async function finaliseSignature(opts: {
 
   // Who gets asked for a card at signing?
   //
-  // Self-serve signups (mustChangePassword) always did. But a customer we onboard by hand never
-  // could: they set their password first, which clears mustChangePassword, so by the time they
-  // reached the agreement the card step had silently switched itself off. That left no way to
-  // take a card for a manually-created trial at all.
+  // This used to start from `!!user?.mustChangePassword`, treating that as "a self-serve
+  // signup". It is not. Quick onboard sets mustChangePassword on every user it creates, so a
+  // customer sold on Direct Debit was taken to a Stripe card step the moment they signed —
+  // and 34 of the businesses on the estate bill by Direct Debit.
   //
-  // So also offer it when the garage is plainly set up for one: on a trial, billing by Stripe
-  // card, and no subscription created yet. Additive — the self-serve path is untouched.
-  let wantsTrialCard = !!user?.mustChangePassword;
-  if (!wantsTrialCard && user && stripeConfigured()) {
+  // How the deal is billed is the actual answer, so ask that first: never request a card when
+  // the customer is paying by Direct Debit or on invoice, whatever their password state.
+  let wantsTrialCard = false;
+  if (user && stripeConfigured()) {
     const gid = user.garageAccessIds?.[0] ?? null;
-    if (gid) {
-      const g = await prisma.garage.findUnique({
-        where: { id: gid },
-        select: {
-          stripeSubscriptionId: true, trialEndsAt: true, trialEndDate: true,
-          business: { select: { billingMethod: true } },
-        },
-      });
+    const g = gid
+      ? await prisma.garage.findUnique({
+          where: { id: gid },
+          select: {
+            stripeSubscriptionId: true, trialEndsAt: true, trialEndDate: true,
+            business: { select: { billingMethod: true } },
+          },
+        })
+      : null;
+    const billingMethod = g?.business?.billingMethod ?? null;
+    // Null covers self-serve signups, whose billing method is not set until later.
+    const cardBilled = billingMethod !== 'directdebit' && billingMethod !== 'invoice';
+    if (cardBilled) {
       const trialEnd = g?.trialEndsAt ?? g?.trialEndDate ?? null;
-      wantsTrialCard = !!g
-        && !g.stripeSubscriptionId
-        && g.business?.billingMethod === 'stripe_card'
-        && !!trialEnd && trialEnd > new Date();
+      wantsTrialCard =
+        // Self-serve signups: they choose a password after signing, so this still identifies them.
+        !!user.mustChangePassword
+        // Or a hand-made trial plainly set up for a card: on a trial, billing by Stripe, and no
+        // subscription yet. Without this a manually-created card trial had no way to take one.
+        || (!!g
+          && !g.stripeSubscriptionId
+          && billingMethod === 'stripe_card'
+          && !!trialEnd && trialEnd > new Date());
     }
   }
 

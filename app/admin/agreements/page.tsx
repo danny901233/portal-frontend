@@ -63,6 +63,28 @@ export default function AdminAgreementsPage() {
   const [ghChoice, setGhChoice] = useState<Record<string, string>>({});
   const [ghDone, setGhDone] = useState<string | null>(null);
 
+  // The signed PDF was only ever emailed at the moment of signing, so a copy that was lost or
+  // went to the wrong address could not be retrieved. Fetched as a blob because the endpoint is
+  // behind staff auth — a plain link would not carry the token.
+  const downloadPdf = async (a: AdminAgreement) => {
+    setBusyId(a.id);
+    try {
+      const res = await api.get(`/admin/agreements/${a.id}/pdf`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ReceptionMate-Agreement-${a.clientName.replace(/[^a-z0-9]+/gi, '-')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('Could not download that agreement.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const openConnect = (a: AdminAgreement) => {
     setConnectFor(a);
     setGhInstance('');
@@ -283,6 +305,15 @@ export default function AdminAgreementsPage() {
                   <Td className="text-xs text-slate-500">{fmtDate(a.createdAt)}</Td>
                   <Td>
                     <div className="flex flex-wrap gap-2">
+                      {(a.status === 'signed' || a.status === 'externally_signed') && (
+                        <button
+                          onClick={() => void downloadPdf(a)}
+                          disabled={busyId === a.id}
+                          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {busyId === a.id ? 'Preparing…' : 'Download PDF'}
+                        </button>
+                      )}
                       {(a.status === 'signed' || a.status === 'externally_signed') && (
                         <button
                           onClick={() => openConnect(a)}

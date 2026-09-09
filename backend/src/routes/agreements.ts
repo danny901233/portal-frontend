@@ -331,6 +331,7 @@ async function finaliseSignature(opts: {
         status: 'signed',
         signedAt: now,
         signedByName: opts.signedByName,
+        signedByPosition: opts.signedByPosition,
         signedByEmail: opts.signerEmail || user?.email || null,
         signedFromIp: opts.ip,
         signedUserAgent: opts.userAgent.slice(0, 500),
@@ -841,6 +842,44 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
   });
 
   return res.json({ success: true, signUrl, sentTo: toEmail, smsError });
+});
+
+/**
+ * GET /api/admin/agreements/:id/pdf
+ * Download a signed agreement. The PDF was only ever emailed at the moment of signing, so a copy
+ * that got lost or went to the wrong address could not be retrieved from the portal at all.
+ */
+router.get('/admin/agreements/:id/pdf', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const agreement = await prisma.agreement.findUnique({ where: { id: req.params.id } });
+  if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+  if (agreement.status !== 'signed' && agreement.status !== 'externally_signed') {
+    return res.status(409).json({ error: 'This agreement has not been signed yet.' });
+  }
+  try {
+    const pdf = await renderAgreementPdf({
+      clientName: agreement.clientName,
+      setupFeeGbp: agreement.setupFeeGbp,
+      licenceFeeGbp: agreement.licenceFeeGbp,
+      centresCount: agreement.centresCount,
+      licences: agreement.licences as LicenceTier[],
+      goLiveDate: agreement.goLiveDate,
+      effectiveDate: agreement.signedAt ?? agreement.externallySignedAt,
+      signedByName: agreement.signedByName ?? '',
+      // Blank for anything signed before this column existed — the position is in that
+      // agreement's templateSnapshot, which is the legal record either way.
+      signedByPosition: agreement.signedByPosition ?? '',
+      signatureImage: agreement.signatureImage,
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="ReceptionMate-Agreement-${slugify(agreement.clientName)}.pdf"`,
+    );
+    return res.send(pdf);
+  } catch (err) {
+    console.error('[AGREEMENT] PDF render failed:', err);
+    return res.status(500).json({ error: 'Could not render the PDF.' });
+  }
 });
 
 /**

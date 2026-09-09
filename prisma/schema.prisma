@@ -387,6 +387,10 @@ model Agreement {
   lastViewedAt    DateTime?
   viewCount       Int       @default(0)
   signedByName    String?
+  // Captured at signing and embedded in templateSnapshot, but never stored as a column — so a
+  // PDF regenerated later (rather than emailed at the moment of signing) had no position to put
+  // under the name. Historical agreements keep it in their snapshot only.
+  signedByPosition String?
   signedByEmail   String?
   signedFromIp    String?
   signedUserAgent String?

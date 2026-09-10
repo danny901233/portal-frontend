@@ -21,6 +21,41 @@ const purchaseNumberSchema = z.object({
   phoneNumber: z.string(),
 });
 
+/**
+ * Twilio files UK numbers under three separate regulatory bundles, and provisioning fails with
+ * error 21649 if the bundle does not match the number's regulation type. The catch is that the
+ * `local` search endpoint returns 03xx numbers alongside geographic ones, so an operator picking
+ * from one result list can land on a number our Local bundle is not allowed to buy. Pick the
+ * bundle from the number itself rather than assuming every result is geographic.
+ */
+function bundleForNumber(phoneNumber: string): { bundleSid?: string; addressSid?: string; kind: string } {
+  const digits = phoneNumber.replace(/[^0-9]/g, '');
+  const gb = digits.startsWith('44') ? digits.slice(2) : digits;
+
+  // 07xxx — UK mobile.
+  if (gb.startsWith('7')) {
+    return {
+      bundleSid: process.env.TWILIO_BUNDLE_SID_MOBILE,
+      addressSid: process.env.TWILIO_ADDRESS_SID_MOBILE,
+      kind: 'mobile',
+    };
+  }
+  // 03xx / 08xx — non-geographic, needs the National bundle.
+  if (gb.startsWith('3') || gb.startsWith('8')) {
+    return {
+      bundleSid: process.env.TWILIO_BUNDLE_SID_NATIONAL,
+      addressSid: process.env.TWILIO_ADDRESS_SID_NATIONAL,
+      kind: 'national',
+    };
+  }
+  // 01xx / 02xx — geographic.
+  return {
+    bundleSid: process.env.TWILIO_BUNDLE_SID,
+    addressSid: process.env.TWILIO_ADDRESS_SID,
+    kind: 'local',
+  };
+}
+
 // Search for available Twilio numbers
 router.post('/admin/twilio/available-numbers', authenticateApiKey, requireAdmin, async (req, res) => {
   try {
@@ -31,11 +66,17 @@ router.post('/admin/twilio/available-numbers', authenticateApiKey, requireAdmin,
 
     const { areaCode, countryCode, contains, limit } = parsed.data;
 
+    // `areaCode` is a North-American concept. Twilio silently returns an empty list for GB,
+    // so the admin area-code box looked broken. For GB, express it as a dialling-code prefix
+    // pattern instead — '1484' becomes '441484*', which is what Twilio actually matches on.
+    const gbAreaPattern =
+      countryCode === 'GB' && areaCode ? `44${String(areaCode).replace(/^0+/, '')}*` : undefined;
+
     const availableNumbers = await twilioClient.availablePhoneNumbers(countryCode)
       .local
       .list({
-        areaCode,
-        contains,
+        ...(gbAreaPattern ? {} : { areaCode }),
+        contains: contains || gbAreaPattern,
         limit,
       });
 
@@ -46,6 +87,9 @@ router.post('/admin/twilio/available-numbers', authenticateApiKey, requireAdmin,
         locality: num.locality,
         region: num.region,
         capabilities: num.capabilities,
+        // Twilio mixes non-geographic 03xx numbers into the `local` results; say which is which
+        // so the UI can show it and nobody wonders why one number behaves differently.
+        numberType: bundleForNumber(num.phoneNumber).kind,
       })),
     });
   } catch (error: any) {
@@ -104,14 +148,18 @@ router.post('/admin/twilio/purchase', authenticateApiKey, requireAdmin, async (r
       });
     }
 
-    // Use the specific Local bundle and associated address
-    const bundleSid = process.env.TWILIO_BUNDLE_SID;
-    const addressSid = process.env.TWILIO_ADDRESS_SID;
+    // Match the bundle to the number's regulation type. Using the Local bundle for an 03xx
+    // number is what made 'failed to purchase number' look random: it depended entirely on
+    // whether Twilio's result page happened to include a non-geographic number.
+    const { bundleSid, addressSid, kind } = bundleForNumber(phoneNumber);
     if (!bundleSid || !addressSid) {
-      return res.status(500).json({ error: 'TWILIO_BUNDLE_SID and TWILIO_ADDRESS_SID must be configured' });
+      return res.status(500).json({
+        error: `No regulatory bundle configured for ${kind} UK numbers`,
+        details: `Set TWILIO_BUNDLE_SID${kind === 'local' ? '' : '_' + kind.toUpperCase()} and the matching address SID.`,
+      });
     }
 
-    console.log(`Using Local bundle: ${bundleSid} with address: ${addressSid}`);
+    console.log(`Using ${kind} bundle: ${bundleSid} with address: ${addressSid}`);
     console.log('Attempting to purchase:', phoneNumber);
 
     const purchasedNumber = await twilioClient.incomingPhoneNumbers.create({

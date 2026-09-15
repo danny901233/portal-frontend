@@ -188,6 +188,7 @@ async function gather() {
       R.total += 1;
       const G = (R.perGarage[g] = R.perGarage[g] || {
         calls: 0, booked: 0, failed: 0, intent: 0, script: scriptOf[c.garageId], gaps: [],
+        regAsked: 0, regGot: 0,
       });
       G.calls += 1;
       if (c.confirmedBooking) { R.booked += 1; G.booked += 1; }
@@ -204,11 +205,15 @@ async function gather() {
       R.turns += L.turns_measured || 0;
 
       // --- registration capture ----------------------------------------------------
-      const cap = m.capture || {};
-      if (cap.registration_attempts > 0) {
-        R.regAttempted += 1;
-        if (cap.registration_captured) R.regCaptured += 1;
-        if (cap.registration_attempts > 2) R.regRetried += 1;
+      // Count from the tool history and the stored plate, NOT metrics.capture. That object's
+      // registration_attempts is only written on a fraction of calls while registration_captured
+      // is written on far more, so the ratio of the two comes out above 100% and is worthless —
+      // Elite Autocare read as "asked 5, captured 39". Ask = the agent called the tool at all.
+      const regCalls = hist.filter((x) => x.tool === 'capture_registration');
+      if (regCalls.length) {
+        R.regAttempted += 1; G.regAsked += 1;
+        if (c.registrationNumber) { R.regCaptured += 1; G.regGot += 1; }
+        if (regCalls.length > 2) R.regRetried += 1;
       }
 
       // A caller who says nothing at all, or an agent that never speaks: the one-way audio
@@ -348,8 +353,16 @@ function render(R) {
   if (worst.length) L.push(`  slowest garages: ${worst.map(([g, v]) => `${g} ${f2(v)}s`).join(', ')}`);
 
   h('REGISTRATION CAPTURE');
-  L.push(`  asked on ${R.regAttempted} calls, captured on ${R.regCaptured} (${pct(R.regCaptured, R.regAttempted)})`);
-  L.push(`  needed 3+ attempts on ${R.regRetried} (${pct(R.regRetried, R.regAttempted)})`);
+  L.push(`  agent asked on ${R.regAttempted} of ${R.total} calls; got a plate on ${R.regCaptured} (${pct(R.regCaptured, R.regAttempted)})`);
+  L.push(`  needed 3+ spelling attempts on ${R.regRetried} (${pct(R.regRetried, R.regAttempted)})`);
+  // Reg capture tracks booking rate more tightly than anything else measured here: across
+  // September the garages at 65-87% booked 12-30% of calls and those at 33-43% booked 0.8-8%.
+  const poor = Object.entries(R.perGarage).filter(([, s2]) => s2.regAsked >= 8)
+    .map(([g, s2]) => [g, s2.regGot / s2.regAsked]).filter(([, r]) => r < 0.55)
+    .sort((a, b) => a[1] - b[1]);
+  if (poor.length) {
+    L.push(`  BELOW 55%, where bookings dry up: ${poor.map(([g, r]) => `${g} ${(r * 100).toFixed(0)}%`).join(', ')}`);
+  }
 
   h('TOOL FAILURES — today vs the last fortnight');
   const tr = Object.entries(R.trend).filter(([, v]) => v.today || v.usual >= 0.5)

@@ -72,6 +72,17 @@ const med = (xs) => (xs.length ? sorted(xs)[Math.floor(xs.length / 2)] : null);
 const p90 = (xs) => (xs.length ? sorted(xs)[Math.floor(xs.length * 0.9)] : null);
 const f2 = (x) => (typeof x === 'number' ? x.toFixed(2) : '—');
 const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').slice(0, n);
+// Clipping mid-sentence made the first version unreadable — "The agent was unable to fi"
+// tells you nothing. Wrap instead, and only ever cut at a word boundary.
+const wrap = (text, width, indent) => {
+  const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ');
+  const lines = []; let cur = '';
+  for (const w of words) {
+    if (cur && (cur + ' ' + w).length > width) { lines.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w;
+  }
+  if (cur) lines.push(cur);
+  return lines.map((l, i) => (i === 0 ? l : indent + l));
+};
 
 function londonDayStart(daysBack) {
   const now = new Date();
@@ -234,14 +245,14 @@ async function gather() {
         // the diary said. That is the difference between a bucket and a diagnosis.
         const detail = hist.map((h) => String(h.status || ''))
           .filter((s) => FAILURE_STATUSES.some((f) => s.includes(`STATUS: ${f}`)))
-          .map((s) => clip(s, 320))[0] || '';
+          .map((s) => clip(s, 600))[0] || '';
         const apiErrors = trace.filter((t) => t.status && t.status >= 300)
           .map((t) => `${t.path} -> ${t.status} ${clip(typeof t.response === 'string' ? t.response : '', 120)}`);
         R.lostBookings.push({
           id: c.id, at: c.createdAt, garage: g, script: scriptOf[c.garageId],
           who: c.customerName || '-', reg: c.registrationNumber || '',
           kind: kind || 'no-error-status',
-          want: clip(c.summary, 190), steps, detail, apiErrors,
+          want: clip(c.summary, 400), steps, detail, apiErrors,
         });
       }
 
@@ -278,7 +289,7 @@ async function gather() {
       if (d && d.status && d.status !== 'ok') {
         R.diagnosisIssues.push({
           id: c.id, garage: g, category: d.category,
-          headline: clip(d.headline, 110), detail: clip(d.detail, 220),
+          headline: clip(d.headline, 110), detail: clip(d.detail, 400),
         });
       }
     }
@@ -357,13 +368,26 @@ function render(R) {
     for (const [kind, list] of Object.entries(byKind).sort((a, b) => b[1].length - a[1].length)) {
       L.push('', `### ${kind} — ${list.length} call(s)`);
       for (const f of list.slice(0, 12)) {
+        L.push('', '  ' + '·'.repeat(70));
+        L.push(`  ${f.at.toISOString().slice(11, 16)}  ${f.garage} — ${f.who}${f.reg ? ` (${f.reg})` : ''}`);
+        L.push(`  ${' '.repeat(7)}${f.script}   call ${f.id}`);
+        wrap(f.want, 82, ' '.repeat(17)).forEach((l, i) => L.push(i === 0 ? `         wanted: ${l}` : l));
         L.push('');
-        L.push(`  ${f.at.toISOString().slice(5, 16)}  ${f.garage}  [${f.script}]  ${f.who} ${f.reg}`);
-        L.push(`    wanted: ${f.want}`);
-        f.steps.forEach((s) => L.push(`      ${s.tool.padEnd(18)} ${s.args.padEnd(46)} -> ${s.status}`));
-        if (f.detail) L.push(`    guard said: ${f.detail}`);
-        f.apiErrors.forEach((e) => L.push(`    diary: ${e}`));
-        L.push(`    call: ${f.id}`);
+        f.steps.forEach((s) => {
+          L.push(`         ${s.tool} ${s.args}`);
+          L.push(`           -> ${s.status}`);
+        });
+        // Only worth printing when the guard explained itself. For a bare NO_SLOTS the detail
+        // is just the status again, and repeating it is the sort of noise that stops people
+        // reading the report at all.
+        const extra = f.detail.replace(/^STATUS:\s*[A-Z_]+\s*/, '').trim();
+        if (extra.length > 15) {
+          f.detail = extra;
+          L.push('');
+          wrap(f.detail, 82, ' '.repeat(17)).forEach((l, i) => L.push(i === 0 ? `         reason: ${l}` : l));
+        }
+        f.apiErrors.forEach((e) => wrap(e, 82, ' '.repeat(17))
+          .forEach((l, i) => L.push(i === 0 ? `         diary:  ${l}` : l)));
       }
       if (list.length > 12) L.push(`  ... and ${list.length - 12} more`);
     }
@@ -399,8 +423,8 @@ function render(R) {
   if (R.diagnosisIssues.length) {
     h(`PER-CALL AI VERDICTS FLAGGING A PROBLEM — ${R.diagnosisIssues.length}`);
     R.diagnosisIssues.slice(0, 12).forEach((d) => {
-      L.push(`  ${d.garage} [${d.category}] ${d.headline}`);
-      L.push(`     ${d.detail}`);
+      L.push(`  ${d.garage} — ${d.headline}  [${d.category}]`);
+      wrap(d.detail, 84, ' '.repeat(6)).forEach((l) => L.push(`      ${l}`.replace(/^ {6} {6}/, '      ')));
     });
   }
 

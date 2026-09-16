@@ -5,6 +5,10 @@
 // tasks grouped by cadence, filter (owner/status/cadence/tag), open a task to
 // read its instructions + edit notes, reassign, tick done, add new tasks,
 // reset daily. Mirrors /admin/support for auth + polling.
+//
+// Per-cadence ordering: Daily is manually drag-to-reorder (persisted via sortOrder).
+// Weekly sorts itself by preferred day (Mon→Sun, unset days last). Project keeps
+// unfinished work on top and sinks done items to the bottom without hiding them.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -106,6 +110,11 @@ export default function AdminOpsTasksPage() {
   const [tagFilter, setTagFilter] = useState<string>('');
   const [meUserId, setMeUserId] = useState<string | null>(null);
 
+  // Daily drag-to-reorder — native HTML5 DnD, no library. Only the Daily section is
+  // draggable: Weekly sorts itself by day, Project by status, so dragging there wouldn't stick.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
   // Staff-only gate — redirect anyone else to /dashboard, same pattern as /admin/support
   useEffect(() => {
     if (!isReceptionMateStaff()) {
@@ -184,6 +193,25 @@ export default function AdminOpsTasksPage() {
       project: [],
     };
     for (const t of filteredTasks) buckets[t.cadence].push(t);
+
+    // Daily keeps server order (sortOrder asc) — that's the manual drag-to-reorder sequence.
+
+    // Weekly: earliest day-in-the-week first. A task with no preferred day sorts after every
+    // day-tagged task rather than at the top, so "unscheduled" never reads as "do this first".
+    buckets.weekly.sort((a, b) => {
+      const ai = a.weeklyDay ? WEEKLY_DAYS.indexOf(a.weeklyDay) : WEEKLY_DAYS.length;
+      const bi = b.weeklyDay ? WEEKLY_DAYS.indexOf(b.weeklyDay) : WEEKLY_DAYS.length;
+      return ai - bi || a.sortOrder - b.sortOrder;
+    });
+
+    // Project: unfinished work stays at the top; done tasks sink to the bottom without
+    // being hidden, so the board still shows what's shipped.
+    buckets.project.sort((a, b) => {
+      const aDone = a.status === 'done' ? 1 : 0;
+      const bDone = b.status === 'done' ? 1 : 0;
+      return aDone - bDone || a.sortOrder - b.sortOrder;
+    });
+
     return buckets;
   }, [filteredTasks]);
 
@@ -216,6 +244,39 @@ export default function AdminOpsTasksPage() {
       setTasks((prev) => prev.map((t) => (t.id === task.id ? res.task : t)));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to update day');
+    }
+  };
+
+  // Drop `draggedId` where `targetId` currently sits, then persist the whole daily list's new
+  // sortOrder in one go. Re-spacing everyone in steps of 10 (rather than shuffling only the two
+  // moved rows) keeps future manual inserts simple and matches how the list already sorts.
+  const handleReorderDaily = async (draggedId: string, targetId: string) => {
+    const list = grouped.daily;
+    const fromIndex = list.findIndex((t) => t.id === draggedId);
+    const toIndex = list.findIndex((t) => t.id === targetId);
+    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+
+    const reordered = [...list];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+
+    const updates = reordered
+      .map((t, i) => ({ id: t.id, sortOrder: (i + 1) * 10 }))
+      .filter((u) => list.find((t) => t.id === u.id)?.sortOrder !== u.sortOrder);
+    if (updates.length === 0) return;
+
+    setTasks((prev) =>
+      prev.map((t) => {
+        const u = updates.find((x) => x.id === t.id);
+        return u ? { ...t, sortOrder: u.sortOrder } : t;
+      }),
+    );
+
+    try {
+      await Promise.all(updates.map((u) => patchOpsTask(u.id, { sortOrder: u.sortOrder })));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save new order');
+      await loadTasks();
     }
   };
 
@@ -379,6 +440,19 @@ export default function AdminOpsTasksPage() {
                       onNotesDraftChange={(v) => setNotesDraft((prev) => ({ ...prev, [task.id]: v }))}
                       onSaveNotes={() => handleSaveNotes(task)}
                       savingNotes={savingNotes[task.id] === true}
+                      draggable={cadence === 'daily'}
+                      isDragTarget={cadence === 'daily' && dragOverId === task.id && draggingId !== task.id}
+                      onDragHandleStart={() => setDraggingId(task.id)}
+                      onDragOverRow={() => setDragOverId(task.id)}
+                      onDropRow={() => {
+                        if (draggingId) void handleReorderDaily(draggingId, task.id);
+                        setDraggingId(null);
+                        setDragOverId(null);
+                      }}
+                      onDragEndRow={() => {
+                        setDraggingId(null);
+                        setDragOverId(null);
+                      }}
                     />
                   ))}
                 </ul>
@@ -432,6 +506,13 @@ interface TaskRowProps {
   onNotesDraftChange: (v: string) => void;
   onSaveNotes: () => void;
   savingNotes: boolean;
+  // Daily-only manual reordering. Omitted (or false) on every other section.
+  draggable?: boolean;
+  isDragTarget?: boolean;
+  onDragHandleStart?: () => void;
+  onDragOverRow?: () => void;
+  onDropRow?: () => void;
+  onDragEndRow?: () => void;
 }
 
 function TaskRow({
@@ -447,11 +528,33 @@ function TaskRow({
   onNotesDraftChange,
   onSaveNotes,
   savingNotes,
+  draggable,
+  isDragTarget,
+  onDragHandleStart,
+  onDragOverRow,
+  onDropRow,
+  onDragEndRow,
 }: TaskRowProps) {
   const assigneeLabel = assigneeLabelFor(task, staff);
   return (
-    <li className={task.status === 'done' ? 'bg-slate-50' : ''}>
+    <li
+      className={`${task.status === 'done' ? 'bg-slate-50' : ''} ${isDragTarget ? 'bg-brand-50' : ''}`}
+      onDragOver={draggable ? (e) => { e.preventDefault(); onDragOverRow?.(); } : undefined}
+      onDrop={draggable ? (e) => { e.preventDefault(); onDropRow?.(); } : undefined}
+    >
       <div className="flex items-start gap-3 px-4 py-3">
+        {draggable && (
+          <span
+            draggable
+            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragHandleStart?.(); }}
+            onDragEnd={onDragEndRow}
+            className="mt-1 cursor-grab select-none leading-none text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+            title="Drag to reorder"
+            aria-label="Drag to reorder"
+          >
+            ⠿
+          </span>
+        )}
         <input
           type="checkbox"
           checked={task.status === 'done'}

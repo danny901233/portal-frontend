@@ -230,6 +230,11 @@ export type AgentConfigurationPayload = {
   websiteUrl?: string | null;
   weeklyOpeningHours?: WeeklyOpeningHours | null;
   holidayClosures?: string | null;
+  // Dated closures the agent ENFORCES — it compares each to today and refuses to book when
+  // one matches, unlike holidayClosures above which is only a note the model reads. Absent
+  // from this type until 2026-09-17, which is why the API never returned it and the dates a
+  // garage entered came back empty on the next load.
+  bankHolidayDates?: unknown;
   greetingLine?: string | null;
   tonePreference: 'standard' | 'upbeat' | 'professional';
   responseSpeed: ResponseSpeed;

@@ -489,6 +489,10 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     websiteUrl: configuration.websiteUrl,
     weeklyOpeningHours: parseWeeklyOpeningHours(configuration.weeklyOpeningHours),
     holidayClosures: configuration.holidayClosures,
+    // Write-only until 2026-09-17: stored on save and never returned, so the dates a garage
+    // entered came back empty on the next load and looked like they had vanished. They were
+    // in the database the whole time. Anything the UI can edit has to survive the round trip.
+    bankHolidayDates: configuration.bankHolidayDates ?? null,
     greetingLine: configuration.greetingLine,
     tonePreference: (configuration.tonePreference || 'standard') as 'standard' | 'upbeat' | 'professional',
     responseSpeed: (configuration.responseSpeed || 'normal') as ResponseSpeed,

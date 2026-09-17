@@ -243,7 +243,17 @@ export async function analyzeCall(input: {
     // Only a plausible person's name: 1-3 words, letters and the punctuation names really carry.
     // Anything else the model hands back is discarded rather than written to a customer record.
     const rawName = String(p.callerName || '').trim().slice(0, 60);
-    const callerName = /^[A-Za-z][A-Za-z'’\-]{1,30}( [A-Za-z][A-Za-z'’\-]{1,30}){0,2}$/.test(rawName)
+    // ...but a registration read-back is also 1-3 letter-only words. Call 47103989 spelled
+    // "Victor two zero Alpha Lima Alpha" and the portal recorded the caller as "Victor two zero".
+    // Spoken digits are never part of a name, and two or more NATO words in a row is someone
+    // spelling, not someone introducing themselves. ONE is left alone: Victor, Charlie, Mike,
+    // Oscar and India are all real first names.
+    const SPOKEN_DIGIT = /\b(zero|oh|nought|one|two|three|four|five|six|seven|eight|nine|double|triple)\b/i;
+    const NATO = /\b(alpha|bravo|charlie|delta|echo|foxtrot|golf|hotel|india|juliett?|kilo|lima|mike|november|oscar|papa|quebec|romeo|sierra|tango|uniform|victor|whisk(?:e)?y|x-?ray|yankee|zulu)\b/gi;
+    const natoHits = (rawName.match(NATO) || []).length;
+    const looksSpelled = SPOKEN_DIGIT.test(rawName) || natoHits >= 2;
+    const callerName = !looksSpelled
+      && /^[A-Za-z][A-Za-z'’\-]{1,30}( [A-Za-z][A-Za-z'’\-]{1,30}){0,2}$/.test(rawName)
       ? rawName
       : undefined;
     // FALSE-POSITIVE GUARD for dead air. The transcript-gap silence measure charges a caller's own

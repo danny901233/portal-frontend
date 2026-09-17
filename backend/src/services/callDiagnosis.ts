@@ -252,7 +252,19 @@ export async function analyzeCall(input: {
     const NATO = /\b(alpha|bravo|charlie|delta|echo|foxtrot|golf|hotel|india|juliett?|kilo|lima|mike|november|oscar|papa|quebec|romeo|sierra|tango|uniform|victor|whisk(?:e)?y|x-?ray|yankee|zulu)\b/gi;
     const natoHits = (rawName.match(NATO) || []).length;
     const looksSpelled = SPOKEN_DIGIT.test(rawName) || natoHits >= 2;
-    const callerName = !looksSpelled
+    // The agent already rejects these at capture time, but this path runs afterwards and had
+    // its own, weaker idea of a name — so call 15121097 was recorded as a customer called
+    // "Done" even though the agent had correctly refused it. Same list, same answer.
+    const NOT_A_NAME = new Set(['done', 'down', 'doing', 'none', 'no', 'nope', 'yeah', 'yes',
+      'yep', 'ok', 'okay', 'fine', 'good', 'hi', 'hello', 'hey', 'sorry', 'what', 'sure',
+      'right', 'thanks', 'please', 'speaking', 'calling', 'morning', 'afternoon', 'evening',
+      'nothing', 'it', 'its', 'um', 'uh', 'exactly', 'correct', 'certainly', 'course',
+      'alright', 'cheers', 'great', 'perfect', 'indeed', 'is', 'that', 'this', 'the', 'and',
+      'my', 'name', 'was', 'just', 'unknown', 'unclear', 'customer', 'caller']);
+    const hasNonName = rawName
+      .split(/\s+/)
+      .some((w) => NOT_A_NAME.has(w.toLowerCase().replace(/[.,'’]/g, '')));
+    const callerName = !looksSpelled && !hasNonName
       && /^[A-Za-z][A-Za-z'’\-]{1,30}( [A-Za-z][A-Za-z'’\-]{1,30}){0,2}$/.test(rawName)
       ? rawName
       : undefined;

@@ -159,6 +159,83 @@ async function checkResponseHealth() {
   return issues;
 }
 
+// ---- UNANSWERED: Twilio connected the call, we have no record of it ----------------------
+// The check that was missing on 2026-09-16. A bad agent deploy stripped the booking methods off
+// the GarageHive adapter; In'n'out Norwich took 28 calls over two days that nobody answered, each
+// sitting at a uniform ~34s until the caller gave up, and not one of them produced a Call row.
+//
+// Every other check here was blind to it, by construction:
+//   heartbeat — needs a WHOLE FLEET at zero, and the rest of automate was busy
+//   routing   — the trunk and dispatch rule were correct the entire time
+//   response  — reads Call rows, and there were none to read
+// From the database the garage simply looks quiet, and quiet is not an alert.
+//
+// So ask the only system that knows a customer actually rang: Twilio. Anything it connected for
+// long enough to be a real call, with nothing logged against it, means the caller reached us and
+// got nothing. It catches a dead agent, a broken dispatch rule, a SIP failure and a garage that
+// has quietly stopped forwarding — all of which look identical from in here, and all of which
+// need somebody to know today rather than at the end of the month.
+const UNANS_WINDOW_MIN = 90;
+// Below this a call is almost certainly a ring-out or an instant hang-up, which legitimately
+// never becomes a Call row. Real conversations run far longer; the dead ones sat at 34s.
+const UNANS_MIN_SECONDS = 20;
+// Two could be coincidence — a caller hanging up twice, a burst of spam. Three is a pattern.
+const UNANS_MIN_CALLS = 3;
+
+const onlyDigits = (s) => String(s || '').replace(/[^0-9]/g, '').replace(/^0/, '44');
+
+async function checkUnanswered() {
+  const issues = [];
+  if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) return issues;
+  let twilioCalls;
+  try {
+    const twilio = require('twilio');
+    const tw = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    twilioCalls = await tw.calls.list({
+      startTimeAfter: new Date(Date.now() - UNANS_WINDOW_MIN * 60000), limit: 500,
+    });
+  } catch (e) {
+    // Never let a Twilio hiccup take the other checks down with it.
+    console.error('[watchdog] twilio lookup failed:', e.message);
+    return issues;
+  }
+
+  const byNumber = new Map();
+  for (const c of twilioCalls) {
+    if (Number(c.duration || 0) < UNANS_MIN_SECONDS) continue;
+    const k = onlyDigits(c.to);
+    if (!byNumber.has(k)) byNumber.set(k, []);
+    byNumber.get(k).push(Number(c.duration || 0));
+  }
+  if (!byNumber.size) return issues;
+
+  const garages = await prisma.garage.findMany({
+    where: { archivedAt: null, twilioNumber: { not: null } },
+    select: { id: true, name: true, twilioNumber: true },
+  });
+  const since = new Date(Date.now() - UNANS_WINDOW_MIN * 60000);
+
+  for (const g of garages) {
+    if (SKIP_NAME_RE.test(g.name)) continue;
+    const durations = byNumber.get(onlyDigits(g.twilioNumber));
+    if (!durations || durations.length < UNANS_MIN_CALLS) continue;
+    const logged = await prisma.call.count({ where: { garageId: g.id, createdAt: { gte: since } } });
+    if (logged > 0) continue;   // something got through — not this failure
+    // A tight cluster of identical durations is the dial timing out rather than callers
+    // choosing to hang up, so say so: it points straight at the agent rather than the line.
+    const sorted = durations.slice().sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const clustered = durations.filter((d) => Math.abs(d - median) <= 3).length >= durations.length * 0.6;
+    issues.push({
+      key: `unanswered:${g.id}`,
+      msg: `${g.name} is TAKING CALLS THAT NOBODY ANSWERS — Twilio connected ${durations.length} calls of ${UNANS_MIN_SECONDS}s+ in the last ${UNANS_WINDOW_MIN} min and we logged NONE.`
+         + (clustered ? ` Every one ended at about ${median}s, which is a dial timing out, not callers hanging up — check the agent is running and its dispatch rule is intact.` : '')
+         + ' The caller is reaching us and getting nothing.',
+    });
+  }
+  return issues;
+}
+
 // ---- state ----
 
 /**
@@ -295,17 +372,19 @@ async function main() {
 
   // Heartbeat only judged during business hours; outside hours, carry prior heartbeat state untouched
   // so we don't fire false "down"/"recovered" pings overnight.
-  let heartbeat, responseHealth;
+  let heartbeat, responseHealth, unanswered;
   if (inBusinessHours()) {
     heartbeat = await checkHeartbeat();
     responseHealth = await checkResponseHealth();
+    unanswered = await checkUnanswered();
   } else {
     heartbeat = Object.entries(prev).filter(([k]) => k.startsWith('heartbeat:')).map(([key, msg]) => ({ key, msg }));
     responseHealth = Object.entries(prev).filter(([k]) => k.startsWith('silent:')).map(([key, msg]) => ({ key, msg }));
+    unanswered = Object.entries(prev).filter(([k]) => k.startsWith('unanswered:')).map(([key, msg]) => ({ key, msg }));
   }
 
   const current = {};
-  [...heartbeat, ...responseHealth, ...routing, ...configSync].forEach((i) => { current[i.key] = i.msg; });
+  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...configSync].forEach((i) => { current[i.key] = i.msg; });
 
   const newIssues = Object.entries(current).filter(([k]) => !(k in prev));
   const resolved = Object.keys(prev).filter((k) => !(k in current));

@@ -22,6 +22,11 @@ export interface CallDiagnosis {
   detail: string;
   suggestedAction?: string;
   category?: string;
+  // The caller's name as it appears in the transcript. This model already reads the whole
+  // conversation, so asking costs nothing extra — and it catches the names the AGENT missed:
+  // it only records one when it decides to call save_caller_name, and on the calls where it
+  // does not, the portal shows nothing even though the caller introduced themselves plainly.
+  callerName?: string;
   model: string;
   generatedAt: string;
   // Populated by the deep-dive (auto-run when triage flags an issue, or via "Analyse in depth").
@@ -189,8 +194,13 @@ const SYSTEM_PROMPT =
   '"dead_air" (long silence / slow response), "transfer_failed", "wrong_info" (agent gave wrong info, ' +
   'hallucinated, or ignored its brief), "unresolved" (caller\'s need not met / confusion), "other". ' +
   'For status "ok", set "category" to "none". ' +
+  'Also set "callerName" to the caller\'s own name if they give it anywhere in the conversation — ' +
+  'just the name, properly capitalised, no title and no company. This is the person who RANG IN, ' +
+  'never the receptionist and never a member of garage staff. If they never give a name, or you ' +
+  'are not certain, use an empty string: a wrong name is worse than none. ' +
   'Reply ONLY as JSON: {"status":"ok"|"issue","headline":"<= 8 words","detail":"1-3 plain sentences",' +
-  '"suggestedAction":"<= 1 sentence, or empty string","category":"<one value from the list above>"}.';
+  '"suggestedAction":"<= 1 sentence, or empty string","category":"<one value from the list above>",' +
+  '"callerName":"<name or empty string>"}.';
 
 export async function analyzeCall(input: {
   transcript: unknown;
@@ -230,6 +240,12 @@ export async function analyzeCall(input: {
     let headline = String(p.headline || '').slice(0, 120);
     let detail = String(p.detail || '').slice(0, 800);
     let suggestedAction = p.suggestedAction ? String(p.suggestedAction).slice(0, 300) : undefined;
+    // Only a plausible person's name: 1-3 words, letters and the punctuation names really carry.
+    // Anything else the model hands back is discarded rather than written to a customer record.
+    const rawName = String(p.callerName || '').trim().slice(0, 60);
+    const callerName = /^[A-Za-z][A-Za-z'’\-]{1,30}( [A-Za-z][A-Za-z'’\-]{1,30}){0,2}$/.test(rawName)
+      ? rawName
+      : undefined;
     // FALSE-POSITIVE GUARD for dead air. The transcript-gap silence measure charges a caller's own
     // pause (they speak, then hold the line before their turn truly ends) to the agent. The
     // authoritative measure is response_gap (end-of-utterance delay) — the wait AFTER the caller
@@ -256,6 +272,7 @@ export async function analyzeCall(input: {
       detail,
       suggestedAction,
       category,
+      callerName,
       model,
       generatedAt: new Date().toISOString(),
     };

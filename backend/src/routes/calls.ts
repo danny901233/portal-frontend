@@ -415,6 +415,20 @@ router.post('/calls', async (req: Request, res: Response) => {
           confirmedBooking,
         });
         if (diag) {
+          // Backfill the caller's name from the transcript when the agent did not record one.
+          // The agent only stores a name if the model calls save_caller_name, and on the calls
+          // where it does not the portal reads blank even though the caller introduced themselves
+          // plainly — this model has just read the whole conversation, so it already knows.
+          // updateMany with customerName: null so a name the agent DID capture, or one the
+          // phonebook reconciliation has since written, is never overwritten.
+          if (diag.callerName) {
+            void prisma.call
+              .updateMany({ where: { id: callId, customerName: null }, data: { customerName: diag.callerName } })
+              .then((r) => {
+                if (r.count) console.log(`[NAME] backfilled "${diag.callerName}" on call ${callId} from the transcript`);
+              })
+              .catch(() => {});
+          }
           // Two-tier: when triage flags an issue, auto-escalate to the deep-dive (root cause + fix)
           // which reads the richer trace (GH bodies, tool inputs) with a stronger model.
           if (diag.status === 'issue') {

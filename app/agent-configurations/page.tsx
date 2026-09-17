@@ -1437,8 +1437,26 @@ export default function AgentConfigurationsPage() {
     if (!isEditing || mutation.isPending) {
       return;
     }
-    console.log('FRONTEND SUBMIT: Sending agentScript:', formState.agentScript);
-    mutation.mutate(formState);
+    // A notification address typed into the box but never "Add"-ed used to be thrown away on
+    // save, silently and with a success toast. Advanced Service Centre went live believing they
+    // had set one, got no call summaries at all, and three saves in a row stored an empty list.
+    // Typing an address and pressing Save is what anyone would do — treat it as adding it.
+    let payload = formState;
+    const pending = newNotificationEmail.trim();
+    if (pending) {
+      const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pending);
+      if (!valid) {
+        setFeedback(c.enterValidEmail);
+        return;
+      }
+      if (!formState.notificationEmails.includes(pending)) {
+        payload = { ...formState, notificationEmails: [...formState.notificationEmails, pending] };
+        setFormState(payload);
+      }
+      setNewNotificationEmail('');
+    }
+    console.log('FRONTEND SUBMIT: Sending agentScript:', payload.agentScript);
+    mutation.mutate(payload);
   };
 
   if (!hasGarage) {

@@ -72,13 +72,15 @@ export const PROVIDERS: Record<ProviderKey, ProviderSpec> = {
         'Your ReceptionMate agent books straight into your existing <strong>Tyresoft</strong> diary, so nothing changes about how you work day to day.' +
         '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">One thing to do while we finish your agent:' +
         '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>Upload your services and prices.</strong> ' +
-        'In the portal, go to Agent setup &rarr; Training and upload your services CSV. The agent quotes only these figures and never invents one, ' +
-        'so replace the file whenever your prices change.' +
+        'In the portal, go to Agent setup &rarr; Training, turn on <strong>Give prices on calls</strong>, then upload your services CSV. ' +
+        'That toggle is off to begin with and the upload only appears once it is on. The agent quotes only the figures in that file and never ' +
+        'invents one, so replace it whenever your prices change.' +
         '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Your tyre stock and pricing, and the &ldquo;Misc&rdquo; service the agent books unusual jobs under, are all handled by Tyresoft \u2014 nothing to do there.',
       text:
         'Your ReceptionMate agent books straight into your existing Tyresoft diary, so nothing changes about how you work day to day.\n\n' +
         'One thing to do while we finish your agent:\n\n' +
-        'Upload your services and prices. In the portal, go to Agent setup > Training and upload your services CSV. The agent quotes only these figures and never invents one.\n\n' +
+        'Upload your services and prices. In the portal, go to Agent setup > Training, turn on "Give prices on calls", then upload your services CSV. ' +
+        'That toggle is off to begin with and the upload only appears once it is on. The agent quotes only the figures in that file and never invents one.\n\n' +
         'Your tyre stock and pricing, and the Misc service the agent books unusual jobs under, are all handled by Tyresoft - nothing to do there.',
     },
   },

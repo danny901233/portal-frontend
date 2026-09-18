@@ -110,8 +110,22 @@ export const verifyConnectToken = (token: string): string | null => {
 export const businessUsesGarageHive = async (businessId: string): Promise<boolean> => {
   const garages = await prisma.garage.findMany({ where: { businessId }, select: { id: true } });
   if (!garages.length) return false;
+  // agentScript ALONE is not enough any more. Every diary now runs on the unified agent, so
+  // "unified-agent" says nothing about which diary a garage books into — and this returned true
+  // for all of them. GarageHive were emailed a connect request for Lurgan Tyre Centre (Tyresoft)
+  // and Meadowfield Auto Centre (Bookar), neither of which is their customer.
+  //
+  // v3 stays unconditional: that script only ever ran GarageHive. For the unified agent the
+  // provider has to say so. Verified safe — every garage holding GarageHive credentials today
+  // has integrationProvider 'garage_hive', and no other garage does.
   const hit = await prisma.agentConfiguration.findFirst({
-    where: { garageId: { in: garages.map((g) => g.id) }, agentScript: { in: GH_AGENT_SCRIPTS } },
+    where: {
+      garageId: { in: garages.map((g) => g.id) },
+      OR: [
+        { agentScript: 'receptionmate-agent-v3' },
+        { agentScript: 'unified-agent', integrationProvider: 'garage_hive' },
+      ],
+    },
     select: { garageId: true },
   });
   return !!hit;
@@ -289,11 +303,19 @@ export const sendGarageHiveGettingReady = async (garageId: string): Promise<bool
     select: {
       id: true,
       name: true,
-      agentConfiguration: { select: { integrationProviderConfig: true, agentScript: true } },
+      agentConfiguration: {
+        select: { integrationProviderConfig: true, agentScript: true, integrationProvider: true },
+      },
     },
   });
   const script = garage?.agentConfiguration?.agentScript || '';
-  if (!garage || !GH_AGENT_SCRIPTS.includes(script)) return false; // not a GarageHive garage
+  const provider = garage?.agentConfiguration?.integrationProvider || '';
+  // Same trap as businessUsesGarageHive: "unified-agent" no longer means GarageHive. Without the
+  // provider check a Bookar garage would be sent GarageHive's own note, telling them to add an
+  // "Other" service package in a system they do not use.
+  const isGh = script === 'receptionmate-agent-v3'
+    || (script === 'unified-agent' && provider === 'garage_hive');
+  if (!garage || !isGh) return false; // not a GarageHive garage
   const ipc = asObject(garage.agentConfiguration?.integrationProviderConfig);
   if (ipc.customerId) return false; // already connected — the "You're live" email covers it
   if (ipc.gettingReadyEmailedAt) return false; // once only

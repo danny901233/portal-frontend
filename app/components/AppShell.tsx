@@ -53,7 +53,10 @@ function useIsMobile() {
 // portal user and never will be — the link is token-gated instead, and the page validates that
 // token against the API itself. Leaving it off this list sent them to a login screen they have
 // no account for, which is a dead end for the one action we need them to take.
-const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/demo-embed', '/connect-garagehive']);
+// '/connect-diary' is the same thing for Tyresoft, AutoSage and Bookar, and has to be here for
+// exactly the same reason: the backend routes are public and token-gated, but the PAGE is what
+// they click, and without this entry it bounces them to a login they cannot pass.
+const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/demo-embed', '/connect-garagehive', '/connect-diary']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {

@@ -530,6 +530,10 @@ function pendingAgreementInputs(businessName: string) {
     centresCount: 1,
     licences: ['assist'] as string[],
     goLiveDate: null as Date | null,
+    // Self-serve always starts on a Stripe trial of STRIPE_TRIAL_DAYS, so the contract has to
+    // say so: with this null the template drops clause 5.2 and renders 3.1/3.2 as committed
+    // from Go Live, contradicting the signup email that promises a free trial.
+    freeTrialDays: STRIPE_TRIAL_DAYS,
   };
 }
 

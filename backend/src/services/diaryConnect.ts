@@ -132,11 +132,18 @@ export const PROVIDERS: Record<ProviderKey, ProviderSpec> = {
     envCc: 'BOOKAR_CONNECT_EMAIL_CC',
     gettingReady: {
       heading: (g) => `Getting ${g} ready`,
+      // EAC Telford's live Bookar list runs to 98 services and contains no catch-all at all, so
+      // every job outside those 98 became a callback and nothing said why. Same ask as
+      // GarageHive's "Other" package and Tyresoft's Misc.
       html:
         'Your ReceptionMate agent books straight into your existing <strong>Bookar</strong> diary, so nothing changes about how you work day to day.' +
-        ' Nothing to set up at your end while we build your agent.',
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">One thing to set up in Bookar while we finish your agent: ' +
+        'add a service called <strong>&ldquo;Other&rdquo;</strong>. It lets the agent book jobs that don’t match one of your standard services, ' +
+        'instead of turning the caller away. Without one, anything unusual becomes a callback.',
       text:
-        'Your ReceptionMate agent books straight into your existing Bookar diary, so nothing changes about how you work day to day.',
+        'Your ReceptionMate agent books straight into your existing Bookar diary, so nothing changes about how you work day to day.\n\n' +
+        'One thing to set up in Bookar while we finish your agent: add a service called "Other". It lets the agent book jobs that do not match ' +
+        'one of your standard services, instead of turning the caller away. Without one, anything unusual becomes a callback.',
     },
   },
 };
@@ -211,6 +218,13 @@ export type CheckResult = { ok: boolean; detail: string };
 
 const TS_HOST = 'https://api.tyresoft.co.uk';
 
+// One identity for every test booking, whatever the diary, so a garage finding it in their
+// diary knows immediately what it is and who put it there. The plate is a real one the vehicle
+// lookups recognise; the name is deliberately unmistakable.
+const TEST_VRM = 'GO55BKG';
+const TEST_EMAIL = 'hello@receptionmate.co.uk';
+const TEST_PHONE = '+441234567890';
+
 const checkTyresoft = async (c: Record<string, string>): Promise<CheckResult> => {
   // vrmLookup is a GET and changes nothing. A known-good plate keeps the check honest: an empty
   // result means the credentials work but the plate is unknown, which is still a pass.
@@ -235,38 +249,54 @@ const checkTyresoft = async (c: Record<string, string>): Promise<CheckResult> =>
   }
 };
 
+/** A Bookar access token, or null. The endpoint and body mirror diaries/bookar.py exactly —
+ *  an earlier guess at /oauth/token with grant_type would have failed on VALID credentials. */
+const bookarToken = async (c: Record<string, string>): Promise<string | null> => {
+  const base = String(c.bookarApiBase || '').replace(/\/$/, '');
+  const r = await fetch(`${base}/v1/auth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ client_id: c.bookarClientId, client_secret: c.bookarClientSecret }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) return null;
+  const j = (await r.json()) as { access_token?: string; token?: string };
+  return j.access_token || j.token || null;
+};
+
 const checkBookar = async (c: Record<string, string>): Promise<CheckResult> => {
   const base = String(c.bookarApiBase || '').replace(/\/$/, '');
   if (!/^https?:\/\//i.test(base)) return { ok: false, detail: 'The API base URL must start with https://' };
   try {
-    const r = await fetch(`${base}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        client_id: c.bookarClientId,
-        client_secret: c.bookarClientSecret,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (r.status === 401 || r.status === 403)
-      return { ok: false, detail: 'Bookar rejected that client id / secret.' };
-    if (!r.ok) return { ok: false, detail: `Bookar returned HTTP ${r.status} from the token endpoint.` };
+    const token = await bookarToken(c);
+    if (!token) return { ok: false, detail: 'Bookar rejected that client id / secret.' };
     return { ok: true, detail: 'Bookar issued a token.' };
   } catch (e) {
     return { ok: false, detail: `Could not reach Bookar: ${(e as Error).message}` };
   }
 };
 
+/** Headers mirror diaries/poole.py: plain `Key` and `Tenant`, not the X- prefixed pair an
+ *  earlier guess used, which would have failed on VALID credentials. */
+const pooleHeaders = (c: Record<string, string>): Record<string, string> => ({
+  Accept: 'application/json',
+  'Content-Type': 'application/json',
+  'User-Agent': 'ReceptionMate-Unified/1.0',
+  Key: c.pooleBranchKey,
+  ...(c.pooleTenant ? { Tenant: c.pooleTenant } : {}),
+});
+
+const pooleBase = (c: Record<string, string>): string =>
+  String(c.pooleBaseUrl || 'https://alpha.autosage.co.uk').replace(/\/$/, '');
+
 const checkPoole = async (c: Record<string, string>): Promise<CheckResult> => {
-  const base = String(c.pooleBaseUrl || 'https://alpha.autosage.co.uk').replace(/\/$/, '');
   try {
-    const r = await fetch(`${base}/api/branch`, {
-      headers: {
-        'X-Branch-Key': c.pooleBranchKey,
-        'X-Tenant': c.pooleTenant,
-        Accept: 'application/json',
-      },
+    // Opening a draft is the lightest call that actually proves the key: AutoSage has no
+    // standalone ping, and a draft left unconfirmed is not a booking.
+    const r = await fetch(`${pooleBase(c)}/inbound/bookings`, {
+      method: 'POST',
+      headers: pooleHeaders(c),
+      body: JSON.stringify({ callReference: `RM-CONNECT-CHECK-${Date.now()}` }),
       signal: AbortSignal.timeout(15000),
     });
     if (r.status === 401 || r.status === 403)
@@ -353,7 +383,8 @@ const placeTestBooking = async (
   provider: ProviderKey,
   creds: Record<string, string>,
 ): Promise<string | null> => {
-  if (provider !== 'tyresoft') return null; // only Tyresoft has a safe, documented create path here
+  if (provider === 'bookar') return placeBookarTestBooking(creds);
+  if (provider === 'poole') return placePooleTestBooking(creds);
   try {
     const root = `${TS_HOST}/${encodeURIComponent(creds.tsWorkspace)}`;
     const headers = {
@@ -380,6 +411,133 @@ const placeTestBooking = async (
     const j = (await r.json()) as { saleNumber?: unknown; saleID?: unknown };
     const ref = j.saleNumber ?? j.saleID;
     return ref != null ? String(ref) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Bookar: list services, take the first offered slot, place ONE marked booking.
+ * Mirrors diaries/bookar.py, including the Idempotency-Key, so a retry cannot double-book.
+ */
+const placeBookarTestBooking = async (c: Record<string, string>): Promise<string | null> => {
+  try {
+    const base = String(c.bookarApiBase || '').replace(/\/$/, '');
+    const token = await bookarToken(c);
+    if (!token) return null;
+    const h: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    };
+
+    const sr = await fetch(`${base}/v1/services?vrm=${TEST_VRM}`, { headers: h, signal: AbortSignal.timeout(15000) });
+    if (!sr.ok) return null;
+    const sd = await sr.json();
+    const services = (Array.isArray(sd) ? sd : (sd?.services ?? [])) as Record<string, unknown>[];
+    const svcId = services[0]?.id ?? services[0]?.service_id;
+    if (svcId == null) return null;
+
+    const slr = await fetch(
+      `${base}/v1/slots?vrm=${TEST_VRM}&service_ids=${encodeURIComponent(String(svcId))}`,
+      { headers: h, signal: AbortSignal.timeout(15000) },
+    );
+    if (!slr.ok) return null;
+    const sld = await slr.json();
+    const slots = (Array.isArray(sld) ? sld : (sld?.slots ?? [])) as Record<string, unknown>[];
+    const slot = slots[0];
+    if (!slot?.date || !slot?.time) return null;
+
+    const br = await fetch(`${base}/v1/bookings`, {
+      method: 'POST',
+      headers: { ...h, 'Idempotency-Key': `rm-connect-${Date.now()}` },
+      body: JSON.stringify({
+        customer: {
+          first_name: 'ReceptionMate',
+          last_name: 'TEST - please cancel',
+          email: TEST_EMAIL,
+          phone: TEST_PHONE,
+        },
+        vehicle: { vrm: TEST_VRM },
+        service_ids: [svcId],
+        slot: { date: slot.date, time: slot.time },
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!br.ok) return null;
+    const bd = (await br.json()) as Record<string, unknown>;
+    const ref = bd.reference ?? bd.booking_reference ?? bd.id;
+    return ref != null ? String(ref) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * AutoSage: open a draft, attach the first service, take the first slot, confirm.
+ * Mirrors diaries/poole.py. lastName is REQUIRED — without it the body fails to bind and the
+ * API reports "The model field is required", which reads like a missing vehicle model.
+ */
+const placePooleTestBooking = async (c: Record<string, string>): Promise<string | null> => {
+  try {
+    const base = pooleBase(c);
+    const h = pooleHeaders(c);
+
+    const dr = await fetch(`${base}/inbound/bookings`, {
+      method: 'POST',
+      headers: h,
+      body: JSON.stringify({ callReference: `RM-CONNECT-TEST-${Date.now()}` }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!dr.ok) return null;
+    const dd = (await dr.json()) as Record<string, unknown>;
+    const ref = String(dd.bookingRef ?? dd.booking_ref ?? '');
+    if (!ref) return null;
+    const enc = encodeURIComponent(ref);
+
+    const sr = await fetch(`${base}/inbound/bookings/${enc}/services`, { headers: h, signal: AbortSignal.timeout(15000) });
+    if (!sr.ok) return null;
+    const sd = await sr.json();
+    const services = (Array.isArray(sd) ? sd : (sd?.services ?? [])) as Record<string, unknown>[];
+    const svcId = services[0]?.id ?? services[0]?.serviceId;
+    if (svcId == null) return null;
+    await fetch(`${base}/inbound/bookings/${enc}/services`, {
+      method: 'POST',
+      headers: h,
+      body: JSON.stringify({ serviceIds: [svcId] }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    const slr = await fetch(`${base}/inbound/bookings/${enc}/slots`, { headers: h, signal: AbortSignal.timeout(15000) });
+    if (!slr.ok) return null;
+    const sld = await slr.json();
+    const slots = (Array.isArray(sld) ? sld : (sld?.slots ?? [])) as Record<string, unknown>[];
+    const slot = slots[0];
+    if (!slot?.date || !slot?.time) return null;
+
+    await fetch(`${base}/inbound/bookings/${enc}/slot`, {
+      method: 'PUT',
+      headers: h,
+      body: JSON.stringify({ date: slot.date, time: slot.time }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const cr = await fetch(`${base}/inbound/bookings/${enc}/confirm`, {
+      method: 'POST',
+      headers: h,
+      body: JSON.stringify({
+        customer: {
+          firstName: 'ReceptionMate',
+          lastName: 'TEST - please cancel',
+          phone: TEST_PHONE,
+          email: TEST_EMAIL,
+        },
+        vehicle: { registration: TEST_VRM },
+        notes: 'ReceptionMate connection test - please cancel',
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!cr.ok) return null;
+    return ref;
   } catch {
     return null;
   }

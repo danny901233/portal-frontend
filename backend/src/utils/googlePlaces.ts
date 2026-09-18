@@ -110,31 +110,56 @@ export async function fetchPlaceDetails(placeId: string | undefined | null): Pro
     return null;
   }
   try {
-    // `types` costs nothing extra -- it's Basic Data on the same request -- and is the only
-    // signal that tells a dealership apart from a repair-only garage without asking the customer.
-    const fields = ['name', 'formatted_address', 'formatted_phone_number', 'international_phone_number', 'website', 'opening_hours', 'types'].join(',');
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(id)}&fields=${fields}&key=${encodeURIComponent(PLACES_KEY)}`;
+    // Places API (NEW). The legacy /maps/api/place/* endpoints are being retired and are no
+    // longer enabled on new projects — ours returned "You're calling a legacy API, which is not
+    // enabled for your project" while the v1 endpoint answered the identical query fine.
+    //
+    // The field mask is mandatory here and is what you are billed on, so it asks for exactly
+    // what the signup auto-populate uses and nothing more. `types` still comes along for the
+    // dealership-vs-repair distinction.
+    const mask = [
+      'displayName',
+      'formattedAddress',
+      'nationalPhoneNumber',
+      'internationalPhoneNumber',
+      'websiteUri',
+      'regularOpeningHours',
+      'types',
+    ].join(',');
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6000);
-    const resp = await fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+    const resp = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}`, {
+      headers: { 'X-Goog-Api-Key': PLACES_KEY, 'X-Goog-FieldMask': mask },
+      signal: ctrl.signal,
+    }).finally(() => clearTimeout(timer));
     const data: any = await resp.json();
-    if (data?.status !== 'OK' || !data?.result) {
-      console.warn(`[PLACES] details lookup non-OK: status=${data?.status} error=${data?.error_message || ''}`);
+    if (!resp.ok || data?.error) {
+      console.warn(`[PLACES] details lookup failed: HTTP ${resp.status} ${data?.error?.message || ''}`);
       return null;
     }
-    const r = data.result;
     return {
-      name: r.name || undefined,
-      address: r.formatted_address || undefined,
-      phone: r.international_phone_number || r.formatted_phone_number || undefined,
-      website: r.website || undefined,
-      weeklyOpeningHours: mapOpeningHours(r.opening_hours?.periods),
-      businessType: businessTypeFromPlaceTypes(r.types),
+      name: data.displayName?.text || undefined,
+      address: data.formattedAddress || undefined,
+      phone: data.internationalPhoneNumber || data.nationalPhoneNumber || undefined,
+      website: data.websiteUri || undefined,
+      // v1 periods keep the same {open:{day,hour,minute}, close:{...}} shape, but split hour and
+      // minute into separate numbers where the legacy API gave a single "HHMM" string.
+      weeklyOpeningHours: mapOpeningHours(normalisePeriods(data.regularOpeningHours?.periods)),
+      businessType: businessTypeFromPlaceTypes(data.types),
     };
   } catch (err) {
     console.error('[PLACES] details lookup failed:', err);
     return null;
   }
+}
+
+/** v1 gives {hour, minute} numbers; mapOpeningHours expects the legacy "HHMM" string. */
+function normalisePeriods(periods: any[] | undefined): any[] | undefined {
+  if (!Array.isArray(periods)) return undefined;
+  const pad = (n: unknown) => String(typeof n === 'number' ? n : 0).padStart(2, '0');
+  const side = (s: any) =>
+    s && typeof s.day === 'number' ? { day: s.day, time: `${pad(s.hour)}${pad(s.minute)}` } : undefined;
+  return periods.map((p) => ({ open: side(p?.open), close: side(p?.close) }));
 }
 
 export const hasPlacesKey = (): boolean => Boolean(PLACES_KEY);
@@ -148,16 +173,30 @@ export async function placesAutocomplete(query: string): Promise<PlacePrediction
   const q = (query || '').trim();
   if (q.length < 3 || !PLACES_KEY) return [];
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&types=establishment&components=country:gb&key=${encodeURIComponent(PLACES_KEY)}`;
+    // Places API (NEW) — see fetchPlaceDetails for why the legacy endpoint is gone.
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6000);
-    const resp = await fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+    const resp = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': PLACES_KEY },
+      body: JSON.stringify({
+        input: q,
+        includedRegionCodes: ['gb'],
+        includedPrimaryTypes: ['establishment'],
+      }),
+      signal: ctrl.signal,
+    }).finally(() => clearTimeout(timer));
     const data: any = await resp.json();
-    if (data?.status !== 'OK' && data?.status !== 'ZERO_RESULTS') {
-      console.warn(`[PLACES] autocomplete non-OK: status=${data?.status} error=${data?.error_message || ''}`);
+    if (!resp.ok || data?.error) {
+      console.warn(`[PLACES] autocomplete failed: HTTP ${resp.status} ${data?.error?.message || ''}`);
       return [];
     }
-    return (data.predictions || []).slice(0, 6).map((p: any) => ({ placeId: p.place_id, description: p.description }));
+    // No suggestions is a legitimate empty answer, not a failure — the old ZERO_RESULTS.
+    return (data.suggestions || [])
+      .map((s: any) => s?.placePrediction)
+      .filter((p: any) => p?.placeId)
+      .slice(0, 6)
+      .map((p: any) => ({ placeId: p.placeId, description: p.text?.text || p.structuredFormat?.mainText?.text || '' }));
   } catch (err) {
     console.error('[PLACES] autocomplete failed:', err);
     return [];

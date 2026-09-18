@@ -11,6 +11,9 @@ export interface EmailAttachment {
 interface EmailOptions {
   to: string[];
   cc?: string[];
+  /** Where replies should land. Without it they go to MAILGUN_FROM, which is noreply@ — fine for
+   *  a receipt, wrong for anything that asks the reader to reply. */
+  replyTo?: string;
   subject: string;
   html: string;
   text: string;
@@ -65,6 +68,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     form.set('from', config.from);
     form.set('to', options.to.join(', '));
     if (options.cc?.length) form.set('cc', options.cc.join(', '));
+    if (options.replyTo) form.set('h:Reply-To', options.replyTo);
     form.set('subject', options.subject);
     form.set('text', options.text);
     form.set('html', options.html);
@@ -82,6 +86,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     form.set('from', config.from);
     form.set('to', options.to.join(', '));
     if (options.cc?.length) form.set('cc', options.cc.join(', '));
+    if (options.replyTo) form.set('h:Reply-To', options.replyTo);
     form.set('subject', options.subject);
     form.set('text', options.text);
     form.set('html', options.html);
@@ -121,6 +126,7 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
   });
 
   await transport.sendMail({
+    replyTo: options.replyTo,
     from: config.from,
     to: options.to.join(', '),
     ...(options.cc?.length ? { cc: options.cc.join(', ') } : {}),

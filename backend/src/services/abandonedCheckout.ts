@@ -20,7 +20,7 @@
  * pause, so the email cannot land on someone who is merely mid-form.
  */
 import { prisma } from '../db.js';
-import { sendEmail } from '../utils/email.js';
+import { sendEmail, brandedEmailShell } from '../utils/email.js';
 
 const HOUR = 60 * 60 * 1000;
 const FIRST_AFTER_MS = 1 * HOUR;
@@ -44,41 +44,48 @@ const firstNameOf = (name: string | null, business: string): string => {
   return n && n.length > 1 ? n : '';
 };
 
-function shell(bodyHtml: string): string {
-  // Plain, narrow, and readable in a dark client. No hero image: this is a note from a person,
-  // and dressing it up as a campaign is what gets it treated as one.
-  return `<!doctype html><html><body style="margin:0;padding:24px;background:#f4f5f7;">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:10px;padding:32px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1d2430;font-size:15px;line-height:1.6;">
-    <tr><td>
-      ${bodyHtml}
-      <p style="margin:28px 0 0;padding-top:20px;border-top:1px solid #e6e8ec;font-size:13px;color:#68707d;">
-        ReceptionMate &middot; <a href="https://receptionmate.co.uk" style="color:#3426cf;text-decoration:none;">receptionmate.co.uk</a><br>
-        Not looking for this? Just reply and we'll leave you be.
-      </p>
-    </td></tr>
-  </table></body></html>`;
-}
+const BRAND = '#3426cf';
+// These emails ask the reader to reply, and the sending address is noreply@. Without this the
+// invitation - and the "just reply and we'll leave you be" opt-out - both go nowhere.
+const REPLY_TO = process.env.LEAD_REPLY_TO || 'hello@receptionmate.co.uk';
+
+/** One body section inside the shared shell, which supplies the outer table. */
+const section = (inner: string) =>
+  `<tr><td style="padding: 32px 32px 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; font-size: 15px; line-height: 1.65; color: #1d2430;">${inner}</td></tr>`;
+
+const cta = (label: string, href: string) =>
+  `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 4px 0 8px;"><tr>`
+  + `<td style="background-color: ${BRAND}; border-radius: 8px;">`
+  + `<a href="${href}" style="display: inline-block; padding: 13px 26px; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 15px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">${label}</a>`
+  + `</td></tr></table>`;
+
+// The shared shell carries the logo band and the footer, so these two finally look like the rest
+// of the portal's email rather than a plainer thing of their own.
+const shell = (bodyHtml: string): string => brandedEmailShell(bodyHtml);
 
 function firstEmail(business: string, first: string) {
   const hi = first ? `Hi ${first},` : 'Hello,';
   return {
     subject: `Your ReceptionMate setup for ${business}`,
-    html: shell(`
-      <p style="margin:0 0 16px;">${hi}</p>
-      <p style="margin:0 0 16px;">Thanks for looking at ReceptionMate for <strong>${business}</strong>.
-      You started setting things up earlier and didn't finish — no problem at all, the details you
-      entered are saved and you can pick up where you left off.</p>
-      <p style="margin:0 0 16px;">In case it's useful while you're deciding, here's what it actually does:</p>
-      <ul style="margin:0 0 16px;padding-left:20px;">
-        <li style="margin-bottom:6px;">Answers the calls your team can't get to — evenings and weekends included</li>
-        <li style="margin-bottom:6px;">Books MOTs, services and repairs straight into your diary</li>
-        <li style="margin-bottom:6px;">Takes a proper message when it can't help, so nothing goes to voicemail</li>
-      </ul>
-      <p style="margin:0 0 16px;">It works by call forwarding, so your number doesn't change and
-      your phones ring first — it only picks up when nobody does.</p>
-      <p style="margin:0 0 20px;"><a href="https://receptionmate.co.uk" style="display:inline-block;background:#3426cf;color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:7px;font-weight:600;">Finish setting up</a></p>
-      <p style="margin:0;">If you'd rather see it working first, reply to this email and we'll set
-      up a short demo on your own number.</p>`),
+    html: shell(
+      section(`
+        <p style="margin: 0 0 16px;">${hi}</p>
+        <p style="margin: 0 0 16px;">Thanks for looking at ReceptionMate for <strong>${business}</strong>.
+        You started setting things up earlier and didn't finish &mdash; no problem at all, the details
+        you entered are saved and you can pick up where you left off.</p>
+        <p style="margin: 0 0 12px;">In case it's useful while you're deciding, here's what it actually does:</p>
+        <ul style="margin: 0 0 16px; padding-left: 20px;">
+          <li style="margin-bottom: 7px;">Answers the calls your team can't get to &mdash; evenings and weekends included</li>
+          <li style="margin-bottom: 7px;">Books MOTs, services and repairs straight into your diary</li>
+          <li style="margin-bottom: 7px;">Takes a proper message when it can't help, so nothing goes to voicemail</li>
+        </ul>
+        <p style="margin: 0 0 20px;">It works by call forwarding, so your number doesn't change and your
+        phones ring first &mdash; it only picks up when nobody does.</p>
+        ${cta('Finish setting up', 'https://receptionmate.co.uk')}
+        <p style="margin: 16px 0 0;">If you'd rather see it working first, reply to this email and we'll
+        set it up on your own number so you can ring in and hear it.</p>
+        <p style="margin: 20px 0 0; font-size: 13px; color: #68707d;">Not looking for this? Just reply and we'll leave you be.</p>`),
+    ),
     text: `${hi}\n\nThanks for looking at ReceptionMate for ${business}. You started setting things `
       + `up earlier and didn't finish — the details you entered are saved and you can pick up where `
       + `you left off.\n\nWhat it does: answers the calls your team can't get to, including evenings `
@@ -93,15 +100,19 @@ function secondEmail(business: string, first: string) {
   const hi = first ? `Hi ${first},` : 'Hello,';
   return {
     subject: `Still thinking it over, ${business}?`,
-    html: shell(`
-      <p style="margin:0 0 16px;">${hi}</p>
-      <p style="margin:0 0 16px;">I dropped you a note a few days ago about setting ReceptionMate up
-      for <strong>${business}</strong>. I won't keep chasing — this is the last one from me.</p>
-      <p style="margin:0 0 16px;">The question most garages ask is what happens to the calls they're
-      missing now. If that's worth ten minutes, reply to this email and we'll put it on your own
-      number so you can ring in and hear it for yourself.</p>
-      <p style="margin:0 0 20px;"><a href="https://receptionmate.co.uk" style="display:inline-block;background:#3426cf;color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:7px;font-weight:600;">Pick up where you left off</a></p>
-      <p style="margin:0;">And if the timing's wrong, that's completely fine — just say and I'll close it off.</p>`),
+    html: shell(
+      section(`
+        <p style="margin: 0 0 16px;">${hi}</p>
+        <p style="margin: 0 0 16px;">I dropped you a note a few days ago about setting ReceptionMate up
+        for <strong>${business}</strong>. I won't keep chasing &mdash; this is the last one from me.</p>
+        <p style="margin: 0 0 20px;">The question most garages ask is what happens to the calls they're
+        missing now. If that's worth ten minutes, reply to this email and we'll put it on your own
+        number so you can ring in and hear it for yourself.</p>
+        ${cta('Pick up where you left off', 'https://receptionmate.co.uk')}
+        <p style="margin: 16px 0 0;">And if the timing's wrong, that's completely fine &mdash; just say
+        and I'll close it off.</p>
+        <p style="margin: 20px 0 0; font-size: 13px; color: #68707d;">Not looking for this? Just reply and we'll leave you be.</p>`),
+    ),
     text: `${hi}\n\nI dropped you a note a few days ago about setting ReceptionMate up for `
       + `${business}. I won't keep chasing — this is the last one from me.\n\nThe question most `
       + `garages ask is what happens to the calls they're missing now. If that's worth ten minutes, `
@@ -162,7 +173,7 @@ export async function sweepAbandonedCheckouts(opts: { dryRun?: boolean } = {}): 
       alreadyEmailed.add(key);   // claim it before sending, so a second row in THIS run is skipped
       const mail = firstEmail(p.businessName, first);
       if (opts.dryRun) { out.first++; console.log(`[ABANDONED] would send #1 to ${p.email} (${p.businessName})`); continue; }
-      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text });
+      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO });
       if (!sent) { console.warn(`[ABANDONED] send #1 FAILED for ${p.businessName}`); continue; }
       await prisma.pendingSignup.update({ where: { id: p.id }, data: { abandonedEmail1At: new Date() } });
       out.first++;
@@ -174,7 +185,7 @@ export async function sweepAbandonedCheckouts(opts: { dryRun?: boolean } = {}): 
       if (now - p.abandonedEmail1At.getTime() < SECOND_AFTER_MS) { out.skipped++; continue; }
       const mail = secondEmail(p.businessName, first);
       if (opts.dryRun) { out.second++; console.log(`[ABANDONED] would send #2 to ${p.email} (${p.businessName})`); continue; }
-      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text });
+      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO });
       if (!sent) { console.warn(`[ABANDONED] send #2 FAILED for ${p.businessName}`); continue; }
       await prisma.pendingSignup.update({ where: { id: p.id }, data: { abandonedEmail2At: new Date() } });
       out.second++;

@@ -598,8 +598,15 @@ router.post('/calls', async (req: Request, res: Response) => {
           return;
         }
         const badge = await garageUnreadBadge(payload.garageId);
+        // The branch goes on the notification itself. Staff covering several garages were
+        // getting "Sophie handled a call for you" with no way to tell which one without
+        // opening the app — and the persona is often the same name across branches.
+        const branch =
+          (cfg?.branchName && cfg.branchName.trim()) ||
+          (createdCall.garage?.name || '').trim();
         await notifyGarageUsers(payload.garageId, {
           title: `${personaName} handled a call for you`,
+          ...(branch ? { subtitle: branch } : {}),
           body: pushBody,
           data: { type: 'call', callId, garageId: payload.garageId },
           badge,

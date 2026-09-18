@@ -19,6 +19,10 @@ import { prisma } from '../db.js';
 
 export interface PushPayload {
   title: string;
+  // Second line on the lock screen, above the body. This is where the branch name goes: staff
+  // with more than one garage were getting "Sophie handled a call for you" with nothing to say
+  // WHICH garage, so the notification could not be acted on without opening the app.
+  subtitle?: string;
   body: string;
   // Arbitrary extra data delivered to the app (e.g. { type: 'call', callId }).
   data?: Record<string, unknown>;
@@ -90,7 +94,11 @@ export async function sendPushToTokens(
 
   const note = new apn.Notification();
   note.topic = BUNDLE_ID;
-  note.alert = { title: payload.title, body: payload.body };
+  note.alert = {
+    title: payload.title,
+    ...(payload.subtitle ? { subtitle: payload.subtitle } : {}),
+    body: payload.body,
+  };
   note.sound = 'default';
   note.contentAvailable = false;
   if (typeof payload.badge === 'number') note.badge = payload.badge;

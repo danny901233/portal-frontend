@@ -64,13 +64,25 @@ export const PROVIDERS: Record<ProviderKey, ProviderSpec> = {
     envCc: 'TYRESOFT_CONNECT_EMAIL_CC',
     gettingReady: {
       heading: (g) => `Getting ${g} ready`,
+      // Two real tasks, the way the GarageHive note gives one. Vague encouragement to "have a
+      // think about your services" produced nothing actionable; these are the two things that
+      // actually gate the agent booking properly.
       html:
-        "Your ReceptionMate agent books straight into your existing <strong>Tyresoft</strong> diary, so nothing changes about how you work day to day." +
-        ' While we finish building your agent, have a think about which services you want it to be able to book and what you charge for them, ' +
-        'as we will set those up with you before you go live.',
+        'Your ReceptionMate agent books straight into your existing <strong>Tyresoft</strong> diary, so nothing changes about how you work day to day.' +
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Two things to set up while we finish your agent:' +
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>1. Add a &ldquo;Misc&rdquo; service in Tyresoft.</strong> ' +
+        'It lets the agent book jobs that don\u2019t match one of your standard services, instead of turning the caller away. ' +
+        'Without one, anything unusual becomes a callback.' +
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>2. Upload your services and prices.</strong> ' +
+        'In the portal, go to Agent setup &rarr; Training and upload your services CSV. The agent quotes only these figures and never invents one, ' +
+        'so replace the file whenever your prices change.' +
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Your tyre stock and pricing come straight from Tyresoft automatically \u2014 nothing to do there.',
       text:
-        'Your ReceptionMate agent books straight into your existing Tyresoft diary, so nothing changes about how you work day to day. ' +
-        'While we finish building your agent, have a think about which services you want it to be able to book and what you charge for them.',
+        'Your ReceptionMate agent books straight into your existing Tyresoft diary, so nothing changes about how you work day to day.\n\n' +
+        'Two things to set up while we finish your agent:\n\n' +
+        '1. Add a "Misc" service in Tyresoft. It lets the agent book jobs that do not match one of your standard services, instead of turning the caller away.\n\n' +
+        '2. Upload your services and prices. In the portal, go to Agent setup > Training and upload your services CSV. The agent quotes only these figures and never invents one.\n\n' +
+        'Your tyre stock and pricing come straight from Tyresoft automatically - nothing to do there.',
     },
   },
   poole: {

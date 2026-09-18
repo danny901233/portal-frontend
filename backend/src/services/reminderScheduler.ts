@@ -16,6 +16,7 @@
  */
 import axios from 'axios';
 import cron from 'node-cron';
+import { sweepAbandonedCheckouts } from './abandonedCheckout.js';
 import { prisma } from '../db.js';
 import { normalisePhone, activeHalt, haltOutboundForGarage } from './outboundSend.js';
 import { daysUntil } from '../utils/dueDate.js';
@@ -203,6 +204,29 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
 
   console.log(`[REMINDERS] sweep done — garages:${garagesTouched} sent:${sent} wouldSend:${wouldSend} expired:${expired} armed:${armed}`);
   return { garages: garagesTouched, sent, wouldSend, expired };
+}
+
+export function initAbandonedCheckoutCron(): void {
+  // Hourly, because the first email is due an hour after they go quiet — a slower tick would turn
+  // "an hour" into "whenever the next run happens to be".
+  //
+  // 9am-6pm only. Somebody types their garage in at 10pm and an email landing at 11pm, from a
+  // company they have barely met, reads as automated in the worst way. Holding it to the morning
+  // costs nothing: of 46 prospects who never completed, every one went quiet within 30 minutes
+  // and none ever came back, so a few hours changes no outcome.
+  const armed = (process.env.ABANDONED_CHECKOUT_EMAILS || '').toLowerCase() === 'on';
+  cron.schedule('20 9-18 * * *', () => {
+    void sweepAbandonedCheckouts({ dryRun: !armed })
+      .then((r) => {
+        if (r.first || r.second) {
+          console.log(`[ABANDONED] ${armed ? 'sent' : 'DRY RUN would send'} `
+            + `${r.first} first + ${r.second} follow-up (${r.considered} considered, ${r.skipped} not due)`);
+        }
+      })
+      .catch((e) => console.error('[ABANDONED] sweep error', e));
+  }, { timezone: 'Europe/London' });
+  console.log(`✓ Abandoned-checkout emails: hourly 9am-6pm (UK) — `
+    + `${armed ? 'ARMED' : 'DRY RUN (set ABANDONED_CHECKOUT_EMAILS=on to arm)'}`);
 }
 
 export function initReminderCron(): void {

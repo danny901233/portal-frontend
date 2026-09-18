@@ -48,7 +48,7 @@ import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler, installProcessErrorHandlers } from './middleware/errorHandler.js';
 import { trackActingUser } from './utils/actingUser.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
-import { initReminderCron } from './services/reminderScheduler.js';
+import { initReminderCron, initAbandonedCheckoutCron } from './services/reminderScheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';
 import billingStatusRouter from './routes/billing-status.js';
 import outboundCallsRouter from './routes/outbound-calls.js';
@@ -208,6 +208,7 @@ app.listen(port, '0.0.0.0', () => {
   initializeScheduledReports();
   // Staged MOT/service reminders. Dry-run unless REMINDER_SCHEDULER=on.
   initReminderCron();
+  initAbandonedCheckoutCron();
   // Connect trial -> paid: ends expired/over-cap trials and puts them behind the card paywall.
   initTrialCron();
 

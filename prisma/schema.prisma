@@ -989,6 +989,12 @@ model PendingSignup {
   ghlOpportunityId String?
   ghlContactId     String?
 
+  // Abandoned-checkout follow-up. Two touches only: one an hour after they go quiet, one three
+  // days later, then we leave them alone - they are being phoned as well, and a third email
+  // reads as pursuit. Stored per-send so a restart or an overlapping sweep cannot email twice.
+  abandonedEmail1At DateTime?
+  abandonedEmail2At DateTime?
+
   // Signature capture (transferred onto the real Agreement on completion).
   signedByName     String?
   signedByPosition String?

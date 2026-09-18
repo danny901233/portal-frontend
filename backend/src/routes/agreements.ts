@@ -32,6 +32,10 @@ import {
   sendGarageHiveConnectRequest,
   sendGarageHiveGettingReady,
 } from '../services/garageHiveConnect.js';
+import {
+  sendDiaryConnectRequest,
+  sendDiaryGettingReady,
+} from '../services/diaryConnect.js';
 import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS } from '../services/stripe.js';
 import {
   renderAgreementHtml,
@@ -370,7 +374,12 @@ async function finaliseSignature(opts: {
   // that isn't on GarageHive, so this is safe for every other agreement.
   void (async () => {
     try {
-      if (agreement.businessId) await sendGarageHiveConnectRequest(agreement.businessId);
+      // Both are internally no-ops for a business on the other provider, so calling both is
+      // safe: GarageHive resolves branches from an instance, the rest collect credentials.
+      if (agreement.businessId) {
+        await sendGarageHiveConnectRequest(agreement.businessId);
+        await sendDiaryConnectRequest(agreement.businessId);
+      }
       const garages = agreement.businessId
         ? await prisma.garage.findMany({
             where: { businessId: agreement.businessId },
@@ -381,6 +390,7 @@ async function finaliseSignature(opts: {
         // Signed — now we are waiting on GarageHive for the instance. Mirrors to HighLevel.
         await setOnboardingStage(g.id, 'awaiting_credentials', { reason: 'agreement signed' });
         await sendGarageHiveGettingReady(g.id);
+        await sendDiaryGettingReady(g.id);
         // Go-live needs BOTH tracks done, and either can finish last. It was only ever checked
         // when the diary connected, so a garage whose diary was already wired and who signed
         // afterwards would never have gone live — signing is the last piece there, and nothing

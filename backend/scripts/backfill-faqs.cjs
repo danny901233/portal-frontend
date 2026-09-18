@@ -1,9 +1,12 @@
-// Backfill FAQs onto garages that have none.
+// Repair the greeting and FAQs on garages that were onboarded without them.
 //
-// Quick Onboard used to seed neither a greeting nor FAQs (fixed in admin.ts), so garages
-// onboarded that way went live with nothing for the agent to answer a question with. This
-// fills the gap the same way onboarding now does: the curated industry set, then a tailored
-// draft from the garage's own website where there is one and it scrapes usefully.
+// Quick Onboard used to seed neither (fixed in admin.ts), so garages onboarded that way went
+// live with an empty greeting and nothing for the agent to answer a question with. This fills
+// the gap the same way onboarding now does: the standard greeting line, the curated industry
+// FAQ set, then a tailored draft from the garage's own website where one scrapes usefully.
+//
+// An empty greeting is filled; an existing one is never touched, because most of them were
+// written by hand and are exactly what the garage wants their callers to hear.
 //
 //   node scripts/backfill-faqs.cjs                     # dry run, every garage with 0 FAQs
 //   node scripts/backfill-faqs.cjs --name "Meadowfield"  # just the ones matching
@@ -40,13 +43,17 @@ async function main() {
     select: {
       id: true,
       name: true,
-      agentConfiguration: { select: { faqs: true, websiteUrl: true, branchName: true, weeklyOpeningHours: true } },
+      agentConfiguration: {
+        select: { faqs: true, websiteUrl: true, branchName: true, weeklyOpeningHours: true, greetingLine: true },
+      },
     },
     orderBy: { name: 'asc' },
   });
 
+  const hasFaqs = (c) => Array.isArray(c.faqs) && c.faqs.length > 0;
+  const needsGreeting = (c) => !(c.greetingLine || '').trim();
   const targets = garages.filter(
-    (g) => g.agentConfiguration && (FORCE || !(Array.isArray(g.agentConfiguration.faqs) && g.agentConfiguration.faqs.length)),
+    (g) => g.agentConfiguration && (FORCE || !hasFaqs(g.agentConfiguration) || needsGreeting(g.agentConfiguration)),
   );
   const skipped = garages.length - targets.length;
   console.log(
@@ -57,6 +64,15 @@ async function main() {
   for (const g of targets) {
     const cfg = g.agentConfiguration;
     const branch = cfg.branchName || g.name;
+    const update = {};
+
+    // The same line onboarding writes. Only when there isn't one already.
+    if (needsGreeting(cfg)) {
+      update.greetingLine = `[timeofday], ${branch}, Leah speaking, how can I help?`;
+      console.log(`${APPLY ? 'WRITE' : 'would write'}  ${g.name} — greeting: ${update.greetingLine}`);
+    }
+
+    if (!hasFaqs(cfg) || FORCE) {
     let faqs = industryDefaultFaqs(branch);
     let source = 'industry defaults';
 
@@ -78,8 +94,11 @@ async function main() {
 
     console.log(`${APPLY ? 'WRITE' : 'would write'}  ${g.name} — ${faqs.length} FAQs from ${source}`);
     for (const f of faqs) console.log(`    Q: ${f.question}`);
-    if (APPLY) {
-      await prisma.agentConfiguration.update({ where: { garageId: g.id }, data: { faqs } });
+    update.faqs = faqs;
+    }
+
+    if (APPLY && Object.keys(update).length) {
+      await prisma.agentConfiguration.update({ where: { garageId: g.id }, data: update });
       await sendAgentConfigWebhook(g.id).catch((e) => console.error('    sync failed:', e.message));
       console.log('    saved + synced to the agent');
     }

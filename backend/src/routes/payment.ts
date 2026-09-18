@@ -217,6 +217,12 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
         vatRate: true,
         trialEndDate: true,
         requiresBookingActivation: true,
+        // Messaging is a second subscription on the same garage, and the first-month charge
+        // used to ignore it completely — see below.
+        hasMessagingAccess: true,
+        messagingSubscriptionCostGbp: true,
+        includedMessages: true,
+        costPerMessageGbp: true,
       },
     });
 
@@ -266,9 +272,18 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       for (const garage of activeGarages) {
         // First month: Charge subscription in advance (no usage yet)
         const subscriptionAmount = Math.round(garage.subscriptionCostGbp * 100);
+        // Messaging is a SECOND subscription on the same garage, and this charge ignored it —
+        // it read subscriptionCostGbp alone. Moto Oil Auto Centre Poole signed for both licences
+        // (automate AND connect) at £399 + £150, and would have been charged £478.80 on mandate
+        // day instead of £658.80: £180 short, every time, for every garage with messaging.
+        // The monthly run has always billed it correctly (billing.ts, including pro-rating), so
+        // only this first month was wrong.
+        const messagingSubscriptionAmount = garage.hasMessagingAccess
+          ? Math.round((garage.messagingSubscriptionCostGbp ?? 0) * 100)
+          : 0;
         const minutesAmount = 0; // No usage yet
         const smsAmount = 0; // No SMS yet
-        const subtotal = subscriptionAmount;
+        const subtotal = subscriptionAmount + messagingSubscriptionAmount;
         const vatAmount = Math.round(subtotal * garage.vatRate);
         const total = subtotal + vatAmount;
 
@@ -283,6 +298,9 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
             minutesIncluded: garage.includedMinutes,
             smsCount: 0,
             subscriptionAmount,
+            messagingSubscriptionAmount,
+            messagingMessagesCount: 0,
+            messagingMessagesAmount: 0,
             minutesAmount,
             smsAmount,
             subtotal,

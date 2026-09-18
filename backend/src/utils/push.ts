@@ -165,15 +165,24 @@ export async function notifyGarageUsers(
   try {
     if (!getProvider()) return; // skip the DB query entirely when dormant
 
+    // Who gets this: anyone with push on who has either picked this garage explicitly, or picked
+    // nothing at all and can see it.
+    //
+    // An explicit pick stands on its own rather than narrowing garageAccessIds, because the two
+    // lists answer different questions. Access is granted wholesale — staff are added to every
+    // garage as it is onboarded — so a staff phone buzzed for twenty-odd customers, and a staff
+    // member wanting alerts for a garage that happens not to be on their list (it is authorised
+    // separately, when the pick is saved) would otherwise tick it and hear nothing.
+    //
+    // Empty is the default and means "every garage I can see" — what a single-branch customer
+    // wants, and what everyone had before this field existed.
     const users = await prisma.user.findMany({
       where: {
-        garageAccessIds: { has: garageId },
         pushEnabled: true,
-        // pushGarageIds is the per-user filter: empty means "every garage I can see" (what a
-        // single-branch customer wants and what everyone had before the field existed), and a
-        // non-empty list means only those. See the field comment on User for why it can't just
-        // be a trim of garageAccessIds.
-        OR: [{ pushGarageIds: { isEmpty: true } }, { pushGarageIds: { has: garageId } }],
+        OR: [
+          { pushGarageIds: { has: garageId } },
+          { pushGarageIds: { isEmpty: true }, garageAccessIds: { has: garageId } },
+        ],
       },
       select: { id: true, deviceTokens: true },
     });

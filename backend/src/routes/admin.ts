@@ -10,6 +10,10 @@ import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenera
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 import { ensureUnifiedSipRouting } from '../services/unifiedSip.js';
+// Pushes the saved config through to the agent (Postgres -> DynamoDB). A background FAQ rewrite
+// lands after the onboard has already synced, so it has to push again or the agent keeps the
+// seeded defaults until somebody saves the config by hand.
+import { sendAgentConfigWebhook } from './config.js';
 
 const router = Router();
 
@@ -1064,6 +1068,11 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       }
       if (!place) console.warn('[ONBOARD] no Google details for placeId', parsed.data.googlePlaceId);
     }
+    // Seed the greeting and a curated FAQ set, exactly as self-serve signup and the batch-branch
+    // route do. Quick-onboard was the one path that did neither: Meadowfield went live with an
+    // empty greeting and zero FAQs, so the agent had nothing to answer a question with.
+    const greetingLine = `[timeofday], ${parsed.data.branchName}, Leah speaking, how can I help?`;
+    const seededFaqs = industryDefaultFaqs(parsed.data.branchName);
     const agentConfig = await prisma.agentConfiguration.create({
       data: {
         garageId: garage.id,
@@ -1071,9 +1080,14 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         ...(place?.address ? { branchAddress: place.address } : {}),
         ...(place?.phone ? { phoneNumber: place.phone } : {}),
         ...(place?.website ? { websiteUrl: place.website } : {}),
+        // Null keeps the agent's repair-garage default, so a listing Google can't classify is
+        // no worse off than before.
+        businessType: place?.businessType || null,
         ...(place?.weeklyOpeningHours
           ? { weeklyOpeningHours: place.weeklyOpeningHours as Prisma.InputJsonValue }
           : {}),
+        greetingLine,
+        faqs: seededFaqs as unknown as Prisma.InputJsonValue,
         tonePreference: 'standard',
         responseSpeed: 'normal',
         interruptionSensitivity: 0.5,
@@ -1084,6 +1098,29 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         agentScript: parsed.data.agentScript,
       },
     });
+
+    // Tailor those FAQs from the garage's own website, in the background — a scrape plus an
+    // OpenAI call is far too slow to hold the onboard open, and the defaults are already live
+    // if it fails or never finishes. Only replaces them when the draft is worth having.
+    if (place?.website) {
+      const site = place.website;
+      const gid = garage.id;
+      const bn = parsed.data.branchName;
+      void (async () => {
+        try {
+          const f = await generateFaqsFromWebsite(site, bn);
+          if (f.length >= 3) {
+            await prisma.agentConfiguration.update({
+              where: { garageId: gid },
+              data: { faqs: f as unknown as Prisma.InputJsonValue },
+            });
+            await sendAgentConfigWebhook(gid).catch(() => {});
+          }
+        } catch (e) {
+          console.error('[ONBOARD] background FAQ generation failed:', e);
+        }
+      })();
+    }
 
     // 4. Grant admin access
     await ensureAdminAccessToGarage(garage.id);
@@ -1565,7 +1602,15 @@ router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, 
     if (place?.website) {
       const site = place.website; const gid = garage.id; const bn = b.name;
       void (async () => {
-        try { const f = await generateFaqsFromWebsite(site, bn); if (f.length >= 3) await prisma.agentConfiguration.update({ where: { garageId: gid }, data: { faqs: f as unknown as Prisma.InputJsonValue } }); }
+        try {
+          const f = await generateFaqsFromWebsite(site, bn);
+          if (f.length >= 3) {
+            await prisma.agentConfiguration.update({ where: { garageId: gid }, data: { faqs: f as unknown as Prisma.InputJsonValue } });
+            // Push to the agent — this lands after the branch has already synced, so without it
+            // the agent keeps the seeded defaults until somebody saves the config by hand.
+            await sendAgentConfigWebhook(gid).catch(() => {});
+          }
+        }
         catch (e) { console.error('[BATCH-BRANCH] background FAQ failed:', e); }
       })();
     }

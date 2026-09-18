@@ -11,6 +11,10 @@
 //   node scripts/backfill-faqs.cjs --defaults-only --apply   # skip the website/OpenAI step
 //
 // Never touches a garage that already has FAQs.
+// The website step needs OPENAI_API_KEY, and a bare `node scripts/...` does not go through the
+// server's startup, so nothing has loaded .env yet. Without this the generator finds no key,
+// returns nothing, and every garage quietly gets the generic defaults.
+require('dotenv').config({ path: require('node:path').join(__dirname, '..', '.env') });
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 

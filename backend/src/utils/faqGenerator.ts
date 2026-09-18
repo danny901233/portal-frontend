@@ -30,7 +30,12 @@ export function industryDefaultFaqs(branchName: string): Faq[] {
 }
 
 function getClient(): OpenAI | null {
-  if (!process.env.OPENAI_API_KEY) return null;
+  // Say so rather than returning silently: without a key every garage gets the generic defaults
+  // and nothing anywhere records why, which is exactly how it went unnoticed.
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('[FAQ] OPENAI_API_KEY not set — keeping the industry defaults, no website FAQs');
+    return null;
+  }
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 

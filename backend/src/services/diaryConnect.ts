@@ -70,20 +70,16 @@ export const PROVIDERS: Record<ProviderKey, ProviderSpec> = {
       // actually gate the agent booking properly.
       html:
         'Your ReceptionMate agent books straight into your existing <strong>Tyresoft</strong> diary, so nothing changes about how you work day to day.' +
-        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Two things to set up while we finish your agent:' +
-        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>1. Add a &ldquo;Misc&rdquo; service in Tyresoft.</strong> ' +
-        'It lets the agent book jobs that don\u2019t match one of your standard services, instead of turning the caller away. ' +
-        'Without one, anything unusual becomes a callback.' +
-        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>2. Upload your services and prices.</strong> ' +
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">One thing to do while we finish your agent:' +
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>Upload your services and prices.</strong> ' +
         'In the portal, go to Agent setup &rarr; Training and upload your services CSV. The agent quotes only these figures and never invents one, ' +
         'so replace the file whenever your prices change.' +
-        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Your tyre stock and pricing come straight from Tyresoft automatically \u2014 nothing to do there.',
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Your tyre stock and pricing, and the &ldquo;Misc&rdquo; service the agent books unusual jobs under, are all handled by Tyresoft \u2014 nothing to do there.',
       text:
         'Your ReceptionMate agent books straight into your existing Tyresoft diary, so nothing changes about how you work day to day.\n\n' +
-        'Two things to set up while we finish your agent:\n\n' +
-        '1. Add a "Misc" service in Tyresoft. It lets the agent book jobs that do not match one of your standard services, instead of turning the caller away.\n\n' +
-        '2. Upload your services and prices. In the portal, go to Agent setup > Training and upload your services CSV. The agent quotes only these figures and never invents one.\n\n' +
-        'Your tyre stock and pricing come straight from Tyresoft automatically - nothing to do there.',
+        'One thing to do while we finish your agent:\n\n' +
+        'Upload your services and prices. In the portal, go to Agent setup > Training and upload your services CSV. The agent quotes only these figures and never invents one.\n\n' +
+        'Your tyre stock and pricing, and the Misc service the agent books unusual jobs under, are all handled by Tyresoft - nothing to do there.',
     },
   },
   poole: {
@@ -503,7 +499,8 @@ export const buildConnectRequestEmail = (
         (folders.length > 1
           ? `these folders: ${folders.map((x) => `<strong>${x}/</strong>`).join(', ')}`
           : `a folder named exactly <strong>${folders[0]}/</strong>`) +
-        `, as <strong>Products Branch 1.csv</strong>. The folder name has to match exactly — we look it up by that name, and find nothing if it differs.</p>`
+        `, as <strong>Products Branch 1.csv</strong>. The folder name has to match exactly — we look it up by that name, and find nothing if it differs.</p>` +
+        `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">One other thing: please make sure they have a <strong>“Misc”</strong> service. The agent books anything that does not match one of their standard services under it, so without one those callers get a callback instead of an appointment.</p>`
       : '';
   const branchLine =
     branches.length > 1
@@ -530,7 +527,10 @@ export const buildConnectRequestEmail = (
       (provider === 'tyresoft'
         ? `\n\nSeparately, their tyre stock CSV goes to the usual ReceptionMate SFTP account (the same ` +
           `login as your other garages), in ${folders.length > 1 ? `these folders: ${folders.map((x) => x + '/').join(', ')}` : `a folder named exactly ${folders[0]}/`}, ` +
-          `as "Products Branch 1.csv". The folder name has to match exactly.`
+          `as "Products Branch 1.csv". The folder name has to match exactly.` +
+          `\n\nOne other thing: please make sure they have a "Misc" service. The agent books anything ` +
+          `that does not match one of their standard services under it, so without one those callers get ` +
+          `a callback instead of an appointment.`
         : ''),
   };
 };

@@ -307,11 +307,20 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
             amount: totalAmount,
             currency: 'GBP',
             description: `ReceptionMate - First Month (${invoices.length} branch${invoices.length > 1 ? 'es' : ''})`,
+            // GoCardless permits a MAXIMUM OF 3 metadata pairs. This sent four, so every
+            // first-month charge since it was written failed with invalid_type on
+            // /payments/metadata — and the catch below logged it and carried on, so the mandate
+            // saved, the customer was told "Payment setup completed successfully", and the
+            // invoice sat in draft with nobody billed. Advanced Service Centre (£478.80,
+            // 16 Sept) and EAC Telford (£390, 3 Sept) are both still sitting there.
+            //
+            // The two paths that DO collect — billing-activation and the monthly run — each use
+            // exactly three, which is why they have never had this problem. billing_cycle_start
+            // was the one to drop: it is always `now`, and the invoice records the period anyway.
             metadata: {
               user_id: user.id,
               type: 'first_month_subscription',
               invoice_count: invoices.length.toString(),
-              billing_cycle_start: now.toISOString(),
             },
             links: {
               mandate: mandateId,
@@ -337,7 +346,15 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
           console.log(`  Breakdown: ${breakdown}`);
           console.log(`  Payment ID: ${payment.id}`);
         } catch (error) {
-          console.error('Failed to charge first month subscription:', error);
+          // Loud, and with the detail. This swallowed a total API failure for months behind one
+          // line that never named the customer or the amount, so nothing downstream — not the
+          // customer, not us — knew the money had not been taken.
+          const gc = (error as { errors?: unknown })?.errors;
+          console.error(
+            `[BILLING] FIRST-MONTH CHARGE FAILED for ${user.email}: £${(totalAmount / 100).toFixed(2)} ` +
+              `NOT collected, ${invoices.length} invoice(s) left in draft.`,
+            gc ? JSON.stringify(gc) : error,
+          );
         }
       }
     } else {

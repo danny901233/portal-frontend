@@ -302,6 +302,15 @@ model User {
   // several devices; tokens are registered by the mobile app on launch.
   deviceTokens String[] @default([])
   pushEnabled  Boolean  @default(true)
+
+  // Which garages this person wants pushes FROM. Empty = every garage they can see, which is the
+  // behaviour everyone had before this existed and stays right for a single-branch customer.
+  //
+  // It has to be its own field rather than a trim of garageAccessIds: staff are granted access to
+  // every new garage automatically (ensureAdminAccessToGarage), and login widens a
+  // RECEPTIONMATE_STAFF user to all garages regardless, so anything derived from access would
+  // re-broaden itself on the next onboarding.
+  pushGarageIds String[] @default([])
 }
 
 // Lightweight inbound-support chat between a portal user (the customer) and

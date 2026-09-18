@@ -169,6 +169,11 @@ export async function notifyGarageUsers(
       where: {
         garageAccessIds: { has: garageId },
         pushEnabled: true,
+        // pushGarageIds is the per-user filter: empty means "every garage I can see" (what a
+        // single-branch customer wants and what everyone had before the field existed), and a
+        // non-empty list means only those. See the field comment on User for why it can't just
+        // be a trim of garageAccessIds.
+        OR: [{ pushGarageIds: { isEmpty: true } }, { pushGarageIds: { has: garageId } }],
       },
       select: { id: true, deviceTokens: true },
     });

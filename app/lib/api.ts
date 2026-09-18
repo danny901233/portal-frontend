@@ -65,6 +65,25 @@ export const unregisterDeviceToken = async (token: string): Promise<void> => {
   await api.delete("/me/device-token", { data: { token } });
 };
 
+// Which garages this person's phone buzzes for. `pushGarageIds: []` means all of them —
+// including any onboarded later — so the settings page renders an empty list as fully ticked.
+export type PushSettings = {
+  pushEnabled: boolean;
+  pushGarageIds: string[];
+  deviceCount: number;
+  garages: { id: string; name: string }[];
+};
+export const fetchPushSettings = async (): Promise<PushSettings> => {
+  const { data } = await api.get<PushSettings>("/me/push");
+  return data;
+};
+export const savePushSettings = async (
+  update: { enabled?: boolean; garageIds?: string[] },
+): Promise<{ pushEnabled: boolean; pushGarageIds: string[] }> => {
+  const { data } = await api.patch("/me/push", update);
+  return data;
+};
+
 // Unread badge counts for the app (bottom-nav badges + iOS app-icon badge).
 export type NotificationCounts = { unreadCalls: number; unreadMessages: number };
 export const fetchNotificationCounts = async (): Promise<NotificationCounts> => {

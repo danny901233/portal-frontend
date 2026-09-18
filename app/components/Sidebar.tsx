@@ -99,7 +99,10 @@ const baseNavigation: NavItem[] = [
 
 const adminNavigation: NavItem = { name: 'Admin', tKey: 'nav.admin', href: '/admin', icon: <ShieldIcon /> };
 
-const supportLinks: NavItem[] = [{ name: 'Help & Guides', tKey: 'nav.helpGuides', href: '/help', icon: <HelpIcon /> }];
+const supportLinks: NavItem[] = [
+  { name: 'Notifications', tKey: 'nav.notifications', href: '/notifications', icon: <BellIcon /> },
+  { name: 'Help & Guides', tKey: 'nav.helpGuides', href: '/help', icon: <HelpIcon /> },
+];
 
 interface SidebarProps {
   activePath: string;
@@ -637,6 +640,15 @@ function ShieldIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
+function BellIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </svg>
   );
 }

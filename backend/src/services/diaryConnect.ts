@@ -447,11 +447,37 @@ export const sendDiaryConnectRequest = async (businessId: string): Promise<boole
   const branches = await businessBranches(businessId);
   const name = business?.name || 'This garage';
   const link = `${PORTAL_URL}/connect-diary?token=${signDiaryToken(businessId, provider)}`;
+  const { html, text } = buildConnectRequestEmail(provider, name, branches.map((b) => b.name), link);
+  void sendEmail({
+    to,
+    ...(cc.length ? { cc } : {}),
+    subject: 'New ReceptionMate onboard',
+    text,
+    html,
+  });
+  console.log(
+    `[DIARY-CONNECT] ${spec.label} connect request sent to ${to.join(', ')}${cc.length ? ` (cc ${cc.join(', ')})` : ''} for ${name}`,
+  );
+  return true;
+};
+
+/**
+ * The provider-request email, as a pure function so a preview renders EXACTLY what sends.
+ * Built inline once and drifted from every preview written by hand, which is the usual way
+ * wording gets checked against something that is no longer true.
+ */
+export const buildConnectRequestEmail = (
+  provider: ProviderKey,
+  businessName: string,
+  branchNames: string[],
+  link: string,
+): { html: string; text: string } => {
+  const spec = PROVIDERS[provider];
+  const name = businessName;
+  const branches = branchNames;
   const branchLine =
     branches.length > 1
-      ? `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">There are <strong>${branches.length} branches</strong> on the form: ${branches
-          .map((b) => b.name)
-          .join(', ')}.</p>`
+      ? `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">There are <strong>${branches.length} branches</strong> on the form: ${branches.join(', ')}.</p>`
       : '';
   const body =
     `<tr><td style="padding: 32px;">` +
@@ -464,20 +490,13 @@ export const sendDiaryConnectRequest = async (businessId: string): Promise<boole
     `</tr></table>` +
     `<p style="margin:0;font-size:13px;line-height:1.5;color:#94a3b8;text-align:center;">Or paste this link: <a href="${link}" style="color:#3426cf;word-break:break-all;">${link}</a><br>Link valid 14 days.</p>` +
     `</td></tr>`;
-  void sendEmail({
-    to,
-    ...(cc.length ? { cc } : {}),
-    subject: 'New ReceptionMate onboard',
+  return {
+    html: brandedEmailShell(body),
     text:
       `${name} is being onboarded to ReceptionMate and books into ${spec.label}.\n\n` +
       `Open the link below and fill in their ${spec.label} details. Submitting the form connects the diary.\n\n` +
       `${link}\n\nLink valid 14 days.`,
-    html: brandedEmailShell(body),
-  });
-  console.log(
-    `[DIARY-CONNECT] ${spec.label} connect request sent to ${to.join(', ')}${cc.length ? ` (cc ${cc.join(', ')})` : ''} for ${name}`,
-  );
-  return true;
+  };
 };
 
 /** The customer-facing "we're building your agent" note, in that provider's own words. Once only. */

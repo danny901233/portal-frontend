@@ -1274,8 +1274,34 @@ router.post(
         },
       });
 
-      // Send notifications for negative feedback
+      // A thumbs-down is the garage telling us the call went wrong. Our own diagnosis ran at
+      // the end of the call and knew nothing about it, so four Advanced Service Centre calls
+      // they rated down were all still filed as "ok — handled correctly". Stamp their verdict
+      // onto the diagnosis so the call reads as a problem and the Monday audit can find it.
       if (rating === 'down') {
+        try {
+          const metrics = (call.metrics ?? {}) as Record<string, unknown>;
+          const diagnosis = { ...((metrics.diagnosis ?? {}) as Record<string, unknown>) };
+          diagnosis.status = 'issue';
+          // Keep the model's own category when it had one; otherwise say where this came from.
+          if (!diagnosis.category || diagnosis.category === 'none') {
+            diagnosis.category = normalizedReasons[0] ?? 'garage_reported';
+          }
+          diagnosis.garageFeedback = {
+            rating: 'down',
+            reasons: normalizedReasons,
+            notes: sanitizedNotes ?? null,
+            ratedAt: new Date().toISOString(),
+          };
+          await prisma.call.update({
+            where: { id: callId },
+            data: { metrics: { ...metrics, diagnosis } as Prisma.InputJsonValue },
+          });
+        } catch (error) {
+          // Never fail the rating itself over this — the feedback row is what matters.
+          console.error('[FEEDBACK] could not stamp diagnosis for', callId, error);
+        }
+
         const fields = [
           { name: 'Branch', value: call.garage.name, inline: true },
           { name: 'Call ID', value: callId, inline: true },

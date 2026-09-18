@@ -200,7 +200,10 @@ router.post('/agent-config', async (req: Request, res: Response) => {
 
 const SFTP_BASE = process.env.SFTP_UPLOAD_BASE_PATH || '/home/tyresoft-uploads/uploads';
 
-const slugifyBranchName = (name: string) =>
+// Exported so the Tyresoft onboarding email can tell them the EXACT folder to push stock to.
+// The webhook looks up this path and 404s silently if it does not match, so the provider
+// guessing the name from the garage's is how a garage ends up with no tyres and nobody knows.
+export const slugifyBranchName = (name: string) =>
   name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 const parseCsvLine = (line: string): string[] => {

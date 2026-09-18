@@ -14,6 +14,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { prisma } from '../db.js';
 import { sendEmail, brandedEmailShell } from '../utils/email.js';
 import { sendAgentConfigWebhook } from '../routes/config.js';
+import { slugifyBranchName } from '../routes/agentWebhook.js';
 
 const PORTAL_URL = (process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '');
 const TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -490,6 +491,20 @@ export const buildConnectRequestEmail = (
   const spec = PROVIDERS[provider];
   const name = businessName;
   const branches = branchNames;
+  // Tyresoft is the one provider with a second track: the tyre stock CSV, pushed over SFTP to a
+  // folder whose name must match slugifyBranchName(branchName) EXACTLY. The webhook 404s silently
+  // when it does not, which is how Lurgan Tyre Centre came to have a folder called "lurgan-tyre"
+  // against an expected "lurgan-tyre-centre" and would have served no tyres at all. Naming the
+  // folder here is the difference between that being obvious and being invisible.
+  const folders = branchNames.map((b) => slugifyBranchName(b));
+  const stockBlock =
+    provider === 'tyresoft'
+      ? `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Separately, their tyre stock CSV goes to the usual ReceptionMate SFTP account (the same login as your other garages), in ` +
+        (folders.length > 1
+          ? `these folders: ${folders.map((x) => `<strong>${x}/</strong>`).join(', ')}`
+          : `a folder named exactly <strong>${folders[0]}/</strong>`) +
+        `, as <strong>Products Branch 1.csv</strong>. The folder name has to match exactly — we look it up by that name, and find nothing if it differs.</p>`
+      : '';
   const branchLine =
     branches.length > 1
       ? `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">There are <strong>${branches.length} branches</strong> on the form: ${branches.join(', ')}.</p>`
@@ -498,8 +513,9 @@ export const buildConnectRequestEmail = (
     `<tr><td style="padding: 32px;">` +
     `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">New ReceptionMate onboard</h1>` +
     `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${name}</strong> is being onboarded to ReceptionMate and books into ${spec.label}.</p>` +
-    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Open the link below and fill in their ${spec.label} details. Submitting the form connects the diary — nothing else is needed from you.</p>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Open the link below and fill in their ${spec.label} details. Submitting the form connects the diary.</p>` +
     branchLine +
+    stockBlock +
     `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
     `<td style="background:#3426cf;border-radius:10px;"><a href="${link}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Connect ${spec.label} diary</a></td>` +
     `</tr></table>` +
@@ -510,7 +526,12 @@ export const buildConnectRequestEmail = (
     text:
       `${name} is being onboarded to ReceptionMate and books into ${spec.label}.\n\n` +
       `Open the link below and fill in their ${spec.label} details. Submitting the form connects the diary.\n\n` +
-      `${link}\n\nLink valid 14 days.`,
+      `${link}\n\nLink valid 14 days.` +
+      (provider === 'tyresoft'
+        ? `\n\nSeparately, their tyre stock CSV goes to the usual ReceptionMate SFTP account (the same ` +
+          `login as your other garages), in ${folders.length > 1 ? `these folders: ${folders.map((x) => x + '/').join(', ')}` : `a folder named exactly ${folders[0]}/`}, ` +
+          `as "Products Branch 1.csv". The folder name has to match exactly.`
+        : ''),
   };
 };
 

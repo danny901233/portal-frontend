@@ -9,8 +9,9 @@
 //   node scripts/backfill-faqs.cjs --name "Meadowfield"  # just the ones matching
 //   node scripts/backfill-faqs.cjs --name "Meadowfield" --apply
 //   node scripts/backfill-faqs.cjs --defaults-only --apply   # skip the website/OpenAI step
+//   node scripts/backfill-faqs.cjs --name X --force --apply  # redo one that already has some
 //
-// Never touches a garage that already has FAQs.
+// Never touches a garage that already has FAQs unless --force says to.
 // The website step needs OPENAI_API_KEY, and a bare `node scripts/...` does not go through the
 // server's startup, so nothing has loaded .env yet. Without this the generator finds no key,
 // returns nothing, and every garage quietly gets the generic defaults.
@@ -20,6 +21,9 @@ const prisma = new PrismaClient();
 
 const APPLY = process.argv.includes('--apply');
 const DEFAULTS_ONLY = process.argv.includes('--defaults-only');
+// Re-do a garage that already has FAQs. Off by default so a stray run can never overwrite FAQs
+// a garage wrote themselves.
+const FORCE = process.argv.includes('--force');
 const nameIdx = process.argv.indexOf('--name');
 const NAME = nameIdx > -1 ? process.argv[nameIdx + 1] : null;
 
@@ -33,15 +37,22 @@ async function main() {
       archivedAt: null,
       ...(NAME ? { name: { contains: NAME, mode: 'insensitive' } } : {}),
     },
-    select: { id: true, name: true, agentConfiguration: { select: { faqs: true, websiteUrl: true, branchName: true } } },
+    select: {
+      id: true,
+      name: true,
+      agentConfiguration: { select: { faqs: true, websiteUrl: true, branchName: true, weeklyOpeningHours: true } },
+    },
     orderBy: { name: 'asc' },
   });
 
   const targets = garages.filter(
-    (g) => g.agentConfiguration && !(Array.isArray(g.agentConfiguration.faqs) && g.agentConfiguration.faqs.length),
+    (g) => g.agentConfiguration && (FORCE || !(Array.isArray(g.agentConfiguration.faqs) && g.agentConfiguration.faqs.length)),
   );
   const skipped = garages.length - targets.length;
-  console.log(`${targets.length} garage(s) with no FAQs${skipped ? `, ${skipped} skipped (already have some)` : ''}\n`);
+  console.log(
+    `${targets.length} garage(s) to fill${skipped ? `, ${skipped} skipped (already have some)` : ''}` +
+      `${FORCE ? ' [--force: existing FAQs will be replaced]' : ''}\n`,
+  );
 
   for (const g of targets) {
     const cfg = g.agentConfiguration;
@@ -51,7 +62,8 @@ async function main() {
 
     if (!DEFAULTS_ONLY && cfg.websiteUrl) {
       try {
-        const drafted = await generateFaqsFromWebsite(cfg.websiteUrl, branch);
+        // The hours we already hold beat whatever the website happens to say about them.
+        const drafted = await generateFaqsFromWebsite(cfg.websiteUrl, branch, cfg.weeklyOpeningHours);
         // Same bar onboarding uses — a thin draft is worse than the curated set.
         if (drafted.length >= 3) {
           faqs = drafted;

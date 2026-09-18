@@ -6,6 +6,22 @@
 
 import OpenAI from 'openai';
 import { fetchWebsiteInfo } from './scraper.js';
+import type { WeeklyOpeningHours } from './googlePlaces.js';
+
+const DAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+
+/** "Monday 08:00-17:00 | ... | Saturday closed" — the hours we hold, in a line the model can quote. */
+function formatKnownHours(hours: WeeklyOpeningHours | null | undefined): string {
+  if (!hours) return '';
+  const parts = DAY_ORDER.map((d) => {
+    const day = hours[d];
+    if (!day) return null;
+    const label = d.charAt(0).toUpperCase() + d.slice(1);
+    if (day.closed || !day.open || !day.close) return `${label} closed`;
+    return `${label} ${day.open}-${day.close}`;
+  }).filter(Boolean);
+  return parts.length ? parts.join(' | ') : '';
+}
 
 // Matches the portal's FaqItem shape (app/agent-setup/_components/FaqsTab.tsx) so
 // auto-populated FAQs render and toggle correctly in the "Smart questions & FAQs" editor.
@@ -41,7 +57,14 @@ function getClient(): OpenAI | null {
 
 // Draft tailored FAQs from the garage's website content. Returns [] on any failure
 // (caller keeps the industry defaults).
-export async function generateFaqsFromWebsite(websiteUrl: string, branchName: string): Promise<Faq[]> {
+export async function generateFaqsFromWebsite(
+  websiteUrl: string,
+  branchName: string,
+  // The opening hours we already hold, from the garage's Google listing. Without these the model
+  // answers "what are your opening hours?" from whatever the website happened to mention —
+  // Meadowfield got "closed Saturdays and Sundays" and no weekday times at all.
+  knownHours?: WeeklyOpeningHours | null,
+): Promise<Faq[]> {
   const url = (websiteUrl || '').trim();
   if (!url) return [];
   const client = getClient();
@@ -58,6 +81,8 @@ export async function generateFaqsFromWebsite(websiteUrl: string, branchName: st
       info.hours?.length && `Hours: ${info.hours.join(' | ')}`,
       info.knowledgeChunks?.length && `Content:\n${info.knowledgeChunks.slice(0, 12).join('\n')}`,
     ].filter(Boolean);
+    const hoursLine = formatKnownHours(knownHours);
+    if (hoursLine) parts.unshift(`Confirmed opening hours: ${hoursLine}`);
     context = parts.join('\n').slice(0, 6000);
   } catch (err) {
     console.warn('[FAQ] website scrape failed, skipping AI generation:', err);
@@ -76,6 +101,7 @@ export async function generateFaqsFromWebsite(websiteUrl: string, branchName: st
           content:
             'You write FAQs for a UK car garage\'s phone receptionist. Using ONLY the supplied website content, produce 5–8 concise, accurate question/answer pairs a caller might ask (services offered, MOTs, booking, payment, location, specialisms). ' +
             'Answers must be 1–2 sentences, factual, and never invent prices, hours, or services not supported by the content. ' +
+            'If "Confirmed opening hours" is supplied, any answer about opening times must use those and state the days the garage IS open, not only the days it is closed. ' +
             'Reply as JSON: {"faqs":[{"question":"...","answer":"..."}]}',
         },
         { role: 'user', content: `Garage: ${branchName}\n\nWebsite content:\n${context}` },

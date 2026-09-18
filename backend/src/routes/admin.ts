@@ -1108,7 +1108,7 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       const bn = parsed.data.branchName;
       void (async () => {
         try {
-          const f = await generateFaqsFromWebsite(site, bn);
+          const f = await generateFaqsFromWebsite(site, bn, place?.weeklyOpeningHours);
           if (f.length >= 3) {
             await prisma.agentConfiguration.update({
               where: { garageId: gid },
@@ -1603,7 +1603,7 @@ router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, 
       const site = place.website; const gid = garage.id; const bn = b.name;
       void (async () => {
         try {
-          const f = await generateFaqsFromWebsite(site, bn);
+          const f = await generateFaqsFromWebsite(site, bn, place?.weeklyOpeningHours);
           if (f.length >= 3) {
             await prisma.agentConfiguration.update({ where: { garageId: gid }, data: { faqs: f as unknown as Prisma.InputJsonValue } });
             // Push to the agent — this lands after the branch has already synced, so without it

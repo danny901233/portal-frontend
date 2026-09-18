@@ -531,11 +531,30 @@ export const sendDiaryGettingReady = async (garageId: string): Promise<boolean> 
     `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Thanks for signing. ${spec.gettingReady.html}</p>` +
     `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">We’ll email you again the moment your agent is live.</p>` +
     `</td></tr>`;
+  const built = buildGettingReadyEmail(prov as ProviderKey, garage.name);
   void sendEmail({
     to: [manager.email],
     subject: `Getting ${garage.name} ready on ReceptionMate`,
-    text: `Thanks for signing. ${spec.gettingReady.text}\n\nWe'll email you again the moment your agent is live.`,
-    html: brandedEmailShell(body),
+    text: built.text,
+    html: built.html,
   });
   return true;
+};
+
+/** The customer's getting-ready email, pure so a preview renders exactly what sends. */
+export const buildGettingReadyEmail = (
+  provider: ProviderKey,
+  garageName: string,
+): { html: string; text: string } => {
+  const spec = PROVIDERS[provider];
+  const body =
+    `<tr><td style="padding: 32px;">` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">${spec.gettingReady.heading(garageName)}</h1>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Thanks for signing. ${spec.gettingReady.html}</p>` +
+    `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">We’ll email you again the moment your agent is live.</p>` +
+    `</td></tr>`;
+  return {
+    html: brandedEmailShell(body),
+    text: `Thanks for signing. ${spec.gettingReady.text}\n\nWe'll email you again the moment your agent is live.`,
+  };
 };

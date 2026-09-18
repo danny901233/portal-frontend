@@ -14,6 +14,9 @@ interface EmailOptions {
   /** Where replies should land. Without it they go to MAILGUN_FROM, which is noreply@ — fine for
    *  a receipt, wrong for anything that asks the reader to reply. */
   replyTo?: string;
+  /** Visible sender. Setting Reply-To fixes the routing but not the impression: a reader who sees
+   *  noreply@ in the From line will not reply whatever the headers say. Defaults to MAILGUN_FROM. */
+  from?: string;
   subject: string;
   html: string;
   text: string;
@@ -65,7 +68,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
 
   if (hasAttachments) {
     const form = new FormData();
-    form.set('from', config.from);
+    form.set('from', options.from || config.from);
     form.set('to', options.to.join(', '));
     if (options.cc?.length) form.set('cc', options.cc.join(', '));
     if (options.replyTo) form.set('h:Reply-To', options.replyTo);
@@ -83,7 +86,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     // FormData will set its own multipart Content-Type with the boundary
   } else {
     const form = new URLSearchParams();
-    form.set('from', config.from);
+    form.set('from', options.from || config.from);
     form.set('to', options.to.join(', '));
     if (options.cc?.length) form.set('cc', options.cc.join(', '));
     if (options.replyTo) form.set('h:Reply-To', options.replyTo);
@@ -127,6 +130,7 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
 
   await transport.sendMail({
     replyTo: options.replyTo,
+    ...(options.from ? { from: options.from } : {}),
     from: config.from,
     to: options.to.join(', '),
     ...(options.cc?.length ? { cc: options.cc.join(', ') } : {}),

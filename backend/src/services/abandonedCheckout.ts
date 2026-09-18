@@ -48,6 +48,9 @@ const BRAND = '#3426cf';
 // These emails ask the reader to reply, and the sending address is noreply@. Without this the
 // invitation - and the "just reply and we'll leave you be" opt-out - both go nowhere.
 const REPLY_TO = process.env.LEAD_REPLY_TO || 'hello@receptionmate.co.uk';
+// The From line is what decides whether anyone replies. Under a visible noreply@ the invitation —
+// and the opt-out beneath it — read as decoration.
+const MAIL_FROM = process.env.LEAD_MAIL_FROM || `ReceptionMate <${REPLY_TO}>`;
 
 /** One body section inside the shared shell, which supplies the outer table. */
 const section = (inner: string) =>
@@ -173,7 +176,7 @@ export async function sweepAbandonedCheckouts(opts: { dryRun?: boolean } = {}): 
       alreadyEmailed.add(key);   // claim it before sending, so a second row in THIS run is skipped
       const mail = firstEmail(p.businessName, first);
       if (opts.dryRun) { out.first++; console.log(`[ABANDONED] would send #1 to ${p.email} (${p.businessName})`); continue; }
-      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO });
+      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO, from: MAIL_FROM });
       if (!sent) { console.warn(`[ABANDONED] send #1 FAILED for ${p.businessName}`); continue; }
       await prisma.pendingSignup.update({ where: { id: p.id }, data: { abandonedEmail1At: new Date() } });
       out.first++;
@@ -185,7 +188,7 @@ export async function sweepAbandonedCheckouts(opts: { dryRun?: boolean } = {}): 
       if (now - p.abandonedEmail1At.getTime() < SECOND_AFTER_MS) { out.skipped++; continue; }
       const mail = secondEmail(p.businessName, first);
       if (opts.dryRun) { out.second++; console.log(`[ABANDONED] would send #2 to ${p.email} (${p.businessName})`); continue; }
-      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO });
+      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO, from: MAIL_FROM });
       if (!sent) { console.warn(`[ABANDONED] send #2 FAILED for ${p.businessName}`); continue; }
       await prisma.pendingSignup.update({ where: { id: p.id }, data: { abandonedEmail2At: new Date() } });
       out.second++;

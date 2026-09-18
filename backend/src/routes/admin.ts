@@ -935,6 +935,11 @@ const completeOnboardingSchema = z.object({
     .enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft'])
     .optional()
     .default('none'),
+  // The Google listing staff picked in the modal. The modal has always sent this and zod has
+  // always stripped it, so quick-onboard never auto-filled anything — Meadowfield Auto Centre
+  // was created with no phone, no website and no opening hours while its listing had all three.
+  // The batch-branch route (/admin/branches) reads it; this one silently did not.
+  googlePlaceId: z.string().min(1).max(300).optional(),
   // Sales-led deals: create the account but do NOT email the customer their login yet — there
   // is nothing for them to log in to until the agreement is signed and the agent is built. The
   // modal has been sending this since it was written; the backend never read it, and zod strips
@@ -1047,10 +1052,28 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     });
 
     // 3. Create agent configuration
+    // Pull the garage's address, phone, website and opening hours off the Google listing staff
+    // picked. Non-fatal on purpose: a slow or unhappy Google must never fail an onboard, and an
+    // empty result simply leaves the fields blank as before.
+    let place: Awaited<ReturnType<typeof fetchPlaceDetails>> = null;
+    if (parsed.data.googlePlaceId) {
+      try {
+        place = await fetchPlaceDetails(parsed.data.googlePlaceId);
+      } catch (e) {
+        console.error('[ONBOARD] place lookup failed:', e);
+      }
+      if (!place) console.warn('[ONBOARD] no Google details for placeId', parsed.data.googlePlaceId);
+    }
     const agentConfig = await prisma.agentConfiguration.create({
       data: {
         garageId: garage.id,
         branchName: parsed.data.branchName,
+        ...(place?.address ? { branchAddress: place.address } : {}),
+        ...(place?.phone ? { phoneNumber: place.phone } : {}),
+        ...(place?.website ? { websiteUrl: place.website } : {}),
+        ...(place?.weeklyOpeningHours
+          ? { weeklyOpeningHours: place.weeklyOpeningHours as Prisma.InputJsonValue }
+          : {}),
         tonePreference: 'standard',
         responseSpeed: 'normal',
         interruptionSensitivity: 0.5,

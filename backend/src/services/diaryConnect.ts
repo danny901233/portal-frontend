@@ -101,12 +101,23 @@ export const PROVIDERS: Record<ProviderKey, ProviderSpec> = {
     envCc: 'POOLE_CONNECT_EMAIL_CC',
     gettingReady: {
       heading: (g) => `Getting ${g} ready`,
+      // Two real tasks, both in the garage's own AutoSage account. The note used to say
+      // "nothing to set up at your end", which was wrong: without the bookable-service
+      // toggles the agent has nothing it is allowed to book, and without an "Other" service
+      // every job that is not on the list becomes a callback.
       html:
         'Your ReceptionMate agent books straight into your existing <strong>AutoSage</strong> diary, so your diary stays exactly as it is.' +
-        ' Nothing to set up at your end while we build your agent.',
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Two things to set up in AutoSage while we finish your agent:' +
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>1. Turn on &ldquo;bookable service&rdquo;</strong> for each service you want the agent to be able to book. ' +
+        'The agent only ever offers the services you have switched on, so anything left off simply will not come up on a call.' +
+        '</p><p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>2. Add a service called &ldquo;Other&rdquo;.</strong> ' +
+        'It lets the agent book jobs that do not match one of your standard services, instead of turning the caller away. ' +
+        'Without one, anything unusual becomes a callback.',
       text:
-        'Your ReceptionMate agent books straight into your existing AutoSage diary, so your diary stays exactly as it is. ' +
-        'Nothing to set up at your end while we build your agent.',
+        'Your ReceptionMate agent books straight into your existing AutoSage diary, so your diary stays exactly as it is.\n\n' +
+        'Two things to set up in AutoSage while we finish your agent:\n\n' +
+        '1. Turn on "bookable service" for each service you want the agent to be able to book. The agent only ever offers the services you have switched on, so anything left off will not come up on a call.\n\n' +
+        '2. Add a service called "Other". It lets the agent book jobs that do not match one of your standard services, instead of turning the caller away.',
     },
   },
   bookar: {

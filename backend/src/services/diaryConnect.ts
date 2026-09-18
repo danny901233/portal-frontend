@@ -407,7 +407,29 @@ export const connectBusinessDiary = async (
  */
 export const sendDiaryConnectRequest = async (businessId: string): Promise<boolean> => {
   const provider = await businessProvider(businessId);
-  if (!provider) return false; // GarageHive, unset, or mixed — not ours to send
+  if (!provider) {
+    // Silence here is how onboarding stalls without anybody noticing. GarageHive is genuinely
+    // not ours and says nothing, but a business sitting on the unified agent with no provider
+    // set has simply not had integrationProvider filled in at garage creation — nobody will be
+    // emailed, no diary will be connected, and the first sign is the garage asking why their
+    // agent cannot book. Say so.
+    const garages = await prisma.garage.findMany({
+      where: { businessId, archivedAt: null },
+      select: { name: true, agentConfiguration: { select: { agentScript: true, integrationProvider: true } } },
+    });
+    const unified = garages.filter((g) => g.agentConfiguration?.agentScript === DIARY_AGENT_SCRIPT);
+    const anyProvider = garages.some((g) => {
+      const p = String(g.agentConfiguration?.integrationProvider || 'none');
+      return p !== 'none';
+    });
+    if (unified.length && !anyProvider)
+      console.warn(
+        `[DIARY-CONNECT] ${businessId} has ${unified.length} unified-agent branch(es) but no ` +
+          'integrationProvider set — NO connect request sent. Set the provider on the garage ' +
+          '(Admin > garage > integration) or the diary will never be connected.',
+      );
+    return false;
+  }
   const spec = PROVIDERS[provider];
   const to = envList(spec.envTo);
   const cc = envList(spec.envCc);

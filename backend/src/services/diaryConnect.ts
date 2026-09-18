@@ -74,7 +74,10 @@ export const PROVIDERS: Record<ProviderKey, ProviderSpec> = {
     },
   },
   poole: {
-    label: 'Poole',
+    // The provider key stays 'poole' (it is the integrationProvider enum value and the adapter
+    // name), but everything a human reads says AutoSage — that is the product the garage and the
+    // provider both know it by. "Poole" is only ever our internal shorthand.
+    label: 'AutoSage',
     shared: [
       { key: 'pooleTenant', label: 'Tenant', required: true },
       { key: 'pooleBaseUrl', label: 'Base URL', required: false, help: 'Leave blank for the default (https://alpha.autosage.co.uk).' },

@@ -409,10 +409,45 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
   return true;
 };
 
-// Auto go-live convergence: a GarageHive garage is "live" once BOTH tracks are done — the
-// agreement is signed AND the diary is connected. Whichever finishes last calls this; the first
-// time both are true we email the garage "you're live" and mark them live. Idempotent via a
-// goLiveEmailedAt flag stored in the config JSON (no migration, no agent resync needed).
+/**
+ * Is this garage's diary actually connected?
+ *
+ * This used to be `ipc.customerId && ipc.locationId`, which are GarageHive's fields and nobody
+ * else's. Bookar writes bookarClientId/Secret, AutoSage and Tyresoft write their own — so a
+ * Bookar garage could have a fully connected, test-booked diary and a signed agreement and this
+ * still said "not connected", meaning the go-live email carrying their login details was never
+ * sent and somebody had to notice by hand. Moto Oil Auto Centre Poole is the case that found it.
+ *
+ * Keyed off the garage's own integrationProvider so each provider is judged on the credentials
+ * it actually writes, rather than on GarageHive's.
+ */
+const diaryIsConnected = (ipc: Record<string, unknown>, provider: string, script: string): boolean => {
+  if (!GH_AGENT_SCRIPTS.includes(script)) return false;
+  const has = (k: string) => !!String(ipc[k] ?? '').trim();
+  switch (provider) {
+    case 'garage_hive':
+      return has('customerId') && has('locationId');
+    case 'bookar':
+      return has('bookarApiBase') && has('bookarClientId') && has('bookarClientSecret');
+    case 'poole':
+      // AutoSage: tenant is shared, branch key is per-branch. pooleBaseUrl is optional.
+      return has('pooleTenant') && has('pooleBranchKey');
+    case 'tyresoft':
+      // tsChannelId is optional, so it is not part of the test.
+      return has('tsWorkspace') && has('tsUsername') && has('tsPassword')
+        && has('tsApiKey') && has('tsDepotId');
+    default:
+      // 'none' or anything unrecognised: a garage with no provider set has no diary to connect,
+      // so it can never be "ready" — and must not be announced live on the strength of a
+      // signed agreement alone.
+      return false;
+  }
+};
+
+// Auto go-live convergence: a garage is "live" once BOTH tracks are done — the agreement is
+// signed AND the diary is connected. Whichever finishes last calls this; the first time both are
+// true we email the garage "you're live" and mark them live. Idempotent via a goLiveEmailedAt
+// flag stored in the config JSON (no migration, no agent resync needed).
 export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> => {
   const garage = await prisma.garage.findUnique({
     where: { id: garageId },
@@ -422,13 +457,16 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
       businessId: true,
       twilioNumber: true,
       welcomeEmailSentAt: true,
-      agentConfiguration: { select: { integrationProviderConfig: true, agentScript: true } },
+      agentConfiguration: {
+        select: { integrationProviderConfig: true, agentScript: true, integrationProvider: true },
+      },
     },
   });
   if (!garage) return false;
   const ipc = asObject(garage.agentConfiguration?.integrationProviderConfig);
   const script = garage.agentConfiguration?.agentScript || '';
-  const connected = !!ipc.customerId && !!ipc.locationId && GH_AGENT_SCRIPTS.includes(script);
+  const provider = String(garage.agentConfiguration?.integrationProvider || 'none');
+  const connected = diaryIsConnected(ipc, provider, script);
   if (!connected || ipc.goLiveEmailedAt) return false;
   const signed = garage.businessId
     ? await prisma.agreement.findFirst({

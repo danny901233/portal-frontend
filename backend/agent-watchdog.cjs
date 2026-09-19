@@ -442,7 +442,13 @@ async function main() {
   } else {
     heartbeat = Object.entries(prev).filter(([k]) => k.startsWith('heartbeat:')).map(([key, msg]) => ({ key, msg }));
     responseHealth = Object.entries(prev).filter(([k]) => k.startsWith('silent:')).map(([key, msg]) => ({ key, msg }));
-    unanswered = Object.entries(prev).filter(([k]) => k.startsWith('unanswered:')).map(([key, msg]) => ({ key, msg }));
+    // hard-down: as well as unanswered:. Both come out of checkUnanswered, and carrying only
+    // one of them meant every open outage vanished from `current` the moment business hours
+    // ended — sending "recovered" about a line that was still dead, then alerting again the
+    // next morning. A guaranteed flap, once a day, for exactly the faults that matter most.
+    unanswered = Object.entries(prev)
+      .filter(([k]) => k.startsWith('unanswered:') || k.startsWith('hard-down:'))
+      .map(([key, msg]) => ({ key, msg }));
   }
 
   const current = {};

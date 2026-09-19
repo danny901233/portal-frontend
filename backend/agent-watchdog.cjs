@@ -102,6 +102,12 @@ async function checkRouting() {
     // people learn to ignore, which costs us the real ones.
     const g = byId.get(c.garageId);
     if (!g || !g.twilioNumber || g.archivedAt) continue;
+    // The unified agent lives in its OWN LiveKit project, not account 1 or 2, and is routed by
+    // the /voice webhook off agentScript with a per-garage trunk and dispatch rule. This check
+    // only knows the two-account world, so it called every unified garage mis-routed regardless
+    // of agentType — Lurgan and Meadowfield both, while their calls were landing perfectly well.
+    // A false alarm here is worse than no alarm: it is the noise a real mis-route hides in.
+    if (c.agentScript === 'unified-agent') continue;
     const type = c.agentType === 'assist' ? 'assist' : 'automate';
     const actual2 = routesToAccount2(c.agentScript);
     if (actual2 !== EXPECTED_ACCOUNT2[type]) {
@@ -181,6 +187,10 @@ const UNANS_WINDOW_MIN = 90;
 const UNANS_MIN_SECONDS = 20;
 // Two could be coincidence — a caller hanging up twice, a burst of spam. Three is a pattern.
 const UNANS_MIN_CALLS = 3;
+// A garage that has logged a real conversation within this many hours is not hard down,
+// whatever the last 90 minutes look like. Long enough to cover a quiet mid-morning, short
+// enough that a genuine outage (EAC Telford went six days) still trips it.
+const HARD_DOWN_ALIVE_HOURS = 4;
 
 const onlyDigits = (s) => String(s || '').replace(/[^0-9]/g, '').replace(/^0/, '44');
 
@@ -201,13 +211,21 @@ async function checkUnanswered() {
   }
 
   const byNumber = new Map();
+  // EVERY answered call, whatever its length. The 20s filter below is right for spotting a dial
+  // that times out, but it is blind to an agent that is hard down: EAC Telford took 69 calls over
+  // six days that all ended at ~0s, so nothing survived the filter, byNumber held no entry for
+  // them at all, and the watchdog stayed silent through a total outage.
+  const allByNumber = new Map();
   for (const c of twilioCalls) {
-    if (Number(c.duration || 0) < UNANS_MIN_SECONDS) continue;
+    if (c.status !== 'completed') continue;
     const k = onlyDigits(c.to);
+    if (!allByNumber.has(k)) allByNumber.set(k, []);
+    allByNumber.get(k).push(Number(c.duration || 0));
+    if (Number(c.duration || 0) < UNANS_MIN_SECONDS) continue;
     if (!byNumber.has(k)) byNumber.set(k, []);
     byNumber.get(k).push(Number(c.duration || 0));
   }
-  if (!byNumber.size) return issues;
+  if (!byNumber.size && !allByNumber.size) return issues;
 
   const garages = await prisma.garage.findMany({
     where: { archivedAt: null, twilioNumber: { not: null } },
@@ -218,6 +236,36 @@ async function checkUnanswered() {
   for (const g of garages) {
     if (SKIP_NAME_RE.test(g.name)) continue;
     const durations = byNumber.get(onlyDigits(g.twilioNumber));
+    const allDur = allByNumber.get(onlyDigits(g.twilioNumber)) || [];
+
+    // HARD DOWN: callers are connecting and not one call is becoming a conversation. There is
+    // deliberately NO duration floor here — that floor is exactly what hid EAC Telford.
+    //
+    // But "nothing logged in the last 90 minutes" is NOT the same as "dead": a quiet window
+    // with three callers hanging up during the greeting looks identical. That fired on Regal
+    // Autosport and RPM Malvern on 18 Sep, both of which had handled a real call that morning.
+    // A garage that logged a conversation in the last few hours is demonstrably alive, so the
+    // wider lookback is what separates a dead agent from a quiet one. EAC Telford stays caught:
+    // it logged nothing for six days.
+    if (allDur.length >= UNANS_MIN_CALLS && Math.max.apply(null, allDur.concat([0])) < UNANS_MIN_SECONDS) {
+      const aliveSince = new Date(Date.now() - HARD_DOWN_ALIVE_HOURS * 3600000);
+      const loggedRecently = await prisma.call.count({ where: { garageId: g.id, createdAt: { gte: aliveSince } } });
+      const loggedAll = loggedRecently === 0
+        ? await prisma.call.count({ where: { garageId: g.id, createdAt: { gte: since } } })
+        : 1;
+      if (loggedAll === 0) {
+        const avg = Math.round(allDur.reduce(function (a, b) { return a + b; }, 0) / allDur.length);
+        issues.push({
+          key: 'hard-down:' + g.id,
+          msg: g.name + ' IS NOT ANSWERING AT ALL - Twilio connected ' + allDur.length
+             + ' calls in the last ' + UNANS_WINDOW_MIN + ' min, every one ended at about '
+             + avg + 's, and we logged NONE. Nothing became a conversation, so the agent is not '
+             + 'picking up: check it is running and that its SIP trunk and dispatch rule exist.',
+        });
+        continue;   // one alert per garage, and this is the more serious of the two
+      }
+    }
+
     if (!durations || durations.length < UNANS_MIN_CALLS) continue;
     const logged = await prisma.call.count({ where: { garageId: g.id, createdAt: { gte: since } } });
     if (logged > 0) continue;   // something got through — not this failure
@@ -385,6 +433,34 @@ async function main() {
 
   const current = {};
   [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...configSync].forEach((i) => { current[i.key] = i.msg; });
+
+  // STICKY OUTAGES. An outage alert must not clear itself just because the evidence scrolled
+  // out of the window. checkUnanswered asks "3+ Twilio calls in the last 90 minutes with none
+  // logged" — so on a garage with sporadic traffic the third call ages out, the condition stops
+  // being met, and we send "recovered" to a line that is still dead. Then the next caller pushes
+  // it back over the threshold and we alert again. Bracknell and RPM Malvern flapped like that
+  // all Saturday morning, which is what makes people stop reading these.
+  //
+  // Nothing recovered unless a call was actually LOGGED since. That is the only positive
+  // evidence a garage is answering again; the absence of new failures is not evidence of
+  // anything. Carrying the key forward keeps it out of BOTH newIssues and resolved, so it stays
+  // silently open until it is genuinely fixed.
+  for (const key of Object.keys(prev)) {
+    if (key in current) continue;
+    if (!key.startsWith('hard-down:') && !key.startsWith('unanswered:')) continue;
+    const garageId = key.split(':')[1];
+    const openedSince = new Date(Date.now() - UNANS_WINDOW_MIN * 60000);
+    let logged = 0;
+    try {
+      logged = await prisma.call.count({ where: { garageId, createdAt: { gte: openedSince } } });
+    } catch (e) {
+      logged = 0;   // can't prove recovery -> assume still down rather than cry all-clear
+    }
+    if (logged === 0) {
+      current[key] = prev[key];
+      console.log(`[watchdog] ${key} held open — no call logged since, so nothing has recovered`);
+    }
+  }
 
   const newIssues = Object.entries(current).filter(([k]) => !(k in prev));
   const resolved = Object.keys(prev).filter((k) => !(k in current));

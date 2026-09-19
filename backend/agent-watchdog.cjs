@@ -191,6 +191,20 @@ const UNANS_MIN_CALLS = 3;
 // whatever the last 90 minutes look like. Long enough to cover a quiet mid-morning, short
 // enough that a genuine outage (EAC Telford went six days) still trips it.
 const HARD_DOWN_ALIVE_HOURS = 4;
+// A call this short never CONNECTED — nothing answered it. Above it, something picked up and
+// the caller chose to leave, which is an ordinary thing callers do and not an outage.
+//
+// This distinction is the whole check. The agent deliberately does not log a call under 45s
+// ("[portal] skip call log — 36s under 45s"), so from the database a run of short hang-ups is
+// indistinguishable from a dead agent. Judging it on "max duration under 20s" called RPM
+// Malvern hard down on 19 Sep while its agent was answering perfectly: the log shows the
+// greeting spoken (TTS ttfb 0.429), the recording started, and the caller hanging up —
+// CLIENT_INITIATED — after 6 to 15 seconds.
+//
+// Five seconds separates the two cleanly on every real case we have: Bracknell's genuine
+// outage ran 0s, 0s, 0s, 3s because nothing ever answered, and EAC Telford's six-day outage
+// sat at ~0s throughout.
+const HARD_DOWN_MAX_SECONDS = 5;
 
 const onlyDigits = (s) => String(s || '').replace(/[^0-9]/g, '').replace(/^0/, '44');
 
@@ -247,7 +261,7 @@ async function checkUnanswered() {
     // A garage that logged a conversation in the last few hours is demonstrably alive, so the
     // wider lookback is what separates a dead agent from a quiet one. EAC Telford stays caught:
     // it logged nothing for six days.
-    if (allDur.length >= UNANS_MIN_CALLS && Math.max.apply(null, allDur.concat([0])) < UNANS_MIN_SECONDS) {
+    if (allDur.length >= UNANS_MIN_CALLS && Math.max.apply(null, allDur.concat([0])) < HARD_DOWN_MAX_SECONDS) {
       const aliveSince = new Date(Date.now() - HARD_DOWN_ALIVE_HOURS * 3600000);
       const loggedRecently = await prisma.call.count({ where: { garageId: g.id, createdAt: { gte: aliveSince } } });
       const loggedAll = loggedRecently === 0

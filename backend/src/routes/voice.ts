@@ -5,6 +5,44 @@ import { sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/em
 
 const router = Router();
 
+/**
+ * Calls the screened human has actually accepted, keyed by the inbound call's SID.
+ *
+ * This exists because "did a person take the call?" cannot be read off DialCallStatus. When the
+ * mobile is declined, the carrier diverts to voicemail, voicemail answers, and Twilio reports a
+ * perfectly ordinary `completed` — so the caller ends up leaving a message instead of reaching
+ * the agent, which is exactly what we are trying to avoid. A keypress is the only signal a
+ * voicemail system cannot produce.
+ *
+ * In-memory is right here: the backend is a single pm2 fork, and an entry is only meaningful for
+ * the few seconds between the whisper and the Dial ending.
+ */
+const screenAccepted = new Map<string, number>();
+const ACCEPT_TTL_MS = 2 * 60 * 1000;
+
+function markAccepted(callSid: string): void {
+  const now = Date.now();
+  for (const [sid, at] of screenAccepted) if (now - at > ACCEPT_TTL_MS) screenAccepted.delete(sid);
+  screenAccepted.set(callSid, now);
+}
+
+function wasAccepted(callSid: string): boolean {
+  const at = screenAccepted.get(callSid);
+  if (at === undefined) return false;
+  screenAccepted.delete(callSid);
+  return Date.now() - at <= ACCEPT_TTL_MS;
+}
+
+/** "+447700900123" -> "0 7 7 0 0 9 0 0 1 2 3", so <Say> reads it digit by digit. */
+function speakNumber(raw: string): string {
+  const digits = (raw || '').replace(/[^\d]/g, '').replace(/^44/, '0');
+  return digits ? digits.split('').join(' ') : '';
+}
+
+function xmlEscape(v: string): string {
+  return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 router.post('/voice', async (req: Request, res: Response) => {
   const { garageId } = req.query;
 
@@ -72,17 +110,22 @@ router.post('/voice', async (req: Request, res: Response) => {
     const dialTarget = toDialable(screenNumber);
     if (dialTarget) {
       const timeout = Math.min(30, Math.max(5, screenSeconds));
-      const action = `${process.env.PORTAL_BASE_URL || 'https://18.171.230.217'}` +
-        `/webhooks/voice/after-screen?garageId=${encodeURIComponent(garageId)}`;
+      const base = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';
+      const action = `${base}/webhooks/voice/after-screen?garageId=${encodeURIComponent(garageId)}`;
       console.log(`[VOICE] Screening ${garageId}: ringing ${dialTarget} for ${timeout}s before the agent`);
       // callerId is the original caller so the answering phone shows who is actually ringing.
       // Twilio permits the inbound From to be re-presented when forwarding an inbound call.
       const callerId = typeof req.body?.From === 'string' ? req.body.From : '';
+      // The whisper runs on the answering phone BEFORE the two are bridged, and asks for a
+      // keypress. Voicemail can answer a call but it cannot press a key, so a declined call
+      // that diverts to the answerphone never gets bridged and falls through to the agent.
+      const whisper = `${base}/webhooks/voice/whisper?garageId=${encodeURIComponent(garageId)}` +
+        `&from=${encodeURIComponent(callerId || '')}`;
       res.type('text/xml');
       return res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial timeout="${timeout}" action="${action}" method="POST"${callerId ? ` callerId="${callerId}"` : ''}>
-    <Number>${dialTarget}</Number>
+  <Dial timeout="${timeout}" action="${action}" method="POST"${callerId ? ` callerId="${xmlEscape(callerId)}"` : ''}>
+    <Number url="${xmlEscape(whisper)}" method="POST">${dialTarget}</Number>
   </Dial>
 </Response>`);
     }
@@ -100,6 +143,53 @@ router.post('/voice', async (req: Request, res: Response) => {
 });
 
 /**
+ * Runs on the answering phone, after it picks up but before the caller is bridged to it.
+ *
+ * Says who is calling and waits for a key. Pressing 1 connects; anything else, or silence,
+ * ends this leg and the caller goes to the agent.
+ */
+router.post('/voice/whisper', async (req: Request, res: Response) => {
+  const garageId = String(req.query.garageId || '');
+  const from = String(req.query.from || '');
+  // The inbound call's SID — the same value the after-screen action will see as CallSid, which
+  // is what lets the two halves agree on which call was accepted.
+  const parent = String(req.body?.ParentCallSid || req.body?.CallSid || '');
+  const base = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';
+  const action = `${base}/webhooks/voice/whisper-accept` +
+    `?garageId=${encodeURIComponent(garageId)}&parent=${encodeURIComponent(parent)}`;
+
+  const spoken = speakNumber(from);
+  const who = spoken ? `Call from ${spoken}.` : 'Call from a withheld number.';
+
+  res.type('text/xml');
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather numDigits="1" timeout="6" action="${xmlEscape(action)}" method="POST">
+    <Say voice="Polly.Amy">${xmlEscape(who)} Press one to take it.</Say>
+  </Gather>
+  <Hangup/>
+</Response>`);
+});
+
+/**
+ * The keypress. 1 connects the two legs; anything else drops this one so the agent gets the call.
+ */
+router.post('/voice/whisper-accept', async (req: Request, res: Response) => {
+  const parent = String(req.query.parent || req.body?.ParentCallSid || '');
+  const digits = String(req.body?.Digits || '');
+
+  if (digits === '1' && parent) {
+    markAccepted(parent);
+    console.log(`[VOICE] Screened call ${parent} accepted by keypress — connecting`);
+    // Empty response: the whisper document ends here and Twilio bridges the two legs.
+    return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+  }
+
+  console.log(`[VOICE] Screened call ${parent} not accepted (digits=${digits || 'none'}) — passing to the agent`);
+  res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
+});
+
+/**
  * Where a screened call lands once the human's phone has stopped ringing.
  *
  * DialCallStatus is 'completed' when they picked up — the conversation has already happened, so
@@ -113,10 +203,13 @@ router.post('/voice/after-screen', async (req: Request, res: Response) => {
     return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
   }
 
-  // 'completed' is a normal answered-and-ended call; 'answered' is the conference equivalent.
-  // Either way a person took it, so the agent must not then ring the caller back.
-  if (status === 'completed' || status === 'answered') {
-    console.log(`[VOICE] Screened call for ${garageId} was answered — not passing to the agent`);
+  // Deliberately NOT driven by DialCallStatus. A declined mobile diverts to its voicemail,
+  // voicemail answers, and Twilio reports 'completed' — indistinguishable from a real
+  // conversation. The keypress recorded by the whisper is the only trustworthy signal that a
+  // person took the call, so that is what decides it.
+  const callSid = String(req.body?.CallSid || '');
+  if (callSid && wasAccepted(callSid)) {
+    console.log(`[VOICE] Screened call for ${garageId} was taken by a person (status=${status}) — done`);
     return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
   }
 
@@ -140,7 +233,7 @@ router.post('/voice/after-screen', async (req: Request, res: Response) => {
       .status(500)
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Call routing is not configured.</Say><Hangup/></Response>');
   }
-  console.log(`[VOICE] Screened call for ${garageId} not answered (${status || 'no status'}) — passing to the agent`);
+  console.log(`[VOICE] Screened call for ${garageId} not taken (status=${status || 'none'}) — passing to the agent`);
   res.type('text/xml');
   res.send(twiml);
 });

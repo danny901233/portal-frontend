@@ -270,9 +270,15 @@ async function buildAgentDialTwiml(garageId: string, agentScript: string | null)
   const isAccount2 = agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent';
   const isMMH = agentScript === 'MMH-agent';
   const isBookar = agentScript === 'bookar-agent';
+  // Our OWN line. Not a garage: the front-door sales agent, which hands to the support agent
+  // in-session when the caller turns out to be an existing customer. Lives on the same LiveKit
+  // project as the support and demo workers so those handoffs need no transfer.
+  const isFrontDoor = agentScript === 'frontdoor-agent';
   const isPoole = agentScript === 'poole-agent';
   const livekitSipDomain =
-    isUnified && process.env.LIVEKIT_SIP_DOMAIN_UNIFIED
+    isFrontDoor && process.env.LIVEKIT_SIP_DOMAIN_FRONTDOOR
+      ? process.env.LIVEKIT_SIP_DOMAIN_FRONTDOOR
+      : isUnified && process.env.LIVEKIT_SIP_DOMAIN_UNIFIED
       ? process.env.LIVEKIT_SIP_DOMAIN_UNIFIED
       : isTyresoftTest && process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
       ? process.env.LIVEKIT_SIP_DOMAIN_TYRESOFT_TEST
@@ -295,7 +301,7 @@ async function buildAgentDialTwiml(garageId: string, agentScript: string | null)
     return null;
   }
 
-  const account = isTyresoftTest ? 'tyresoft-test' : isAccount2 ? 'account2' : isMMH ? 'mmh' : isBookar ? 'bookar' : isPoole ? 'poole' : 'account1';
+  const account = isFrontDoor ? 'frontdoor' : isTyresoftTest ? 'tyresoft-test' : isAccount2 ? 'account2' : isMMH ? 'mmh' : isBookar ? 'bookar' : isPoole ? 'poole' : 'account1';
   console.log(`[VOICE] Routing garage ${garageId} (agentScript=${agentScript}, account=${account}) via ${livekitSipDomain}`);
 
   // Build recording status callback URL

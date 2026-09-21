@@ -317,3 +317,194 @@ function escapeHtml(s: string): string {
 }
 
 export default router;
+
+// ---------------------------------------------------------------------------
+// front door: demo slots + enquiry capture
+//
+// The slots are computed HERE, not in the agent, because the opening hours they have to sit
+// inside live in the portal config and are edited there. An agent with its own idea of when we
+// are open drifts the moment somebody changes the hours, and nobody finds out until a prospect
+// is offered a demo on a Sunday.
+// ---------------------------------------------------------------------------
+
+/** The garage whose config represents US — our own opening hours, not a customer's. */
+const FRONT_DOOR_GARAGE_ID =
+  process.env.FRONT_DOOR_GARAGE_ID || 'd51dfa55-15d0-4d60-ad81-c675579d16f6';
+
+const WEEK = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+function londonToday(): Date {
+  const now = new Date();
+  const s = now.toLocaleDateString('en-CA', { timeZone: 'Europe/London' }); // YYYY-MM-DD
+  return new Date(`${s}T00:00:00Z`);
+}
+
+/**
+ * Bookable demo times, soonest first.
+ *
+ * Never today — a demo agreed for two hours' time is one nobody has prepared for. Slots are on
+ * the hour and must START at or after opening and FINISH at or before closing, so an hour-long
+ * demo never runs past the end of the day.
+ */
+function demoSlotsFrom(hours: Record<string, { open?: string | null; close?: string | null; closed?: boolean }>,
+                       weeks = 3, closures: Set<string> = new Set()): { date: string; time: string }[] {
+  const out: { date: string; time: string }[] = [];
+  const start = londonToday();
+  for (let i = 1; i <= weeks * 7; i++) {
+    const d = new Date(start.getTime() + i * 86400000);
+    const iso = d.toISOString().slice(0, 10);
+    if (closures.has(iso)) continue;
+    const day = hours?.[WEEK[d.getUTCDay()]];
+    if (!day || day.closed || !day.open || !day.close) continue;
+    const openH = Number(String(day.open).slice(0, 2));
+    const closeH = Number(String(day.close).slice(0, 2));
+    const closeM = Number(String(day.close).slice(3, 5)) || 0;
+    if (!Number.isFinite(openH) || !Number.isFinite(closeH)) continue;
+    // Last start is one clear hour before closing.
+    const lastStart = closeM > 0 ? closeH : closeH - 1;
+    for (let h = openH; h <= lastStart; h++) out.push({ date: iso, time: `${String(h).padStart(2, '0')}:00` });
+  }
+  return out;
+}
+
+router.get('/support/voice/demo-slots', async (req: Request, res: Response) => {
+  if (!checkSecret(req)) return res.status(401).json({ error: 'Unauthorised' });
+  try {
+    const cfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId: FRONT_DOOR_GARAGE_ID },
+      select: { weeklyOpeningHours: true, bankHolidayDates: true },
+    });
+    const hours = (cfg?.weeklyOpeningHours ?? {}) as Record<string, { open?: string | null; close?: string | null; closed?: boolean }>;
+    const closures = new Set(
+      (Array.isArray(cfg?.bankHolidayDates) ? cfg!.bankHolidayDates : [])
+        .map((b) => (b as { date?: string })?.date)
+        .filter((d): d is string => typeof d === 'string'),
+    );
+    const slots = demoSlotsFrom(hours, 3, closures);
+    return res.json({ ok: true, slots });
+  } catch (err) {
+    console.error('[frontdoor] demo-slots failed', err);
+    return res.status(500).json({ ok: false, slots: [] });
+  }
+});
+
+const enquirySchema = z.object({
+  kind: z.string().trim().max(20).default('enquiry'),
+  name: z.string().trim().max(200).nullable().optional(),
+  company: z.string().trim().max(200).nullable().optional(),
+  email: z.string().trim().max(200).nullable().optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  branches: z.string().trim().max(100).nullable().optional(),
+  dms: z.string().trim().max(100).nullable().optional(),
+  volume: z.string().trim().max(200).nullable().optional(),
+  interest: z.string().trim().max(2000).nullable().optional(),
+  demo_date: z.string().trim().max(20).nullable().optional(),
+  demo_time: z.string().trim().max(10).nullable().optional(),
+  transcript: z.string().max(20000).nullable().optional(),
+});
+
+router.post('/support/voice/enquiry', async (req: Request, res: Response) => {
+  if (!checkSecret(req)) return res.status(401).json({ error: 'Unauthorised' });
+  const parsed = enquirySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: 'Invalid enquiry' });
+  const d = parsed.data;
+
+  const label = d.company || d.name || d.phone || 'Unknown caller';
+  const demo = d.demo_date && d.demo_time ? `${d.demo_date} at ${d.demo_time}` : null;
+
+  // HighLevel first, but never let it fail the call — the agent is mid-conversation and an
+  // unreachable CRM must not turn into "sorry, something went wrong" in the caller's ear.
+  let opportunityId: string | null = null;
+  try {
+    const { highlevelConfigured, upsertContact, createOpportunity, ENQUIRY_STAGE_ID } =
+      await import('../services/highlevel.js');
+    if (highlevelConfigured()) {
+      const contact = await upsertContact({
+        name: d.name || label,
+        email: d.email || undefined,
+        phone: d.phone || undefined,
+        companyName: d.company || undefined,
+        source: 'Phone enquiry (front door)',
+      } as never);
+      if (contact?.id) {
+        const opp = await createOpportunity({
+          contactId: contact.id,
+          name: demo ? `${label} — demo ${demo}` : `${label} — phone enquiry`,
+          stageId: ENQUIRY_STAGE_ID,
+        } as never);
+        opportunityId = opp?.id ?? null;
+      }
+    }
+  } catch (err) {
+    console.error('[frontdoor] HighLevel push failed (continuing)', err);
+  }
+
+  const body = [
+    demo ? `DEMO PENCILLED IN: ${demo} — needs confirming with them.` : `Kind: ${d.kind}`,
+    '',
+    `Name:      ${d.name || '—'}`,
+    `Business:  ${d.company || '—'}`,
+    `Email:     ${d.email || '—'}`,
+    `Phone:     ${d.phone || '—'}`,
+    `Branches:  ${d.branches || '—'}`,
+    `Diary/DMS: ${d.dms || '—'}`,
+    `Volume:    ${d.volume || '—'}`,
+    '',
+    `What they want:`,
+    d.interest || '—',
+    '',
+    opportunityId ? `HighLevel opportunity: ${opportunityId}` : 'Not pushed to HighLevel.',
+    '',
+    d.transcript ? `--- transcript ---\n${d.transcript}` : '',
+  ].join('\n');
+
+  try {
+    await sendEmail({
+      to: TEAM_INBOX,
+      subject: demo ? `Demo request — ${label} (${demo})` : `Phone enquiry — ${label}`,
+      text: body,
+    } as never);
+  } catch (err) {
+    console.error('[frontdoor] enquiry email failed', err);
+  }
+
+  console.log(`[frontdoor] ${d.kind} from ${label}${demo ? ` — demo ${demo}` : ''}`);
+  return res.json({ ok: true, opportunityId });
+});
+
+/**
+ * Put a phone caller through to the live demo agent.
+ *
+ * The front door and the demo agent register on the SAME LiveKit project
+ * (receptionmate-i9q7193z), which is what makes this possible at all — an explicit dispatch adds
+ * the demo agent to the room the caller is already in, so there is no transfer, no second call
+ * leg and no hold music. The front door then stops talking and the demo agent takes over.
+ */
+router.post('/support/voice/live-demo', async (req: Request, res: Response) => {
+  if (!checkSecret(req)) return res.status(401).json({ error: 'Unauthorised' });
+  const room = String(req.body?.room || '').trim();
+  if (!room) return res.status(400).json({ ok: false, error: 'room required' });
+
+  const url = process.env.LIVEKIT_URL_SUPPORT || process.env.LIVEKIT_URL || '';
+  const key = process.env.LIVEKIT_API_KEY_SUPPORT || process.env.LIVEKIT_API_KEY || '';
+  const secret = process.env.LIVEKIT_API_SECRET_SUPPORT || process.env.LIVEKIT_API_SECRET || '';
+  if (!url || !key || !secret) {
+    console.error('[frontdoor] live demo: LiveKit credentials not configured');
+    return res.status(500).json({ ok: false, error: 'not configured' });
+  }
+
+  try {
+    const { AgentDispatchClient } = await import('livekit-server-sdk');
+    const httpUrl = url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+    const agentName = process.env.DEMO_AGENT_NAME || 'demo-agent-v2';
+    const client = new AgentDispatchClient(httpUrl, key, secret);
+    await client.createDispatch(room, agentName, {
+      metadata: JSON.stringify({ source: 'frontdoor-phone' }),
+    });
+    console.log(`[frontdoor] dispatched ${agentName} into ${room}`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[frontdoor] live demo dispatch failed', err);
+    return res.status(500).json({ ok: false });
+  }
+});

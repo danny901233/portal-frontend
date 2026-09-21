@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { isReceptionMateStaff } from '@/app/lib/auth';
 import type { AgentConfiguration } from '../../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
 import TabShell from './TabShell';
@@ -27,12 +28,15 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       toggleLabel: 'Allow the agent to offer a transfer',
       toggleHint:
         'When ticked, the agent will offer to put callers through if it senses they need a real person. Untick to keep every call AI-handled regardless.',
-      screenLabel: 'Ring this number before the agent answers',
+      screenTitle: 'Ring a number before the agent answers',
       screenHint:
-        'Callers hear your phone ringing first. The agent only picks up if nobody does. Use this when the number customers dial comes straight to us, with no phone system of your own to forward from.',
+        'Only for lines whose published number points straight at ReceptionMate. Garages normally publish their own number and forward to us when nobody picks up, so the ringing already happens on their phone system and this should stay off.',
+      screenLabel: 'Ring a number first',
+      screenNumberLabel: 'Number to ring',
+      screenNumberHint: 'Rung before the agent takes the call. Nothing to do with the transfer number above.',
       screenSecondsLabel: 'Ring for',
       screenSecondsHint:
-        'Seconds before the call passes to the agent. Keep it under your voicemail — if voicemail answers, the caller gets your answerphone instead of the agent.',
+        'Seconds before the call passes to the agent. Keep it under the voicemail — if voicemail answers, the caller gets the answerphone instead of the agent.',
     },
     fr: {
       title: 'Transferts d’appel',
@@ -43,17 +47,24 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       toggleLabel: "Autoriser l'agent à proposer un transfert",
       toggleHint:
         "Lorsque cette case est cochée, l'agent proposera de mettre les appelants en relation s'il sent qu'ils ont besoin d'une vraie personne. Décochez pour que chaque appel reste géré par l'IA quoi qu'il arrive.",
-      screenLabel: "Faire sonner ce numéro avant que l'agent réponde",
-      screenSecondsLabel: 'Sonnerie pendant',
+      screenTitle: "Faire sonner un numéro avant que l'agent réponde",
       screenHint:
-        "Les appelants entendent d'abord votre téléphone sonner. L'agent ne décroche que si personne ne répond. Utile lorsque le numéro composé par vos clients arrive directement chez nous.",
+        "Uniquement pour les lignes dont le numéro publié pointe directement vers ReceptionMate. Les garages publient normalement leur propre numéro et nous transfèrent les appels sans réponse : la sonnerie a alors lieu sur leur standard et cette option doit rester désactivée.",
+      screenLabel: "Faire d'abord sonner un numéro",
+      screenNumberLabel: 'Numéro à appeler',
+      screenNumberHint: "Appelé avant que l'agent ne prenne l'appel. Sans rapport avec le numéro de transfert ci-dessus.",
+      screenSecondsLabel: 'Sonnerie pendant',
       screenSecondsHint:
-        "Secondes avant que l'appel passe à l'agent. Restez en dessous de votre messagerie vocale, sinon l'appelant tombe sur le répondeur.",
+        "Secondes avant que l'appel passe à l'agent. Restez en dessous de la messagerie vocale, sinon l'appelant tombe sur le répondeur.",
     },
   }[lang];
   const [transferNumber, setTransferNumber] = useState(() => config.transferNumber ?? '');
   const [humanEscalation, setHumanEscalation] = useState(() => config.humanEscalation ?? true);
   const [screenBeforeAgent, setScreenBeforeAgent] = useState(() => config.screenBeforeAgent ?? false);
+  const [screenNumber, setScreenNumber] = useState(() => config.screenNumber ?? '');
+  // Staff-only: nearly every garage screens on its own phone system before forwarding to us,
+  // so showing this to customers invites them to break a setup that already works.
+  const [showScreening] = useState(() => isReceptionMateStaff());
   const [screenRingSeconds, setScreenRingSeconds] = useState(() => config.screenRingSeconds ?? 15);
 
   const handleSave = () => {
@@ -61,6 +72,7 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       transferNumber: transferNumber.trim(),
       humanEscalation,
       screenBeforeAgent,
+      screenNumber: screenNumber.trim(),
       screenRingSeconds,
     });
   };
@@ -86,36 +98,53 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
         </p>
       </div>
 
-      <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <input
-          type="checkbox"
-          checked={screenBeforeAgent}
-          disabled={!transferNumber.trim()}
-          onChange={(e) => setScreenBeforeAgent(e.target.checked)}
-          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600 disabled:opacity-40"
-        />
-        <div>
-          <span className="block text-sm font-medium text-slate-700">{c.screenLabel}</span>
-          <p className="mt-0.5 text-xs text-slate-500">{c.screenHint}</p>
+      {showScreening && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+          <p className="text-sm font-medium text-slate-800">{c.screenTitle}</p>
+          <p className="mt-0.5 text-xs text-slate-600">{c.screenHint}</p>
+
+          <label className="mt-3 flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={screenBeforeAgent}
+              onChange={(e) => setScreenBeforeAgent(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+            />
+            <span className="text-sm text-slate-700">{c.screenLabel}</span>
+          </label>
+
           {screenBeforeAgent && (
-            <div className="mt-3 flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-700">{c.screenSecondsLabel}</span>
-              <input
-                type="number"
-                min={5}
-                max={30}
-                value={screenRingSeconds}
-                onChange={(e) => setScreenRingSeconds(Number(e.target.value))}
-                className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
-              />
-              <span className="text-xs text-slate-500">seconds</span>
+            <div className="mt-3 space-y-3 border-t border-amber-200 pt-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-700">{c.screenNumberLabel}</label>
+                <input
+                  type="tel"
+                  value={screenNumber}
+                  onChange={(e) => setScreenNumber(e.target.value)}
+                  placeholder="+44 7123 456789"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                />
+                <p className="mt-1 text-xs text-slate-500">{c.screenNumberHint}</p>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-700">{c.screenSecondsLabel}</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={30}
+                    value={screenRingSeconds}
+                    onChange={(e) => setScreenRingSeconds(Number(e.target.value))}
+                    className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                  />
+                  <span className="text-xs text-slate-500">seconds</span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{c.screenSecondsHint}</p>
+              </div>
             </div>
           )}
-          {screenBeforeAgent && (
-            <p className="mt-2 text-xs text-slate-500">{c.screenSecondsHint}</p>
-          )}
         </div>
-      </label>
+      )}
 
       <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
         <input

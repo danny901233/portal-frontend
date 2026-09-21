@@ -271,6 +271,7 @@ export interface AgentConfiguration {
   enableSmsBookingLinks: boolean;
   transferNumber: string;
   screenBeforeAgent?: boolean;
+  screenNumber?: string;
   screenRingSeconds?: number;
   /** How the agent describes the business on calls. Empty = the repair-garage default. */
   businessType?: string | null;

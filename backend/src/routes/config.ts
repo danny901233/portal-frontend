@@ -418,6 +418,7 @@ const extraAgentFields = (configuration: PrismaAgentConfiguration | null) => {
     pronunciations: c.pronunciations ?? [],
     transferNumber: c.transferNumber ?? '',
     screenBeforeAgent: c.screenBeforeAgent ?? false,
+    screenNumber: c.screenNumber ?? '',
     screenRingSeconds: c.screenRingSeconds ?? 15,
   };
 };
@@ -1321,6 +1322,7 @@ router.put(
       // Ring a human before the agent answers. Must be listed here or every save silently
       // reverts it — normalizedData is an allow-list, not a merge.
       screenBeforeAgent: data.screenBeforeAgent === true,
+      screenNumber: data.screenNumber || null,
       screenRingSeconds: Math.min(30, Math.max(5, Number(data.screenRingSeconds ?? 15) || 15)),
       businessType: data.businessType || null,
       customRules: (data.customRules ?? []) as Prisma.InputJsonValue,

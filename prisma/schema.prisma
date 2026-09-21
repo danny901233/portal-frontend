@@ -480,10 +480,17 @@ model AgentConfiguration {
   enableSmsBookingLinks     Boolean  @default(true)
   humanEscalation           Boolean  @default(true)
   transferNumber            String?
-  // Ring a human BEFORE the agent picks up — the forwarding model, done at our end for lines
-  // whose published number is the Twilio one (so there is no upstream PBX to set a forward on).
-  // Off everywhere by default: this changes inbound routing, so it only applies where asked for.
+  // Ring a human BEFORE the agent picks up.
+  //
+  // Normal garages never need this: they publish their OWN number, it rings their desk, and
+  // their phone system forwards to the ReceptionMate number when nobody answers — so the
+  // screening already happens upstream of us. This is for the handful of lines whose published
+  // number IS the Twilio one, with no phone system in front of it to forward from.
+  //
+  // Deliberately NOT transferNumber, which is a different thing: who the agent puts a caller
+  // through to mid-call, on request. The two are only the same number by coincidence.
   screenBeforeAgent         Boolean  @default(false)
+  screenNumber              String?
   // How long that human's phone rings before the call falls through to the agent. Kept short by
   // default — UK mobile voicemail typically answers around 20-30s, and a voicemail pickup reads
   // as "answered" to Twilio, which would swallow the call instead of passing it to the agent.

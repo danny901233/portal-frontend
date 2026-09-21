@@ -23,7 +23,7 @@ router.post('/voice', async (req: Request, res: Response) => {
       where: { garageId },
       select: {
         agentType: true, agentScript: true,
-        screenBeforeAgent: true, screenRingSeconds: true, transferNumber: true,
+        screenBeforeAgent: true, screenRingSeconds: true, screenNumber: true,
       },
     });
 
@@ -55,7 +55,7 @@ router.post('/voice', async (req: Request, res: Response) => {
     agentScript = agentConfig.agentScript;
     screen = agentConfig.screenBeforeAgent === true;
     screenSeconds = agentConfig.screenRingSeconds ?? 15;
-    screenNumber = agentConfig.transferNumber;
+    screenNumber = agentConfig.screenNumber;
   } catch (error) {
     console.error('[VOICE] Error loading agent type for garage', garageId, error);
     return res
@@ -63,8 +63,9 @@ router.post('/voice', async (req: Request, res: Response) => {
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Configuration error.</Say><Hangup/></Response>');
   }
 
-  // Ring a human first, where the garage has asked for it. The caller hears ringing, not the
-  // agent, and the agent only ever picks up if nobody does. `action` is what makes this safe:
+  // Ring a human first. Only for lines whose published number IS the Twilio one — a normal
+  // garage publishes its own number and forwards to us on no-answer, so the screening happens
+  // on their phone system, not here. `action` is what makes this safe:
   // without it TwiML falls through to the next verb after a call that WAS answered and then
   // hung up, so the agent would ring the caller back after a real conversation had finished.
   if (screen && screenNumber) {
@@ -85,7 +86,7 @@ router.post('/voice', async (req: Request, res: Response) => {
   </Dial>
 </Response>`);
     }
-    console.warn(`[VOICE] Screening on for ${garageId} but transferNumber ${screenNumber} is not dialable — going straight to the agent`);
+    console.warn(`[VOICE] Screening on for ${garageId} but screenNumber ${screenNumber} is not dialable — going straight to the agent`);
   }
 
   const twiml = await buildAgentDialTwiml(garageId, agentScript);

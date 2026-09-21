@@ -1,5 +1,14 @@
 import nodemailer from 'nodemailer';
 import type { TranscriptEntry } from './types.js';
+import { prisma } from '../db.js';
+
+/** What a transport reports back. `providerMessageId` is Mailgun's id, which its webhooks
+ *  later post against to turn "sent" into "delivered" or "bounced". */
+interface SendOutcome {
+  sent: boolean;
+  providerMessageId?: string;
+  error?: string;
+}
 
 export interface EmailAttachment {
   filename: string;
@@ -21,6 +30,17 @@ interface EmailOptions {
   html: string;
   text: string;
   attachments?: EmailAttachment[];
+
+  // --- Audit tagging. All optional so existing callers keep working untouched; anything
+  // that omits `template` is logged as "unknown", which is searchable, so the senders still
+  // to be tagged show up rather than hiding. ---
+  /** Kind of email, e.g. "abandoned_checkout_1", "arrears_warning", "password_reset". */
+  template?: string;
+  /** Links the row to a customer so their mail can be listed on their own page. */
+  garageId?: string | null;
+  businessId?: string | null;
+  userId?: string | null;
+  pendingSignupId?: string | null;
 }
 
 const getMailgunConfig = () => {
@@ -51,9 +71,9 @@ const getO365Config = () => {
   return { host, port, user, pass, from };
 };
 
-const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof getMailgunConfig>): Promise<boolean> => {
+const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof getMailgunConfig>): Promise<SendOutcome> => {
   if (!config) {
-    return false;
+    return { sent: false };
   }
 
   // Mailgun accepts either application/x-www-form-urlencoded (no attachments)
@@ -106,15 +126,26 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
   if (!response.ok) {
     const errorBody = await response.text();
     console.error('Failed to send email via Mailgun:', response.status, errorBody);
-    return false;
+    return { sent: false, error: `mailgun ${response.status}: ${errorBody.slice(0, 500)}` };
   }
 
-  return true;
+  // Mailgun answers {"id": "<20260921...@domain>", "message": "Queued. Thank you."}. The id
+  // is what its delivery webhooks key against, so a parse failure here costs us the status
+  // trail but must never fail the send.
+  let providerMessageId: string | undefined;
+  try {
+    const parsed = (await response.json()) as { id?: string };
+    providerMessageId = parsed?.id;
+  } catch {
+    /* body already consumed or not JSON — the mail still went */
+  }
+
+  return { sent: true, providerMessageId };
 };
 
-const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO365Config>): Promise<boolean> => {
+const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO365Config>): Promise<SendOutcome> => {
   if (!config) {
-    return false;
+    return { sent: false };
   }
 
   const transport = nodemailer.createTransport({
@@ -128,7 +159,7 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
     requireTLS: true,
   });
 
-  await transport.sendMail({
+  const info = await transport.sendMail({
     replyTo: options.replyTo,
     ...(options.from ? { from: options.from } : {}),
     from: config.from,
@@ -146,7 +177,37 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
     })),
   });
 
-  return true;
+  return { sent: true, providerMessageId: info?.messageId };
+};
+
+/** Records the send. Never throws: an audit-trail failure must not lose a customer email,
+ *  so a broken write is logged loudly and swallowed. */
+const recordEmail = async (
+  options: EmailOptions,
+  transport: string,
+  outcome: SendOutcome,
+): Promise<void> => {
+  try {
+    await prisma.emailLog.create({
+      data: {
+        to: options.to,
+        cc: options.cc ?? [],
+        subject: options.subject,
+        template: options.template ?? 'unknown',
+        garageId: options.garageId ?? null,
+        businessId: options.businessId ?? null,
+        userId: options.userId ?? null,
+        pendingSignupId: options.pendingSignupId ?? null,
+        transport,
+        providerMessageId: outcome.providerMessageId ?? null,
+        status: outcome.sent ? 'sent' : 'failed',
+        error: outcome.error ?? null,
+        failedAt: outcome.sent ? null : new Date(),
+      },
+    });
+  } catch (error) {
+    console.error('[EMAIL_LOG] failed to record email send:', error);
+  }
 };
 
 export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
@@ -155,18 +216,24 @@ export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
 
   if (!mailgunConfig && !o365Config) {
     console.warn('Email configuration missing. Configure Mailgun or O365 SMTP to enable sending.');
+    await recordEmail(options, 'none', { sent: false, error: 'no transport configured' });
     return false;
   }
 
+  let lastError: string | undefined;
+
   if (mailgunConfig) {
     try {
-      const sent = await sendViaMailgun(options, mailgunConfig);
-      if (sent) {
+      const outcome = await sendViaMailgun(options, mailgunConfig);
+      if (outcome.sent) {
         console.log(`Email sent successfully via Mailgun to: ${options.to.join(', ')}`);
+        await recordEmail(options, 'mailgun', outcome);
         return true;
       }
+      lastError = outcome.error;
       console.warn('Mailgun send failed, attempting O365 fallback.');
     } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
       console.error('Failed to send email via Mailgun:', error);
       console.warn('Attempting O365 fallback.');
     }
@@ -174,18 +241,23 @@ export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
 
   if (o365Config) {
     try {
-      const sent = await sendViaO365(options, o365Config);
-      if (sent) {
+      const outcome = await sendViaO365(options, o365Config);
+      if (outcome.sent) {
         console.log(`Email sent successfully via O365 to: ${options.to.join(', ')}`);
+        await recordEmail(options, 'o365', outcome);
         return true;
       }
+      lastError = outcome.error ?? lastError;
     } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
       console.error('Failed to send email via O365:', error);
+      await recordEmail(options, 'o365', { sent: false, error: lastError });
       return false;
     }
   }
 
   console.warn('Email send failed and no fallback succeeded.');
+  await recordEmail(options, mailgunConfig ? 'mailgun' : 'o365', { sent: false, error: lastError });
   return false;
 };
 

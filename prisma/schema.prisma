@@ -1329,3 +1329,48 @@ model LoginEvent {
   @@index([userId, createdAt])
   @@index([email])
 }
+
+// Every email the portal sends, written at the single chokepoint in utils/email.ts so a
+// new sender cannot forget to log. Answers "did we actually email them, and did it land?"
+// — a question we previously could only put to Mailgun's dashboard, which keeps days.
+//
+// Deliberately stores the SUBJECT and a template tag, never the rendered body. Invoices,
+// arrears notices and call summaries carry financial and caller detail; a searchable
+// archive of full bodies is a far bigger data-protection surface than a record of what
+// went to whom and when. Re-render from the template if a body is ever needed.
+model EmailLog {
+  id String @id @default(uuid())
+
+  to      String[] @default([])
+  cc      String[] @default([])
+  subject String
+
+  // Kind of email, e.g. "abandoned_checkout_1", "arrears_warning", "password_reset".
+  // Senders that pass nothing land as "unknown" — searchable, so the gaps stay visible
+  // rather than silently blending in.
+  template String @default("unknown")
+
+  // Optional links so a customer's mail can be listed on their own page. All nullable:
+  // ops alerts and prospect mail belong to no garage.
+  garageId        String?
+  businessId      String?
+  userId          String?
+  pendingSignupId String?
+
+  transport         String  // mailgun | o365
+  // Mailgun's own id. The key its webhooks post back against, turning "we sent it" into
+  // "it was delivered at 14:02" or "it bounced".
+  providerMessageId String?
+  // sent | failed | delivered | bounced | complained | opened
+  status            String  @default("sent")
+  error             String?
+
+  sentAt      DateTime  @default(now())
+  deliveredAt DateTime?
+  failedAt    DateTime?
+
+  @@index([sentAt])
+  @@index([template, sentAt])
+  @@index([garageId, sentAt])
+  @@index([providerMessageId])
+}

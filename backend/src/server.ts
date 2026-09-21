@@ -33,6 +33,8 @@ import metaWhatsappWebhook from './routes/webhooks/meta-whatsapp.js';
 import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
 import metaInstagramWebhook from './routes/webhooks/meta-instagram.js';
 import gocardlessWebhook from './routes/webhooks/gocardless.js';
+import mailgunWebhook from './routes/webhooks/mailgun.js';
+import emailLogRouter from './routes/emailLog.js';
 import stripeWebhook from './routes/webhooks/stripe.js';
 import livekitDemoRouter from './routes/livekit-demo.js';
 import featureAnnouncementRouter from './routes/featureAnnouncement.js';
@@ -186,6 +188,10 @@ app.use('/api/webhooks', metaWhatsappWebhook);
 app.use('/api/webhooks', metaFacebookWebhook);
 app.use('/api/webhooks', metaInstagramWebhook);
 app.use('/api/webhooks', gocardlessWebhook);
+// Mailgun posts JSON and we verify its HMAC from the parsed body, so unlike Stripe this
+// belongs after express.json() rather than before it.
+app.use('/api/webhooks', mailgunWebhook);
+app.use('/api', emailLogRouter);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
 

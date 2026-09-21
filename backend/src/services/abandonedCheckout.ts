@@ -176,7 +176,7 @@ export async function sweepAbandonedCheckouts(opts: { dryRun?: boolean } = {}): 
       alreadyEmailed.add(key);   // claim it before sending, so a second row in THIS run is skipped
       const mail = firstEmail(p.businessName, first);
       if (opts.dryRun) { out.first++; console.log(`[ABANDONED] would send #1 to ${p.email} (${p.businessName})`); continue; }
-      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO, from: MAIL_FROM });
+      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO, from: MAIL_FROM, template: 'abandoned_checkout_1', pendingSignupId: p.id });
       if (!sent) { console.warn(`[ABANDONED] send #1 FAILED for ${p.businessName}`); continue; }
       await prisma.pendingSignup.update({ where: { id: p.id }, data: { abandonedEmail1At: new Date() } });
       out.first++;
@@ -188,7 +188,7 @@ export async function sweepAbandonedCheckouts(opts: { dryRun?: boolean } = {}): 
       if (now - p.abandonedEmail1At.getTime() < SECOND_AFTER_MS) { out.skipped++; continue; }
       const mail = secondEmail(p.businessName, first);
       if (opts.dryRun) { out.second++; console.log(`[ABANDONED] would send #2 to ${p.email} (${p.businessName})`); continue; }
-      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO, from: MAIL_FROM });
+      const sent = await sendEmail({ to: [p.email], subject: mail.subject, html: mail.html, text: mail.text, replyTo: REPLY_TO, from: MAIL_FROM, template: 'abandoned_checkout_2', pendingSignupId: p.id });
       if (!sent) { console.warn(`[ABANDONED] send #2 FAILED for ${p.businessName}`); continue; }
       await prisma.pendingSignup.update({ where: { id: p.id }, data: { abandonedEmail2At: new Date() } });
       out.second++;

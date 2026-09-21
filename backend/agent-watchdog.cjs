@@ -102,11 +102,9 @@ async function checkRouting() {
     // people learn to ignore, which costs us the real ones.
     const g = byId.get(c.garageId);
     if (!g || !g.twilioNumber || g.archivedAt) continue;
-    // The unified agent lives in its OWN LiveKit project, not account 1 or 2, and is routed by
-    // the /voice webhook off agentScript with a per-garage trunk and dispatch rule. This check
-    // only knows the two-account world, so it called every unified garage mis-routed regardless
-    // of agentType — Lurgan and Meadowfield both, while their calls were landing perfectly well.
-    // A false alarm here is worse than no alarm: it is the noise a real mis-route hides in.
+    // Unified garages are checked by checkUnifiedRouting() instead — they live in their own
+    // LiveKit project and the account-1/account-2 question does not apply to them. Skipping them
+    // here is right; skipping them ENTIRELY is what let Bracknell sit dead for 24 hours.
     if (c.agentScript === 'unified-agent') continue;
     const type = c.agentType === 'assist' ? 'assist' : 'automate';
     const actual2 = routesToAccount2(c.agentScript);
@@ -115,6 +113,90 @@ async function checkRouting() {
       issues.push({
         key: `route:${c.garageId}`,
         msg: `MIS-ROUTED: "${name}" (${type}, script "${c.agentScript}") points at ${acct}, which has no ${type} agent — its calls will ring unanswered. Fix agentScript.`,
+      });
+    }
+  }
+  return issues;
+}
+
+// ---- UNIFIED ROUTING: does the garage actually have somewhere for its calls to land? --------
+//
+// /voice sends a unified-agent garage to the unified project's SIP domain. If that project has
+// no inbound trunk carrying the garage id, the call has nowhere to go and simply dies — Twilio
+// records a 0-second call and we log nothing at all.
+//
+// That is exactly what happened to In'n'out Bracknell: its agentScript was switched to
+// unified-agent on 18 Sep and no trunk was ever created, so every call from 09:36 that morning
+// was lost. Nothing here noticed, because checkRouting skipped unified garages outright and the
+// hard-down check needs three calls inside 90 minutes on a branch that takes a handful a day.
+// EAC Telford lost a week the same way earlier in the month.
+//
+// A trunk is found by the garage id, which every trunk carries as one of its "numbers" —
+// ensureUnifiedSipRouting writes it that way on purpose so the pair can be found again.
+async function checkUnifiedRouting() {
+  const issues = [];
+  const url = process.env.LIVEKIT_UNIFIED_URL;
+  const key = process.env.LIVEKIT_UNIFIED_API_KEY;
+  const secret = process.env.LIVEKIT_UNIFIED_API_SECRET;
+  // Not configured is not an outage. Say so once rather than alerting on every garage.
+  if (!url || !key || !secret) {
+    console.warn('[watchdog] LIVEKIT_UNIFIED_* not set — unified routing unchecked');
+    return issues;
+  }
+
+  let trunks, rules;
+  try {
+    const { SipClient } = require('livekit-server-sdk');
+    const sip = new SipClient(url, key, secret);
+    // Once per run, not once per garage.
+    trunks = await sip.listSipInboundTrunk();
+    rules = await sip.listSipDispatchRule();
+  } catch (e) {
+    // Never let a LiveKit hiccup take the other checks down, and never alert on one: an API we
+    // could not reach tells us nothing about whether the routing exists.
+    console.error('[watchdog] unified SIP lookup failed:', e.message);
+    return issues;
+  }
+
+  const garages = await prisma.garage.findMany({
+    where: { archivedAt: null, twilioNumber: { not: null } },
+    select: { id: true, name: true, agentConfiguration: { select: { agentScript: true } } },
+  });
+
+  for (const g of garages) {
+    if (g.agentConfiguration?.agentScript !== 'unified-agent') continue;
+    if (SKIP_NAME_RE.test(g.name)) continue;
+
+    const trunk = (trunks || []).find((t) => (t.numbers || []).includes(g.id));
+    if (!trunk) {
+      issues.push({
+        key: 'unified-route:' + g.id,
+        msg: g.name + ' HAS NO UNIFIED TRUNK - its agentScript is "unified-agent", so /voice sends '
+           + 'its calls to the unified project, but nothing there answers to garage id ' + g.id
+           + '. Every call will die on connect and none will be logged. Create the inbound trunk '
+           + 'and dispatch rule.',
+      });
+      continue;   // no trunk means the rule question is moot
+    }
+
+    // A trunk with no rule pointing at it is just as dead, and a rule naming the wrong agent
+    // sends the call to a worker that will never claim it.
+    const rule = (rules || []).find((r) => (r.trunkIds || []).includes(trunk.sipTrunkId));
+    if (!rule) {
+      issues.push({
+        key: 'unified-route:' + g.id,
+        msg: g.name + ' HAS A UNIFIED TRUNK BUT NO DISPATCH RULE - trunk ' + trunk.sipTrunkId
+           + ' exists and nothing routes calls off it, so they will connect and then be dropped.',
+      });
+      continue;
+    }
+    const agents = ((rule.roomConfig && rule.roomConfig.agents) || []).map((a) => a.agentName);
+    if (agents.length && !agents.includes('unified-agent')) {
+      issues.push({
+        key: 'unified-route:' + g.id,
+        msg: g.name + ' DISPATCH RULE NAMES THE WRONG AGENT - rule ' + rule.sipDispatchRuleId
+           + ' dispatches to "' + agents.join(', ') + '" but this garage runs unified-agent, so no '
+           + 'worker will pick its calls up.',
       });
     }
   }
@@ -430,6 +512,10 @@ async function main() {
 
   const prev = loadState(); // { key: msg }
   const routing = await checkRouting();
+  // Routing for unified garages, which checkRouting deliberately skips. Judged around the clock
+  // like the other routing checks: a missing trunk is a fact about configuration, not about how
+  // busy the phones are, and finding it at 6am is better than finding it at 9.
+  const unifiedRouting = await checkUnifiedRouting();
   const configSync = await checkConfigSync();
 
   // Heartbeat only judged during business hours; outside hours, carry prior heartbeat state untouched
@@ -452,7 +538,8 @@ async function main() {
   }
 
   const current = {};
-  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...configSync].forEach((i) => { current[i.key] = i.msg; });
+  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync]
+    .forEach((i) => { current[i.key] = i.msg; });
 
   // STICKY OUTAGES. An outage alert must not clear itself just because the evidence scrolled
   // out of the window. checkUnanswered asks "3+ Twilio calls in the last 90 minutes with none

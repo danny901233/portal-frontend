@@ -502,8 +502,12 @@ router.post('/support/voice/live-demo', async (req: Request, res: Response) => {
     const httpUrl = url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
     const agentName = process.env.DEMO_AGENT_NAME || 'demo-agent-v2';
     const client = new AgentDispatchClient(httpUrl, key, secret);
+    // A different voice from the one they have been talking to. The demo agent picks its voice
+    // out of the dispatch metadata, and without this it defaults to Leah — so the caller heard
+    // the same voice on both sides of the handover and had no cue that anything had changed.
+    // Tom against the front door's Sophie makes the switch audible.
     await client.createDispatch(room, agentName, {
-      metadata: JSON.stringify({ source: 'frontdoor-phone' }),
+      metadata: JSON.stringify({ source: 'frontdoor-phone', voice: process.env.DEMO_VOICE || 'tom' }),
     });
     console.log(`[frontdoor] dispatched ${agentName} into ${room}`);
     return res.json({ ok: true });

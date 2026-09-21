@@ -738,7 +738,10 @@ const c = {
     try {
       const fromUrl = new URLSearchParams(location.search).get('gclid');
       if (fromUrl) { localStorage.setItem('rm_gclid', fromUrl); return fromUrl; }
-      return localStorage.getItem('rm_gclid') || undefined;
+      // The domain-wide cookie first: localStorage is per-origin, and apex/www still serve
+      // the site without redirecting, so it silently loses the id on any host hop.
+      const shared = (typeof window.__rmAttr === 'function') ? window.__rmAttr() : {};
+      return shared.gclid || localStorage.getItem('rm_gclid') || undefined;
     } catch (_e) { return undefined; }
   }
 

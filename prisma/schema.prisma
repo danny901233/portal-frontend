@@ -491,6 +491,10 @@ model AgentConfiguration {
   // through to mid-call, on request. The two are only the same number by coincidence.
   screenBeforeAgent         Boolean  @default(false)
   screenNumber              String?
+  // What the answering phone hears before the keypress. Reading the caller's number back was
+  // the first cut; a line saying what the call IS turns out to be more use when deciding
+  // whether to take it. Blank falls back to the branch name.
+  screenAnnouncement        String?
   // How long that human's phone rings before the call falls through to the agent. Kept short by
   // default — UK mobile voicemail typically answers around 20-30s, and a voicemail pickup reads
   // as "answered" to Twilio, which would swallow the call instead of passing it to the agent.

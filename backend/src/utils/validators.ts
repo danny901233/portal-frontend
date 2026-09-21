@@ -281,6 +281,7 @@ export const upsertAgentConfigurationSchema = z.object({
   // save — the request body is zod-parsed first, so an undeclared field never reaches it.
   screenBeforeAgent: z.boolean().optional(),
   screenNumber: z.union([z.string().max(50), z.literal('')]).nullable().optional(),
+  screenAnnouncement: z.union([z.string().max(200), z.literal('')]).nullable().optional(),
   screenRingSeconds: z.number().int().min(5).max(30).optional(),
   // Free text rather than an enum: Google's types cover the common cases but a garage may be
   // something we haven't anticipated, and this schema silently dropping unlisted fields is

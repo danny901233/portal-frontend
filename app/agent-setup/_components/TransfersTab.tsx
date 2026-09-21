@@ -34,6 +34,8 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       screenLabel: 'Ring a number first',
       screenNumberLabel: 'Number to ring',
       screenNumberHint: 'Rung before the agent takes the call. Nothing to do with the transfer number above.',
+      screenSayLabel: 'What the phone hears',
+      screenSayHint: 'Read out before the keypress, so you know what the call is without answering it. Leave blank to use the branch name.',
       screenSecondsLabel: 'Ring for',
       screenSecondsHint:
         'Seconds before the call passes to the agent. Keep it under the voicemail — if voicemail answers, the caller gets the answerphone instead of the agent.',
@@ -53,6 +55,8 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       screenLabel: "Faire d'abord sonner un numéro",
       screenNumberLabel: 'Numéro à appeler',
       screenNumberHint: "Appelé avant que l'agent ne prenne l'appel. Sans rapport avec le numéro de transfert ci-dessus.",
+      screenSayLabel: 'Annonce entendue au décroché',
+      screenSayHint: "Lue avant la saisie, pour savoir de quel appel il s'agit sans décrocher. Laissez vide pour utiliser le nom de la succursale.",
       screenSecondsLabel: 'Sonnerie pendant',
       screenSecondsHint:
         "Secondes avant que l'appel passe à l'agent. Restez en dessous de la messagerie vocale, sinon l'appelant tombe sur le répondeur.",
@@ -62,6 +66,7 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
   const [humanEscalation, setHumanEscalation] = useState(() => config.humanEscalation ?? true);
   const [screenBeforeAgent, setScreenBeforeAgent] = useState(() => config.screenBeforeAgent ?? false);
   const [screenNumber, setScreenNumber] = useState(() => config.screenNumber ?? '');
+  const [screenAnnouncement, setScreenAnnouncement] = useState(() => config.screenAnnouncement ?? '');
   // Staff-only: nearly every garage screens on its own phone system before forwarding to us,
   // so showing this to customers invites them to break a setup that already works.
   const [showScreening] = useState(() => isReceptionMateStaff());
@@ -73,6 +78,7 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       humanEscalation,
       screenBeforeAgent,
       screenNumber: screenNumber.trim(),
+      screenAnnouncement: screenAnnouncement.trim(),
       screenRingSeconds,
     });
   };
@@ -125,6 +131,18 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
                 />
                 <p className="mt-1 text-xs text-slate-500">{c.screenNumberHint}</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-700">{c.screenSayLabel}</label>
+                <input
+                  type="text"
+                  maxLength={200}
+                  value={screenAnnouncement}
+                  onChange={(e) => setScreenAnnouncement(e.target.value)}
+                  placeholder="New motorhome hire enquiry"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                />
+                <p className="mt-1 text-xs text-slate-500">{c.screenSayHint}</p>
               </div>
               <div>
                 <div className="flex items-center gap-2">

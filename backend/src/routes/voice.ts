@@ -33,12 +33,6 @@ function wasAccepted(callSid: string): boolean {
   return Date.now() - at <= ACCEPT_TTL_MS;
 }
 
-/** "+447700900123" -> "0 7 7 0 0 9 0 0 1 2 3", so <Say> reads it digit by digit. */
-function speakNumber(raw: string): string {
-  const digits = (raw || '').replace(/[^\d]/g, '').replace(/^44/, '0');
-  return digits ? digits.split('').join(' ') : '';
-}
-
 function xmlEscape(v: string): string {
   return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -119,8 +113,7 @@ router.post('/voice', async (req: Request, res: Response) => {
       // The whisper runs on the answering phone BEFORE the two are bridged, and asks for a
       // keypress. Voicemail can answer a call but it cannot press a key, so a declined call
       // that diverts to the answerphone never gets bridged and falls through to the agent.
-      const whisper = `${base}/webhooks/voice/whisper?garageId=${encodeURIComponent(garageId)}` +
-        `&from=${encodeURIComponent(callerId || '')}`;
+      const whisper = `${base}/webhooks/voice/whisper?garageId=${encodeURIComponent(garageId)}`;
       res.type('text/xml');
       return res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -150,7 +143,6 @@ router.post('/voice', async (req: Request, res: Response) => {
  */
 router.post('/voice/whisper', async (req: Request, res: Response) => {
   const garageId = String(req.query.garageId || '');
-  const from = String(req.query.from || '');
   // The inbound call's SID — the same value the after-screen action will see as CallSid, which
   // is what lets the two halves agree on which call was accepted.
   const parent = String(req.body?.ParentCallSid || req.body?.CallSid || '');
@@ -158,14 +150,17 @@ router.post('/voice/whisper', async (req: Request, res: Response) => {
   const action = `${base}/webhooks/voice/whisper-accept` +
     `?garageId=${encodeURIComponent(garageId)}&parent=${encodeURIComponent(parent)}`;
 
-  const spoken = speakNumber(from);
-  const who = spoken ? `Call from ${spoken}.` : 'Call from a withheld number.';
+  const cfg = await prisma.agentConfiguration.findUnique({
+    where: { garageId },
+    select: { screenAnnouncement: true, branchName: true },
+  });
+  const line = (cfg?.screenAnnouncement || '').trim() || `New enquiry for ${cfg?.branchName || 'you'}`;
 
   res.type('text/xml');
   res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Gather numDigits="1" timeout="6" action="${xmlEscape(action)}" method="POST">
-    <Say voice="Polly.Amy">${xmlEscape(who)} Press one to take it.</Say>
+    <Say voice="Polly.Amy">${xmlEscape(line)}. Press one to take it, or two to send it to the assistant.</Say>
   </Gather>
   <Hangup/>
 </Response>`);
@@ -185,7 +180,8 @@ router.post('/voice/whisper-accept', async (req: Request, res: Response) => {
     return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
   }
 
-  console.log(`[VOICE] Screened call ${parent} not accepted (digits=${digits || 'none'}) — passing to the agent`);
+  const why = digits === '2' ? 'declined with 2' : digits ? `pressed ${digits}` : 'no keypress';
+  console.log(`[VOICE] Screened call ${parent} not accepted (${why}) — passing to the agent`);
   res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
 });
 

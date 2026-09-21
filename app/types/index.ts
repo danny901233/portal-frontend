@@ -272,6 +272,7 @@ export interface AgentConfiguration {
   transferNumber: string;
   screenBeforeAgent?: boolean;
   screenNumber?: string;
+  screenAnnouncement?: string;
   screenRingSeconds?: number;
   /** How the agent describes the business on calls. Empty = the repair-garage default. */
   businessType?: string | null;

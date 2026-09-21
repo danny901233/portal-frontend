@@ -419,6 +419,7 @@ const extraAgentFields = (configuration: PrismaAgentConfiguration | null) => {
     transferNumber: c.transferNumber ?? '',
     screenBeforeAgent: c.screenBeforeAgent ?? false,
     screenNumber: c.screenNumber ?? '',
+    screenAnnouncement: c.screenAnnouncement ?? '',
     screenRingSeconds: c.screenRingSeconds ?? 15,
   };
 };
@@ -1323,6 +1324,7 @@ router.put(
       // reverts it — normalizedData is an allow-list, not a merge.
       screenBeforeAgent: data.screenBeforeAgent === true,
       screenNumber: data.screenNumber || null,
+      screenAnnouncement: data.screenAnnouncement || null,
       screenRingSeconds: Math.min(30, Math.max(5, Number(data.screenRingSeconds ?? 15) || 15)),
       businessType: data.businessType || null,
       customRules: (data.customRules ?? []) as Prisma.InputJsonValue,

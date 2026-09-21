@@ -511,3 +511,59 @@ router.post('/support/voice/live-demo', async (req: Request, res: Response) => {
     return res.status(500).json({ ok: false });
   }
 });
+
+/**
+ * Our own line's configuration, for the front door and support agents to read at call start.
+ *
+ * Same principle as the demo slots above: anything editable in the portal must be read from the
+ * portal. Opening hours, the agent's name, custom rules and FAQs were all baked into a Python
+ * prompt, so changing how our own agent behaves meant a code change and a container rebuild —
+ * while every garage on the platform can edit theirs in a browser.
+ */
+router.get('/support/voice/config', async (req: Request, res: Response) => {
+  if (!checkSecret(req)) return res.status(401).json({ error: 'Unauthorised' });
+  try {
+    const cfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId: FRONT_DOOR_GARAGE_ID },
+      select: {
+        agentName: true, greetingLine: true, tonePreference: true, branchName: true,
+        emailAddress: true, websiteUrl: true, phoneNumber: true,
+        weeklyOpeningHours: true, holidayClosures: true, bankHolidayDates: true,
+        customRules: true, faqs: true, pronunciations: true,
+      },
+    });
+    if (!cfg) return res.json({ ok: false, reason: 'no config' });
+
+    // Only the active FAQs, and only question/answer — the agent has no use for the rest and
+    // every extra field is prompt it pays for on each call.
+    const faqs = (Array.isArray(cfg.faqs) ? cfg.faqs : [])
+      .filter((f) => f && (f as { active?: boolean }).active !== false)
+      .map((f) => ({ q: (f as { question?: string }).question, a: (f as { answer?: string }).answer }))
+      .filter((f) => f.q && f.a);
+
+    const rules = (Array.isArray(cfg.customRules) ? cfg.customRules : [])
+      .map((r) => (typeof r === 'string' ? r : (r as { rule?: string; text?: string })?.rule
+                   ?? (r as { text?: string })?.text))
+      .filter((r): r is string => typeof r === 'string' && r.trim().length > 0);
+
+    return res.json({
+      ok: true,
+      agentName: cfg.agentName || 'Robyn',
+      branchName: cfg.branchName || 'ReceptionMate',
+      greetingLine: cfg.greetingLine || '',
+      tone: cfg.tonePreference || 'standard',
+      email: cfg.emailAddress || '',
+      website: cfg.websiteUrl || '',
+      phone: cfg.phoneNumber || '',
+      openingHours: cfg.weeklyOpeningHours ?? {},
+      holidayClosures: cfg.holidayClosures || '',
+      bankHolidays: Array.isArray(cfg.bankHolidayDates) ? cfg.bankHolidayDates : [],
+      rules,
+      faqs,
+      pronunciations: Array.isArray(cfg.pronunciations) ? cfg.pronunciations : [],
+    });
+  } catch (err) {
+    console.error('[frontdoor] config read failed', err);
+    return res.status(500).json({ ok: false });
+  }
+});

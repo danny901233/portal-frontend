@@ -270,6 +270,8 @@ export interface AgentConfiguration {
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
+  screenBeforeAgent?: boolean;
+  screenRingSeconds?: number;
   /** How the agent describes the business on calls. Empty = the repair-garage default. */
   businessType?: string | null;
   humanEscalation?: boolean;

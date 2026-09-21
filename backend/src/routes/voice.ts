@@ -15,10 +15,16 @@ router.post('/voice', async (req: Request, res: Response) => {
   // Fetch garage configuration to determine routing (agent type + which LK account)
   let agentType = 'assist';
   let agentScript: string | null = null;
+  let screen = false;
+  let screenSeconds = 15;
+  let screenNumber: string | null = null;
   try {
     const agentConfig = await prisma.agentConfiguration.findUnique({
       where: { garageId },
-      select: { agentType: true, agentScript: true },
+      select: {
+        agentType: true, agentScript: true,
+        screenBeforeAgent: true, screenRingSeconds: true, transferNumber: true,
+      },
     });
 
     if (!agentConfig) {
@@ -47,6 +53,9 @@ router.post('/voice', async (req: Request, res: Response) => {
       agentType = 'automate';
     }
     agentScript = agentConfig.agentScript;
+    screen = agentConfig.screenBeforeAgent === true;
+    screenSeconds = agentConfig.screenRingSeconds ?? 15;
+    screenNumber = agentConfig.transferNumber;
   } catch (error) {
     console.error('[VOICE] Error loading agent type for garage', garageId, error);
     return res
@@ -54,6 +63,106 @@ router.post('/voice', async (req: Request, res: Response) => {
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Configuration error.</Say><Hangup/></Response>');
   }
 
+  // Ring a human first, where the garage has asked for it. The caller hears ringing, not the
+  // agent, and the agent only ever picks up if nobody does. `action` is what makes this safe:
+  // without it TwiML falls through to the next verb after a call that WAS answered and then
+  // hung up, so the agent would ring the caller back after a real conversation had finished.
+  if (screen && screenNumber) {
+    const dialTarget = toDialable(screenNumber);
+    if (dialTarget) {
+      const timeout = Math.min(30, Math.max(5, screenSeconds));
+      const action = `${process.env.PORTAL_BASE_URL || 'https://18.171.230.217'}` +
+        `/webhooks/voice/after-screen?garageId=${encodeURIComponent(garageId)}`;
+      console.log(`[VOICE] Screening ${garageId}: ringing ${dialTarget} for ${timeout}s before the agent`);
+      // callerId is the original caller so the answering phone shows who is actually ringing.
+      // Twilio permits the inbound From to be re-presented when forwarding an inbound call.
+      const callerId = typeof req.body?.From === 'string' ? req.body.From : '';
+      res.type('text/xml');
+      return res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial timeout="${timeout}" action="${action}" method="POST"${callerId ? ` callerId="${callerId}"` : ''}>
+    <Number>${dialTarget}</Number>
+  </Dial>
+</Response>`);
+    }
+    console.warn(`[VOICE] Screening on for ${garageId} but transferNumber ${screenNumber} is not dialable — going straight to the agent`);
+  }
+
+  const twiml = await buildAgentDialTwiml(garageId, agentScript);
+  if (!twiml) {
+    return res
+      .status(500)
+      .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Call routing is not configured.</Say><Hangup/></Response>');
+  }
+  res.type('text/xml');
+  res.send(twiml);
+});
+
+/**
+ * Where a screened call lands once the human's phone has stopped ringing.
+ *
+ * DialCallStatus is 'completed' when they picked up — the conversation has already happened, so
+ * the call ends here. Anything else (no-answer, busy, failed, canceled) means nobody took it and
+ * the agent gets it, exactly as if screening had been off.
+ */
+router.post('/voice/after-screen', async (req: Request, res: Response) => {
+  const { garageId } = req.query;
+  const status = String(req.body?.DialCallStatus || '');
+  if (!garageId || typeof garageId !== 'string') {
+    return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
+  }
+
+  // 'completed' is a normal answered-and-ended call; 'answered' is the conference equivalent.
+  // Either way a person took it, so the agent must not then ring the caller back.
+  if (status === 'completed' || status === 'answered') {
+    console.log(`[VOICE] Screened call for ${garageId} was answered — not passing to the agent`);
+    return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
+  }
+
+  // Re-check access here too: a call can sit ringing for half a minute, and this is a second
+  // public entry point into the same routing.
+  const garage = await prisma.garage.findUnique({
+    where: { id: garageId },
+    select: { name: true, archivedAt: true, hasVoiceAccess: true },
+  });
+  if (!garage || garage.archivedAt || garage.hasVoiceAccess === false) {
+    return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
+  }
+
+  const cfg = await prisma.agentConfiguration.findUnique({
+    where: { garageId },
+    select: { agentScript: true },
+  });
+  const twiml = await buildAgentDialTwiml(garageId, cfg?.agentScript ?? null);
+  if (!twiml) {
+    return res
+      .status(500)
+      .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Call routing is not configured.</Say><Hangup/></Response>');
+  }
+  console.log(`[VOICE] Screened call for ${garageId} not answered (${status || 'no status'}) — passing to the agent`);
+  res.type('text/xml');
+  res.send(twiml);
+});
+
+/** Normalise a stored number to something Twilio will dial: UK leading 0 -> +44. */
+function toDialable(raw: string): string | null {
+  const t = raw.replace(/[^\d+]/g, '');
+  if (/^\+\d{10,15}$/.test(t)) return t;
+  if (/^0\d{9,10}$/.test(t)) return '+44' + t.slice(1);
+  if (/^44\d{9,10}$/.test(t)) return '+' + t;
+  return null;
+}
+
+/**
+ * Build the TwiML that hands the call to the agent's LiveKit SIP address.
+ *
+ * Lifted out of the /voice handler so the screening fall-through (/voice/after-screen) reaches
+ * exactly the same routing rather than a second copy that could drift. Nothing about which
+ * account a garage lands on is derived from the request — it is all re-read from the database
+ * by garageId, because /voice is a public webhook and a SIP target passed through a query
+ * string would be an open relay.
+ */
+async function buildAgentDialTwiml(garageId: string, agentScript: string | null): Promise<string | null> {
   // Route to LK Account 2 for garages assigned to the RMB Assist agent
   // (deployed on receptionmate-9dznd24r). All other agentScripts continue to
   // dial Account 1's hardcoded SIP host. Falls back to Account 1 if the
@@ -92,13 +201,12 @@ router.post('/voice', async (req: Request, res: Response) => {
               );
 
   if (!livekitSipDomain) {
-    return res
-      .status(500)
-      .send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Call routing is not configured.</Say><Hangup/></Response>');
+    console.error(`[VOICE] No SIP domain resolved for garage ${garageId} (agentScript=${agentScript})`);
+    return null;
   }
 
   const account = isTyresoftTest ? 'tyresoft-test' : isAccount2 ? 'account2' : isMMH ? 'mmh' : isBookar ? 'bookar' : isPoole ? 'poole' : 'account1';
-  console.log(`[VOICE] Routing garage ${garageId} (agentType=${agentType}, agentScript=${agentScript}, account=${account}) via ${livekitSipDomain}`);
+  console.log(`[VOICE] Routing garage ${garageId} (agentScript=${agentScript}, account=${account}) via ${livekitSipDomain}`);
 
   // Build recording status callback URL
   const portalBaseUrl = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';
@@ -119,9 +227,8 @@ router.post('/voice', async (req: Request, res: Response) => {
   </Dial>
 </Response>`;
 
-  res.type('text/xml');
-  res.send(twiml);
-});
+  return twiml;
+}
 
 // Twilio recording status callback
 router.post('/recording-status', async (req: Request, res: Response) => {

@@ -107,9 +107,14 @@ router.post('/voice', async (req: Request, res: Response) => {
       const base = process.env.PORTAL_BASE_URL || 'https://18.171.230.217';
       const action = `${base}/webhooks/voice/after-screen?garageId=${encodeURIComponent(garageId)}`;
       console.log(`[VOICE] Screening ${garageId}: ringing ${dialTarget} for ${timeout}s before the agent`);
-      // callerId is the original caller so the answering phone shows who is actually ringing.
-      // Twilio permits the inbound From to be re-presented when forwarding an inbound call.
-      const callerId = typeof req.body?.From === 'string' ? req.body.From : '';
+      // Show the number they DIALLED, not the number they rang from — so the handset says
+      // "ReceptionMate" or "Midlands Motorhome Hire" and you know which business line it is
+      // before you answer. Twilio permits either the To or the From of the inbound request as
+      // callerId; the caller's own number would otherwise look like any other stranger ringing.
+      // The whisper says what the call is about, so nothing is lost by not showing them.
+      const callerId = typeof req.body?.To === 'string' && req.body.To
+        ? req.body.To
+        : (typeof req.body?.From === 'string' ? req.body.From : '');
       // The whisper runs on the answering phone BEFORE the two are bridged, and asks for a
       // keypress. Voicemail can answer a call but it cannot press a key, so a declined call
       // that diverts to the answerphone never gets bridged and falls through to the agent.

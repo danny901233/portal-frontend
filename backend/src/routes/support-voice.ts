@@ -398,8 +398,9 @@ const enquirySchema = z.object({
   dms: z.string().trim().max(100).nullable().optional(),
   volume: z.string().trim().max(200).nullable().optional(),
   interest: z.string().trim().max(2000).nullable().optional(),
-  demo_date: z.string().trim().max(20).nullable().optional(),
-  demo_time: z.string().trim().max(10).nullable().optional(),
+  // When would suit, in the caller's own words — "Thursday afternoon", "mornings". The agent
+  // does not book, so this is a preference to ring back on, not an appointment.
+  demo_preference: z.string().trim().max(200).nullable().optional(),
   transcript: z.string().max(20000).nullable().optional(),
 });
 
@@ -410,7 +411,7 @@ router.post('/support/voice/enquiry', async (req: Request, res: Response) => {
   const d = parsed.data;
 
   const label = d.company || d.name || d.phone || 'Unknown caller';
-  const demo = d.demo_date && d.demo_time ? `${d.demo_date} at ${d.demo_time}` : null;
+  const demo = d.demo_preference || null;
 
   // HighLevel first, but never let it fail the call — the agent is mid-conversation and an
   // unreachable CRM must not turn into "sorry, something went wrong" in the caller's ear.
@@ -431,7 +432,7 @@ router.post('/support/voice/enquiry', async (req: Request, res: Response) => {
         if (contact.contactId) {
           const opp = await createOpportunity({
             contactId: contact.contactId,
-            name: demo ? `${label} — demo ${demo}` : `${label} — phone enquiry`,
+            name: demo ? `${label} — demo requested` : `${label} — phone enquiry`,
             kind: 'lead',
           });
           opportunityId = opp.id;
@@ -443,7 +444,7 @@ router.post('/support/voice/enquiry', async (req: Request, res: Response) => {
   }
 
   const body = [
-    demo ? `DEMO PENCILLED IN: ${demo} — needs confirming with them.` : `Kind: ${d.kind}`,
+    demo ? `DEMO REQUESTED — ring them to fix a time.\nWhen suits them: ${demo}` : `Kind: ${d.kind}`,
     '',
     `Name:      ${d.name || '—'}`,
     `Business:  ${d.company || '—'}`,
@@ -464,14 +465,14 @@ router.post('/support/voice/enquiry', async (req: Request, res: Response) => {
   try {
     await sendEmail({
       to: TEAM_INBOX,
-      subject: demo ? `Demo request — ${label} (${demo})` : `Phone enquiry — ${label}`,
+      subject: demo ? `Demo request — ${label}` : `Phone enquiry — ${label}`,
       text: body,
     } as never);
   } catch (err) {
     console.error('[frontdoor] enquiry email failed', err);
   }
 
-  console.log(`[frontdoor] ${d.kind} from ${label}${demo ? ` — demo ${demo}` : ''}`);
+  console.log(`[frontdoor] ${d.kind} from ${label}${demo ? ` — demo, suits: ${demo}` : ''}`);
   return res.json({ ok: true, opportunityId });
 });
 

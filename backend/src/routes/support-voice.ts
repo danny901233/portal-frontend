@@ -416,23 +416,26 @@ router.post('/support/voice/enquiry', async (req: Request, res: Response) => {
   // unreachable CRM must not turn into "sorry, something went wrong" in the caller's ear.
   let opportunityId: string | null = null;
   try {
-    const { highlevelConfigured, upsertContact, createOpportunity, ENQUIRY_STAGE_ID } =
+    const { highlevelConfigured, upsertContact, createOpportunity } =
       await import('../services/highlevel.js');
     if (highlevelConfigured()) {
-      const contact = await upsertContact({
-        name: d.name || label,
-        email: d.email || undefined,
-        phone: d.phone || undefined,
-        companyName: d.company || undefined,
-        source: 'Phone enquiry (front door)',
-      } as never);
-      if (contact?.id) {
-        const opp = await createOpportunity({
-          contactId: contact.id,
-          name: demo ? `${label} — demo ${demo}` : `${label} — phone enquiry`,
-          stageId: ENQUIRY_STAGE_ID,
-        } as never);
-        opportunityId = opp?.id ?? null;
+      // HL needs an email or a phone to identify a contact. A caller with neither is not a lead
+      // we can act on, so don't create a contact for one — the email to the team still goes.
+      if (d.email || d.phone) {
+        const contact = await upsertContact({
+          name: d.name || label,
+          email: d.email || undefined,
+          phone: d.phone || undefined,
+          companyName: d.company || undefined,
+        });
+        if (contact.contactId) {
+          const opp = await createOpportunity({
+            contactId: contact.contactId,
+            name: demo ? `${label} — demo ${demo}` : `${label} — phone enquiry`,
+            kind: 'lead',
+          });
+          opportunityId = opp.id;
+        }
       }
     }
   } catch (err) {

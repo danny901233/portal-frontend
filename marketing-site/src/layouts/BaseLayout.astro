@@ -79,7 +79,30 @@ const footerYear = 2026;
       // Stash the Google Ads click id so the signup POST can carry it to the portal.
       // gtag's own _gcl_aw cookie already handles browser-side attribution; this is the
       // server-side record, so we can prove which signups came from an ad click.
-      try{var _gp=new URLSearchParams(location.search);var _g=_gp.get('gclid');if(_g){localStorage.setItem('rm_gclid',_g);}}catch(_e){}
+      //
+      // A COOKIE on the registrable domain, not localStorage. localStorage is per-origin and
+      // receptionmate.co.uk / www.receptionmate.co.uk still answer without redirecting between
+      // them, so an id captured on one host was invisible on the other; Safari also purges
+      // localStorage after 7 days, which a garage owner who takes a fortnight to decide will
+      // always exceed. Between them those two faults cost us 75 of 77 signups: in the six weeks
+      // since capture went live it recorded a real click id zero times. The leading dot shares
+      // the cookie across apex, www and any subdomain, and 90 days outlasts the deliberation.
+      // Still written to localStorage too, so anything already reading it keeps working.
+      try{
+        var _D='.receptionmate.co.uk';
+        var _rmSet=function(k,v){if(!v)return;document.cookie=k+'='+encodeURIComponent(v)+';domain='+_D+';path=/;max-age=7776000;samesite=lax;secure';};
+        var _rmGet=function(k){try{var m=document.cookie.match('(^|; )'+k+'=([^;]*)');return m?decodeURIComponent(m[2]):'';}catch(_e){return '';}};
+        var _gp=new URLSearchParams(location.search);var _g=_gp.get('gclid');
+        if(_g){_rmSet('rm_gclid',_g);try{localStorage.setItem('rm_gclid',_g);}catch(_e){}}
+        // First touch only: the page they landed on and where they came from. Without this a
+        // missing gclid cannot be told apart from "never came from an ad at all".
+        if(!_rmGet('rm_ref')){_rmSet('rm_ref',document.referrer||'(direct)');_rmSet('rm_land',location.href);}
+        window.__rmAttr=function(){
+          var g=_rmGet('rm_gclid');
+          if(!g){try{g=localStorage.getItem('rm_gclid')||'';}catch(_e){}}
+          return {gclid:g||undefined,referrer:_rmGet('rm_ref')||undefined,landing_page:_rmGet('rm_land')||undefined};
+        };
+      }catch(_e){window.__rmAttr=function(){return {};};}
 
       // Google Ads conversions. Until now the only conversion the account could see was a
       // completed signup in the portal — the far end of a five-step funnel — so Smart Bidding

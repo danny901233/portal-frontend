@@ -225,7 +225,10 @@ const c = {
       try {
         const fromUrl = new URLSearchParams(location.search).get('gclid');
         if (fromUrl) localStorage.setItem('rm_gclid', fromUrl);
-        const g = fromUrl || localStorage.getItem('rm_gclid') || '';
+        // Prefer the domain-wide cookie BaseLayout sets — localStorage is per-origin and
+        // apex/www do not redirect to each other, so it loses the id on any host hop.
+        const shared = (typeof window.__rmAttr === 'function') ? window.__rmAttr() : {};
+        const g = fromUrl || shared.gclid || localStorage.getItem('rm_gclid') || '';
         const gclidInput = document.getElementById('lead-modal-gclid');
         if (gclidInput) gclidInput.value = g;
       } catch (_e) {}

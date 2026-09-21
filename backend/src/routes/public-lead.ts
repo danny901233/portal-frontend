@@ -4,6 +4,7 @@
 
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { sendEmail } from '../utils/email.js';
 import { sendOpsSms } from '../utils/opsAlerts.js';
@@ -81,14 +82,42 @@ router.post('/public/lead', async (req: Request, res: Response) => {
     }
   }
 
+  // No prospectId — this is a straight CTA lead (the hero "Talk to Leah" button and friends),
+  // which never passes through /get-started. Until now this path pushed the contact to HighLevel
+  // and dropped the gclid on the floor, so the most prominent button on the site produced leads
+  // that could never be credited to an ad. Tag the contact so the channel is visible in the CRM
+  // at a glance, and keep the click id on our side where we control the schema — it is the key
+  // an offline conversion upload needs.
+  const fromAds = Boolean(gclid);
   const contact = await upsertContact({
     name,
     email,
     phone,
     companyName,
     source: source || 'website',
-    tags: [PRIMARY_TAG],
+    tags: fromAds ? [PRIMARY_TAG, 'google-ads'] : [PRIMARY_TAG],
   });
+
+  // Best-effort: a failure here must not cost us the lead, which is already in HighLevel.
+  try {
+    await prisma.pendingSignup.create({
+      data: {
+        businessName: companyName || name,
+        email: email.toLowerCase(),
+        name,
+        contactPhone: phone,
+        gclid: gclid ?? null,
+        source: source || 'website',
+        // 'enquiry' is the status the prospect path already uses for a lead that has not
+        // started a signup, so these do not inflate the signup funnel.
+        status: 'enquiry',
+        signToken: randomUUID(),
+        expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+      },
+    });
+  } catch (err) {
+    console.error('[LEAD] could not record enquiry locally:', err);
+  }
 
   if (!contact.contactId) {
     return res.json({ ok: true, syncedToCrm: false });

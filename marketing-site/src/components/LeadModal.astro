@@ -310,6 +310,14 @@ const c = {
 
       try {
         const payload = Object.fromEntries(new FormData(form));
+        // Where they actually arrived from, captured on first touch by BaseLayout. A null gclid
+        // cannot distinguish "came from Google organically" from "never touched Google at all",
+        // so the referrer is what makes an unattributed lead explainable rather than a mystery.
+        try {
+          const attr = (typeof window.__rmAttr === 'function') ? window.__rmAttr() : {};
+          if (attr.referrer) payload.referrer = attr.referrer;
+          if (attr.landing_page) payload.landing_page = attr.landing_page;
+        } catch (_e) {}
         // A hidden field always submits, so an absent click id arrives as "" rather than being
         // omitted — and the backend's ?? fallbacks treat "" as a value. Drop the blanks.
         Object.keys(payload).forEach((k) => { if (payload[k] === '') delete payload[k]; });

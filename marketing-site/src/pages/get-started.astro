@@ -745,6 +745,18 @@ const c = {
     } catch (_e) { return undefined; }
   }
 
+  // Referrer and landing page, captured on first touch by BaseLayout. Spread alongside the
+  // click id: without them a null gclid cannot be told apart from "never came from an ad".
+  function rmSource() {
+    try {
+      const a = (typeof window.__rmAttr === 'function') ? window.__rmAttr() : {};
+      const out = {};
+      if (a.referrer) out.referrer = a.referrer;
+      if (a.landing_page) out.landing_page = a.landing_page;
+      return out;
+    } catch (_e) { return {}; }
+  }
+
   const state = {
     businessName: '',
     address: '',
@@ -875,7 +887,7 @@ const c = {
         // Referer — the path never arrives.
         // gclid goes with the FIRST post, not just the later steps: most prospects stop here,
         // and those are exactly the ones we want to trace back to the ad that paid for them.
-        body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined, source: 'website-getstarted', gclid: rmGclid() }),
+        body: JSON.stringify({ businessName: name, googlePlaceId: placeId || undefined, address: addr || undefined, source: 'website-getstarted', gclid: rmGclid(), ...rmSource() }),
       }).then((r) => r.json()).then((d) => { if (d && d.prospectId) state.prospectId = d.prospectId; }).catch(() => {});
     } catch (e) {}
   }
@@ -1052,6 +1064,7 @@ const c = {
           googlePlaceId: state.placeId || undefined,
           prospectId: state.prospectId || undefined,
           gclid: rmGclid(),
+          ...rmSource(),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1119,6 +1132,7 @@ const c = {
           source:      `website-getstarted-${state.tier}-${state.gms}`,
           notes:       `Tier: ${tierLabel}. GMS: ${GMS_LABEL[state.gms] || state.gms}. Address: ${state.address || 'n/a'}.`,
           gclid:       rmGclid(),
+          ...rmSource(),
         }),
       });
       const data = await res.json().catch(() => ({}));

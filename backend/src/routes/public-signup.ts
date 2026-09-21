@@ -50,6 +50,11 @@ const publicSignupSchema = z.object({
   // tell which signups actually came from a paid click — gtag's cookie attribution alone
   // leaves no record on our side.
   gclid: z.string().trim().max(200).optional(),
+  // Captured on first touch in the rm_ref / rm_land cookies. Without them a missing gclid
+  // cannot be told apart from "never came from an ad", which is the question we could not
+  // answer about a real lead on 2026-09-21.
+  referrer: z.string().trim().max(500).optional(),
+  landing_page: z.string().trim().max(500).optional(),
 });
 
 /**
@@ -223,7 +228,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'invalid_request', details: parsed.error.flatten() });
   }
 
-  const { businessName, email, address, googlePlaceId, name, phone, prospectId, gclid } = parsed.data;
+  const { businessName, email, address, googlePlaceId, name, phone, prospectId, gclid, referrer, landing_page: landingPage } = parsed.data;
   const normalizedEmail = email.toLowerCase();
 
   try {
@@ -246,7 +251,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
       pending = await prisma.pendingSignup.update({
         where: { id: pending.id },
         // Never clobber an existing gclid: the earliest click is the one that earned the signup.
-        data: { name: name ?? pending.name, email: normalizedEmail, contactPhone: phone ?? pending.contactPhone, product: 'assist', status: 'pending', gclid: pending.gclid ?? gclid ?? null },
+        data: { name: name ?? pending.name, email: normalizedEmail, contactPhone: phone ?? pending.contactPhone, product: 'assist', status: 'pending', gclid: pending.gclid ?? gclid ?? null, referrer: pending.referrer ?? referrer ?? null, landingPage: pending.landingPage ?? landingPage ?? null },
       });
       // Enrich the existing Abandoned-checkout HL contact with the real name + email + phone
       // (replaces the placeholder from the garage-search step) — updates by id, no duplicate.
@@ -272,6 +277,8 @@ router.post('/public-signup', async (req: Request, res: Response) => {
           status: 'pending',
           product: 'assist',
           gclid: gclid ?? null,
+          referrer: referrer ?? null,
+          landingPage: landingPage ?? null,
           expiresAt: new Date(Date.now() + SIGN_LINK_TTL_MS),
         },
       });

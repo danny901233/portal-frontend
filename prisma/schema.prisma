@@ -990,6 +990,12 @@ model PendingSignup {
   // Which page the signup started on. A cross-origin POST sends only the origin as
   // Referer, so without this a signup cannot be attributed to a landing page at all.
   source       String?
+  // Where they actually arrived from, captured on first touch and carried in the rm_ref /
+  // rm_land cookies. A null gclid cannot distinguish "came from Google organically" from
+  // "never touched Google at all" — a real lead on 2026-09-21 could not be explained without
+  // these. MMH has carried them since the same day; this brings the two products level.
+  referrer     String?
+  landingPage  String?
 
   // Enriched from Google Places at submit time so we don't re-call Google on completion.
   branchAddress      String?

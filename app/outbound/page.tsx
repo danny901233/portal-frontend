@@ -17,6 +17,7 @@ import {
   fetchGarageHiveReminders,
   fetchGarageHiveSettings,
   updateGarageHiveSettings,
+  claimGarageHiveVehicles,
 } from '../lib/api';
 import type { GhDueType, GhReminderStage } from '../lib/api';
 import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTemplate } from '../lib/api';
@@ -357,6 +358,20 @@ export default function OutboundPage() {
       skipNoBranch: (n: number) =>
         `${n} ${n === 1 ? 'has' : 'have'} never been booked in at any of your branches`,
       skipBookedIn: (n: number) => `${n} ${n === 1 ? 'is' : 'are'} already booked in with you`,
+      unclaimedTitle: (n: number) =>
+        `${n} vehicle${n === 1 ? '' : 's'} nobody has claimed`,
+      unclaimedBody:
+        'These are due, and we have a number for them, but they have never been booked in at any of your branches — so we can’t tell whose customer they are and nobody is reminding them. Tick any that are yours and they’ll be included from now on.',
+      unclaimedWarn:
+        'Worth a look before you claim: someone with no history at any branch may never have used you, and an unexpected WhatsApp from a garage is the kind that gets reported.',
+      claimSelected: (n: number) => (n === 1 ? 'These 1 is ours' : `These ${n} are ours`),
+      claiming: 'Saving…',
+      claimed: (n: number) => `${n} vehicle${n === 1 ? '' : 's'} claimed — they’ll be included in future pulls.`,
+      claimSome: (n: number, req: number) =>
+        `${n} of ${req} claimed. The rest were already claimed by another branch.`,
+      claimFailed: 'Could not claim those vehicles.',
+      selectAll: 'Select all',
+      clearAll: 'Clear',
       skipNoPhone: (n: number) => `${n} ${n === 1 ? 'has' : 'have'} no contact number`,
       skipNoCustomer: (n: number) => `${n} ${n === 1 ? 'is' : 'are'} not linked to a customer record`,
       skipOther: (n: number) => `${n} skipped for other reasons`,
@@ -545,6 +560,19 @@ export default function OutboundPage() {
       skipNoBranch: (n: number) =>
         `${n} n’${n === 1 ? 'a' : 'ont'} jamais été pris en charge dans vos succursales`,
       skipBookedIn: (n: number) => `${n} ${n === 1 ? 'est déjà' : 'sont déjà'} pris en charge chez vous`,
+      unclaimedTitle: (n: number) => `${n} véhicule${n === 1 ? '' : 's'} que personne n’a revendiqué`,
+      unclaimedBody:
+        'Ces véhicules arrivent à échéance et nous avons un numéro, mais ils n’ont jamais été pris en charge dans vos succursales : impossible de dire de qui ils sont clients, et personne ne les relance. Cochez ceux qui sont les vôtres pour les inclure désormais.',
+      unclaimedWarn:
+        'À vérifier avant de revendiquer : une personne sans historique n’a peut-être jamais fait appel à vous, et un WhatsApp inattendu d’un garage est du genre à être signalé.',
+      claimSelected: (n: number) => (n === 1 ? 'Celui-ci est à nous' : `Ces ${n} sont à nous`),
+      claiming: 'Enregistrement…',
+      claimed: (n: number) => `${n} véhicule${n === 1 ? '' : 's'} revendiqué${n === 1 ? '' : 's'} — ils seront inclus désormais.`,
+      claimSome: (n: number, req: number) =>
+        `${n} sur ${req} revendiqués. Les autres l’avaient déjà été par une autre succursale.`,
+      claimFailed: 'Impossible de revendiquer ces véhicules.',
+      selectAll: 'Tout sélectionner',
+      clearAll: 'Effacer',
       skipNoPhone: (n: number) => `${n} sans numéro de contact`,
       skipNoCustomer: (n: number) => `${n} sans fiche client liée`,
       skipOther: (n: number) => `${n} ignoré${n > 1 ? 's' : ''} pour d’autres raisons`,
@@ -632,6 +660,9 @@ export default function OutboundPage() {
   const [ghDueTypes, setGhDueTypes] = useState<GhDueType[]>(['mot', 'service']);
   const [ghLoading, setGhLoading] = useState(false);
   const [ghSkipped, setGhSkipped] = useState<{ reg: string; reason: string }[]>([]);
+  const [ghUnclaimed, setGhUnclaimed] = useState<OutboundContactInput[]>([]);
+  const [claimPicks, setClaimPicks] = useState<Set<string>>(new Set());
+  const [claiming, setClaiming] = useState(false);
   // Automatic daily reminder settings (mirrors GarageHiveConnection)
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoDays, setAutoDays] = useState(30);
@@ -780,10 +811,13 @@ export default function OutboundPage() {
     setParseError(null);
     setPreview(null);
     setGhSkipped([]);
+    setGhUnclaimed([]);
     setGhLoading(true);
     try {
-      const { contacts, skipped } = await fetchGarageHiveReminders(garageId, ghDays, ghDueTypes);
+      const { contacts, skipped, unclaimed } = await fetchGarageHiveReminders(garageId, ghDays, ghDueTypes);
       setGhSkipped(skipped);
+      setGhUnclaimed(unclaimed || []);
+      setClaimPicks(new Set());
       if (contacts.length === 0) {
         setParseError(c.noVehicles(ghDays));
       } else {
@@ -798,6 +832,25 @@ export default function OutboundPage() {
       );
     } finally {
       setGhLoading(false);
+    }
+  };
+
+  const handleClaim = async () => {
+    const registrations = [...claimPicks];
+    if (!registrations.length) return;
+    setClaiming(true);
+    try {
+      const { claimed, requested } = await claimGarageHiveVehicles(garageId, registrations);
+      // A claim only takes effect on the next pull, so drop them here rather than leaving rows
+      // that look unclaimed until somebody presses the button again.
+      setGhUnclaimed((prev) => prev.filter((u) => !claimPicks.has((u.registration || '').toUpperCase())));
+      setClaimPicks(new Set());
+      showToast('success', claimed === requested ? c.claimed(claimed) : c.claimSome(claimed, requested));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      showToast('error', msg || c.claimFailed);
+    } finally {
+      setClaiming(false);
     }
   };
 
@@ -1475,6 +1528,74 @@ export default function OutboundPage() {
                     <li key={line}>{line}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {ghUnclaimed.length > 0 && (
+              <div className="mt-4 rounded-lg border border-slate-300 bg-white p-3">
+                <p className="text-xs font-semibold text-slate-700">{c.unclaimedTitle(ghUnclaimed.length)}</p>
+                <p className="mt-1 text-xs text-slate-500">{c.unclaimedBody}</p>
+                <p className="mt-1 text-xs text-amber-600">{c.unclaimedWarn}</p>
+                <div className="mt-2 flex gap-3 text-xs">
+                  <button
+                    type="button"
+                    className="font-medium text-blue-600 hover:text-blue-500"
+                    onClick={() =>
+                      setClaimPicks(new Set(ghUnclaimed.map((u) => (u.registration || '').toUpperCase())))
+                    }
+                  >
+                    {c.selectAll}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-slate-500 hover:text-slate-700"
+                    onClick={() => setClaimPicks(new Set())}
+                  >
+                    {c.clearAll}
+                  </button>
+                </div>
+                <div className="mt-2 max-h-56 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {ghUnclaimed.map((u) => {
+                        const reg = (u.registration || '').toUpperCase();
+                        return (
+                          <tr key={reg} className="border-t border-slate-100">
+                            <td className="py-1 pr-2">
+                              <input
+                                type="checkbox"
+                                checked={claimPicks.has(reg)}
+                                onChange={(e) =>
+                                  setClaimPicks((prev) => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(reg);
+                                    else next.delete(reg);
+                                    return next;
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="py-1 pr-2 font-medium text-slate-700">{reg}</td>
+                            <td className="py-1 pr-2 text-slate-600">{u.customerName}</td>
+                            <td className="py-1 pr-2 text-slate-500">{u.phone}</td>
+                            <td className="py-1 text-slate-500">
+                              {u.motDueDate ? `${c.chasingMot} ${u.motDueDate}` : ''}
+                              {u.serviceDueDate ? `${c.chasingService} ${u.serviceDueDate}` : ''}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClaim}
+                  disabled={claiming || claimPicks.size === 0}
+                  className="mt-3 rounded-lg bg-slate-800 px-4 py-2 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {claiming ? c.claiming : c.claimSelected(claimPicks.size)}
+                </button>
               </div>
             )}
           </div>

@@ -741,10 +741,20 @@ export const fetchGarageHiveReminders = async (
   dueTypes: GhDueType[];
   contacts: OutboundContactInput[];
   skipped: { reg: string; reason: string }[];
+  unclaimed: OutboundContactInput[];
 }> => {
   const { data } = await api.get('/api/outbound/garagehive/preview', {
     params: { garageId, days, dueType: dueTypes.join(',') },
   });
+  return data;
+};
+
+/** "These ones are ours" — resolves vehicles no branch can be inferred to own. */
+export const claimGarageHiveVehicles = async (
+  garageId: string,
+  registrations: string[],
+): Promise<{ claimed: number; requested: number }> => {
+  const { data } = await api.post('/api/outbound/garagehive/claim', { garageId, registrations });
   return data;
 };
 

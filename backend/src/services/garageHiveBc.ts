@@ -1076,6 +1076,23 @@ async function attributeRegistrations(
   for (const row of estimates) consider(row, false);
   for (const row of jobsheets) consider(row, true);
 
+  // A claim is a person having looked at a vehicle nothing could attribute and said it is theirs.
+  // It wins over anything inferred above, and over a later visit elsewhere: the whole point is
+  // that the data did not know, so newer data does not overrule the human who decided.
+  try {
+    const claims = await prisma.garageHiveVehicleClaim.findMany({
+      where: { companyId: creds.companyId, registration: { in: regs } },
+      select: { registration: true, locationCode: true },
+    });
+    for (const claim of claims) {
+      const entry = out.get(normReg(claim.registration));
+      if (entry) entry.branch = claim.locationCode;
+    }
+  } catch (e) {
+    // Claims are an improvement on attribution, not a dependency of it.
+    console.error('[GH] vehicle claim lookup failed:', e);
+  }
+
   return out;
 }
 
@@ -1260,7 +1277,12 @@ export async function getReminderContacts(
   daysAhead = 30,
   now: Date = new Date(),
   dueTypes: DueType[] = ALL_DUE_TYPES,
-): Promise<{ contacts: ReminderContact[]; skipped: { reg: string; reason: string }[] }> {
+): Promise<{
+  contacts: ReminderContact[];
+  skipped: { reg: string; reason: string }[];
+  /** Due, contactable, but claimed by no branch — for a human to look at. Never auto-messaged. */
+  unclaimed: ReminderContact[];
+}> {
   const target = new Date(now);
   target.setUTCDate(target.getUTCDate() + daysAhead);
   const targetDate = isoDate(target);
@@ -1296,6 +1318,10 @@ export async function getReminderContacts(
     : new Map<string, RegAttribution>();
 
   const attributed: Array<{ v: RawVehicle; dueType: DueType; reg: string }> = [];
+  // Due and contactable but attributable to nobody. Surfaced for review rather than messaged:
+  // a vehicle with a due date and no history at any branch is most likely someone who has never
+  // used the group, and a business-initiated template to them is a cold approach, not a reminder.
+  const unattributed: Array<{ v: RawVehicle; dueType: DueType; reg: string }> = [];
 
   for (const { v, dueType } of tagged) {
     const reg = v.registrationNo || '(unknown)';
@@ -1311,6 +1337,7 @@ export async function getReminderContacts(
         // customer they are. Skipped on purpose: messaging someone on another branch's behalf,
         // about work that branch did not do, is worse than not messaging them.
         skipped.push({ reg, reason: 'no branch history — cannot attribute' });
+        unattributed.push({ v, dueType, reg });
         continue;
       }
       if (branch.toUpperCase() !== creds.locationCode.toUpperCase()) {
@@ -1329,8 +1356,12 @@ export async function getReminderContacts(
   }
 
   // Only the survivors' owners are worth fetching — on a three-branch company that is a small
-  // fraction of the vehicles due.
-  const customers = await getCustomers(creds, attributed.map(({ v }) => v.customerNo));
+  // fraction of the vehicles due. The unattributed are included because the review list is
+  // useless without a name and a number to look at.
+  const customers = await getCustomers(
+    creds,
+    [...attributed, ...unattributed].map(({ v }) => v.customerNo),
+  );
 
   for (const { v, dueType, reg } of attributed) {
     const customer = customers.get(v.customerNo);
@@ -1360,5 +1391,24 @@ export async function getReminderContacts(
     contacts.push(contact);
   }
 
-  return { contacts, skipped };
+  const unclaimed: ReminderContact[] = [];
+  for (const { v, dueType, reg } of unattributed) {
+    const customer = customers.get(v.customerNo);
+    const phone = customer?.mobilePhoneNumber || customer?.phoneNumber || '';
+    // No number means nothing could be done with it even after a claim, so it stays off the list.
+    if (!customer || !phone) continue;
+    const entry: ReminderContact = {
+      customerName: customer.displayName || 'Customer',
+      phone,
+      registration: reg,
+      dueType,
+    };
+    if (dueType === 'mot' && v.motDueDate && v.motDueDate !== EMPTY_DATE) entry.motDueDate = v.motDueDate;
+    if (dueType === 'service' && v.serviceDueDate && v.serviceDueDate !== EMPTY_DATE) {
+      entry.serviceDueDate = v.serviceDueDate;
+    }
+    unclaimed.push(entry);
+  }
+
+  return { contacts, skipped, unclaimed };
 }

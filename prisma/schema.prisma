@@ -121,6 +121,7 @@ model Garage {
   messageTemplates       MessageTemplate[]
   outboundCampaigns      OutboundCampaign[]
   garageHiveConnection   GarageHiveConnection?
+  garageHiveVehicleClaims GarageHiveVehicleClaim[]
 
   // Support hub (Phase 2) — a garage can be linked to multiple support Contacts
   // (many people at one garage email us) and to multiple Tickets over time.
@@ -197,6 +198,35 @@ model GarageHiveConnection {
   lastRunError       String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+}
+
+/// A branch saying "this one is ours" about a vehicle Garage Hive cannot attribute.
+///
+/// Inside a shared Business Central company a vehicle is attributed to the branch that last had
+/// it in. Some have a due date and a customer but no history anywhere — no health check and no
+/// job — so no branch can claim them from data, and nobody reminds them. There is no field in
+/// Garage Hive that answers it either: salespersonCode is an advisor, and advisors work across
+/// sites.
+///
+/// So a human decides, once, and this is that decision. It outranks the inferred branch, because
+/// somebody looked.
+///
+/// Unique on (companyId, registration) on purpose: one vehicle, one owning branch. That
+/// constraint is what stops two branches both claiming a customer and both messaging them.
+model GarageHiveVehicleClaim {
+  id           String   @id @default(cuid())
+  /// BC company the vehicle lives in — the scope a registration is unique within.
+  companyId    String
+  registration String
+  /// The branch that owns it, denormalised so attribution needs no extra join.
+  locationCode String
+  garageId     String
+  garage       Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  claimedByEmail String?
+  createdAt    DateTime @default(now())
+
+  @@unique([companyId, registration])
+  @@index([garageId])
 }
 
 model Call {

@@ -203,7 +203,7 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
 
     // Default is both, so an older client that sends no dueType behaves exactly as before.
     const dueTypes = parseDueTypes(req.query.dueType ?? req.query.dueTypes);
-    const { contacts, skipped } = await getReminderContacts(creds, days, new Date(), dueTypes);
+    const { contacts, skipped, unclaimed } = await getReminderContacts(creds, days, new Date(), dueTypes);
 
     // The skip reason names the branch a customer belongs to — how attribution is diagnosed, and
     // too much for one branch's portal: which sites the group runs and how much work sits at each
@@ -227,11 +227,70 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
       reason: s.reason.replace(/^belongs to .+?, not .+$/, 'belongs to another of your branches'),
     }));
 
-    res.json({ source: 'garagehive', days, dueTypes, contacts, skipped: redacted });
+    res.json({ source: 'garagehive', days, dueTypes, contacts, skipped: redacted, unclaimed });
   } catch (error: unknown) {
     const detail = (error as { response?: { data?: unknown } })?.response?.data;
     console.error('[OUTBOUND] Garage Hive preview error:', detail ?? error);
     res.status(502).json({ error: 'Failed to fetch reminders from Garage Hive' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/outbound/garagehive/claim — "these ones are ours"
+//
+// A vehicle that no branch can be inferred to own is never messaged automatically. This is how a
+// human resolves one: the branch claims it, and from then on it attributes to them like any
+// vehicle with history.
+//
+// One vehicle, one owning branch — enforced by a unique index rather than a check-then-write, so
+// two branches claiming the same customer at the same moment cannot both win.
+// ---------------------------------------------------------------------------
+router.post('/outbound/garagehive/claim', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { garageId, registrations } = (req.body || {}) as {
+      garageId?: string;
+      registrations?: string[];
+    };
+    if (!garageId) return res.status(400).json({ error: 'garageId required' });
+    const regs = [...new Set((registrations || [])
+      .map((r) => String(r || '').trim().toUpperCase())
+      .filter(Boolean))];
+    if (!regs.length) return res.status(400).json({ error: 'No registrations given.' });
+
+    const conn = await prisma.garageHiveConnection.findUnique({ where: { garageId } });
+    if (!conn) {
+      return res.status(400).json({
+        error: 'Garage Hive is not connected for this garage.',
+        code: 'GARAGEHIVE_NOT_CONNECTED',
+      });
+    }
+    // Claiming only means anything inside a shared company. A single-site garage already owns
+    // every vehicle in its own, and there is nothing to resolve.
+    const locationCode = (conn.locationCode || '').trim();
+    if (!locationCode) {
+      return res.status(400).json({ error: 'This garage is not a branch within a shared Garage Hive company.' });
+    }
+
+    const claimedByEmail = (req as { user?: { email?: string } }).user?.email || null;
+    const result = await prisma.garageHiveVehicleClaim.createMany({
+      data: regs.map((registration) => ({
+        companyId: conn.companyId,
+        registration,
+        locationCode,
+        garageId,
+        claimedByEmail,
+      })),
+      // Another branch got there first. Their claim stands; this is not an error worth failing
+      // the whole request over, and the caller is told how many actually landed.
+      skipDuplicates: true,
+    });
+
+    console.log(`[OUTBOUND] ${garageId} claimed ${result.count}/${regs.length} vehicle(s) as ${locationCode}`
+      + ` (${claimedByEmail || 'unknown user'})`);
+    res.json({ claimed: result.count, requested: regs.length });
+  } catch (error) {
+    console.error('[OUTBOUND] Garage Hive claim error:', error);
+    res.status(500).json({ error: 'Failed to claim those vehicles' });
   }
 });
 

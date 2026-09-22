@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
 import { cn } from '../lib/utils';
@@ -129,6 +130,43 @@ function parseCSV(text: string, lang: 'en' | 'fr' = 'en'): { rows: OutboundConta
 
   if (rows.length === 0) return { rows: [], error: cc.noRows };
   return { rows };
+}
+
+/**
+ * A hover/tap "i" that explains something the screen cannot say in one line.
+ *
+ * Opens on hover AND on click, because the portal is used on phones where hover does not exist,
+ * and is focusable so it is reachable by keyboard. Deliberately local to this page: it is the
+ * first of its kind here, and one caller is not yet a shared component.
+ */
+function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-block align-middle">
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
+        className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-[10px] font-bold leading-none opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      >
+        i
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          className="absolute left-0 top-6 z-20 w-72 max-w-[calc(100vw-3rem)] rounded-lg border border-slate-200 bg-white p-3 text-left text-xs font-normal leading-relaxed text-slate-600 shadow-lg"
+        >
+          {children}
+        </span>
+      )}
+    </span>
+  );
 }
 
 interface SkipCopy {
@@ -286,6 +324,15 @@ export default function OutboundPage() {
       fetching: 'Fetching…',
       pullFromGh: 'Pull from Garage Hive',
       vehiclesSkipped: (n: number) => `${n} vehicle${n > 1 ? 's' : ''} not included:`,
+      whyAria: 'Why some vehicles aren’t included',
+      whyIntro:
+        'We only message people we can confirm are your customers, so we check each vehicle’s booking history before adding it to the list.',
+      whyNotYoursLabel: 'Not recorded as your customers',
+      whyNotYoursBody: 'the vehicle is in your Garage Hive account, but its most recent booking wasn’t with you.',
+      whyNoHistoryLabel: 'Never been booked in',
+      whyNoHistoryBody: 'the vehicle has no booking history at all, so there is nothing to confirm it either way.',
+      whyOutro:
+        'Leaving these out means nobody gets a reminder from a garage they haven’t used. Once a vehicle has been in with you, it is picked up automatically next time.',
       skipOtherBranch: (n: number) =>
         `${n} ${n === 1 ? 'is' : 'are'} not recorded as your customer${n === 1 ? '' : 's'}`,
       skipNoBranch: (n: number) =>
@@ -449,6 +496,15 @@ export default function OutboundPage() {
       fetching: 'Récupération…',
       pullFromGh: 'Récupérer depuis Garage Hive',
       vehiclesSkipped: (n: number) => `${n} véhicule${n > 1 ? 's' : ''} non inclus :`,
+      whyAria: 'Pourquoi certains véhicules ne sont pas inclus',
+      whyIntro:
+        'Nous contactons uniquement les personnes dont nous pouvons confirmer qu’elles sont vos clients : nous vérifions l’historique de chaque véhicule avant de l’ajouter à la liste.',
+      whyNotYoursLabel: 'Ne figurent pas parmi vos clients',
+      whyNotYoursBody: 'le véhicule est dans votre compte Garage Hive, mais sa dernière intervention n’a pas été réalisée chez vous.',
+      whyNoHistoryLabel: 'Jamais pris en charge',
+      whyNoHistoryBody: 'le véhicule n’a aucun historique, il n’y a donc rien qui permette de trancher.',
+      whyOutro:
+        'Les exclure évite qu’une personne reçoive un rappel d’un garage qu’elle n’a jamais utilisé. Dès qu’un véhicule est passé chez vous, il est pris en compte automatiquement la fois suivante.',
       skipOtherBranch: (n: number) =>
         `${n} ne ${n === 1 ? 'figure' : 'figurent'} pas parmi vos clients`,
       skipNoBranch: (n: number) =>
@@ -1294,7 +1350,24 @@ export default function OutboundPage() {
             </div>
             {ghSkipped.length > 0 && (
               <div className="mt-3 text-xs text-amber-600">
-                <p>{c.vehiclesSkipped(ghSkipped.length)}</p>
+                <p className="flex items-center">
+                  {c.vehiclesSkipped(ghSkipped.length)}
+                  <InfoTip label={c.whyAria}>
+                    <span className="mb-2 block font-semibold text-slate-700">{c.whyAria}</span>
+                    <span className="mb-2 block">{c.whyIntro}</span>
+                    <span className="mb-2 block">
+                      <span className="font-medium text-slate-700">{c.whyNotYoursLabel}</span>
+                      {' — '}
+                      {c.whyNotYoursBody}
+                    </span>
+                    <span className="mb-2 block">
+                      <span className="font-medium text-slate-700">{c.whyNoHistoryLabel}</span>
+                      {' — '}
+                      {c.whyNoHistoryBody}
+                    </span>
+                    <span className="block">{c.whyOutro}</span>
+                  </InfoTip>
+                </p>
                 <ul className="mt-1 list-disc pl-4">
                   {summariseSkips(ghSkipped, c).map((line) => (
                     <li key={line}>{line}</li>

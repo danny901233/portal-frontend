@@ -202,7 +202,27 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
     // Default is both, so an older client that sends no dueType behaves exactly as before.
     const dueTypes = parseDueTypes(req.query.dueType ?? req.query.dueTypes);
     const { contacts, skipped } = await getReminderContacts(creds, days, new Date(), dueTypes);
-    res.json({ source: 'garagehive', days, dueTypes, contacts, skipped });
+
+    // A garage sees its own list and nothing else. Inside a shared Business Central company the
+    // skip reason names the branch a customer belongs to, which is how the attribution is
+    // diagnosed — but it is another site's business, and this response is rendered in one
+    // garage's portal. The count still has to be explained or the missing vehicles read as data
+    // loss, so the branch is collapsed to "another branch" rather than dropped.
+    //
+    // The named version stays in the server log, which is where support actually needs it.
+    const named = skipped.filter((s) => /^belongs to /.test(s.reason));
+    if (named.length) {
+      console.log(
+        `[OUTBOUND] GH preview ${garageId}: ${named.length} vehicle(s) attributed elsewhere — `
+          + named.map((s) => `${s.reg}: ${s.reason}`).join('; '),
+      );
+    }
+    const redacted = skipped.map((s) => ({
+      ...s,
+      reason: s.reason.replace(/^belongs to .+?, not .+$/, 'belongs to another branch'),
+    }));
+
+    res.json({ source: 'garagehive', days, dueTypes, contacts, skipped: redacted });
   } catch (error: unknown) {
     const detail = (error as { response?: { data?: unknown } })?.response?.data;
     console.error('[OUTBOUND] Garage Hive preview error:', detail ?? error);

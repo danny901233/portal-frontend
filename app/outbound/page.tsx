@@ -132,7 +132,7 @@ function parseCSV(text: string, lang: 'en' | 'fr' = 'en'): { rows: OutboundConta
 }
 
 interface SkipCopy {
-  skipOtherBranch: (n: number, branch: string) => string;
+  skipOtherBranch: (n: number) => string;
   skipNoBranch: (n: number) => string;
   skipNoPhone: (n: number) => string;
   skipNoCustomer: (n: number) => string;
@@ -147,17 +147,21 @@ interface SkipCopy {
  * branches share one company, the pull looks at every vehicle due across the WHOLE company, so
  * most "skips" are simply another branch's customers being correctly left alone. Reported as a
  * bare number against the wrong reason, that reads as data loss and makes the list look broken.
+ *
+ * Those are counted as one group, never broken down by branch. This screen belongs to one
+ * garage, and how many customers the site down the road has is not its business — but the
+ * number still needs explaining, or the missing vehicles look lost rather than deliberately
+ * left alone. The server redacts the branch name before it ever reaches here.
  */
 function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCopy): string[] {
-  const byBranch = new Map<string, number>();
+  let otherBranch = 0;
   let noBranch = 0;
   let noPhone = 0;
   let noCustomer = 0;
   let other = 0;
 
   for (const { reason } of skipped) {
-    const branch = /^belongs to (.+?), not /.exec(reason)?.[1];
-    if (branch) byBranch.set(branch, (byBranch.get(branch) || 0) + 1);
+    if (reason.startsWith('belongs to')) otherBranch++;
     else if (reason.includes('no branch history')) noBranch++;
     else if (reason.includes('has no phone')) noPhone++;
     else if (reason.includes('no customer linked') || reason.includes('not found')) noCustomer++;
@@ -167,9 +171,7 @@ function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCo
   const lines: string[] = [];
   // Biggest group first — it is nearly always the branch split, and that is the one that explains
   // the number rather than alarming someone with it.
-  for (const [branch, n] of [...byBranch].sort((a, b) => b[1] - a[1])) {
-    lines.push(copy.skipOtherBranch(n, branch));
-  }
+  if (otherBranch) lines.push(copy.skipOtherBranch(otherBranch));
   if (noBranch) lines.push(copy.skipNoBranch(noBranch));
   if (noPhone) lines.push(copy.skipNoPhone(noPhone));
   if (noCustomer) lines.push(copy.skipNoCustomer(noCustomer));
@@ -283,8 +285,8 @@ export default function OutboundPage() {
       fetching: 'Fetching…',
       pullFromGh: 'Pull from Garage Hive',
       vehiclesSkipped: (n: number) => `${n} vehicle${n > 1 ? 's' : ''} not included:`,
-      skipOtherBranch: (n: number, branch: string) =>
-        `${n} ${n === 1 ? 'is' : 'are'} ${branch}'s customer${n === 1 ? '' : 's'}`,
+      skipOtherBranch: (n: number) =>
+        `${n} ${n === 1 ? 'is a' : 'are'} customer${n === 1 ? '' : 's'} of another branch`,
       skipNoBranch: (n: number) =>
         `${n} ${n === 1 ? 'has' : 'have'} never been booked in at any branch, so we can't tell whose customer they are`,
       skipNoPhone: (n: number) => `${n} ${n === 1 ? 'has' : 'have'} no contact number`,
@@ -446,7 +448,8 @@ export default function OutboundPage() {
       fetching: 'Récupération…',
       pullFromGh: 'Récupérer depuis Garage Hive',
       vehiclesSkipped: (n: number) => `${n} véhicule${n > 1 ? 's' : ''} non inclus :`,
-      skipOtherBranch: (n: number, branch: string) => `${n} sont des clients de ${branch}`,
+      skipOtherBranch: (n: number) =>
+        `${n} ${n === 1 ? 'est client' : 'sont clients'} d’une autre succursale`,
       skipNoBranch: (n: number) =>
         `${n} n’${n === 1 ? 'a' : 'ont'} jamais été pris en charge dans une succursale — impossible de les attribuer`,
       skipNoPhone: (n: number) => `${n} sans numéro de contact`,

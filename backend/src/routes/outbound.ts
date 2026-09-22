@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import twilio from 'twilio';
 import { prisma } from '../db.js';
+import { Prisma } from '@prisma/client';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
@@ -477,7 +478,9 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
         ...(reminderDueTypes !== undefined && {
           reminderDueTypes: parseDueTypes(reminderDueTypes).join(','),
         }),
-        ...(stages !== null && { reminderSchedule: stages }),
+        // Prisma types a Json column as InputJsonValue, which an interface array does not satisfy
+        // structurally (no index signature). The value is plain data either way.
+        ...(stages !== null && { reminderSchedule: stages as unknown as Prisma.InputJsonValue }),
         ...(reminderTemplateId !== undefined && { reminderTemplateId }),
         ...(typeof advisoryUpsellsEnabled === 'boolean' && { advisoryUpsellsEnabled }),
         ...(typeof callerRecognitionEnabled === 'boolean' && { callerRecognitionEnabled }),

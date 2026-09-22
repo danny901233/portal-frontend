@@ -311,7 +311,7 @@ export default function OutboundPage() {
       stagesHelp:
         'Each reminder goes out a set number of days before the customer’s due date, and has its own message. We stop as soon as they reply or book.',
       stageNth: (i: number) => `Reminder ${i}`,
-      stageDays: 'Days before due',
+      stageDaysLabel: 'Days before due',
       stageMessage: 'Message',
       addStage: '+ Add another reminder',
       removeStage: 'Remove',
@@ -493,7 +493,7 @@ export default function OutboundPage() {
       stagesHelp:
         'Chaque rappel part un nombre de jours défini avant l’échéance du client et possède son propre message. Nous arrêtons dès qu’il répond ou réserve.',
       stageNth: (i: number) => `Rappel ${i}`,
-      stageDays: 'Jours avant l’échéance',
+      stageDaysLabel: 'Jours avant l’échéance',
       stageMessage: 'Message',
       addStage: '+ Ajouter un rappel',
       removeStage: 'Supprimer',
@@ -1290,7 +1290,7 @@ export default function OutboundPage() {
                       <div key={i} className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
                         <span className="text-xs font-medium text-slate-500">{c.stageNth(i + 1)}</span>
                         <div>
-                          <label className="mb-1 block text-[11px] text-slate-500">{c.stageDays}</label>
+                          <label className="mb-1 block text-[11px] text-slate-500">{c.stageDaysLabel}</label>
                           <input
                             type="number"
                             min={0}

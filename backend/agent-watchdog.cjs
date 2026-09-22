@@ -569,6 +569,78 @@ async function checkWhatsAppTokens({ force = false } = {}) {
   return issues;
 }
 
+/**
+ * Facebook / Instagram credential health.
+ *
+ * The same blind spot as WhatsApp, and it cost a real enquiry before anyone looked: on 2026-09-22
+ * a customer asked Midlands Motorhome Hire about a Peak District trip, the agent composed a full
+ * answer in seven seconds, and the send failed with code 190 because the page token had died in
+ * the same password change that killed four WhatsApp tokens. The reply sat in our database
+ * looking perfectly answered. Nobody was told; the customer just got silence.
+ *
+ * So two things are checked, because Messenger goes quiet in two different ways:
+ *   - the page token is invalid (it is derived from a login, so it dies when that login changes)
+ *   - the token is fine but OUR APP IS NO LONGER SUBSCRIBED to the page, which delivers no
+ *     webhooks at all. Page grants are per-user-per-app and re-issuing a token while ticking only
+ *     some pages silently revokes the others — that has scrambled connections before.
+ */
+const OUR_APP_ID = '1600229954436428';
+
+async function checkMetaPages({ force = false } = {}) {
+  const issues = [];
+  if (!force && Number(londonParts().minute) >= 5) return issues;
+
+  const appId = process.env.META_APP_ID;
+  const appSecret = process.env.META_APP_SECRET;
+  if (!appId || !appSecret) return issues;
+  const appTok = `${appId}|${appSecret}`;
+
+  const cons = await prisma.socialMediaConnection.findMany({
+    where: { platform: { in: ['facebook', 'instagram'] }, isActive: true },
+    select: { garageId: true, platform: true, pageId: true, accessToken: true },
+  });
+
+  for (const c of cons) {
+    const g = await prisma.garage.findUnique({ where: { id: c.garageId }, select: { name: true, archivedAt: true } });
+    if (!g || g.archivedAt) continue;
+    const who = `${g.name} (${c.platform})`;
+
+    // An active connection with no page is not connected to anything. It cannot receive and it
+    // cannot reply, and it will sit there looking enabled in the portal for ever.
+    if (!c.pageId) {
+      issues.push({ key: `meta-page:${c.garageId}:${c.platform}`, msg: `${who}: connection is active but has no page id — it can neither receive nor reply.` });
+      continue;
+    }
+
+    const dbg = await graphGet(`/debug_token?input_token=${encodeURIComponent(c.accessToken)}&access_token=${encodeURIComponent(appTok)}`);
+    const info = dbg && dbg.data;
+    if (!info || info.is_valid !== true) {
+      const why = (info && info.error && info.error.message) || (dbg.error && dbg.error.message) || 'token reported invalid';
+      issues.push({ key: `meta-token:${c.garageId}:${c.platform}`, msg: `${who}: page token INVALID — the agent composes replies that never reach the customer. ${why}` });
+      continue;
+    }
+
+    const subs = await graphGet(`/${c.pageId}/subscribed_apps?access_token=${encodeURIComponent(c.accessToken)}`);
+    if (subs.error) {
+      issues.push({ key: `meta-token:${c.garageId}:${c.platform}`, msg: `${who}: page ${c.pageId} unreachable with the stored token — ${subs.error.message}` });
+      continue;
+    }
+    if (!(subs.data || []).some((a) => String(a.id) === OUR_APP_ID)) {
+      issues.push({ key: `meta-sub:${c.garageId}:${c.platform}`, msg: `${who}: our app is NOT subscribed to page ${c.pageId} — Meta is delivering no webhooks, so inbound messages never arrive.` });
+    }
+
+    if (info.expires_at && info.expires_at > 0) {
+      const days = Math.round((info.expires_at * 1000 - Date.now()) / 86400000);
+      for (const t of WA_EXPIRY_WARN_DAYS) {
+        if (days <= t) {
+          issues.push({ key: `meta-expiry${t}:${c.garageId}:${c.platform}`, msg: `${who}: page token expires in ${days} day(s), on ${new Date(info.expires_at * 1000).toISOString().slice(0, 10)}.` });
+        }
+      }
+    }
+  }
+  return issues;
+}
+
 async function sendEmail(subject, text) {
   const key = process.env.MAILGUN_API_KEY, domain = process.env.MAILGUN_DOMAIN;
   const from = process.env.MAILGUN_FROM || `alerts@${domain}`;
@@ -607,8 +679,11 @@ async function main() {
   // Print the WhatsApp credential findings and send nothing. For checking the check itself —
   // running the whole watchdog to see one function would page people.
   if (process.argv.includes('--wa-check')) {
-    const found = await checkWhatsAppTokens({ force: true });
-    console.log(found.length ? found.map((i) => `${i.key}\n  ${i.msg}`).join('\n') : 'no WhatsApp credential issues');
+    const found = [
+      ...(await checkWhatsAppTokens({ force: true })),
+      ...(await checkMetaPages({ force: true })),
+    ];
+    console.log(found.length ? found.map((i) => `${i.key}\n  ${i.msg}`).join('\n') : 'no messaging credential issues');
     await prisma.$disconnect();
     return;
   }
@@ -630,6 +705,7 @@ async function main() {
   // Credential health is a fact about configuration too — judged around the clock, and a dead
   // token found at 6am is a dead token fixed before the first customer writes in.
   const waTokens = await checkWhatsAppTokens();
+  const metaPages = await checkMetaPages();
 
   // Heartbeat only judged during business hours; outside hours, carry prior heartbeat state untouched
   // so we don't fire false "down"/"recovered" pings overnight.
@@ -651,7 +727,7 @@ async function main() {
   }
 
   const current = {};
-  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync, ...waTokens]
+  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync, ...waTokens, ...metaPages]
     .forEach((i) => { current[i.key] = i.msg; });
 
   // STICKY OUTAGES. An outage alert must not clear itself just because the evidence scrolled

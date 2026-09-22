@@ -18,7 +18,7 @@ import axios from 'axios';
 import cron from 'node-cron';
 import { sweepAbandonedCheckouts } from './abandonedCheckout.js';
 import { prisma } from '../db.js';
-import { normalisePhone, activeHalt, haltOutboundForGarage } from './outboundSend.js';
+import { normalisePhone, buildTemplateFields, activeHalt, haltOutboundForGarage } from './outboundSend.js';
 import { daysUntil } from '../utils/dueDate.js';
 
 /** Used when a reminder campaign somehow has no stages recorded. */
@@ -53,7 +53,11 @@ type Candidate = {
   id: string; customerName: string; phone: string; registration: string | null;
   motDueDate: string | null; serviceDueDate: string | null; messageType: string;
   dueDate: Date | null; stagesSent: number[]; updatedAt: Date;
-  campaign: { id: string; campaignType: string; reminderStages: number[] } | null;
+  campaign: {
+    id: string; campaignType: string; reminderStages: number[];
+    stageTemplates: Record<string, string> | null;
+    variableMapping: Record<string, string> | null;
+  } | null;
 };
 
 export async function runReminderSweep(): Promise<{ garages: number; sent: number; wouldSend: number; expired: number }> {
@@ -62,7 +66,7 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
 
   const garages = await prisma.garage.findMany({
     where: { hasMessagingAccess: true, accessRestricted: false },
-    select: { id: true, name: true, dailyMessageLimit: true },
+    select: { id: true, name: true, dailyMessageLimit: true, twilioNumber: true },
   });
 
   for (const garage of garages) {
@@ -85,7 +89,12 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
       select: {
         id: true, customerName: true, phone: true, registration: true, motDueDate: true,
         serviceDueDate: true, messageType: true, dueDate: true, stagesSent: true, updatedAt: true,
-        campaign: { select: { id: true, campaignType: true, reminderStages: true } },
+        campaign: {
+          select: {
+            id: true, campaignType: true, reminderStages: true,
+            stageTemplates: true, variableMapping: true,
+          },
+        },
       },
       orderBy: { dueDate: 'asc' },
     })) as unknown as Candidate[];
@@ -124,6 +133,24 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
 
     // An approved template is required — Meta rejects template sends otherwise, and this is a
     // business-initiated message so it cannot be free-form.
+    //
+    // A staged campaign names a template PER STAGE, because the whole point of a second and third
+    // chase is that they do not say the same thing. Campaigns without that (every CSV upload, and
+    // any run created before staging existed) keep using the seeded pair.
+    const stageTemplateIds = new Set<string>();
+    for (const { c, stage } of due) {
+      const id = c.campaign?.stageTemplates?.[String(stage)];
+      if (id) stageTemplateIds.add(id);
+    }
+    const stageTemplates = stageTemplateIds.size
+      ? new Map(
+          (await prisma.messageTemplate.findMany({
+            where: { id: { in: [...stageTemplateIds] }, status: 'approved' },
+            select: { id: true, name: true, language: true, variableSamples: true },
+          })).map((t) => [t.id, t]),
+        )
+      : new Map();
+
     const template = await prisma.messageTemplate.findFirst({
       where: { garageId: garage.id, status: 'approved', name: { in: ['mot_reminder', 'service_reminder'] } },
       select: { name: true, language: true },
@@ -133,8 +160,10 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
       select: { whatsappPhoneNumberId: true, accessToken: true },
     });
 
-    if (!template || !wa?.whatsappPhoneNumberId || wa.whatsappPhoneNumberId === 'pending_setup') {
-      console.log(`[REMINDERS] ${garage.name}: ${due.length} due but ${!template ? 'no approved template' : 'no WhatsApp connection'} — skipping`);
+    // Only the fallback path needs the seeded pair; a staged campaign brings its own.
+    const haveAnyTemplate = !!template || stageTemplates.size > 0;
+    if (!haveAnyTemplate || !wa?.whatsappPhoneNumberId || wa.whatsappPhoneNumberId === 'pending_setup') {
+      console.log(`[REMINDERS] ${garage.name}: ${due.length} due but ${!haveAnyTemplate ? 'no approved template' : 'no WhatsApp connection'} — skipping`);
       continue;
     }
 
@@ -152,16 +181,47 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
     for (const { c, stage } of batch) {
       if (!armed) {
         wouldSend++;
-        console.log(`[REMINDERS][DRY] ${garage.name}: would send ${stage}-day ${c.messageType} to ${c.phone} (due ${c.dueDate?.toISOString().slice(0, 10)})`);
+        const dryTemplate = stageTemplates.get(c.campaign?.stageTemplates?.[String(stage)] || '')?.name
+          || template?.name || '(no template)';
+        console.log(`[REMINDERS][DRY] ${garage.name}: would send ${stage}-day ${c.messageType} to ${c.phone} `
+          + `via ${dryTemplate} (due ${c.dueDate?.toISOString().slice(0, 10)})`);
         continue;
       }
       try {
-        const firstName = c.customerName?.trim().split(/\s+/)[0] || c.customerName;
-        const dueStr = c.motDueDate || c.serviceDueDate || '';
-        // Variable order matches the seeded templates exactly:
-        // 1 customer, 2 agent, 3 branch, 4 registration, 5 due date.
-        const parameters = [firstName, 'Leah', garage.name, (c.registration || '').toUpperCase(), dueStr]
-          .map((text) => ({ type: 'text', text: text || '' }));
+        const staged = stageTemplates.get(c.campaign?.stageTemplates?.[String(stage)] || '');
+        if (!staged && !template) {
+          console.log(`[REMINDERS] ${garage.name}: no approved template for the ${stage}-day stage — skipping ${c.registration}`);
+          continue;
+        }
+
+        let parameters: Array<{ type: string; text: string }>;
+        if (staged) {
+          // The stage's own template, filled from its saved field assignments — the same mapping
+          // the manual campaign sender uses, so a template behaves identically wherever it is
+          // sent from and the garage is not editing two different ideas of variable {{1}}.
+          const fields = buildTemplateFields({
+            customerName: c.customerName,
+            phone: c.phone,
+            registration: c.registration,
+            motDueDate: c.motDueDate,
+            serviceDueDate: c.serviceDueDate,
+            garageName: garage.name,
+            garagePhone: garage.twilioNumber,
+          });
+          const samples = (staged.variableSamples as Record<string, string> | null) || {};
+          const varNums = [...new Set(Object.keys(samples)
+            .map((k) => /^\{\{(\d+)\}\}_field$/.exec(k)?.[1])
+            .filter((n): n is string => !!n))].sort((a, b) => Number(a) - Number(b));
+          parameters = varNums.map((n) => ({ type: 'text', text: fields[samples[`{{${n}}}_field`]] || '' }));
+        } else {
+          const firstName = c.customerName?.trim().split(/\s+/)[0] || c.customerName;
+          const dueStr = c.motDueDate || c.serviceDueDate || '';
+          // Variable order matches the seeded templates exactly:
+          // 1 customer, 2 agent, 3 branch, 4 registration, 5 due date.
+          parameters = [firstName, 'Leah', garage.name, (c.registration || '').toUpperCase(), dueStr]
+            .map((text) => ({ type: 'text', text: text || '' }));
+        }
+
         const res = await axios.post(
           `https://graph.facebook.com/v18.0/${wa.whatsappPhoneNumberId}/messages`,
           {
@@ -169,9 +229,9 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
             to: normalisePhone(c.phone),
             type: 'template',
             template: {
-              name: template.name,
-              language: { code: template.language || 'en_GB' },
-              components: [{ type: 'body', parameters }],
+              name: staged ? staged.name : template!.name,
+              language: { code: (staged ? staged.language : template!.language) || 'en_GB' },
+              ...(parameters.length > 0 && { components: [{ type: 'body', parameters }] }),
             },
           },
           { headers: { Authorization: `Bearer ${wa.accessToken}` } },

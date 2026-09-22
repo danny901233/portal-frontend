@@ -18,7 +18,7 @@ import {
   fetchGarageHiveSettings,
   updateGarageHiveSettings,
 } from '../lib/api';
-import type { GhDueType } from '../lib/api';
+import type { GhDueType, GhReminderStage } from '../lib/api';
 import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTemplate } from '../lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLang } from '@/app/i18n/LocaleProvider';
@@ -169,6 +169,8 @@ function InfoTip({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+const MAX_REMINDER_STAGES = 4;
+
 interface SkipCopy {
   skipOtherBranch: (n: number) => string;
   skipNoBranch: (n: number) => string;
@@ -305,6 +307,16 @@ export default function OutboundPage() {
       autoReminders: 'Automatic daily reminders',
       autoRemindersBody: 'Every morning at 9am we pull vehicles due in Garage Hive and message the customer automatically. Delivery, read and reply status is tracked for each one.',
       remindWithin: 'Remind when due within (days)',
+      stagesLabel: 'Reminders',
+      stagesHelp:
+        'Each reminder goes out a set number of days before the customer’s due date, and has its own message. We stop as soon as they reply or book.',
+      stageNth: (i: number) => `Reminder ${i}`,
+      stageDays: 'Days before due',
+      stageMessage: 'Message',
+      addStage: '+ Add another reminder',
+      removeStage: 'Remove',
+      stagesMax: (n: number) => `Up to ${n} reminders.`,
+      stagesOrder: 'Reminders are sent largest gap first — the first one here is what we pull from Garage Hive.',
       whatsappTemplate: 'WhatsApp template',
       selectApproved: 'Select an approved template…',
       saving: 'Saving…',
@@ -477,6 +489,16 @@ export default function OutboundPage() {
       autoReminders: 'Rappels quotidiens automatiques',
       autoRemindersBody: 'Chaque matin à 9 h, nous récupérons les véhicules à échéance dans Garage Hive et envoyons automatiquement un message au client. Le statut de livraison, de lecture et de réponse est suivi pour chacun.',
       remindWithin: 'Rappeler si l’échéance est dans (jours)',
+      stagesLabel: 'Rappels',
+      stagesHelp:
+        'Chaque rappel part un nombre de jours défini avant l’échéance du client et possède son propre message. Nous arrêtons dès qu’il répond ou réserve.',
+      stageNth: (i: number) => `Rappel ${i}`,
+      stageDays: 'Jours avant l’échéance',
+      stageMessage: 'Message',
+      addStage: '+ Ajouter un rappel',
+      removeStage: 'Supprimer',
+      stagesMax: (n: number) => `Jusqu’à ${n} rappels.`,
+      stagesOrder: 'Les rappels partent du plus lointain au plus proche — le premier ici est celui que nous récupérons dans Garage Hive.',
       whatsappTemplate: 'Modèle WhatsApp',
       selectApproved: 'Sélectionnez un modèle approuvé…',
       saving: 'Enregistrement…',
@@ -600,6 +622,7 @@ export default function OutboundPage() {
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoDays, setAutoDays] = useState(30);
   const [autoDueTypes, setAutoDueTypes] = useState<GhDueType[]>(['mot', 'service']);
+  const [autoStages, setAutoStages] = useState<GhReminderStage[]>([{ days: 30, templateId: null }]);
   const [autoTemplateId, setAutoTemplateId] = useState('');
   const [preview, setPreview] = useState<OutboundContactInput[] | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -646,6 +669,11 @@ export default function OutboundPage() {
     setAutoDays(ghSettings.reminderDaysAhead ?? 30);
     setAutoDueTypes(ghSettings.reminderDueTypes?.length ? ghSettings.reminderDueTypes : ['mot', 'service']);
     setAutoTemplateId(ghSettings.reminderTemplateId ?? '');
+    setAutoStages(
+      ghSettings.reminderSchedule?.length
+        ? ghSettings.reminderSchedule
+        : [{ days: ghSettings.reminderDaysAhead ?? 30, templateId: ghSettings.reminderTemplateId ?? null }],
+    );
   }, [ghSettings]);
 
   const saveSettingsMutation = useMutation({
@@ -663,6 +691,10 @@ export default function OutboundPage() {
   const approvedTemplates: MessageTemplate[] = (templatesData?.templates || []).filter(
     (t) => t.status === 'approved',
   );
+
+  // Largest gap first: that is the order they are sent in, and the first one is the mark the
+  // daily pull uses, so saving them out of order would quietly change which vehicles are caught.
+  const sortedStages = [...autoStages].sort((a, b) => b.days - a.days);
 
   const selectedTemplate = approvedTemplates.find((t) => t.id === selectedTemplateId) || null;
 
@@ -1239,17 +1271,6 @@ export default function OutboundPage() {
 
               <div className="mt-4 flex flex-wrap items-end gap-4">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500">{c.remindWithin}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={365}
-                    value={autoDays}
-                    onChange={(e) => setAutoDays(Number(e.target.value))}
-                    className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
-                  />
-                </div>
-                <div>
                   <label className="mb-1 block text-xs font-medium text-slate-500">{c.chasing}</label>
                   <select
                     value={autoDueTypes.join(',')}
@@ -1261,18 +1282,77 @@ export default function OutboundPage() {
                     <option value="mot">{c.dueTypeMot}</option>
                   </select>
                 </div>
-                <div className="w-full md:min-w-[220px] md:flex-1">
-                  <label className="mb-1 block text-xs font-medium text-slate-500">{c.whatsappTemplate}</label>
-                  <select
-                    value={autoTemplateId}
-                    onChange={(e) => setAutoTemplateId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
-                  >
-                    <option value="">{c.selectApproved}</option>
-                    {approvedTemplates.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
+                <div className="w-full">
+                  <label className="mb-1 block text-xs font-medium text-slate-500">{c.stagesLabel}</label>
+                  <p className="mb-2 text-xs text-slate-500">{c.stagesHelp}</p>
+                  <div className="space-y-2">
+                    {autoStages.map((stage, i) => (
+                      <div key={i} className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
+                        <span className="text-xs font-medium text-slate-500">{c.stageNth(i + 1)}</span>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-slate-500">{c.stageDays}</label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={365}
+                            value={stage.days}
+                            onChange={(e) =>
+                              setAutoStages((prev) =>
+                                prev.map((st, j) => (j === i ? { ...st, days: Number(e.target.value) } : st)),
+                              )
+                            }
+                            className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                          />
+                        </div>
+                        <div className="min-w-[200px] flex-1">
+                          <label className="mb-1 block text-[11px] text-slate-500">{c.stageMessage}</label>
+                          <select
+                            value={stage.templateId ?? ''}
+                            onChange={(e) =>
+                              setAutoStages((prev) =>
+                                prev.map((st, j) => (j === i ? { ...st, templateId: e.target.value || null } : st)),
+                              )
+                            }
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                          >
+                            <option value="">{c.selectApproved}</option>
+                            {approvedTemplates.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        {autoStages.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setAutoStages((prev) => prev.filter((_, j) => j !== i))}
+                            className="text-xs text-slate-500 underline hover:text-red-600"
+                          >
+                            {c.removeStage}
+                          </button>
+                        )}
+                      </div>
                     ))}
-                  </select>
+                  </div>
+                  <div className="mt-2 flex items-center gap-3">
+                    {autoStages.length < MAX_REMINDER_STAGES && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAutoStages((prev) => [
+                            ...prev,
+                            // Half the gap of the closest existing reminder: a sensible next chase,
+                            // and never a duplicate of one already there.
+                            { days: Math.max(0, Math.floor(Math.min(...prev.map((st) => st.days)) / 2)), templateId: null },
+                          ])
+                        }
+                        className="text-xs font-medium text-blue-600 hover:text-blue-500"
+                      >
+                        {c.addStage}
+                      </button>
+                    )}
+                    <span className="text-[11px] text-slate-400">{c.stagesMax(MAX_REMINDER_STAGES)}</span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">{c.stagesOrder}</p>
                 </div>
                 <button
                   type="button"
@@ -1280,9 +1360,12 @@ export default function OutboundPage() {
                     saveSettingsMutation.mutate({
                       garageId,
                       remindersEnabled: autoEnabled,
-                      reminderDaysAhead: autoDays,
                       reminderDueTypes: autoDueTypes,
-                      reminderTemplateId: autoTemplateId || null,
+                      reminderSchedule: sortedStages,
+                      // Kept in step with the first stage so anything still reading the old
+                      // single-value settings sees the same schedule, not a stale one.
+                      reminderDaysAhead: sortedStages[0]?.days ?? autoDays,
+                      reminderTemplateId: sortedStages[0]?.templateId ?? null,
                     })
                   }
                   disabled={saveSettingsMutation.isPending}

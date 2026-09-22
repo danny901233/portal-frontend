@@ -171,6 +171,13 @@ model GarageHiveConnection {
   // Which due-dates the daily run chases: "mot", "service" or "mot,service". A garage selling
   // servicing often does not want MOT-only customers chased, and before this they got both.
   reminderDueTypes   String    @default("mot,service")
+  // Staged reminders: [{ "days": 30, "templateId": "..." }, ...], largest first.
+  //
+  // Each stage carries its OWN template on purpose. A 30-day heads-up and a 3-day last call are
+  // not the same message, and sending the identical text three times is how a WhatsApp number
+  // gets reported. Null/empty keeps the original behaviour: one message at reminderDaysAhead
+  // using reminderTemplateId.
+  reminderSchedule   Json?
   reminderTemplateId String? // approved WhatsApp MessageTemplate id used for auto-sends
   reminderChannel    String    @default("whatsapp") // "whatsapp" | "sms"
   // Which branch this garage IS, inside a shared Business Central company. Garage Hive groups
@@ -906,6 +913,10 @@ model OutboundCampaign {
   haltedAt          DateTime?
   haltReason        String?
   campaignType      String            @default("oneoff") // "oneoff" | "reminder"
+  // { "30": "<templateId>", "14": "..." } — which template each stage sends.
+  // Held on the campaign, not read live from the garage's settings, so a run in flight keeps the
+  // templates it started with even if the garage edits them halfway through.
+  stageTemplates    Json?
   // Days-before-due at which to message, largest first. Only read when campaignType=reminder,
   // and per-campaign so a garage can run a single 14-day nudge without touching the others.
   reminderStages    Int[]             @default([30, 14, 3])

@@ -19,10 +19,42 @@ export interface ReminderRunResult {
   skippedNoContact: number;
   campaignId?: string;
   sent?: number;
+  /** Staged runs hand every send to the sweep, so nothing goes out from this job. */
+  queuedForSweep?: number;
   error?: string;
 }
 
 type Connection = Awaited<ReturnType<typeof prisma.garageHiveConnection.findFirst>>;
+
+/** One chase: how many days before the due date, and which template says it. */
+export interface ReminderStage {
+  days: number;
+  templateId: string | null;
+}
+
+/** At most this many chases. Four messages about one MOT is not a reminder, it is pestering. */
+export const MAX_REMINDER_STAGES = 4;
+
+/**
+ * Read a garage's staged schedule, largest-first and cleaned up.
+ *
+ * Returns [] when nothing is configured, which is the signal to fall back to the original
+ * single-send behaviour rather than to send nothing.
+ */
+export function parseReminderSchedule(value: unknown): ReminderStage[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<number>();
+  const stages: ReminderStage[] = [];
+  for (const raw of value) {
+    const days = Number((raw as { days?: unknown })?.days);
+    if (!Number.isFinite(days) || days < 0 || days > 365 || seen.has(days)) continue;
+    seen.add(days);
+    const templateId = (raw as { templateId?: unknown })?.templateId;
+    stages.push({ days, templateId: typeof templateId === 'string' && templateId ? templateId : null });
+  }
+  // Largest first: the sweep counts DOWN to the due date, so stage order is the send order.
+  return stages.sort((a, b) => b.days - a.days).slice(0, MAX_REMINDER_STAGES);
+}
 
 /**
  * Derive the template variable → contact-field mapping the same way the manual
@@ -41,6 +73,14 @@ async function deriveVariableMapping(templateId: string): Promise<Record<string,
   return mapping;
 }
 
+/** The date this reminder counts down to, as a Date the sweep can compare. */
+function dueDateOf(c: { dueType: string; motDueDate?: string; serviceDueDate?: string }): Date | null {
+  const raw = c.dueType === 'mot' ? c.motDueDate : c.serviceDueDate;
+  if (!raw) return null;
+  const d = new Date(`${raw}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** Run the reminder flow for a single garage connection. */
 export async function runGarageReminders(conn: NonNullable<Connection>): Promise<ReminderRunResult> {
   const garageId = conn.garageId;
@@ -56,7 +96,12 @@ export async function runGarageReminders(conn: NonNullable<Connection>): Promise
   const creds = await resolveCreds(garageId);
   if (!creds) return { ...base, error: 'No Garage Hive credentials resolved' };
 
-  const daysAhead = conn.reminderDaysAhead ?? 30;
+  // A staged schedule pulls at its FIRST stage. That stage is the entry point: a vehicle has to
+  // be picked up as it crosses the widest mark, because every later chase counts down the same
+  // contact row. Pull at 14 with a 30-day stage configured and the 30 never fires.
+  const schedule = parseReminderSchedule(conn.reminderSchedule);
+  const daysAhead = schedule.length ? schedule[0].days : (conn.reminderDaysAhead ?? 30);
+
   // The daily run chases exactly what the garage picked in the portal. Unset means both, which is
   // how every connection behaved before the setting existed.
   const dueTypes = parseDueTypes(conn.reminderDueTypes);
@@ -90,6 +135,9 @@ export async function runGarageReminders(conn: NonNullable<Connection>): Promise
       customerName: c.customerName,
       phone: normalisePhone(c.phone),
       registration: c.registration,
+      // The sweep counts down from this. Without it a contact is invisible to every later stage,
+      // which is one of the reasons these reminders never chased anybody.
+      dueDate: dueDateOf(c),
       motDueDate: c.motDueDate || null,
       serviceDueDate: c.serviceDueDate || null,
       messageType: c.dueType,
@@ -105,9 +153,8 @@ export async function runGarageReminders(conn: NonNullable<Connection>): Promise
   }
 
   const dateLabel = new Date().toISOString().slice(0, 10);
-  const variableMapping = conn.reminderTemplateId
-    ? await deriveVariableMapping(conn.reminderTemplateId)
-    : {};
+  const firstTemplateId = schedule.length ? schedule[0].templateId : conn.reminderTemplateId;
+  const variableMapping = firstTemplateId ? await deriveVariableMapping(firstTemplateId) : {};
 
   const campaign = await prisma.outboundCampaign.create({
     data: {
@@ -115,12 +162,30 @@ export async function runGarageReminders(conn: NonNullable<Connection>): Promise
       name: `Garage Hive reminders — ${dateLabel}`,
       channel: conn.reminderChannel || 'whatsapp',
       totalContacts: contactData.length,
-      messageTemplateId: conn.reminderTemplateId || undefined,
+      messageTemplateId: firstTemplateId || undefined,
       variableMapping: Object.keys(variableMapping).length ? variableMapping : undefined,
+      // Staged runs are reminders in the sweep's sense; a single-send run stays 'oneoff' so it
+      // keeps behaving exactly as it did and is never chased.
+      ...(schedule.length && {
+        campaignType: 'reminder',
+        reminderStages: schedule.map((st) => st.days),
+        stageTemplates: Object.fromEntries(
+          schedule.filter((st) => st.templateId).map((st) => [String(st.days), st.templateId]),
+        ),
+      }),
       contacts: { create: contactData },
     },
   });
   base.campaignId = campaign.id;
+
+  // A staged run does not send here. The sweep owns every stage including the first, so there is
+  // one send path rather than two that have to agree about what has already gone out — and the
+  // sweep runs 15 minutes after this job for exactly that reason. Contacts stay 'pending', which
+  // is what keeps them visible to it; stagesSent is the only thing that stops a repeat.
+  if (schedule.length) {
+    await markRun(conn.id, null);
+    return { ...base, ok: true, sent: 0, queuedForSweep: contactData.length };
+  }
 
   const result = await sendCampaignById(campaign.id);
   if (!result.ok) {

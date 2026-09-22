@@ -725,6 +725,12 @@ export const sendOutboundCampaign = async (id: string): Promise<{ success: boole
  */
 export type GhDueType = 'mot' | 'service';
 
+/** One chase in a staged reminder run: how many days before due, and which template says it. */
+export interface GhReminderStage {
+  days: number;
+  templateId: string | null;
+}
+
 export const fetchGarageHiveReminders = async (
   garageId: string,
   days = 30,
@@ -748,6 +754,7 @@ export interface GarageHiveSettings {
   remindersEnabled?: boolean;
   reminderDaysAhead?: number;
   reminderDueTypes?: GhDueType[];
+  reminderSchedule?: GhReminderStage[];
   reminderTemplateId?: string | null;
   reminderChannel?: string;
   callerRecognitionEnabled?: boolean;
@@ -766,6 +773,7 @@ export const updateGarageHiveSettings = async (payload: {
   remindersEnabled?: boolean;
   reminderDaysAhead?: number;
   reminderDueTypes?: GhDueType[];
+  reminderSchedule?: GhReminderStage[];
   reminderTemplateId?: string | null;
   advisoryUpsellsEnabled?: boolean;
   callerRecognitionEnabled?: boolean;

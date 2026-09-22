@@ -6,6 +6,7 @@ import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
 import { splitPersonName } from '../utils/personName.js';
+import { parseReminderSchedule, MAX_REMINDER_STAGES } from '../services/garageHiveReminders.js';
 import { resolveCreds, getReminderContacts, parseDueTypes, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection, getLastServiceSuggestion, getServicePairLabels } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
@@ -376,6 +377,7 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
       remindersEnabled: conn.remindersEnabled,
       reminderDaysAhead: conn.reminderDaysAhead,
       reminderDueTypes: parseDueTypes(conn.reminderDueTypes),
+      reminderSchedule: parseReminderSchedule(conn.reminderSchedule),
       reminderTemplateId: conn.reminderTemplateId,
       reminderChannel: conn.reminderChannel,
       callerRecognitionEnabled: conn.callerRecognitionEnabled,
@@ -399,6 +401,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       remindersEnabled,
       reminderDaysAhead,
       reminderDueTypes,
+      reminderSchedule,
       reminderTemplateId,
       advisoryUpsellsEnabled,
       callerRecognitionEnabled,
@@ -407,6 +410,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       remindersEnabled?: boolean;
       reminderDaysAhead?: number;
       reminderDueTypes?: string[] | string;
+      reminderSchedule?: Array<{ days?: number; templateId?: string | null }>;
       reminderTemplateId?: string | null;
       advisoryUpsellsEnabled?: boolean;
       callerRecognitionEnabled?: boolean;
@@ -424,9 +428,31 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
     if (typeof reminderDaysAhead === 'number' && (reminderDaysAhead < 0 || reminderDaysAhead > 365)) {
       return res.status(400).json({ error: 'reminderDaysAhead must be between 0 and 365' });
     }
-    // Auto-send over WhatsApp needs an approved template.
-    if (remindersEnabled && !reminderTemplateId) {
-      return res.status(400).json({ error: 'Select an approved WhatsApp template before enabling automatic reminders.' });
+    const stages = reminderSchedule !== undefined ? parseReminderSchedule(reminderSchedule) : null;
+    if (reminderSchedule !== undefined && Array.isArray(reminderSchedule) && reminderSchedule.length && !stages?.length) {
+      return res.status(400).json({ error: `Each reminder needs a valid number of days (0-365), and there can be at most ${MAX_REMINDER_STAGES}.` });
+    }
+
+    // Auto-send over WhatsApp needs an approved template — one per stage when staged, because a
+    // stage with no template is a chase that silently never goes out.
+    const effectiveStages = stages ?? parseReminderSchedule(conn.reminderSchedule);
+    if (remindersEnabled) {
+      if (effectiveStages.length) {
+        const missing = effectiveStages.filter((st) => !st.templateId).map((st) => `${st.days}-day`);
+        if (missing.length) {
+          return res.status(400).json({
+            error: `Choose an approved WhatsApp template for the ${missing.join(' and ')} reminder before turning these on.`,
+          });
+        }
+        const approved = await prisma.messageTemplate.count({
+          where: { garageId, status: 'approved', id: { in: effectiveStages.map((st) => st.templateId as string) } },
+        });
+        if (approved !== new Set(effectiveStages.map((st) => st.templateId)).size) {
+          return res.status(400).json({ error: 'One of the selected templates is no longer approved. Pick another.' });
+        }
+      } else if (!reminderTemplateId) {
+        return res.status(400).json({ error: 'Select an approved WhatsApp template before enabling automatic reminders.' });
+      }
     }
     // Caller recognition + advisory upsells are only for garages on the Garage Hive agent.
     if (advisoryUpsellsEnabled || callerRecognitionEnabled) {
@@ -451,6 +477,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
         ...(reminderDueTypes !== undefined && {
           reminderDueTypes: parseDueTypes(reminderDueTypes).join(','),
         }),
+        ...(stages !== null && { reminderSchedule: stages }),
         ...(reminderTemplateId !== undefined && { reminderTemplateId }),
         ...(typeof advisoryUpsellsEnabled === 'boolean' && { advisoryUpsellsEnabled }),
         ...(typeof callerRecognitionEnabled === 'boolean' && { callerRecognitionEnabled }),
@@ -461,6 +488,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       remindersEnabled: updated.remindersEnabled,
       reminderDaysAhead: updated.reminderDaysAhead,
       reminderDueTypes: parseDueTypes(updated.reminderDueTypes),
+      reminderSchedule: parseReminderSchedule(updated.reminderSchedule),
       reminderTemplateId: updated.reminderTemplateId,
       reminderChannel: updated.reminderChannel,
       callerRecognitionEnabled: updated.callerRecognitionEnabled,

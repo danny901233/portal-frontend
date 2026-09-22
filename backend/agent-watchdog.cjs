@@ -17,6 +17,7 @@
  */
 require('dotenv').config();
 const fs = require('fs');
+const https = require('https');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
@@ -468,6 +469,106 @@ function saveState(map) {
 }
 
 // ---- alerting ----
+/**
+ * WhatsApp credential health.
+ *
+ * The silent failure this exists for: Meta does not need our token to DELIVER inbound webhooks,
+ * so a garage whose credential has died still shows conversations arriving and looks perfectly
+ * healthy. Only the REPLY fails, and a garage with no traffic that day produces no error at all.
+ * Speedy Spanners sat dead from roughly 16 Sep until it was found by accident on the 22nd; four
+ * more were dead alongside it and three others were counting down to an expiry nobody knew about.
+ *
+ * Two faults, both invisible until a customer complains:
+ *   - the token is invalid (a USER token dies the moment that Facebook password changes, taking
+ *     every garage sharing that login with it)
+ *   - the token is valid but EXPIRING — Embedded Signup issues 60-day tokens, so every portal
+ *     onboard carries a fuse lit on signup day
+ *
+ * Hourly, not every 5 minutes: this is a fact about configuration, not traffic, and nine Graph
+ * calls a day is plenty to catch something that changes at most once per garage.
+ */
+const WA_EXPIRY_WARN_DAYS = [14, 7];
+
+function graphGet(path) {
+  return new Promise((resolve) => {
+    https.get(`https://graph.facebook.com/v21.0${path}`, (res) => {
+      let d = '';
+      res.on('data', (c) => (d += c));
+      res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({ error: { message: 'unparseable' } }); } });
+    }).on('error', (e) => resolve({ error: { message: e.message } }));
+  });
+}
+
+async function checkWhatsAppTokens({ force = false } = {}) {
+  const issues = [];
+  // Once an hour — the watchdog itself runs every 5 minutes.
+  if (!force && Number(londonParts().minute) >= 5) return issues;
+
+  const appId = process.env.META_APP_ID;
+  const appSecret = process.env.META_APP_SECRET;
+  if (!appId || !appSecret) {
+    console.error('[watchdog] META_APP_ID/SECRET not set — cannot check WhatsApp tokens');
+    return issues;
+  }
+  const appTok = `${appId}|${appSecret}`;
+
+  const cons = await prisma.socialMediaConnection.findMany({
+    where: { platform: 'whatsapp', isActive: true },
+    select: { garageId: true, accessToken: true, whatsappPhoneNumberId: true },
+  });
+
+  for (const c of cons) {
+    if (!c.whatsappPhoneNumberId || c.whatsappPhoneNumberId === 'pending_setup') continue;
+    const g = await prisma.garage.findUnique({ where: { id: c.garageId }, select: { name: true, archivedAt: true } });
+    if (!g || g.archivedAt) continue;
+
+    // The credential the app would actually send with, not necessarily the stored one.
+    const token = (process.env.META_SYSTEM_USER_TOKEN || '').trim() || c.accessToken;
+
+    const dbg = await graphGet(`/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(appTok)}`);
+    const info = dbg && dbg.data;
+    if (!info || info.is_valid !== true) {
+      const why = (info && info.error && info.error.message) || (dbg.error && dbg.error.message) || 'token reported invalid';
+      issues.push({
+        key: `wa-token:${c.garageId}`,
+        msg: `${g.name}: WhatsApp token INVALID — the agent cannot reply on this number. ${why}`,
+      });
+      continue;
+    }
+
+    // A live probe as well as the debug view: the token can be valid in general and still have
+    // lost access to THIS number, which reads identically to a healthy connection from outside.
+    const probe = await graphGet(`/${c.whatsappPhoneNumberId}?fields=display_phone_number,quality_rating&access_token=${encodeURIComponent(token)}`);
+    if (probe.error) {
+      issues.push({
+        key: `wa-token:${c.garageId}`,
+        msg: `${g.name}: WhatsApp number ${c.whatsappPhoneNumberId} unreachable with the stored token — ${probe.error.message}`,
+      });
+      continue;
+    }
+    if (probe.quality_rating && ['RED', 'YELLOW'].includes(probe.quality_rating)) {
+      issues.push({
+        key: `wa-quality:${c.garageId}`,
+        msg: `${g.name}: WhatsApp quality rating is ${probe.quality_rating} on ${probe.display_phone_number} — messaging limits are at risk.`,
+      });
+    }
+
+    if (info.expires_at && info.expires_at > 0) {
+      const days = Math.round((info.expires_at * 1000 - Date.now()) / 86400000);
+      // A key per threshold, so the 14-day warning does not silence the 7-day one.
+      for (const t of WA_EXPIRY_WARN_DAYS) {
+        if (days <= t) {
+          issues.push({
+            key: `wa-expiry${t}:${c.garageId}`,
+            msg: `${g.name}: WhatsApp token expires in ${days} day(s), on ${new Date(info.expires_at * 1000).toISOString().slice(0, 10)}. Generate a replacement with expiry Never before then.`,
+          });
+        }
+      }
+    }
+  }
+  return issues;
+}
+
 async function sendEmail(subject, text) {
   const key = process.env.MAILGUN_API_KEY, domain = process.env.MAILGUN_DOMAIN;
   const from = process.env.MAILGUN_FROM || `alerts@${domain}`;
@@ -503,6 +604,15 @@ async function sendSms(text) {
 }
 
 async function main() {
+  // Print the WhatsApp credential findings and send nothing. For checking the check itself —
+  // running the whole watchdog to see one function would page people.
+  if (process.argv.includes('--wa-check')) {
+    const found = await checkWhatsAppTokens({ force: true });
+    console.log(found.length ? found.map((i) => `${i.key}\n  ${i.msg}`).join('\n') : 'no WhatsApp credential issues');
+    await prisma.$disconnect();
+    return;
+  }
+
   if (TEST_MODE) {
     await sendEmail('✅ ReceptionMate Watchdog test', 'This is a test alert. Email + SMS delivery is working.');
     await sendSms('RM Watchdog test — alerts are working. You will get a message here if the agents go down.');
@@ -517,6 +627,9 @@ async function main() {
   // busy the phones are, and finding it at 6am is better than finding it at 9.
   const unifiedRouting = await checkUnifiedRouting();
   const configSync = await checkConfigSync();
+  // Credential health is a fact about configuration too — judged around the clock, and a dead
+  // token found at 6am is a dead token fixed before the first customer writes in.
+  const waTokens = await checkWhatsAppTokens();
 
   // Heartbeat only judged during business hours; outside hours, carry prior heartbeat state untouched
   // so we don't fire false "down"/"recovered" pings overnight.
@@ -538,7 +651,7 @@ async function main() {
   }
 
   const current = {};
-  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync]
+  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync, ...waTokens]
     .forEach((i) => { current[i.key] = i.msg; });
 
   // STICKY OUTAGES. An outage alert must not clear itself just because the evidence scrolled

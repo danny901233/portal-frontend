@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 import axios from 'axios';
 import { prisma } from '../db.js';
+import { whatsappToken } from '../utils/whatsappToken.js';
 import { sendEmail } from '../utils/email.js';
 
 /** Normalise phone to E.164 format for Twilio and matching. */
@@ -158,7 +159,7 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
       garagePhone: (agentConfig?.phoneNumber || '').trim(),
       variableMapping: (campaign.variableMapping as Record<string, string> | null) || {},
       whatsappPhoneNumberId: waConnection.whatsappPhoneNumberId,
-      accessToken: waConnection.accessToken,
+accessToken: whatsappToken(waConnection.accessToken),
       template,
     },
   };

@@ -43,6 +43,12 @@ function writeState(token: string): void {
 
 /** Returns the best available template management token. */
 export function getTemplateToken(): string | null {
+  // A permanent system-user token outranks everything below it. The refresh dance underneath
+  // exists only because the original credential was a user token with a 60-day life; it had
+  // stopped working long before anyone noticed, which is why template submission was broken.
+  const shared = (process.env.META_SYSTEM_USER_TOKEN || '').trim();
+  if (shared) return shared;
+
   const state = readState();
   if (state?.token) return state.token;
   return process.env.META_TEMPLATE_TOKEN || null;
@@ -53,6 +59,13 @@ export function getTemplateToken(): string | null {
  * Called weekly by the scheduler.
  */
 export async function refreshTemplateToken(): Promise<void> {
+  // Nothing to refresh when a permanent system-user token is configured — and trying would fail
+  // every week, because fb_exchange_token only extends USER tokens.
+  if ((process.env.META_SYSTEM_USER_TOKEN || '').trim()) {
+    console.log('[META-TOKEN] Using the permanent system-user token — no refresh needed.');
+    return;
+  }
+
   const appId = process.env.META_APP_ID;
   const appSecret = process.env.META_APP_SECRET;
   const currentToken = getTemplateToken();

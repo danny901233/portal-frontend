@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
+import { whatsappToken } from '../../utils/whatsappToken.js';
 import { notifyMessaging } from '../../services/messagingNotifications.js';
 import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
 import { scheduleHumanReply } from '../../services/chatDelay.js';
@@ -117,6 +118,13 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
           console.log(`No active WhatsApp connection for phone_number_id: ${phoneNumberId} — ignoring.`);
           continue;
         }
+
+        // Swap in the credential we actually want to call Meta with, once, here — everything
+        // downstream (the ops handler, media fetches, the delayed reply) reads
+        // connection.accessToken, so resolving at the source covers them all without each call
+        // site having to know. See whatsappToken: the stored one is an Embedded Signup token that
+        // expires 60 days after the garage signed up.
+        connection = { ...connection, accessToken: whatsappToken(connection.accessToken) };
 
         // Process each message
         for (const message of value.messages) {

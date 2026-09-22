@@ -19,6 +19,7 @@ import cron from 'node-cron';
 import { sweepAbandonedCheckouts } from './abandonedCheckout.js';
 import { prisma } from '../db.js';
 import { normalisePhone, buildTemplateFields, activeHalt, haltOutboundForGarage } from './outboundSend.js';
+import { whatsappToken } from '../utils/whatsappToken.js';
 import { daysUntil } from '../utils/dueDate.js';
 
 /** Used when a reminder campaign somehow has no stages recorded. */
@@ -155,10 +156,13 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
       where: { garageId: garage.id, status: 'approved', name: { in: ['mot_reminder', 'service_reminder'] } },
       select: { name: true, language: true },
     });
-    const wa = await prisma.socialMediaConnection.findFirst({
+    const waRow = await prisma.socialMediaConnection.findFirst({
       where: { garageId: garage.id, platform: 'whatsapp', isActive: true },
       select: { whatsappPhoneNumberId: true, accessToken: true },
     });
+    // Prefer the shared, non-expiring credential — the stored one is an Embedded Signup token
+    // with a 60-day life, and a reminder run is exactly the thing that fails silently when it dies.
+    const wa = waRow && { ...waRow, accessToken: whatsappToken(waRow.accessToken) };
 
     // Only the fallback path needs the seeded pair; a staged campaign brings its own.
     const haveAnyTemplate = !!template || stageTemplates.size > 0;

@@ -27,6 +27,16 @@ export interface CallDiagnosis {
   // it only records one when it decides to call save_caller_name, and on the calls where it
   // does not, the portal shows nothing even though the caller introduced themselves plainly.
   callerName?: string;
+  // What the caller RANG FOR, and whether they got it. Judged before anything else, because
+  // "was this call ok?" is unanswerable without it — and answering it without them is how six
+  // calls where somebody asked to book, gave a name and a registration, and left with nothing
+  // came back as "no booking made, handled correctly".
+  callerIntent?: string;
+  intentMet?: 'yes' | 'no' | 'partial';
+  /** When intentMet is no/partial: the ONE thing that stopped it. */
+  intentFailReason?: string;
+  /** Whether that reason was ours to prevent. Keeps "they changed their mind" out of the stats. */
+  failedBy?: 'agent' | 'diary' | 'garage' | 'caller' | 'none';
   model: string;
   generatedAt: string;
   // Populated by the deep-dive (auto-run when triage flags an issue, or via "Analyse in depth").
@@ -153,6 +163,28 @@ const SYSTEM_PROMPT =
   'You are a QA analyst for ReceptionMate, an AI phone receptionist for UK car garages. ' +
   "You are given one call's transcript, the agent's tool-call log, and timing. Decide whether the " +
   'call had a real PROBLEM.\n' +
+  'FIRST, before anything else, answer two questions and put them in "callerIntent" and "intentMet".\n' +
+  '1. WHAT DID THE CALLER RING FOR? Their own purpose, in a few plain words, from what they actually ' +
+  'said — "book an MOT", "chase an existing booking", "price for two front tyres", "speak to Michael", ' +
+  '"cancel a booking". If they never said, use "not stated".\n' +
+  '2. DID THEY GET IT? "yes", "no", or "partial". Judge the CALLER\'S outcome, not the agent\'s effort. ' +
+  'Someone who rang to book and put the phone down without an appointment got "no", however politely ' +
+  'it went and whatever was offered instead.\n' +
+  'A caller whose intent was NOT met is an ISSUE by default. Say what stopped it in ' +
+  '"intentFailReason" — one specific thing, citing the moment ("asked for the full name three times ' +
+  'and the caller asked for a human", "read the registration back wrong and moved on anyway", ' +
+  '"the diary rejected the date it had just offered"). Then set "failedBy":\n' +
+  '- "agent" — it asked for something it already had, repeated a question, mis-heard and did not ' +
+  'correct, offered something it could not deliver, went silent, or gave wrong information.\n' +
+  '- "diary" — the booking system errored or refused what it had itself offered.\n' +
+  '- "garage" — genuinely no suitable slot, or the garage does not do that work.\n' +
+  '- "caller" — they changed their mind, would not give required details, hung up, or never said ' +
+  'what they wanted despite being asked properly.\n' +
+  'ONLY "garage" and "caller" make an unmet intent acceptable. "agent" and "diary" are always issues.\n' +
+  'Taking a message does NOT make an unmet intent acceptable. The agent offers a message whenever it ' +
+  'gets stuck, so "a message was taken" describes what it did when it failed, not a success. It is ' +
+  'only a success when the caller ASKED for a message, or their need genuinely cannot be served ' +
+  'on the phone.\n' +
   'Mark status "issue" ONLY when something actually went WRONG — a failure the agent or system is ' +
   'responsible for. Examples of real issues: a tool call that ERRORED (cite it); a booking that ' +
   'could not be completed because of a system failure or NO AVAILABILITY (say which); GarageHive ' +
@@ -162,7 +194,10 @@ const SYSTEM_PROMPT =
   'Mark status "ok" when the agent handled the call CORRECTLY — EVEN IF no booking was made. A call ' +
   'with no booking is NOT a problem by itself: the caller may have only wanted information, decided ' +
   'not to book, asked for a message/callback (a valid, successful outcome), or simply ended the call. ' +
-  'Taking a message is a SUCCESS, not a failure. Do NOT flag these as issues. When in doubt, it is "ok".\n' +
+  'Taking a message is a success ONLY when the caller asked for one, or their need cannot be served ' +
+  'on the phone — not when it is where the agent retreated to. When in doubt about a JUDGEMENT CALL ' +
+  '(tone, pace, phrasing) prefer "ok"; but when the caller did not get what they rang for and the ' +
+  'reason was the agent or the diary, that is an issue, not a doubt.\n' +
   "NOT-the-agent's-fault — mark these \"ok\", do NOT flag as an issue:\n" +
   '- CALLER-SIDE: the call was unresolved because the CALLER never stated a request, stayed silent, ' +
   'hung up, or gave input too unclear to make out — and the agent prompted appropriately (asked them ' +
@@ -200,7 +235,9 @@ const SYSTEM_PROMPT =
   'are not certain, use an empty string: a wrong name is worse than none. ' +
   'Reply ONLY as JSON: {"status":"ok"|"issue","headline":"<= 8 words","detail":"1-3 plain sentences",' +
   '"suggestedAction":"<= 1 sentence, or empty string","category":"<one value from the list above>",' +
-  '"callerName":"<name or empty string>"}.';
+  '"callerName":"<name or empty string>","callerIntent":"<a few plain words>",' +
+  '"intentMet":"yes"|"no"|"partial","intentFailReason":"<one sentence, or empty string>",' +
+  '"failedBy":"agent"|"diary"|"garage"|"caller"|"none"}.';
 
 export async function analyzeCall(input: {
   transcript: unknown;
@@ -219,6 +256,7 @@ export async function analyzeCall(input: {
   const userMsg =
     `Call type: ${input.callType || 'unknown'} | Booking confirmed: ${input.confirmedBooking ? 'yes' : 'no'}\n` +
     `Summary: ${input.summary || '(none)'}\n\n` +
+    `THIS GARAGE'S AGENT:\n${buildAgentContext(input.metrics)}\n\n` +
     `TOOL TIMELINE:\n${buildToolTimeline(input.metrics)}\n\n` +
     `TIMING: ${buildTiming(input.metrics, input.transcript)}\n\n` +
     `TURN GAPS (longest caller->agent waits — check whether the biggest one is right before a reg/postcode read-back):\n${buildTurnGaps(input.transcript)}\n\n` +
@@ -240,6 +278,28 @@ export async function analyzeCall(input: {
     let headline = String(p.headline || '').slice(0, 120);
     let detail = String(p.detail || '').slice(0, 800);
     let suggestedAction = p.suggestedAction ? String(p.suggestedAction).slice(0, 300) : undefined;
+
+    const callerIntent = String(p.callerIntent || '').trim().slice(0, 120) || undefined;
+    const intentMet: 'yes' | 'no' | 'partial' | undefined =
+      p.intentMet === 'no' ? 'no' : p.intentMet === 'partial' ? 'partial' : p.intentMet === 'yes' ? 'yes' : undefined;
+    const intentFailReason = String(p.intentFailReason || '').trim().slice(0, 300) || undefined;
+    const FAILED_BY = ['agent', 'diary', 'garage', 'caller', 'none'] as const;
+    const failedBy = (FAILED_BY as readonly string[]).includes(String(p.failedBy))
+      ? (String(p.failedBy) as CallDiagnosis['failedBy'])
+      : undefined;
+
+    // The verdict follows from intent, rather than being left to the model to remember. It was
+    // told an unmet intent is an issue when the agent or the diary caused it; when it says both
+    // of those things and still answers "ok", the answer is wrong, not the rule. Six of today's
+    // calls did exactly that — someone asked to book, gave a name and a registration, got
+    // nothing, and it came back "no booking made, handled correctly".
+    if (status === 'ok' && (intentMet === 'no' || intentMet === 'partial')
+        && (failedBy === 'agent' || failedBy === 'diary')) {
+      status = 'issue';
+      if (!category || category === 'none') category = 'unresolved';
+      if (!headline) headline = 'Caller did not get what they rang for';
+      console.log(`[DIAGNOSIS] overriding "ok" -> issue: intent "${callerIntent}" unmet, failedBy=${failedBy}`);
+    }
     // Only a plausible person's name: 1-3 words, letters and the punctuation names really carry.
     // Anything else the model hands back is discarded rather than written to a customer record.
     const rawName = String(p.callerName || '').trim().slice(0, 60);
@@ -295,6 +355,10 @@ export async function analyzeCall(input: {
       suggestedAction,
       category,
       callerName,
+      callerIntent,
+      intentMet,
+      intentFailReason,
+      failedBy,
       model,
       generatedAt: new Date().toISOString(),
     };
@@ -305,13 +369,60 @@ export async function analyzeCall(input: {
 }
 
 // Render the raw GarageHive request/response pairs (the real validation reasons live here).
+/**
+ * The diary's own request/response pairs.
+ *
+ * Generous limits on purpose. At 300 characters a response, 79% of them were cut — including the
+ * availability list, which is the only way to answer "were the slots it offered actually free?".
+ * A diagnosis that cannot see the diary's answer is guessing about every booking question.
+ */
+/**
+ * Which agent this garage runs, which diary it is wired to, and what that diary can do.
+ *
+ * The diagnosis used to be told none of this, so it could not tell "the agent refused" from "the
+ * agent was never able to" — and its fixes said so. On the call where Bookar rejected a date it
+ * had itself offered, it proposed teaching the agent to check the garage's minimum lead time: a
+ * value that exists nowhere the agent can reach. A fix that cannot be built is worse than none,
+ * because somebody has to read it and work out why.
+ *
+ * Capabilities come from the agent, not a copy kept here, so they cannot drift from the adapter.
+ */
+function buildAgentContext(metrics: unknown): string {
+  const m = (metrics ?? {}) as Record<string, unknown>;
+  const script = String(m.agent_script ?? '') || '(not recorded)';
+  const diary = String(m.diary ?? '') || '(none)';
+  const caps = m.diary_capabilities as Record<string, unknown> | undefined;
+  const lines = [`Agent: ${script}    Diary: ${diary}`];
+  if (caps && Object.keys(caps).length) {
+    const can = Object.entries(caps).filter(([, v]) => v === true).map(([k]) => k);
+    const cannot = Object.entries(caps).filter(([, v]) => v === false).map(([k]) => k);
+    lines.push(`CAN: ${can.join(', ') || '(nothing)'}`);
+    lines.push(`CANNOT: ${cannot.join(', ') || '(nothing)'}`);
+    lines.push('Judge the agent against THIS list, both ways round.');
+    lines.push('A "CANNOT" is not a fault. That tool was never registered and the agent was never '
+      + 'told it could, so taking a message instead is the CORRECT outcome — judge how it handled '
+      + 'the limit, never the limit itself. A caller asking to cancel a booking at a garage with '
+      + 'cancel under CANNOT, who is offered a message, got the right answer: mark that "yes".');
+    lines.push('A "CAN" the agent did NOT use IS a fault. The same caller at a garage with cancel '
+      + 'under CAN should have had it cancelled on the call; a message there is a failure, and '
+      + 'failedBy is "agent". The same applies to reschedule, retrieve_booking, find_booking_by_reg, '
+      + 'caller_recognition, advisories and vehicle_lookup — if it is listed as CAN and the caller '
+      + 'asked for it and did not get it, that is the agent, not the caller.');
+    lines.push('needs_email true means the diary REFUSES a booking without an email: insisting on '
+      + 'one is correct behaviour and the failure belongs to "diary", not the agent or the garage.');
+  } else {
+    lines.push('(capabilities not recorded on this call — do not assume what the agent could do)');
+  }
+  return lines.join('\n');
+}
+
 function buildGhTrace(metrics: unknown): string {
   const tr = (metrics as { gh_trace?: unknown })?.gh_trace;
   if (!Array.isArray(tr) || tr.length === 0) return '(no GarageHive API calls on this call)';
   return tr
     .map((g: Record<string, unknown>, i: number) =>
-      `${i + 1}. ${g.method} ${g.path} ${JSON.stringify(g.payload ?? {}).slice(0, 200)} ` +
-      `-> HTTP ${g.status}: ${String(g.response ?? '').slice(0, 300)}`)
+      `${i + 1}. ${g.method} ${g.path} ${JSON.stringify(g.payload ?? {}).slice(0, 1000)} ` +
+      `-> HTTP ${g.status}: ${String(g.response ?? '').slice(0, 4000)}`)
     .join('\n');
 }
 
@@ -359,6 +470,14 @@ const AGENT_BEHAVIOURS =
   '- The agent books against the live GarageHive diary via list_timeslots; the portal "Allow bookings" ' +
   'toggle does NOT apply to it.';
 
+const DEEP_FIX_RULE =
+  'Your "fix" MUST be achievable with what THIS agent and THIS diary actually have — the agent ' +
+  'context above lists them. Do not propose reading a value no adapter is given, or calling a tool ' +
+  'marked CANNOT. If the only real fix lies outside the agent, say so plainly and name where: the ' +
+  'diary/supplier (its API returned something wrong or refused what it offered), the garage\'s ' +
+  'configuration, or the brief itself. "The supplier must fix X" is a better answer than an ' +
+  'agent change that cannot be built.\n';
+
 const DEEP_SYSTEM_PROMPT =
   'You are a senior voice-AI engineer doing ROOT-CAUSE analysis on a flagged call for ReceptionMate ' +
   '(an AI phone receptionist for UK car garages). You are given the full trace: the spoken transcript, ' +
@@ -374,6 +493,7 @@ const DEEP_SYSTEM_PROMPT =
   'CONCRETE, actionable fix at the prompt / config / code level. If a pause matches a known intentional ' +
   'behaviour above (e.g. the 5s read-back timer), SAY SO rather than calling it a misconfiguration. ' +
   'Be precise and technical; do NOT invent a cause not supported by the trace. ' +
+  DEEP_FIX_RULE +
   'Reply ONLY as JSON: {"rootCause":"2-4 specific sentences","fix":"1-3 concrete sentences","severity":"low|medium|high"}.';
 
 // Deep root-cause + fix analysis. Auto-run when triage flags an issue, or via the call-page button.
@@ -394,6 +514,7 @@ export async function analyzeDeep(input: {
     `Triage flagged: ${input.triage?.headline || ''} — ${input.triage?.detail || ''}\n` +
     `Call type: ${input.callType || 'unknown'} | Booking confirmed: ${input.confirmedBooking ? 'yes' : 'no'}\n` +
     `Summary: ${input.summary || '(none)'}\n\n` +
+    `THIS GARAGE'S AGENT:\n${buildAgentContext(input.metrics)}\n\n` +
     `TOOL TIMELINE (with inputs):\n${buildToolTimeline(input.metrics)}\n\n` +
     `GARAGEHIVE TRACE:\n${buildGhTrace(input.metrics)}\n\n` +
     `TIMING: ${buildTiming(input.metrics, input.transcript)}\n\n` +
@@ -401,7 +522,7 @@ export async function analyzeDeep(input: {
     `CAPTURE: ${buildCapture(input.metrics)}\n\n` +
     `THE AGENT'S OWN INSTRUCTIONS FOR THIS CALL (what it was told to do, incl. this garage's custom ` +
     `rules — use this to judge whether the agent followed its brief or the brief itself is at fault):\n` +
-    `${String((input.metrics as { agent_prompt?: unknown })?.agent_prompt ?? '(not captured for this call)').slice(0, 6000)}\n\n` +
+    `${String((input.metrics as { agent_prompt?: unknown })?.agent_prompt ?? '(not captured for this call)').slice(0, 60000)}\n\n` +
     `TRANSCRIPT:\n${buildTranscript(input.transcript)}`;
   try {
     const r = await oa.chat.completions.create({

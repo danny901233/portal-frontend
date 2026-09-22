@@ -792,6 +792,19 @@ export async function getChatAgentResponse(
       }
     }
 
+    // Telling us mid-conversation. The fast-path above only guards the FIRST reply to a reminder;
+    // once we are asking about dates, "I don't own it any more" used to be read as a non-answer
+    // and the same question was simply asked again. Jordan Baldwin was asked twice.
+    //
+    // Only for replies the date-collection is waiting on, and only once — reminderOutcome being
+    // set means this has already been dealt with.
+    if ((pre.awaitingDatePreference || pre.awaitingAnythingElse) && !pre.reminderOutcome) {
+      const kind = await classifyReminderReply(String(message || ''));
+      if (kind) {
+        await applyReminderNotABooking(kind, 'model', String(message || ''), pre, conversationId);
+      }
+    }
+
     // Mileage and what they last had, from the same message. Both were being asked for, answered,
     // and then dropped — the note read "Preferred dates: Tuesday morning" and nothing else.
     if (pre.awaitingDatePreference || pre.awaitingAnythingElse || pre.enquiryPreference) {
@@ -1070,47 +1083,19 @@ async function getChatAgentResponseInner(
     // doesn't fire. We need to auto-select the service here instead of relying on the LLM.
     if (session.outboundServiceType && session.vrn && session.vrnConfirmed &&
         session.step === Step.NEED_SERVICE && !session.serviceSelectedName && !session.outboundUpsellOffered) {
-      const notBooking = REMINDER_NOT_A_BOOKING.find((r) => r.re.test(String(message || '')));
+      // Patterns first — free, and they already cover the common wordings. Anything they do not
+      // claim gets read by the model rather than being assumed to be a booking.
+      const matched = REMINDER_NOT_A_BOOKING.find((r) => r.re.test(String(message || '')));
+      const notBooking = matched
+        ? { kind: matched.kind, by: 'pattern' }
+        : await (async () => {
+            const kind = await classifyReminderReply(String(message || ''));
+            return kind ? { kind, by: 'model' } : null;
+          })();
       if (notBooking) {
-        // Hand it to the model to answer in its own words, and make sure the garage hears about
-        // it — these were ending with an empty note and no flag, so nobody knew.
-        console.log(`[OUTBOUND_REMINDER] "${String(message).slice(0, 60)}" is not a booking `
-          + `(${notBooking.kind}) — skipping the service fast-path`);
-        session.reminderOutcome = notBooking.kind;
-        session.awaitingDatePreference = false;
-        session.step = Step.MESSAGE_ONLY;
-
-        const vehicle = session.vrn || 'their vehicle';
-        const summary = notBooking.kind === 'sold'
-          ? `Reminder reply — they no longer have ${vehicle}. Stop reminders for it and check the `
-            + `record. Their words: "${String(message).slice(0, 160)}"`
-          : notBooking.kind === 'already_done'
-          ? `Reminder reply — the work on ${vehicle} has already been done, so the record is out of `
-            + `date. Their words: "${String(message).slice(0, 160)}"`
-          : `Reminder reply — they asked to STOP receiving reminders about ${vehicle}. Their `
-            + `words: "${String(message).slice(0, 160)}"`;
-        await handleTakeMessage({ message: summary, phone: session.contactPhone || '' },
-                                session, conversationId);
-
-        // An opt-out is honoured, not just noted. The agent has been telling people it would stop
-        // the reminders while nothing on this path ever called the write-back that does it.
-        if (notBooking.kind === 'opt_out' || notBooking.kind === 'sold') {
-          try {
-            const conv = await prisma.chatConversation.findUnique({
-              where: { id: conversationId }, select: { garageId: true },
-            });
-            if (conv?.garageId && session.vrn) {
-              const n = await optOutRemindersForVehicle(conv.garageId, session.vrn);
-              console.log(`[OUTBOUND_REMINDER] reminders disabled on ${n} vehicle(s) for ${session.vrn}`);
-            }
-          } catch (e) {
-            // Never break the reply over it — but it MUST be visible, because the customer has
-            // just been told it is done.
-            console.error('[OUTBOUND_REMINDER] opt-out write-back FAILED — the customer was told '
-              + 'reminders would stop:', e);
-          }
-        }
-        await saveSession(conversationId, session);
+        await applyReminderNotABooking(
+          notBooking.kind, notBooking.by, String(message || ''), session, conversationId,
+        );
         // Fall through to the model with the flags set, so it answers them like a person.
       } else {
       const serviceName = session.outboundServiceType === 'service' ? 'Full Service' : 'MOT';
@@ -4382,6 +4367,112 @@ async function handleTakeMessage(args: any, session: ChatSession, conversationId
       + `callback and do NOT ask anything further.\n\nConversation complete.`;
   }
   return `Message recorded.\n- Phone: ${phone}\n- Message: ${message}\n- Callback time: ${callback_time || 'not specified'}\n\nSay: "Perfect ${session.customerNameFirst}, I've passed that on${serviceContext}. The team will give you a call${callback_time ? ` ${callback_time}` : ' soon'} — have a great day!"\n\nConversation complete.`;
+}
+
+/**
+ * What a reminder reply actually is, when the patterns above do not recognise it.
+ *
+ * The patterns are a fast accept, not a classifier. They can only match phrasings somebody
+ * thought of in advance, and the misses are not obscure: "Vehicle no longer owned" slips past
+ * `no longer (have|own)` because of the "ed", and "I don't own the vehicle any longer" slips
+ * past `don'?t (have|own) (it|the car)` because he said vehicle. Jordan Baldwin told us twice
+ * that he had sold his car and was asked twice whether he had any days in mind.
+ *
+ * So anything the patterns do not claim is read by the model before we treat it as a booking.
+ * Only the classification is the model's; recording the message, flagging the conversation
+ * and stopping the reminders stay deterministic, exactly as they are on the pattern path.
+ *
+ * Returns null on anything unclear or on any failure, which means the fast-path runs as
+ * before — a reply we cannot read is not a reason to stop someone booking.
+ */
+export async function classifyReminderReply(text: string): Promise<string | null> {
+  const said = String(text || '').trim();
+  if (!said || said.length > 300) return null;
+  try {
+    const resp = await getOpenAI().chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0,
+      max_tokens: 20,
+      messages: [
+        {
+          role: 'system',
+          content: 'A garage sent a customer a reminder that their vehicle is due for an MOT or service. '
+            + 'Classify their reply.\n\n'
+            + 'sold — they no longer have the vehicle (sold, scrapped, written off, traded in, "not my car any more").\n'
+            + 'opt_out — they want no more reminders or messages.\n'
+            + 'already_done — the work has already been done, here or elsewhere.\n'
+            + 'booking — anything that moves towards an appointment: agreeing, asking about dates, '
+            + 'times, prices or availability, giving a day, or asking a question about the work.\n'
+            + 'unclear — a greeting, a thank-you, or anything you cannot place.\n\n'
+            + 'Answer with ONE word: sold, opt_out, already_done, booking or unclear.',
+        },
+        { role: 'user', content: said },
+      ],
+    });
+    const verdict = (resp.choices[0]?.message?.content || '').trim().toLowerCase().replace(/[^a-z_]/g, '');
+    // Only the three that stop a booking are acted on. "booking" and "unclear" both mean
+    // carry on as before, so a wrong answer there costs nothing.
+    return ['sold', 'opt_out', 'already_done'].includes(verdict) ? verdict : null;
+  } catch (e) {
+    console.error('[OUTBOUND_REMINDER] reply classification failed — treating as a booking:', e);
+    return null;
+  }
+}
+
+/**
+ * A reminder reply that was never a booking: record it, flag it, and actually stop the reminders.
+ *
+ * Shared by the two places a customer can tell us, because they told us in both and were heard in
+ * neither. The classification differs (pattern, or the model when the patterns miss); everything
+ * after it must not.
+ */
+async function applyReminderNotABooking(
+  kind: string,
+  by: string,
+  message: string,
+  session: any,
+  conversationId: string,
+): Promise<void> {
+    // Hand it to the model to answer in its own words, and make sure the garage hears about
+    // it — these were ending with an empty note and no flag, so nobody knew.
+    console.log(`[OUTBOUND_REMINDER] "${String(message).slice(0, 60)}" is not a booking `
+      + `(${kind}, by ${by}) — not treating it as a booking`);
+    session.reminderOutcome = kind;
+    session.awaitingDatePreference = false;
+    session.step = Step.MESSAGE_ONLY;
+
+    const vehicle = session.vrn || 'their vehicle';
+    const summary = kind === 'sold'
+      ? `Reminder reply — they no longer have ${vehicle}. Stop reminders for it and check the `
+        + `record. Their words: "${String(message).slice(0, 160)}"`
+      : kind === 'already_done'
+      ? `Reminder reply — the work on ${vehicle} has already been done, so the record is out of `
+        + `date. Their words: "${String(message).slice(0, 160)}"`
+      : `Reminder reply — they asked to STOP receiving reminders about ${vehicle}. Their `
+        + `words: "${String(message).slice(0, 160)}"`;
+    await handleTakeMessage({ message: summary, phone: session.contactPhone || '' },
+                            session, conversationId);
+
+    // An opt-out is honoured, not just noted. The agent has been telling people it would stop
+    // the reminders while nothing on this path ever called the write-back that does it.
+    if (kind === 'opt_out' || kind === 'sold') {
+      try {
+        const conv = await prisma.chatConversation.findUnique({
+          where: { id: conversationId }, select: { garageId: true },
+        });
+        if (conv?.garageId && session.vrn) {
+          const n = await optOutRemindersForVehicle(conv.garageId, session.vrn);
+          console.log(`[OUTBOUND_REMINDER] reminders disabled on ${n} vehicle(s) for ${session.vrn}`);
+        }
+      } catch (e) {
+        // Never break the reply over it — but it MUST be visible, because the customer has
+        // just been told it is done.
+        console.error('[OUTBOUND_REMINDER] opt-out write-back FAILED — the customer was told '
+          + 'reminders would stop:', e);
+      }
+    }
+    await saveSession(conversationId, session);
+    // Fall through to the model with the flags set, so it answers them like a person.
 }
 
 // GarageHive API helpers

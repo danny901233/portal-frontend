@@ -735,6 +735,33 @@ model ChatMessage {
 // Observability for the web-chat agents: one row per tool call the agent makes.
 // Written fire-and-forget from the agent tool loop (chatAgentAssist/V2/Tyresoft).
 // Powers the per-conversation tool timeline and the staff success-rate dashboard.
+/// What a turn of chat cost us in model calls.
+///
+/// One row per completion, not per message: a single turn often makes an intent call, a
+/// disclosure check and a reply, and only the last becomes a ChatMessage. Billing by saved
+/// messages would have undercounted the spend.
+///
+/// Tokens are stored, cost is derived — a price change is then a code change rather than a
+/// backfill. costMicroUsd is the cost at the rates in force when the row was written, kept as an
+/// integer so summing thousands of rows does not drift.
+model ChatUsage {
+  id             String   @id @default(cuid())
+  garageId       String?
+  conversationId String?
+  channel        String?
+  agent          String?
+  model          String
+  inputTokens    Int      @default(0)
+  cachedTokens   Int      @default(0)
+  outputTokens   Int      @default(0)
+  costMicroUsd   Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([garageId, createdAt])
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
 model ChatToolCall {
   id             String           @id @default(cuid())
   conversationId String

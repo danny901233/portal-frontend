@@ -1,3 +1,4 @@
+import { withAiContext } from '../utils/aiUsage.js';
 import { prisma } from '../db.js';
 import { getChatAgentResponse as getGHResponse } from './chatAgentV2.js';
 import { getTyresoftChatResponse } from './chatAgentTyresoft.js';
@@ -65,7 +66,29 @@ function hasGarageHiveCreds(ipc: unknown): boolean {
  */
 export { invalidateSessionCache } from './chatAgentV2.js';
 
+/**
+ * Every chat turn passes through here, whichever agent ends up handling it — so this is where the
+ * cost accounting gets its context. One wrap, and every model call underneath it is attributed to
+ * this garage and conversation without a single call site having to pass anything down.
+ */
 export async function routeChatMessage(
+  garageId: string,
+  message: string,
+  conversationId: string,
+  seedContact?: SeedContact
+): Promise<ChatAgentResponse> {
+  const conv = await prisma.chatConversation.findUnique({
+    where: { id: conversationId },
+    select: { platform: true },
+  }).catch(() => null);
+
+  return withAiContext(
+    { garageId, conversationId, channel: conv?.platform ?? null },
+    () => routeChatMessageInner(garageId, message, conversationId, seedContact),
+  );
+}
+
+async function routeChatMessageInner(
   garageId: string,
   message: string,
   conversationId: string,

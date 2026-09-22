@@ -10,6 +10,7 @@
  */
 import { prisma } from '../db.js';
 import OpenAI from 'openai';
+import { getInstrumentedOpenAI } from '../utils/aiUsage.js';
 import axios from 'axios';
 
 const MMH_API = process.env.MMH_API_URL || 'http://127.0.0.1:8788';
@@ -22,8 +23,9 @@ const weekdayOf = (iso: string) => WEEKDAYS[new Date(iso + 'T12:00:00Z').getUTCD
 
 let openaiClient: OpenAI | null = null;
 function getOpenAI(): OpenAI {
-  if (!openaiClient) openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return openaiClient;
+  // The one instrumented client — it records what each completion cost against the garage and
+  // conversation in scope. Eight agents each built their own and none of them measured anything.
+  return getInstrumentedOpenAI();
 }
 
 interface ChatAgentResponse { content: string; needsHumanAssistance?: boolean; }

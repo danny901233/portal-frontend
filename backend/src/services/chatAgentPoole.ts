@@ -28,6 +28,7 @@
 import { prisma } from '../db.js';
 import { notifyMessaging } from './messagingNotifications.js';
 import OpenAI from 'openai';
+import { getInstrumentedOpenAI } from '../utils/aiUsage.js';
 import { logChatToolCall } from './chatToolLog.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import {
@@ -54,11 +55,9 @@ import {
 // Lazy OpenAI client (same pattern as Bookar / Tyresoft).
 let openaiClient: OpenAI | null = null;
 function getOpenAI(): OpenAI {
-  if (!openaiClient) {
-    if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured');
-    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return openaiClient;
+  // The one instrumented client — it records what each completion cost against the garage and
+  // conversation in scope. Eight agents each built their own and none of them measured anything.
+  return getInstrumentedOpenAI();
 }
 
 // ---------------------------------------------------------------------------

@@ -989,87 +989,93 @@ async function getCustomer(creds: GarageHiveCreds, customerNo: string): Promise<
  *
  * `now` is injectable for testing.
  */
-/**
- * The branch that last had this vehicle in, or null if we have never seen it.
- *
- * Garage Hive groups that trade as one legal entity share a single Business Central company and
- * separate their branches by location code. Jobsheets carry one, but only for OPEN work — 276 rows
- * against 46,808 vehicles — so they answer almost nothing. Vehicle inspections are the history:
- * 29,482 records going back to 2019, each with a registration, a date and a location.
- */
-async function branchForRegistration(
-  creds: GarageHiveCreds,
-  registration: string,
-): Promise<string | null> {
-  const reg = String(registration || '').trim().toUpperCase().replace(/'/g, "''");
-  if (!reg) return null;
-  try {
-    const url =
-      `${apiBase(creds)}/service/v2.0/companies(${creds.companyId})/vehicleInspectionEstimates`
-      + `?$filter=vehicleRegistrationNo eq '${reg}'`
-      + `&$orderby=documentDate desc&$top=1&$select=locationCode,documentDate`;
-    const rows = await get<{ locationCode?: string }>(creds, url);
-    return (rows[0]?.locationCode || '').trim() || null;
-  } catch (e) {
-    // Never let an attribution lookup break a reminder run; an unknown branch is handled by the
-    // caller, which skips rather than guesses.
-    console.error('[GH] branch lookup failed for', reg, e);
-    return null;
-  }
-}
-
 /** A registration as Garage Hive stores it in an estimate: trimmed and upper-cased. */
 function normReg(registration: string): string {
   return String(registration || '').trim().toUpperCase();
 }
 
+/** What we know about a vehicle's branch, and whether it is in the workshop right now. */
+export interface RegAttribution {
+  /** The branch that most recently dealt with this vehicle, or null if nothing says. */
+  branch: string | null;
+  /** There is an open jobsheet — the car is booked in and being dealt with. */
+  openJob: boolean;
+}
+
+interface BranchRow {
+  locationCode?: string;
+  documentDate?: string;
+  vehicleRegistrationNo?: string;
+}
+
 /**
- * Branch attribution for many registrations at once.
+ * Branch attribution for many registrations at once, from BOTH places Garage Hive records a
+ * visit — and whether the vehicle is in the workshop right now.
  *
- * Same answer as branchForRegistration, asked once per 15 vehicles instead of once per vehicle.
- * BC will not OR across two different fields, but it does OR a single field against a list, and
- * that is all this needs. It matters: a reminder pull for a three-branch company looks at every
- * vehicle due in the whole company, so one call each put a 58-vehicle pull at ~2 minutes — past
- * the server's 30s request timeout, which is why such a pull came back empty rather than late.
+ * Asked once per 15 vehicles rather than once per vehicle. BC will not OR across two different
+ * fields, but it does OR a single field against a list, and that is all this needs. It matters:
+ * a reminder pull for a three-branch company looks at every vehicle due in the whole company, so
+ * one call each put a 58-vehicle pull at ~2 minutes — past the server's 30s request timeout,
+ * which is why such a pull came back empty rather than late.
  *
- * Returns a map of every registration asked about; a vehicle with no inspection history maps to
- * null, which the caller skips rather than guesses at.
+ * Two entities, and NOT interchangeable ones. `vehicleInspectionEstimates` is the history —
+ * 29,482 records back to 2019 — and stays the backbone: `jobsheets` holds only OPEN work, a few
+ * hundred rows against 46,808 vehicles, so it can never be the primary source.
+ *
+ * It is still needed, because an estimate is the VHC record and not the booking. A car booked in
+ * without a health check raised has no estimate at all: 27% of the vehicles with a job on the go
+ * had none, and they read as "never been here" to the branch actually working on them. A hit in
+ * jobsheets therefore means both "this branch has it" and "it is in the workshop right now".
+ *
+ * Returns an entry for every registration asked about; a vehicle neither entity knows maps to a
+ * null branch, which the caller skips rather than guesses at.
  */
-async function branchesForRegistrations(
+async function attributeRegistrations(
   creds: GarageHiveCreds,
   registrations: string[],
-): Promise<Map<string, string | null>> {
+): Promise<Map<string, RegAttribution>> {
   const regs = [...new Set(registrations.map(normReg).filter(Boolean))];
-  const out = new Map<string, string | null>(regs.map((r) => [r, null]));
+  const out = new Map<string, RegAttribution>(regs.map((r) => [r, { branch: null, openJob: false }]));
   if (!regs.length) return out;
 
-  try {
-    const rows = await inChunks(regs, 15, 4, async (chunk) => {
+  const company = `companies(${creds.companyId})`;
+  const fetchBy = (entity: string, select: string) =>
+    inChunks(regs, 15, 4, async (chunk) => {
       const filter = chunk.map((r) => `vehicleRegistrationNo eq ${odataStr(r)}`).join(' or ');
-      const url =
-        `${apiBase(creds)}/service/v2.0/companies(${creds.companyId})/vehicleInspectionEstimates`
+      const url = `${apiBase(creds)}/service/v2.0/${company}/${entity}`
         + `?$filter=${encodeURIComponent(filter)}`
         + `&$orderby=documentDate desc`
-        + `&$select=locationCode,documentDate,vehicleRegistrationNo`;
-      return getPaged<{ locationCode?: string; documentDate?: string; vehicleRegistrationNo?: string }>(
-        creds,
-        url,
-      );
+        + `&$select=${select}`;
+      return getPaged<BranchRow>(creds, url);
     });
 
-    // Ordered newest-first within a chunk, so the first row seen for a registration is its latest
-    // inspection — and that is the branch that served the customer.
-    for (const row of rows) {
-      const reg = normReg(row.vehicleRegistrationNo || '');
-      if (!reg || !out.has(reg) || out.get(reg)) continue;
-      const loc = (row.locationCode || '').trim();
-      if (loc) out.set(reg, loc);
-    }
-  } catch (e) {
-    // Same contract as the single lookup: never break a reminder run over attribution. Every
-    // registration stays null, so the caller skips them all and reports why.
-    console.error('[GH] batch branch lookup failed:', e);
-  }
+  // Independently caught: a failure in one source should still let the other attribute. Losing
+  // both leaves every registration null, and the caller reports that rather than guessing.
+  const [estimates, jobsheets] = await Promise.all([
+    fetchBy('vehicleInspectionEstimates', 'locationCode,documentDate,vehicleRegistrationNo')
+      .catch((e) => { console.error('[GH] estimate attribution failed:', e); return [] as BranchRow[]; }),
+    fetchBy('jobsheets', 'locationCode,documentDate,vehicleRegistrationNo')
+      .catch((e) => { console.error('[GH] jobsheet attribution failed:', e); return [] as BranchRow[]; }),
+  ]);
+
+  // Whichever source saw the vehicle most recently wins — a job opened this week outranks a
+  // health check from two years ago, at either branch.
+  const bestDate = new Map<string, string>();
+  const consider = (row: BranchRow, isOpenJob: boolean) => {
+    const reg = normReg(row.vehicleRegistrationNo || '');
+    const entry = out.get(reg);
+    if (!entry) return;
+    if (isOpenJob) entry.openJob = true;
+    const loc = (row.locationCode || '').trim();
+    if (!loc) return;
+    const date = row.documentDate || '';
+    if (entry.branch && date <= (bestDate.get(reg) || '')) return;
+    entry.branch = loc;
+    bestDate.set(reg, date);
+  };
+  for (const row of estimates) consider(row, false);
+  for (const row of jobsheets) consider(row, true);
+
   return out;
 }
 
@@ -1285,9 +1291,9 @@ export async function getReminderContacts(
   //
   // Both lookups below are resolved for the whole run up front. Done per vehicle they were two
   // round trips each, which is what pushed a multi-branch pull past the 30s request timeout.
-  const branchByReg = creds.locationCode
-    ? await branchesForRegistrations(creds, tagged.map(({ v }) => v.registrationNo || ''))
-    : new Map<string, string | null>();
+  const attribution = creds.locationCode
+    ? await attributeRegistrations(creds, tagged.map(({ v }) => v.registrationNo || ''))
+    : new Map<string, RegAttribution>();
 
   const attributed: Array<{ v: RawVehicle; dueType: DueType; reg: string }> = [];
 
@@ -1299,16 +1305,23 @@ export async function getReminderContacts(
     }
 
     if (creds.locationCode) {
-      const branch = branchByReg.get(normReg(reg)) ?? null;
+      const { branch, openJob } = attribution.get(normReg(reg)) ?? { branch: null, openJob: false };
       if (!branch) {
-        // Never been in for an inspection, so we cannot say whose customer they are. Skipped on
-        // purpose: messaging someone on another branch's behalf, about work that branch did not
-        // do, is worse than not messaging them.
+        // Neither a health check nor a job anywhere in the company, so we cannot say whose
+        // customer they are. Skipped on purpose: messaging someone on another branch's behalf,
+        // about work that branch did not do, is worse than not messaging them.
         skipped.push({ reg, reason: 'no branch history — cannot attribute' });
         continue;
       }
       if (branch.toUpperCase() !== creds.locationCode.toUpperCase()) {
         skipped.push({ reg, reason: `belongs to ${branch}, not ${creds.locationCode}` });
+        continue;
+      }
+      // Ours, and currently on the ramp. "Your MOT is due next month" to someone whose car we
+      // are working on today reads as though we have not noticed they are standing in front of
+      // us — and the due date usually rolls forward when the job closes anyway.
+      if (openJob) {
+        skipped.push({ reg, reason: 'already booked in with you' });
         continue;
       }
     }

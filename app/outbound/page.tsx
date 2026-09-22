@@ -173,6 +173,7 @@ const MAX_REMINDER_STAGES = 4;
 
 interface SkipCopy {
   skipOtherBranch: (n: number) => string;
+  skipBookedIn: (n: number) => string;
   skipNoBranch: (n: number) => string;
   skipNoPhone: (n: number) => string;
   skipNoCustomer: (n: number) => string;
@@ -194,6 +195,7 @@ interface SkipCopy {
  */
 function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCopy): string[] {
   let otherBranch = 0;
+  let bookedIn = 0;
   let noBranch = 0;
   let noPhone = 0;
   let noCustomer = 0;
@@ -201,6 +203,7 @@ function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCo
 
   for (const { reason } of skipped) {
     if (reason.startsWith('belongs to')) otherBranch++;
+    else if (reason.includes('already booked in')) bookedIn++;
     else if (reason.includes('no branch history')) noBranch++;
     else if (reason.includes('has no phone')) noPhone++;
     else if (reason.includes('no customer linked') || reason.includes('not found')) noCustomer++;
@@ -211,6 +214,7 @@ function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCo
   // Biggest group first — it is nearly always the branch split, and that is the one that explains
   // the number rather than alarming someone with it.
   if (otherBranch) lines.push(copy.skipOtherBranch(otherBranch));
+  if (bookedIn) lines.push(copy.skipBookedIn(bookedIn));
   if (noBranch) lines.push(copy.skipNoBranch(noBranch));
   if (noPhone) lines.push(copy.skipNoPhone(noPhone));
   if (noCustomer) lines.push(copy.skipNoCustomer(noCustomer));
@@ -340,6 +344,9 @@ export default function OutboundPage() {
       whyNotYoursLabel: 'Belong to another of your branches',
       whyNotYoursBody:
         'the vehicle was last booked in at a different branch of yours, so that branch reminds them. Sending from here would be the wrong garage getting in touch.',
+      whyBookedInLabel: 'Already booked in with you',
+      whyBookedInBody:
+        'the car is in your workshop now, so a reminder about work that is due next month would land while you have the keys. Garage Hive usually moves the due date on when the job is closed.',
       whyNoHistoryLabel: 'Never been booked in',
       whyNoHistoryBody:
         'the vehicle has no booking history at any of your branches, so there is nothing to say which one it belongs to. It is left out rather than risk two branches messaging the same person.',
@@ -349,6 +356,7 @@ export default function OutboundPage() {
         `${n} ${n === 1 ? 'belongs' : 'belong'} to another of your branches`,
       skipNoBranch: (n: number) =>
         `${n} ${n === 1 ? 'has' : 'have'} never been booked in at any of your branches`,
+      skipBookedIn: (n: number) => `${n} ${n === 1 ? 'is' : 'are'} already booked in with you`,
       skipNoPhone: (n: number) => `${n} ${n === 1 ? 'has' : 'have'} no contact number`,
       skipNoCustomer: (n: number) => `${n} ${n === 1 ? 'is' : 'are'} not linked to a customer record`,
       skipOther: (n: number) => `${n} skipped for other reasons`,
@@ -524,6 +532,9 @@ export default function OutboundPage() {
       whyNotYoursLabel: 'Appartiennent à une autre de vos succursales',
       whyNotYoursBody:
         'le véhicule est passé pour la dernière fois dans une autre de vos succursales : c’est elle qui envoie le rappel. L’envoyer d’ici reviendrait à contacter le client au nom du mauvais garage.',
+      whyBookedInLabel: 'Déjà pris en charge chez vous',
+      whyBookedInBody:
+        'le véhicule est actuellement dans votre atelier : un rappel pour une échéance du mois prochain arriverait alors que vous avez les clés. Garage Hive décale généralement l’échéance à la clôture de l’intervention.',
       whyNoHistoryLabel: 'Jamais pris en charge',
       whyNoHistoryBody:
         'le véhicule n’a aucun historique dans vos succursales : rien ne permet de dire à laquelle il se rattache. Il est exclu plutôt que de risquer que deux succursales contactent la même personne.',
@@ -533,6 +544,7 @@ export default function OutboundPage() {
         `${n} ${n === 1 ? 'appartient' : 'appartiennent'} à une autre de vos succursales`,
       skipNoBranch: (n: number) =>
         `${n} n’${n === 1 ? 'a' : 'ont'} jamais été pris en charge dans vos succursales`,
+      skipBookedIn: (n: number) => `${n} ${n === 1 ? 'est déjà' : 'sont déjà'} pris en charge chez vous`,
       skipNoPhone: (n: number) => `${n} sans numéro de contact`,
       skipNoCustomer: (n: number) => `${n} sans fiche client liée`,
       skipOther: (n: number) => `${n} ignoré${n > 1 ? 's' : ''} pour d’autres raisons`,
@@ -1444,6 +1456,11 @@ export default function OutboundPage() {
                       <span className="font-medium text-slate-700">{c.whyNotYoursLabel}</span>
                       {' — '}
                       {c.whyNotYoursBody}
+                    </span>
+                    <span className="mb-2 block">
+                      <span className="font-medium text-slate-700">{c.whyBookedInLabel}</span>
+                      {' — '}
+                      {c.whyBookedInBody}
                     </span>
                     <span className="mb-2 block">
                       <span className="font-medium text-slate-700">{c.whyNoHistoryLabel}</span>

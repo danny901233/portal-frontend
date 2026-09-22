@@ -597,7 +597,7 @@ async function checkMetaPages({ force = false } = {}) {
 
   const cons = await prisma.socialMediaConnection.findMany({
     where: { platform: { in: ['facebook', 'instagram'] }, isActive: true },
-    select: { garageId: true, platform: true, pageId: true, accessToken: true },
+    select: { garageId: true, platform: true, pageId: true, instagramAccountId: true, accessToken: true },
   });
 
   for (const c of cons) {
@@ -605,12 +605,22 @@ async function checkMetaPages({ force = false } = {}) {
     if (!g || g.archivedAt) continue;
     const who = `${g.name} (${c.platform})`;
 
-    // An active connection with no page is not connected to anything. It cannot receive and it
-    // cannot reply, and it will sit there looking enabled in the portal for ever.
-    if (!c.pageId) {
-      issues.push({ key: `meta-page:${c.garageId}:${c.platform}`, msg: `${who}: connection is active but has no page id — it can neither receive nor reply.` });
+    // What identifies the connection differs by platform, and getting this wrong pages someone
+    // hourly about nothing: Facebook inbound is matched on pageId, but INSTAGRAM is matched on
+    // instagramAccountId (webhooks/meta-instagram.ts). A null pageId on an Instagram row is
+    // normal — @receptionmate has had one since May and works the way it is meant to.
+    const routingId = c.platform === 'instagram' ? c.instagramAccountId : c.pageId;
+    if (!routingId) {
+      issues.push({
+        key: `meta-page:${c.garageId}:${c.platform}`,
+        msg: `${who}: connection is active but has no ${c.platform === 'instagram' ? 'instagram account id' : 'page id'} — nothing can route to it.`,
+      });
       continue;
     }
+
+    // Only Facebook pages have a subscribed_apps edge to check; Instagram rides on the linked
+    // page's subscription, so there is nothing to ask it for.
+    if (!c.pageId) continue;
 
     const dbg = await graphGet(`/debug_token?input_token=${encodeURIComponent(c.accessToken)}&access_token=${encodeURIComponent(appTok)}`);
     const info = dbg && dbg.data;
@@ -704,8 +714,22 @@ async function main() {
   const configSync = await checkConfigSync();
   // Credential health is a fact about configuration too — judged around the clock, and a dead
   // token found at 6am is a dead token fixed before the first customer writes in.
-  const waTokens = await checkWhatsAppTokens();
-  const metaPages = await checkMetaPages();
+  // Credential checks run once an hour, not every 5 minutes. On the other eleven runs they must
+  // CARRY THE PREVIOUS STATE FORWARD rather than return nothing — an empty array here reads as
+  // "the issue cleared", which sends a recovered email and then re-alerts on the next hourly run.
+  // Hourly flapping, for exactly the faults that are least likely to fix themselves. Same trap the
+  // heartbeat checks above avoid by carrying prior state outside business hours.
+  const credentialHour = Number(londonParts().minute) < 5;
+  const carry = (prefixes) => Object.entries(prev)
+    .filter(([k]) => prefixes.some((pre) => k.startsWith(pre)))
+    .map(([key, msg]) => ({ key, msg }));
+
+  const waTokens = credentialHour
+    ? await checkWhatsAppTokens()
+    : carry(['wa-token:', 'wa-quality:', 'wa-expiry']);
+  const metaPages = credentialHour
+    ? await checkMetaPages()
+    : carry(['meta-token:', 'meta-sub:', 'meta-page:', 'meta-expiry']);
 
   // Heartbeat only judged during business hours; outside hours, carry prior heartbeat state untouched
   // so we don't fire false "down"/"recovered" pings overnight.

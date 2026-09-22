@@ -933,6 +933,10 @@ export interface LatePaymentEmailData {
   lines?: Array<{ label: string; amount: string }>;  // e.g. per-branch breakdown
   ddSetupUrl?: string;     // omitted → the Direct Debit section is left out
   portalUrl?: string;
+  // The invoices being chased, as PDFs. A reminder that asks somebody to pay but makes them go
+  // and find the invoice first is a reminder that gets postponed — and for a multi-branch
+  // customer the original was one combined email a fortnight earlier, long since buried.
+  attachments?: EmailAttachment[];
 }
 
 /**
@@ -1147,7 +1151,9 @@ export const sendLatePaymentEmail = async (
 
   return sendEmail({ to: recipients, cc,
     subject: data.finalNotice ? `Second reminder: invoice still unpaid — ${data.amount}` : `Invoice overdue — ${data.amount}`,
-    html, text });
+    html, text,
+    ...(data.attachments?.length ? { attachments: data.attachments } : {}),
+    template: data.finalNotice ? 'invoice_chase_2' : 'invoice_chase_1' });
 };
 
 export const sendArrearsWarningEmail = async (

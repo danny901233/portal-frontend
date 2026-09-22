@@ -14,6 +14,8 @@
 
 import { prisma } from '../db.js';
 import { sendLatePaymentEmail } from '../utils/email.js';
+import type { EmailAttachment } from '../utils/email.js';
+import { generateInvoicePdf } from './invoicePdf.js';
 import { createPaymentSetupLink } from './directDebitRequestEmail.js';
 
 const SECOND_CHASE_DAYS = 14;
@@ -112,8 +114,13 @@ export async function chaseOverdueInvoices(): Promise<{ first: number; second: n
   let first = 0;
   let second = 0;
 
-  for (const [stage, invoices] of groups) {
+  // The key is `${owner}:${stage}`, so destructuring it AS `stage` made every comparison against
+  // 'first' / 'second' false. Everything was therefore stamped chase2SentAt and counted as a
+  // second reminder — and because the second stage requires chaseSentAt to be set, which nothing
+  // ever set, the 14-day escalation could never fire. Customers got exactly one reminder, ever.
+  for (const [key, invoices] of groups) {
     if (!invoices.length) continue;
+    const stage = key.slice(key.lastIndexOf(':') + 1) as 'first' | 'second';
 
     const total = invoices.reduce((a, b) => a + b.total, 0);
     const lines = invoices.map((i) => ({ label: i.garage.name, amount: money(i.total) }));
@@ -140,7 +147,26 @@ export async function chaseOverdueInvoices(): Promise<{ first: number; second: n
       ddSetupUrl = undefined;
     }
 
+    // Attach the invoices themselves. Chasing payment without the document means the customer
+    // has to dig out an email from a fortnight ago before they can act. Best-effort per invoice:
+    // a PDF that fails to render must not stop the reminder going out.
+    const attachments: EmailAttachment[] = [];
+    for (const inv of invoices) {
+      try {
+        const pdf = await generateInvoicePdf(inv.id);
+        const branch = inv.garage.name.replace(/[^a-z0-9]+/gi, '-');
+        attachments.push({
+          filename: `ReceptionMate-Invoice-${branch}.pdf`,
+          content: pdf,
+          contentType: 'application/pdf',
+        });
+      } catch (err) {
+        console.error(`[INVOICE_CHASE] could not render PDF for invoice ${inv.id}:`, err);
+      }
+    }
+
     const sent = await sendLatePaymentEmail([user.email], {
+      attachments,
       customerName: invoices[0].garage.name.replace(/ (Autocentres|Garage).*$/, ''),
       amount: money(total),
       dueDate: prettyDate(earliestDue),

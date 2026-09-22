@@ -28,6 +28,8 @@ const BANK = { name: 'ReceptionMate Ltd', sort: '23-01-20', account: '49981874' 
 const COMPANY = 'ReceptionMate Ltd · Studio 9, 50–54 St. Paul’s Square, Birmingham B3 1QS · VAT 494543753 · Company 16839506';
 const RECIPIENTS = ['accounts@inocentres.co.uk', 'dan@receptionmate.co.uk'];
 const VAT_RATE = 0.2;
+// Clause 5.5: all fees payable within 14 days of invoice.
+const PAYMENT_TERMS_DAYS = 14;
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const gbp = (pence: number) => `£${(pence / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -48,7 +50,7 @@ export async function buildInoInvoiceData(now: Date = new Date()): Promise<InoIn
   const usageEnd = new Date(Date.UTC(y, m, 1)); // exclusive
   const issued = new Date(Date.UTC(y, m, 1));
   const periodEnd = new Date(Date.UTC(y, m + 1, 1));
-  const due = new Date(issued.getTime() + 14 * 86400000);
+  const due = new Date(issued.getTime() + PAYMENT_TERMS_DAYS * 86400000);
 
   const branches = await prisma.garage.findMany({
     where: { name: { contains: 'autocentres', mode: 'insensitive' } },
@@ -117,6 +119,11 @@ export async function createInoInvoiceRecords(data: InoInvoiceData): Promise<str
         costPerMinuteGbp: line.ratePence / 100,
         vatRate: VAT_RATE,
         status: 'pending', // awaiting In'n'out's manual Direct Debit; mark paid in the portal when it lands
+        // 14-day terms, per clause 5.5 of the agreement. This was omitted, and the chaser skips
+        // any invoice with a null dueDate by design — so September's five invoices sat a week
+        // past terms with nothing chasing them and nobody aware. Without this the reminder
+        // system is inert for the only customer it exists to serve.
+        dueDate: data.due,
       },
     });
     ids.push(inv.id);

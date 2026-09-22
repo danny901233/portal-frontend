@@ -188,11 +188,9 @@ interface SkipCopy {
  * most "skips" are simply another branch's customers being correctly left alone. Reported as a
  * bare number against the wrong reason, that reads as data loss and makes the list look broken.
  *
- * Those are counted as one group and described only as "not yours". This screen belongs to one
- * garage: that other branches exist, and how many customers they hold, is not its business. The
- * number still needs explaining, or the missing vehicles look lost rather than deliberately left
- * alone — but explaining it does not require naming, or even alluding to, anybody else. The
- * server strips the branch before it ever reaches here.
+ * Those are counted as ONE group: the vehicles belong to another of the garage's own branches,
+ * and saying that much is what makes the number make sense. Which branch, and how many sit at
+ * each, is not published into a sibling's portal — the server strips that before it reaches here.
  */
 function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCopy): string[] {
   let otherBranch = 0;
@@ -202,7 +200,7 @@ function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCo
   let other = 0;
 
   for (const { reason } of skipped) {
-    if (reason.includes('not this garage')) otherBranch++;
+    if (reason.startsWith('belongs to')) otherBranch++;
     else if (reason.includes('no branch history')) noBranch++;
     else if (reason.includes('has no phone')) noPhone++;
     else if (reason.includes('no customer linked') || reason.includes('not found')) noCustomer++;
@@ -338,17 +336,19 @@ export default function OutboundPage() {
       vehiclesSkipped: (n: number) => `${n} vehicle${n > 1 ? 's' : ''} not included:`,
       whyAria: 'Why some vehicles aren’t included',
       whyIntro:
-        'We only message people we can confirm are your customers, so we check each vehicle’s booking history before adding it to the list.',
-      whyNotYoursLabel: 'Not recorded as your customers',
-      whyNotYoursBody: 'the vehicle is in your Garage Hive account, but its most recent booking wasn’t with you.',
+        'Your branches share one Garage Hive account, so this starts as every vehicle due across all of them. We then work out which ones are this branch’s, from where each vehicle was last booked in.',
+      whyNotYoursLabel: 'Belong to another of your branches',
+      whyNotYoursBody:
+        'the vehicle was last booked in at a different branch of yours, so that branch reminds them. Sending from here would be the wrong garage getting in touch.',
       whyNoHistoryLabel: 'Never been booked in',
-      whyNoHistoryBody: 'the vehicle has no booking history at all, so there is nothing to confirm it either way.',
+      whyNoHistoryBody:
+        'the vehicle has no booking history at any of your branches, so there is nothing to say which one it belongs to. It is left out rather than risk two branches messaging the same person.',
       whyOutro:
-        'Leaving these out means nobody gets a reminder from a garage they haven’t used. Once a vehicle has been in with you, it is picked up automatically next time.',
+        'Once a vehicle has been in with this branch, it counts as yours automatically next time.',
       skipOtherBranch: (n: number) =>
-        `${n} ${n === 1 ? 'is' : 'are'} not recorded as your customer${n === 1 ? '' : 's'}`,
+        `${n} ${n === 1 ? 'belongs' : 'belong'} to another of your branches`,
       skipNoBranch: (n: number) =>
-        `${n} ${n === 1 ? 'has' : 'have'} never been booked in, so we can't confirm ${n === 1 ? 'it is yours' : 'they are yours'}`,
+        `${n} ${n === 1 ? 'has' : 'have'} never been booked in at any of your branches`,
       skipNoPhone: (n: number) => `${n} ${n === 1 ? 'has' : 'have'} no contact number`,
       skipNoCustomer: (n: number) => `${n} ${n === 1 ? 'is' : 'are'} not linked to a customer record`,
       skipOther: (n: number) => `${n} skipped for other reasons`,
@@ -520,17 +520,19 @@ export default function OutboundPage() {
       vehiclesSkipped: (n: number) => `${n} véhicule${n > 1 ? 's' : ''} non inclus :`,
       whyAria: 'Pourquoi certains véhicules ne sont pas inclus',
       whyIntro:
-        'Nous contactons uniquement les personnes dont nous pouvons confirmer qu’elles sont vos clients : nous vérifions l’historique de chaque véhicule avant de l’ajouter à la liste.',
-      whyNotYoursLabel: 'Ne figurent pas parmi vos clients',
-      whyNotYoursBody: 'le véhicule est dans votre compte Garage Hive, mais sa dernière intervention n’a pas été réalisée chez vous.',
+        'Vos succursales partagent un même compte Garage Hive : la liste part donc de tous les véhicules à échéance, toutes succursales confondues. Nous déterminons ensuite ceux de cette succursale, d’après le dernier passage de chaque véhicule.',
+      whyNotYoursLabel: 'Appartiennent à une autre de vos succursales',
+      whyNotYoursBody:
+        'le véhicule est passé pour la dernière fois dans une autre de vos succursales : c’est elle qui envoie le rappel. L’envoyer d’ici reviendrait à contacter le client au nom du mauvais garage.',
       whyNoHistoryLabel: 'Jamais pris en charge',
-      whyNoHistoryBody: 'le véhicule n’a aucun historique, il n’y a donc rien qui permette de trancher.',
+      whyNoHistoryBody:
+        'le véhicule n’a aucun historique dans vos succursales : rien ne permet de dire à laquelle il se rattache. Il est exclu plutôt que de risquer que deux succursales contactent la même personne.',
       whyOutro:
-        'Les exclure évite qu’une personne reçoive un rappel d’un garage qu’elle n’a jamais utilisé. Dès qu’un véhicule est passé chez vous, il est pris en compte automatiquement la fois suivante.',
+        'Dès qu’un véhicule est passé dans cette succursale, il est compté comme le vôtre la fois suivante.',
       skipOtherBranch: (n: number) =>
-        `${n} ne ${n === 1 ? 'figure' : 'figurent'} pas parmi vos clients`,
+        `${n} ${n === 1 ? 'appartient' : 'appartiennent'} à une autre de vos succursales`,
       skipNoBranch: (n: number) =>
-        `${n} n’${n === 1 ? 'a' : 'ont'} jamais été pris en charge — impossible de confirmer qu’${n === 1 ? 'il vous appartient' : 'ils vous appartiennent'}`,
+        `${n} n’${n === 1 ? 'a' : 'ont'} jamais été pris en charge dans vos succursales`,
       skipNoPhone: (n: number) => `${n} sans numéro de contact`,
       skipNoCustomer: (n: number) => `${n} sans fiche client liée`,
       skipOther: (n: number) => `${n} ignoré${n > 1 ? 's' : ''} pour d’autres raisons`,

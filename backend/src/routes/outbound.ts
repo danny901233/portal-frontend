@@ -205,14 +205,14 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
     const dueTypes = parseDueTypes(req.query.dueType ?? req.query.dueTypes);
     const { contacts, skipped } = await getReminderContacts(creds, days, new Date(), dueTypes);
 
-    // A garage sees its own list and nothing else. Inside a shared Business Central company the
-    // skip reason names the branch a customer belongs to — that is how attribution is diagnosed,
-    // but this response is rendered in one garage's portal, and the existence of the other sites,
-    // let alone how many customers they hold, is not that garage's business.
+    // The skip reason names the branch a customer belongs to — how attribution is diagnosed, and
+    // too much for one branch's portal: which sites the group runs and how much work sits at each
+    // is not something to publish in the others.
     //
-    // So the reason becomes "not this garage's customer": true, and it says nothing about who the
-    // customer does belong to. The count itself stays, because vehicles disappearing with no
-    // explanation is what made this look broken to begin with.
+    // But "not this garage's customer" left a garage with no idea what had happened. The branches
+    // share one Garage Hive account and the staff know it, so the reason says the vehicle is one
+    // of their OTHER branches' — enough to make sense of the number and to know the customer is
+    // being looked after — without naming which, or how many are where.
     //
     // The full version stays in the server log, which is where support actually needs it.
     const named = skipped.filter((s) => /^belongs to /.test(s.reason));
@@ -224,7 +224,7 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
     }
     const redacted = skipped.map((s) => ({
       ...s,
-      reason: s.reason.replace(/^belongs to .+?, not .+$/, 'not this garage’s customer'),
+      reason: s.reason.replace(/^belongs to .+?, not .+$/, 'belongs to another of your branches'),
     }));
 
     res.json({ source: 'garagehive', days, dueTypes, contacts, skipped: redacted });

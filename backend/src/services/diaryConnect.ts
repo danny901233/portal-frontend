@@ -637,6 +637,11 @@ export const sendDiaryConnectRequest = async (businessId: string): Promise<boole
     subject: 'New ReceptionMate onboard',
     text,
     html,
+    // Tagged so this shows up against the customer rather than as one of a pile of "unknown"
+    // rows. A garage can sit on awaiting_credentials for a fortnight; being able to see when
+    // the request went, and whether it landed, is the difference between chasing and guessing.
+    template: `diary_connect_request_${provider}`,
+    businessId,
   });
   console.log(
     `[DIARY-CONNECT] ${spec.label} connect request sent to ${to.join(', ')}${cc.length ? ` (cc ${cc.join(', ')})` : ''} for ${name}`,
@@ -740,6 +745,8 @@ export const sendDiaryGettingReady = async (garageId: string): Promise<boolean> 
     `</td></tr>`;
   const built = buildGettingReadyEmail(prov as ProviderKey, garage.name);
   void sendEmail({
+    template: 'diary_getting_ready',
+    garageId,
     to: [manager.email],
     subject: `Getting ${garage.name} ready on ReceptionMate`,
     text: built.text,

@@ -608,6 +608,14 @@ model Business {
   garages      Garage[]
   billingMethod String @default("directdebit") // 'directdebit' | 'stripe_card' | 'invoice'
 
+  // When somebody first opened the diary-credentials link we emailed them.
+  //
+  // Recorded from OUR side, when the page validates its token — not from Mailgun. Open and click
+  // tracking depends on the provider being configured for it, on images loading and on the
+  // reader not being behind a proxy that pre-fetches links. This fires when a human actually
+  // reaches the form, which is the thing worth knowing while a garage sits waiting to go live.
+  diaryLinkOpenedAt DateTime?
+
   // The Direct Debit mandate belongs to the BUSINESS, not to whoever happened to sign it up.
   // Held on User historically, which meant only the original signatory was ever prompted to
   // fix a cancelled mandate — colleagues just saw the portal go blank.
@@ -1393,6 +1401,10 @@ model EmailLog {
   sentAt      DateTime  @default(now())
   deliveredAt DateTime?
   failedAt    DateTime?
+  // Separate timestamps rather than reading them off `status`, which only ever holds the LAST
+  // event: a click would erase the fact that it was opened, and an open would erase delivery.
+  openedAt    DateTime?
+  clickedAt   DateTime?
 
   @@index([sentAt])
   @@index([template, sentAt])

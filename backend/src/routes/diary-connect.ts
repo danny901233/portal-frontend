@@ -34,8 +34,19 @@ router.get('/diary-connect/validate', async (req: Request, res: Response) => {
   if (!claim) return res.status(401).json({ ok: false, error: 'This link is invalid or has expired.' });
   const business = await prisma.business.findUnique({
     where: { id: claim.businessId },
-    select: { name: true },
+    select: { name: true, diaryLinkOpenedAt: true },
   });
+
+  // They have reached the form. Recorded HERE rather than taken from Mailgun: open and click
+  // tracking needs the right domain settings, images to load, and no proxy pre-fetching links —
+  // whereas this fires when a person actually arrives. First touch only, so a chase email can
+  // say "you opened this on the 14th" rather than reporting the most recent refresh.
+  if (!business?.diaryLinkOpenedAt) {
+    prisma.business
+      .update({ where: { id: claim.businessId }, data: { diaryLinkOpenedAt: new Date() } })
+      .then(() => console.log(`[DIARY-CONNECT] credentials link opened for ${business?.name ?? claim.businessId}`))
+      .catch((e) => console.error('[DIARY-CONNECT] could not record the link opening:', e));
+  }
   const branches = await businessBranches(claim.businessId);
   const spec = PROVIDERS[claim.provider];
   return res.json({

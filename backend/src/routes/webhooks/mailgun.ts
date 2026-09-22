@@ -27,13 +27,26 @@ function signatureValid(timestamp?: string, token?: string, signature?: string):
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }
 
-/** Mailgun's event names -> the status we store. */
+/** Mailgun's event names -> the status we store.
+ *
+ * `clicked` was missing, so we could never tell whether anybody had followed a link — which is
+ * the only thing worth knowing about an email that asks somebody to do something. Both it and
+ * `opened` need the matching tracking switched on for the Mailgun domain AND the event
+ * subscribed on the webhook, or they simply never arrive: of the first 38 messages logged here,
+ * every one recorded delivery and not one recorded an open. */
 const STATUS_BY_EVENT: Record<string, string> = {
   delivered: 'delivered',
   failed: 'bounced',
   rejected: 'bounced',
   complained: 'complained',
   opened: 'opened',
+  clicked: 'clicked',
+};
+
+/** Ranked weakest to strongest, so a later delivery event can't undo a click. Mailgun does not
+ *  promise order, and "delivered" arriving after "opened" would otherwise look like a regression. */
+const STATUS_RANK: Record<string, number> = {
+  sent: 0, delivered: 1, opened: 2, clicked: 3, complained: 4, bounced: 5,
 };
 
 router.post('/mailgun', async (req: Request, res: Response) => {
@@ -57,13 +70,25 @@ router.post('/mailgun', async (req: Request, res: Response) => {
   const bare = messageId.replace(/^<|>$/g, '');
 
   try {
+    const now = new Date();
+    // Timestamps go on unconditionally; only the summary `status` is rank-guarded, so a
+    // delivered event landing after an open still records delivery without hiding the open.
+    const existing = await prisma.emailLog.findFirst({
+      where: { providerMessageId: { in: [bare, `<${bare}>`] } },
+      select: { status: true },
+    });
+    const keepStatus = existing
+      && (STATUS_RANK[existing.status] ?? 0) > (STATUS_RANK[status] ?? 0);
+
     const result = await prisma.emailLog.updateMany({
       where: { providerMessageId: { in: [bare, `<${bare}>`] } },
       data: {
-        status,
-        ...(status === 'delivered' ? { deliveredAt: new Date() } : {}),
+        ...(keepStatus ? {} : { status }),
+        ...(status === 'delivered' ? { deliveredAt: now } : {}),
+        ...(status === 'opened' ? { openedAt: now } : {}),
+        ...(status === 'clicked' ? { clickedAt: now, openedAt: now } : {}),
         ...(status === 'bounced'
-          ? { failedAt: new Date(), error: data['delivery-status']?.message ?? data.reason ?? null }
+          ? { failedAt: now, error: data['delivery-status']?.message ?? data.reason ?? null }
           : {}),
       },
     });

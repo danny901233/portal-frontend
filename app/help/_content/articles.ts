@@ -637,9 +637,11 @@ const messagesAndWebchat: Collection = {
           'Choose the channel \u2014 WhatsApp or SMS.',
           'Choose the campaign type: MOT / service reminders, or a one-off message. This is the setting that decides whether anyone gets chased.',
           'Bring in your customers: upload a CSV (columns customer_name, phone, registration, mot_due_date, service_due_date) or pull them straight from Garage Hive.',
+          'If you are pulling from Garage Hive, set Chasing: MOT and service, service only, or MOT only. Choose service only if servicing is the work you want \u2014 MOT-due vehicles are a separate and much larger group, and many of them have never had a service booked with you.',
           'For WhatsApp, pick the approved template and map each {{1}}, {{2}} to a column.',
           'Check the preview, then import and send.',
         ]},
+        { type: 'callout', tone: 'info', text: 'Pulling from Garage Hive can also run on its own every morning, with its own schedule and a different message for each reminder. See \u201cAutomatic Garage Hive reminders\u201d.' },
         { type: 'h', text: 'Reminders vs one-off messages' },
         { type: 'p', text: 'A reminder campaign messages each customer relative to THEIR own due date \u2014 by default 30 days before, again at 14 days, and a last one at 3 days. A one-off campaign goes out once and is never chased. Use it for offers and announcements: nobody wants the same promotion three times, and that is exactly what gets a WhatsApp number reported.' },
         { type: 'p', text: 'You can change the follow-up days per campaign. If you only want a single nudge, pick one stage and leave the rest off.' },
@@ -656,6 +658,51 @@ const messagesAndWebchat: Collection = {
         { type: 'p', text: 'Each campaign shows how many people replied and how many of those became bookings. Open a campaign to see it customer by customer — a booked customer shows what was booked and when, and clicking it opens the conversation.' },
         { type: 'callout', tone: 'warn', text: 'Only message customers who have used your garage and would expect to hear from you about their vehicle. Bulk-messaging a bought or unrelated list breaks WhatsApp\'s terms and UK PECR rules, and can get your number permanently disabled.' },
         { type: 'callout', tone: 'info', text: 'Opt-outs are permanent and shared across every campaign. Once a customer says stop, they are excluded from every future upload automatically \u2014 you do not need to clean your list.' },
+      ],
+    },
+    {
+      slug: 'garage-hive-reminders',
+      title: 'Automatic Garage Hive reminders',
+      excerpt: 'Let reminders go out every morning from your Garage Hive diary, with a different message at each stage.',
+      minutes: 5,
+      body: [
+        { type: 'p', text: 'If your diary is Garage Hive, you do not have to upload anything. Every morning we look at who is coming due, work out which of those are your customers, and message them. You set how many reminders each customer gets and what each one says.' },
+        { type: 'p', text: 'It is all on the Outbound page: choose Garage Hive as the contact source and the settings appear above the one-off pull.' },
+
+        { type: 'h', text: 'Setting it up' },
+        { type: 'ol', items: [
+          'Open Outbound and set the contact source to Garage Hive.',
+          'Set Chasing \u2014 MOT and service, service only, or MOT only.',
+          'Add your reminders. Each one needs a number of days before the customer\u2019s due date, and its own approved WhatsApp template.',
+          'Turn Automatic daily reminders on and save.',
+        ]},
+        { type: 'p', text: 'A common pattern is three: 30 days as a heads-up, 14 days as a nudge, and 3 days as a last call. You can have up to four, and a single reminder is perfectly fine.' },
+
+        { type: 'h', text: 'Why each reminder needs its own message' },
+        { type: 'p', text: 'A first reminder and a final one are not the same message. The same text arriving three times reads as nagging, and nagging is what makes people report a WhatsApp number \u2014 which costs you the number, not just the campaign. Write the 30-day one as a friendly heads-up and the 3-day one as a last call, and they read like a garage rather than a robot.' },
+        { type: 'callout', tone: 'tip', text: 'You need each template approved before you can turn reminders on. We will not let you enable a schedule with a reminder that has no message \u2014 that stage would simply never go out, and you would not know.' },
+
+        { type: 'h', text: 'When they stop' },
+        { type: 'p', text: 'As soon as the customer replies. Booking with your agent, saying they have already been in, or asking you to stop all end the remaining reminders for that vehicle. If someone tells us they no longer own the car, we switch reminders off for it in Garage Hive as well, so it does not come round again next year.' },
+        { type: 'p', text: 'Once a due date has passed we stop too, rather than chase a date that has already gone.' },
+
+        { type: 'h', text: 'Why some vehicles are not included' },
+        { type: 'p', text: 'After a pull you will see a list of vehicles that were left out, with the reason. This is normal, and on a multi-branch account it can be most of them.' },
+        { type: 'ul', items: [
+          'Belong to another of your branches \u2014 branches share one Garage Hive account, so the list starts as every vehicle due across all of them. We work out which are this branch\u2019s from where each vehicle was last booked in, and leave the rest to the branch that serves them.',
+          'Already booked in with you \u2014 the car is in your workshop right now. Reminding someone about next month\u2019s work while you have the keys reads badly, and the due date usually moves on when the job is closed.',
+          'Never been booked in \u2014 the vehicle has no history at any of your branches, so nothing says whose customer it is.',
+          'No contact number on the customer record.',
+        ]},
+
+        { type: 'h', text: 'Vehicles nobody has claimed' },
+        { type: 'p', text: 'Vehicles with no history at any branch are shown separately, with the customer\u2019s name and number, so you can look at them. If you recognise one as yours, tick it and claim it \u2014 from then on it is treated as your customer and included like any other.' },
+        { type: 'p', text: 'They are never messaged automatically, claimed or not. Someone has to decide.' },
+        { type: 'callout', tone: 'warn', text: 'Look before you claim. A vehicle with no history at any branch often belongs to somebody who has never used you \u2014 usually an MOT date that came from the DVLA rather than from work you did. An unexpected WhatsApp from a garage they do not know is the kind people report, and enough of those takes your number down.' },
+
+        { type: 'h', text: 'Checking it is working' },
+        { type: 'p', text: 'The settings panel shows when the last run happened and anything that went wrong. Each morning\u2019s reminders appear as a campaign under Past Campaigns, where you can see who was messaged, who replied and who booked.' },
+        { type: 'callout', tone: 'info', text: 'Sending is paced and capped exactly as it is for any other campaign \u2014 daytime only, spaced out, and well inside WhatsApp\u2019s limits. See \u201cOutbound message campaigns\u201d for the detail.' },
       ],
     },
     {

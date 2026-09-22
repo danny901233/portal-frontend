@@ -148,10 +148,11 @@ interface SkipCopy {
  * most "skips" are simply another branch's customers being correctly left alone. Reported as a
  * bare number against the wrong reason, that reads as data loss and makes the list look broken.
  *
- * Those are counted as one group, never broken down by branch. This screen belongs to one
- * garage, and how many customers the site down the road has is not its business — but the
- * number still needs explaining, or the missing vehicles look lost rather than deliberately
- * left alone. The server redacts the branch name before it ever reaches here.
+ * Those are counted as one group and described only as "not yours". This screen belongs to one
+ * garage: that other branches exist, and how many customers they hold, is not its business. The
+ * number still needs explaining, or the missing vehicles look lost rather than deliberately left
+ * alone — but explaining it does not require naming, or even alluding to, anybody else. The
+ * server strips the branch before it ever reaches here.
  */
 function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCopy): string[] {
   let otherBranch = 0;
@@ -161,7 +162,7 @@ function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCo
   let other = 0;
 
   for (const { reason } of skipped) {
-    if (reason.startsWith('belongs to')) otherBranch++;
+    if (reason.includes('not this garage')) otherBranch++;
     else if (reason.includes('no branch history')) noBranch++;
     else if (reason.includes('has no phone')) noPhone++;
     else if (reason.includes('no customer linked') || reason.includes('not found')) noCustomer++;
@@ -286,9 +287,9 @@ export default function OutboundPage() {
       pullFromGh: 'Pull from Garage Hive',
       vehiclesSkipped: (n: number) => `${n} vehicle${n > 1 ? 's' : ''} not included:`,
       skipOtherBranch: (n: number) =>
-        `${n} ${n === 1 ? 'is a' : 'are'} customer${n === 1 ? '' : 's'} of another branch`,
+        `${n} ${n === 1 ? 'is' : 'are'} not recorded as your customer${n === 1 ? '' : 's'}`,
       skipNoBranch: (n: number) =>
-        `${n} ${n === 1 ? 'has' : 'have'} never been booked in at any branch, so we can't tell whose customer they are`,
+        `${n} ${n === 1 ? 'has' : 'have'} never been booked in, so we can't confirm ${n === 1 ? 'it is yours' : 'they are yours'}`,
       skipNoPhone: (n: number) => `${n} ${n === 1 ? 'has' : 'have'} no contact number`,
       skipNoCustomer: (n: number) => `${n} ${n === 1 ? 'is' : 'are'} not linked to a customer record`,
       skipOther: (n: number) => `${n} skipped for other reasons`,
@@ -449,9 +450,9 @@ export default function OutboundPage() {
       pullFromGh: 'Récupérer depuis Garage Hive',
       vehiclesSkipped: (n: number) => `${n} véhicule${n > 1 ? 's' : ''} non inclus :`,
       skipOtherBranch: (n: number) =>
-        `${n} ${n === 1 ? 'est client' : 'sont clients'} d’une autre succursale`,
+        `${n} ne ${n === 1 ? 'figure' : 'figurent'} pas parmi vos clients`,
       skipNoBranch: (n: number) =>
-        `${n} n’${n === 1 ? 'a' : 'ont'} jamais été pris en charge dans une succursale — impossible de les attribuer`,
+        `${n} n’${n === 1 ? 'a' : 'ont'} jamais été pris en charge — impossible de confirmer qu’${n === 1 ? 'il vous appartient' : 'ils vous appartiennent'}`,
       skipNoPhone: (n: number) => `${n} sans numéro de contact`,
       skipNoCustomer: (n: number) => `${n} sans fiche client liée`,
       skipOther: (n: number) => `${n} ignoré${n > 1 ? 's' : ''} pour d’autres raisons`,

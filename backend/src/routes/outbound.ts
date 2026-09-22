@@ -204,12 +204,15 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
     const { contacts, skipped } = await getReminderContacts(creds, days, new Date(), dueTypes);
 
     // A garage sees its own list and nothing else. Inside a shared Business Central company the
-    // skip reason names the branch a customer belongs to, which is how the attribution is
-    // diagnosed — but it is another site's business, and this response is rendered in one
-    // garage's portal. The count still has to be explained or the missing vehicles read as data
-    // loss, so the branch is collapsed to "another branch" rather than dropped.
+    // skip reason names the branch a customer belongs to — that is how attribution is diagnosed,
+    // but this response is rendered in one garage's portal, and the existence of the other sites,
+    // let alone how many customers they hold, is not that garage's business.
     //
-    // The named version stays in the server log, which is where support actually needs it.
+    // So the reason becomes "not this garage's customer": true, and it says nothing about who the
+    // customer does belong to. The count itself stays, because vehicles disappearing with no
+    // explanation is what made this look broken to begin with.
+    //
+    // The full version stays in the server log, which is where support actually needs it.
     const named = skipped.filter((s) => /^belongs to /.test(s.reason));
     if (named.length) {
       console.log(
@@ -219,7 +222,7 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
     }
     const redacted = skipped.map((s) => ({
       ...s,
-      reason: s.reason.replace(/^belongs to .+?, not .+$/, 'belongs to another branch'),
+      reason: s.reason.replace(/^belongs to .+?, not .+$/, 'not this garage’s customer'),
     }));
 
     res.json({ source: 'garagehive', days, dueTypes, contacts, skipped: redacted });

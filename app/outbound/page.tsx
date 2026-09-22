@@ -17,6 +17,7 @@ import {
   fetchGarageHiveSettings,
   updateGarageHiveSettings,
 } from '../lib/api';
+import type { GhDueType } from '../lib/api';
 import type { OutboundCampaign, OutboundContact, OutboundContactInput, MessageTemplate } from '../lib/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLang } from '@/app/i18n/LocaleProvider';
@@ -130,6 +131,52 @@ function parseCSV(text: string, lang: 'en' | 'fr' = 'en'): { rows: OutboundConta
   return { rows };
 }
 
+interface SkipCopy {
+  skipOtherBranch: (n: number, branch: string) => string;
+  skipNoBranch: (n: number) => string;
+  skipNoPhone: (n: number) => string;
+  skipNoCustomer: (n: number) => string;
+  skipOther: (n: number) => string;
+}
+
+/**
+ * Turn the per-vehicle skip reasons into something a garage can act on.
+ *
+ * This used to be a single count with a fixed explanation — "no contact number or unlinked
+ * customer" — which was wrong for almost every skip it described. In a Garage Hive group whose
+ * branches share one company, the pull looks at every vehicle due across the WHOLE company, so
+ * most "skips" are simply another branch's customers being correctly left alone. Reported as a
+ * bare number against the wrong reason, that reads as data loss and makes the list look broken.
+ */
+function summariseSkips(skipped: { reg: string; reason: string }[], copy: SkipCopy): string[] {
+  const byBranch = new Map<string, number>();
+  let noBranch = 0;
+  let noPhone = 0;
+  let noCustomer = 0;
+  let other = 0;
+
+  for (const { reason } of skipped) {
+    const branch = /^belongs to (.+?), not /.exec(reason)?.[1];
+    if (branch) byBranch.set(branch, (byBranch.get(branch) || 0) + 1);
+    else if (reason.includes('no branch history')) noBranch++;
+    else if (reason.includes('has no phone')) noPhone++;
+    else if (reason.includes('no customer linked') || reason.includes('not found')) noCustomer++;
+    else other++;
+  }
+
+  const lines: string[] = [];
+  // Biggest group first — it is nearly always the branch split, and that is the one that explains
+  // the number rather than alarming someone with it.
+  for (const [branch, n] of [...byBranch].sort((a, b) => b[1] - a[1])) {
+    lines.push(copy.skipOtherBranch(n, branch));
+  }
+  if (noBranch) lines.push(copy.skipNoBranch(noBranch));
+  if (noPhone) lines.push(copy.skipNoPhone(noPhone));
+  if (noCustomer) lines.push(copy.skipNoCustomer(noCustomer));
+  if (other) lines.push(copy.skipOther(other));
+  return lines;
+}
+
 export default function OutboundPage() {
   const router = useRouter();
   const garageId = getGarageId() || '';
@@ -229,9 +276,20 @@ export default function OutboundPage() {
       oneOffLead: 'Or send a one-off now.',
       oneOffBody: 'Pull customers whose MOT or service falls due in Garage Hive. Vehicles marked “disable reminders” are automatically excluded.',
       dueWithin: 'Due within (days)',
+      chasing: 'Chasing',
+      dueTypeBoth: 'MOT and service',
+      dueTypeService: 'Service only',
+      dueTypeMot: 'MOT only',
       fetching: 'Fetching…',
       pullFromGh: 'Pull from Garage Hive',
-      vehiclesSkipped: (n: number) => `${n} vehicle${n > 1 ? 's' : ''} skipped (no contact number or unlinked customer).`,
+      vehiclesSkipped: (n: number) => `${n} vehicle${n > 1 ? 's' : ''} not included:`,
+      skipOtherBranch: (n: number, branch: string) =>
+        `${n} ${n === 1 ? 'is' : 'are'} ${branch}'s customer${n === 1 ? '' : 's'}`,
+      skipNoBranch: (n: number) =>
+        `${n} ${n === 1 ? 'has' : 'have'} never been booked in at any branch, so we can't tell whose customer they are`,
+      skipNoPhone: (n: number) => `${n} ${n === 1 ? 'has' : 'have'} no contact number`,
+      skipNoCustomer: (n: number) => `${n} ${n === 1 ? 'is' : 'are'} not linked to a customer record`,
+      skipOther: (n: number) => `${n} skipped for other reasons`,
       customerCsv: 'Customer CSV',
       csvColumns: '(columns: customer_name, phone, registration, mot_due_date, service_due_date)',
       downloadSample: 'Download sample CSV',
@@ -381,9 +439,19 @@ export default function OutboundPage() {
       oneOffLead: 'Ou envoyez un message ponctuel maintenant.',
       oneOffBody: 'Récupérez les clients dont le contrôle technique ou l’entretien arrive à échéance dans Garage Hive. Les véhicules marqués « désactiver les rappels » sont automatiquement exclus.',
       dueWithin: 'Échéance dans (jours)',
+      chasing: 'Relance',
+      dueTypeBoth: 'Contrôle technique et entretien',
+      dueTypeService: 'Entretien uniquement',
+      dueTypeMot: 'Contrôle technique uniquement',
       fetching: 'Récupération…',
       pullFromGh: 'Récupérer depuis Garage Hive',
-      vehiclesSkipped: (n: number) => `${n} véhicule${n > 1 ? 's' : ''} ignoré${n > 1 ? 's' : ''} (aucun numéro de contact ou client non lié).`,
+      vehiclesSkipped: (n: number) => `${n} véhicule${n > 1 ? 's' : ''} non inclus :`,
+      skipOtherBranch: (n: number, branch: string) => `${n} sont des clients de ${branch}`,
+      skipNoBranch: (n: number) =>
+        `${n} n’${n === 1 ? 'a' : 'ont'} jamais été pris en charge dans une succursale — impossible de les attribuer`,
+      skipNoPhone: (n: number) => `${n} sans numéro de contact`,
+      skipNoCustomer: (n: number) => `${n} sans fiche client liée`,
+      skipOther: (n: number) => `${n} ignoré${n > 1 ? 's' : ''} pour d’autres raisons`,
       customerCsv: 'CSV client',
       csvColumns: '(colonnes : customer_name, phone, registration, mot_due_date, service_due_date)',
       downloadSample: 'Télécharger un exemple de CSV',
@@ -465,11 +533,13 @@ export default function OutboundPage() {
   const [customStage, setCustomStage] = useState('');
   const [source, setSource] = useState<'csv' | 'garagehive'>('csv');
   const [ghDays, setGhDays] = useState(30);
+  const [ghDueTypes, setGhDueTypes] = useState<GhDueType[]>(['mot', 'service']);
   const [ghLoading, setGhLoading] = useState(false);
   const [ghSkipped, setGhSkipped] = useState<{ reg: string; reason: string }[]>([]);
   // Automatic daily reminder settings (mirrors GarageHiveConnection)
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoDays, setAutoDays] = useState(30);
+  const [autoDueTypes, setAutoDueTypes] = useState<GhDueType[]>(['mot', 'service']);
   const [autoTemplateId, setAutoTemplateId] = useState('');
   const [preview, setPreview] = useState<OutboundContactInput[] | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -514,6 +584,7 @@ export default function OutboundPage() {
     if (!ghSettings?.connected) return;
     setAutoEnabled(!!ghSettings.remindersEnabled);
     setAutoDays(ghSettings.reminderDaysAhead ?? 30);
+    setAutoDueTypes(ghSettings.reminderDueTypes?.length ? ghSettings.reminderDueTypes : ['mot', 'service']);
     setAutoTemplateId(ghSettings.reminderTemplateId ?? '');
   }, [ghSettings]);
 
@@ -605,7 +676,7 @@ export default function OutboundPage() {
     setGhSkipped([]);
     setGhLoading(true);
     try {
-      const { contacts, skipped } = await fetchGarageHiveReminders(garageId, ghDays);
+      const { contacts, skipped } = await fetchGarageHiveReminders(garageId, ghDays, ghDueTypes);
       setGhSkipped(skipped);
       if (contacts.length === 0) {
         setParseError(c.noVehicles(ghDays));
@@ -1118,6 +1189,18 @@ export default function OutboundPage() {
                     className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
                   />
                 </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">{c.chasing}</label>
+                  <select
+                    value={autoDueTypes.join(',')}
+                    onChange={(e) => setAutoDueTypes(e.target.value.split(',') as GhDueType[])}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                  >
+                    <option value="mot,service">{c.dueTypeBoth}</option>
+                    <option value="service">{c.dueTypeService}</option>
+                    <option value="mot">{c.dueTypeMot}</option>
+                  </select>
+                </div>
                 <div className="w-full md:min-w-[220px] md:flex-1">
                   <label className="mb-1 block text-xs font-medium text-slate-500">{c.whatsappTemplate}</label>
                   <select
@@ -1138,6 +1221,7 @@ export default function OutboundPage() {
                       garageId,
                       remindersEnabled: autoEnabled,
                       reminderDaysAhead: autoDays,
+                      reminderDueTypes: autoDueTypes,
                       reminderTemplateId: autoTemplateId || null,
                     })
                   }
@@ -1183,6 +1267,18 @@ export default function OutboundPage() {
                   className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
                 />
               </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">{c.chasing}</label>
+                <select
+                  value={ghDueTypes.join(',')}
+                  onChange={(e) => setGhDueTypes(e.target.value.split(',') as GhDueType[])}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="mot,service">{c.dueTypeBoth}</option>
+                  <option value="service">{c.dueTypeService}</option>
+                  <option value="mot">{c.dueTypeMot}</option>
+                </select>
+              </div>
               <button
                 type="button"
                 onClick={handlePullFromGarageHive}
@@ -1193,9 +1289,14 @@ export default function OutboundPage() {
               </button>
             </div>
             {ghSkipped.length > 0 && (
-              <p className="mt-3 text-xs text-amber-600">
-                {c.vehiclesSkipped(ghSkipped.length)}
-              </p>
+              <div className="mt-3 text-xs text-amber-600">
+                <p>{c.vehiclesSkipped(ghSkipped.length)}</p>
+                <ul className="mt-1 list-disc pl-4">
+                  {summariseSkips(ghSkipped, c).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         )}

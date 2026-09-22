@@ -6,7 +6,7 @@ import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
 import { splitPersonName } from '../utils/personName.js';
-import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection, getLastServiceSuggestion, getServicePairLabels } from '../services/garageHiveBc.js';
+import { resolveCreds, getReminderContacts, parseDueTypes, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection, getLastServiceSuggestion, getServicePairLabels } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
@@ -199,8 +199,10 @@ router.get('/outbound/garagehive/preview', authenticate, async (req: Request, re
       });
     }
 
-    const { contacts, skipped } = await getReminderContacts(creds, days);
-    res.json({ source: 'garagehive', days, contacts, skipped });
+    // Default is both, so an older client that sends no dueType behaves exactly as before.
+    const dueTypes = parseDueTypes(req.query.dueType ?? req.query.dueTypes);
+    const { contacts, skipped } = await getReminderContacts(creds, days, new Date(), dueTypes);
+    res.json({ source: 'garagehive', days, dueTypes, contacts, skipped });
   } catch (error: unknown) {
     const detail = (error as { response?: { data?: unknown } })?.response?.data;
     console.error('[OUTBOUND] Garage Hive preview error:', detail ?? error);
@@ -350,6 +352,7 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
       companyId: conn.companyId,
       remindersEnabled: conn.remindersEnabled,
       reminderDaysAhead: conn.reminderDaysAhead,
+      reminderDueTypes: parseDueTypes(conn.reminderDueTypes),
       reminderTemplateId: conn.reminderTemplateId,
       reminderChannel: conn.reminderChannel,
       callerRecognitionEnabled: conn.callerRecognitionEnabled,
@@ -372,6 +375,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       garageId,
       remindersEnabled,
       reminderDaysAhead,
+      reminderDueTypes,
       reminderTemplateId,
       advisoryUpsellsEnabled,
       callerRecognitionEnabled,
@@ -379,6 +383,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       garageId?: string;
       remindersEnabled?: boolean;
       reminderDaysAhead?: number;
+      reminderDueTypes?: string[] | string;
       reminderTemplateId?: string | null;
       advisoryUpsellsEnabled?: boolean;
       callerRecognitionEnabled?: boolean;
@@ -420,6 +425,9 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       data: {
         ...(typeof remindersEnabled === 'boolean' && { remindersEnabled }),
         ...(typeof reminderDaysAhead === 'number' && { reminderDaysAhead }),
+        ...(reminderDueTypes !== undefined && {
+          reminderDueTypes: parseDueTypes(reminderDueTypes).join(','),
+        }),
         ...(reminderTemplateId !== undefined && { reminderTemplateId }),
         ...(typeof advisoryUpsellsEnabled === 'boolean' && { advisoryUpsellsEnabled }),
         ...(typeof callerRecognitionEnabled === 'boolean' && { callerRecognitionEnabled }),
@@ -429,6 +437,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       connected: true,
       remindersEnabled: updated.remindersEnabled,
       reminderDaysAhead: updated.reminderDaysAhead,
+      reminderDueTypes: parseDueTypes(updated.reminderDueTypes),
       reminderTemplateId: updated.reminderTemplateId,
       reminderChannel: updated.reminderChannel,
       callerRecognitionEnabled: updated.callerRecognitionEnabled,

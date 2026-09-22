@@ -723,16 +723,22 @@ export const sendOutboundCampaign = async (id: string): Promise<{ success: boole
  * days), resolving each owner's number. Returns the same contact shape a CSV
  * upload produces, so the caller can preview + create a campaign identically.
  */
+export type GhDueType = 'mot' | 'service';
+
 export const fetchGarageHiveReminders = async (
   garageId: string,
   days = 30,
+  dueTypes: GhDueType[] = ['mot', 'service'],
 ): Promise<{
   source: 'garagehive';
   days: number;
+  dueTypes: GhDueType[];
   contacts: OutboundContactInput[];
   skipped: { reg: string; reason: string }[];
 }> => {
-  const { data } = await api.get('/api/outbound/garagehive/preview', { params: { garageId, days } });
+  const { data } = await api.get('/api/outbound/garagehive/preview', {
+    params: { garageId, days, dueType: dueTypes.join(',') },
+  });
   return data;
 };
 
@@ -741,6 +747,7 @@ export interface GarageHiveSettings {
   isGarageHiveAgent?: boolean;
   remindersEnabled?: boolean;
   reminderDaysAhead?: number;
+  reminderDueTypes?: GhDueType[];
   reminderTemplateId?: string | null;
   reminderChannel?: string;
   callerRecognitionEnabled?: boolean;
@@ -758,6 +765,7 @@ export const updateGarageHiveSettings = async (payload: {
   garageId: string;
   remindersEnabled?: boolean;
   reminderDaysAhead?: number;
+  reminderDueTypes?: GhDueType[];
   reminderTemplateId?: string | null;
   advisoryUpsellsEnabled?: boolean;
   callerRecognitionEnabled?: boolean;

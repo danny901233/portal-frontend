@@ -34,6 +34,26 @@ export interface GarageHiveCreds {
   locationCode?: string;
 }
 
+/** Which due-date a reminder is about. */
+export type DueType = 'mot' | 'service';
+
+export const ALL_DUE_TYPES: DueType[] = ['mot', 'service'];
+
+/**
+ * Read a due-type selection off a query param or a stored setting.
+ *
+ * Garages do not all want both. A garage whose service work is the point of reminding will not
+ * thank us for chasing MOT-only customers, and an empty or unrecognised value means "no
+ * preference recorded", which is both — never nothing.
+ */
+export function parseDueTypes(value: unknown): DueType[] {
+  const raw = Array.isArray(value) ? value : String(value ?? '').split(',');
+  const picked = raw
+    .map((v) => String(v).trim().toLowerCase())
+    .filter((v): v is DueType => v === 'mot' || v === 'service');
+  return picked.length ? [...new Set(picked)] : [...ALL_DUE_TYPES];
+}
+
 /** A vehicle whose MOT or service falls due, joined to its owner's contact. */
 export interface ReminderContact {
   customerName: string;
@@ -42,7 +62,7 @@ export interface ReminderContact {
   motDueDate?: string;
   serviceDueDate?: string;
   /** Which due-date triggered this reminder — drives the message template. */
-  dueType: 'mot' | 'service';
+  dueType: DueType;
 }
 
 interface RawVehicle {
@@ -154,6 +174,47 @@ async function get<T>(creds: GarageHiveCreds, url: string): Promise<T[]> {
   const token = await getToken(creds);
   const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
   return (res.data?.value ?? []) as T[];
+}
+
+/**
+ * Like `get`, but follows @odata.nextLink. Only for the batched queries below, where one request
+ * asks about many registrations at once and BC's page size can cut the answer short — a truncated
+ * page there is not "fewer rows", it is a vehicle silently losing its branch.
+ */
+async function getPaged<T>(creds: GarageHiveCreds, url: string, maxPages = 10): Promise<T[]> {
+  const token = await getToken(creds);
+  const out: T[] = [];
+  let next: string | undefined = url;
+  for (let i = 0; i < maxPages && next; i++) {
+    const res: { data?: { value?: T[]; '@odata.nextLink'?: string } } = await axios.get(next, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    out.push(...((res.data?.value ?? []) as T[]));
+    next = res.data?.['@odata.nextLink'];
+  }
+  return out;
+}
+
+/** Run `work` over `items` in chunks of `size`, `concurrency` chunks at a time. */
+async function inChunks<T, R>(
+  items: T[],
+  size: number,
+  concurrency: number,
+  work: (chunk: T[]) => Promise<R[]>,
+): Promise<R[]> {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  const out: R[] = [];
+  for (let i = 0; i < chunks.length; i += concurrency) {
+    const batch = await Promise.all(chunks.slice(i, i + concurrency).map(work));
+    for (const rows of batch) out.push(...rows);
+  }
+  return out;
+}
+
+/** BC OData string literal: single quotes are doubled. */
+function odataStr(value: string): string {
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 // ---------------------------------------------------------------------------
@@ -957,6 +1018,82 @@ async function branchForRegistration(
   }
 }
 
+/** A registration as Garage Hive stores it in an estimate: trimmed and upper-cased. */
+function normReg(registration: string): string {
+  return String(registration || '').trim().toUpperCase();
+}
+
+/**
+ * Branch attribution for many registrations at once.
+ *
+ * Same answer as branchForRegistration, asked once per 15 vehicles instead of once per vehicle.
+ * BC will not OR across two different fields, but it does OR a single field against a list, and
+ * that is all this needs. It matters: a reminder pull for a three-branch company looks at every
+ * vehicle due in the whole company, so one call each put a 58-vehicle pull at ~2 minutes — past
+ * the server's 30s request timeout, which is why such a pull came back empty rather than late.
+ *
+ * Returns a map of every registration asked about; a vehicle with no inspection history maps to
+ * null, which the caller skips rather than guesses at.
+ */
+async function branchesForRegistrations(
+  creds: GarageHiveCreds,
+  registrations: string[],
+): Promise<Map<string, string | null>> {
+  const regs = [...new Set(registrations.map(normReg).filter(Boolean))];
+  const out = new Map<string, string | null>(regs.map((r) => [r, null]));
+  if (!regs.length) return out;
+
+  try {
+    const rows = await inChunks(regs, 15, 4, async (chunk) => {
+      const filter = chunk.map((r) => `vehicleRegistrationNo eq ${odataStr(r)}`).join(' or ');
+      const url =
+        `${apiBase(creds)}/service/v2.0/companies(${creds.companyId})/vehicleInspectionEstimates`
+        + `?$filter=${encodeURIComponent(filter)}`
+        + `&$orderby=documentDate desc`
+        + `&$select=locationCode,documentDate,vehicleRegistrationNo`;
+      return getPaged<{ locationCode?: string; documentDate?: string; vehicleRegistrationNo?: string }>(
+        creds,
+        url,
+      );
+    });
+
+    // Ordered newest-first within a chunk, so the first row seen for a registration is its latest
+    // inspection — and that is the branch that served the customer.
+    for (const row of rows) {
+      const reg = normReg(row.vehicleRegistrationNo || '');
+      if (!reg || !out.has(reg) || out.get(reg)) continue;
+      const loc = (row.locationCode || '').trim();
+      if (loc) out.set(reg, loc);
+    }
+  } catch (e) {
+    // Same contract as the single lookup: never break a reminder run over attribution. Every
+    // registration stays null, so the caller skips them all and reports why.
+    console.error('[GH] batch branch lookup failed:', e);
+  }
+  return out;
+}
+
+/** Customer records for many customer numbers at once. Missing numbers are simply absent. */
+async function getCustomers(
+  creds: GarageHiveCreds,
+  customerNos: string[],
+): Promise<Map<string, RawCustomer>> {
+  const nos = [...new Set(customerNos.filter(Boolean))];
+  const out = new Map<string, RawCustomer>();
+  if (!nos.length) return out;
+
+  const select = 'number,displayName,phoneNumber,mobilePhoneNumber,email';
+  const rows = await inChunks(nos, 15, 4, async (chunk) => {
+    const filter = chunk.map((n) => `number eq ${odataStr(n)}`).join(' or ');
+    const url =
+      `${apiBase(creds)}/general/v2.0/companies(${creds.companyId})/customers`
+      + `?$select=${select}&$filter=${encodeURIComponent(filter)}`;
+    return getPaged<RawCustomer>(creds, url);
+  });
+  for (const row of rows) if (row.number) out.set(row.number, row);
+  return out;
+}
+
 /**
  * What the vehicle last had done, and therefore what is likely due next.
  *
@@ -1116,17 +1253,25 @@ export async function getReminderContacts(
   creds: GarageHiveCreds,
   daysAhead = 30,
   now: Date = new Date(),
+  dueTypes: DueType[] = ALL_DUE_TYPES,
 ): Promise<{ contacts: ReminderContact[]; skipped: { reg: string; reason: string }[] }> {
   const target = new Date(now);
   target.setUTCDate(target.getUTCDate() + daysAhead);
   const targetDate = isoDate(target);
 
+  // MOT and service are separate populations, not one list with a label. A garage selling
+  // servicing gets little from chasing MOT-only customers — of the 39 vehicles Great Hollands'
+  // company had MOT-due at 30 days, 12 had no service date on record at all. So only ask Garage
+  // Hive for the due-types actually wanted, rather than filtering after the fact: an unwanted
+  // type costs a query and then inflates the skipped count for no reason.
+  const wanted = new Set(dueTypes.length ? dueTypes : ALL_DUE_TYPES);
+
   const [motDue, serviceDue] = await Promise.all([
-    vehiclesDueOn(creds, 'motDueDate', targetDate),
-    vehiclesDueOn(creds, 'serviceDueDate', targetDate),
+    wanted.has('mot') ? vehiclesDueOn(creds, 'motDueDate', targetDate) : Promise.resolve([]),
+    wanted.has('service') ? vehiclesDueOn(creds, 'serviceDueDate', targetDate) : Promise.resolve([]),
   ]);
 
-  const tagged: Array<{ v: RawVehicle; dueType: 'mot' | 'service' }> = [
+  const tagged: Array<{ v: RawVehicle; dueType: DueType }> = [
     ...motDue.map((v) => ({ v, dueType: 'mot' as const })),
     ...serviceDue.map((v) => ({ v, dueType: 'service' as const })),
   ];
@@ -1134,13 +1279,17 @@ export async function getReminderContacts(
   const contacts: ReminderContact[] = [];
   const skipped: { reg: string; reason: string }[] = [];
 
-  // Cache customer lookups within a run (one owner can have several vehicles).
-  const customerCache = new Map<string, RawCustomer | null>();
-
   // Branch attribution is only meaningful when several garages share one company. A garage with
-  // no locationCode set owns the whole company, which is every single-site customer, and nothing
-  // below runs for them.
-  const branchCache = new Map<string, string | null>();
+  // no locationCode set owns the whole company, which is every single-site customer, and the
+  // lookup is skipped entirely for them.
+  //
+  // Both lookups below are resolved for the whole run up front. Done per vehicle they were two
+  // round trips each, which is what pushed a multi-branch pull past the 30s request timeout.
+  const branchByReg = creds.locationCode
+    ? await branchesForRegistrations(creds, tagged.map(({ v }) => v.registrationNo || ''))
+    : new Map<string, string | null>();
+
+  const attributed: Array<{ v: RawVehicle; dueType: DueType; reg: string }> = [];
 
   for (const { v, dueType } of tagged) {
     const reg = v.registrationNo || '(unknown)';
@@ -1150,11 +1299,7 @@ export async function getReminderContacts(
     }
 
     if (creds.locationCode) {
-      let branch = branchCache.get(reg);
-      if (branch === undefined) {
-        branch = await branchForRegistration(creds, reg);
-        branchCache.set(reg, branch);
-      }
+      const branch = branchByReg.get(normReg(reg)) ?? null;
       if (!branch) {
         // Never been in for an inspection, so we cannot say whose customer they are. Skipped on
         // purpose: messaging someone on another branch's behalf, about work that branch did not
@@ -1167,12 +1312,15 @@ export async function getReminderContacts(
         continue;
       }
     }
+    attributed.push({ v, dueType, reg });
+  }
 
-    let customer = customerCache.get(v.customerNo);
-    if (customer === undefined) {
-      customer = await getCustomer(creds, v.customerNo);
-      customerCache.set(v.customerNo, customer);
-    }
+  // Only the survivors' owners are worth fetching — on a three-branch company that is a small
+  // fraction of the vehicles due.
+  const customers = await getCustomers(creds, attributed.map(({ v }) => v.customerNo));
+
+  for (const { v, dueType, reg } of attributed) {
+    const customer = customers.get(v.customerNo);
     if (!customer) {
       skipped.push({ reg, reason: `customer ${v.customerNo} not found` });
       continue;

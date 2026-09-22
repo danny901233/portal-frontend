@@ -7,7 +7,7 @@
 //      then flows automatically through the WhatsApp webhook)
 // ---------------------------------------------------------------------------
 import { prisma } from '../db.js';
-import { resolveCreds, getReminderContacts } from './garageHiveBc.js';
+import { resolveCreds, getReminderContacts, parseDueTypes } from './garageHiveBc.js';
 import { normalisePhone, sendCampaignById } from './outboundSend.js';
 
 export interface ReminderRunResult {
@@ -57,7 +57,10 @@ export async function runGarageReminders(conn: NonNullable<Connection>): Promise
   if (!creds) return { ...base, error: 'No Garage Hive credentials resolved' };
 
   const daysAhead = conn.reminderDaysAhead ?? 30;
-  const { contacts, skipped } = await getReminderContacts(creds, daysAhead);
+  // The daily run chases exactly what the garage picked in the portal. Unset means both, which is
+  // how every connection behaved before the setting existed.
+  const dueTypes = parseDueTypes(conn.reminderDueTypes);
+  const { contacts, skipped } = await getReminderContacts(creds, daysAhead, new Date(), dueTypes);
   base.pulled = contacts.length;
   base.skippedNoContact = skipped.length;
 

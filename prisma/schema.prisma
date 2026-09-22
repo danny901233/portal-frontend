@@ -168,6 +168,9 @@ model GarageHiveConnection {
   clientSecret       String?
   remindersEnabled   Boolean   @default(false)
   reminderDaysAhead  Int       @default(30)
+  // Which due-dates the daily run chases: "mot", "service" or "mot,service". A garage selling
+  // servicing often does not want MOT-only customers chased, and before this they got both.
+  reminderDueTypes   String    @default("mot,service")
   reminderTemplateId String? // approved WhatsApp MessageTemplate id used for auto-sends
   reminderChannel    String    @default("whatsapp") // "whatsapp" | "sms"
   // Which branch this garage IS, inside a shared Business Central company. Garage Hive groups

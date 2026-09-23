@@ -61,6 +61,7 @@ export default function AdminTicketsPage() {
   // filed and closed on the way in, which buries the handful of things that
   // actually want attention.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
+  const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<TicketDetail | null>(null);
   const [entries, setEntries] = useState<TicketEntry[]>([]);
@@ -78,16 +79,23 @@ export default function AdminTicketsPage() {
 
   const loadList = useCallback(async () => {
     try {
+      // A reference search ignores the status filter, so someone quoting a
+      // closed ticket's reference still finds it.
+      const filters = search.trim()
+        ? { ref: search.trim() }
+        : (statusFilter === 'all' ? {} : { status: statusFilter });
       const [t, c] = await Promise.all([
-        fetchTickets(statusFilter === 'all' ? {} : { status: statusFilter }),
+        fetchTickets(filters),
         fetchTicketQueueCounts(),
       ]);
       setTickets(t.tickets);
       setCounts(c);
+      // One hit on a reference search is the ticket they were looking for.
+      if (search.trim() && t.tickets.length === 1) setSelectedId(t.tickets[0].id);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load tickets');
     }
-  }, [statusFilter]);
+  }, [statusFilter, search]);
 
   const loadThread = useCallback(async (id: string) => {
     try {
@@ -225,7 +233,34 @@ export default function AdminTicketsPage() {
             {b.label}
           </button>
         ))}
+
+        {/* Reference lookup — what a customer quotes down the phone. */}
+        <div className="ml-auto flex items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setSearch(''); }}
+            placeholder="Find by reference — RM-2SBXHMR or #7"
+            className="w-64 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setSelectedId(null); setSelected(null); }}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-600 hover:border-brand-600 hover:text-brand-600"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
+
+      {search.trim() && (
+        <p className="text-xs text-slate-500">
+          Searching all statuses for <span className="font-mono font-semibold">{search.trim()}</span>
+          {tickets.length === 0 && ' — nothing found'}
+        </p>
+      )}
 
       <div className="flex h-[calc(100vh-16rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {/* List */}

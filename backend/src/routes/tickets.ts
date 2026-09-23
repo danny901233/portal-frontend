@@ -26,7 +26,7 @@ import { Prisma, TicketStatus, TicketCategory, TicketPriority, TicketChannel, Ti
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../utils/email.js';
-import { ticketSubjectTag, stripTicketTag } from '../services/ticketRef.js';
+import { ticketSubjectTag, stripTicketTag, ticketNumberCandidates } from '../services/ticketRef.js';
 
 const router = Router();
 
@@ -121,6 +121,18 @@ router.get('/admin/tickets', authenticate, requireAdmin, async (req: Request, re
   if (q.category)   where.category   = q.category as TicketCategory;
   if (q.priority)   where.priority   = q.priority as TicketPriority;
   if (q.garageId)   where.garageId   = q.garageId;
+
+  // Lookup by whatever the person has to hand: the reference a customer quoted
+  // (RM-2SBXHMR), the internal number (#7), or a pasted subject line. Digits are
+  // ambiguous between the two, so both readings are matched and at most one
+  // exists. A reference search ignores the status filter — someone ringing about
+  // a closed ticket still needs finding.
+  if (q.ref) {
+    const candidates = ticketNumberCandidates(q.ref);
+    if (!candidates.length) return res.json({ tickets: [] });
+    where.number = { in: candidates };
+    delete where.status;
+  }
 
   const take = Math.min(parseInt(q.limit || '50', 10), 200);
 

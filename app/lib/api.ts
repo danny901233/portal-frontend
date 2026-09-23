@@ -1172,6 +1172,10 @@ export interface TicketListFilters {
   priority?: TicketPriority;
   garageId?: string;
   limit?: number;
+  /** A customer's quoted reference (RM-2SBXHMR), an internal number (#7), or a
+   *  pasted subject line. Overrides the status filter — a closed ticket someone
+   *  is ringing about still needs finding. */
+  ref?: string;
 }
 
 export const fetchTickets = async (filters: TicketListFilters = {}): Promise<{ tickets: TicketSummary[] }> => {

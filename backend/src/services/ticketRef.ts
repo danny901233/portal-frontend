@@ -93,6 +93,44 @@ export function ticketNumberFromSubject(subject: string): number | null {
   return decodeTicketRef(token);
 }
 
+/**
+ * Every ticket number a search box entry could plausibly mean.
+ *
+ * A search box gets whatever the person has in front of them: the reference a
+ * customer read out (`RM-2SBXHMR`, or just `2SBXHMR`), the internal number they
+ * can see in the portal (`7`, `#7`), or a whole subject line pasted in.
+ *
+ * Digits are ambiguous — the base32 alphabet includes them, so `1234567` is both
+ * a plausible internal number and a well-formed reference. Rather than guess,
+ * return both readings and let the query match either; at most one will exist.
+ */
+export function ticketNumberCandidates(input: string): number[] {
+  const raw = (input || '').trim();
+  if (!raw) return [];
+
+  const out = new Set<number>();
+
+  // A full subject line with a tag in it.
+  const fromSubject = ticketNumberFromSubject(raw);
+  if (fromSubject) out.add(fromSubject);
+
+  // Otherwise treat it as a bare token: drop brackets, an RM prefix and a #.
+  const token = raw
+    .replace(/[[\]]/g, '')
+    .replace(/^\s*RM[-\s#]*/i, '')
+    .replace(/^#/, '')
+    .trim();
+
+  if (/^\d+$/.test(token)) {
+    const n = Number(token);
+    if (n > 0 && Number.isSafeInteger(n)) out.add(n);
+  }
+  const decoded = decodeTicketRef(token);
+  if (decoded) out.add(decoded);
+
+  return [...out];
+}
+
 /** Strip any of our tags, so a title or a reply subject does not accumulate them. */
 export const stripTicketTag = (subject: string): string =>
   (subject || '').replace(new RegExp(TICKET_TAG_RE.source, 'gi'), '').trim();

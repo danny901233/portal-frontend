@@ -256,19 +256,23 @@ async function sendAutoAck(args: {
   // safe to always prepend fresh.
   const subject = `${subjectTag} ${stripTicketTag(args.originalSubject) || 'Your message'}`.slice(0, 300);
 
+  // Deliberately says nothing about tickets or queues. "Raised a ticket for it"
+  // and "it's in our queue" are true, but they tell a customer they have joined a
+  // line — which is the opposite of the impression we want from the first thing
+  // we ever send them automatically. This reads as though a person has it.
   const text = [
     greet,
     '',
-    "Thanks for getting in touch — we've received your message and raised a ticket for it.",
+    "Thanks for getting in touch — your message has come through to our team and we're on it.",
     '',
-    'The support team will be in touch shortly. Replying to this email keeps everything on the same ticket.',
+    "We'll come back to you shortly. If you think of anything else in the meantime, just reply to this email and it'll reach the same person.",
     '',
     '— The ReceptionMate team',
   ].join('\n');
 
   const html = `<p>${greet.replace('<','&lt;')}</p>
-<p>Thanks for getting in touch — we've received your message and raised a ticket for it.</p>
-<p>The support team will be in touch shortly. Replying to this email keeps everything on the same ticket.</p>
+<p>Thanks for getting in touch — your message has come through to our team and we're on it.</p>
+<p>We'll come back to you shortly. If you think of anything else in the meantime, just reply to this email and it'll reach the same person.</p>
 <p>— The ReceptionMate team</p>`;
 
   const ok = await sendEmail({

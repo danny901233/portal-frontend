@@ -130,8 +130,28 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
   const hasAttachments = (options.attachments?.length ?? 0) > 0;
 
   let body: BodyInit;
+  // A Mailgun sending key is scoped to ONE domain, so sending through a second
+  // domain needs its own key. Without it Mailgun answers 401 Forbidden and the
+  // message is simply never sent — which for an auto-acknowledgement means the
+  // customer hears nothing at all. A slightly wrong return path is a much smaller
+  // problem than silence, so fall back to the default domain rather than fail.
+  let sendDomain = options.domain || config.domain;
+  let sendKey = config.apiKey;
+  if (options.domain && options.domain !== config.domain) {
+    const scopedKey = process.env.SUPPORT_MAILGUN_API_KEY;
+    if (scopedKey) {
+      sendKey = scopedKey;
+    } else {
+      console.warn(
+        `[EMAIL] SUPPORT_MAILGUN_API_KEY not set — sending via ${config.domain} instead of ${options.domain}. ` +
+        'Return path will read the default domain until a sending key for it is configured.',
+      );
+      sendDomain = config.domain;
+    }
+  }
+
   const headers: Record<string, string> = {
-    Authorization: `Basic ${Buffer.from(`api:${config.apiKey}`).toString('base64')}`,
+    Authorization: `Basic ${Buffer.from(`api:${sendKey}`).toString('base64')}`,
   };
 
   // Mailgun API: passing a custom RFC5322 header X on the outbound message
@@ -175,7 +195,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
   }
 
-  const response = await fetch(`${config.apiBase}/v3/${options.domain || config.domain}/messages`, {
+  const response = await fetch(`${config.apiBase}/v3/${sendDomain}/messages`, {
     method: 'POST',
     headers,
     body,

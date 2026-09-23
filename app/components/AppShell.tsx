@@ -56,7 +56,11 @@ function useIsMobile() {
 // '/connect-diary' is the same thing for Tyresoft, AutoSage and Bookar, and has to be here for
 // exactly the same reason: the backend routes are public and token-gated, but the PAGE is what
 // they click, and without this entry it bounces them to a login they cannot pass.
-const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/demo-embed', '/connect-garagehive', '/connect-diary']);
+// Pages opened from a link in an email, by someone who has no portal login and never will.
+// Anything missing here gets bounced to /login by bootstrapSession below, which is how
+// /connect-garagehive-advanced shipped asking GarageHive to sign in to a portal they have no
+// account for.
+const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/demo-embed', '/connect-garagehive', '/connect-garagehive-advanced', '/connect-diary']);
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {

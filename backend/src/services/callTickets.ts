@@ -56,15 +56,25 @@ async function createCallTicket(args: CreateArgs): Promise<void> {
   // A Contact needs an email or a phone. Withheld numbers give us neither, so
   // the ticket is still worth raising but cannot be tied to anyone — a synthetic
   // key keeps it from colliding with a real contact.
-  const contact = phone
-    ? await prisma.contact.upsert({
-        where: { phone },
-        update: args.callerName ? { name: args.callerName } : {},
-        create: { phone, name: args.callerName ?? undefined, garageId: args.garageId },
-      })
-    : await prisma.contact.create({
-        data: { name: args.callerName ?? 'Withheld number', garageId: args.garageId },
-      });
+  // Only `email` is unique on Contact, so a phone lookup is find-then-create
+  // rather than an upsert. Two calls from the same number in the same instant
+  // could make a duplicate contact; that is a tidier problem than a failed
+  // ticket, and the tickets still both exist.
+  let contact = phone ? await prisma.contact.findFirst({ where: { phone } }) : null;
+  if (!contact) {
+    contact = await prisma.contact.create({
+      data: {
+        phone: phone ?? undefined,
+        name: args.callerName ?? (phone ? undefined : 'Withheld number'),
+        garageId: args.garageId,
+      },
+    });
+  } else if (args.callerName && !contact.name) {
+    contact = await prisma.contact.update({
+      where: { id: contact.id },
+      data: { name: args.callerName },
+    });
+  }
 
   const ticket = await prisma.ticket.create({
     data: {

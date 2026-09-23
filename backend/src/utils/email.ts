@@ -48,6 +48,19 @@ interface EmailOptions {
   // thread rather than starting a new one. Values are passed through unaltered
   // — the caller owns escaping (angle brackets on message ids, etc.).
   headers?: Record<string, string>;
+
+  /** Which Mailgun sending domain to send through, overriding MAILGUN_DOMAIN.
+   *
+   *  The domain is not cosmetic: it is what signs the message (DKIM d=) and what
+   *  the return path is stamped with, so it is what a mail client shows when it
+   *  decides to display the authenticated sender rather than the From header.
+   *  Support mail sent through `noreply.receptionmate.co.uk` surfaced in Outlook
+   *  as `hello=receptionmate.co.uk@noreply.receptionmate.co.uk` — telling someone
+   *  who had just written in that they were talking to a no-reply address.
+   *
+   *  So support mail goes through `support.`, and `noreply.` is left to the mail
+   *  that genuinely does not want a reply. */
+  domain?: string;
 }
 
 /**
@@ -72,6 +85,11 @@ interface EmailOptions {
  * out-of-office bounces from a campaign send would each open a ticket.
  */
 export const SUPPORT_REPLY_TO = process.env.SUPPORT_REPLY_TO || 'hello@receptionmate.co.uk';
+
+/** Sending domain for support conversations — see `EmailOptions.domain`. Anything
+ *  a customer might reply to should go through this, never `noreply.`. */
+export const SUPPORT_MAILGUN_DOMAIN =
+  process.env.SUPPORT_MAILGUN_DOMAIN || 'support.receptionmate.co.uk';
 
 const getMailgunConfig = () => {
   const apiKey = process.env.MAILGUN_API_KEY;
@@ -157,7 +175,7 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
   }
 
-  const response = await fetch(`${config.apiBase}/v3/${config.domain}/messages`, {
+  const response = await fetch(`${config.apiBase}/v3/${options.domain || config.domain}/messages`, {
     method: 'POST',
     headers,
     body,

@@ -25,7 +25,8 @@ import { randomBytes } from 'crypto';
 import { Prisma, TicketStatus, TicketCategory, TicketPriority, TicketChannel, TicketEntryKind } from '@prisma/client';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import { sendEmail } from '../utils/email.js';
+import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../utils/email.js';
+import { ticketSubjectTag, stripTicketTag } from '../services/ticketRef.js';
 
 const router = Router();
 
@@ -357,12 +358,14 @@ router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: 
     // Subject always carries [RM #N] so a customer reply threads back via the
     // subject-tag rule in mailgun-inbound (spec §2 rule a). Strip any prior tag
     // from the ticket title so we don't double up like "[RM #12] [RM #12] ...".
-    const cleanTitle = ticket.title.replace(/\[RM\s*#\d+\]/gi, '').trim() || 'Your ticket';
-    const subject = `[RM #${ticket.number}] ${cleanTitle}`.slice(0, 300);
+    const cleanTitle = stripTicketTag(ticket.title) || 'Your ticket';
+    const subject = `${ticketSubjectTag(ticket.number)} ${cleanTitle}`.slice(0, 300);
 
     sendOk = await sendEmail({
       to: [ticket.contact.email as string],
       from: SUPPORT_FROM,
+      // Through the support domain, so the return path never reads "noreply".
+      domain: SUPPORT_MAILGUN_DOMAIN,
       subject,
       text: parsed.data.body,
       html: textToHtml(parsed.data.body),

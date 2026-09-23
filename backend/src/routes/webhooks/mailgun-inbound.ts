@@ -6,10 +6,12 @@
 // a public_reply TicketEntry authored by the Contact.
 //
 // Threading precedence (most-reliable first):
-//   1. Subject "[RM #123]" — our own outbound emails include this; guarantees
-//      the reply lands on the correct ticket. Set on outbound send.
+//   1. Subject "[RM-XXXXXXX]" — our own outbound emails include this; guarantees
+//      the reply lands on the correct ticket. Set on outbound send. The code is
+//      an obfuscated ticket number (services/ticketRef.ts), because a sequential
+//      "[RM #4]" tells the customer how many support emails we have ever had.
 //   2. In-Reply-To header → TicketEntry.outboundMessageId lookup. Some clients
-//      strip the [RM #N] token but preserve In-Reply-To — this catches those.
+//      strip the subject tag but preserve In-Reply-To — this catches those.
 //   3. Neither matched → create a new Ticket.
 //
 // Auto-ack (Dan's rule 4): for a NEW email ticket, send a short acknowledgement
@@ -28,9 +30,10 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { Prisma, TicketChannel, TicketEntryKind, TicketStatus, TicketPriority } from '@prisma/client';
 import { prisma } from '../../db.js';
-import { sendEmail } from '../../utils/email.js';
+import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../../utils/email.js';
 import { enrichNewTicket } from '../../services/ticketAi.js';
 import { classifyDeterministic } from '../../services/emailClassifier.js';
+import { ticketSubjectTag, ticketNumberFromSubject, stripTicketTag } from '../../services/ticketRef.js';
 
 const router = Router();
 
@@ -83,15 +86,11 @@ const verifyMailgunSignature = (fields: MailgunSignatureFields): boolean => {
 
 // ─── Parsing helpers ────────────────────────────────────────────────────────
 
-const RM_TICKET_TAG = /\[RM\s*#(\d+)\]/i;
+// Tag parsing lives in services/ticketRef.ts so the inbound matcher and the
+// outbound subject line cannot drift apart.
 
-const parseTicketNumberFromSubject = (subject: string | undefined): number | null => {
-  if (!subject) return null;
-  const m = RM_TICKET_TAG.exec(subject);
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
-};
+const parseTicketNumberFromSubject = (subject: string | undefined): number | null =>
+  subject ? ticketNumberFromSubject(subject) : null;
 
 // Extract the first bare email from an "In-Reply-To" or Message-Id header. Values look like
 // "<20260826101337.eaa3d035cc337ad4@noreply.receptionmate.co.uk>" — the angle brackets
@@ -230,7 +229,7 @@ async function resolveOrCreateTicket(args: {
   }
 
   // 3. New ticket. Title = subject cleaned of the tag (or first 100 chars of body if no subject).
-  const cleanTitle = (args.subject.replace(RM_TICKET_TAG, '').trim() || '(no subject)').slice(0, 300);
+  const cleanTitle = (stripTicketTag(args.subject) || '(no subject)').slice(0, 300);
   const t = await prisma.ticket.create({
     data: {
       title: cleanTitle,
@@ -252,24 +251,24 @@ async function sendAutoAck(args: {
   originalSubject: string;
 }) {
   const greet = args.contactName ? `Hi ${args.contactName.split(/\s+/)[0]},` : 'Hi,';
-  const subjectTag = `[RM #${args.ticketNumber}]`;
+  const subjectTag = ticketSubjectTag(args.ticketNumber);
   // If the original subject already had a tag we'd have threaded — no auto-ack fires. So
   // safe to always prepend fresh.
-  const subject = `${subjectTag} ${args.originalSubject.replace(RM_TICKET_TAG, '').trim() || 'Your message'}`.slice(0, 300);
+  const subject = `${subjectTag} ${stripTicketTag(args.originalSubject) || 'Your message'}`.slice(0, 300);
 
   const text = [
     greet,
     '',
-    `Thanks for getting in touch — we've received your message and it's in our queue as ticket #${args.ticketNumber}.`,
+    "Thanks for getting in touch — we've received your message and raised a ticket for it.",
     '',
-    "The support team will be in touch shortly. When we reply, please keep the subject tag in place — that's how we thread your response back to the same conversation.",
+    'The support team will be in touch shortly. Replying to this email keeps everything on the same ticket.',
     '',
     '— The ReceptionMate team',
   ].join('\n');
 
   const html = `<p>${greet.replace('<','&lt;')}</p>
-<p>Thanks for getting in touch — we've received your message and it's in our queue as ticket #${args.ticketNumber}.</p>
-<p>The support team will be in touch shortly. When we reply, please keep the subject tag in place — that's how we thread your response back to the same conversation.</p>
+<p>Thanks for getting in touch — we've received your message and raised a ticket for it.</p>
+<p>The support team will be in touch shortly. Replying to this email keeps everything on the same ticket.</p>
 <p>— The ReceptionMate team</p>`;
 
   const ok = await sendEmail({
@@ -277,6 +276,9 @@ async function sendAutoAck(args: {
     // MAILGUN_FROM is noreply@, which cannot receive, and this message invites
     // a reply. Send as the address the customer already wrote to.
     from: process.env.SUPPORT_FROM_EMAIL || 'hello@receptionmate.co.uk',
+    // Through the support domain: this message invites a reply, so its return
+    // path must not read "noreply".
+    domain: SUPPORT_MAILGUN_DOMAIN,
     to: [args.toEmail],
     subject,
     text,

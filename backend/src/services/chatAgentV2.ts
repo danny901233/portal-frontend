@@ -1078,6 +1078,7 @@ async function getChatAgentResponseInner(
         re: /\b(already (had|been) (done|serviced|in)|had (it|the work|the service) done|been done|got (it )?done|serviced (last|in|elsewhere)|done (last month|elsewhere|already)|records? need updating)\b/i },
     ];
 
+
     // Outbound service fastpath: auto-select service for outbound reminders (MOT or Full Service)
     // The webhook seeds step=need_service with vrn already set, so the vehicle fast-path above
     // doesn't fire. We need to auto-select the service here instead of relying on the LLM.
@@ -4403,8 +4404,11 @@ export async function classifyReminderReply(text: string): Promise<string | null
             + 'already_done — the work has already been done, here or elsewhere.\n'
             + 'booking — anything that moves towards an appointment: agreeing, asking about dates, '
             + 'times, prices or availability, giving a day, or asking a question about the work.\n'
-            + 'unclear — a greeting, a thank-you, or anything you cannot place.\n\n'
-            + 'Answer with ONE word: sold, opt_out, already_done, booking or unclear.',
+            + 'not_now — they are declining this reminder: not interested at the moment, all fine '
+            + 'for now, no thanks, maybe later. They still have the vehicle, the work has NOT been '
+            + 'done, and they have NOT asked to stop hearing from us.\n'
+            + 'unclear — a greeting on its own, or anything you cannot place.\n\n'
+            + 'Answer with ONE word: sold, opt_out, already_done, not_now, booking or unclear.',
         },
         { role: 'user', content: said },
       ],
@@ -4412,7 +4416,7 @@ export async function classifyReminderReply(text: string): Promise<string | null
     const verdict = (resp.choices[0]?.message?.content || '').trim().toLowerCase().replace(/[^a-z_]/g, '');
     // Only the three that stop a booking are acted on. "booking" and "unclear" both mean
     // carry on as before, so a wrong answer there costs nothing.
-    return ['sold', 'opt_out', 'already_done'].includes(verdict) ? verdict : null;
+    return ['sold', 'opt_out', 'already_done', 'not_now'].includes(verdict) ? verdict : null;
   } catch (e) {
     console.error('[OUTBOUND_REMINDER] reply classification failed — treating as a booking:', e);
     return null;
@@ -4442,6 +4446,17 @@ async function applyReminderNotABooking(
     session.step = Step.MESSAGE_ONLY;
 
     const vehicle = session.vrn || 'their vehicle';
+
+    // A plain "not now" needs no task. The other three are all things the garage must DO —
+    // update a record, stop the reminders — and raising one for every polite decline would
+    // bury them. The reply still stops dead: step is MESSAGE_ONLY and awaitingDatePreference
+    // is cleared above, which is the whole point. The campaign's own schedule decides whether
+    // they are chased again; declining today is not the same as opting out.
+    if (kind === 'not_now') {
+      await saveSession(conversationId, session);
+      return;
+    }
+
     const summary = kind === 'sold'
       ? `Reminder reply — they no longer have ${vehicle}. Stop reminders for it and check the `
         + `record. Their words: "${String(message).slice(0, 160)}"`
@@ -5887,6 +5902,13 @@ RECOGNISING AFFIRMATIVE RESPONSES:
         + `them, apologise briefly for the reminder landing when it was not needed, and say the team `
         + `will update the record. Never imply they are due anyway or ask them to prove it. If they `
         + `said where or when it was done, acknowledge it — they are doing us a favour by saying so.\n`;
+    } else if (what === 'not_now') {
+      prompt += `- They are simply not booking right now. Accept it warmly in ONE short sentence `
+        + `and leave the door open — something like "No problem at all, thanks for letting us `
+        + `know — we're here whenever you need us." Do NOT ask when they might want to come in, `
+        + `do NOT offer a date or a price, and do NOT ask them to confirm anything. They said no `
+        + `politely; answering with another question is how a polite no becomes an annoyed one. `
+        + `Do not tell them you have stopped their reminders — we have not, and they did not ask.\n`;
     } else {
       prompt += `- They have asked us to STOP contacting them. Confirm plainly that you have done `
         + `it and they will not get any more reminders — that is true now, we have switched them `

@@ -767,3 +767,82 @@ export const matchBranch = (
     runnerUpScore: Number(runnerUp.toFixed(2)),
   };
 };
+
+// ── GARAGE LINK ADVANCED ────────────────────────────────────────────────────
+// The ordinary connect above wires the ONLINE BOOKING diary, which is all most garages need.
+// Service history, caller recognition and MOT/service reminders come from Business Central
+// instead, and BC needs credentials the garage's own GarageHive account only has once they
+// upgrade — GarageHive sell that upgrade as "Garage Link Advanced".
+//
+// Until now those credentials arrived by whatever route somebody happened to use, which is why
+// only three garages in the fleet have a BC connection at all. Advanced Service Centre is the
+// case that made it worth automating: every caller is told "we haven't seen this vehicle
+// before" because there is no BC row to look history up in.
+//
+// Same shape as sendGarageHiveConnectRequest: a signed link, no login, GarageHive fill it in.
+export const sendGarageHiveAdvancedRequest = async (
+  businessId: string,
+  opts: { to?: string[]; subjectPrefix?: string } = {},
+): Promise<boolean> => {
+  const to = opts.to?.length
+    ? opts.to
+    : (process.env.GARAGEHIVE_ADVANCED_EMAIL_TO || process.env.GARAGEHIVE_CONNECT_EMAIL_TO || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+  const cc = opts.to?.length
+    ? []
+    : (process.env.GARAGEHIVE_CONNECT_EMAIL_CC || '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+  if (!to.length) {
+    console.warn(
+      '[GH-ADVANCED] no recipient configured — NOT sending the Garage Link Advanced request for',
+      businessId,
+    );
+    return false;
+  }
+
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { name: true },
+  });
+  const branches = await prisma.garage.findMany({
+    where: { businessId },
+    select: { name: true },
+    orderBy: { name: 'asc' },
+  });
+  const name = business?.name || 'This garage';
+  const link = `${PORTAL_URL}/connect-garagehive-advanced?token=${signConnectToken(businessId)}`;
+  const branchList = branches.map((b) => b.name).join(', ') || 'one branch';
+  const plural = branches.length === 1 ? 'branch' : 'branches';
+
+  const body =
+    `<tr><td style="padding: 32px;">` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">Garage Link Advanced upgrade</h1>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${name}</strong> has chosen to upgrade their account to <strong>Garage Link Advanced</strong>.</p>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Could you open the link below and fill in their Business Central details? That connects service history, caller recognition and MOT reminders for their ${branches.length} ${plural}: ${branchList}.</p>` +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">It asks for the tenant ID, environment, company ID and API credentials, plus the location code for each branch. Nothing else is needed — submitting the form links them automatically.</p>` +
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
+    `<td style="background:#3426cf;border-radius:10px;"><a href="${link}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Connect Garage Link Advanced</a></td>` +
+    `</tr></table>` +
+    `<p style="margin:0;font-size:13px;line-height:1.5;color:#94a3b8;text-align:center;">Or paste this link: <a href="${link}" style="color:#3426cf;word-break:break-all;">${link}</a><br>Link valid 14 days.</p>` +
+    `</td></tr>`;
+
+  await sendEmail({
+    to,
+    ...(cc.length ? { cc } : {}),
+    subject: `${opts.subjectPrefix ?? ''}Garage Link Advanced — ${name}`,
+    text:
+      `${name} has chosen to upgrade their account to Garage Link Advanced.\n\n` +
+      `Could you open the link below and fill in their Business Central details? That connects ` +
+      `service history, caller recognition and MOT reminders for their ${branches.length} ${plural}: ${branchList}.\n\n` +
+      `It asks for the tenant ID, environment, company ID and API credentials, plus the location ` +
+      `code for each branch. Submitting the form links them automatically.\n\n` +
+      `${link}\n\nLink valid 14 days.`,
+    html: brandedEmailShell(body),
+  });
+  console.log(`[GH-ADVANCED] request sent to ${to.join(', ')} for ${name}`);
+  return true;
+};

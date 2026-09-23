@@ -104,6 +104,145 @@ router.post('/garagehive-connect/submit', async (req: Request, res: Response) =>
   });
 });
 
+// ---- GARAGE LINK ADVANCED (Business Central) — same token, separate form ---
+// The connect flow above wires the online-booking diary. Service history, caller recognition and
+// MOT reminders come from Business Central, whose credentials only exist once the garage upgrades
+// to what GarageHive sell as "Garage Link Advanced". One set of credentials per company, plus a
+// location code per branch — that split is why this can't just be another field on the form above.
+
+// GET /api/garagehive-advanced/validate?token=... -> who it's for, and which branches need a code.
+router.get('/garagehive-advanced/validate', async (req: Request, res: Response) => {
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
+  const businessId = verifyConnectToken(token);
+  if (!businessId)
+    return res.status(401).json({ ok: false, error: 'This link is invalid or has expired.' });
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { name: true },
+  });
+  const branches = await prisma.garage.findMany({
+    where: { businessId },
+    select: { id: true, name: true, garageHiveConnection: { select: { locationCode: true } } },
+    orderBy: { name: 'asc' },
+  });
+  return res.json({
+    ok: true,
+    businessName: business?.name ?? 'this business',
+    branches: branches.map((b) => ({
+      id: b.id,
+      name: b.name,
+      locationCode: b.garageHiveConnection?.locationCode ?? '',
+    })),
+  });
+});
+
+// POST /api/garagehive-advanced/submit
+//   { token, tenantId, environmentName, companyId, clientId?, clientSecret?, locations: {garageId: code} }
+router.post('/garagehive-advanced/submit', async (req: Request, res: Response) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+  const businessId = verifyConnectToken(token);
+  if (!businessId)
+    return res.status(401).json({ ok: false, error: 'This link is invalid or has expired.' });
+
+  const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+  const tenantId = str(req.body?.tenantId);
+  const environmentName = str(req.body?.environmentName) || 'Production';
+  const companyId = str(req.body?.companyId);
+  const clientId = str(req.body?.clientId);
+  const clientSecret = str(req.body?.clientSecret);
+  const locations = asObject(req.body?.locations);
+
+  const missing = [
+    !tenantId && 'tenant ID',
+    !companyId && 'company ID',
+  ].filter(Boolean) as string[];
+  if (missing.length)
+    return res.status(400).json({ ok: false, error: `Please fill in the ${missing.join(' and ')}.` });
+
+  // Only write branches this business actually owns — the token names the business, never a
+  // garage, so an id in the body is untrusted input.
+  const branches = await prisma.garage.findMany({
+    where: { businessId },
+    select: { id: true, name: true },
+  });
+  const owned = new Map(branches.map((b) => [b.id, b.name]));
+
+  const linked: string[] = [];
+  const skipped: string[] = [];
+  for (const [garageId, raw] of Object.entries(locations)) {
+    const locationCode = str(raw);
+    const branchName = owned.get(garageId);
+    if (!branchName) continue;
+    if (!locationCode) {
+      skipped.push(branchName);
+      continue;
+    }
+    // clientId/clientSecret are optional: some tenants authorise by a shared app registration
+    // held our side. Never blank an existing secret just because this form left it empty.
+    await prisma.garageHiveConnection.upsert({
+      where: { garageId },
+      create: {
+        garageId,
+        tenantId,
+        environmentName,
+        companyId,
+        locationCode,
+        ...(clientId ? { clientId } : {}),
+        ...(clientSecret ? { clientSecret } : {}),
+        callerRecognitionEnabled: true,
+      },
+      update: {
+        tenantId,
+        environmentName,
+        companyId,
+        locationCode,
+        ...(clientId ? { clientId } : {}),
+        ...(clientSecret ? { clientSecret } : {}),
+        callerRecognitionEnabled: true,
+      },
+    });
+    // Caller recognition lives on the agent config too, and the agent reads THAT one.
+    await prisma.agentConfiguration
+      .update({ where: { garageId }, data: { callerRecognitionEnabled: true } })
+      .catch(() => undefined);
+    void sendAgentConfigWebhook(garageId);
+    linked.push(`${branchName} → ${locationCode}`);
+  }
+
+  if (!linked.length)
+    return res
+      .status(400)
+      .json({ ok: false, error: 'Please enter a location code for at least one branch.' });
+
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { name: true },
+  });
+  const summary = [
+    `Garage Link Advanced connected for ${business?.name ?? businessId}.`,
+    '',
+    `Tenant ${tenantId} / environment ${environmentName} / company ${companyId}`,
+    `API credentials supplied: ${clientId ? 'yes' : 'no'}`,
+    '',
+    `Linked (${linked.length}):`,
+    ...linked.map((l) => `  ✓ ${l}`),
+    ...(skipped.length ? ['', `No location code given (${skipped.length}):`, ...skipped.map((s) => `  – ${s}`)] : []),
+  ].join('\n');
+  void sendEmail({
+    to: ['dan@receptionmate.co.uk'],
+    subject: `Garage Link Advanced — ${business?.name ?? 'garage'}`,
+    text: summary,
+    html: `<pre style="font-family:inherit;white-space:pre-wrap">${summary.replace(/</g, '&lt;')}</pre>`,
+  });
+
+  return res.json({
+    ok: true,
+    linkedCount: linked.length,
+    skippedCount: skipped.length,
+    businessName: business?.name ?? 'your garage',
+  });
+});
+
 // POST /api/admin/garagehive/preview  { businessId, instance }
 // Runs /init and auto-matches every branch of the business. No writes — just the proposed mapping
 // for staff to eyeball (and override the low-confidence ones) before committing.

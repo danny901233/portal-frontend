@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '../lib/utils';
 import { useT } from '../i18n/LocaleProvider';
+import { isReceptionMateStaff } from '../lib/auth';
 
 interface Props {
   hasMessagingAccess?: boolean;
@@ -30,6 +31,12 @@ export default function MobileBottomNav({
     { href: '/calls', label: t('nav.calls'), icon: <PhoneIcon />, badge: unreadCalls },
     ...(hasMessagingAccess
       ? [{ href: '/messages', label: t('nav.messages'), icon: <ChatIcon />, badge: unreadMessages }]
+      : []),
+    // Staff only. Support tickets now push to our phones, and a notification you
+    // can act on needs somewhere to go — it was otherwise three taps into the
+    // drawer, under Admin, which nobody would find in a hurry.
+    ...(isReceptionMateStaff()
+      ? [{ href: '/admin/tickets', label: 'Tickets', icon: <TicketIcon />, badge: 0 }]
       : []),
   ];
 
@@ -97,6 +104,14 @@ function ChatIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-6 w-6">
       <path d="M21 11.5a8.4 8.4 0 0 1-9 8 8.4 8.4 0 0 1-3.8-.9L3 20l1.4-5A8.4 8.4 0 0 1 12 3.5a8.4 8.4 0 0 1 9 8z" />
+    </svg>
+  );
+}
+function TicketIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-6 w-6">
+      <path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V8z" />
+      <path d="M9 6v12" strokeDasharray="2 3" />
     </svg>
   );
 }

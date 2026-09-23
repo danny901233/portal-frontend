@@ -272,7 +272,9 @@ export default function AdminTicketsPage() {
 
       <div className="flex h-[calc(100vh-16rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {/* List */}
-        <aside className="flex w-96 shrink-0 flex-col border-r border-slate-200 bg-slate-50">
+        <aside
+          className={`${selectedId ? 'hidden md:flex' : 'flex'} w-full shrink-0 flex-col border-r border-slate-200 bg-slate-50 md:w-96`}
+        >
           <ul className="flex-1 overflow-y-auto divide-y divide-slate-200">
             {tickets.length === 0 ? (
               <li className="px-4 py-8 text-center text-xs text-slate-500">No tickets match.</li>
@@ -310,8 +312,11 @@ export default function AdminTicketsPage() {
           </ul>
         </aside>
 
-        {/* Thread */}
-        <section className="flex flex-1 flex-col">
+        {/* Thread. On a phone this replaces the list rather than sitting beside
+            it — a 384px list plus a thread does not fit, and the thread was the
+            half pushed off-screen, so a notification opened a ticket you could
+            not read. */}
+        <section className={`${selectedId ? 'flex' : 'hidden md:flex'} flex-1 flex-col`}>
           {!selectedId || !selected ? (
             <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
               Pick a ticket to view it.
@@ -319,6 +324,13 @@ export default function AdminTicketsPage() {
           ) : (
             <>
               <header className="border-b border-slate-200 bg-white px-5 py-3">
+                <button
+                  type="button"
+                  onClick={() => { setSelectedId(null); setSelected(null); }}
+                  className="mb-2 text-xs font-medium text-brand-600 hover:underline md:hidden"
+                >
+                  ← All tickets
+                </button>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">

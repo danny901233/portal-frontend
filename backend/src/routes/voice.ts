@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { prisma } from '../db.js';
+import { raisesTickets, raiseTicketFromScreenedCall } from '../services/callTickets.js';
 import { sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
 
 const router = Router();
@@ -31,6 +32,32 @@ function wasAccepted(callSid: string): boolean {
   if (at === undefined) return false;
   screenAccepted.delete(callSid);
   return Date.now() - at <= ACCEPT_TTL_MS;
+}
+
+/**
+ * Screened calls a PERSON took, awaiting their recording.
+ *
+ * `wasAccepted` deletes on read and after-screen consumes it, so by the time the
+ * recording callback arrives the fact that a human answered is already gone.
+ * This remembers it for the gap between hangup and Twilio posting the recording,
+ * which is seconds. In memory on purpose — a restart in that window loses a
+ * ticket, which is a far smaller cost than a schema change for a value with a
+ * one-minute lifetime.
+ */
+const screenedHumanCalls = new Map<string, { garageId: string; from: string; at: number }>();
+const SCREENED_TTL_MS = 30 * 60 * 1000;
+
+function rememberHumanAnswered(callSid: string, garageId: string, from: string): void {
+  const now = Date.now();
+  for (const [sid, v] of screenedHumanCalls) if (now - v.at > SCREENED_TTL_MS) screenedHumanCalls.delete(sid);
+  screenedHumanCalls.set(callSid, { garageId, from, at: now });
+}
+
+function takeHumanAnswered(callSid: string): { garageId: string; from: string } | null {
+  const v = screenedHumanCalls.get(callSid);
+  if (!v) return null;
+  screenedHumanCalls.delete(callSid);
+  return { garageId: v.garageId, from: v.from };
 }
 
 function xmlEscape(v: string): string {
@@ -119,10 +146,25 @@ router.post('/voice', async (req: Request, res: Response) => {
       // keypress. Voicemail can answer a call but it cannot press a key, so a declined call
       // that diverts to the answerphone never gets bridged and falls through to the agent.
       const whisper = `${base}/webhooks/voice/whisper?garageId=${encodeURIComponent(garageId)}`;
+
+      // Record the leg a PERSON answers, so it can be transcribed afterwards and
+      // raise a ticket if anything was left outstanding. Only on our own lines
+      // (SUPPORT_TICKET_GARAGE_IDS) — recording a customer garage's calls is
+      // their decision to make and their notice to give, not ours.
+      const recordThis = raisesTickets(garageId);
+      const recAttrs = recordThis
+        ? ` record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(`${base}/webhooks/recording-status`)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed"`
+        : '';
+      // Callers have to be told before it starts. A line of TwiML is cheap; being
+      // the business that recorded people without saying so is not.
+      const notice = recordThis && process.env.SCREEN_RECORDING_NOTICE !== 'off'
+        ? `  <Say voice="Polly.Amy-Neural">${xmlEscape(process.env.SCREEN_RECORDING_NOTICE || 'Just to let you know, this call may be recorded.')}</Say>\n`
+        : '';
+
       res.type('text/xml');
       return res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial timeout="${timeout}" action="${action}" method="POST"${callerId ? ` callerId="${xmlEscape(callerId)}"` : ''}>
+${notice}  <Dial timeout="${timeout}" action="${action}" method="POST"${callerId ? ` callerId="${xmlEscape(callerId)}"` : ''}${recAttrs}>
     <Number url="${xmlEscape(whisper)}" method="POST">${dialTarget}</Number>
   </Dial>
 </Response>`);
@@ -211,6 +253,7 @@ router.post('/voice/after-screen', async (req: Request, res: Response) => {
   const callSid = String(req.body?.CallSid || '');
   if (callSid && wasAccepted(callSid)) {
     console.log(`[VOICE] Screened call for ${garageId} was taken by a person (status=${status}) — done`);
+    rememberHumanAnswered(callSid, garageId, String(req.body?.From || ''));
     return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
   }
 
@@ -372,6 +415,18 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       });
 
       console.log(`[RECORDING] Stored recording for CallSid ${CallSid}`);
+
+      // A screened call a PERSON answered. The AI never joined, so this recording
+      // is the only account of what was said — transcribe it and raise a ticket
+      // if anything was left outstanding.
+      const human = takeHumanAnswered(String(CallSid));
+      if (human) {
+        void raiseTicketFromScreenedCall({
+          garageId: human.garageId,
+          recordingUrl: String(RecordingUrl),
+          callerPhone: human.from || null,
+        });
+      }
 
       // Update call duration with recording duration (actual call time)
       // OR delete the call if it's under the minimum billable/logged length.

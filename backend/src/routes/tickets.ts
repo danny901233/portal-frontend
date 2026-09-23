@@ -353,11 +353,24 @@ router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: 
 
   // ── Sent-reply path (spec §7): actually send the email. ────────────────
   // Only wired for email channel today. Other channels (whatsapp/portal_chat)
-  // land in Phases 3/5 — for those, still create the entry + bump timestamps
-  // but skip the email send.
-
+  // land in Phases 3/5.
+  //
+  // Those channels used to fall through here quietly: the entry was recorded,
+  // the timestamps moved, the UI showed a sent reply, and nothing left the
+  // building. Now that phone tickets exist — a call that needs ringing back —
+  // that silence would be somebody believing they had answered a customer who
+  // never heard from them. Refuse instead, and say why.
   const isEmailChannel = ticket.channel === TicketChannel.email;
   const canSendEmail = isEmailChannel && ticket.contact.email;
+
+  if (!isDraft && !canSendEmail) {
+    const why = ticket.channel === TicketChannel.phone
+      ? 'This ticket came in by phone — ring them back, then add an internal note. Replies cannot be sent from here.'
+      : isEmailChannel
+        ? 'This contact has no email address, so a reply cannot be sent.'
+        : `Replies on the ${ticket.channel} channel are not wired up yet — use an internal note.`;
+    return res.status(409).json({ error: why });
+  }
 
   let outboundMessageId: string | null = null;
   let sendOk = true;

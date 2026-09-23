@@ -19,6 +19,7 @@ import type {
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { sendCallSummaryEmail, sendPaymentSetupReminderEmail, sendArrearsCallNoticeEmail } from '../utils/email.js';
 import { raiseNegativeFeedbackTicket } from '../services/feedbackTicket.js';
+import { raiseTicketFromAiCall } from '../services/callTickets.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { notifyGarageUsers, garageUnreadBadge } from '../utils/push.js';
 import { trackConfirmedBooking } from '../services/billing.js';
@@ -605,6 +606,18 @@ router.post('/calls', async (req: Request, res: Response) => {
         const branch =
           (cfg?.branchName && cfg.branchName.trim()) ||
           (createdCall.garage?.name || '').trim();
+        // Only fires for our own lines (SUPPORT_TICKET_GARAGE_IDS) and only for
+        // the categories that mean a person is wanted.
+        void raiseTicketFromAiCall({
+          garageId: payload.garageId,
+          garageName: createdCall.garage?.name || branch || payload.garageId,
+          callId,
+          callType,
+          summary: payload.summary,
+          customerPhone: payload.customerPhone || payload.fromNumber,
+          customerName: payload.customerName,
+        });
+
         await notifyGarageUsers(payload.garageId, {
           title: `${personaName} handled a call for you`,
           ...(branch ? { subtitle: branch } : {}),

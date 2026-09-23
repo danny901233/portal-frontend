@@ -241,6 +241,10 @@ async function sendAutoAck(args: {
 <p>— The ReceptionMate team</p>`;
 
   const ok = await sendEmail({
+    // Same reason as the reply path in routes/tickets.ts: the default
+    // MAILGUN_FROM is noreply@, which cannot receive, and this message invites
+    // a reply. Send as the address the customer already wrote to.
+    from: process.env.SUPPORT_FROM_EMAIL || 'hello@receptionmate.co.uk',
     to: [args.toEmail],
     subject,
     text,

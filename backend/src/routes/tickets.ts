@@ -222,6 +222,22 @@ router.post('/admin/tickets', authenticate, requireAdmin, async (req: Request, r
 
 const OUTBOUND_MSGID_DOMAIN = process.env.MAILGUN_DOMAIN || 'receptionmate.co.uk';
 
+/**
+ * Who a ticket reply comes FROM.
+ *
+ * Without this the send falls through to MAILGUN_FROM, which is
+ * `noreply@receptionmate.co.uk` — a subdomain whose MX records point at a
+ * Mailgun region the account does not use, so nothing sent there can ever be
+ * received. The customer's reply would bounce and the thread this code builds
+ * `In-Reply-To` for would silently dead-end.
+ *
+ * Replying as `hello@` is also what closes the loop: that address is on
+ * Microsoft 365, whose rule copies it back to Mailgun's inbound webhook, so the
+ * customer's reply threads onto this same ticket. It is the address they already
+ * write to, and the only one every outbound template tells them to use.
+ */
+const SUPPORT_FROM = process.env.SUPPORT_FROM_EMAIL || 'hello@receptionmate.co.uk';
+
 const generateOutboundMessageId = (ticketNumber: number): string => {
   // <ticket-{number}.{random}.{ts}@domain>. Ticket number in the id itself
   // is belt-and-braces if the DB row ever gets corrupted; random suffix
@@ -346,6 +362,7 @@ router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: 
 
     sendOk = await sendEmail({
       to: [ticket.contact.email as string],
+      from: SUPPORT_FROM,
       subject,
       text: parsed.data.body,
       html: textToHtml(parsed.data.body),

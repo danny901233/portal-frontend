@@ -1,0 +1,341 @@
+// Support hub Phase 2 continuation — ticket-model routes.
+// Reads/writes the Ticket / Contact / TicketEntry tables added in PR #381.
+//
+// Staff-only. All endpoints go through requireAdmin.
+//
+// Endpoints:
+//   GET    /api/admin/tickets                — list with filters (status, assignee, channel, category, garageId)
+//   GET    /api/admin/tickets/queue-counts   — sidebar counts (unassigned, mine open, pending 3+ days)
+//   GET    /api/admin/tickets/:id            — one ticket + all entries in chronological order
+//   POST   /api/admin/tickets                — create a ticket (for seeding + testing; production ingest is Phase 1/3/4)
+//   POST   /api/admin/tickets/:id/reply      — post a public_reply (sends to customer once channel-send is wired up)
+//   POST   /api/admin/tickets/:id/note       — post an internal_note (staff-only, never sent out)
+//   PATCH  /api/admin/tickets/:id/status     — status transition + logs a status_change entry
+//   PATCH  /api/admin/tickets/:id/assign     — assignment change + logs an assignment_change entry
+//
+// Not in this file:
+//   - Actual outbound sending (email/whatsapp) — wired in Phase 1 / Phase 3
+//   - AI classification of category on ingest — wired in Phase 1
+//   - Contact merge / re-linking — deferred (per PR #381 doc)
+
+import type { Request, Response } from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
+import { Prisma, TicketStatus, TicketCategory, TicketPriority, TicketChannel, TicketEntryKind } from '@prisma/client';
+import { prisma } from '../db.js';
+import { authenticate, requireAdmin } from '../middleware/auth.js';
+
+const router = Router();
+
+// ─── Status codec ──────────────────────────────────────────────────────────
+// Prisma reserves `new` as an enum-value name (JS keyword), so the schema uses
+// `TicketStatus.new_` with `@map("new")` — DB literal is still `"new"`. That
+// mapping only applies to writes/reads at the DB layer; the runtime enum object
+// still exposes the code-name `"new_"`, which would leak into JSON responses
+// unless we translate at the API boundary. Do it here in one place.
+
+const dbStatusOut = (s: TicketStatus): string => (s === TicketStatus.new_ ? 'new' : s);
+const dbStatusIn  = (s: string): TicketStatus | null => {
+  if (s === 'new') return TicketStatus.new_;
+  return (Object.values(TicketStatus) as string[]).includes(s) ? (s as TicketStatus) : null;
+};
+
+const serializeTicket = <T extends { status: TicketStatus }>(t: T): Omit<T, 'status'> & { status: string } =>
+  ({ ...t, status: dbStatusOut(t.status) });
+
+// ─── Validation schemas ────────────────────────────────────────────────────
+
+// Status uses DB literals (`'new'`, not `'new_'`) and coerces to the Prisma value.
+const statusEnum   = z.enum(['new', 'open', 'pending', 'on_hold', 'solved', 'closed'])
+                      .transform((v) => dbStatusIn(v) as TicketStatus);
+const categoryEnum = z.nativeEnum(TicketCategory);
+const priorityEnum = z.nativeEnum(TicketPriority);
+const channelEnum  = z.nativeEnum(TicketChannel);
+
+const createTicketSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  channel: channelEnum,
+  priority: priorityEnum.optional(),
+  category: categoryEnum.optional(),
+  // Contact identity — email OR phone must be set. If a Contact with the given
+  // email/phone exists we reuse it, otherwise we create a new one on the fly.
+  contact: z.object({
+    email: z.string().email().optional(),
+    phone: z.string().trim().min(3).max(30).optional(),
+    name:  z.string().trim().max(120).optional(),
+    garageId: z.string().optional(),  // cache onto ticket at create time
+  }).refine((c) => !!(c.email || c.phone), { message: 'Contact needs email or phone' }),
+  // Optional first message body — if provided, we create a public_reply entry
+  // authored by the contact so the ticket opens with content.
+  initialBody: z.string().trim().max(20000).optional(),
+});
+
+const replySchema = z.object({
+  body: z.string().trim().min(1).max(20000),
+  isDraft: z.boolean().optional(),  // AI-drafted, not yet approved (default false = staff typed & sent)
+});
+
+const statusChangeSchema = z.object({
+  status: statusEnum,
+});
+
+const assignSchema = z.object({
+  assigneeId: z.string().nullable(),  // null = unassigned (back to shared queue)
+});
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+async function getOrCreateContact(
+  input: { email?: string; phone?: string; name?: string; garageId?: string }
+) {
+  // Prefer email as the identity anchor (globally unique per PR #381 design decision).
+  if (input.email) {
+    const existing = await prisma.contact.findUnique({ where: { email: input.email } });
+    if (existing) return existing;
+  }
+  return prisma.contact.create({
+    data: {
+      email: input.email,
+      phone: input.phone,
+      name:  input.name,
+      garageId: input.garageId,
+    },
+  });
+}
+
+// ─── LIST ──────────────────────────────────────────────────────────────────
+
+router.get('/admin/tickets', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const q = req.query as Record<string, string | undefined>;
+  const where: Prisma.TicketWhereInput = {};
+  if (q.status) {
+    const s = dbStatusIn(q.status);
+    if (!s) return res.status(400).json({ error: `Invalid status: ${q.status}` });
+    where.status = s;
+  }
+  if (q.assigneeId) where.assigneeId = q.assigneeId === 'unassigned' ? null : q.assigneeId;
+  if (q.channel)    where.channel    = q.channel as TicketChannel;
+  if (q.category)   where.category   = q.category as TicketCategory;
+  if (q.priority)   where.priority   = q.priority as TicketPriority;
+  if (q.garageId)   where.garageId   = q.garageId;
+
+  const take = Math.min(parseInt(q.limit || '50', 10), 200);
+
+  const tickets = await prisma.ticket.findMany({
+    where,
+    orderBy: [{ updatedAt: 'desc' }],
+    take,
+    include: {
+      contact:  { select: { id: true, email: true, phone: true, name: true } },
+      assignee: { select: { id: true, email: true } },
+      garage:   { select: { id: true, name: true } },
+      _count:   { select: { entries: true } },
+    },
+  });
+
+  return res.json({ tickets: tickets.map(serializeTicket) });
+});
+
+// ─── QUEUE COUNTS (sidebar) ────────────────────────────────────────────────
+
+router.get('/admin/tickets/queue-counts', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+
+  const [unassigned, mineOpen, pendingStale] = await Promise.all([
+    prisma.ticket.count({ where: { assigneeId: null, status: { in: [TicketStatus.new_, TicketStatus.open] } } }),
+    prisma.ticket.count({ where: { assigneeId: req.user.userId, status: TicketStatus.open } }),
+    prisma.ticket.count({ where: { status: TicketStatus.pending, lastCustomerActivityAt: { lt: threeDaysAgo } } }),
+  ]);
+
+  return res.json({ unassigned, mineOpen, pendingStale });
+});
+
+// ─── DETAIL ────────────────────────────────────────────────────────────────
+
+router.get('/admin/tickets/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: req.params.id },
+    include: {
+      contact:  { select: { id: true, email: true, phone: true, name: true, garageId: true } },
+      assignee: { select: { id: true, email: true } },
+      garage:   { select: { id: true, name: true } },
+    },
+  });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  const entries = await prisma.ticketEntry.findMany({
+    where: { ticketId: ticket.id },
+    orderBy: { createdAt: 'asc' },
+    take: 500,
+    include: {
+      authorUser:    { select: { id: true, email: true } },
+      authorContact: { select: { id: true, email: true, name: true } },
+    },
+  });
+
+  return res.json({ ticket: serializeTicket(ticket), entries });
+});
+
+// ─── CREATE (seed / manual) ────────────────────────────────────────────────
+
+router.post('/admin/tickets', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const parsed = createTicketSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+
+  const contact = await getOrCreateContact(parsed.data.contact);
+
+  const ticket = await prisma.ticket.create({
+    data: {
+      title:    parsed.data.title,
+      channel:  parsed.data.channel,
+      priority: parsed.data.priority ?? TicketPriority.normal,
+      category: parsed.data.category ?? TicketCategory.uncategorized,
+      contactId: contact.id,
+      garageId:  contact.garageId,
+    },
+  });
+
+  if (parsed.data.initialBody) {
+    await prisma.ticketEntry.create({
+      data: {
+        ticketId: ticket.id,
+        kind: TicketEntryKind.public_reply,
+        authorContactId: contact.id,
+        body: parsed.data.initialBody,
+      },
+    });
+  }
+
+  return res.status(201).json({ ticket: serializeTicket(ticket) });
+});
+
+// ─── REPLY (public — customer-facing) ──────────────────────────────────────
+
+router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const parsed = replySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+
+  const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  const isDraft = parsed.data.isDraft ?? false;
+  const now = new Date();
+
+  const entry = await prisma.ticketEntry.create({
+    data: {
+      ticketId: ticket.id,
+      kind: TicketEntryKind.public_reply,
+      authorUserId: req.user.userId,
+      body: parsed.data.body,
+      isDraft,
+    },
+  });
+
+  // Only bump staff timestamps + first-response for actually-sent replies (not drafts).
+  if (!isDraft) {
+    await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: {
+        lastStaffActivityAt: now,
+        firstResponseAt: ticket.firstResponseAt ?? now,
+        // Sending a reply flips the ticket to pending (waiting on customer).
+        // Staff can override via status endpoint if that's not right.
+        status: ticket.status === TicketStatus.new_ || ticket.status === TicketStatus.open
+          ? TicketStatus.pending
+          : ticket.status,
+      },
+    });
+  }
+
+  return res.status(201).json({ entry });
+});
+
+// ─── NOTE (internal — never leaves the portal) ─────────────────────────────
+
+router.post('/admin/tickets/:id/note', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const parsed = replySchema.pick({ body: true }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+
+  const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  const entry = await prisma.ticketEntry.create({
+    data: {
+      ticketId: ticket.id,
+      kind: TicketEntryKind.internal_note,
+      authorUserId: req.user.userId,
+      body: parsed.data.body,
+    },
+  });
+  return res.status(201).json({ entry });
+});
+
+// ─── STATUS CHANGE ─────────────────────────────────────────────────────────
+
+router.patch('/admin/tickets/:id/status', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const parsed = statusChangeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+
+  const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  if (ticket.status === parsed.data.status) return res.json({ ticket: serializeTicket(ticket) });
+
+  const now = new Date();
+  const patch: Prisma.TicketUpdateInput = { status: parsed.data.status };
+  if (parsed.data.status === TicketStatus.solved) patch.solvedAt = now;
+  if (parsed.data.status === TicketStatus.closed) patch.closedAt = now;
+
+  const [updated] = await prisma.$transaction([
+    prisma.ticket.update({ where: { id: ticket.id }, data: patch }),
+    prisma.ticketEntry.create({
+      data: {
+        ticketId: ticket.id,
+        kind: TicketEntryKind.status_change,
+        authorUserId: req.user.userId,
+        body: `Status: ${dbStatusOut(ticket.status)} → ${dbStatusOut(parsed.data.status)}`,
+      },
+    }),
+  ]);
+
+  return res.json({ ticket: serializeTicket(updated) });
+});
+
+// ─── ASSIGN ────────────────────────────────────────────────────────────────
+
+router.patch('/admin/tickets/:id/assign', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const parsed = assignSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+
+  const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id } });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  if (ticket.assigneeId === parsed.data.assigneeId) return res.json({ ticket: serializeTicket(ticket) });
+
+  let noteBody = '';
+  if (parsed.data.assigneeId === null) noteBody = 'Assignment cleared (back to shared queue)';
+  else {
+    const assignee = await prisma.user.findUnique({ where: { id: parsed.data.assigneeId }, select: { email: true } });
+    if (!assignee) return res.status(400).json({ error: 'Assignee user not found' });
+    noteBody = `Assigned to ${assignee.email}`;
+  }
+
+  const [updated] = await prisma.$transaction([
+    prisma.ticket.update({ where: { id: ticket.id }, data: { assigneeId: parsed.data.assigneeId } }),
+    prisma.ticketEntry.create({
+      data: {
+        ticketId: ticket.id,
+        kind: TicketEntryKind.assignment_change,
+        authorUserId: req.user.userId,
+        body: noteBody,
+      },
+    }),
+  ]);
+
+  return res.json({ ticket: serializeTicket(updated) });
+});
+
+export default router;

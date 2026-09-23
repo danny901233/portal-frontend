@@ -545,6 +545,8 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
         subject,
         body: bodyText,
         contactName: contact.name,
+        // Needed to mirror a sales enquiry into HighLevel.
+        contactEmail: email,
         skipClassification: deterministicHit,
       }).catch((err) => console.error('[MAILGUN_INBOUND] AI enrichment error:', err));
     }

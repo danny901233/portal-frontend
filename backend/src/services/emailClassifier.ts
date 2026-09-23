@@ -104,6 +104,19 @@ const SUPPLIER_NO_ACTION =
 const SUPPLIER_ACTION_NEEDED =
   /\b(failed|failure|declined|decline|unpaid|overdue|past due|action required|action needed|expir(e|es|ed|ing)|suspend(ed|ing|sion)?|cancel(led|lation)?|disabl(e|ed)|deactivat(e|ed)|urgent|security alert|unable to (charge|process)|could not (charge|process)|update your (card|payment|billing))\b/i;
 
+// ─── Our own notifications to ourselves ────────────────────────────────────
+// Some of what lands at hello@ is the portal telling us something, not a person
+// writing in. A website lead is already a contact and an opportunity in
+// HighLevel by the time this email arrives, so a ticket for it is a second copy
+// of a record that lives somewhere better.
+//
+// Only genuinely redundant notifications belong here. Voice-support escalations
+// ("Support call: ...") and demo requests are NOT redundant — somebody has to
+// act on them — so they are deliberately absent and stay in the queue.
+const SELF_NOTIFICATION_SUBJECTS = [
+  /^new website lead\b/i,
+];
+
 // ─── Complaint keywords (rule: complaint + high priority IF known garage) ──
 // Deliberately narrow — false positives here bump priority which pages Dan.
 // Broader classification is the AI's job.
@@ -148,7 +161,21 @@ export function classifyDeterministic(input: DeterministicInput): DeterministicM
     }
   }
 
-  // Rule 2: complaint language + known garage → complaint, HIGH priority.
+  // Rule 2: our own notification about something already recorded elsewhere.
+  // Scoped to our own sending domain so a customer cannot trigger it by subject.
+  if (/(^|\.)receptionmate\.co\.uk$/i.test(domain)
+      && SELF_NOTIFICATION_SUBJECTS.some((re) => re.test(input.subject.trim()))) {
+    return {
+      category: TicketCategory.sales_enquiry,
+      rule: 'self_notification:website_lead',
+      autoAck: false,
+      aiDraft: false,
+      // Kept for the audit trail, closed on arrival: HighLevel owns the lead.
+      autoClose: true,
+    };
+  }
+
+  // Rule 3: complaint language + known garage → complaint, HIGH priority.
   // Unknown-garage complaints stay for AI to classify — the priority bump
   // matters most when we know it's from an actual paying customer.
   if (input.contactGarageId && (COMPLAINT_SIGNALS.test(input.subject) || COMPLAINT_SIGNALS.test(input.bodyText))) {

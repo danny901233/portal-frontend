@@ -21,6 +21,7 @@
 import OpenAI from 'openai';
 import { TicketCategory, TicketEntryKind } from '@prisma/client';
 import { prisma } from '../db.js';
+import { highlevelConfigured, upsertContact, createOpportunity } from './highlevel.js';
 
 let client: OpenAI | null = null;
 const oa = () => (client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
@@ -150,12 +151,51 @@ async function draftReply(args: {
 // already settled the category, so we don't call the AI classifier at all. The
 // draft still runs — rules can settle a category but can't write a reply.
 
+/**
+ * Put a sales enquiry that arrived by email into the CRM.
+ *
+ * Someone who fills in the website form becomes a HighLevel contact and an
+ * opportunity. Someone who simply emails hello@ saying "how much is it?" used to
+ * become neither — they were answered, and never appeared in the pipeline, so
+ * they were invisible to every follow-up sequence and every conversion figure.
+ *
+ * The conversation still belongs in the ticket queue; this only mirrors the
+ * pipeline entry. createOpportunity upserts and only ever moves a contact
+ * forward, so somebody already on trial who emails a question cannot be dragged
+ * back to the enquiry stage.
+ *
+ * Best-effort: a CRM hiccup must never interfere with answering the customer.
+ */
+async function recordSalesEnquiryInCrm(args: {
+  ticketNumber: number;
+  contactEmail: string;
+  contactName: string | null;
+}): Promise<void> {
+  if (!highlevelConfigured()) return;
+  try {
+    const name = args.contactName?.trim() || args.contactEmail.split('@')[0];
+    const { contactId } = await upsertContact({
+      name,
+      email: args.contactEmail,
+      source: 'support email',
+      tags: [process.env.GHL_EMAIL_ENQUIRY_TAG || 'email-enquiry'],
+    });
+    if (!contactId) return;
+
+    await createOpportunity({ contactId, name: `${name} — email enquiry`, kind: 'lead' });
+    console.log(`[TICKET_AI] ticket #${args.ticketNumber} mirrored to HighLevel as a lead (${args.contactEmail})`);
+  } catch (err) {
+    console.error(`[TICKET_AI] HighLevel push failed for ticket #${args.ticketNumber}:`, err);
+  }
+}
+
 export async function enrichNewTicket(args: {
   ticketId: string;
   ticketNumber: number;
   subject: string;
   body: string;
   contactName: string | null;
+  contactEmail?: string | null;
   skipClassification?: boolean;
 }): Promise<void> {
   const [classification, draft] = await Promise.all([
@@ -180,6 +220,14 @@ export async function enrichNewTicket(args: {
       );
     } catch (err) {
       console.error(`[TICKET_AI] failed to persist category for ticket #${args.ticketNumber}:`, err);
+    }
+
+    if (classification.category === TicketCategory.sales_enquiry && args.contactEmail) {
+      await recordSalesEnquiryInCrm({
+        ticketNumber: args.ticketNumber,
+        contactEmail: args.contactEmail,
+        contactName: args.contactName,
+      });
     }
   }
 

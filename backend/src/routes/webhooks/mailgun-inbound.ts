@@ -34,6 +34,7 @@ import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../../utils/email.js';
 import { enrichNewTicket } from '../../services/ticketAi.js';
 import { classifyDeterministic } from '../../services/emailClassifier.js';
 import { ticketSubjectTag, ticketNumberFromSubject, stripTicketTag } from '../../services/ticketRef.js';
+import { notifyReceptionMateStaff } from '../../utils/push.js';
 
 const router = Router();
 
@@ -456,6 +457,9 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     // in which case we neither acknowledge it nor pay to draft a reply to it.
     let ruleAllowsAutoAck = true;
     let ruleAllowsAiDraft = true;
+    // Filed-on-arrival mail (receipts, our own lead notifications) is not work,
+    // so it must not buzz anyone's phone either.
+    let ruleAutoClosed = false;
     if (created) {
       const det = classifyDeterministic({
         senderEmail: email,
@@ -467,6 +471,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
         deterministicHit = true;
         ruleAllowsAutoAck = det.autoAck !== false;
         ruleAllowsAiDraft = det.aiDraft !== false;
+        ruleAutoClosed = det.autoClose === true;
         try {
           // Resolve the assignee email to a userId at write time — we don't
           // want a hardcoded id in the classifier config.
@@ -502,6 +507,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
           deterministicHit = false; // let the AI have another go
           ruleAllowsAutoAck = true;
           ruleAllowsAiDraft = true;
+          ruleAutoClosed = false;
         }
       }
     }
@@ -531,6 +537,20 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
       console.log(`[MAILGUN_INBOUND] Skipping auto-ack for no-reply sender ${email} (ticket #${ticket.number})`);
     } else if (created && !ruleAllowsAutoAck) {
       console.log(`[MAILGUN_INBOUND] Skipping auto-ack — a rule marked ticket #${ticket.number} as not a conversation`);
+    }
+
+    // 10b. Fire-and-forget: tell the team a ticket has arrived.
+    //      New tickets only — a reply onto an open ticket is already somebody's,
+    //      and a phone buzzing for both halves of a conversation is noise. Never
+    //      for mail a rule filed on arrival.
+    if (created && !ruleAutoClosed) {
+      const who = contact.name?.trim() || email;
+      void notifyReceptionMateStaff({
+        title: 'New support ticket',
+        subtitle: who,
+        body: stripTicketTag(subject) || '(no subject)',
+        data: { type: 'ticket', ticketId: ticket.id, ticketNumber: ticket.number },
+      }).catch((err) => console.error('[MAILGUN_INBOUND] staff push failed:', err));
     }
 
     // 11. Fire-and-forget: AI classification + draft reply on new tickets only.

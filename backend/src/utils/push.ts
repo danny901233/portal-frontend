@@ -221,6 +221,61 @@ export async function notifyGarageUsers(
 }
 
 /**
+ * Notify the ReceptionMate team, not a garage's staff.
+ *
+ * Every other push here is addressed by garage, because every other push is
+ * about a garage's own calls or messages. Support tickets are ours: they arrive
+ * at hello@ from anyone, often from somebody we cannot match to a garage at all,
+ * so there is no garage to address them by.
+ *
+ * Targets the RECEPTIONMATE_STAFF role directly and ignores pushGarageIds —
+ * that field answers "which customers do I want buzzing my phone", which is not
+ * the question here.
+ *
+ * Fire-and-forget friendly — never throws.
+ */
+export async function notifyReceptionMateStaff(payload: PushPayload): Promise<void> {
+  try {
+    if (!getProvider()) return; // skip the DB query entirely when dormant
+
+    const users = await prisma.user.findMany({
+      where: { role: 'RECEPTIONMATE_STAFF', pushEnabled: true },
+      select: { id: true, deviceTokens: true },
+    });
+
+    const tokenToUsers = new Map<string, string[]>();
+    for (const u of users) {
+      for (const t of u.deviceTokens) {
+        const list = tokenToUsers.get(t) ?? [];
+        list.push(u.id);
+        tokenToUsers.set(t, list);
+      }
+    }
+
+    const allTokens = [...tokenToUsers.keys()];
+    if (allTokens.length === 0) return;
+
+    const dead = await sendPushToTokens(allTokens, payload);
+    if (dead.length === 0) return;
+
+    const affected = new Set<string>();
+    for (const t of dead) for (const uid of tokenToUsers.get(t) ?? []) affected.add(uid);
+    await Promise.all(
+      [...affected].map(async (uid) => {
+        const u = users.find((x) => x.id === uid);
+        if (!u) return;
+        await prisma.user.update({
+          where: { id: uid },
+          data: { deviceTokens: u.deviceTokens.filter((t) => !dead.includes(t)) },
+        });
+      }),
+    );
+  } catch (error) {
+    console.error('[PUSH] notifyReceptionMateStaff failed:', error);
+  }
+}
+
+/**
  * Approximate app-icon badge for a garage: calls not yet opened + unread chat messages.
  * Sent with call/message pushes so the icon badge is roughly right while the app is closed;
  * the in-app poll corrects it to the user's exact total (across all their garages) on open.

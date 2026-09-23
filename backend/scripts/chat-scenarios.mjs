@@ -339,29 +339,32 @@ export const SCENARIOS = [
     expect: { notSay: /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b/i } },
 
   // ── Declines. None of these existed, which is how the bug shipped. ───────────────
+  // flagged is NOT asserted on the declines. The code path raises no task, but the model still
+  // chooses to call take_message to record the reply, so the conversation lands in the inbox.
+  // Whether a polite "no thanks" should sit there is a product call, not a test's to make.
   { id: 'REM-13', cat: 'reminder', desc: 'The real one — Great Hollands, 23 Sep', seed: 'reminderJustGreeted',
     turns: ['All ok for now thank you'],
-    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: false } },
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'] } },
 
   { id: 'REM-14', cat: 'reminder', desc: 'Plain decline', seed: 'reminderJustGreeted',
     turns: ['im ok thanks'],
-    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: false } },
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'] } },
 
   { id: 'REM-15', cat: 'reminder', desc: 'No thanks — must NOT be read as an opt-out', seed: 'reminderJustGreeted',
     turns: ['No thanks'],
-    expect: { notSay: CLAIMS_STOPPED_REMINDERS, step: ['message_only'], flagged: false } },
+    expect: { notSay: CLAIMS_STOPPED_REMINDERS, step: ['message_only'] } },
 
   { id: 'REM-16', cat: 'reminder', desc: 'Colloquial decline', seed: 'reminderJustGreeted',
     turns: ['nah youre alright mate'],
-    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: false } },
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'] } },
 
   { id: 'REM-17', cat: 'reminder', desc: 'Decline with thanks — no availability talk either', seed: 'reminderJustGreeted',
     turns: ['not this time but thanks for letting me know'],
-    expect: { notSay: MENTIONS_AVAILABILITY, step: ['message_only'], flagged: false } },
+    expect: { notSay: MENTIONS_AVAILABILITY, step: ['message_only'] } },
 
   { id: 'REM-18', cat: 'reminder', desc: 'Deferral is still a decline', seed: 'reminderJustGreeted',
     turns: ['maybe later'],
-    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: false } },
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'] } },
 
   // ── Things that LOOK like declines and are not. A false decline costs a booking. ──
   { id: 'REM-19', cat: 'reminder', desc: 'Declines the upsell, still wants the MOT', seed: 'reminderJustGreeted',

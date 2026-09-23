@@ -800,7 +800,14 @@ export async function getChatAgentResponse(
     // set means this has already been dealt with.
     if ((pre.awaitingDatePreference || pre.awaitingAnythingElse) && !pre.reminderOutcome) {
       const kind = await classifyReminderReply(String(message || ''));
-      if (kind) {
+      // not_now belongs to the FIRST reply to a reminder, not to this one. By the time we are
+      // asking about dates the customer is already engaged, and the same words mean something
+      // else entirely: "I don't mind really" is an ANSWER to which day suits, and "no that's it
+      // thanks" is them closing a booking we have just taken. Treating either as a decline shut
+      // both conversations down — REM-04 and REM-05 caught it the day it shipped.
+      // sold / already_done / opt_out are still honoured here: those are true whenever they say
+      // them, which is the whole reason this second call site exists.
+      if (kind && kind !== 'not_now') {
         await applyReminderNotABooking(kind, 'model', String(message || ''), pre, conversationId);
       }
     }
@@ -4404,9 +4411,11 @@ export async function classifyReminderReply(text: string): Promise<string | null
             + 'already_done — the work has already been done, here or elsewhere.\n'
             + 'booking — anything that moves towards an appointment: agreeing, asking about dates, '
             + 'times, prices or availability, giving a day, or asking a question about the work.\n'
-            + 'not_now — they are declining this reminder: not interested at the moment, all fine '
-            + 'for now, no thanks, maybe later. They still have the vehicle, the work has NOT been '
-            + 'done, and they have NOT asked to stop hearing from us.\n'
+            + 'not_now — they are declining the WHOLE thing for now: not interested at the moment, '
+            + 'all fine for now, no thanks, maybe later. They still have the vehicle, the work has '
+            + 'NOT been done, and they have NOT asked to stop hearing from us. If they turn one '
+            + 'thing down but name another service, ask anything, or mention a day or a price, '
+            + 'that is booking and NOT not_now — "no thanks, just the MOT" is a booking.\n'
             + 'unclear — a greeting on its own, or anything you cannot place.\n\n'
             + 'Answer with ONE word: sold, opt_out, already_done, not_now, booking or unclear.',
         },

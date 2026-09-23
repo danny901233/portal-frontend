@@ -17,7 +17,8 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
-import { sendNegativeFeedbackEmail, sendCallSummaryEmail, sendPaymentSetupReminderEmail, sendArrearsCallNoticeEmail } from '../utils/email.js';
+import { sendCallSummaryEmail, sendPaymentSetupReminderEmail, sendArrearsCallNoticeEmail } from '../utils/email.js';
+import { raiseNegativeFeedbackTicket } from '../services/feedbackTicket.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { notifyGarageUsers, garageUnreadBadge } from '../utils/push.js';
 import { trackConfirmedBooking } from '../services/billing.js';
@@ -1328,17 +1329,19 @@ router.post(
           console.error('Failed to send Discord notification:', error);
         });
 
+        // Raises a ticket instead of emailing the team: the ticket IS the
+        // notification, it pushes to our phones, and it can be assigned and
+        // closed rather than read and forgotten.
         if (req.user?.email) {
-          void sendNegativeFeedbackEmail({
-            branchName: call.garage.name,
-            callId,
-            rating: 'down',
+          void raiseNegativeFeedbackTicket({
+            userEmail: req.user.email,
+            userId: req.user.userId,
+            garageId: call.garage.id,
+            garageName: call.garage.name,
+            source: 'Call',
+            link: `${(process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '')}/calls/${callId}`,
             reasons: normalizedReasons,
             notes: sanitizedNotes,
-            userEmail: req.user.email,
-            submittedAt: new Date().toISOString(),
-          }).catch((error) => {
-            console.error('Failed to send negative feedback email:', error);
           });
         }
       }

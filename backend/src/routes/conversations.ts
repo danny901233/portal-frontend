@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../db.js';
+import { raiseNegativeFeedbackTicket } from '../services/feedbackTicket.js';
 import { authenticate } from '../middleware/auth.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { notifyUser } from '../utils/push.js';
@@ -507,9 +508,7 @@ router.post('/conversations/:id/feedback', authenticate, async (req: Request, re
     });
 
     // Fire the same Discord alert pattern as CallFeedback so ops see negatives
-    // in one channel across calls + messages. Email alert is deliberately not
-    // wired here yet — sendNegativeFeedbackEmail is call-specific and adding a
-    // chat variant is a separate follow-up.
+    // in one channel across calls + messages, and raise the same support ticket.
     if (rating === 'down') {
       const platformLabel =
         conversation.platform === 'whatsapp'
@@ -550,6 +549,22 @@ router.post('/conversations/:id/feedback', authenticate, async (req: Request, re
       }).catch((error) => {
         console.error('[CONVERSATIONS] Discord notification failed:', error);
       });
+
+      // Chat feedback now raises a ticket too. The comment above used to say an
+      // email alert was "a separate follow-up" — it is a ticket instead, which
+      // both halves of the portal share.
+      if (req.user?.email) {
+        void raiseNegativeFeedbackTicket({
+          userEmail: req.user.email,
+          userId: req.user.userId,
+          garageId: conversation.garageId,
+          garageName: conversation.garage.name,
+          source: platformLabel,
+          link: `${(process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '')}/messages?conversation=${id}`,
+          reasons: normalizedReasons,
+          notes: sanitizedNotes,
+        });
+      }
     }
 
     res.json({ feedback });

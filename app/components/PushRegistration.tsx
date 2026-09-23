@@ -12,6 +12,36 @@ import { useEffect } from 'react';
 import { getSessionToken } from '../lib/auth';
 import { registerDeviceToken } from '../lib/api';
 
+/** The 'registration' / 'registrationError' events carry a flat value; the tap
+ *  event ('pushNotificationActionPerformed') nests the payload under
+ *  notification.data. One shape covers all three. */
+interface PushEventData {
+  value?: string;
+  error?: string;
+  notification?: { data?: Record<string, unknown> };
+}
+
+/**
+ * Where a tapped notification should land.
+ *
+ * Without this, every notification opened the app on whatever page it was last
+ * on, leaving the reader to go and find the thing they had just been told about
+ * — which for a call meant scrolling a list to work out which one it was.
+ *
+ * Unknown or missing types fall through to null and simply open the app, so a
+ * notification sent by a newer backend than this build cannot strand anyone on
+ * a broken route.
+ */
+export function routeForPush(data: Record<string, unknown> | undefined): string | null {
+  const type = typeof data?.type === 'string' ? data.type : '';
+  const str = (k: string) => (typeof data?.[k] === 'string' ? (data[k] as string) : '');
+
+  if (type === 'ticket' && str('ticketId')) return `/admin/tickets?ticket=${encodeURIComponent(str('ticketId'))}`;
+  if (type === 'call' && str('callId')) return `/calls/${encodeURIComponent(str('callId'))}`;
+  if (type === 'message' && str('conversationId')) return `/messages?conversation=${encodeURIComponent(str('conversationId'))}`;
+  return null;
+}
+
 interface CapacitorBridge {
   isNativePlatform?: () => boolean;
   getPlatform?: () => string;
@@ -22,7 +52,7 @@ interface CapacitorBridge {
       register: () => Promise<void>;
       addListener: (
         event: string,
-        cb: (data: { value?: string; error?: string }) => void,
+        cb: (data: PushEventData) => void,
       ) => Promise<{ remove: () => void }> | { remove: () => void };
       removeAllListeners?: () => Promise<void>;
     };
@@ -49,7 +79,7 @@ export default function PushRegistration() {
 
     const addListener = async (
       event: string,
-      cb: (data: { value?: string; error?: string }) => void,
+      cb: (data: PushEventData) => void,
     ) => {
       try {
         const handle = await Push.addListener(event, cb);
@@ -74,6 +104,12 @@ export default function PushRegistration() {
         });
         await addListener('registrationError', (data) => {
           console.warn('[PUSH] registration error', data?.error);
+        });
+
+        // Tapping a notification should open the thing it was about.
+        await addListener('pushNotificationActionPerformed', (data) => {
+          const target = routeForPush(data?.notification?.data);
+          if (target) window.location.assign(target);
         });
 
         await Push.register();

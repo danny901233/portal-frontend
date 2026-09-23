@@ -77,6 +77,14 @@ export default function AdminTicketsPage() {
     }
   }, [router]);
 
+  // Opened from a push notification: /admin/tickets?ticket=<id>. The queue
+  // defaults to New, and the ticket being linked to may be any status, so select
+  // it directly rather than hoping it is in the current filter.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('ticket');
+    if (wanted) setSelectedId(wanted);
+  }, []);
+
   const loadList = useCallback(async () => {
     try {
       // A reference search ignores the status filter, so someone quoting a

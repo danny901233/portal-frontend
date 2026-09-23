@@ -35,8 +35,19 @@ import { classifyDeterministic } from '../../services/emailClassifier.js';
 const router = Router();
 
 // ─── Mailgun signature verification ─────────────────────────────────────────
-// Mailgun signs every webhook with HMAC-SHA256(api_key, timestamp + token).
+// Mailgun signs every webhook with HMAC-SHA256(key, timestamp + token).
 // We must verify or anyone on the internet can POST tickets into our system.
+//
+// The key is the account's HTTP WEBHOOK SIGNING KEY, not the API key — the same
+// one routes/webhooks/mailgun.ts already uses for delivery events. Verified the
+// hard way on 2026-09-23: signing with MAILGUN_API_KEY rejected a real
+// route-forwarded message as "bad or missing Mailgun signature". That failure is
+// invisible in the data — the check runs before anything is written, so a
+// rejected email leaves no MailgunInboundEvent row and looks exactly like mail
+// that never arrived.
+//
+// MAILGUN_API_KEY stays as a fallback only so an environment that has not had
+// the signing key added yet keeps working rather than silently dropping mail.
 
 interface MailgunSignatureFields {
   timestamp: string;
@@ -45,9 +56,9 @@ interface MailgunSignatureFields {
 }
 
 const verifyMailgunSignature = (fields: MailgunSignatureFields): boolean => {
-  const apiKey = process.env.MAILGUN_API_KEY;
+  const apiKey = process.env.MAILGUN_WEBHOOK_SIGNING_KEY || process.env.MAILGUN_API_KEY;
   if (!apiKey) {
-    console.warn('[MAILGUN_INBOUND] MAILGUN_API_KEY not set — refusing to accept unverified webhooks');
+    console.warn('[MAILGUN_INBOUND] No MAILGUN_WEBHOOK_SIGNING_KEY or MAILGUN_API_KEY set — refusing to accept unverified webhooks');
     return false;
   }
   if (!fields.timestamp || !fields.token || !fields.signature) return false;

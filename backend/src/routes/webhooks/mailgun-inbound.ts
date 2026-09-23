@@ -102,14 +102,32 @@ const stripMessageId = (raw: string | undefined): string | null => {
   return (m ? m[1] : raw).trim() || null;
 };
 
-// Extract the sender address from Mailgun's `sender` (raw address) or `from`
-// (display + address). Mailgun's `sender` is already clean, so prefer it.
+/**
+ * Who actually wrote the email.
+ *
+ * The `From` HEADER, not Mailgun's `sender`. `sender` is the SMTP envelope
+ * sender, which is whoever handed us the message rather than whoever composed
+ * it, and it gets rewritten in transit. A live test produced:
+ *
+ *   sender : bounce+ae18a6.57875-inbound=support...@noreply.receptionmate.co.uk
+ *   from   : Test Customer <noreply@receptionmate.co.uk>
+ *
+ * That matters here more than usual, because mail reaches us forwarded from
+ * Microsoft 365 rather than delivered directly. Forwarding commonly rewrites
+ * the envelope sender (SRS) to the forwarding mailbox, so trusting it would
+ * file every ticket against one Contact — the forwarder — and send replies
+ * there instead of to the customer.
+ *
+ * Falls back to the envelope only when there is no usable From header.
+ */
 const extractSenderEmail = (body: Record<string, unknown>): string | null => {
-  const sender = typeof body.sender === 'string' ? body.sender.trim() : '';
-  if (sender && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(sender)) return sender.toLowerCase();
   const from = typeof body.from === 'string' ? body.from : '';
   const m = from.match(/<([^>]+@[^>]+)>/) || from.match(/([^\s<>]+@[^\s<>]+)/);
-  return m ? m[1].toLowerCase() : null;
+  if (m) return m[1].toLowerCase();
+
+  const sender = typeof body.sender === 'string' ? body.sender.trim() : '';
+  if (sender && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(sender)) return sender.toLowerCase();
+  return null;
 };
 
 const extractSenderName = (body: Record<string, unknown>): string | null => {
@@ -123,7 +141,10 @@ const extractSenderName = (body: Record<string, unknown>): string | null => {
 // mailbox loops (mailer-daemon) or damages sending reputation (no-reply
 // aliases that discard). Regex matches the LOCAL PART of the address so
 // noreply@anything, no-reply.foo@bar and support-noreply@baz all fire.
-const NO_REPLY_LOCAL = /(^|[.\-_])(no[-_.]?reply|donot[-_.]?reply|mailer[-_.]?daemon|postmaster|bounce[s]?|notifications?)([.\-_]|$)/i;
+// `+` is a separator too: VERP return paths look like `bounce+ae18a6.57875-...@`,
+// and without it the guard reads that as an ordinary local part and cheerfully
+// auto-acknowledges a bounce handler.
+const NO_REPLY_LOCAL = /(^|[.\-_+])(no[-_.]?reply|donot[-_.]?reply|mailer[-_.]?daemon|postmaster|bounce[s]?|notifications?)([.\-_+]|$)/i;
 
 const isNoReplySender = (email: string): boolean => {
   const local = email.split('@')[0] || '';

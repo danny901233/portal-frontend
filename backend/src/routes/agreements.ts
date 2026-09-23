@@ -22,7 +22,7 @@ import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import { sendEmail, brandedEmailShell } from '../utils/email.js';
+import { sendEmail, brandedEmailShell, SUPPORT_REPLY_TO } from '../utils/email.js';
 import twilio from 'twilio';
 import { normalisePhone } from '../services/outboundSend.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
@@ -722,6 +722,8 @@ async function sendSignedCopies(args: {
 
     await sendEmail({
       to: targets,
+      // The body says "If you have any questions, just reply to this email."
+      replyTo: SUPPORT_REPLY_TO,
       subject,
       html: intro,
       text,
@@ -821,7 +823,8 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
     `</td></tr>`;
   const text = `Your ReceptionMate service agreement is ready to sign.\n\nReview and sign here: ${signUrl}\n\nThis link is valid for 14 days.\n\n— The ReceptionMate team`;
 
-  const sent = await sendEmail({ to: [toEmail], subject, html: brandedEmailShell(body), text });
+  // The body says "If you have any questions, just reply to this email."
+  const sent = await sendEmail({ to: [toEmail], replyTo: SUPPORT_REPLY_TO, subject, html: brandedEmailShell(body), text });
   if (!sent) {
     return res.status(500).json({ error: 'Failed to send email' });
   }

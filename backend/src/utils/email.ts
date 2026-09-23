@@ -50,6 +50,29 @@ interface EmailOptions {
   headers?: Record<string, string>;
 }
 
+/**
+ * Where a reply goes when a template asks for one.
+ *
+ * Most portal mail is genuinely no-reply — password resets, campaign sends,
+ * notifications — and a reply to those SHOULD bounce. That is what the sending
+ * address is for, and nothing here changes it.
+ *
+ * But several templates end with "just reply to this email", and they send from
+ * `noreply@` too, so that invitation goes nowhere: the customer replies, gets a
+ * bounce, and we never learn they tried. The worst of them is the arrears notice
+ * — someone locked out, replying to say they have already paid, silently refused.
+ *
+ * Setting Reply-To rather than From keeps the visible sender as `noreply@`, so
+ * the message still reads as automated, while the reply lands at `hello@` and
+ * becomes a ticket. `abandonedCheckout.ts` reached the same conclusion first and
+ * fixed it with `from`; this is the lighter version for templates where the
+ * automated From line is still the honest one.
+ *
+ * Apply it to any template whose copy invites a reply. Do NOT apply it blanket:
+ * out-of-office bounces from a campaign send would each open a ticket.
+ */
+export const SUPPORT_REPLY_TO = process.env.SUPPORT_REPLY_TO || 'hello@receptionmate.co.uk';
+
 const getMailgunConfig = () => {
   const apiKey = process.env.MAILGUN_API_KEY;
   const domain = process.env.MAILGUN_DOMAIN;
@@ -926,6 +949,8 @@ This is an automated email from ReceptionMate
 
   return sendEmail({
     to: notificationEmails,
+    // This one ends "just reply to this email"; without Reply-To that lands nowhere.
+    replyTo: SUPPORT_REPLY_TO,
     subject: 'We handled a call for you — your Direct Debit needs setting up',
     html,
     text,
@@ -1059,6 +1084,8 @@ export const sendPaymentFailedEmail = async (
   return sendEmail({
     to: recipients,
     ...(data.cc?.length ? { cc: data.cc } : {}),
+    // Ends "just reply to this email and we'll take care of it" — so it must be repliable.
+    replyTo: SUPPORT_REPLY_TO,
     // A cancelled mandate is not a blip: nothing will be collected until someone re-authorises
     // it, and a subject that reads like a temporary hiccup gets treated like one. EAC Telford ran
     // 16 days on the old wording.
@@ -1169,6 +1196,9 @@ export const sendLatePaymentEmail = async (
   ].join('\n');
 
   return sendEmail({ to: recipients, cc,
+    // Ends "reply to this email and we'll sort it out" — a disputed invoice is
+    // exactly the reply we most want to receive.
+    replyTo: SUPPORT_REPLY_TO,
     subject: data.finalNotice ? `Second reminder: invoice still unpaid — ${data.amount}` : `Invoice overdue — ${data.amount}`,
     html, text,
     ...(data.attachments?.length ? { attachments: data.attachments } : {}),

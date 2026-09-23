@@ -1,5 +1,5 @@
 import { prisma } from '../db.js';
-import { sendEmail } from '../utils/email.js';
+import { sendEmail, SUPPORT_REPLY_TO } from '../utils/email.js';
 
 /**
  * Quarterly commission statement for Tyresoft.
@@ -203,6 +203,8 @@ export async function sendQuarterlyCommission(when = new Date()): Promise<Commis
   await sendEmail({
     to: to_,
     cc,
+    // The statement ends "Any questions, reply to this email".
+    replyTo: SUPPORT_REPLY_TO,
     subject: `ReceptionMate — Tyresoft commission statement, ${label}`,
     html: statementHtml(statement),
     text: statementText(statement),

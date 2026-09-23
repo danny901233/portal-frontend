@@ -36,6 +36,7 @@ import gocardlessWebhook from './routes/webhooks/gocardless.js';
 import mailgunWebhook from './routes/webhooks/mailgun.js';
 import emailLogRouter from './routes/emailLog.js';
 import stripeWebhook from './routes/webhooks/stripe.js';
+import mailgunInboundWebhook from './routes/webhooks/mailgun-inbound.js';
 import livekitDemoRouter from './routes/livekit-demo.js';
 import featureAnnouncementRouter from './routes/featureAnnouncement.js';
 import usersRouter from './routes/users.js';
@@ -45,6 +46,7 @@ import publicLeadRouter from './routes/public-lead.js';
 import agreementsRouter from './routes/agreements.js';
 import supportRouter from './routes/support.js';
 import supportVoiceRouter from './routes/support-voice.js';
+import ticketsRouter from './routes/tickets.js';
 import opsTasksRouter from './routes/opsTasks.js';
 import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler, installProcessErrorHandlers } from './middleware/errorHandler.js';
@@ -181,6 +183,7 @@ app.use('/api', livekitDemoRouter);
 app.use('/api', agreementsRouter);
 app.use('/api', supportRouter);
 app.use('/api', supportVoiceRouter);
+app.use('/api', ticketsRouter);
 app.use('/api', opsTasksRouter);
 app.use('/api', deviceTokensRouter);
 app.use('/api', templatesRouter);
@@ -192,6 +195,9 @@ app.use('/api/webhooks', gocardlessWebhook);
 // belongs after express.json() rather than before it.
 app.use('/api/webhooks', mailgunWebhook);
 app.use('/api', emailLogRouter);
+// Delivery events (above) and inbound mail (here) are separate Mailgun webhooks with
+// separate routes — one records what we sent, the other turns replies into tickets.
+app.use('/api/webhooks', mailgunInboundWebhook);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
 

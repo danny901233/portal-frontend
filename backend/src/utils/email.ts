@@ -41,6 +41,13 @@ interface EmailOptions {
   businessId?: string | null;
   userId?: string | null;
   pendingSignupId?: string | null;
+
+  // Arbitrary RFC5322 headers to include on the outbound message. Used by the
+  // Support Hub reply flow (Phase 1) to set Message-Id / In-Reply-To /
+  // References so replies from staff land in the customer's original email
+  // thread rather than starting a new one. Values are passed through unaltered
+  // — the caller owns escaping (angle brackets on message ids, etc.).
+  headers?: Record<string, string>;
 }
 
 const getMailgunConfig = () => {
@@ -86,6 +93,10 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     Authorization: `Basic ${Buffer.from(`api:${config.apiKey}`).toString('base64')}`,
   };
 
+  // Mailgun API: passing a custom RFC5322 header X on the outbound message
+  // is done by prefixing the form field with "h:", e.g. "h:In-Reply-To".
+  const customHeaderEntries = Object.entries(options.headers ?? {});
+
   if (hasAttachments) {
     const form = new FormData();
     form.set('from', options.from || config.from);
@@ -95,6 +106,9 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     form.set('subject', options.subject);
     form.set('text', options.text);
     form.set('html', options.html);
+    for (const [name, value] of customHeaderEntries) {
+      form.set(`h:${name}`, value);
+    }
     for (const att of options.attachments!) {
       const buf = att.encoding === 'base64' && typeof att.content === 'string'
         ? Buffer.from(att.content, 'base64')
@@ -113,6 +127,9 @@ const sendViaMailgun = async (options: EmailOptions, config: ReturnType<typeof g
     form.set('subject', options.subject);
     form.set('text', options.text);
     form.set('html', options.html);
+    for (const [name, value] of customHeaderEntries) {
+      form.set(`h:${name}`, value);
+    }
     body = form.toString();
     headers['Content-Type'] = 'application/x-www-form-urlencoded';
   }
@@ -168,6 +185,8 @@ const sendViaO365 = async (options: EmailOptions, config: ReturnType<typeof getO
     subject: options.subject,
     text: options.text,
     html: options.html,
+    // nodemailer's `headers` accepts a plain object of extra RFC5322 headers.
+    headers: options.headers,
     attachments: options.attachments?.map((a) => ({
       filename: a.filename,
       content: a.encoding === 'base64' && typeof a.content === 'string'

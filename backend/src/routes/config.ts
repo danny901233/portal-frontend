@@ -902,12 +902,19 @@ export const sendAgentConfigWebhook = async (garageId: string) => {
   }
 };
 
-// Auto-ingest a garage's website into its knowledge base in the background (used at signup, so the
-// agent can answer from the site without anyone clicking "Scan site"). Best-effort: never throws.
+// How many discovered pages one auto-ingest will scrape. Was 8, which silently truncated every
+// site bigger than a homepage plus a few services — Regal Autosport has 12 pages and lost its
+// Porsche/Mercedes/Land Rover content that way. The scraper is sequential and each page costs
+// roughly a second, so this is a time budget as much as a size one.
+const AUTO_INGEST_MAX_PAGES = 25;
+
+// Auto-ingest a garage's website into its knowledge base in the background (used at signup and
+// whenever a website URL is first saved, so the agent can answer from the site without anyone
+// clicking "Scan site"). Best-effort: never throws.
 export const autoIngestWebsiteKnowledge = async (garageId: string, url: string): Promise<void> => {
   try {
     const discovery = await discoverWebsitePages(url);
-    const candidateUrls = (discovery.pages ?? []).slice(0, 8).map((p) => p.url);
+    const candidateUrls = (discovery.pages ?? []).slice(0, AUTO_INGEST_MAX_PAGES).map((p) => p.url);
     if (candidateUrls.length === 0) {
       return;
     }
@@ -1351,6 +1358,19 @@ router.put(
     ]);
 
     void sendAgentConfigWebhook(garageId);
+
+    // A website URL arriving here used to be stored and nothing more, so the knowledge base
+    // stayed empty unless someone remembered to press "Scan site". Only public signup ever
+    // ingested automatically, which is why garages onboarded through the admin path (Regal
+    // Autosport, every Gearbox Centre branch) ran for months on FAQs alone. Ingest when the URL
+    // is first set or changed — not on every save, because persistWebsiteKnowledge deletes and
+    // rewrites the website-sourced documents. Fire-and-forget: a slow site must not stall a save.
+    const previousWebsiteUrl = (existingConfig?.websiteUrl ?? '').trim();
+    const nextWebsiteUrl = (normalizedData.websiteUrl ?? '').trim();
+    if (nextWebsiteUrl && nextWebsiteUrl !== previousWebsiteUrl) {
+      console.log(`[CONFIG_KB] website URL set for garage=${garageId}; ingesting ${nextWebsiteUrl}`);
+      void autoIngestWebsiteKnowledge(garageId, nextWebsiteUrl);
+    }
 
     // If agentScript changed and garage has Twilio number, update SIP dispatch rule
     console.log('[UPDATE_AGENT] Checking dispatch rule update:', {

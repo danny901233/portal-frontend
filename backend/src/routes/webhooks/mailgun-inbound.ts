@@ -260,10 +260,17 @@ async function sendAutoAck(args: {
   // and "it's in our queue" are true, but they tell a customer they have joined a
   // line — which is the opposite of the impression we want from the first thing
   // we ever send them automatically. This reads as though a person has it.
+  // The reference is for the customer to quote back, so it goes in the body as
+  // well as the subject. It is the obfuscated code, never ticket.number: they
+  // need something to refer to, not their position in a queue.
+  const reference = subjectTag.replace(/[\[\]]/g, '');
+
   const text = [
     greet,
     '',
     "Thanks for getting in touch — your message has come through to our team and we're on it.",
+    '',
+    `Your reference is ${reference}, if you ever need to quote it.`,
     '',
     "We'll come back to you shortly. If you think of anything else in the meantime, just reply to this email and it'll reach the same person.",
     '',
@@ -272,6 +279,7 @@ async function sendAutoAck(args: {
 
   const html = `<p>${greet.replace('<','&lt;')}</p>
 <p>Thanks for getting in touch — your message has come through to our team and we're on it.</p>
+<p>Your reference is <strong>${reference}</strong>, if you ever need to quote it.</p>
 <p>We'll come back to you shortly. If you think of anything else in the meantime, just reply to this email and it'll reach the same person.</p>
 <p>— The ReceptionMate team</p>`;
 

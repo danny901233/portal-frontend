@@ -457,6 +457,7 @@ export default function CallsPage() {
       allCalls: 'All Calls',
       from: 'From',
       to: 'To',
+      rowsPerPage: 'Rows',
       search: 'Search',
       searchPlaceholder: 'e.g. "MOT" AND (booking OR estimate)',
       searchTitle: 'Supports AND, OR, NOT and quoted phrases',
@@ -523,6 +524,7 @@ export default function CallsPage() {
       allCalls: 'Tous les appels',
       from: 'Du',
       to: 'Au',
+      rowsPerPage: 'Lignes',
       search: 'Recherche',
       searchPlaceholder: 'ex. « contrôle technique » AND (réservation OR devis)',
       searchTitle: 'Prend en charge AND, OR, NOT et les expressions entre guillemets',
@@ -633,7 +635,26 @@ export default function CallsPage() {
   const [recordingErrors, setRecordingErrors] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(100);
+  // Remembered per-browser so a slow connection only has to fix this once. Falls back to 100
+  // (today's fixed value) if nothing's stored yet or storage is unavailable.
+  const [pageSize, setPageSize] = useState(100);
+  useEffect(() => {
+    try {
+      const stored = Number(window.localStorage.getItem('rm.calls.pageSize'));
+      if ([20, 50, 100].includes(stored)) setPageSize(stored);
+    } catch {
+      // non-fatal — just keeps the default
+    }
+  }, []);
+  const handlePageSizeChange = (value: number) => {
+    setPageSize(value);
+    setCurrentPage(1);
+    try {
+      window.localStorage.setItem('rm.calls.pageSize', String(value));
+    } catch {
+      // non-fatal — the choice just won't persist across visits
+    }
+  };
   // Outbound calling is a ReceptionMate-staff-only tool for now.
   const [isStaff, setIsStaff] = useState(false);
   useEffect(() => { setIsStaff(isReceptionMateStaff()); }, []);
@@ -1199,6 +1220,19 @@ export default function CallsPage() {
                 className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
                 min={startDateInput || undefined}
               />
+            </label>
+
+            <label className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wide text-slate-500">{c.rowsPerPage}</span>
+              <select
+                value={pageSize}
+                onChange={(event) => handlePageSizeChange(Number(event.target.value))}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 focus:border-brand-600 focus:outline-none"
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
             </label>
           </div>
 

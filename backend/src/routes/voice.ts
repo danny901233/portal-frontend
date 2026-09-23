@@ -421,11 +421,22 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       // if anything was left outstanding.
       const human = takeHumanAnswered(String(CallSid));
       if (human) {
+        console.log(`[RECORDING] CallSid ${CallSid} was a screened call answered by a person — transcribing for follow-up`);
         void raiseTicketFromScreenedCall({
           garageId: human.garageId,
           recordingUrl: String(RecordingUrl),
           callerPhone: human.from || null,
         });
+      } else if (screenedHumanCalls.size > 0) {
+        // Say so loudly. If Twilio reports the CHILD leg's SID here rather than
+        // the parent inbound call, this lookup misses every time and the whole
+        // transcribe-and-ticket path does nothing without a single error. The
+        // waiting SIDs are printed so one real call settles it.
+        console.warn(
+          `[RECORDING] CallSid ${CallSid} matched no screened call. ` +
+          `Waiting on: ${[...screenedHumanCalls.keys()].join(', ')} — ` +
+          `if these never match, the recording callback is reporting a different leg's SID.`,
+        );
       }
 
       // Update call duration with recording duration (actual call time)

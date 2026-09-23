@@ -19,8 +19,6 @@ export default function WidgetEmbedPage() {
       fallbackGarageName: 'Your Garage',
       chatTitle: 'Chat widget',
       chatSubtitle: 'WhatsApp, web chat and messaging in one floating button.',
-      voiceTitle: 'Voice widget',
-      voiceSubtitle: 'Let customers speak directly to Leah from your website.',
       preview: 'Preview',
       customise: 'Customise',
     },
@@ -34,14 +32,11 @@ export default function WidgetEmbedPage() {
       fallbackGarageName: 'Votre garage',
       chatTitle: 'Widget de chat',
       chatSubtitle: 'WhatsApp, chat web et messagerie dans un seul bouton flottant.',
-      voiceTitle: 'Widget vocal',
-      voiceSubtitle: 'Laissez vos clients parler directement à Leah depuis votre site web.',
       preview: 'Aperçu',
       customise: 'Personnaliser',
     },
   }[lang];
   const [copiedChat, setCopiedChat] = useState(false);
-  const [copiedVoice, setCopiedVoice] = useState(false);
   const [garageId, setGarageId] = useState<string>('');
   const [garageName, setGarageName] = useState<string>('');
 
@@ -92,14 +87,6 @@ export default function WidgetEmbedPage() {
 </script>`
     : '';
 
-  const voiceEmbedCode = garageId
-    ? `<!-- ReceptionMate Voice Widget (iframe) -->
-<iframe
-  src="https://portal.receptionmate.co.uk/voice-widget/embed?theme=dark"
-  style="width: 320px; height: 64px; border: none;"
-  allow="microphone"
-></iframe>`
-    : '';
 
   const handleCopyChat = () => {
     navigator.clipboard.writeText(chatEmbedCode);
@@ -107,11 +94,6 @@ export default function WidgetEmbedPage() {
     setTimeout(() => setCopiedChat(false), 2000);
   };
 
-  const handleCopyVoice = () => {
-    navigator.clipboard.writeText(voiceEmbedCode);
-    setCopiedVoice(true);
-    setTimeout(() => setCopiedVoice(false), 2000);
-  };
 
   if (!garageId) {
     return (
@@ -196,27 +178,6 @@ export default function WidgetEmbedPage() {
         stepAccentClass="bg-brand-600"
       />
 
-      {/* Voice Widget */}
-      <WidgetCard
-        accent="violet"
-        title={c.voiceTitle}
-        subtitle={c.voiceSubtitle}
-        icon={(
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-          </svg>
-        )}
-        headerActions={(
-          <SecondaryBtn onClick={() => window.open('https://portal.receptionmate.co.uk/voice-widget/', '_blank')} icon="external">
-            {c.preview}
-          </SecondaryBtn>
-        )}
-        embedCode={voiceEmbedCode}
-        copied={copiedVoice}
-        onCopy={handleCopyVoice}
-        steps={installSteps}
-        stepAccentClass="bg-violet-600"
-      />
     </div>
   );
 }

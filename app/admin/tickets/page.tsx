@@ -57,7 +57,10 @@ export default function AdminTicketsPage() {
   const router = useRouter();
   const [tickets, setTickets] = useState<TicketSummary[]>([]);
   const [counts, setCounts] = useState<TicketQueueCounts | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // Opens on New, not All. "All" includes every receipt and supplier notice ever
+  // filed and closed on the way in, which buries the handful of things that
+  // actually want attention.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<TicketDetail | null>(null);
   const [entries, setEntries] = useState<TicketEntry[]>([]);

@@ -37,6 +37,19 @@ export interface DeterministicMatch {
   // caller as a category='billing' + assignee (Dan) — the view filter is a
   // frontend concern.
   excludeFromSupportView?: boolean;
+
+  // ── What the pipeline should NOT do for this match ────────────────────────
+  // Defaults are "do the normal thing"; a rule opts out explicitly.
+
+  /** False = do not send the acknowledgement. Stripe does not need us to tell it
+   *  we're on it, and a receipt is not a conversation. */
+  autoAck?: boolean;
+  /** False = do not spend an OpenAI call drafting a reply nobody will send. */
+  aiDraft?: boolean;
+  /** True = create the ticket for the audit trail, then close it immediately.
+   *  A receipt is a record, not work. It stays searchable and never reaches a
+   *  queue. */
+  autoClose?: boolean;
 }
 
 // ─── Known supplier / transactional domains (rule: billing, assign Dan) ────
@@ -76,6 +89,21 @@ const senderDomain = (email: string): string => {
   return at >= 0 ? email.slice(at + 1).toLowerCase() : '';
 };
 
+// ─── Does this supplier email need anyone to DO something? ─────────────────
+// These emails are formulaic, so the subject line is a reliable signal. The
+// split matters more than the category: a £4.20 receipt and "your payment
+// failed, service will be suspended" are both `billing`, and treating them the
+// same is how the second one gets missed among ninety of the first.
+
+/** Pure record. Nothing to do, ever. */
+const SUPPLIER_NO_ACTION =
+  /\b(receipt|invoice|statement|paid|payment (received|succeeded|confirmed)|thanks? for your payment|your subscription renewed|monthly summary|usage report)\b/i;
+
+/** Something breaks if this is ignored. Deliberately wins over the line above:
+ *  "Your invoice payment failed" contains both, and it is not a receipt. */
+const SUPPLIER_ACTION_NEEDED =
+  /\b(failed|failure|declined|decline|unpaid|overdue|past due|action required|action needed|expir(e|es|ed|ing)|suspend(ed|ing|sion)?|cancel(led|lation)?|disabl(e|ed)|deactivat(e|ed)|urgent|security alert|unable to (charge|process)|could not (charge|process)|update your (card|payment|billing))\b/i;
+
 // ─── Complaint keywords (rule: complaint + high priority IF known garage) ──
 // Deliberately narrow — false positives here bump priority which pages Dan.
 // Broader classification is the AI's job.
@@ -96,12 +124,26 @@ export function classifyDeterministic(input: DeterministicInput): DeterministicM
   // Match on suffix so subdomains (bills.stripe.com) still catch.
   for (const supplier of SUPPLIER_DOMAINS) {
     if (domain === supplier || domain.endsWith(`.${supplier}`)) {
+      const haystack = `${input.subject} ${input.bodyText.slice(0, 500)}`;
+      // Check "needs action" first: a failed-payment notice often quotes the
+      // invoice it failed on, so the no-action words are present too.
+      const needsAction = SUPPLIER_ACTION_NEEDED.test(haystack);
+      const routine = !needsAction && SUPPLIER_NO_ACTION.test(haystack);
+
       return {
         category: TicketCategory.billing,
-        priority: TicketPriority.normal,
-        rule: `supplier_domain:${supplier}`,
+        priority: needsAction ? TicketPriority.high : TicketPriority.normal,
+        rule: `supplier_domain:${supplier}` + (needsAction ? ':action' : routine ? ':routine' : ''),
         assigneeEmail: process.env.SUPPORT_BILLING_ASSIGNEE_EMAIL || 'dan@receptionmate.co.uk',
         excludeFromSupportView: true,
+        // Never acknowledge or draft to a supplier, whichever kind it is.
+        autoAck: false,
+        aiDraft: false,
+        // Only file it away when it clearly reads as a record. Anything a
+        // supplier sends that we cannot confidently call routine stays open —
+        // a misfiled receipt costs nothing, a missed card decline costs the
+        // service.
+        autoClose: routine,
       };
     }
   }

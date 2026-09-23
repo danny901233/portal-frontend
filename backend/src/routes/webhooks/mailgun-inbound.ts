@@ -452,6 +452,10 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     //    keywords go through hand-rolled rules FIRST. Only what remains falls
     //    through to the AI classifier in enrichNewTicket.
     let deterministicHit = false;
+    // A rule can say "this is not a conversation" — supplier billing, receipts —
+    // in which case we neither acknowledge it nor pay to draft a reply to it.
+    let ruleAllowsAutoAck = true;
+    let ruleAllowsAiDraft = true;
     if (created) {
       const det = classifyDeterministic({
         senderEmail: email,
@@ -461,6 +465,8 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
       });
       if (det) {
         deterministicHit = true;
+        ruleAllowsAutoAck = det.autoAck !== false;
+        ruleAllowsAiDraft = det.aiDraft !== false;
         try {
           // Resolve the assignee email to a userId at write time — we don't
           // want a hardcoded id in the classifier config.
@@ -478,6 +484,9 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
               category: det.category,
               ...(det.priority ? { priority: det.priority } : {}),
               ...(assigneeId !== undefined ? { assigneeId } : {}),
+              // A receipt is a record, not work: keep it for the audit trail and
+              // close it on the way in so it never reaches a queue.
+              ...(det.autoClose ? { status: TicketStatus.closed, closedAt: new Date() } : {}),
             },
           });
           console.log(
@@ -491,6 +500,8 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
           // ticket exists, staff can classify manually.
           console.error(`[MAILGUN_INBOUND] Deterministic rule apply failed for #${ticket.number}:`, detErr);
           deterministicHit = false; // let the AI have another go
+          ruleAllowsAutoAck = true;
+          ruleAllowsAiDraft = true;
         }
       }
     }
@@ -508,7 +519,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     // 10. Fire-and-forget: auto-ack for new tickets (spec §5).
     //     Suppressed for no-reply senders — replying to mailer-daemon /
     //     noreply@ addresses either loops or damages our sending reputation.
-    if (created && !noReplySender) {
+    if (created && !noReplySender && ruleAllowsAutoAck) {
       void sendAutoAck({
         ticketNumber: ticket.number,
         ticketId: ticket.id,
@@ -518,6 +529,8 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
       }).catch((err) => console.error('[MAILGUN_INBOUND] auto-ack error:', err));
     } else if (created && noReplySender) {
       console.log(`[MAILGUN_INBOUND] Skipping auto-ack for no-reply sender ${email} (ticket #${ticket.number})`);
+    } else if (created && !ruleAllowsAutoAck) {
+      console.log(`[MAILGUN_INBOUND] Skipping auto-ack — a rule marked ticket #${ticket.number} as not a conversation`);
     }
 
     // 11. Fire-and-forget: AI classification + draft reply on new tickets only.
@@ -525,7 +538,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     //     fresh AI draft on every reply would spam the staff UI. Skip AI
     //     classification if a deterministic rule already fired — the draft
     //     still runs (rules don't produce a suggested reply).
-    if (created) {
+    if (created && ruleAllowsAiDraft) {
       void enrichNewTicket({
         ticketId: ticket.id,
         ticketNumber: ticket.number,

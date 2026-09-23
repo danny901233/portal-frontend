@@ -40,6 +40,21 @@ export const SEEDS = {
   },
   // Exactly what the no-slots branch leaves behind: a reminder reply at a garage whose service
   // items return zero timeslots, so we are collecting when would suit instead of booking.
+  // The moment a customer replies to the reminder, BEFORE the agent has picked anything.
+  // reminderNoSlots below is the state AFTER it has already pushed a service and found no
+  // slots, so it cannot exercise the decline path at all — which is why nothing here caught
+  // Great Hollands 23 Sep, where "All ok for now thank you" was answered with "have you any
+  // days or times in mind?". These conditions mirror the outbound fast-path guard exactly.
+  reminderJustGreeted: {
+    step: 'need_service', vrn: 'J8NKP', vrnConfirmed: true,
+    vehicleMake: 'Seat', vehicleModel: 'Alhambra',
+    sessionId: 'scenario-test-session', servicesAvailable: SERVICES,
+    outboundServiceType: 'service', outboundRegistration: 'J8NKP',
+    customerNameFirst: 'John', contactPhone: '447700900199', contactPhoneSeeded: true,
+    greetedOutbound: true, outboundUpsellOffered: false,
+    intent: '', notes: '', servicePrice: '',
+  },
+
   reminderNoSlots: {
     step: 'need_contact', vrn: 'V20ALA', vrnConfirmed: true,
     vehicleMake: 'Land Rover', vehicleModel: 'Range Rover Evoque',
@@ -74,6 +89,10 @@ const ASKS_REG = /registration|reg\b|number plate/i;
 const MENTIONS_AVAILABILITY = /no (online )?(availability|times|slots)|nothing (showing|available)|not? (any )?availability|fully booked|diary is full|can'?t book (you )?in online|online booking system/i;
 const CLOSES_THE_CHAT = /(pass|get|send) (those|these|that|it|them) (over |on |straight )?to the team|team will (be in touch|confirm|call|ring)|someone will (confirm|be in touch)|(I'?ve|I have) got (those|that|these) noted/i;
 const ASKS_SOMETHING = /\?/;
+// What the agent must NOT do to somebody who has just said no.
+const ASKS_FOR_DATES = /days? or times?|date in mind|what date|which day|when (would|works|suits|are you)|any days|morning or afternoon|fit you in/i;
+const CLAIMS_STOPPED_REMINDERS = /(stop|stopped|won'?t|will not|no more).{0,30}(remind|contact|message|hear from us)|taken? you off|removed? you from/i;
+
 const ANYTHING_ELSE = /anything else|whilst the vehicle|while the vehicle|whilst it'?s in|while it'?s in/i;
 
 export const SCENARIOS = [
@@ -318,6 +337,57 @@ export const SCENARIOS = [
   { id: 'REM-08', cat: 'reminder', desc: 'Never invents a specific time', seed: 'reminderNoSlots',
     turns: ['What dates the soonest'],
     expect: { notSay: /\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(am|pm)\b/i } },
+
+  // ── Declines. None of these existed, which is how the bug shipped. ───────────────
+  { id: 'REM-13', cat: 'reminder', desc: 'The real one — Great Hollands, 23 Sep', seed: 'reminderJustGreeted',
+    turns: ['All ok for now thank you'],
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: false } },
+
+  { id: 'REM-14', cat: 'reminder', desc: 'Plain decline', seed: 'reminderJustGreeted',
+    turns: ['im ok thanks'],
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: false } },
+
+  { id: 'REM-15', cat: 'reminder', desc: 'No thanks — must NOT be read as an opt-out', seed: 'reminderJustGreeted',
+    turns: ['No thanks'],
+    expect: { notSay: CLAIMS_STOPPED_REMINDERS, step: ['message_only'], flagged: false } },
+
+  { id: 'REM-16', cat: 'reminder', desc: 'Colloquial decline', seed: 'reminderJustGreeted',
+    turns: ['nah youre alright mate'],
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: false } },
+
+  { id: 'REM-17', cat: 'reminder', desc: 'Decline with thanks — no availability talk either', seed: 'reminderJustGreeted',
+    turns: ['not this time but thanks for letting me know'],
+    expect: { notSay: MENTIONS_AVAILABILITY, step: ['message_only'], flagged: false } },
+
+  { id: 'REM-18', cat: 'reminder', desc: 'Deferral is still a decline', seed: 'reminderJustGreeted',
+    turns: ['maybe later'],
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: false } },
+
+  // ── Things that LOOK like declines and are not. A false decline costs a booking. ──
+  { id: 'REM-19', cat: 'reminder', desc: 'Declines the upsell, still wants the MOT', seed: 'reminderJustGreeted',
+    turns: ['No thanks, just the MOT'],
+    expect: { notSay: CLAIMS_STOPPED_REMINDERS, step: ['need_service', 'need_contact', 'need_timeslot'] } },
+
+  { id: 'REM-20', cat: 'reminder', desc: 'Not now, but asking a price — that is engagement', seed: 'reminderJustGreeted',
+    turns: ['not right now, what would a full service cost?'],
+    expect: { step: ['need_service', 'need_contact', 'need_timeslot', 'need_vehicle'] } },
+
+  { id: 'REM-21', cat: 'reminder', desc: 'Accepts outright', seed: 'reminderJustGreeted',
+    turns: ['Yes please'],
+    expect: { step: ['need_service', 'need_contact', 'need_timeslot'] } },
+
+  // ── The three outcomes that shipped yesterday, also untested until now. ───────────
+  { id: 'REM-22', cat: 'reminder', desc: 'Sold the car', seed: 'reminderJustGreeted',
+    turns: ['sold her back in june'],
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: true } },
+
+  { id: 'REM-23', cat: 'reminder', desc: 'Work already done elsewhere', seed: 'reminderJustGreeted',
+    turns: ['Car went in last week actually'],
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: true } },
+
+  { id: 'REM-24', cat: 'reminder', desc: 'Genuine opt-out — this one MAY say reminders stopped', seed: 'reminderJustGreeted',
+    turns: ['take me off this list please'],
+    expect: { notSay: ASKS_FOR_DATES, step: ['message_only'], flagged: true } },
 
   { id: 'REM-11', cat: 'reminder', desc: 'MOT reminder — question back is still answered', seed: 'reminderNoSlotsMot',
     turns: ['Yes please', 'when can you fit me in?'],

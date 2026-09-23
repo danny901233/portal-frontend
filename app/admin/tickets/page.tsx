@@ -113,6 +113,19 @@ export default function AdminTicketsPage() {
     if (selectedId) requestAnimationFrame(() => listEndRef.current?.scrollIntoView({ behavior: 'smooth' }));
   }, [entries.length, selectedId]);
 
+  /** Load an AI draft into the reply box rather than sending it outright.
+   *  The extra read-and-press is the point: whoever sends it is then the author,
+   *  and a fluent-but-wrong draft gets caught before it leaves. */
+  const useDraft = (body: string) => {
+    setDraftMode('reply');
+    setDraft(body);
+    requestAnimationFrame(() => {
+      const box = document.querySelector<HTMLTextAreaElement>('form textarea');
+      box?.focus();
+      box?.setSelectionRange(box.value.length, box.value.length);
+    });
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedId || !draft.trim() || sending) return;
@@ -307,7 +320,7 @@ export default function AdminTicketsPage() {
               <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 px-5 py-4">
                 {entries.length === 0
                   ? <p className="text-center text-xs text-slate-500">No entries yet.</p>
-                  : entries.map((e) => <EntryBubble key={e.id} e={e} />)}
+                  : entries.map((e) => <EntryBubble key={e.id} e={e} onUseDraft={useDraft} />)}
                 <div ref={listEndRef} />
               </div>
 
@@ -406,7 +419,7 @@ function QueueChip({ label, value, tone }: { label: string; value: number; tone:
   );
 }
 
-function EntryBubble({ e }: { e: TicketEntry }) {
+function EntryBubble({ e, onUseDraft }: { e: TicketEntry; onUseDraft?: (body: string) => void }) {
   const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(new Date(e.createdAt));
 
   if (e.kind === 'status_change' || e.kind === 'assignment_change') {
@@ -440,6 +453,34 @@ function EntryBubble({ e }: { e: TicketEntry }) {
       </div>
     );
   }
+  // An AI draft is an unsent suggestion, so it belongs on OUR side of the thread.
+  // It carries no authorUserId (nobody wrote it yet), which previously put it on
+  // the customer's side looking like something they had said.
+  if (e.isDraft) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[75%] rounded-2xl border border-dashed border-brand-400 bg-brand-50 px-3 py-2 text-sm text-slate-900">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-700">
+            Suggested reply · not sent
+          </p>
+          <p className="mt-1 whitespace-pre-wrap break-words">{e.body}</p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="text-[10px] text-brand-700">Drafted by AI · {time}</span>
+            {onUseDraft && (
+              <button
+                type="button"
+                onClick={() => onUseDraft(e.body)}
+                className="rounded-md bg-brand-600 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-brand-700"
+              >
+                Edit &amp; send
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // public_reply
   const isStaff = !!e.authorUserId;
   return (
@@ -452,7 +493,6 @@ function EntryBubble({ e }: { e: TicketEntry }) {
         <p className="whitespace-pre-wrap break-words">{e.body}</p>
         <p className={`mt-1 text-[10px] ${isStaff ? 'text-brand-100' : 'text-slate-500'}`}>
           {isStaff ? (e.authorUser?.email ?? 'Staff') : (e.authorContact?.name ?? e.authorContact?.email ?? 'Customer')}
-          {e.isDraft && ' · DRAFT'}
           {' · '}{time}
         </p>
       </div>

@@ -40,6 +40,41 @@ async function withConvLock<T>(convId: string, fn: () => Promise<T>): Promise<T>
   }
 }
 
+/**
+ * Which diary a garage's CREDENTIALS say it uses, for when agentScript does not say.
+ *
+ * agentScript was the only signal, and the v3 -> unified migration on 2026-09-21 rewrote it
+ * to 'unified-agent' for every automate garage. That silently disconnected the branches below
+ * it: EAC Telford went from agentScript 'bookar-agent' — which routed to the Bookar chat agent
+ * — to falling through to the GarageHive agent with no GarageHive credentials, which answers
+ * every enquiry with "let me take your details and the team will call you back". Eight
+ * conversations, zero bookings.
+ *
+ * The voice side already works this way: build_diary() infers the diary from the credentials
+ * present, which is why EAC's PHONE line kept booking throughout. Chat now does the same, so
+ * the next rename of agentScript cannot quietly unplug a garage's diary again.
+ *
+ * Key names mirror each chat agent's own resolver exactly — nested block first, then flat.
+ */
+function credsSay(ipc: unknown): 'bookar' | 'poole' | 'tyresoft' | null {
+  if (!ipc || typeof ipc !== 'object') return null;
+  const raw = ipc as Record<string, any>;
+
+  const bk = raw.bookar || raw;
+  if ((bk.bookarClientId || bk.clientId) && (bk.bookarClientSecret || bk.clientSecret)) return 'bookar';
+
+  const ts = raw.tyresoft || raw;
+  if ((ts.tsWorkspace || ts.workspace) && (ts.tsUsername || ts.username)
+      && (ts.tsPassword || ts.password) && (ts.tsApiKey || ts.apiKey)) return 'tyresoft';
+
+  // Poole LAST and deliberately strict: its only required credential is a branch key, and
+  // `apiKey` is too common a name to treat as a Poole signal.
+  const pl = raw.poole || raw.pooleSettings || raw;
+  if (pl.branchKey || pl.pooleBranchKey) return 'poole';
+
+  return null;
+}
+
 // Does this garage have working GarageHive credentials? Mirrors chatAgentV2's own check
 // (supports nested { garagehive: {...} } and flat formats). A garage with a live diary must
 // use the GarageHive agent — never the Assist agent, which would offer synthetic/fake slots.
@@ -125,6 +160,22 @@ async function routeChatMessageInner(
     // A live GarageHive diary always wins — real bookings + GarageHive tool calls.
     if (hasGH) {
       return getGHResponse(garageId, message, conversationId, seedContact);
+    }
+
+    // agentScript did not name a diary and there are no GarageHive credentials — so ask the
+    // credentials. Placed after the GarageHive check on purpose: every garage routing correctly
+    // today keeps routing exactly where it does now, and this only catches the ones that were
+    // falling through to a GarageHive agent that has nothing to work with.
+    const byCreds = credsSay(config?.integrationProviderConfig);
+    if (byCreds) {
+      console.log(`[CHAT_ROUTER] agentScript did not name a diary — credentials say ${byCreds}`);
+      if (byCreds === 'bookar') {
+        return getBookarChatResponse(garageId, message, conversationId, seedContact);
+      }
+      if (byCreds === 'tyresoft') {
+        return getTyresoftChatResponse(garageId, message, conversationId, seedContact);
+      }
+      return getPooleChatResponse(garageId, message, conversationId, seedContact);
     }
 
     // No diary integration + flagged assist → message-taking + synthetic-slot bookings.

@@ -162,6 +162,57 @@ export interface CreateOpportunityArgs {
   kind: OpportunityKind;
 }
 
+/** Pipeline order, weakest to strongest. An opportunity only ever moves FORWARD: somebody at
+ *  "Free trial live" who then submits a demo form must not be dragged back to "Enquiry
+ *  received", which is what a naive de-duplicate would do. Unknown stages rank 0 so an
+ *  unrecognised id can never outrank a real one. */
+function stageRank(stageId: string): number {
+  const order = [
+    LEAD_STAGE_ID,                     // Enquiry received
+    ABANDONED_STAGE_ID,                // Abandoned checkout
+    HL_CONTRACT_SENT_STAGE_ID,         // Contract sent
+    HL_AWAITING_CREDENTIALS_STAGE_ID,
+    HL_AGENT_BUILT_STAGE_ID,
+    HL_INVITED_STAGE_ID,
+    TRIAL_STAGE_ID,                    // Free trial live
+    SIGNUP_STAGE_ID,                   // Live and £££
+  ].filter(Boolean);
+  const i = order.indexOf(stageId);
+  return i === -1 ? 0 : i + 1;
+}
+
+/** The open opportunity this contact already has in our pipeline, if any.
+ *
+ *  createOpportunity used to POST unconditionally, so anyone who touched two entry points got
+ *  two opportunities — Nick Patel picked up a second six hours after his first, same contact id.
+ *  Contacts never duplicated because upsertContact exists; opportunities had no equivalent. */
+async function findOpenOpportunityForContact(contactId: string): Promise<{ id: string; stageId: string } | null> {
+  if (!contactId) return null;
+  const qs = new URLSearchParams({ location_id: GHL_LOCATION_ID, contact_id: contactId, limit: '20' });
+  if (PIPELINE_ID) qs.set('pipeline_id', PIPELINE_ID);
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/opportunities/search?${qs.toString()}`, { headers: HEADERS });
+    if (!res.ok) {
+      // Fall through to creating. A search outage must not cost us the opportunity entirely —
+      // a duplicate is recoverable, a lost lead is not.
+      console.error(`[HL] open-opportunity lookup failed ${res.status} — creating instead`);
+      return null;
+    }
+    const body = (await res.json()) as { opportunities?: Array<Record<string, unknown>> };
+    const open = (body.opportunities ?? [])
+      .filter((o) => String(o.status ?? 'open') === 'open')
+      .map((o) => ({ id: String(o.id ?? ''), stageId: String(o.pipelineStageId ?? '') }))
+      .filter((o) => o.id);
+    if (!open.length) return null;
+    // Most advanced first, so we update the one furthest along rather than an older stray.
+    open.sort((a, b) => stageRank(b.stageId) - stageRank(a.stageId));
+    return open[0];
+  } catch (err) {
+    console.error('[HL] open-opportunity lookup threw — creating instead:', err);
+    return null;
+  }
+}
+
 export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ id: string | null }> {
   if (!highlevelConfigured()) return { id: null };
   if (!pipelineConfigured()) {
@@ -173,6 +224,21 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
     args.kind === 'trial'     ? (TRIAL_STAGE_ID || SIGNUP_STAGE_ID) :
     args.kind === 'abandoned' ? (ABANDONED_STAGE_ID || LEAD_STAGE_ID) :
     LEAD_STAGE_ID;
+
+  // Upsert, not create. If this contact already has an open opportunity, advance that one
+  // instead of making a second — and only ever forward, so a later low-stage event (a demo
+  // request from someone already on trial) cannot pull them backwards.
+  const existing = await findOpenOpportunityForContact(args.contactId);
+  if (existing) {
+    const forward = stageRank(stageId) > stageRank(existing.stageId);
+    await updateOpportunity(existing.id, {
+      ...(forward ? { stageId } : {}),
+      ...(typeof args.monetaryValueGbp === 'number' ? { monetaryValueGbp: args.monetaryValueGbp } : {}),
+    });
+    console.log(`[HL] reused open opportunity ${existing.id} for contact ${args.contactId}` +
+      (forward ? ` — advanced to ${stageId}` : ' — already further along, stage left alone'));
+    return { id: existing.id };
+  }
 
   const body: Record<string, unknown> = {
     pipelineId: PIPELINE_ID,

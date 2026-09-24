@@ -258,13 +258,13 @@ export default function AdminTicketsPage() {
         ))}
 
         {/* Reference lookup — what a customer quotes down the phone. */}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape') setSearch(''); }}
             placeholder="Find by reference — RM-2SBXHMR or #7"
-            className="w-64 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 sm:w-64 sm:flex-none"
           />
           {search && (
             <button
@@ -285,10 +285,10 @@ export default function AdminTicketsPage() {
         </p>
       )}
 
-      <div className="flex h-[calc(100vh-16rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex h-[calc(100vh-13rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:h-[calc(100vh-16rem)]">
         {/* List */}
         <aside
-          className={`${selectedId ? 'hidden md:flex' : 'flex'} w-full shrink-0 flex-col border-r border-slate-200 bg-slate-50 md:w-96`}
+          className={`${selectedId ? 'hidden md:flex' : 'flex'} w-full min-w-0 shrink-0 flex-col border-r border-slate-200 bg-slate-50 md:w-96`}
         >
           <ul className="flex-1 overflow-y-auto divide-y divide-slate-200">
             {tickets.length === 0 ? (
@@ -331,7 +331,7 @@ export default function AdminTicketsPage() {
             it — a 384px list plus a thread does not fit, and the thread was the
             half pushed off-screen, so a notification opened a ticket you could
             not read. */}
-        <section className={`${selectedId ? 'flex' : 'hidden md:flex'} flex-1 flex-col`}>
+        <section className={`${selectedId ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col`}>
           {!selectedId || !selected ? (
             <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
               Pick a ticket to view it.
@@ -423,9 +423,12 @@ export default function AdminTicketsPage() {
                   >
                     Internal note
                   </button>
-                  <span className="text-[10px] text-slate-400">
+                  {/* Hidden on a phone: it is a reminder, not a control, and on a
+                      narrow screen it pushed the row wider than the viewport. The
+                      old wording was also stale — email replies do send now. */}
+                  <span className="hidden text-[10px] text-slate-400 sm:inline">
                     {draftMode === 'reply'
-                      ? 'Sent to customer (once channel-send is wired up)'
+                      ? 'Emailed to the customer'
                       : 'Staff-only — never leaves the portal'}
                   </span>
                 </div>

@@ -276,6 +276,32 @@ export async function notifyReceptionMateStaff(payload: PushPayload): Promise<vo
 }
 
 /**
+ * Notify each member of the team with a payload built for THEM.
+ *
+ * `notifyReceptionMateStaff` sends one identical payload to every device, which
+ * is right for "a ticket arrived". It is wrong the moment the payload carries a
+ * credential: a reply token is scoped to one user, so whoever it was minted for
+ * would be recorded as the author no matter whose phone actually replied.
+ *
+ * Costs one send per staff member instead of one for everybody. With a team this
+ * size that is a rounding error, and it keeps the audit trail honest.
+ */
+export async function notifyStaffIndividually(
+  build: (userId: string) => PushPayload,
+): Promise<void> {
+  try {
+    if (!getProvider()) return;
+    const users = await prisma.user.findMany({
+      where: { role: 'RECEPTIONMATE_STAFF', pushEnabled: true },
+      select: { id: true },
+    });
+    await Promise.all(users.map((u) => notifyUser(u.id, build(u.id))));
+  } catch (error) {
+    console.error('[PUSH] notifyStaffIndividually failed:', error);
+  }
+}
+
+/**
  * Approximate app-icon badge for a garage: calls not yet opened + unread chat messages.
  * Sent with call/message pushes so the icon badge is roughly right while the app is closed;
  * the in-app poll corrects it to the user's exact total (across all their garages) on open.

@@ -34,7 +34,7 @@ import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../../utils/email.js';
 import { enrichNewTicket } from '../../services/ticketAi.js';
 import { classifyDeterministic } from '../../services/emailClassifier.js';
 import { ticketSubjectTag, ticketNumberFromSubject, stripTicketTag } from '../../services/ticketRef.js';
-import { notifyReceptionMateStaff } from '../../utils/push.js';
+import { pushNewTicketToStaff } from '../../services/ticketPush.js';
 
 const router = Router();
 
@@ -543,14 +543,12 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     //      New tickets only — a reply onto an open ticket is already somebody's,
     //      and a phone buzzing for both halves of a conversation is noise. Never
     //      for mail a rule filed on arrival.
+    //
+    //      Deliberately AFTER the enrichment call below is kicked off: the push
+    //      waits for the AI draft so the expanded notification has something to
+    //      act on, and gives up after a few seconds rather than going silent.
     if (created && !ruleAutoClosed) {
-      const who = contact.name?.trim() || email;
-      void notifyReceptionMateStaff({
-        title: 'New support ticket',
-        subtitle: who,
-        body: stripTicketTag(subject) || '(no subject)',
-        data: { type: 'ticket', ticketId: ticket.id, ticketNumber: ticket.number },
-      }).catch((err) => console.error('[MAILGUN_INBOUND] staff push failed:', err));
+      void pushNewTicketToStaff(ticket.id);
     }
 
     // 11. Fire-and-forget: AI classification + draft reply on new tickets only.

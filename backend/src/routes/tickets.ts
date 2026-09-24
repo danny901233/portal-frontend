@@ -27,6 +27,7 @@ import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../utils/email.js';
 import { ticketSubjectTag, stripTicketTag, ticketNumberCandidates } from '../services/ticketRef.js';
+import { verifyPushReplyToken } from '../services/pushReplyToken.js';
 
 const router = Router();
 
@@ -322,102 +323,117 @@ const textToHtml = (text: string): string => {
   return paragraphs.join('\n');
 };
 
-router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: Request, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
-  const parsed = replySchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
-
+/**
+ * Post a public reply and, where the channel allows it, actually send it.
+ *
+ * Extracted so the portal's reply box and a reply typed on a lock screen cannot
+ * drift apart. Everything that makes a reply correct — the subject tag, the
+ * threading headers, the status transition, refusing channels that cannot send —
+ * has to happen identically whichever door it came through.
+ *
+ * `reuseEntryId` turns an existing AI draft INTO the sent reply rather than
+ * creating a second identical entry beside it, so the thread reads as one
+ * message and keeps the draft's provenance in its meta.
+ */
+async function postPublicReply(args: {
+  ticketId: string;
+  userId: string;
+  userEmail?: string;
+  body: string;
+  isDraft?: boolean;
+  reuseEntryId?: string;
+}): Promise<{ status: number; entry?: unknown; error?: string }> {
   const ticket = await prisma.ticket.findUnique({
-    where: { id: req.params.id },
+    where: { id: args.ticketId },
     include: { contact: { select: { id: true, email: true, name: true } } },
   });
-  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+  if (!ticket) return { status: 404, error: 'Ticket not found' };
 
-  const isDraft = parsed.data.isDraft ?? false;
   const now = new Date();
 
-  // Draft path: same as before — no email leaves the building, no timestamps
-  // bumped, no threading headers generated. UI still shows the draft.
-  if (isDraft) {
+  // Draft path: no email leaves the building, no timestamps bumped, no threading
+  // headers generated. The UI still shows the draft.
+  if (args.isDraft) {
     const entry = await prisma.ticketEntry.create({
       data: {
         ticketId: ticket.id,
         kind: TicketEntryKind.public_reply,
-        authorUserId: req.user.userId,
-        body: parsed.data.body,
+        authorUserId: args.userId,
+        body: args.body,
         isDraft: true,
       },
     });
-    return res.status(201).json({ entry });
+    return { status: 201, entry };
   }
 
-  // ── Sent-reply path (spec §7): actually send the email. ────────────────
-  // Only wired for email channel today. Other channels (whatsapp/portal_chat)
-  // land in Phases 3/5.
-  //
-  // Those channels used to fall through here quietly: the entry was recorded,
-  // the timestamps moved, the UI showed a sent reply, and nothing left the
-  // building. Now that phone tickets exist — a call that needs ringing back —
-  // that silence would be somebody believing they had answered a customer who
-  // never heard from them. Refuse instead, and say why.
+  // Only wired for the email channel. Those other channels used to fall through
+  // quietly: the entry was recorded, the timestamps moved, the UI showed a sent
+  // reply, and nothing left the building. With phone tickets real, that silence
+  // would be somebody believing they had answered a customer who never heard
+  // from them. Refuse instead, and say why.
   const isEmailChannel = ticket.channel === TicketChannel.email;
   const canSendEmail = isEmailChannel && ticket.contact.email;
 
-  if (!isDraft && !canSendEmail) {
-    const why = ticket.channel === TicketChannel.phone
-      ? 'This ticket came in by phone — ring them back, then add an internal note. Replies cannot be sent from here.'
-      : isEmailChannel
-        ? 'This contact has no email address, so a reply cannot be sent.'
-        : `Replies on the ${ticket.channel} channel are not wired up yet — use an internal note.`;
-    return res.status(409).json({ error: why });
+  if (!canSendEmail) {
+    return {
+      status: 409,
+      error: ticket.channel === TicketChannel.phone
+        ? 'This ticket came in by phone — ring them back, then add an internal note. Replies cannot be sent from here.'
+        : isEmailChannel
+          ? 'This contact has no email address, so a reply cannot be sent.'
+          : `Replies on the ${ticket.channel} channel are not wired up yet — use an internal note.`,
+    };
   }
 
-  let outboundMessageId: string | null = null;
-  let sendOk = true;
-  const sendMeta: Record<string, unknown> = {};
+  const outboundMessageId = generateOutboundMessageId(ticket.number);
+  const threadingHeaders = await buildThreadingHeaders(ticket.id, outboundMessageId);
 
-  if (canSendEmail) {
-    outboundMessageId = generateOutboundMessageId(ticket.number);
-    const threadingHeaders = await buildThreadingHeaders(ticket.id, outboundMessageId);
+  // Subject always carries the reference so a customer reply threads back via the
+  // subject-tag rule in mailgun-inbound. Strip any prior tag from the title so we
+  // do not double up.
+  const cleanTitle = stripTicketTag(ticket.title) || 'Your ticket';
+  const subject = `${ticketSubjectTag(ticket.number)} ${cleanTitle}`.slice(0, 300);
 
-    // Subject always carries [RM #N] so a customer reply threads back via the
-    // subject-tag rule in mailgun-inbound (spec §2 rule a). Strip any prior tag
-    // from the ticket title so we don't double up like "[RM #12] [RM #12] ...".
-    const cleanTitle = stripTicketTag(ticket.title) || 'Your ticket';
-    const subject = `${ticketSubjectTag(ticket.number)} ${cleanTitle}`.slice(0, 300);
-
-    sendOk = await sendEmail({
-      to: [ticket.contact.email as string],
-      from: SUPPORT_FROM,
-      // Through the support domain, so the return path never reads "noreply".
-      domain: SUPPORT_MAILGUN_DOMAIN,
-      subject,
-      text: parsed.data.body,
-      html: textToHtml(parsed.data.body),
-      headers: threadingHeaders,
-    });
-
-    sendMeta.outboundMessageId = outboundMessageId;
-    sendMeta.threadingHeaders = threadingHeaders;
-    sendMeta.sentBy = req.user.email;
-    sendMeta.sentAt = now.toISOString();
-    if (!sendOk) sendMeta.sendFailed = true;
-  }
-
-  const entry = await prisma.ticketEntry.create({
-    data: {
-      ticketId: ticket.id,
-      kind: TicketEntryKind.public_reply,
-      authorUserId: req.user.userId,
-      body: parsed.data.body,
-      isDraft: false,
-      // Store the outbound Message-Id here (the field's original purpose) so
-      // the inbound webhook can thread a customer reply back to this ticket
-      // via the In-Reply-To lookup.
-      outboundMessageId: outboundMessageId,
-      meta: Object.keys(sendMeta).length > 0 ? (sendMeta as Prisma.InputJsonValue) : undefined,
-    },
+  const sendOk = await sendEmail({
+    to: [ticket.contact.email as string],
+    from: SUPPORT_FROM,
+    // Through the support domain, so the return path never reads "noreply".
+    domain: SUPPORT_MAILGUN_DOMAIN,
+    subject,
+    text: args.body,
+    html: textToHtml(args.body),
+    headers: threadingHeaders,
   });
+
+  const sendMeta: Record<string, unknown> = {
+    outboundMessageId,
+    threadingHeaders,
+    sentBy: args.userEmail,
+    sentAt: now.toISOString(),
+    ...(sendOk ? {} : { sendFailed: true }),
+  };
+
+  const entry = args.reuseEntryId
+    ? await prisma.ticketEntry.update({
+        where: { id: args.reuseEntryId },
+        data: {
+          isDraft: false,
+          authorUserId: args.userId,
+          outboundMessageId,
+          meta: sendMeta as Prisma.InputJsonValue,
+        },
+      })
+    : await prisma.ticketEntry.create({
+        data: {
+          ticketId: ticket.id,
+          kind: TicketEntryKind.public_reply,
+          authorUserId: args.userId,
+          body: args.body,
+          isDraft: false,
+          outboundMessageId,
+          meta: sendMeta as Prisma.InputJsonValue,
+        },
+      });
 
   await prisma.ticket.update({
     where: { id: ticket.id },
@@ -425,21 +441,97 @@ router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: 
       lastStaffActivityAt: now,
       firstResponseAt: ticket.firstResponseAt ?? now,
       // Sending a reply flips the ticket to pending (waiting on customer).
-      // Staff can override via status endpoint if that's not right.
       status: ticket.status === TicketStatus.new_ || ticket.status === TicketStatus.open
         ? TicketStatus.pending
         : ticket.status,
     },
   });
 
-  // 502 to the client if the underlying email send failed — the entry is
-  // still recorded (so staff can see + retry) but the customer never got it.
-  // UI can surface the failure and offer a retry button.
-  if (canSendEmail && !sendOk) {
-    return res.status(502).json({ entry, error: 'Email send failed — entry saved as unsent' });
+  // The entry is recorded either way so staff can see and retry, but the caller
+  // is told plainly when the customer never actually got it.
+  if (!sendOk) return { status: 502, entry, error: 'Email send failed — entry saved as unsent' };
+  return { status: 201, entry };
+}
+
+router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const parsed = replySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+
+  const result = await postPublicReply({
+    ticketId: req.params.id,
+    userId: req.user.userId,
+    userEmail: req.user.email,
+    body: parsed.data.body,
+    isDraft: parsed.data.isDraft ?? false,
+  });
+
+  return res.status(result.status).json(
+    result.error ? { entry: result.entry, error: result.error } : { entry: result.entry },
+  );
+});
+
+
+// ─── REPLY FROM A NOTIFICATION ─────────────────────────────────────────────
+// Deliberately NOT behind `authenticate`: this is called from the lock screen,
+// where the portal session in the WebView's localStorage is out of reach. The
+// token in the push payload is the credential — scoped to one ticket and one
+// user, expiring in a day, and rejected by the normal middleware.
+
+const pushReplySchema = z.object({
+  token: z.string().min(10),
+  // Either type a reply, or send the AI's draft as it stands.
+  body: z.string().trim().min(1).max(20000).optional(),
+  sendDraft: z.boolean().optional(),
+});
+
+router.post('/tickets/push-reply', async (req: Request, res: Response) => {
+  const parsed = pushReplySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+
+  const claims = verifyPushReplyToken(parsed.data.token);
+  if (!claims) return res.status(401).json({ error: 'Link expired — open the ticket in the app' });
+
+  const user = await prisma.user.findUnique({
+    where: { id: claims.userId },
+    select: { id: true, email: true, role: true },
+  });
+  if (!user || user.role !== 'RECEPTIONMATE_STAFF') {
+    return res.status(403).json({ error: 'Not permitted' });
   }
 
-  return res.status(201).json({ entry });
+  let body = parsed.data.body?.trim() ?? '';
+  let reuseEntryId: string | undefined;
+
+  if (parsed.data.sendDraft) {
+    // Send what the AI actually wrote, not a copy typed from the screen — and
+    // turn that draft into the sent message rather than leaving both in the
+    // thread. If it has already gone, say so instead of sending it twice.
+    const draft = await prisma.ticketEntry.findFirst({
+      where: { ticketId: claims.ticketId, kind: TicketEntryKind.public_reply, isDraft: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!draft) return res.status(409).json({ error: 'That draft has already been sent or removed' });
+    body = draft.body;
+    reuseEntryId = draft.id;
+  }
+
+  if (!body) return res.status(400).json({ error: 'Nothing to send' });
+
+  const result = await postPublicReply({
+    ticketId: claims.ticketId,
+    userId: user.id,
+    userEmail: user.email,
+    body,
+    reuseEntryId,
+  });
+
+  console.log(
+    `[PUSH_REPLY] ticket ${claims.ticketId} ${parsed.data.sendDraft ? 'draft sent' : 'reply sent'} ` +
+    `by ${user.email} from a notification (status=${result.status})`,
+  );
+
+  return res.status(result.status).json(result.error ? { error: result.error } : { ok: true });
 });
 
 // ─── NOTE (internal — never leaves the portal) ─────────────────────────────

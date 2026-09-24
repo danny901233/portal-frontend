@@ -12,6 +12,7 @@
 //   POST   /api/admin/tickets/:id/note       — post an internal_note (staff-only, never sent out)
 //   PATCH  /api/admin/tickets/:id/status     — status transition + logs a status_change entry
 //   PATCH  /api/admin/tickets/:id/assign     — assignment change + logs an assignment_change entry
+//   POST   /api/admin/tickets/compose        — start a conversation: new ticket + first message sent by us
 //   POST   /api/admin/tickets/:id/spam       — file as spam, close, block the sender at ingest
 //   POST   /api/admin/tickets/:id/not-spam   — undo: unblock the sender, reopen in the queue
 //
@@ -74,6 +75,13 @@ const createTicketSchema = z.object({
   // Optional first message body — if provided, we create a public_reply entry
   // authored by the contact so the ticket opens with content.
   initialBody: z.string().trim().max(20000).optional(),
+});
+
+const composeSchema = z.object({
+  to: z.string().trim().email().transform((v) => v.toLowerCase()),
+  name: z.string().trim().max(120).optional(),
+  subject: z.string().trim().min(1).max(300),
+  body: z.string().trim().min(1).max(20000),
 });
 
 const replySchema = z.object({
@@ -226,6 +234,59 @@ router.post('/admin/tickets', authenticate, requireAdmin, async (req: Request, r
   }
 
   return res.status(201).json({ ticket: serializeTicket(ticket) });
+});
+
+// ─── COMPOSE (outbound — we start the conversation) ────────────────────────
+// The Zendesk shape: a new ticket whose first entry is ours, sent to the
+// recipient from hello@ with the reference in the subject. Their reply threads
+// back onto the same ticket through the inbound webhook like any other, so a
+// query we raise with a customer or supplier lives in the queue with everything
+// else instead of in someone's Outlook. Goes through postPublicReply so the
+// subject tag, threading headers and the pending transition are the same as a
+// reply's — the only difference is there was no inbound message first.
+
+router.post('/admin/tickets/compose', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const parsed = composeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+
+  const contact = await getOrCreateContact({ email: parsed.data.to, name: parsed.data.name });
+  if (contact.blocked) {
+    return res.status(409).json({
+      error: 'This address was marked as spam and is blocked, so their reply would be dropped. Open their ticket and choose Not spam first.',
+    });
+  }
+  if (parsed.data.name && !contact.name) {
+    await prisma.contact.update({ where: { id: contact.id }, data: { name: parsed.data.name } });
+  }
+
+  const ticket = await prisma.ticket.create({
+    data: {
+      title: stripTicketTag(parsed.data.subject) || parsed.data.subject,
+      channel: TicketChannel.email,
+      contactId: contact.id,
+      garageId: contact.garageId,
+      // Ours from the start.
+      assigneeId: req.user.userId,
+      status: TicketStatus.open,
+    },
+  });
+
+  const result = await postPublicReply({
+    ticketId: ticket.id,
+    userId: req.user.userId,
+    userEmail: req.user.email,
+    body: parsed.data.body,
+  });
+
+  const fresh = await prisma.ticket.findUnique({ where: { id: ticket.id } });
+  console.log(`[TICKETS] #${ticket.number} composed by ${req.user.email} to ${parsed.data.to} (send status=${result.status})`);
+  // The ticket exists whatever happened to the send; the caller is told plainly
+  // if the message did not leave, and the entry is there to retry from.
+  return res.status(result.status === 201 ? 201 : result.status).json({
+    ticket: serializeTicket(fresh ?? ticket),
+    ...(result.error ? { error: result.error } : {}),
+  });
 });
 
 // ─── REPLY (public — customer-facing) ──────────────────────────────────────

@@ -1228,6 +1228,20 @@ export const changeTicketStatus = async (id: string, status: TicketStatus): Prom
   return data;
 };
 
+export interface ComposeTicketInput {
+  to: string;
+  name?: string;
+  subject: string;
+  body: string;
+}
+
+/** Start a conversation from our side: a new ticket whose first message we send
+ *  from hello@ with the reference in the subject, so the reply threads back. */
+export const composeTicket = async (input: ComposeTicketInput): Promise<{ ticket: TicketSummary; error?: string }> => {
+  const { data } = await api.post('/api/admin/tickets/compose', input);
+  return data;
+};
+
 /** Close the ticket, file it as spam and block the sender so their next email
  *  is dropped before it becomes a ticket. */
 export const markTicketSpam = async (id: string): Promise<{ ticket: TicketSummary }> => {

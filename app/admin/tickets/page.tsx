@@ -16,6 +16,7 @@ import {
   replyToTicket,
   addTicketNote,
   changeTicketStatus,
+  composeTicket,
   markTicketSpam,
   markTicketNotSpam,
   assignTicket,
@@ -75,6 +76,11 @@ export default function AdminTicketsPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listEndRef = useRef<HTMLDivElement | null>(null);
+  // Outbound: we start the conversation. Takes the thread pane's place until
+  // it is sent or abandoned.
+  const [composing, setComposing] = useState(false);
+  const [compose, setCompose] = useState({ to: '', name: '', subject: '', body: '' });
+  const [composeError, setComposeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isReceptionMateStaff()) {
@@ -211,6 +217,39 @@ export default function AdminTicketsPage() {
     }
   };
 
+  const openCompose = () => {
+    setSelectedId(null);
+    setSelected(null);
+    setComposeError(null);
+    setComposing(true);
+  };
+
+  const handleCompose = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (sending) return;
+    setSending(true);
+    setComposeError(null);
+    try {
+      const res = await composeTicket({
+        to: compose.to.trim(),
+        name: compose.name.trim() || undefined,
+        subject: compose.subject.trim(),
+        body: compose.body.trim(),
+      });
+      setCompose({ to: '', name: '', subject: '', body: '' });
+      setComposing(false);
+      // Sent tickets are Pending, which the default New filter hides — show it
+      // anyway so the sender sees it went.
+      setSelectedId(res.ticket.id);
+      void loadList();
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setComposeError(msg ?? (err instanceof Error ? err.message : 'Failed to send'));
+    } finally {
+      setSending(false);
+    }
+  };
+
   const handleSpam = async () => {
     if (!selectedId || !selected) return;
     const who = selected.contact.email ?? selected.contact.phone ?? 'this sender';
@@ -279,13 +318,22 @@ export default function AdminTicketsPage() {
             <a href="/admin/support" className="text-brand-600 hover:underline">legacy support page</a>.
           </p>
         </div>
-        {counts && (
-          <div className="flex gap-2 text-xs">
-            <QueueChip label="Unassigned" value={counts.unassigned} tone="rose" />
-            <QueueChip label="Mine open"  value={counts.mineOpen}   tone="brand" />
-            <QueueChip label="Stale 3d+"  value={counts.pendingStale} tone="amber" />
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {counts && (
+            <>
+              <QueueChip label="Unassigned" value={counts.unassigned} tone="rose" />
+              <QueueChip label="Mine open"  value={counts.mineOpen}   tone="brand" />
+              <QueueChip label="Stale 3d+"  value={counts.pendingStale} tone="amber" />
+            </>
+          )}
+          <button
+            type="button"
+            onClick={openCompose}
+            className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-700"
+          >
+            New email
+          </button>
+        </div>
       </header>
 
       <div className="flex flex-wrap gap-1">
@@ -293,7 +341,7 @@ export default function AdminTicketsPage() {
           <button
             key={b.key}
             type="button"
-            onClick={() => { setStatusFilter(b.key); setSelectedId(null); setSelected(null); }}
+            onClick={() => { setStatusFilter(b.key); setSelectedId(null); setSelected(null); setComposing(false); }}
             className={`rounded-md border px-3 py-1 text-xs font-medium transition ${
               statusFilter === b.key
                 ? 'border-brand-600 bg-brand-600 text-white'
@@ -335,7 +383,7 @@ export default function AdminTicketsPage() {
       <div className="flex h-[calc(100vh-13rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:h-[calc(100vh-16rem)]">
         {/* List */}
         <aside
-          className={`${selectedId ? 'hidden md:flex' : 'flex'} w-full min-w-0 shrink-0 flex-col border-r border-slate-200 bg-slate-50 md:w-96`}
+          className={`${selectedId || composing ? 'hidden md:flex' : 'flex'} w-full min-w-0 shrink-0 flex-col border-r border-slate-200 bg-slate-50 md:w-96`}
         >
           <ul className="flex-1 overflow-y-auto divide-y divide-slate-200">
             {tickets.length === 0 ? (
@@ -348,7 +396,7 @@ export default function AdminTicketsPage() {
                 >
                   <button
                     type="button"
-                    onClick={() => setSelectedId(t.id)}
+                    onClick={() => { setComposing(false); setSelectedId(t.id); }}
                     className="block w-full px-4 py-3 text-left"
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -398,8 +446,88 @@ export default function AdminTicketsPage() {
             it — a 384px list plus a thread does not fit, and the thread was the
             half pushed off-screen, so a notification opened a ticket you could
             not read. */}
-        <section className={`${selectedId ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col`}>
-          {!selectedId || !selected ? (
+        <section className={`${selectedId || composing ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col`}>
+          {composing ? (
+            <form onSubmit={handleCompose} className="flex flex-1 flex-col overflow-y-auto">
+              <header className="border-b border-slate-200 bg-white px-5 py-3">
+                <button
+                  type="button"
+                  onClick={() => setComposing(false)}
+                  className="mb-2 text-xs font-medium text-brand-600 hover:underline md:hidden"
+                >
+                  ← All tickets
+                </button>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">New email</p>
+                <p className="text-sm text-slate-600">
+                  Sent from hello@receptionmate.co.uk with a reference in the subject, so their reply lands on this ticket.
+                </p>
+              </header>
+              <div className="flex-1 space-y-3 bg-slate-50 px-5 py-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-xs font-medium text-slate-700">
+                    To
+                    <input
+                      type="email"
+                      required
+                      autoFocus
+                      value={compose.to}
+                      onChange={(e) => setCompose({ ...compose, to: e.target.value })}
+                      placeholder="someone@garage.co.uk"
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700">
+                    Name <span className="font-normal text-slate-400">(optional)</span>
+                    <input
+                      type="text"
+                      value={compose.name}
+                      onChange={(e) => setCompose({ ...compose, name: e.target.value })}
+                      placeholder="Sarah"
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                    />
+                  </label>
+                </div>
+                <label className="block text-xs font-medium text-slate-700">
+                  Subject
+                  <input
+                    type="text"
+                    required
+                    maxLength={300}
+                    value={compose.subject}
+                    onChange={(e) => setCompose({ ...compose, subject: e.target.value })}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                  />
+                </label>
+                <label className="block text-xs font-medium text-slate-700">
+                  Message
+                  <textarea
+                    required
+                    rows={10}
+                    value={compose.body}
+                    onChange={(e) => setCompose({ ...compose, body: e.target.value })}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                  />
+                </label>
+                {composeError && <p className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{composeError}</p>}
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-white p-3">
+                <button
+                  type="button"
+                  onClick={() => setComposing(false)}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:border-brand-600 hover:text-brand-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={sending}
+                  className="rounded-md bg-brand-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50"
+                >
+                  {sending ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+            </form>
+          ) : !selectedId || !selected ? (
             <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
               Pick a ticket to view it.
             </div>

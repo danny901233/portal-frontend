@@ -441,10 +441,20 @@ router.post('/recording-status', async (req: Request, res: Response) => {
 
       // Update call duration with recording duration (actual call time)
       // OR delete the call if it's under the minimum billable/logged length.
-      // 45s is the business rule: calls shorter than this never surface in the portal.
+      // 30s is the business rule: calls shorter than this never surface in the portal.
+      //
+      // Was 45s until 2026-09-24. A transcription sweep of every 25-44s call over four days
+      // (74 of them) found ~26% were callers who had said what they wanted and then dropped
+      // off the moment the agent asked for their name. Those are callable leads the garage
+      // never saw, and they were being deleted here.
+      //
+      // 45s had been reverted to once before, after a stale PORTAL_MIN_CALL_SECONDS=30 secret
+      // let SILENT calls reach the portal. Length was never the real test — silence was — so
+      // the agents now carry the matching 30s constant plus a guard that the caller actually
+      // said something. Lower this without that guard and the empty rows come back.
       if (durationSeconds !== null && !Number.isNaN(durationSeconds)) {
-        // If recording duration is under 45 seconds, delete the call from portal
-        if (durationSeconds < 45) {
+        // If recording duration is under 30 seconds, delete the call from portal
+        if (durationSeconds < 30) {
           const deletedCalls = await prisma.call.deleteMany({
             where: {
               twilioCallSid: CallSid,
@@ -452,10 +462,10 @@ router.post('/recording-status', async (req: Request, res: Response) => {
           });
 
           if (deletedCalls.count > 0) {
-            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 45s threshold`);
+            console.log(`[RECORDING] 🗑️  Deleted ${deletedCalls.count} call(s) - recording duration ${durationSeconds}s is under 30s threshold`);
           }
         } else {
-          // Duration is >= 45 seconds, update the call with correct duration
+          // Duration is >= 30 seconds, update the call with correct duration
           const updatedCalls = await prisma.call.updateMany({
             where: {
               twilioCallSid: CallSid,

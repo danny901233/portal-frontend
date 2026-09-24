@@ -123,7 +123,7 @@ async function draftReply(args: {
             '- NEVER invent facts, prices, dates, timelines, or account details.',
             '- If you cannot answer confidently, say the team will follow up shortly with the specifics.',
             '- Address the customer by first name if given, otherwise "Hi there".',
-            '- Sign off "— The ReceptionMate team".',
+            '- Do NOT add a sign-off or signature — one is appended automatically when the email is sent.',
             '- Do NOT include a subject line, "Re:", or any header. Reply body only.',
             '- Do NOT promise refunds, discounts, or any commercial action.',
           ].join('\n'),

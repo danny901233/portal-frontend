@@ -56,26 +56,42 @@ export const SUPPORT_SIGNATURE_TEXT = [
 ].join('\n');
 
 const contactRow = (icon: string, href: string, label: string): string => `
-        <tr>
-          <td width="26" valign="middle" style="padding:0 0 8px;"><img src="${ICON_BASE}/icon-${icon}.png" alt="" width="18" height="18" style="display:block;width:18px;height:18px;border:0;" /></td>
-          <td valign="middle" style="padding:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:18px;color:#ffffff;"><a href="${href}" style="color:#ffffff;text-decoration:none;">${label}</a></td>
+        <tr class="rm-sig-row">
+          <td width="24" valign="middle" style="padding:0 0 7px;"><img src="${ICON_BASE}/icon-${icon}.png" alt="" width="16" height="16" style="display:block;width:16px;height:16px;border:0;" /></td>
+          <td valign="middle" style="padding:0 0 7px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:18px;color:#ffffff;"><a href="${href}" style="color:#ffffff;text-decoration:none;">${label}</a></td>
         </tr>`;
 
 // Fluid hybrid layout: the logo block and the text block are inline-blocks
 // with fixed widths that together fit the 600px banner. On a phone the text
 // block's max-width:100% makes it wrap under the logo instead of squeezing
-// the email address onto three lines — no media query needed, which matters
-// because mail clients strip <style> unevenly. Outlook desktop ignores
-// max-width and keeps them side by side, which is what we want there anyway.
+// the email address onto three lines. table-layout:fixed stops the cell
+// growing to the blocks' declared widths in the intrinsic sizing pass.
+// Outlook desktop ignores max-width and keeps them side by side, which is
+// what we want there anyway.
+//
+// The stacked layout at desktop sizes filled a phone screen, so a media
+// query shrinks it where the client honours one (Apple Mail, Outlook mobile,
+// Gmail app). Clients that strip <style> get the base sizes, which are a
+// touch smaller than the first cut for the same reason.
 export const SUPPORT_SIGNATURE_HTML = `
+<style>
+  @media only screen and (max-width: 480px) {
+    .rm-sig-pad { padding: 14px 12px !important; }
+    .rm-sig-logo { width: 96px !important; max-width: 96px !important; }
+    .rm-sig-logo-box { width: 110px !important; }
+    .rm-sig-tag { font-size: 15px !important; line-height: 20px !important; padding-bottom: 8px !important; }
+    .rm-sig-row td { font-size: 13px !important; line-height: 16px !important; padding-bottom: 5px !important; }
+    .rm-sig-row img { width: 14px !important; height: 14px !important; }
+  }
+</style>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;margin-top:28px;table-layout:fixed;border-collapse:separate;border-radius:10px;overflow:hidden;background:${BRAND_BLUE};">
   <tr>
-    <td style="padding:20px 16px;text-align:center;font-size:0;line-height:0;">
-      <div style="display:inline-block;width:170px;max-width:100%;vertical-align:middle;">
-        <img src="${LOGO_URL}" alt="ReceptionMate" width="150" style="display:inline-block;width:150px;max-width:150px;height:auto;border:0;" />
+    <td class="rm-sig-pad" style="padding:18px 16px;text-align:center;font-size:0;line-height:0;">
+      <div class="rm-sig-logo-box" style="display:inline-block;width:150px;max-width:100%;vertical-align:middle;">
+        <img class="rm-sig-logo" src="${LOGO_URL}" alt="ReceptionMate" width="130" style="display:inline-block;width:130px;max-width:130px;height:auto;border:0;" />
       </div><div style="display:inline-block;width:370px;max-width:100%;vertical-align:middle;text-align:left;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:8px 0 0;">
-          <tr><td colspan="2" style="padding:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:26px;font-weight:bold;color:#ffffff;">The Future Of Front Desk Efficiency</td></tr>${contactRow('phone', `tel:${SIGNATURE_PHONE.replace(/\s+/g, '')}`, SIGNATURE_PHONE)}${contactRow('mail', `mailto:${SIGNATURE_EMAIL}`, SIGNATURE_EMAIL)}${contactRow('globe', `https://${SIGNATURE_SITE}`, SIGNATURE_SITE)}
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:6px 0 0;">
+          <tr><td class="rm-sig-tag" colspan="2" style="padding:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:18px;line-height:24px;font-weight:bold;color:#ffffff;">The Future Of Front Desk Efficiency</td></tr>${contactRow('phone', `tel:${SIGNATURE_PHONE.replace(/\s+/g, '')}`, SIGNATURE_PHONE)}${contactRow('mail', `mailto:${SIGNATURE_EMAIL}`, SIGNATURE_EMAIL)}${contactRow('globe', `https://${SIGNATURE_SITE}`, SIGNATURE_SITE)}
         </table>
       </div>
     </td>

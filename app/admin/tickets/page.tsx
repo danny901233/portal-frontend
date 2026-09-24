@@ -62,6 +62,7 @@ export default function AdminTicketsPage() {
   // actually want attention.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
   const [search, setSearch] = useState('');
+  const [pendingDraftLoad, setPendingDraftLoad] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<TicketDetail | null>(null);
   const [entries, setEntries] = useState<TicketEntry[]>([]);
@@ -81,9 +82,23 @@ export default function AdminTicketsPage() {
   // defaults to New, and the ticket being linked to may be any status, so select
   // it directly rather than hoping it is in the current filter.
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get('ticket');
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get('ticket');
     if (wanted) setSelectedId(wanted);
+    // &draft=1 comes from "Edit & send" on a notification: the reader wants the
+    // AI's draft in the box, edited, not retyped.
+    if (params.get('draft') === '1') setPendingDraftLoad(true);
   }, []);
+
+  // Wait for the thread before loading the draft — the entries arrive after the
+  // ticket id does, and there is nothing to load until they have.
+  useEffect(() => {
+    if (!pendingDraftLoad || entries.length === 0) return;
+    const draft = [...entries].reverse().find((e) => e.isDraft);
+    if (!draft) return;
+    setPendingDraftLoad(false);
+    useDraft(draft.body);
+  }, [pendingDraftLoad, entries]);
 
   const loadList = useCallback(async () => {
     try {

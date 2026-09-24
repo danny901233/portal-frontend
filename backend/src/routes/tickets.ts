@@ -12,6 +12,8 @@
 //   POST   /api/admin/tickets/:id/note       — post an internal_note (staff-only, never sent out)
 //   PATCH  /api/admin/tickets/:id/status     — status transition + logs a status_change entry
 //   PATCH  /api/admin/tickets/:id/assign     — assignment change + logs an assignment_change entry
+//   POST   /api/admin/tickets/:id/spam       — file as spam, close, block the sender at ingest
+//   POST   /api/admin/tickets/:id/not-spam   — undo: unblock the sender, reopen in the queue
 //
 // Not in this file:
 //   - Actual outbound sending (email/whatsapp) — wired in Phase 1 / Phase 3
@@ -173,7 +175,7 @@ router.get('/admin/tickets/:id', authenticate, requireAdmin, async (req: Request
   const ticket = await prisma.ticket.findUnique({
     where: { id: req.params.id },
     include: {
-      contact:  { select: { id: true, email: true, phone: true, name: true, garageId: true } },
+      contact:  { select: { id: true, email: true, phone: true, name: true, garageId: true, blocked: true } },
       assignee: { select: { id: true, email: true } },
       garage:   { select: { id: true, name: true } },
     },
@@ -583,6 +585,74 @@ router.patch('/admin/tickets/:id/status', authenticate, requireAdmin, async (req
     }),
   ]);
 
+  return res.json({ ticket: serializeTicket(updated) });
+});
+
+// ─── SPAM ──────────────────────────────────────────────────────────────────
+// Marking spam is closing plus a promise: the sender's next email is dropped
+// at ingest (Contact.blocked, checked by the Mailgun and WhatsApp handlers)
+// instead of becoming another ticket to close. Any unsent AI draft goes too —
+// nobody is replying to this. The ticket itself stays, so the block can be
+// undone and the audit trail read.
+
+router.post('/admin/tickets/:id/spam', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: req.params.id },
+    include: { contact: { select: { id: true, email: true, phone: true, blocked: true } } },
+  });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  const now = new Date();
+  const who = ticket.contact.email ?? ticket.contact.phone ?? 'sender';
+  const [updated] = await prisma.$transaction([
+    prisma.ticket.update({
+      where: { id: ticket.id },
+      data: { category: TicketCategory.spam, status: TicketStatus.closed, closedAt: now },
+    }),
+    prisma.contact.update({ where: { id: ticket.contact.id }, data: { blocked: true } }),
+    prisma.ticketEntry.deleteMany({ where: { ticketId: ticket.id, isDraft: true } }),
+    prisma.ticketEntry.create({
+      data: {
+        ticketId: ticket.id,
+        kind: TicketEntryKind.status_change,
+        authorUserId: req.user.userId,
+        body: `Marked as spam — ${who} blocked`,
+      },
+    }),
+  ]);
+  console.log(`[TICKETS] #${ticket.number} marked as spam by ${req.user.email ?? req.user.userId}; blocked ${who}`);
+  return res.json({ ticket: serializeTicket(updated) });
+});
+
+router.post('/admin/tickets/:id/not-spam', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: req.params.id },
+    include: { contact: { select: { id: true, email: true, phone: true } } },
+  });
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  const who = ticket.contact.email ?? ticket.contact.phone ?? 'sender';
+  const [updated] = await prisma.$transaction([
+    prisma.ticket.update({
+      where: { id: ticket.id },
+      data: {
+        status: TicketStatus.open,
+        closedAt: null,
+        ...(ticket.category === TicketCategory.spam ? { category: TicketCategory.uncategorized } : {}),
+      },
+    }),
+    prisma.contact.update({ where: { id: ticket.contact.id }, data: { blocked: false } }),
+    prisma.ticketEntry.create({
+      data: {
+        ticketId: ticket.id,
+        kind: TicketEntryKind.status_change,
+        authorUserId: req.user.userId,
+        body: `Not spam — ${who} unblocked, back in the queue`,
+      },
+    }),
+  ]);
   return res.json({ ticket: serializeTicket(updated) });
 });
 

@@ -19,7 +19,7 @@
 // the ingest pipeline.
 
 import OpenAI from 'openai';
-import { TicketCategory, TicketEntryKind } from '@prisma/client';
+import { TicketCategory, TicketEntryKind, TicketStatus } from '@prisma/client';
 import { prisma } from '../db.js';
 import { highlevelConfigured, upsertContact, createOpportunity } from './highlevel.js';
 
@@ -35,11 +35,17 @@ const CATEGORY_GUIDE = `
 - sales_enquiry: prospect asking about becoming a ReceptionMate customer, pricing, demos
 - complaint: unhappy with the service overall (not agent-specific)
 - other: legitimate customer/prospect message that doesn't fit above
+- spam: unsolicited mail selling TO ReceptionMate — marketing, SEO, lead generation, advertising, recruitment, "partnership" pitches, newsletters, phishing. Nobody asked for it and it needs no reply. (A prospect wanting to BUY ReceptionMate is sales_enquiry, never spam.)
 `.trim();
 
 const VALID_CATEGORIES = new Set<string>([
-  'billing', 'agent_bug', 'setup_help', 'sales_enquiry', 'complaint', 'other',
+  'billing', 'agent_bug', 'setup_help', 'sales_enquiry', 'complaint', 'other', 'spam',
 ]);
+
+/** Below this the model's spam verdict tags the ticket but leaves it in the
+ *  queue for a person to close; at or above it the ticket is filed closed on
+ *  arrival. A wrongly-closed enquiry is the costly mistake, so the bar is high. */
+const SPAM_AUTOCLOSE_CONFIDENCE = 0.8;
 
 // Return shape includes a confidence proxy so we can:
 //  - store it on the draft entry meta for later audit
@@ -197,7 +203,7 @@ export async function enrichNewTicket(args: {
   contactName: string | null;
   contactEmail?: string | null;
   skipClassification?: boolean;
-}): Promise<void> {
+}): Promise<{ spam: boolean }> {
   const [classification, draft] = await Promise.all([
     args.skipClassification ? Promise.resolve(null) : classifyEmail(args.subject, args.body),
     draftReply({
@@ -207,6 +213,40 @@ export async function enrichNewTicket(args: {
       ticketNumber: args.ticketNumber,
     }),
   ]);
+
+  // Spam is filed, not worked: no draft, no CRM mirror, and the caller holds
+  // back the acknowledgement. Confident verdicts close the ticket outright;
+  // hesitant ones leave it tagged in the queue for a person to close.
+  if (classification?.category === TicketCategory.spam) {
+    const confident = classification.confidence >= SPAM_AUTOCLOSE_CONFIDENCE;
+    try {
+      await prisma.$transaction([
+        prisma.ticket.update({
+          where: { id: args.ticketId },
+          data: {
+            category: TicketCategory.spam,
+            ...(confident ? { status: TicketStatus.closed, closedAt: new Date() } : {}),
+          },
+        }),
+        prisma.ticketEntry.create({
+          data: {
+            ticketId: args.ticketId,
+            kind: TicketEntryKind.status_change,
+            body: confident
+              ? `Filed as spam by the classifier (confidence ${classification.confidence.toFixed(2)})`
+              : `Looks like spam to the classifier (confidence ${classification.confidence.toFixed(2)}) — left for a person to confirm`,
+          },
+        }),
+      ]);
+      console.log(
+        `[TICKET_AI] ticket #${args.ticketNumber} classified as spam ` +
+        `(confidence=${classification.confidence.toFixed(3)}, ${confident ? 'closed' : 'left open'})`,
+      );
+    } catch (err) {
+      console.error(`[TICKET_AI] failed to file ticket #${args.ticketNumber} as spam:`, err);
+    }
+    return { spam: true };
+  }
 
   if (classification) {
     try {
@@ -260,4 +300,5 @@ export async function enrichNewTicket(args: {
       console.error(`[TICKET_AI] failed to persist draft for ticket #${args.ticketNumber}:`, err);
     }
   }
+  return { spam: false };
 }

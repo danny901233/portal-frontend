@@ -16,6 +16,8 @@ import {
   replyToTicket,
   addTicketNote,
   changeTicketStatus,
+  markTicketSpam,
+  markTicketNotSpam,
   assignTicket,
   type TicketSummary,
   type TicketDetail,
@@ -51,7 +53,9 @@ const PRIORITY_TONE: Record<string, string> = {
   urgent: 'text-rose-600 font-bold',
 };
 
-type StatusFilter = TicketStatus | 'all';
+// 'spam' is a category, not a status: everything filed as spam, whatever
+// state it is in, so a wrongly-filed enquiry can be found and rescued.
+type StatusFilter = TicketStatus | 'all' | 'spam';
 
 export default function AdminTicketsPage() {
   const router = useRouter();
@@ -106,7 +110,9 @@ export default function AdminTicketsPage() {
       // closed ticket's reference still finds it.
       const filters = search.trim()
         ? { ref: search.trim() }
-        : (statusFilter === 'all' ? {} : { status: statusFilter });
+        : statusFilter === 'all' ? {}
+        : statusFilter === 'spam' ? { category: 'spam' as const }
+        : { status: statusFilter };
       const [t, c] = await Promise.all([
         fetchTickets(filters),
         fetchTicketQueueCounts(),
@@ -189,6 +195,46 @@ export default function AdminTicketsPage() {
     }
   };
 
+  // One click from the list, without opening the ticket. The row leaves the
+  // list straight away when the current filter would no longer include it —
+  // that is the whole point of working through a queue quickly.
+  const handleQuickClose = async (id: string) => {
+    const leaves = statusFilter !== 'all' && statusFilter !== 'closed' && statusFilter !== 'spam';
+    if (leaves) setTickets((prev) => prev.filter((t) => t.id !== id));
+    try {
+      await changeTicketStatus(id, 'closed');
+      if (id === selectedId) void loadThread(id);
+      void loadList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to close ticket');
+      void loadList();
+    }
+  };
+
+  const handleSpam = async () => {
+    if (!selectedId || !selected) return;
+    const who = selected.contact.email ?? selected.contact.phone ?? 'this sender';
+    if (!window.confirm(`Mark as spam and block ${who}? Their future emails will be dropped.`)) return;
+    try {
+      await markTicketSpam(selectedId);
+      void loadThread(selectedId);
+      void loadList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to mark as spam');
+    }
+  };
+
+  const handleNotSpam = async () => {
+    if (!selectedId) return;
+    try {
+      await markTicketNotSpam(selectedId);
+      void loadThread(selectedId);
+      void loadList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to restore ticket');
+    }
+  };
+
   const handleAssignSelf = async () => {
     if (!selectedId) return;
     const uid = getUserId();
@@ -220,6 +266,7 @@ export default function AdminTicketsPage() {
     { key: 'pending', label: 'Pending' },
     { key: 'solved',  label: 'Solved' },
     { key: 'closed',  label: 'Closed' },
+    { key: 'spam',    label: 'Spam' },
   ], []);
 
   return (
@@ -295,13 +342,14 @@ export default function AdminTicketsPage() {
               <li className="px-4 py-8 text-center text-xs text-slate-500">No tickets match.</li>
             ) : (
               tickets.map((t) => (
-                <li key={t.id}>
+                <li
+                  key={t.id}
+                  className={`group relative transition ${t.id === selectedId ? 'bg-white' : 'hover:bg-white'}`}
+                >
                   <button
                     type="button"
                     onClick={() => setSelectedId(t.id)}
-                    className={`block w-full px-4 py-3 text-left transition ${
-                      t.id === selectedId ? 'bg-white' : 'hover:bg-white'
-                    }`}
+                    className="block w-full px-4 py-3 text-left"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate text-sm font-semibold text-slate-900">
@@ -311,6 +359,11 @@ export default function AdminTicketsPage() {
                     </div>
                     <p className="mt-1 truncate text-xs text-slate-600">
                       {t.contact.name ?? t.contact.email ?? t.contact.phone ?? 'Unknown contact'}
+                      {t.category === 'spam' && (
+                        <span className="ml-2 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-700 ring-1 ring-rose-200">
+                          spam
+                        </span>
+                      )}
                     </p>
                     <div className="mt-1 flex items-center justify-between">
                       <span className="text-[10px] uppercase tracking-wider text-slate-400">
@@ -321,6 +374,20 @@ export default function AdminTicketsPage() {
                       </span>
                     </div>
                   </button>
+                  {/* Close without opening. Sits over the bottom-right corner so
+                      the priority label underneath is not what gets clicked. On
+                      a touch screen there is no hover, so it is always shown. */}
+                  {t.status !== 'closed' && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); void handleQuickClose(t.id); }}
+                      title="Close ticket"
+                      aria-label={`Close ticket #${t.number}`}
+                      className="absolute bottom-2 right-3 rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 shadow-sm hover:border-emerald-600 hover:text-emerald-700 md:opacity-0 md:transition md:group-hover:opacity-100 md:focus:opacity-100"
+                    >
+                      Close
+                    </button>
+                  )}
                 </li>
               ))
             )}
@@ -358,6 +425,34 @@ export default function AdminTicketsPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {selected.status !== 'closed' && (
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange('closed')}
+                        className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+                      >
+                        Close
+                      </button>
+                    )}
+                    {selected.contact.blocked || selected.category === 'spam' ? (
+                      <button
+                        type="button"
+                        onClick={handleNotSpam}
+                        title={selected.contact.blocked ? 'Unblock the sender and reopen' : 'Reopen'}
+                        className="rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+                      >
+                        {selected.contact.blocked ? 'Not spam · unblock' : 'Not spam'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleSpam}
+                        title="Close, file as spam and block the sender"
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-600 hover:border-rose-500 hover:text-rose-600"
+                      >
+                        Spam
+                      </button>
+                    )}
                     <select
                       value={selected.status}
                       onChange={(e) => handleStatusChange(e.target.value as TicketStatus)}

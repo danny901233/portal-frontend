@@ -19,10 +19,13 @@
 // TicketEntry so it shows up on the timeline. Suppressed for threaded replies
 // (they already know we're on it) and for spam-flagged contacts.
 //
+// Spam: bulk-mail headers and automated senders are settled by rules
+// (services/emailClassifier.ts) and filed closed on arrival; cold outreach
+// written by a person is left to the AI classifier, whose verdict withholds the
+// acknowledgement and the staff push. Staff can also mark a ticket as spam,
+// which blocks the sender — blocked contacts are dropped at step 4 below.
+//
 // Not yet in Phase 1:
-//   - AI classification (category defaults to 'uncategorized' — Phase 1a)
-//   - AI-drafted reply (public_reply with isDraft=true — Phase 1a)
-//   - Noise/spam filter (Phase 1b)
 //   - Email domain → Garage auto-linking (deferred per design doc)
 
 import type { Request, Response } from 'express';
@@ -32,7 +35,7 @@ import { Prisma, TicketChannel, TicketEntryKind, TicketStatus, TicketPriority } 
 import { prisma } from '../../db.js';
 import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../../utils/email.js';
 import { enrichNewTicket } from '../../services/ticketAi.js';
-import { classifyDeterministic } from '../../services/emailClassifier.js';
+import { classifyDeterministic, isNoReplySender, parseMailgunHeaders } from '../../services/emailClassifier.js';
 import { ticketSubjectTag, ticketNumberFromSubject, stripTicketTag } from '../../services/ticketRef.js';
 import { pushNewTicketToStaff } from '../../services/ticketPush.js';
 
@@ -136,25 +139,6 @@ const extractSenderName = (body: Record<string, unknown>): string | null => {
   return m ? m[1].trim() : null;
 };
 
-// ─── No-reply sender guard (spec §5) ────────────────────────────────────────
-// These senders never receive an auto-acknowledgement. Replying to a system
-// mailbox loops (mailer-daemon) or damages sending reputation (no-reply
-// aliases that discard). Regex matches the LOCAL PART of the address so
-// noreply@anything, no-reply.foo@bar and support-noreply@baz all fire.
-// `+` is a separator too: VERP return paths look like `bounce+ae18a6.57875-...@`,
-// and without it the guard reads that as an ordinary local part and cheerfully
-// auto-acknowledges a bounce handler.
-const NO_REPLY_LOCAL = /(^|[.\-_+])(no[-_.]?reply|donot[-_.]?reply|mailer[-_.]?daemon|postmaster|bounce[s]?|notifications?)([.\-_+]|$)/i;
-
-const isNoReplySender = (email: string): boolean => {
-  const local = email.split('@')[0] || '';
-  if (NO_REPLY_LOCAL.test(local)) return true;
-  // Full-address literals for special-case senders that don't match the
-  // pattern (Google's mail-noreply@ variants are already covered).
-  if (email === 'mailer-daemon@' || email.startsWith('mailer-daemon@')) return true;
-  return false;
-};
-
 // ─── Contact upsert + identity linking (spec §3) ────────────────────────────
 // On FIRST sight of a contact, try to link them to an existing portal User
 // (exact email match) and, if that user has garage access, cache the first
@@ -243,6 +227,20 @@ async function resolveOrCreateTicket(args: {
 }
 
 // ─── Auto-ack (rule 4: email YES) ───────────────────────────────────────────
+
+/** How long the acknowledgement waits for the classifier's spam verdict. Past
+ *  this it goes out regardless — a customer left unanswered because OpenAI was
+ *  slow is worse than one cold-caller learning the inbox is read. */
+const ACK_CLASSIFIER_WAIT_MS = 15_000;
+
+const withDeadline = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      () => { clearTimeout(timer); resolve(fallback); },
+    );
+  });
 
 async function sendAutoAck(args: {
   ticketNumber: number;
@@ -466,6 +464,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
         subject,
         bodyText,
         contactGarageId: contact.garageId,
+        headers: parseMailgunHeaders(body['message-headers']),
       });
       if (det) {
         deterministicHit = true;
@@ -522,42 +521,18 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     void finalizeEvent(created ? 'created' : 'threaded', ticket.id);
     res.status(200).json({ status: 'ok', ticketNumber: ticket.number, created });
 
-    // 10. Fire-and-forget: auto-ack for new tickets (spec §5).
-    //     Suppressed for no-reply senders — replying to mailer-daemon /
-    //     noreply@ addresses either loops or damages our sending reputation.
-    if (created && !noReplySender && ruleAllowsAutoAck) {
-      void sendAutoAck({
-        ticketNumber: ticket.number,
-        ticketId: ticket.id,
-        toEmail: email,
-        contactName: contact.name,
-        originalSubject: subject,
-      }).catch((err) => console.error('[MAILGUN_INBOUND] auto-ack error:', err));
-    } else if (created && noReplySender) {
-      console.log(`[MAILGUN_INBOUND] Skipping auto-ack for no-reply sender ${email} (ticket #${ticket.number})`);
-    } else if (created && !ruleAllowsAutoAck) {
-      console.log(`[MAILGUN_INBOUND] Skipping auto-ack — a rule marked ticket #${ticket.number} as not a conversation`);
-    }
-
-    // 10b. Fire-and-forget: tell the team a ticket has arrived.
-    //      New tickets only — a reply onto an open ticket is already somebody's,
-    //      and a phone buzzing for both halves of a conversation is noise. Never
-    //      for mail a rule filed on arrival.
-    //
-    //      Deliberately AFTER the enrichment call below is kicked off: the push
-    //      waits for the AI draft so the expanded notification has something to
-    //      act on, and gives up after a few seconds rather than going silent.
-    if (created && !ruleAutoClosed) {
-      void pushNewTicketToStaff(ticket.id);
-    }
-
-    // 11. Fire-and-forget: AI classification + draft reply on new tickets only.
+    // 10. Fire-and-forget: AI classification + draft reply on new tickets only.
     //     Skip on threaded replies — the ticket is already categorized and a
     //     fresh AI draft on every reply would spam the staff UI. Skip AI
     //     classification if a deterministic rule already fired — the draft
     //     still runs (rules don't produce a suggested reply).
+    //
+    //     Its verdict also gates the acknowledgement below: a cold pitch that
+    //     slipped past the header rules must not get a reply confirming the
+    //     address is read.
+    let enrichment: Promise<{ spam: boolean }> = Promise.resolve({ spam: false });
     if (created && ruleAllowsAiDraft) {
-      void enrichNewTicket({
+      enrichment = enrichNewTicket({
         ticketId: ticket.id,
         ticketNumber: ticket.number,
         subject,
@@ -566,8 +541,49 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
         // Needed to mirror a sales enquiry into HighLevel.
         contactEmail: email,
         skipClassification: deterministicHit,
-      }).catch((err) => console.error('[MAILGUN_INBOUND] AI enrichment error:', err));
+      }).catch((err) => {
+        console.error('[MAILGUN_INBOUND] AI enrichment error:', err);
+        return { spam: false };
+      });
     }
+
+    // 10b. Fire-and-forget: tell the team a ticket has arrived.
+    //      New tickets only — a reply onto an open ticket is already somebody's,
+    //      and a phone buzzing for both halves of a conversation is noise. Never
+    //      for mail a rule filed on arrival. The push waits for the AI draft and
+    //      re-checks the ticket before sending, so one the classifier files as
+    //      spam in the meantime goes silent too.
+    if (created && !ruleAutoClosed) {
+      void pushNewTicketToStaff(ticket.id);
+    }
+
+    // 11. Fire-and-forget: auto-ack for new tickets (spec §5), once the
+    //     classifier has had its say. Bounded wait — a slow OpenAI call may
+    //     delay the acknowledgement, never lose it.
+    //     Suppressed for no-reply senders — replying to mailer-daemon /
+    //     noreply@ addresses either loops or damages our sending reputation.
+    if (created && !noReplySender && ruleAllowsAutoAck) {
+      void withDeadline(enrichment, ACK_CLASSIFIER_WAIT_MS, { spam: false })
+        .then((verdict) => {
+          if (verdict.spam) {
+            console.log(`[MAILGUN_INBOUND] Skipping auto-ack — classifier filed ticket #${ticket.number} as spam`);
+            return;
+          }
+          return sendAutoAck({
+            ticketNumber: ticket.number,
+            ticketId: ticket.id,
+            toEmail: email,
+            contactName: contact.name,
+            originalSubject: subject,
+          });
+        })
+        .catch((err) => console.error('[MAILGUN_INBOUND] auto-ack error:', err));
+    } else if (created && noReplySender) {
+      console.log(`[MAILGUN_INBOUND] Skipping auto-ack for no-reply sender ${email} (ticket #${ticket.number})`);
+    } else if (created && !ruleAllowsAutoAck) {
+      console.log(`[MAILGUN_INBOUND] Skipping auto-ack — a rule marked ticket #${ticket.number} as not a conversation`);
+    }
+
     return;
   } catch (err) {
     // Log + 500 so Mailgun retries. We WANT Mailgun to retry — losing a customer

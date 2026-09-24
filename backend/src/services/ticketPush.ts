@@ -15,7 +15,7 @@
  * no chance to make network calls — including a reply token minted per staff
  * member so a reply typed on the lock screen is attributed to whoever sent it.
  */
-import { TicketEntryKind } from '@prisma/client';
+import { TicketCategory, TicketEntryKind, TicketStatus } from '@prisma/client';
 import { prisma } from '../db.js';
 import { notifyStaffIndividually } from '../utils/push.js';
 import { mintPushReplyToken } from './pushReplyToken.js';
@@ -68,6 +68,17 @@ export async function pushNewTicketToStaff(ticketId: string): Promise<void> {
     const draft = await waitForDraft(ticketId);
     if (!draft) {
       console.log(`[TICKET_PUSH] ticket #${ticket.number}: no draft within ${DRAFT_WAIT_MS}ms — notifying without one`);
+    }
+
+    // The wait is also the window in which the classifier files spam. A
+    // ticket that was closed or tagged spam while we waited is not news.
+    const latest = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: { status: true, category: true },
+    });
+    if (!latest || latest.status === TicketStatus.closed || latest.category === TicketCategory.spam) {
+      console.log(`[TICKET_PUSH] ticket #${ticket.number}: filed as ${latest?.category ?? 'gone'}/${latest?.status ?? '-'} while waiting — not notifying`);
+      return;
     }
 
     const who = ticket.contact.name?.trim()

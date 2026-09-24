@@ -1368,6 +1368,9 @@ enum TicketCategory {
   complaint
   other
   uncategorized
+  // Not a conversation: cold outreach selling to us, bulk marketing, anything a
+  // person blocked. Filed closed on arrival; never acknowledged or drafted.
+  spam
 }
 
 enum TicketPriority {

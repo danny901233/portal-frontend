@@ -21,7 +21,75 @@ export interface DeterministicInput {
   subject: string;          // as received; trim before this
   bodyText: string;         // stripped-text (quotes removed)
   contactGarageId: string | null;  // known garage or null
+  /** Message headers, names lower-cased. See parseMailgunHeaders. */
+  headers?: Record<string, string>;
 }
+
+// ─── Header parsing ─────────────────────────────────────────────────────────
+// Mailgun posts the full header set as `message-headers`: a JSON string of
+// [name, value] pairs. Names are folded to lower case here so a rule can ask
+// for 'list-unsubscribe' without caring how the sending MTA capitalised it.
+// A repeated header keeps its first value — Received is the only one that
+// repeats and nothing below reads it.
+
+export function parseMailgunHeaders(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof raw !== 'string' || !raw) return out;
+  try {
+    const pairs = JSON.parse(raw);
+    if (!Array.isArray(pairs)) return out;
+    for (const pair of pairs) {
+      if (!Array.isArray(pair) || typeof pair[0] !== 'string') continue;
+      const name = pair[0].toLowerCase();
+      if (name in out) continue;
+      out[name] = typeof pair[1] === 'string' ? pair[1] : String(pair[1] ?? '');
+    }
+  } catch {
+    // A header block we cannot parse is not a reason to lose the email.
+  }
+  return out;
+}
+
+// ─── Automated senders ──────────────────────────────────────────────────────
+// A mailbox nobody reads. Two things follow: we never auto-acknowledge it
+// (replying to mailer-daemon loops, replying to a no-reply alias damages our
+// sending reputation), and when it belongs to no garage we know, what it sent
+// is a notification rather than a conversation. Regex matches the LOCAL PART
+// so noreply@anything, no-reply.foo@bar and support-noreply@baz all fire.
+// `+` is a separator too: VERP return paths look like `bounce+ae18a6.57875-...@`,
+// and without it the guard reads that as an ordinary local part and cheerfully
+// auto-acknowledges a bounce handler.
+const NO_REPLY_LOCAL = /(^|[.\-_+])(no[-_.]?reply|donot[-_.]?reply|mailer[-_.]?daemon|postmaster|bounce[s]?|notifications?)([.\-_+]|$)/i;
+
+export const isNoReplySender = (email: string): boolean => {
+  const local = email.split('@')[0] || '';
+  if (NO_REPLY_LOCAL.test(local)) return true;
+  if (email.startsWith('mailer-daemon@')) return true;
+  return false;
+};
+
+// ─── Bulk mail ──────────────────────────────────────────────────────────────
+// A person writing to us from their mail client sets none of these. A campaign
+// tool sets at least one on every message it sends, because the RFCs and the
+// big receivers require it. So their presence on mail from someone we do not
+// know is the cheapest possible test for "was this written to us, or at us".
+//
+// Known contacts (linked to a garage) are exempt: a customer who happens to
+// mail us through a CRM is still a customer.
+
+const BULK_HEADERS = ['list-unsubscribe', 'list-unsubscribe-post', 'list-id', 'x-campaign-id', 'x-mailgun-campaign-id'];
+
+/** Which bulk marker fired, or null. The name goes into the rule label so the
+ *  audit trail says WHY a ticket was filed, not just that it was. */
+const bulkMarker = (headers: Record<string, string> | undefined): string | null => {
+  if (!headers) return null;
+  // Mailgun's own verdict, when inbound spam filtering is switched on for the
+  // route. Absent otherwise, so it never fires by accident.
+  if (/^yes$/i.test(headers['x-mailgun-sflag'] ?? '')) return 'x-mailgun-sflag';
+  for (const h of BULK_HEADERS) if (headers[h]) return h;
+  if (/\b(bulk|list|junk)\b/i.test(headers['precedence'] ?? '')) return 'precedence';
+  return null;
+};
 
 export interface DeterministicMatch {
   category: TicketCategory;
@@ -175,7 +243,36 @@ export function classifyDeterministic(input: DeterministicInput): DeterministicM
     };
   }
 
-  // Rule 3: complaint language + known garage → complaint, HIGH priority.
+  // Rule 3: bulk / marketing mail from someone we do not know → spam.
+  // Filed closed for the audit trail; nothing else happens. No acknowledgement
+  // (that confirms the address is live), no draft, no phone buzz.
+  if (!input.contactGarageId) {
+    const marker = bulkMarker(input.headers);
+    if (marker) {
+      return {
+        category: TicketCategory.spam,
+        rule: `bulk_mail:${marker}`,
+        autoAck: false,
+        aiDraft: false,
+        autoClose: true,
+      };
+    }
+  }
+
+  // Rule 4: an automated sender we have no relationship with → a notification,
+  // not a conversation. Magic links, vendor announcements, our own watchdog
+  // copying hello@. Kept searchable, never queued.
+  if (!input.contactGarageId && isNoReplySender(input.senderEmail)) {
+    return {
+      category: TicketCategory.other,
+      rule: 'automated_sender',
+      autoAck: false,
+      aiDraft: false,
+      autoClose: true,
+    };
+  }
+
+  // Rule 5: complaint language + known garage → complaint, HIGH priority.
   // Unknown-garage complaints stay for AI to classify — the priority bump
   // matters most when we know it's from an actual paying customer.
   if (input.contactGarageId && (COMPLAINT_SIGNALS.test(input.subject) || COMPLAINT_SIGNALS.test(input.bodyText))) {

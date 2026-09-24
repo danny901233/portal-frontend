@@ -1112,7 +1112,7 @@ export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'solved' | '
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type TicketChannel = 'email' | 'whatsapp' | 'portal_chat' | 'phone';
 export type TicketCategory =
-  | 'billing' | 'agent_bug' | 'setup_help' | 'sales_enquiry' | 'complaint' | 'other' | 'uncategorized';
+  | 'billing' | 'agent_bug' | 'setup_help' | 'sales_enquiry' | 'complaint' | 'other' | 'uncategorized' | 'spam';
 export type TicketEntryKind =
   | 'public_reply' | 'internal_note' | 'status_change' | 'assignment_change' | 'auto_ack';
 
@@ -1141,7 +1141,11 @@ export interface TicketSummary {
 }
 
 export interface TicketDetail extends Omit<TicketSummary, '_count' | 'contact'> {
-  contact: { id: string; email: string | null; phone: string | null; name: string | null; garageId: string | null };
+  contact: {
+    id: string; email: string | null; phone: string | null; name: string | null; garageId: string | null;
+    /** A blocked sender's mail is dropped at ingest — set by "Mark as spam". */
+    blocked: boolean;
+  };
 }
 
 export interface TicketEntry {
@@ -1221,6 +1225,19 @@ export const addTicketNote = async (id: string, body: string): Promise<{ entry: 
 
 export const changeTicketStatus = async (id: string, status: TicketStatus): Promise<{ ticket: TicketSummary }> => {
   const { data } = await api.patch(`/api/admin/tickets/${id}/status`, { status });
+  return data;
+};
+
+/** Close the ticket, file it as spam and block the sender so their next email
+ *  is dropped before it becomes a ticket. */
+export const markTicketSpam = async (id: string): Promise<{ ticket: TicketSummary }> => {
+  const { data } = await api.post(`/api/admin/tickets/${id}/spam`);
+  return data;
+};
+
+/** Undo markTicketSpam: unblock the sender and put the ticket back in the queue. */
+export const markTicketNotSpam = async (id: string): Promise<{ ticket: TicketSummary }> => {
+  const { data } = await api.post(`/api/admin/tickets/${id}/not-spam`);
   return data;
 };
 

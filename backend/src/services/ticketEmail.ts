@@ -40,6 +40,10 @@ export const SUPPORT_FROM = process.env.SUPPORT_FROM_EMAIL || 'hello@receptionma
 // mail client and cannot be cached.
 
 const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
+// White line icons on the brand blue, served by the portal (public/email/).
+// Emoji glyphs were tried first: every client draws them at its own size and
+// colour, so the rows never lined up. An image is the same everywhere.
+const ICON_BASE = (process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk') + '/email';
 const SIGNATURE_PHONE = '+44 333 370 1610';
 const SIGNATURE_EMAIL = 'hello@receptionmate.co.uk';
 const SIGNATURE_SITE = 'www.receptionmate.co.uk';
@@ -51,17 +55,29 @@ export const SUPPORT_SIGNATURE_TEXT = [
   `${SIGNATURE_PHONE} · ${SIGNATURE_EMAIL} · ${SIGNATURE_SITE}`,
 ].join('\n');
 
+const contactRow = (icon: string, href: string, label: string): string => `
+        <tr>
+          <td width="26" valign="middle" style="padding:0 0 8px;"><img src="${ICON_BASE}/icon-${icon}.png" alt="" width="18" height="18" style="display:block;width:18px;height:18px;border:0;" /></td>
+          <td valign="middle" style="padding:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:18px;color:#ffffff;"><a href="${href}" style="color:#ffffff;text-decoration:none;">${label}</a></td>
+        </tr>`;
+
+// Fluid hybrid layout: the logo block and the text block are inline-blocks
+// with fixed widths that together fit the 600px banner. On a phone the text
+// block's max-width:100% makes it wrap under the logo instead of squeezing
+// the email address onto three lines — no media query needed, which matters
+// because mail clients strip <style> unevenly. Outlook desktop ignores
+// max-width and keeps them side by side, which is what we want there anyway.
 export const SUPPORT_SIGNATURE_HTML = `
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;margin-top:28px;border-collapse:separate;border-radius:10px;overflow:hidden;background:${BRAND_BLUE};font-family:Arial,Helvetica,sans-serif;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;margin-top:28px;table-layout:fixed;border-collapse:separate;border-radius:10px;overflow:hidden;background:${BRAND_BLUE};">
   <tr>
-    <td width="180" valign="middle" style="padding:20px 8px 20px 20px;text-align:center;">
-      <img src="${LOGO_URL}" alt="ReceptionMate" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0;margin:0 auto;" />
-    </td>
-    <td valign="middle" style="padding:20px 20px 20px 8px;color:#ffffff;">
-      <p style="margin:0 0 12px;font-size:20px;line-height:26px;font-weight:bold;color:#ffffff;">The Future Of Front Desk Efficiency</p>
-      <p style="margin:0 0 6px;font-size:14px;line-height:20px;color:#ffffff;">&#9742;&nbsp; <a href="tel:${SIGNATURE_PHONE.replace(/\s+/g, '')}" style="color:#ffffff;text-decoration:none;">${SIGNATURE_PHONE}</a></p>
-      <p style="margin:0 0 6px;font-size:14px;line-height:20px;color:#ffffff;">&#9993;&nbsp; <a href="mailto:${SIGNATURE_EMAIL}" style="color:#ffffff;text-decoration:none;">${SIGNATURE_EMAIL}</a></p>
-      <p style="margin:0;font-size:14px;line-height:20px;color:#ffffff;">&#127760;&nbsp; <a href="https://${SIGNATURE_SITE}" style="color:#ffffff;text-decoration:none;">${SIGNATURE_SITE}</a></p>
+    <td style="padding:20px 16px;text-align:center;font-size:0;line-height:0;">
+      <div style="display:inline-block;width:170px;max-width:100%;vertical-align:middle;">
+        <img src="${LOGO_URL}" alt="ReceptionMate" width="150" style="display:inline-block;width:150px;max-width:150px;height:auto;border:0;" />
+      </div><div style="display:inline-block;width:370px;max-width:100%;vertical-align:middle;text-align:left;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:8px 0 0;">
+          <tr><td colspan="2" style="padding:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:26px;font-weight:bold;color:#ffffff;">The Future Of Front Desk Efficiency</td></tr>${contactRow('phone', `tel:${SIGNATURE_PHONE.replace(/\s+/g, '')}`, SIGNATURE_PHONE)}${contactRow('mail', `mailto:${SIGNATURE_EMAIL}`, SIGNATURE_EMAIL)}${contactRow('globe', `https://${SIGNATURE_SITE}`, SIGNATURE_SITE)}
+        </table>
+      </div>
     </td>
   </tr>
 </table>`.trim();

@@ -38,6 +38,7 @@ import { enrichNewTicket } from '../../services/ticketAi.js';
 import { classifyDeterministic, isNoReplySender, parseMailgunHeaders } from '../../services/emailClassifier.js';
 import { ticketSubjectTag, ticketNumberFromSubject, stripTicketTag } from '../../services/ticketRef.js';
 import { pushNewTicketToStaff } from '../../services/ticketPush.js';
+import { withSupportSignature } from '../../services/ticketEmail.js';
 
 const router = Router();
 
@@ -264,7 +265,7 @@ async function sendAutoAck(args: {
   // need something to refer to, not their position in a queue.
   const reference = subjectTag.replace(/[\[\]]/g, '');
 
-  const text = [
+  const plain = [
     greet,
     '',
     "Thanks for getting in touch — your message has come through to our team and we're on it.",
@@ -272,15 +273,16 @@ async function sendAutoAck(args: {
     `Your reference is ${reference}, if you ever need to quote it.`,
     '',
     "We'll come back to you shortly. If you think of anything else in the meantime, just reply to this email and it'll reach the same person.",
-    '',
-    '— The ReceptionMate team',
   ].join('\n');
 
-  const html = `<p>${greet.replace('<','&lt;')}</p>
+  // The signature carries the sign-off, so the body does not repeat it.
+  const { text, html } = withSupportSignature(
+    plain,
+    `<p>${greet.replace('<','&lt;')}</p>
 <p>Thanks for getting in touch — your message has come through to our team and we're on it.</p>
 <p>Your reference is <strong>${reference}</strong>, if you ever need to quote it.</p>
-<p>We'll come back to you shortly. If you think of anything else in the meantime, just reply to this email and it'll reach the same person.</p>
-<p>— The ReceptionMate team</p>`;
+<p>We'll come back to you shortly. If you think of anything else in the meantime, just reply to this email and it'll reach the same person.</p>`,
+  );
 
   const ok = await sendEmail({
     // Same reason as the reply path in routes/tickets.ts: the default
@@ -439,7 +441,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
 
     // 7. Bump lastCustomerActivityAt. If ticket had been solved, reopen it — a
     //    customer reply on a "solved" ticket is a signal we didn't actually solve it.
-    const patch: Prisma.TicketUpdateInput = { lastCustomerActivityAt: new Date(), staleNudgedAt: null };
+    const patch: Prisma.TicketUpdateInput = { lastCustomerActivityAt: new Date(), reminderSentAt: null };
     if (ticket.status === TicketStatus.solved || ticket.status === TicketStatus.closed) {
       patch.status = TicketStatus.open;
       patch.solvedAt = null;

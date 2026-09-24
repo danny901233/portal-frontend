@@ -227,6 +227,6 @@ app.listen(port, '0.0.0.0', () => {
 
   // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.
   startArrearsSweep();
-  // Pending tickets nobody replied to: nudge at 3 days, close at 7.
+  // Pending tickets the customer never replied to: remind at 2 days, close at 5.
   startTicketStaleSweep();
 });

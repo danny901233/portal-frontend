@@ -56,7 +56,7 @@ const PRIORITY_TONE: Record<string, string> = {
 
 // 'spam' is a category, not a status: everything filed as spam, whatever
 // state it is in, so a wrongly-filed enquiry can be found and rescued.
-// 'stale' is pending with no reply for 3+ days — what the Stale chip counts.
+// 'stale' is pending, replied to by us, no reply for 2+ days — the Stale chip.
 type StatusFilter = TicketStatus | 'all' | 'spam' | 'stale';
 
 export default function AdminTicketsPage() {
@@ -347,7 +347,7 @@ export default function AdminTicketsPage() {
               <QueueChip label="Unassigned" value={counts.unassigned} tone="rose" />
               <QueueChip label="Mine open"  value={counts.mineOpen}   tone="brand" />
               <QueueChip
-                label="Stale 3d+"
+                label="Stale 2d+"
                 value={counts.pendingStale}
                 tone="amber"
                 active={statusFilter === 'stale'}
@@ -811,8 +811,11 @@ function EntryBubble({ e, onUseDraft }: { e: TicketEntry; onUseDraft?: (body: st
     );
   }
 
-  // public_reply
-  const isStaff = !!e.authorUserId;
+  // public_reply. An automatic email (the no-reply reminder, the closing
+  // notice) has no author but was sent by us: it carries our outbound
+  // Message-Id and no contact, so it belongs on our side of the thread.
+  const isAutomatic = !e.authorUserId && !e.authorContactId && !!e.outboundMessageId;
+  const isStaff = !!e.authorUserId || isAutomatic;
   return (
     <div className={isStaff ? 'flex justify-end' : 'flex justify-start'}>
       <div
@@ -822,7 +825,7 @@ function EntryBubble({ e, onUseDraft }: { e: TicketEntry; onUseDraft?: (body: st
       >
         <p className="whitespace-pre-wrap break-words">{e.body}</p>
         <p className={`mt-1 text-[10px] ${isStaff ? 'text-brand-100' : 'text-slate-500'}`}>
-          {isStaff ? (e.authorUser?.email ?? 'Staff') : (e.authorContact?.name ?? e.authorContact?.email ?? 'Customer')}
+          {isAutomatic ? 'Automatic' : isStaff ? (e.authorUser?.email ?? 'Staff') : (e.authorContact?.name ?? e.authorContact?.email ?? 'Customer')}
           {' · '}{time}
         </p>
       </div>

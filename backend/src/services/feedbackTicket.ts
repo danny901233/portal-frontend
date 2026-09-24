@@ -25,6 +25,7 @@ import { prisma } from '../db.js';
 import { sendEmail, SUPPORT_REPLY_TO, SUPPORT_MAILGUN_DOMAIN } from '../utils/email.js';
 import { ticketSubjectTag } from './ticketRef.js';
 import { notifyReceptionMateStaff } from '../utils/push.js';
+import { withSupportSignature } from './ticketEmail.js';
 
 export interface FeedbackTicketArgs {
   /** Portal user who left the rating. */
@@ -51,18 +52,15 @@ function acknowledgementBody(): { text: string; html: string } {
     'Feedback like this is genuinely important to us, and we read all of it. You may not get a reply to this message, but where we can act on it, we do.',
     '',
     'If we need any more detail to sort it out, we will be in touch.',
-    '',
-    '— The ReceptionMate team',
   ];
-  return {
-    text: lines.join('\n'),
-    html:
-      '<p>Thanks for the feedback — it has reached our team.</p>' +
+  // The signature carries the sign-off.
+  return withSupportSignature(
+    lines.join('\n'),
+    '<p>Thanks for the feedback — it has reached our team.</p>' +
       '<p>Feedback like this is genuinely important to us, and we read all of it. ' +
       'You may not get a reply to this message, but where we can act on it, we do.</p>' +
-      '<p>If we need any more detail to sort it out, we will be in touch.</p>' +
-      '<p>— The ReceptionMate team</p>',
-  };
+      '<p>If we need any more detail to sort it out, we will be in touch.</p>',
+  );
 }
 
 /**

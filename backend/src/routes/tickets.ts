@@ -24,14 +24,13 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
-import { randomBytes } from 'crypto';
 import { Prisma, TicketStatus, TicketCategory, TicketPriority, TicketChannel, TicketEntryKind } from '@prisma/client';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../utils/email.js';
-import { ticketSubjectTag, stripTicketTag, ticketNumberCandidates } from '../services/ticketRef.js';
+import { stripTicketTag, ticketNumberCandidates } from '../services/ticketRef.js';
+import { sendTicketEmail } from '../services/ticketEmail.js';
 import { verifyPushReplyToken } from '../services/pushReplyToken.js';
-import { staleWhere, STALE_AFTER_DAYS } from '../services/ticketStaleSweep.js';
+import { staleWhere, REMIND_AFTER_DAYS } from '../services/ticketStaleSweep.js';
 
 const router = Router();
 
@@ -133,8 +132,8 @@ router.get('/admin/tickets', authenticate, requireAdmin, async (req: Request, re
   if (q.category)   where.category   = q.category as TicketCategory;
   if (q.priority)   where.priority   = q.priority as TicketPriority;
   if (q.garageId)   where.garageId   = q.garageId;
-  // Pending with no reply for 3+ days — the Stale chip, as a list.
-  if (q.stale === '1' || q.stale === 'true') Object.assign(where, staleWhere(STALE_AFTER_DAYS));
+  // Pending with no reply for 2+ days — the Stale chip, as a list.
+  if (q.stale === '1' || q.stale === 'true') Object.assign(where, staleWhere(REMIND_AFTER_DAYS));
 
   // Lookup by whatever the person has to hand: the reference a customer quoted
   // (RM-2SBXHMR), the internal number (#7), or a pasted subject line. Digits are
@@ -174,7 +173,7 @@ router.get('/admin/tickets/queue-counts', authenticate, requireAdmin, async (req
     prisma.ticket.count({ where: { assigneeId: req.user.userId, status: TicketStatus.open } }),
     // Same definition as the sweep and the ?stale=1 list, so the chip's number
     // is the list's length.
-    prisma.ticket.count({ where: staleWhere(STALE_AFTER_DAYS) }),
+    prisma.ticket.count({ where: staleWhere(REMIND_AFTER_DAYS) }),
   ]);
 
   return res.json({ unassigned, mineOpen, pendingStale });
@@ -294,101 +293,6 @@ router.post('/admin/tickets/compose', authenticate, requireAdmin, async (req: Re
 
 // ─── REPLY (public — customer-facing) ──────────────────────────────────────
 
-// ─── Outbound Message-Id + threading helpers (spec §7) ─────────────────────
-// A stored, deterministic Message-Id lets a customer's reply come back with
-// In-Reply-To pointing at us — the inbound webhook then threads it to the
-// correct ticket by looking up TicketEntry.outboundMessageId. Format follows
-// RFC5322: <local@domain>, angle brackets included when sent as a header.
-
-const OUTBOUND_MSGID_DOMAIN = process.env.MAILGUN_DOMAIN || 'receptionmate.co.uk';
-
-/**
- * Who a ticket reply comes FROM.
- *
- * Without this the send falls through to MAILGUN_FROM, which is
- * `noreply@receptionmate.co.uk` — a subdomain whose MX records point at a
- * Mailgun region the account does not use, so nothing sent there can ever be
- * received. The customer's reply would bounce and the thread this code builds
- * `In-Reply-To` for would silently dead-end.
- *
- * Replying as `hello@` is also what closes the loop: that address is on
- * Microsoft 365, whose rule copies it back to Mailgun's inbound webhook, so the
- * customer's reply threads onto this same ticket. It is the address they already
- * write to, and the only one every outbound template tells them to use.
- */
-const SUPPORT_FROM = process.env.SUPPORT_FROM_EMAIL || 'hello@receptionmate.co.uk';
-
-const generateOutboundMessageId = (ticketNumber: number): string => {
-  // <ticket-{number}.{random}.{ts}@domain>. Ticket number in the id itself
-  // is belt-and-braces if the DB row ever gets corrupted; random suffix
-  // guarantees uniqueness within the second.
-  const rand = randomBytes(6).toString('hex');
-  const ts = Date.now();
-  return `<rm-t${ticketNumber}.${ts}.${rand}@${OUTBOUND_MSGID_DOMAIN}>`;
-};
-
-// Build In-Reply-To + References from the latest inbound entry on this ticket,
-// so our outbound message lands in the customer's original email thread.
-// References follows RFC 5322 §3.6.4: chain the previous References + the
-// message being replied to.
-async function buildThreadingHeaders(
-  ticketId: string,
-  outboundMessageId: string,
-): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {
-    'Message-Id': outboundMessageId,
-  };
-
-  // Most-recent inbound entry that carries an inbound Message-Id in its meta.
-  // (Only inbound entries have `meta.inboundMessageId`; outbound entries have
-  // their own id on `outboundMessageId`.)
-  const lastInbound = await prisma.ticketEntry.findFirst({
-    where: {
-      ticketId,
-      authorContactId: { not: null },
-      kind: TicketEntryKind.public_reply,
-    },
-    orderBy: { createdAt: 'desc' },
-    select: { meta: true },
-  });
-
-  const inboundMeta =
-    lastInbound?.meta && typeof lastInbound.meta === 'object' && !Array.isArray(lastInbound.meta)
-      ? (lastInbound.meta as Record<string, unknown>)
-      : null;
-  const lastInboundMsgId =
-    inboundMeta && typeof inboundMeta.inboundMessageId === 'string' && inboundMeta.inboundMessageId
-      ? inboundMeta.inboundMessageId
-      : null;
-  const lastInboundInReplyTo =
-    inboundMeta && typeof inboundMeta.inReplyTo === 'string' && inboundMeta.inReplyTo
-      ? inboundMeta.inReplyTo
-      : null;
-
-  if (lastInboundMsgId) {
-    const bracketed = lastInboundMsgId.startsWith('<') ? lastInboundMsgId : `<${lastInboundMsgId}>`;
-    headers['In-Reply-To'] = bracketed;
-    // References = customer's earlier References chain (if any) + the id we're
-    // replying to. Minimal but valid: just the id we're replying to.
-    const prior = lastInboundInReplyTo
-      ? (lastInboundInReplyTo.startsWith('<') ? lastInboundInReplyTo : `<${lastInboundInReplyTo}>`)
-      : '';
-    headers.References = [prior, bracketed].filter(Boolean).join(' ');
-  }
-
-  return headers;
-}
-
-// Convert plain-text staff reply into a minimal HTML body — one <p> per
-// paragraph, line breaks preserved. Keeps outbound emails readable in HTML
-// clients without any of us writing raw HTML.
-const textToHtml = (text: string): string => {
-  const escape = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const paragraphs = text.split(/\n{2,}/).map((p) => `<p>${escape(p).replace(/\n/g, '<br>')}</p>`);
-  return paragraphs.join('\n');
-};
-
 /**
  * Post a public reply and, where the channel allows it, actually send it.
  *
@@ -451,24 +355,12 @@ async function postPublicReply(args: {
     };
   }
 
-  const outboundMessageId = generateOutboundMessageId(ticket.number);
-  const threadingHeaders = await buildThreadingHeaders(ticket.id, outboundMessageId);
-
-  // Subject always carries the reference so a customer reply threads back via the
-  // subject-tag rule in mailgun-inbound. Strip any prior tag from the title so we
-  // do not double up.
-  const cleanTitle = stripTicketTag(ticket.title) || 'Your ticket';
-  const subject = `${ticketSubjectTag(ticket.number)} ${cleanTitle}`.slice(0, 300);
-
-  const sendOk = await sendEmail({
-    to: [ticket.contact.email as string],
-    from: SUPPORT_FROM,
-    // Through the support domain, so the return path never reads "noreply".
-    domain: SUPPORT_MAILGUN_DOMAIN,
-    subject,
-    text: args.body,
-    html: textToHtml(args.body),
-    headers: threadingHeaders,
+  const { sendOk, outboundMessageId, threadingHeaders } = await sendTicketEmail({
+    ticketId: ticket.id,
+    ticketNumber: ticket.number,
+    title: ticket.title,
+    to: ticket.contact.email as string,
+    body: args.body,
   });
 
   const sendMeta: Record<string, unknown> = {

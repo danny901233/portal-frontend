@@ -1,106 +1,149 @@
 /**
  * What happens to a Pending ticket when the customer never replies.
  *
- * Pending means "we wrote, we are waiting". Left alone it waits forever, out
- * of sight of a queue that opens on New. So, measured from OUR last message:
+ * Pending means "we wrote, we are waiting". Left alone it waits forever, out of
+ * sight of a queue that opens on New. So, measured from OUR last message, and
+ * ONLY once we have actually sent one (Dan, 2026-09-24 — a ticket nobody has
+ * answered is our problem, not the customer's, and must never age out):
  *
- *   day 3  — stale. Counted in the Stale chip, listed by the stale filter, and
- *            the assignee (or the whole team if unassigned) is nudged ONCE.
- *            Nobody chases the customer: Dan's call, 2026-09-24 — a chaser
- *            reads as pushy on a complaint and pointless on a supplier.
- *   day 7  — closed, with a line in the thread saying why. A reply from the
- *            customer reopens it through the inbound webhook like any other
- *            closed ticket, so closing costs nothing if they were just slow.
+ *   day 2 — a reminder goes to the customer on the same ticket: still need a
+ *           hand? reply; otherwise we close in three days. Counted in the
+ *           Stale chip and listed by the stale filter from here.
+ *   day 5 — closed, and the customer is told, with a line in the thread saying
+ *           why. Their reply reopens it through the inbound webhook like any
+ *           other closed ticket, so closing costs nothing if they were just slow.
  *
- * The clock is lastStaffActivityAt, not lastCustomerActivityAt: if someone
- * sent a manual chaser on day 2, the silence starts again from there. A
- * ticket put into Pending by hand with no staff message falls back to the
- * customer's last activity so it cannot sit un-aged.
+ * The clock is lastStaffActivityAt. The reminder and the closing notice are
+ * automatic, so they deliberately do NOT bump it — otherwise the reminder would
+ * push the close out to day 7. A manual chaser from a person does bump it, and
+ * that is right: the silence starts again.
  */
-import { Prisma, TicketEntryKind, TicketStatus } from '@prisma/client';
+import { Prisma, TicketChannel, TicketEntryKind, TicketStatus } from '@prisma/client';
 import { prisma } from '../db.js';
-import { notifyReceptionMateStaff, notifyUser } from '../utils/push.js';
+import { sendTicketEmail } from './ticketEmail.js';
 
-export const STALE_AFTER_DAYS = 3;
-export const CLOSE_AFTER_DAYS = 7;
+export const REMIND_AFTER_DAYS = 2;
+export const CLOSE_AFTER_DAYS = 5;
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Pending tickets whose last message from us is older than `days`. Shared by
- *  the sweep, the queue count and the list filter so all three agree on what
- *  "stale" means. */
+/** Pending tickets we have replied to, whose last message from us is older
+ *  than `days`. Shared by the sweep, the queue count and the list filter so
+ *  all three agree on what "stale" means. */
 export function staleWhere(days: number, now = new Date()): Prisma.TicketWhereInput {
   const cutoff = new Date(now.getTime() - days * DAY_MS);
   return {
     status: TicketStatus.pending,
-    OR: [
-      { lastStaffActivityAt: { lt: cutoff } },
-      { lastStaffActivityAt: null, lastCustomerActivityAt: { lt: cutoff } },
-    ],
+    lastStaffActivityAt: { lt: cutoff },
   };
 }
 
-async function nudgeStale(now: Date): Promise<void> {
+const firstName = (name: string | null): string => (name?.trim() ? name.trim().split(/\s+/)[0] : '');
+const greet = (name: string | null): string => (firstName(name) ? `Hi ${firstName(name)},` : 'Hi,');
+
+const reminderBody = (name: string | null): string => [
+  greet(name),
+  '',
+  `We replied to your message a couple of days ago and haven't heard back, so we just wanted to check whether you still need a hand with this.`,
+  '',
+  `If you do, simply reply to this email and it will come straight back to the same person. If we don't hear from you in the next ${CLOSE_AFTER_DAYS - REMIND_AFTER_DAYS} days we'll close this ticket — you can reopen it at any time by replying.`,
+].join('\n');
+
+const closingBody = (name: string | null): string => [
+  greet(name),
+  '',
+  `As we haven't heard back from you, we've closed this ticket for now.`,
+  '',
+  `If you still need help, just reply to this email and it will reopen automatically and come straight back to us.`,
+].join('\n');
+
+type Due = {
+  id: string; number: number; title: string; channel: TicketChannel;
+  contact: { name: string | null; email: string | null; blocked: boolean };
+};
+
+const dueSelect = {
+  id: true, number: true, title: true, channel: true,
+  contact: { select: { name: true, email: true, blocked: true } },
+} as const;
+
+/** Send an automatic email on the ticket and record it in the thread as ours.
+ *  Returns the entry data so the caller can commit it with its own changes. */
+async function sendAutomatic(t: Due, kind: 'reminder' | 'closing', body: string) {
+  const sent = await sendTicketEmail({
+    ticketId: t.id, ticketNumber: t.number, title: t.title, to: t.contact.email as string, body,
+  });
+  const entry: Prisma.TicketEntryCreateManyInput = {
+    ticketId: t.id,
+    kind: TicketEntryKind.public_reply,
+    body,
+    isDraft: false,
+    outboundMessageId: sent.outboundMessageId,
+    meta: {
+      automatic: kind,
+      threadingHeaders: sent.threadingHeaders,
+      sentAt: new Date().toISOString(),
+      ...(sent.sendOk ? {} : { sendFailed: true }),
+    } as Prisma.InputJsonValue,
+  };
+  return { sent, entry };
+}
+
+const canEmail = (t: Due): boolean => t.channel === TicketChannel.email && !!t.contact.email && !t.contact.blocked;
+
+async function remind(now: Date): Promise<void> {
   const due = await prisma.ticket.findMany({
-    where: { ...staleWhere(STALE_AFTER_DAYS, now), staleNudgedAt: null },
-    select: {
-      id: true, number: true, title: true, assigneeId: true,
-      contact: { select: { name: true, email: true, phone: true } },
-    },
+    where: { ...staleWhere(REMIND_AFTER_DAYS, now), reminderSentAt: null },
+    select: dueSelect,
     take: 100,
   });
   for (const t of due) {
-    const who = t.contact.name?.trim() || t.contact.email || t.contact.phone || 'the customer';
-    const payload = {
-      title: `No reply for ${STALE_AFTER_DAYS} days`,
-      subtitle: who,
-      body: `#${t.number} · ${t.title}`,
-      data: { type: 'ticket', ticketId: t.id, ticketNumber: t.number, category: 'TICKET' },
-    };
     try {
-      // Mark first so a push failure cannot re-nudge every half hour.
+      if (!canEmail(t)) {
+        // Nothing to send on (WhatsApp/phone tickets, or no address). Mark it so
+        // we do not re-evaluate every half hour; it still closes on day 5.
+        await prisma.ticket.update({ where: { id: t.id }, data: { reminderSentAt: now } });
+        continue;
+      }
+      const { sent, entry } = await sendAutomatic(t, 'reminder', reminderBody(t.contact.name));
       await prisma.$transaction([
-        prisma.ticket.update({ where: { id: t.id }, data: { staleNudgedAt: now } }),
-        prisma.ticketEntry.create({
-          data: {
-            ticketId: t.id,
-            kind: TicketEntryKind.status_change,
-            body: `No reply from ${who} for ${STALE_AFTER_DAYS} days — ${t.assigneeId ? 'assignee' : 'team'} nudged. Closes on day ${CLOSE_AFTER_DAYS} if still silent.`,
-          },
-        }),
+        prisma.ticket.update({ where: { id: t.id }, data: { reminderSentAt: now } }),
+        prisma.ticketEntry.create({ data: entry }),
       ]);
-      if (t.assigneeId) await notifyUser(t.assigneeId, payload);
-      else await notifyReceptionMateStaff(payload);
-      console.log(`[TICKET_STALE] #${t.number} stale — nudged ${t.assigneeId ? t.assigneeId : 'all staff'}`);
+      console.log(`[TICKET_STALE] #${t.number} reminder ${sent.sendOk ? 'sent' : 'FAILED'} to ${t.contact.email}`);
     } catch (err) {
-      console.error(`[TICKET_STALE] nudge failed for #${t.number}:`, err);
+      console.error(`[TICKET_STALE] reminder failed for #${t.number}:`, err);
     }
   }
 }
 
-async function closeSilent(now: Date): Promise<void> {
+async function close(now: Date): Promise<void> {
   const due = await prisma.ticket.findMany({
     where: staleWhere(CLOSE_AFTER_DAYS, now),
-    select: { id: true, number: true, contact: { select: { name: true, email: true, phone: true } } },
+    select: dueSelect,
     take: 100,
   });
   for (const t of due) {
-    const who = t.contact.name?.trim() || t.contact.email || t.contact.phone || 'the customer';
+    const who = t.contact.name?.trim() || t.contact.email || 'the customer';
     try {
-      await prisma.$transaction([
-        prisma.ticket.update({
-          where: { id: t.id },
-          data: { status: TicketStatus.closed, closedAt: now },
-        }),
-        prisma.ticketEntry.create({
-          data: {
-            ticketId: t.id,
-            kind: TicketEntryKind.status_change,
-            body: `Closed — no reply from ${who} for ${CLOSE_AFTER_DAYS} days. A reply will reopen it.`,
-          },
-        }),
-      ]);
-      console.log(`[TICKET_STALE] #${t.number} closed after ${CLOSE_AFTER_DAYS} days of silence`);
+      const ops: Prisma.PrismaPromise<unknown>[] = [
+        prisma.ticket.update({ where: { id: t.id }, data: { status: TicketStatus.closed, closedAt: now } }),
+      ];
+      let told = false;
+      if (canEmail(t)) {
+        const { sent, entry } = await sendAutomatic(t, 'closing', closingBody(t.contact.name));
+        ops.push(prisma.ticketEntry.create({ data: entry }));
+        told = sent.sendOk;
+      }
+      ops.push(prisma.ticketEntry.create({
+        data: {
+          ticketId: t.id,
+          kind: TicketEntryKind.status_change,
+          body: `Closed — no reply from ${who} for ${CLOSE_AFTER_DAYS} days${told ? ', customer emailed' : ''}. A reply will reopen it.`,
+        },
+      }));
+      await prisma.$transaction(ops);
+      console.log(`[TICKET_STALE] #${t.number} closed after ${CLOSE_AFTER_DAYS} days of silence${told ? ' (customer told)' : ''}`);
     } catch (err) {
       console.error(`[TICKET_STALE] close failed for #${t.number}:`, err);
     }
@@ -109,10 +152,10 @@ async function closeSilent(now: Date): Promise<void> {
 
 export async function sweepStaleTickets(now = new Date()): Promise<void> {
   try {
-    // Close first so a ticket that is both due a nudge and due to close (the
-    // sweep was down for a week) does not get a nudge for something already gone.
-    await closeSilent(now);
-    await nudgeStale(now);
+    // Close first so a ticket that is both due a reminder and due to close (the
+    // sweep was down for a week) is not reminded about something already gone.
+    await close(now);
+    await remind(now);
   } catch (err) {
     console.error('[TICKET_STALE] sweep failed:', err);
   }

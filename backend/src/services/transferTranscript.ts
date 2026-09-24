@@ -13,6 +13,12 @@
  * only thing which makes it impossible. Nothing here touches the live path.
  */
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { execFile } from 'node:child_process';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import ffmpegPath from 'ffmpeg-static';
 import OpenAI from 'openai';
 import { prisma } from '../db.js';
 import type { Prisma } from '@prisma/client';
@@ -71,6 +77,54 @@ const fetchRecording = async (recordingUrl: string): Promise<Buffer | null> => {
   }
 };
 
+const execFileP = promisify(execFile);
+
+/**
+ * Cut the recording at the handover BEFORE Whisper hears any of it.
+ *
+ * The first version sent the whole file and kept the segments after the boundary. Whisper
+ * carries context forward, and on Advanced Service Centre call 84809921 it carried the plate
+ * read-back from before the handover across the hold music and produced "E19JSS. E19JSS.
+ * E19JSS." seven times over — while the same audio, cut at 78.5s and transcribed alone, came
+ * back as the colleague and the caller sorting a booking date. Give it only what it should hear.
+ * Returns null if ffmpeg is unavailable or fails, and the caller falls back to the old method.
+ */
+const sliceAfter = async (audio: Buffer, ext: string, boundarySeconds: number): Promise<Buffer | null> => {
+  if (!ffmpegPath) return null;
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xfer-'));
+  const inPath = path.join(dir, `in.${ext}`);
+  const outPath = path.join(dir, 'after.mp3');
+  try {
+    await fs.writeFile(inPath, audio);
+    await execFileP(ffmpegPath, [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-ss', boundarySeconds.toFixed(2), '-i', inPath,
+      '-vn', '-ac', '1', '-ar', '16000', '-b:a', '48k', outPath,
+    ], { timeout: 60_000 });
+    return await fs.readFile(outPath);
+  } catch (err) {
+    console.warn('[XFER_TRANSCRIPT] could not cut the recording at the handover:', err);
+    return null;
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+};
+
+/** Whisper's failure mode on music and silence is the same short line over and over. Collapse
+ *  consecutive repeats so a hallucination loop reads as one line, not a transcript. */
+const collapseRepeats = (segments: Array<{ text: string }>): string[] => {
+  const out: string[] = [];
+  for (const seg of segments) {
+    const t = seg.text.trim();
+    if (!t) continue;
+    const norm = t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const prev = out.length ? out[out.length - 1].toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() : '';
+    if (norm && norm === prev) continue;
+    out.push(t);
+  }
+  return out;
+};
+
 /**
  * Transcribe one call's recording and keep the part that follows the handover.
  *
@@ -97,9 +151,14 @@ export const transcribeAfterTransfer = async (callId: string): Promise<boolean> 
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const ext = call.recordingUrl.endsWith('.mp4') ? 'mp4' : 'mp3';
-    const file = new File([new Uint8Array(audio)], `call.${ext}`, {
-      type: ext === 'mp4' ? 'audio/mp4' : 'audio/mpeg',
-    });
+    // Where did the handover fall? The agent records its own last spoken moment. With it, cut
+    // the audio there and transcribe only what follows; without it, the whole recording.
+    const boundary = Number(metrics.transfer_at_seconds ?? NaN);
+    const knownBoundary = Number.isFinite(boundary) && boundary > 0;
+    const cut = knownBoundary ? await sliceAfter(audio, ext, boundary) : null;
+    const file = cut
+      ? new File([new Uint8Array(cut)], 'after.mp3', { type: 'audio/mpeg' })
+      : new File([new Uint8Array(audio)], `call.${ext}`, { type: ext === 'mp4' ? 'audio/mp4' : 'audio/mpeg' });
     const out = (await openai.audio.transcriptions.create({
       file,
       model: 'whisper-1',
@@ -107,13 +166,12 @@ export const transcribeAfterTransfer = async (callId: string): Promise<boolean> 
       timestamp_granularities: ['segment'],
     })) as unknown as { text?: string; segments?: Array<{ start: number; text: string }> };
 
-    // Where did the handover fall? The agent records its own last spoken moment; failing that,
-    // fall back to the whole recording rather than inventing a cut point.
-    const boundary = Number(metrics.transfer_at_seconds ?? NaN);
     const segments = Array.isArray(out.segments) ? out.segments : [];
-    const known = Number.isFinite(boundary) && boundary > 0 && segments.length > 0;
-    const kept = known ? segments.filter((s) => s.start >= boundary) : segments;
-    const text = (kept.map((s) => s.text).join(' ').trim() || out.text || '').trim();
+    // Cut audio needs no filtering. Uncut audio with a known boundary keeps only what follows it
+    // (the old method, still the fallback when ffmpeg is unavailable).
+    const known = knownBoundary && (cut !== null || segments.length > 0);
+    const kept = cut ? segments : known ? segments.filter((s) => s.start >= boundary) : segments;
+    const text = (collapseRepeats(kept).join(' ').trim() || (cut ? '' : out.text || '')).trim();
     if (!text) return false;
 
     await prisma.call.update({

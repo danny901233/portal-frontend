@@ -423,11 +423,24 @@ router.post('/calls', async (req: Request, res: Response) => {
           // plainly — this model has just read the whole conversation, so it already knows.
           // updateMany with customerName: null so a name the agent DID capture, or one the
           // phonebook reconciliation has since written, is never overwritten.
-          if (diag.callerName) {
+          //
+          // A name the agent only GUESSED off a spoken turn (metrics.customer_name_source ===
+          // "speech") is weaker evidence than this model's read of the whole call, so it may be
+          // replaced — but only while the record still holds that exact guess, so a phonebook
+          // correction that has landed in the meantime is never undone. Advanced Service Centre
+          // call 96317336: the agent stored "disgusting" from "they were like, this is
+          // disgusting", the diagnosis correctly said "Julie", and the portal kept "disgusting"
+          // because the name was not null.
+          const speechGuess = (payload.metrics as any)?.customer_name_source === 'speech'
+            && typeof payload.customerName === 'string' && payload.customerName.trim() !== '';
+          if (diag.callerName && (speechGuess ? diag.callerName !== payload.customerName : true)) {
+            const where = speechGuess
+              ? { id: callId, customerName: payload.customerName }
+              : { id: callId, customerName: null };
             void prisma.call
-              .updateMany({ where: { id: callId, customerName: null }, data: { customerName: diag.callerName } })
+              .updateMany({ where, data: { customerName: diag.callerName } })
               .then((r) => {
-                if (r.count) console.log(`[NAME] backfilled "${diag.callerName}" on call ${callId} from the transcript`);
+                if (r.count) console.log(`[NAME] ${speechGuess ? `replaced the agent's guess "${payload.customerName}" with` : 'backfilled'} "${diag.callerName}" on call ${callId} from the transcript`);
               })
               .catch(() => {});
           }

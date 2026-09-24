@@ -56,7 +56,8 @@ const PRIORITY_TONE: Record<string, string> = {
 
 // 'spam' is a category, not a status: everything filed as spam, whatever
 // state it is in, so a wrongly-filed enquiry can be found and rescued.
-type StatusFilter = TicketStatus | 'all' | 'spam';
+// 'stale' is pending with no reply for 3+ days — what the Stale chip counts.
+type StatusFilter = TicketStatus | 'all' | 'spam' | 'stale';
 
 export default function AdminTicketsPage() {
   const router = useRouter();
@@ -118,6 +119,7 @@ export default function AdminTicketsPage() {
         ? { ref: search.trim() }
         : statusFilter === 'all' ? {}
         : statusFilter === 'spam' ? { category: 'spam' as const }
+        : statusFilter === 'stale' ? { stale: true }
         : { status: statusFilter };
       const [t, c] = await Promise.all([
         fetchTickets(filters),
@@ -190,11 +192,29 @@ export default function AdminTicketsPage() {
     }
   };
 
+  // Working a queue: closing one ticket opens the one below it, so New can be
+  // read top to bottom without going back to the list each time. Falls back to
+  // the one above at the bottom of the list, and to nothing when it was alone.
+  const ticketBelow = (id: string): string | null => {
+    const i = tickets.findIndex((t) => t.id === id);
+    if (i < 0) return null;
+    return tickets[i + 1]?.id ?? tickets[i - 1]?.id ?? null;
+  };
+
   const handleStatusChange = async (next: TicketStatus) => {
     if (!selectedId || !selected || selected.status === next) return;
+    const closing = next === 'closed';
+    const following = closing ? ticketBelow(selectedId) : null;
     try {
       await changeTicketStatus(selectedId, next);
-      void loadThread(selectedId);
+      if (closing) {
+        const leaves = statusFilter !== 'all' && statusFilter !== 'closed' && statusFilter !== 'spam';
+        if (leaves) setTickets((prev) => prev.filter((t) => t.id !== selectedId));
+        setSelectedId(following);
+        if (!following) setSelected(null);
+      } else {
+        void loadThread(selectedId);
+      }
       void loadList();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to change status');
@@ -206,10 +226,13 @@ export default function AdminTicketsPage() {
   // that is the whole point of working through a queue quickly.
   const handleQuickClose = async (id: string) => {
     const leaves = statusFilter !== 'all' && statusFilter !== 'closed' && statusFilter !== 'spam';
+    const following = ticketBelow(id);
     if (leaves) setTickets((prev) => prev.filter((t) => t.id !== id));
     try {
       await changeTicketStatus(id, 'closed');
-      if (id === selectedId) void loadThread(id);
+      setComposing(false);
+      setSelectedId(following);
+      if (!following) setSelected(null);
       void loadList();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to close ticket');
@@ -323,7 +346,13 @@ export default function AdminTicketsPage() {
             <>
               <QueueChip label="Unassigned" value={counts.unassigned} tone="rose" />
               <QueueChip label="Mine open"  value={counts.mineOpen}   tone="brand" />
-              <QueueChip label="Stale 3d+"  value={counts.pendingStale} tone="amber" />
+              <QueueChip
+                label="Stale 3d+"
+                value={counts.pendingStale}
+                tone="amber"
+                active={statusFilter === 'stale'}
+                onClick={() => { setStatusFilter('stale'); setSelectedId(null); setSelected(null); setComposing(false); }}
+              />
             </>
           )}
           <button
@@ -704,18 +733,20 @@ function StatusBadge({ status }: { status: TicketStatus }) {
   );
 }
 
-function QueueChip({ label, value, tone }: { label: string; value: number; tone: 'rose' | 'brand' | 'amber' }) {
+function QueueChip({ label, value, tone, active, onClick }: {
+  label: string; value: number; tone: 'rose' | 'brand' | 'amber'; active?: boolean; onClick?: () => void;
+}) {
   const tones: Record<string, string> = {
     rose:  'bg-rose-50 text-rose-700 ring-rose-200',
     brand: 'bg-brand-50 text-brand-700 ring-brand-200',
     amber: 'bg-amber-50 text-amber-700 ring-amber-200',
   };
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 font-semibold ring-1 ${tones[tone]}`}>
-      {label}
-      <span className="rounded-full bg-white/70 px-1.5 text-[10px]">{value}</span>
-    </span>
-  );
+  const cls = `inline-flex items-center gap-1 rounded-full px-3 py-1 font-semibold ring-1 ${tones[tone]}` +
+    (onClick ? ' cursor-pointer hover:ring-2' : '') + (active ? ' ring-2' : '');
+  const inner = <>{label}<span className="rounded-full bg-white/70 px-1.5 text-[10px]">{value}</span></>;
+  return onClick
+    ? <button type="button" onClick={onClick} className={cls} aria-pressed={active}>{inner}</button>
+    : <span className={cls}>{inner}</span>;
 }
 
 function EntryBubble({ e, onUseDraft }: { e: TicketEntry; onUseDraft?: (body: string) => void }) {

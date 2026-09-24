@@ -54,6 +54,7 @@ import { trackActingUser } from './utils/actingUser.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
 import { initReminderCron, initAbandonedCheckoutCron } from './services/reminderScheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';
+import { startTicketStaleSweep } from './services/ticketStaleSweep.js';
 import billingStatusRouter from './routes/billing-status.js';
 import outboundCallsRouter from './routes/outbound-calls.js';
 import publicProspectRouter from './routes/public-prospect.js';
@@ -226,4 +227,6 @@ app.listen(port, '0.0.0.0', () => {
 
   // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.
   startArrearsSweep();
+  // Pending tickets nobody replied to: nudge at 3 days, close at 7.
+  startTicketStaleSweep();
 });

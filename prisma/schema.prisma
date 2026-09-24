@@ -1290,6 +1290,10 @@ model Ticket {
   lastStaffActivityAt    DateTime?
   solvedAt               DateTime?
   closedAt               DateTime?
+  // When staff were nudged that this pending ticket has had no reply
+  // (services/ticketStaleSweep.ts). One nudge per silence; cleared when the
+  // customer writes back so the next silence can nudge again.
+  staleNudgedAt          DateTime?
   entries                TicketEntry[]
 
   @@index([status, updatedAt])

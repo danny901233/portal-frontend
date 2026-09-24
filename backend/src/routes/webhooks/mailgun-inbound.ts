@@ -439,7 +439,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
 
     // 7. Bump lastCustomerActivityAt. If ticket had been solved, reopen it — a
     //    customer reply on a "solved" ticket is a signal we didn't actually solve it.
-    const patch: Prisma.TicketUpdateInput = { lastCustomerActivityAt: new Date() };
+    const patch: Prisma.TicketUpdateInput = { lastCustomerActivityAt: new Date(), staleNudgedAt: null };
     if (ticket.status === TicketStatus.solved || ticket.status === TicketStatus.closed) {
       patch.status = TicketStatus.open;
       patch.solvedAt = null;

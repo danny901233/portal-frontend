@@ -31,6 +31,7 @@ import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../utils/email.js';
 import { ticketSubjectTag, stripTicketTag, ticketNumberCandidates } from '../services/ticketRef.js';
 import { verifyPushReplyToken } from '../services/pushReplyToken.js';
+import { staleWhere, STALE_AFTER_DAYS } from '../services/ticketStaleSweep.js';
 
 const router = Router();
 
@@ -132,6 +133,8 @@ router.get('/admin/tickets', authenticate, requireAdmin, async (req: Request, re
   if (q.category)   where.category   = q.category as TicketCategory;
   if (q.priority)   where.priority   = q.priority as TicketPriority;
   if (q.garageId)   where.garageId   = q.garageId;
+  // Pending with no reply for 3+ days — the Stale chip, as a list.
+  if (q.stale === '1' || q.stale === 'true') Object.assign(where, staleWhere(STALE_AFTER_DAYS));
 
   // Lookup by whatever the person has to hand: the reference a customer quoted
   // (RM-2SBXHMR), the internal number (#7), or a pasted subject line. Digits are
@@ -166,12 +169,12 @@ router.get('/admin/tickets', authenticate, requireAdmin, async (req: Request, re
 
 router.get('/admin/tickets/queue-counts', authenticate, requireAdmin, async (req: Request, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-
   const [unassigned, mineOpen, pendingStale] = await Promise.all([
     prisma.ticket.count({ where: { assigneeId: null, status: { in: [TicketStatus.new_, TicketStatus.open] } } }),
     prisma.ticket.count({ where: { assigneeId: req.user.userId, status: TicketStatus.open } }),
-    prisma.ticket.count({ where: { status: TicketStatus.pending, lastCustomerActivityAt: { lt: threeDaysAgo } } }),
+    // Same definition as the sweep and the ?stale=1 list, so the chip's number
+    // is the list's length.
+    prisma.ticket.count({ where: staleWhere(STALE_AFTER_DAYS) }),
   ]);
 
   return res.json({ unassigned, mineOpen, pendingStale });

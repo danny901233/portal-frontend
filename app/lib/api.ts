@@ -1176,6 +1176,8 @@ export interface TicketListFilters {
   priority?: TicketPriority;
   garageId?: string;
   limit?: number;
+  /** Pending with no reply for 3+ days (the Stale chip as a list). */
+  stale?: boolean;
   /** A customer's quoted reference (RM-2SBXHMR), an internal number (#7), or a
    *  pasted subject line. Overrides the status filter — a closed ticket someone
    *  is ringing about still needs finding. */

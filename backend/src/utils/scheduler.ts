@@ -16,6 +16,7 @@ import { resetRecurringTasks, archiveDueGarages } from '../services/opsTaskReset
 import { runBillingWatchdog } from '../services/billingWatchdog.js';
 import { retryFailedPayments } from '../services/paymentRetry.js';
 import { chaseOverdueInvoices } from '../services/invoiceChase.js';
+import { sweepTransferredCalls } from '../services/transferTranscript.js';
 
 const prisma = new PrismaClient();
 
@@ -45,6 +46,15 @@ export const initializeScheduledReports = (): void => {
   cron.schedule('20 0 * * *', async () => {
     try { await archiveDueGarages(); }
     catch (error) { console.error('Scheduled garage archive failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  // What the garage's own staff said after a call was handed to them. The agent stops
+  // transcribing at the handover by design, so this reads it back off the recording instead —
+  // every 15 minutes, skipping anything from the last 10 so the egress file has finalised.
+  // Advanced Service Centre asked for it; it applies to any garage that takes transfers.
+  cron.schedule('*/15 * * * *', async () => {
+    try { await sweepTransferredCalls({ sinceHours: 6 }); }
+    catch (error) { console.error('Post-transfer transcription sweep failed:', error); }
   }, { timezone: 'Europe/London' });
 
   cron.schedule('10 0 * * 1', async () => {   // Monday

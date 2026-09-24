@@ -722,6 +722,15 @@ export default function CallDetailPage() {
         generatedAt?: string; rootCause?: string; fix?: string; severity?: string; deepModel?: string }
     | undefined;
 
+  // What was said once the call reached a person. The agent stops transcribing at the handover —
+  // from there the caller is talking to the garage's own staff, and the agent has switched its
+  // audio off — so this is read back off the recording afterwards. "whole-call" means we could
+  // not tell where the handover fell and are showing everything rather than trimming on a guess.
+  const postTransfer = (call.metrics as Record<string, unknown> | null | undefined)?.['post_transfer'] as
+    | { text?: string; scope?: string; boundary_seconds?: number | null; transcribed_at?: string }
+    | undefined;
+  const postTransferText = (postTransfer?.text ?? '').trim();
+
   // Latency summary emitted by the current (optimised/Gemma) agents. Surfaced here instead of hidden —
   // response_gap = what the caller waited for a reply (end-of-utterance delay + STT + LLM + TTS).
   const latencyStats = (call.metrics as Record<string, unknown> | null | undefined)?.['latency'] as
@@ -972,6 +981,23 @@ export default function CallDetailPage() {
                     onSeek={(t) => waveformRef.current?.seek(Math.max(0, t - firstTimestamp))}
                   />
                 ))}
+                {postTransferText ? (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+                    <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                        After the transfer
+                      </span>
+                      <span className="text-[11px] text-emerald-700">
+                        {postTransfer?.scope === 'after-transfer'
+                          ? 'your team and the caller, transcribed from the recording'
+                          : 'whole call, transcribed from the recording — we could not tell where the handover fell'}
+                      </span>
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-emerald-950">
+                      {postTransferText}
+                    </p>
+                  </div>
+                ) : null}
               </div>
               {showTranscriptHint ? (
                 <div className="hidden md:block">

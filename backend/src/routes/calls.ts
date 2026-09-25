@@ -809,14 +809,29 @@ router.get(
       const totalCount = await prisma.call.count({ where });
       const totalPages = Math.ceil(totalCount / itemsPerPage);
 
-      // Fetch paginated calls
+      // Fetch paginated calls.
+      //
+      // `metrics` is deliberately NOT selected. It is the biggest column on the row (3.2MB
+      // across one garage's week, against 0.6MB of transcript) and the list has never
+      // rendered it — the trim below used to delete it AFTER paying to fetch it over the
+      // internet from the Lightsail database. On Advanced Service Centre's 7-day page that
+      // cost 82 seconds for 175 rows, so the 30s guard returned a 408 and the calls page
+      // simply never loaded. Without it the same query takes 12s. The single-call detail
+      // endpoint selects the whole row, so nothing on the call page changes.
       const calls = await prisma.call.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        include: { feedback: true },
+        select: {
+          ...Object.fromEntries(
+            Object.keys(prisma.call.fields)
+              .filter((f) => f !== 'metrics')
+              .map((f) => [f, true]),
+          ),
+          feedback: true,
+        },
         skip,
         take: itemsPerPage,
-      });
+      }) as unknown as Array<Call & { feedback?: CallFeedback | null }>;
 
       const parsedCalls = calls.map((call: Call & { feedback?: CallFeedback | null }) => parseCallJson(call));
 

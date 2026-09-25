@@ -185,6 +185,20 @@ const SELF_NOTIFICATION_SUBJECTS = [
   /^new website lead\b/i,
 ];
 
+// ─── Our own operational mail worth queueing ───────────────────────────────
+// Most of what our own systems send to hello@ is a record: a per-call
+// notification addressed to a garage that happens to be us, a lead notice
+// HighLevel already owns. Those file on arrival like any other robot's mail.
+//
+// These three do not. Two are the watchdog saying an agent is down or back up,
+// and one is the nightly call report. They are the mail most worth seeing, and
+// filing them on arrival buries an outage in a queue nobody opens.
+const OURS_WORTH_QUEUEING: ReadonlyArray<RegExp> = [
+  /ReceptionMate ALERT/i,
+  /issue\(s\) recovered/i,
+  /^ReceptionMate daily\b/i,
+];
+
 // ─── Complaint keywords (rule: complaint + high priority IF known garage) ──
 // Deliberately narrow — false positives here bump priority which pages Dan.
 // Broader classification is the AI's job.
@@ -263,20 +277,18 @@ export function classifyDeterministic(input: DeterministicInput): DeterministicM
   // not a conversation. Magic links, vendor announcements. Never acknowledged
   // and never drafted to.
   //
-  // Whether it CLOSES on arrival depends on whose robot sent it. A vendor's is
-  // a record and is filed. Ours is the watchdog telling us an agent is down, or
-  // the nightly call report — the things most worth seeing — and closing those
-  // on arrival buries an outage in a queue nobody opens. So our own domain
-  // stays open. (A website-lead notification is the exception and is caught by
-  // rule 2 above, because HighLevel already owns that record.)
+  // Whether it CLOSES on arrival depends on what it is. Everything files by
+  // default; only our own alerts and the nightly report stay in the queue
+  // (OURS_WORTH_QUEUEING above).
   if (!input.contactGarageId && isNoReplySender(input.senderEmail)) {
     const ours = /(^|\.)receptionmate\.co\.uk$/i.test(domain);
+    const keep = ours && OURS_WORTH_QUEUEING.some((re) => re.test(input.subject));
     return {
       category: TicketCategory.other,
-      rule: ours ? 'automated_sender:ours' : 'automated_sender:external',
+      rule: keep ? 'automated_sender:ours_alert' : ours ? 'automated_sender:ours' : 'automated_sender:external',
       autoAck: false,
       aiDraft: false,
-      autoClose: !ours,
+      autoClose: !keep,
     };
   }
 

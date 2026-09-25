@@ -29,6 +29,14 @@ import {
 
 const POLL_MS = 20_000;
 
+/** "a@b.com, c@d.com; e@f.com" → ['a@b.com','c@d.com','e@f.com'].
+ *  Accepts the separators people actually paste out of a mail client. */
+const parseCc = (raw: string): string[] =>
+  raw.split(/[,;\s]+/).map((a) => a.trim().toLowerCase()).filter(Boolean);
+
+const invalidCc = (raw: string): string[] =>
+  parseCc(raw).filter((a) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a));
+
 const STATUS_LABEL: Record<TicketStatus, string> = {
   new: 'New',
   open: 'Open',
@@ -80,7 +88,12 @@ export default function AdminTicketsPage() {
   // Outbound: we start the conversation. Takes the thread pane's place until
   // it is sent or abandoned.
   const [composing, setComposing] = useState(false);
-  const [compose, setCompose] = useState({ to: '', name: '', subject: '', body: '' });
+  const [compose, setCompose] = useState({ to: '', name: '', subject: '', body: '', cc: '' });
+  // Who else this reply goes to. Prefilled from the last outbound message on
+  // the ticket, so a conversation that already involves a third party keeps
+  // involving them without anyone having to remember.
+  const [replyCc, setReplyCc] = useState('');
+  const [showCc, setShowCc] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -139,6 +152,10 @@ export default function AdminTicketsPage() {
       const res = await fetchTicket(id);
       setSelected(res.ticket);
       setEntries(res.entries);
+      // Carry forward whoever was copied on the last message we sent.
+      const lastCc = [...res.entries].reverse().find((e) => e.meta?.cc?.length)?.meta?.cc ?? [];
+      setReplyCc(lastCc.join(', '));
+      setShowCc(lastCc.length > 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load ticket');
     }
@@ -180,7 +197,11 @@ export default function AdminTicketsPage() {
     setSending(true);
     setError(null);
     try {
-      if (draftMode === 'reply') await replyToTicket(selectedId, draft.trim());
+      if (draftMode === 'reply') {
+        const bad = invalidCc(replyCc);
+        if (bad.length) { setError(`Not a valid email address: ${bad.join(', ')}`); setSending(false); return; }
+        await replyToTicket(selectedId, draft.trim(), false, parseCc(replyCc));
+      }
       else await addTicketNote(selectedId, draft.trim());
       setDraft('');
       void loadThread(selectedId);
@@ -253,13 +274,16 @@ export default function AdminTicketsPage() {
     setSending(true);
     setComposeError(null);
     try {
+      const bad = invalidCc(compose.cc);
+      if (bad.length) { setComposeError(`Not a valid email address: ${bad.join(', ')}`); setSending(false); return; }
       const res = await composeTicket({
         to: compose.to.trim(),
         name: compose.name.trim() || undefined,
         subject: compose.subject.trim(),
         body: compose.body.trim(),
+        cc: parseCc(compose.cc),
       });
-      setCompose({ to: '', name: '', subject: '', body: '' });
+      setCompose({ to: '', name: '', subject: '', body: '', cc: '' });
       setComposing(false);
       // Sent tickets are Pending, which the default New filter hides — show it
       // anyway so the sender sees it went.
@@ -517,6 +541,16 @@ export default function AdminTicketsPage() {
                   </label>
                 </div>
                 <label className="block text-xs font-medium text-slate-700">
+                  Cc <span className="font-normal text-slate-400">(optional, comma separated)</span>
+                  <input
+                    type="text"
+                    value={compose.cc}
+                    onChange={(e) => setCompose({ ...compose, cc: e.target.value })}
+                    placeholder="colleague@garage.co.uk"
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                  />
+                </label>
+                <label className="block text-xs font-medium text-slate-700">
                   Subject
                   <input
                     type="text"
@@ -678,12 +712,35 @@ export default function AdminTicketsPage() {
                   {/* Hidden on a phone: it is a reminder, not a control, and on a
                       narrow screen it pushed the row wider than the viewport. The
                       old wording was also stale — email replies do send now. */}
+                  {/* Cc is an email concept, so it is offered on a reply and not
+                      on an internal note, which never leaves the portal. */}
+                  {draftMode === 'reply' && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCc((v) => !v)}
+                      className={`rounded-md px-2 py-1 text-xs font-medium ${
+                        showCc || replyCc.trim()
+                          ? 'bg-slate-200 text-slate-700'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}
+                    >
+                      Cc{replyCc.trim() ? ` (${parseCc(replyCc).length})` : ''}
+                    </button>
+                  )}
                   <span className="hidden text-[10px] text-slate-400 sm:inline">
                     {draftMode === 'reply'
                       ? 'Emailed to the customer'
                       : 'Staff-only — never leaves the portal'}
                   </span>
                 </div>
+                {draftMode === 'reply' && showCc && (
+                  <input
+                    value={replyCc}
+                    onChange={(e) => setReplyCc(e.target.value)}
+                    placeholder="Also send to — comma separated"
+                    className="mb-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                  />
+                )}
                 <div className="flex items-end gap-2">
                   <textarea
                     value={draft}
@@ -827,6 +884,7 @@ function EntryBubble({ e, onUseDraft }: { e: TicketEntry; onUseDraft?: (body: st
         <p className={`mt-1 text-[10px] ${isStaff ? 'text-brand-100' : 'text-slate-500'}`}>
           {isAutomatic ? 'Automatic' : isStaff ? (e.authorUser?.email ?? 'Staff') : (e.authorContact?.name ?? e.authorContact?.email ?? 'Customer')}
           {' · '}{time}
+          {!!e.meta?.cc?.length && <> · cc {e.meta.cc.join(', ')}</>}
         </p>
       </div>
     </div>

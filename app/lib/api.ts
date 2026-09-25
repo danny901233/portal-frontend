@@ -1151,6 +1151,8 @@ export interface TicketDetail extends Omit<TicketSummary, '_count' | 'contact'> 
 export interface TicketEntry {
   id: string;
   ticketId: string;
+  /** Free-form per-entry detail. `cc` holds who else an outbound message went to. */
+  meta?: { cc?: string[]; automatic?: string; [k: string]: unknown } | null;
   kind: TicketEntryKind;
   authorUserId: string | null;
   authorContactId: string | null;
@@ -1215,8 +1217,8 @@ export const createTicket = async (input: CreateTicketInput): Promise<{ ticket: 
   return data;
 };
 
-export const replyToTicket = async (id: string, body: string, isDraft = false): Promise<{ entry: TicketEntry }> => {
-  const { data } = await api.post(`/api/admin/tickets/${id}/reply`, { body, isDraft });
+export const replyToTicket = async (id: string, body: string, isDraft = false, cc?: string[]): Promise<{ entry: TicketEntry }> => {
+  const { data } = await api.post(`/api/admin/tickets/${id}/reply`, { body, isDraft, ...(cc?.length ? { cc } : {}) });
   return data;
 };
 
@@ -1235,6 +1237,8 @@ export interface ComposeTicketInput {
   name?: string;
   subject: string;
   body: string;
+  /** Copied in. Their reply-all threads back onto the same ticket. */
+  cc?: string[];
 }
 
 /** Start a conversation from our side: a new ticket whose first message we send

@@ -12,7 +12,7 @@
 //   POST   /api/admin/tickets/:id/note       — post an internal_note (staff-only, never sent out)
 //   PATCH  /api/admin/tickets/:id/status     — status transition + logs a status_change entry
 //   PATCH  /api/admin/tickets/:id/assign     — assignment change + logs an assignment_change entry
-//   POST   /api/admin/tickets/compose        — start a conversation: new ticket + first message sent by us
+//   POST   /api/admin/tickets/compose        — start a conversation: new ticket + first message sent by us (optional cc)
 //   POST   /api/admin/tickets/:id/spam       — file as spam, close, block the sender at ingest
 //   POST   /api/admin/tickets/:id/not-spam   — undo: unblock the sender, reopen in the queue
 //
@@ -77,8 +77,15 @@ const createTicketSchema = z.object({
   initialBody: z.string().trim().max(20000).optional(),
 });
 
+// Copied recipients. Capped because this is an outbound send from our support
+// address: a long list is a mailing shot, not a conversation.
+const ccSchema = z.array(z.string().trim().email().transform((v) => v.toLowerCase()))
+  .max(10)
+  .optional();
+
 const composeSchema = z.object({
   to: z.string().trim().email().transform((v) => v.toLowerCase()),
+  cc: ccSchema,
   name: z.string().trim().max(120).optional(),
   subject: z.string().trim().min(1).max(300),
   body: z.string().trim().min(1).max(20000),
@@ -87,6 +94,7 @@ const composeSchema = z.object({
 const replySchema = z.object({
   body: z.string().trim().min(1).max(20000),
   isDraft: z.boolean().optional(),  // AI-drafted, not yet approved (default false = staff typed & sent)
+  cc: ccSchema,
 });
 
 const statusChangeSchema = z.object({
@@ -279,6 +287,7 @@ router.post('/admin/tickets/compose', authenticate, requireAdmin, async (req: Re
     userId: req.user.userId,
     userEmail: req.user.email,
     body: parsed.data.body,
+    cc: parsed.data.cc,
   });
 
   const fresh = await prisma.ticket.findUnique({ where: { id: ticket.id } });
@@ -312,6 +321,11 @@ async function postPublicReply(args: {
   body: string;
   isDraft?: boolean;
   reuseEntryId?: string;
+  /** Copied recipients for THIS message. Deliberately not inherited from the
+   *  ticket: a reply typed on a lock screen has no way to show who is copied,
+   *  and silently re-copying people nobody can see is worse than not. The
+   *  portal prefills the box from the last reply instead, where it is visible. */
+  cc?: string[];
 }): Promise<{ status: number; entry?: unknown; error?: string }> {
   const ticket = await prisma.ticket.findUnique({
     where: { id: args.ticketId },
@@ -355,12 +369,15 @@ async function postPublicReply(args: {
     };
   }
 
+  // Never copy the recipient on their own email.
+  const cc = args.cc?.filter((a) => a && a !== ticket.contact.email) ?? [];
   const { sendOk, outboundMessageId, threadingHeaders } = await sendTicketEmail({
     ticketId: ticket.id,
     ticketNumber: ticket.number,
     title: ticket.title,
     to: ticket.contact.email as string,
     body: args.body,
+    cc,
   });
 
   const sendMeta: Record<string, unknown> = {
@@ -368,6 +385,9 @@ async function postPublicReply(args: {
     threadingHeaders,
     sentBy: args.userEmail,
     sentAt: now.toISOString(),
+    // On the entry so the thread can show who else got it, and so the next
+    // reply box can prefill with the same people.
+    ...(cc.length ? { cc } : {}),
     ...(sendOk ? {} : { sendFailed: true }),
   };
 
@@ -422,6 +442,7 @@ router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: 
     userEmail: req.user.email,
     body: parsed.data.body,
     isDraft: parsed.data.isDraft ?? false,
+    cc: parsed.data.cc,
   });
 
   return res.status(result.status).json(

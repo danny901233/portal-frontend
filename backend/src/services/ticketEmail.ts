@@ -176,6 +176,10 @@ export async function sendTicketEmail(args: {
   title: string;
   to: string;
   body: string;
+  /** Copied in. Their reply-all threads back onto this ticket through the
+   *  subject tag like any other, so a colleague or a third party stays part of
+   *  the same conversation rather than starting a second one. */
+  cc?: string[];
 }): Promise<TicketEmailResult> {
   const outboundMessageId = generateOutboundMessageId(args.ticketNumber);
   const threadingHeaders = await buildThreadingHeaders(args.ticketId, outboundMessageId);
@@ -188,6 +192,7 @@ export async function sendTicketEmail(args: {
   const { text, html } = withSupportSignature(args.body, textToHtml(args.body));
   const sendOk = await sendEmail({
     to: [args.to],
+    ...(args.cc?.length ? { cc: args.cc } : {}),
     from: SUPPORT_FROM,
     // Through the support domain, so the return path never reads "noreply".
     domain: SUPPORT_MAILGUN_DOMAIN,

@@ -456,33 +456,16 @@ router.post('/calls', async (req: Request, res: Response) => {
           confirmedBooking,
         });
         if (diag) {
-          // Backfill the caller's name from the transcript when the agent did not record one.
-          // The agent only stores a name if the model calls save_caller_name, and on the calls
-          // where it does not the portal reads blank even though the caller introduced themselves
-          // plainly — this model has just read the whole conversation, so it already knows.
-          // updateMany with customerName: null so a name the agent DID capture, or one the
-          // phonebook reconciliation has since written, is never overwritten.
-          //
-          // A name the agent only GUESSED off a spoken turn (metrics.customer_name_source ===
-          // "speech") is weaker evidence than this model's read of the whole call, so it may be
-          // replaced — but only while the record still holds that exact guess, so a phonebook
-          // correction that has landed in the meantime is never undone. Advanced Service Centre
-          // call 96317336: the agent stored "disgusting" from "they were like, this is
-          // disgusting", the diagnosis correctly said "Julie", and the portal kept "disgusting"
-          // because the name was not null.
-          const speechGuess = (payload.metrics as any)?.customer_name_source === 'speech'
-            && typeof payload.customerName === 'string' && payload.customerName.trim() !== '';
-          if (diag.callerName && (speechGuess ? diag.callerName !== payload.customerName : true)) {
-            const where = speechGuess
-              ? { id: callId, customerName: payload.customerName }
-              : { id: callId, customerName: null };
-            void prisma.call
-              .updateMany({ where, data: { customerName: diag.callerName } })
-              .then((r) => {
-                if (r.count) console.log(`[NAME] ${speechGuess ? `replaced the agent's guess "${payload.customerName}" with` : 'backfilled'} "${diag.callerName}" on call ${callId} from the transcript`);
-              })
-              .catch(() => {});
-          }
+          // The portal does NOT write a caller's name. It used to backfill one from this
+          // model's read of the transcript whenever the agent had recorded none, which meant
+          // guessing whose name the conversation contained — and the agent introduces itself in
+          // the greeting, so "Good morning, Tom the ai agent speaking" made sixteen Speedy
+          // Spanners callers into customers called Tom, plus more at Norwich, Elite, EAC and VRS.
+          // Capturing the name is the agent's job and it now uses LiveKit's prebuilt GetNameTask,
+          // which asks, handles spelling and the phonetic alphabet, and reads the name back for a
+          // yes. A name nobody recorded should read as unknown, not as a plausible guess: staff
+          // ring back and use it. diag.callerName still exists for support tickets, where it
+          // names the person who wrote in rather than overwriting a customer record.
           // Two-tier: when triage flags an issue, auto-escalate to the deep-dive (root cause + fix)
           // which reads the richer trace (GH bodies, tool inputs) with a stronger model.
           if (diag.status === 'issue') {

@@ -324,10 +324,48 @@ export async function analyzeCall(input: {
     const hasNonName = rawName
       .split(/\s+/)
       .some((w) => NOT_A_NAME.has(w.toLowerCase().replace(/[.,'’]/g, '')));
-    const callerName = !looksSpelled && !hasNonName
-      && /^[A-Za-z][A-Za-z'’\-]{1,30}( [A-Za-z][A-Za-z'’\-]{1,30}){0,2}$/.test(rawName)
-      ? rawName
-      : undefined;
+    // THE CALLER HAS TO HAVE SAID IT. Every guard above asks whether the string looks like a
+    // name; none asks whose name it is. The model reads the whole transcript, and the agent
+    // introduces itself in the greeting — "Good morning, Tom the ai agent speaking" — which on a
+    // call where the caller only says "Hello?" is the one name in the conversation. Speedy
+    // Spanners logged twelve callers as Tom in three weeks, its own agent's name; In'n'out
+    // Norwich, EAC Telford (Gemma) and Elite Autocare did the same.
+    //
+    // This does NOT catch a name the caller genuinely speaks that is not theirs — "can I speak
+    // to Charlie" can still be recorded as a caller called Charlie. That needs the model to be
+    // asked who owns the name, not just whether it was said, and is left for when it shows up
+    // in the data.
+    //
+    // So: the first name must appear in something the CALLER said. Spelled-out names still pass
+    // — "it's done. d a n." collapses to "dan" — and this only gates the diagnosis backfill, so
+    // the phonebook reconciliation, which legitimately knows names the caller never spoke, is
+    // untouched.
+    const callerSpeech = (() => {
+      const turns = Array.isArray(input.transcript) ? (input.transcript as unknown[]) : [];
+      const text = turns
+        .filter((t) => {
+          const e = t as { speaker?: string; role?: string; type?: string; tool?: string };
+          if (e?.tool || (e?.type && e.type !== 'message')) return false;
+          return !/agent|assistant/i.test(String(e?.speaker ?? e?.role ?? ''));
+        })
+        .map((t) => String((t as { text?: string })?.text ?? ''))
+        .join(' ')
+        .toLowerCase();
+      // "d a n" and "d-a-n" are someone spelling their name; collapse runs of single letters.
+      return `${text} ${text.replace(/\b([a-z])[\s.'-]+(?=[a-z]\b)/g, '$1')}`;
+    })();
+    const saidByCaller = (name: string) => {
+      const first = name.split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+      if (first.length < 2) return false;
+      return new RegExp(`\\b${first}`, 'i').test(callerSpeech);
+    };
+    const shapedLikeAName = !looksSpelled && !hasNonName
+      && /^[A-Za-z][A-Za-z'’\-]{1,30}( [A-Za-z][A-Za-z'’\-]{1,30}){0,2}$/.test(rawName);
+    if (shapedLikeAName && !saidByCaller(rawName)) {
+      console.log(`[DIAGNOSIS] discarding callerName "${rawName}" — the caller never says it; `
+        + 'it will be the agent\'s own name from the greeting, or a member of garage staff');
+    }
+    const callerName = shapedLikeAName && saidByCaller(rawName) ? rawName : undefined;
     // FALSE-POSITIVE GUARD for dead air. The transcript-gap silence measure charges a caller's own
     // pause (they speak, then hold the line before their turn truly ends) to the agent. The
     // authoritative measure is response_gap (end-of-utterance delay) — the wait AFTER the caller

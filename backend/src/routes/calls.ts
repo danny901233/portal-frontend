@@ -164,6 +164,34 @@ const extractBookingDate = (bookingDetails?: string | null) => {
   return '';
 };
 
+// Backend safety net for a second agent-side gap: the agents embed the quoted
+// price in their own bookingDetails string ("... , Price: £223.00") but never
+// send the numeric capturedRevenue field. Only the retired v3 agent sent it, so
+// as each garage migrated onto the unified/optimised agents its bookings began
+// landing with a NULL price and the portal's revenue figures collapsed towards
+// zero while the real booked work was unchanged. 303 bookings worth ~£38k were
+// backfilled from this same text on 2026-09-25; this keeps it from recurring.
+//
+// The "[^0-9]*" after the label deliberately absorbs whatever currency marker
+// is present ("£", "GBP ", or nothing) rather than matching the pound sign,
+// which is multibyte and varies with the agent's encoding.
+const PRICE_RE = /Price:\s*[^0-9]*([0-9][0-9,]*(?:\.[0-9]+)?)/i;
+
+const extractPriceFromDetails = (bookingDetails?: string | null): number | null => {
+  if (!bookingDetails) {
+    return null;
+  }
+  const match = String(bookingDetails).match(PRICE_RE);
+  if (!match) {
+    return null;
+  }
+  const value = Number.parseFloat(match[1].replace(/,/g, ''));
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return value;
+};
+
 const extractRegistrationFromText = (text?: string | null) => {
   if (!text) {
     return '';
@@ -350,6 +378,17 @@ router.post('/calls', async (req: Request, res: Response) => {
       }
     }
 
+    // Prefer whatever the agent sent; fall back to the price in its own
+    // bookingDetails text. Confirmed bookings only — a price mentioned on a
+    // call that did not book is a quote, not captured revenue.
+    const capturedRevenue =
+      payload.capturedRevenue ??
+      (confirmedBooking ? extractPriceFromDetails(payload.bookingDetails) : null);
+
+    if (payload.capturedRevenue == null && capturedRevenue != null) {
+      console.log(`[CALL] Derived capturedRevenue £${capturedRevenue.toFixed(2)} from bookingDetails`);
+    }
+
     const callId = await generateUniqueCallId();
 
     const createdCall = await prisma.call.create({
@@ -369,7 +408,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         customerPhone: payload.customerPhone,
         confirmedBooking,
         confirmedBookingCategory,
-        capturedRevenue: payload.capturedRevenue ?? null,
+        capturedRevenue,
         bookingDetails: payload.bookingDetails,
         metrics: payload.metrics,
         transcript: payload.transcript,
@@ -582,10 +621,10 @@ router.post('/calls', async (req: Request, res: Response) => {
           customerPhone: payload.customerPhone,
           registrationNumber: payload.registrationNumber,
           confirmedBooking: payload.confirmedBooking ?? false,
-          capturedRevenue: payload.capturedRevenue ?? null,
+          capturedRevenue,
           createdAt: createdCall.createdAt.toISOString(),
           bookingDate: null,
-          priceQuoted: payload.capturedRevenue ?? null,
+          priceQuoted: capturedRevenue,
         }).catch((error) => {
           console.error('[EMAIL] Failed to send notification email:', error);
         });

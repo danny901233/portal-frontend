@@ -38,6 +38,19 @@ const RESP_WINDOW_MIN = 20;
 const RESP_MIN_FAILS = 3;
 const RESP_FAIL_RATIO = 0.6;
 
+// UNHEARD: the caller's words never reached the agent at all, so the transcript has no caller
+// turn to find. The response check above CANNOT see this — it starts from callerEngaged(), and
+// this failure erases exactly that evidence. On 2026-09-25 a duplicate module-level name made
+// on_user_turn_completed throw on every caller turn; LiveKit aborts a turn when that hook raises,
+// so 27 calls across 11 garages logged a greeting, "are you still there?", and nothing else. The
+// fleet looked healthy on every other measure: calls connected, Call rows appeared, volume normal.
+// A call is only logged past 30s, so a long call where the caller never registers is already odd;
+// a cluster of them is an agent that has gone deaf. Back-tested over the 14 days to 25 Sep: fires
+// in exactly two windows, both inside that outage, and nowhere else.
+const UNHEARD_MIN_SECS = 30;
+const UNHEARD_MIN_FAILS = 3;
+const UNHEARD_FAIL_RATIO = 0.6;
+
 // LiveKit account each garage SHOULD land on, by agent type. assist -> account 2 (the Assist agent);
 // automate/tyresoft -> account 1. routesToAccount2 mirrors the portal voice webhook's logic.
 const routesToAccount2 = (script) => script === 'Assist-agent' || script === 'GarageHive-agent';
@@ -233,10 +246,26 @@ async function checkResponseHealth() {
     if (!ids.length) continue;
     const calls = await prisma.call.findMany({
       where: { garageId: { in: ids }, createdAt: { gte: since } },
-      select: { garageId: true, transcript: true, metrics: true },
+      select: { garageId: true, transcript: true, metrics: true, durationSeconds: true },
     });
     const engaged = calls.filter(callerEngaged);
     const silent = engaged.filter((c) => !callResponded(c));
+
+    // The caller was never heard at all — see UNHEARD_* above.
+    const longEnough = calls.filter((c) => (c.durationSeconds || 0) >= UNHEARD_MIN_SECS);
+    const unheard = longEnough.filter((c) => !callerEngaged(c));
+    if (longEnough.length >= UNHEARD_MIN_FAILS && unheard.length >= UNHEARD_MIN_FAILS
+        && unheard.length >= longEnough.length * UNHEARD_FAIL_RATIO) {
+      const names = [...new Set(unheard.map((c) => nameById.get(c.garageId) || c.garageId))].slice(0, 4);
+      issues.push({
+        key: `unheard:${fleet}`,
+        msg: `${fleet.toUpperCase()} agents CANNOT HEAR CALLERS — ${unheard.length}/${longEnough.length} calls `
+          + `over ${UNHEARD_MIN_SECS}s in the last ${RESP_WINDOW_MIN} min have NO caller speech in the `
+          + `transcript at all. The calls connect and log, so every other check reads as healthy. `
+          + `Suspect the last agent deploy (an exception in on_user_turn_completed silently drops `
+          + `every caller turn) — check \`lk agent versions\` and roll back. Garages: ${names.join(', ')}.`,
+      });
+    }
     if (engaged.length >= RESP_MIN_FAILS && silent.length >= RESP_MIN_FAILS && silent.length >= engaged.length * RESP_FAIL_RATIO) {
       const names = [...new Set(silent.map((c) => nameById.get(c.garageId) || c.garageId))].slice(0, 4);
       issues.push({

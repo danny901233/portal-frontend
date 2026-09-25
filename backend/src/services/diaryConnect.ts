@@ -216,7 +216,13 @@ export const businessBranches = async (businessId: string) =>
 // surface while the provider still has the form open, not on a customer call three days later.
 export type CheckResult = { ok: boolean; detail: string };
 
-const TS_HOST = 'https://api.tyresoft.co.uk';
+// api.tyresoft.co.uk has never existed — it does not resolve, from here or anywhere. Every
+// Tyresoft connect submission therefore died on "Could not reach Tyresoft: fetch failed"
+// before a single credential was checked, which is why Lurgan Tyre Centre sat unconnected
+// for a week while Tyresoft reopened the form and tried again. The live integration has
+// always used this host (chatAgentTyresoft.ts, chatDiaries/tyresoft.ts); only this file
+// disagreed. The /v1 belongs in the base so `${TS_HOST}/${workspace}` matches tsBaseUrl().
+const TS_HOST = 'https://3p-api.tyresoft.biz/v1';
 
 // One identity for every test booking, whatever the diary, so a garage finding it in their
 // diary knows immediately what it is and who put it there. The plate is a real one the vehicle
@@ -554,7 +560,14 @@ export const connectBusinessDiary = async (
   const names: Record<string, string> = Object.fromEntries(garages.map((g) => [g.id, g.name]));
 
   const missing = missingFields(provider, shared, branches, names);
-  if (missing.length) return { ok: false, error: `Still needed: ${missing.join(', ')}.` };
+  if (missing.length) {
+    // Log the REASON. It used to go only to the provider's browser, so an integrator could
+    // bounce off this form for a week and it was invisible here: the sole trace of Lurgan's
+    // failure was a bare "POST /api/diary-connect/submit 400" in the access log. Field names
+    // only — never the values, which are credentials.
+    console.warn(`[DIARY-CONNECT] ${provider} submit for ${businessId} incomplete: ${missing.join(', ')}`);
+    return { ok: false, error: `Still needed: ${missing.join(', ')}.` };
+  }
 
   // Check EVERY branch before writing ANY of them. A half-connected business is worse than one
   // that is not connected: some branches would take live calls while others silently fail.
@@ -562,7 +575,10 @@ export const connectBusinessDiary = async (
   for (const g of garages) {
     const creds = credsFor(provider, shared, branches[g.id] || {});
     const res = await CHECKS[provider](creds);
-    if (!res.ok) return { ok: false, error: `${g.name}: ${res.detail}` };
+    if (!res.ok) {
+      console.warn(`[DIARY-CONNECT] ${provider} credential check FAILED for ${g.name} (${businessId}): ${res.detail}`);
+      return { ok: false, error: `${g.name}: ${res.detail}` };
+    }
     checked.push({ garageId: g.id, creds, detail: res.detail });
   }
 

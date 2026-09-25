@@ -260,15 +260,23 @@ export function classifyDeterministic(input: DeterministicInput): DeterministicM
   }
 
   // Rule 4: an automated sender we have no relationship with → a notification,
-  // not a conversation. Magic links, vendor announcements, our own watchdog
-  // copying hello@. Kept searchable, never queued.
+  // not a conversation. Magic links, vendor announcements. Never acknowledged
+  // and never drafted to.
+  //
+  // Whether it CLOSES on arrival depends on whose robot sent it. A vendor's is
+  // a record and is filed. Ours is the watchdog telling us an agent is down, or
+  // the nightly call report — the things most worth seeing — and closing those
+  // on arrival buries an outage in a queue nobody opens. So our own domain
+  // stays open. (A website-lead notification is the exception and is caught by
+  // rule 2 above, because HighLevel already owns that record.)
   if (!input.contactGarageId && isNoReplySender(input.senderEmail)) {
+    const ours = /(^|\.)receptionmate\.co\.uk$/i.test(domain);
     return {
       category: TicketCategory.other,
-      rule: 'automated_sender',
+      rule: ours ? 'automated_sender:ours' : 'automated_sender:external',
       autoAck: false,
       aiDraft: false,
-      autoClose: true,
+      autoClose: !ours,
     };
   }
 

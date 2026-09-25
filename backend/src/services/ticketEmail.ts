@@ -57,43 +57,43 @@ export const SUPPORT_SIGNATURE_TEXT = [
 
 const contactRow = (icon: string, href: string, label: string): string => `
         <tr class="rm-sig-row">
-          <td width="24" valign="middle" style="padding:0 0 7px;"><img src="${ICON_BASE}/icon-${icon}.png" alt="" width="16" height="16" style="display:block;width:16px;height:16px;border:0;" /></td>
-          <td valign="middle" style="padding:0 0 7px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:18px;color:#ffffff;"><a href="${href}" style="color:#ffffff;text-decoration:none;">${label}</a></td>
+          <td width="22" valign="middle" style="padding:0 0 6px;"><img src="${ICON_BASE}/icon-${icon}.png" alt="" width="15" height="15" style="display:block;width:15px;height:15px;border:0;" /></td>
+          <td valign="middle" style="padding:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:17px;color:#ffffff;word-break:break-word;"><a href="${href}" style="color:#ffffff;text-decoration:none;">${label}</a></td>
         </tr>`;
 
-// Fluid hybrid layout: the logo block and the text block are inline-blocks
-// with fixed widths that together fit the 600px banner. On a phone the text
-// block's max-width:100% makes it wrap under the logo instead of squeezing
-// the email address onto three lines. table-layout:fixed stops the cell
-// growing to the blocks' declared widths in the intrinsic sizing pass.
-// Outlook desktop ignores max-width and keeps them side by side, which is
-// what we want there anyway.
-//
-// The stacked layout at desktop sizes filled a phone screen, so a media
-// query shrinks it where the client honours one (Apple Mail, Outlook mobile,
-// Gmail app). Clients that strip <style> get the base sizes, which are a
-// touch smaller than the first cut for the same reason.
+// Two columns at every width — the logo on the left, the text taking the
+// rest — because stacking the logo above the text on a phone read as a
+// poster, not a signature. table-layout:fixed on the outer table stops the
+// banner growing past the screen; the inner table lets the text column
+// shrink. Base sizes are chosen so that, with no styles at all (clients that
+// strip <style>), a 343px phone still fits the email address on one line;
+// the media query then tightens everything further where it is honoured.
 export const SUPPORT_SIGNATURE_HTML = `
 <style>
   @media only screen and (max-width: 480px) {
-    .rm-sig-pad { padding: 14px 12px !important; }
-    .rm-sig-logo { width: 96px !important; max-width: 96px !important; }
-    .rm-sig-logo-box { width: 110px !important; }
-    .rm-sig-tag { font-size: 15px !important; line-height: 20px !important; padding-bottom: 8px !important; }
-    .rm-sig-row td { font-size: 13px !important; line-height: 16px !important; padding-bottom: 5px !important; }
-    .rm-sig-row img { width: 14px !important; height: 14px !important; }
+    .rm-sig-pad { padding: 12px 10px !important; }
+    .rm-sig-logo-box { width: 98px !important; padding-right: 8px !important; }
+    .rm-sig-logo { width: 88px !important; max-width: 88px !important; }
+    .rm-sig-tag { font-size: 15px !important; line-height: 19px !important; padding-bottom: 7px !important; }
+    .rm-sig-row td { font-size: 12.5px !important; line-height: 16px !important; padding-bottom: 4px !important; }
+    .rm-sig-row img { width: 13px !important; height: 13px !important; }
   }
 </style>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;margin-top:28px;table-layout:fixed;border-collapse:separate;border-radius:10px;overflow:hidden;background:${BRAND_BLUE};">
   <tr>
-    <td class="rm-sig-pad" style="padding:18px 16px;text-align:center;font-size:0;line-height:0;">
-      <div class="rm-sig-logo-box" style="display:inline-block;width:150px;max-width:100%;vertical-align:middle;">
-        <img class="rm-sig-logo" src="${LOGO_URL}" alt="ReceptionMate" width="130" style="display:inline-block;width:130px;max-width:130px;height:auto;border:0;" />
-      </div><div style="display:inline-block;width:370px;max-width:100%;vertical-align:middle;text-align:left;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:6px 0 0;">
-          <tr><td class="rm-sig-tag" colspan="2" style="padding:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:18px;line-height:24px;font-weight:bold;color:#ffffff;">The Future Of Front Desk Efficiency</td></tr>${contactRow('phone', `tel:${SIGNATURE_PHONE.replace(/\s+/g, '')}`, SIGNATURE_PHONE)}${contactRow('mail', `mailto:${SIGNATURE_EMAIL}`, SIGNATURE_EMAIL)}${contactRow('globe', `https://${SIGNATURE_SITE}`, SIGNATURE_SITE)}
-        </table>
-      </div>
+    <td class="rm-sig-pad" style="padding:16px 14px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td class="rm-sig-logo-box" width="115" valign="middle" style="width:115px;padding:0 10px 0 0;text-align:center;">
+            <img class="rm-sig-logo" src="${LOGO_URL}" alt="ReceptionMate" width="105" style="display:inline-block;width:105px;max-width:105px;height:auto;border:0;" />
+          </td>
+          <td valign="middle" style="text-align:left;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+              <tr><td class="rm-sig-tag" colspan="2" style="padding:0 0 9px;font-family:Arial,Helvetica,sans-serif;font-size:17px;line-height:22px;font-weight:bold;color:#ffffff;">The Future Of Front Desk Efficiency</td></tr>${contactRow('phone', `tel:${SIGNATURE_PHONE.replace(/\s+/g, '')}`, SIGNATURE_PHONE)}${contactRow('mail', `mailto:${SIGNATURE_EMAIL}`, SIGNATURE_EMAIL)}${contactRow('globe', `https://${SIGNATURE_SITE}`, SIGNATURE_SITE)}
+            </table>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>
 </table>`.trim();

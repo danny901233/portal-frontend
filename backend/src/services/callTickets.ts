@@ -82,6 +82,10 @@ async function createCallTicket(args: CreateArgs): Promise<void> {
       channel: TicketChannel.phone,
       category: args.category ?? TicketCategory.other,
       priority: args.priority ?? TicketPriority.normal,
+      // Same reason as feedback: they rang us, they did not write to us. The
+      // phone channel already refuses to send, but say it explicitly so the
+      // intent survives anyone changing that.
+      autoChase: false,
       contactId: contact.id,
       garageId: args.garageId,
       entries: {

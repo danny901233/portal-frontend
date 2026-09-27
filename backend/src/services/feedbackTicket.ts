@@ -99,6 +99,11 @@ export async function raiseNegativeFeedbackTicket(args: FeedbackTicketArgs): Pro
         // that arrive by email.
         category: TicketCategory.agent_bug,
         priority: TicketPriority.normal,
+        // Never chase them for a reply. They gave us feedback; we did not ask
+        // them a question, and the acknowledgement above says outright that a
+        // reply may not come. "Reply or we close this" would be answering a
+        // favour with a demand. It still closes on schedule, quietly.
+        autoChase: false,
         contactId: contact.id,
         garageId: args.garageId ?? undefined,
         entries: {

@@ -1295,6 +1295,13 @@ model Ticket {
   // they write back so the next silence can remind again. Column keeps its
   // original name — renamed in Prisma only, so no live-window breakage.
   reminderSentAt         DateTime?     @map("staleNudgedAt")
+  // May we chase this person for a reply? True for a conversation: they wrote
+  // in, or we wrote to them expecting an answer. FALSE where we raised the
+  // ticket off the back of something they did and asked them nothing —
+  // thumbs-down feedback, a call on our own line. Chasing those reads as
+  // "reply or we close it" about a message they never sent. Such a ticket
+  // still ages out on schedule, it just does so silently.
+  autoChase              Boolean       @default(true)
   entries                TicketEntry[]
 
   @@index([status, updatedAt])

@@ -6,6 +6,11 @@
  * ONLY once we have actually sent one (Dan, 2026-09-24 — a ticket nobody has
  * answered is our problem, not the customer's, and must never age out):
  *
+ * A ticket we raised off something they did — thumbs-down feedback, a call on
+ * our own line — carries autoChase=false and is exempt from both emails. It
+ * still closes on day 5, silently: we asked them nothing, so there is nothing
+ * to chase them about.
+ *
  *   day 2 — a reminder goes to the customer on the same ticket: still need a
  *           hand? reply; otherwise we close in three days. Counted in the
  *           Stale chip and listed by the stale filter from here.
@@ -58,12 +63,12 @@ const closingBody = (name: string | null): string => [
 ].join('\n');
 
 type Due = {
-  id: string; number: number; title: string; channel: TicketChannel;
+  id: string; number: number; title: string; channel: TicketChannel; autoChase: boolean;
   contact: { name: string | null; email: string | null; blocked: boolean };
 };
 
 const dueSelect = {
-  id: true, number: true, title: true, channel: true,
+  id: true, number: true, title: true, channel: true, autoChase: true,
   contact: { select: { name: true, email: true, blocked: true } },
 } as const;
 
@@ -89,19 +94,25 @@ async function sendAutomatic(t: Due, kind: 'reminder' | 'closing', body: string)
   return { sent, entry };
 }
 
-const canEmail = (t: Due): boolean => t.channel === TicketChannel.email && !!t.contact.email && !t.contact.blocked;
+/** May we send this person an automatic chase? Needs a channel that can send,
+ *  an address that is not blocked, and a ticket we are allowed to chase at all. */
+const canEmail = (t: Due): boolean =>
+  t.autoChase && t.channel === TicketChannel.email && !!t.contact.email && !t.contact.blocked;
 
 async function remind(now: Date): Promise<void> {
   const due = await prisma.ticket.findMany({
-    where: { ...staleWhere(REMIND_AFTER_DAYS, now), reminderSentAt: null },
+    // autoChase=false never gets a reminder, so it is excluded here rather than
+    // being fetched and skipped — it also keeps reminderSentAt null, which reads
+    // honestly: nobody was reminded.
+    where: { ...staleWhere(REMIND_AFTER_DAYS, now), reminderSentAt: null, autoChase: true },
     select: dueSelect,
     take: 100,
   });
   for (const t of due) {
     try {
       if (!canEmail(t)) {
-        // Nothing to send on (WhatsApp/phone tickets, or no address). Mark it so
-        // we do not re-evaluate every half hour; it still closes on day 5.
+        // Nothing to send on (a phone ticket, or no address). Mark it so we do
+        // not re-evaluate every half hour; it still closes on day 5.
         await prisma.ticket.update({ where: { id: t.id }, data: { reminderSentAt: now } });
         continue;
       }
@@ -139,7 +150,9 @@ async function close(now: Date): Promise<void> {
         data: {
           ticketId: t.id,
           kind: TicketEntryKind.status_change,
-          body: `Closed — no reply from ${who} for ${CLOSE_AFTER_DAYS} days${told ? ', customer emailed' : ''}. A reply will reopen it.`,
+          body: told
+            ? `Closed — no reply from ${who} for ${CLOSE_AFTER_DAYS} days, customer emailed. A reply will reopen it.`
+            : `Closed — ${CLOSE_AFTER_DAYS} days with no reply. ${t.autoChase ? 'Nothing was sent to the customer.' : 'Not a conversation we chase, so nothing was sent.'} A reply will reopen it.`,
         },
       }));
       await prisma.$transaction(ops);

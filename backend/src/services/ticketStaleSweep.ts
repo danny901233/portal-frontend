@@ -26,6 +26,7 @@
 import { Prisma, TicketChannel, TicketEntryKind, TicketStatus } from '@prisma/client';
 import { prisma } from '../db.js';
 import { sendTicketEmail } from './ticketEmail.js';
+import { isNoReplySender } from './emailClassifier.js';
 
 export const REMIND_AFTER_DAYS = 2;
 export const CLOSE_AFTER_DAYS = 5;
@@ -94,10 +95,19 @@ async function sendAutomatic(t: Due, kind: 'reminder' | 'closing', body: string)
   return { sent, entry };
 }
 
-/** May we send this person an automatic chase? Needs a channel that can send,
- *  an address that is not blocked, and a ticket we are allowed to chase at all. */
+/** May we send this person an automatic chase?
+ *
+ *  Needs a channel that can send, an address that is not blocked, a ticket we
+ *  are allowed to chase at all — and a mailbox that could reply even in
+ *  principle. A reminder to noreply@twilio.com bounced on 2026-09-27: asking a
+ *  robot to write back is wasted mail and a small dent in our sending
+ *  reputation every time it rejects. Such a ticket still closes on schedule. */
 const canEmail = (t: Due): boolean =>
-  t.autoChase && t.channel === TicketChannel.email && !!t.contact.email && !t.contact.blocked;
+  t.autoChase
+  && t.channel === TicketChannel.email
+  && !!t.contact.email
+  && !t.contact.blocked
+  && !isNoReplySender(t.contact.email);
 
 async function remind(now: Date): Promise<void> {
   const due = await prisma.ticket.findMany({

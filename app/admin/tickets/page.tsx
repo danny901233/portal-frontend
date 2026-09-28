@@ -13,6 +13,7 @@ import {
   fetchTickets,
   fetchTicket,
   fetchTicketQueueCounts,
+  fetchSentTicketMessages,
   replyToTicket,
   addTicketNote,
   changeTicketStatus,
@@ -24,6 +25,8 @@ import {
   type TicketDetail,
   type TicketEntry,
   type TicketQueueCounts,
+  type SentTicketMessage,
+  type TicketListFilters,
   type TicketStatus,
 } from '../../lib/api';
 
@@ -65,7 +68,28 @@ const PRIORITY_TONE: Record<string, string> = {
 // 'spam' is a category, not a status: everything filed as spam, whatever
 // state it is in, so a wrongly-filed enquiry can be found and rescued.
 // 'stale' is pending, replied to by us, no reply for 2+ days — the Stale chip.
-type StatusFilter = TicketStatus | 'all' | 'spam' | 'stale';
+// 'sent' is not a status at all: it swaps the list from tickets to the messages
+// we have sent, newest first. The status filters answer "what needs doing";
+// this answers "what did we send, and did it arrive".
+type StatusFilter = TicketStatus | 'all' | 'spam' | 'stale' | 'sent';
+
+/** How Mailgun's verdict reads in the list. */
+const DELIVERY_TONE: Record<string, string> = {
+  delivered: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  bounced:   'bg-rose-50 text-rose-700 ring-rose-200',
+  failed:    'bg-rose-50 text-rose-700 ring-rose-200',
+  complained:'bg-amber-50 text-amber-700 ring-amber-200',
+  sent:      'bg-slate-100 text-slate-600 ring-slate-300',
+  unknown:   'bg-slate-100 text-slate-500 ring-slate-300',
+};
+const DELIVERY_LABEL: Record<string, string> = {
+  delivered: 'Delivered',
+  bounced: 'Bounced',
+  failed: 'Failed',
+  complained: 'Marked as spam',
+  sent: 'Sending…',
+  unknown: 'No record',
+};
 
 export default function AdminTicketsPage() {
   const router = useRouter();
@@ -92,6 +116,7 @@ export default function AdminTicketsPage() {
   // Who else this reply goes to. Prefilled from the last outbound message on
   // the ticket, so a conversation that already involves a third party keeps
   // involving them without anyone having to remember.
+  const [sent, setSent] = useState<SentTicketMessage[]>([]);
   const [replyCc, setReplyCc] = useState('');
   const [showCc, setShowCc] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
@@ -126,12 +151,19 @@ export default function AdminTicketsPage() {
 
   const loadList = useCallback(async () => {
     try {
+      if (statusFilter === 'sent' && !search.trim()) {
+        const [m, c] = await Promise.all([fetchSentTicketMessages(), fetchTicketQueueCounts()]);
+        setSent(m.messages);
+        setCounts(c);
+        return;
+      }
       // A reference search ignores the status filter, so someone quoting a
       // closed ticket's reference still finds it.
-      const filters = search.trim()
+      // 'sent' returned above, so anything left is a real ticket filter.
+      const filters: TicketListFilters = search.trim()
         ? { ref: search.trim() }
-        : statusFilter === 'all' ? {}
-        : statusFilter === 'spam' ? { category: 'spam' as const }
+        : statusFilter === 'all' || statusFilter === 'sent' ? {}
+        : statusFilter === 'spam' ? { category: 'spam' }
         : statusFilter === 'stale' ? { stale: true }
         : { status: statusFilter };
       const [t, c] = await Promise.all([
@@ -353,6 +385,7 @@ export default function AdminTicketsPage() {
     { key: 'solved',  label: 'Solved' },
     { key: 'closed',  label: 'Closed' },
     { key: 'spam',    label: 'Spam' },
+    { key: 'sent',    label: 'Sent' },
   ], []);
 
   return (
@@ -439,7 +472,41 @@ export default function AdminTicketsPage() {
           className={`${selectedId || composing ? 'hidden md:flex' : 'flex'} w-full min-w-0 shrink-0 flex-col border-r border-slate-200 bg-slate-50 md:w-96`}
         >
           <ul className="flex-1 overflow-y-auto divide-y divide-slate-200">
-            {tickets.length === 0 ? (
+            {statusFilter === 'sent' && !search.trim() ? (
+              sent.length === 0 ? (
+                <li className="px-4 py-8 text-center text-xs text-slate-500">Nothing sent yet.</li>
+              ) : (
+                sent.map((m) => (
+                  <li key={m.id} className={`transition ${m.ticketId === selectedId ? 'bg-white' : 'hover:bg-white'}`}>
+                    <button
+                      type="button"
+                      onClick={() => { setComposing(false); setSelectedId(m.ticketId); }}
+                      className="block w-full px-4 py-3 text-left"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          To {m.recipientName ?? m.to[0] ?? 'unknown'}
+                        </p>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ring-1 ${DELIVERY_TONE[m.delivery] ?? DELIVERY_TONE.unknown}`}>
+                          {DELIVERY_LABEL[m.delivery] ?? m.delivery}
+                        </span>
+                      </div>
+                      <p className="truncate text-xs text-slate-600">#{m.ticketNumber} · {m.ticketTitle}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">{m.body}</p>
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <span className="truncate text-[10px] uppercase tracking-wider text-slate-400">
+                          {m.sentBy} · {new Date(m.createdAt).toLocaleString('en-GB')}
+                        </span>
+                        {m.cc.length > 0 && (
+                          <span className="shrink-0 text-[10px] text-slate-400">cc {m.cc.length}</span>
+                        )}
+                      </div>
+                      {m.error && <p className="mt-1 truncate text-[10px] text-rose-600">{m.error}</p>}
+                    </button>
+                  </li>
+                ))
+              )
+            ) : tickets.length === 0 ? (
               <li className="px-4 py-8 text-center text-xs text-slate-500">No tickets match.</li>
             ) : (
               tickets.map((t) => (
@@ -493,6 +560,11 @@ export default function AdminTicketsPage() {
               ))
             )}
           </ul>
+          {statusFilter === 'sent' && !search.trim() && (
+            <p className="border-t border-slate-200 bg-white px-4 py-2 text-[10px] text-slate-500">
+              What we emailed out, newest first. The badge is what the recipient&apos;s mail server told us.
+            </p>
+          )}
         </aside>
 
         {/* Thread. On a phone this replaces the list rather than sitting beside

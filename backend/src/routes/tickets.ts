@@ -6,6 +6,7 @@
 // Endpoints:
 //   GET    /api/admin/tickets                — list with filters (status, assignee, channel, category, garageId)
 //   GET    /api/admin/tickets/queue-counts   — sidebar counts (unassigned, mine open, pending 3+ days)
+//   GET    /api/admin/tickets/sent           — what we have SENT, newest first, with delivery status
 //   GET    /api/admin/tickets/:id            — one ticket + all entries in chronological order
 //   POST   /api/admin/tickets                — create a ticket (for seeding + testing; production ingest is Phase 1/3/4)
 //   POST   /api/admin/tickets/:id/reply      — post a public_reply (sends to customer once channel-send is wired up)
@@ -188,6 +189,84 @@ router.get('/admin/tickets/queue-counts', authenticate, requireAdmin, async (req
 });
 
 // ─── DETAIL ────────────────────────────────────────────────────────────────
+
+// ─── SENT ──────────────────────────────────────────────────────────────────
+// Everything we have emailed out, newest first, as MESSAGES rather than
+// tickets. Deliberately a different axis from the status filters: those answer
+// "what needs doing", this answers "what did we send, and did it arrive". The
+// second question had no home — a reply disappeared into Pending among the
+// inbound conversations, and whether it reached anyone was invisible.
+//
+// Delivery comes from EmailLog, matched on the Message-Id we set when sending.
+// No foreign key exists between the two, so it is a second query and a map
+// rather than a join; a message with no row yet simply reads as pending.
+//
+// MUST stay above '/admin/tickets/:id' — Express would otherwise read "sent"
+// as a ticket id and 404.
+
+router.get('/admin/tickets/sent', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const q = req.query as Record<string, string | undefined>;
+  const take = Math.min(parseInt(q.limit || '50', 10), 200);
+
+  const entries = await prisma.ticketEntry.findMany({
+    where: {
+      kind: TicketEntryKind.public_reply,
+      isDraft: false,
+      // Ours, not theirs: an inbound message has an author contact and never a
+      // Message-Id of our making.
+      outboundMessageId: { not: null },
+    },
+    orderBy: { createdAt: 'desc' },
+    take,
+    include: {
+      authorUser: { select: { email: true } },
+      ticket: {
+        select: {
+          id: true, number: true, title: true, status: true,
+          contact: { select: { name: true, email: true } },
+        },
+      },
+    },
+  });
+
+  const ids = entries.map((e) => e.outboundMessageId).filter((v): v is string => !!v);
+  const logs = ids.length
+    ? await prisma.emailLog.findMany({
+        where: { providerMessageId: { in: ids } },
+        select: { providerMessageId: true, status: true, to: true, cc: true, deliveredAt: true, failedAt: true, error: true },
+      })
+    : [];
+  const byMessageId = new Map(logs.map((l) => [l.providerMessageId as string, l]));
+
+  const messages = entries.map((e) => {
+    const log = e.outboundMessageId ? byMessageId.get(e.outboundMessageId) : undefined;
+    const meta = (e.meta && typeof e.meta === 'object' && !Array.isArray(e.meta))
+      ? (e.meta as Record<string, unknown>)
+      : {};
+    return {
+      id: e.id,
+      ticketId: e.ticket.id,
+      ticketNumber: e.ticket.number,
+      ticketTitle: e.ticket.title,
+      ticketStatus: dbStatusOut(e.ticket.status),
+      to: log?.to ?? [e.ticket.contact.email].filter(Boolean),
+      cc: log?.cc ?? (Array.isArray(meta.cc) ? (meta.cc as string[]) : []),
+      recipientName: e.ticket.contact.name,
+      // Who pressed send. No author and an automatic marker means the sweep.
+      sentBy: e.authorUser?.email ?? (typeof meta.automatic === 'string' ? `Automatic (${meta.automatic})` : 'Automatic'),
+      body: e.body.slice(0, 400),
+      createdAt: e.createdAt,
+      // 'sent' = accepted by Mailgun, nothing heard back yet. Anything else is
+      // Mailgun telling us what became of it.
+      delivery: log?.status ?? 'unknown',
+      deliveredAt: log?.deliveredAt ?? null,
+      failedAt: log?.failedAt ?? null,
+      error: log?.error ?? null,
+    };
+  });
+
+  return res.json({ messages });
+});
 
 router.get('/admin/tickets/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {
   const ticket = await prisma.ticket.findUnique({

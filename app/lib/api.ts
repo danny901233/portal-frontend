@@ -1164,6 +1164,31 @@ export interface TicketEntry {
   authorContact: { id: string; email: string | null; name: string | null } | null;
 }
 
+/** One message we sent, for the Sent view. */
+export interface SentTicketMessage {
+  id: string;
+  ticketId: string;
+  ticketNumber: number;
+  ticketTitle: string;
+  ticketStatus: TicketStatus;
+  to: string[];
+  cc: string[];
+  recipientName: string | null;
+  sentBy: string;
+  body: string;
+  createdAt: string;
+  /** Mailgun's verdict: 'delivered', 'bounced', 'failed', or 'sent' while we wait. */
+  delivery: string;
+  deliveredAt: string | null;
+  failedAt: string | null;
+  error: string | null;
+}
+
+export const fetchSentTicketMessages = async (limit = 60): Promise<{ messages: SentTicketMessage[] }> => {
+  const { data } = await api.get(`/api/admin/tickets/sent?limit=${limit}`);
+  return data;
+};
+
 export interface TicketQueueCounts {
   unassigned: number;
   mineOpen: number;

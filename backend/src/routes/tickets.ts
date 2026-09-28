@@ -84,9 +84,14 @@ const ccSchema = z.array(z.string().trim().email().transform((v) => v.toLowerCas
   .max(10)
   .optional();
 
+// Are we waiting on an answer? Drives the no-reply chase. Starting a
+// conversation defaults to yes; replying to one defaults to no.
+const chaseSchema = z.boolean().optional();
+
 const composeSchema = z.object({
   to: z.string().trim().email().transform((v) => v.toLowerCase()),
   cc: ccSchema,
+  chase: chaseSchema,
   name: z.string().trim().max(120).optional(),
   subject: z.string().trim().min(1).max(300),
   body: z.string().trim().min(1).max(20000),
@@ -96,6 +101,7 @@ const replySchema = z.object({
   body: z.string().trim().min(1).max(20000),
   isDraft: z.boolean().optional(),  // AI-drafted, not yet approved (default false = staff typed & sent)
   cc: ccSchema,
+  chase: chaseSchema,
 });
 
 const statusChangeSchema = z.object({
@@ -367,6 +373,8 @@ router.post('/admin/tickets/compose', authenticate, requireAdmin, async (req: Re
     userEmail: req.user.email,
     body: parsed.data.body,
     cc: parsed.data.cc,
+    // We wrote to them out of the blue; an answer is the whole point.
+    chase: parsed.data.chase ?? true,
   });
 
   const fresh = await prisma.ticket.findUnique({ where: { id: ticket.id } });
@@ -405,6 +413,10 @@ async function postPublicReply(args: {
    *  and silently re-copying people nobody can see is worse than not. The
    *  portal prefills the box from the last reply instead, where it is visible. */
   cc?: string[];
+  /** True = we are waiting on an answer, so the sweep may chase for one.
+   *  Undefined leaves the ticket as it is, which is how a lock-screen reply
+   *  and an AI draft behave: neither can express the intent. */
+  chase?: boolean;
 }): Promise<{ status: number; entry?: unknown; error?: string }> {
   const ticket = await prisma.ticket.findUnique({
     where: { id: args.ticketId },
@@ -497,6 +509,7 @@ async function postPublicReply(args: {
     data: {
       lastStaffActivityAt: now,
       firstResponseAt: ticket.firstResponseAt ?? now,
+      ...(args.chase === undefined ? {} : { autoChase: args.chase }),
       // Sending a reply flips the ticket to pending (waiting on customer).
       status: ticket.status === TicketStatus.new_ || ticket.status === TicketStatus.open
         ? TicketStatus.pending
@@ -522,6 +535,8 @@ router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: 
     body: parsed.data.body,
     isDraft: parsed.data.isDraft ?? false,
     cc: parsed.data.cc,
+    // A draft is not sent, so it says nothing about who we are waiting on.
+    chase: parsed.data.isDraft ? undefined : (parsed.data.chase ?? false),
   });
 
   return res.status(result.status).json(

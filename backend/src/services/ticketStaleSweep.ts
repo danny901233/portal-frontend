@@ -50,7 +50,10 @@ const greet = (name: string | null): string => (firstName(name) ? `Hi ${firstNam
 const reminderBody = (name: string | null): string => [
   greet(name),
   '',
-  `We replied to your message a couple of days ago and haven't heard back, so we just wanted to check whether you still need a hand with this.`,
+  // Deliberately does not say "we replied to your message": on a conversation
+  // we started, they never sent one, and telling somebody they did is the kind
+  // of small wrongness that makes the whole thing read as machinery.
+  `We got in touch a couple of days ago and haven't heard back, so we just wanted to check whether you still need a hand with this.`,
   '',
   `If you do, simply reply to this email and it will come straight back to the same person. If we don't hear from you in the next ${CLOSE_AFTER_DAYS - REMIND_AFTER_DAYS} days we'll close this ticket — you can reopen it at any time by replying.`,
 ].join('\n');

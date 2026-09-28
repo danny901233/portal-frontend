@@ -1134,6 +1134,8 @@ export interface TicketSummary {
   lastStaffActivityAt: string | null;
   solvedAt: string | null;
   closedAt: string | null;
+  /** True = we are waiting on them, so the no-reply sweep may chase. */
+  autoChase: boolean;
   contact: { id: string; email: string | null; phone: string | null; name: string | null };
   assignee: { id: string; email: string } | null;
   garage: { id: string; name: string } | null;
@@ -1242,8 +1244,10 @@ export const createTicket = async (input: CreateTicketInput): Promise<{ ticket: 
   return data;
 };
 
-export const replyToTicket = async (id: string, body: string, isDraft = false, cc?: string[]): Promise<{ entry: TicketEntry }> => {
-  const { data } = await api.post(`/api/admin/tickets/${id}/reply`, { body, isDraft, ...(cc?.length ? { cc } : {}) });
+export const replyToTicket = async (
+  id: string, body: string, isDraft = false, cc?: string[], chase = false,
+): Promise<{ entry: TicketEntry }> => {
+  const { data } = await api.post(`/api/admin/tickets/${id}/reply`, { body, isDraft, chase, ...(cc?.length ? { cc } : {}) });
   return data;
 };
 
@@ -1264,6 +1268,9 @@ export interface ComposeTicketInput {
   body: string;
   /** Copied in. Their reply-all threads back onto the same ticket. */
   cc?: string[];
+  /** We are waiting on an answer, so chase if none comes. Defaults to true
+   *  here: writing to someone out of the blue is asking for a reply. */
+  chase?: boolean;
 }
 
 /** Start a conversation from our side: a new ticket whose first message we send

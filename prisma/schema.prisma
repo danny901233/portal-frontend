@@ -1295,13 +1295,16 @@ model Ticket {
   // they write back so the next silence can remind again. Column keeps its
   // original name — renamed in Prisma only, so no live-window breakage.
   reminderSentAt         DateTime?     @map("staleNudgedAt")
-  // May we chase this person for a reply? True for a conversation: they wrote
-  // in, or we wrote to them expecting an answer. FALSE where we raised the
-  // ticket off the back of something they did and asked them nothing —
-  // thumbs-down feedback, a call on our own line. Chasing those reads as
-  // "reply or we close it" about a message they never sent. Such a ticket
-  // still ages out on schedule, it just does so silently.
-  autoChase              Boolean       @default(true)
+  // Are we waiting on this person for an answer? Only then may the sweep chase
+  // them (services/ticketStaleSweep.ts).
+  //
+  // OFF by default, because answering someone is the common case and they owe
+  // us nothing for it: "still need a hand? reply or we close this" is noise at
+  // the end of a question we already answered. It is set when whoever sends
+  // says they are waiting — always on a conversation we start, and on a reply
+  // when the box is ticked. A ticket nobody is waiting on still ages out on
+  // schedule; it just does so silently.
+  autoChase              Boolean       @default(false)
   entries                TicketEntry[]
 
   @@index([status, updatedAt])

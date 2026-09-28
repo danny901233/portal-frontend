@@ -122,6 +122,10 @@ export default function AdminTicketsPage() {
   const [sent, setSent] = useState<SentTicketMessage[]>([]);
   const [replyCc, setReplyCc] = useState('');
   const [showCc, setShowCc] = useState(false);
+  // Are we waiting on them? Off for a reply (we just answered them), on when
+  // we start a conversation (we asked them something).
+  const [chaseReply, setChaseReply] = useState(false);
+  const [chaseCompose, setChaseCompose] = useState(true);
   const [composeError, setComposeError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -191,6 +195,7 @@ export default function AdminTicketsPage() {
       const lastCc = [...res.entries].reverse().find((e) => e.meta?.cc?.length)?.meta?.cc ?? [];
       setReplyCc(lastCc.join(', '));
       setShowCc(lastCc.length > 0);
+      setChaseReply(res.ticket.autoChase ?? false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load ticket');
     }
@@ -235,7 +240,7 @@ export default function AdminTicketsPage() {
       if (draftMode === 'reply') {
         const bad = invalidCc(replyCc);
         if (bad.length) { setError(`Not a valid email address: ${bad.join(', ')}`); setSending(false); return; }
-        await replyToTicket(selectedId, draft.trim(), false, parseCc(replyCc));
+        await replyToTicket(selectedId, draft.trim(), false, parseCc(replyCc), chaseReply);
       }
       else await addTicketNote(selectedId, draft.trim());
       setDraft('');
@@ -317,6 +322,7 @@ export default function AdminTicketsPage() {
         subject: compose.subject.trim(),
         body: compose.body.trim(),
         cc: parseCc(compose.cc),
+        chase: chaseCompose,
       });
       setCompose({ to: '', name: '', subject: '', body: '', cc: '' });
       setComposing(false);
@@ -646,6 +652,15 @@ export default function AdminTicketsPage() {
                     className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
                   />
                 </label>
+                <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={chaseCompose}
+                    onChange={(e) => setChaseCompose(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                  />
+                  Waiting on a reply — remind them after 2 days, close after 5
+                </label>
                 {composeError && <p className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{composeError}</p>}
               </div>
               <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-white p-3">
@@ -801,6 +816,20 @@ export default function AdminTicketsPage() {
                     >
                       Cc{replyCc.trim() ? ` (${parseCc(replyCc).length})` : ''}
                     </button>
+                  )}
+                  {draftMode === 'reply' && (
+                    <label
+                      className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600"
+                      title="Chase them in 2 days if they don't reply, then close on day 5. Leave off when you have simply answered them."
+                    >
+                      <input
+                        type="checkbox"
+                        checked={chaseReply}
+                        onChange={(e) => setChaseReply(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                      />
+                      Awaiting reply
+                    </label>
                   )}
                   <span className="hidden text-[10px] text-slate-400 sm:inline">
                     {draftMode === 'reply'

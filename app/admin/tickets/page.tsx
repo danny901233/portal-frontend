@@ -87,7 +87,10 @@ const DELIVERY_LABEL: Record<string, string> = {
   bounced: 'Bounced',
   failed: 'Failed',
   complained: 'Marked as spam',
-  sent: 'Sending…',
+  // Accepted by Mailgun, no verdict back. Either it is seconds old, or it
+  // predates the delivery tracking we added on 26 Sep and never will get one.
+  // "Sending…" would imply it is still in flight; it usually is not.
+  sent: 'Unconfirmed',
   unknown: 'No record',
 };
 

@@ -1718,13 +1718,17 @@ function parseServicesCsv(csv: string): {
     const price = pricesAreNet
       ? grossUp(priceRead, iVatCode >= 0 ? (cells[iVatCode] ?? '') : '', name)
       : priceRead;
-    const hasRange = fromRaw.length > 0 && toRaw.length > 0;
+    // "0" to "0" is how the current export says "no engine-size restriction"; the older one
+    // left the cells empty. Read as a bracket it produced a service capped at 0cc, which
+    // `engineCC <= maxCC` can never match, so all seven of Lurgan Tyre Centre's services
+    // loaded with a null price and the agent could quote none of them. A range needs a real
+    // upper bound.
+    const maxCC = toRaw.length > 0 ? parseInt(toRaw, 10) : NaN;
+    const hasRange = Number.isFinite(maxCC) && maxCC > 0;
+    if (toRaw.length > 0 && !Number.isFinite(maxCC)) {
+      warnings.push(`Row ${lineNo + 1} (${code}): invalid engine-size To "${toRaw}" — treated as a fixed price`);
+    }
     if (hasRange) {
-      const maxCC = parseInt(toRaw, 10);
-      if (!Number.isFinite(maxCC)) {
-        warnings.push(`Row ${lineNo + 1} (${code}): invalid engine-size To "${toRaw}" — skipped`);
-        continue;
-      }
       // Group by code with trailing digits stripped: FS1/FS2/FS3 → "FS".
       const stem = code.replace(/\d+$/, '') || code;
       // Strip the engine-size suffix from the row's name to get a clean family

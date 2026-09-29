@@ -539,6 +539,10 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
         const resp = await api.post(`/admin/businesses/${existingBusinessId}/branches/batch`, {
           userId: existingUserId || undefined,
           branches: allBranches,
+          // Same rule as a new business: a deal waiting on signature starts in the pipeline,
+          // one without an agreement is live now. Left to the column default every branch was
+          // born 'live' and could never move, so signing skipped it.
+          onboardingStage: sendAgreement ? 'awaiting_agreement' : 'live',
         });
         if (sendAgreement && existingUserId) {
           const existingCount = selectedExistingBiz?.branchCount ?? 0;
@@ -619,6 +623,8 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
         await api.post(`/admin/businesses/${data.business.id}/branches/batch`, {
           userId: data.user.id,
           branches: branchPricing.map(branchPayload),
+          // Match branch 1, which /admin/onboard staged from this same choice.
+          onboardingStage: sendAgreement ? 'awaiting_agreement' : 'live',
         });
       }
 

@@ -10,6 +10,7 @@ import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenera
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 import { ensureUnifiedSipRouting } from '../services/unifiedSip.js';
+import { ONBOARDING_STAGES } from '../utils/onboardingStage.js';
 // Pushes the saved config through to the agent (Postgres -> DynamoDB). A background FAQ rewrite
 // lands after the onboard has already synced, so it has to push again or the agent keeps the
 // seeded defaults until somebody saves the config by hand.
@@ -1025,6 +1026,12 @@ const batchBranchSchema = z.object({
     // branch after the first was created with 'none' — integrated on paper, booking nothing.
     integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft']).optional().default('none'),
   })).min(1).max(20),
+  // Where these branches start in the onboarding pipeline. The column defaults to 'live', which
+  // is right for the garages that predate the pipeline and wrong for every new one — and because
+  // setOnboardingStage refuses to move a garage that is already live, a branch created this way
+  // could never enter the pipeline at all. Signing advanced branch 1 to awaiting_credentials and
+  // silently skipped branch 2, which sat reading "live" while nobody had its diary credentials.
+  onboardingStage: z.enum(ONBOARDING_STAGES).optional(),
   userId: z.string().optional(), // existing user to grant MANAGER access to the new branches
 });
 
@@ -1597,6 +1604,7 @@ router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, 
         ...(b.costPerMessageGbp != null ? { costPerMessageGbp: b.costPerMessageGbp } : {}),
         ...((b.messagingSubscriptionCostGbp ?? 0) > 0 ? { hasMessagingAccess: true } : {}),
         ...(b.hasVoiceAccess != null ? { hasVoiceAccess: b.hasVoiceAccess } : {}),
+        ...(parsed.data.onboardingStage ? { onboardingStage: parsed.data.onboardingStage } : {}),
       },
     });
     await prisma.agentConfiguration.create({

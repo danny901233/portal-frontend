@@ -1606,6 +1606,13 @@ type ParsedTsService = {
   name: string;
   pricingType: 'fixed' | 'engine-size';
   price?: number;
+  // The REAL Tyresoft service id. `id` above is only the garage's short code ("PUNCAR",
+  // "2WA"); this is the number createSale and the timeslot lookup need. The adapter says it
+  // plainly: "key on the real one, or createSale books the wrong thing", and its Misc
+  // fallback is skipped entirely for any service without one. Elite Autocare carries them
+  // (Misc is 723) because its catalogue predates this importer; the importer dropped the
+  // column, so Lurgan Tyre Centre imported seven services that could not be booked.
+  tsServiceId?: number;
 };
 type ParsedBracket = { maxCC: number; price: number };
 
@@ -1673,6 +1680,7 @@ function parseServicesCsv(csv: string): {
   const iPrice = iPriceGross >= 0 ? iPriceGross : iPriceNet;
   const pricesAreNet = iPriceGross < 0 && iPriceNet >= 0;
   const iVatCode = col('Vat Code', 'VAT Code');
+  const iApiId = col('API serviceID', 'API Service ID', 'Service Export Id', 'Service Id');
   const iFrom = col('Service Engine Size From', 'Engine Size From');
   const iTo = col('Service Engine Size To', 'Engine Size To');
   const missing: string[] = [];
@@ -1697,13 +1705,16 @@ function parseServicesCsv(csv: string): {
   };
 
   const fixed: ParsedTsService[] = [];
-  const groups = new Map<string, { name: string; brackets: ParsedBracket[] }>();
+  const groups = new Map<string, { name: string; brackets: ParsedBracket[]; tsServiceId?: number }>();
 
   for (let lineNo = 1; lineNo < rows.length; lineNo++) {
     const cells = rows[lineNo].map((c) => c.trim());
     const code = cells[iCode];
     const name = cells[iName];
     const priceRaw = cells[iPrice];
+    const apiIdRaw = iApiId >= 0 ? (cells[iApiId] ?? '') : '';
+    const apiId = Number.parseInt(apiIdRaw, 10);
+    const tsServiceId = Number.isFinite(apiId) ? apiId : undefined;
     const fromRaw = cells[iFrom] ?? '';
     const toRaw = cells[iTo] ?? '';
     if (!code || !name) {
@@ -1737,11 +1748,12 @@ function parseServicesCsv(csv: string): {
       const g = groups.get(stem);
       if (g) {
         g.brackets.push({ maxCC, price });
+        if (g.tsServiceId === undefined) g.tsServiceId = tsServiceId;
       } else {
-        groups.set(stem, { name: familyName, brackets: [{ maxCC, price }] });
+        groups.set(stem, { name: familyName, brackets: [{ maxCC, price }], tsServiceId });
       }
     } else {
-      fixed.push({ id: code, name, pricingType: 'fixed', price });
+      fixed.push({ id: code, name, pricingType: 'fixed', price, ...(tsServiceId !== undefined ? { tsServiceId } : {}) });
     }
   }
 
@@ -1749,7 +1761,7 @@ function parseServicesCsv(csv: string): {
   const pricingRules: Record<string, ParsedBracket[]> = {};
   for (const [stem, g] of groups) {
     g.brackets.sort((a, b) => a.maxCC - b.maxCC);
-    services.push({ id: stem, name: g.name, pricingType: 'engine-size' });
+    services.push({ id: stem, name: g.name, pricingType: 'engine-size', ...(g.tsServiceId !== undefined ? { tsServiceId: g.tsServiceId } : {}) });
     pricingRules[stem] = g.brackets;
   }
   services.push(...fixed);

@@ -42,6 +42,23 @@ export function previousQuarter(when = new Date()): { from: Date; to: Date; labe
   return { from, to, label: `Q${from.getUTCMonth() / 3 + 1} ${from.getUTCFullYear()}` };
 }
 
+/**
+ * Which garages count as Tyresoft's.
+ *
+ * NOT the agent script. Garages used to run a dedicated 'tyresoft-agent', but they now run the
+ * unified agent with its Tyresoft diary adapter, so keying off the script silently emptied this
+ * statement. What actually makes a garage Tyresoft's is the diary it books into, so this mirrors
+ * the rule the agent itself uses to pick the adapter (unified-agent/diaries/__init__.py): the
+ * provider says tyresoft, or it says nothing and Tyresoft credentials are sitting in the config.
+ * That second case is the normal one — the live garages were never migrated off 'none'.
+ */
+const TYRESOFT_GARAGE_SQL = `(
+       ac."integrationProvider" = 'tyresoft'
+    OR (COALESCE(NULLIF(ac."integrationProvider", ''), 'none') = 'none'
+        AND (COALESCE(ac."integrationProviderConfig"->>'tsApiKey', '') <> ''
+          OR COALESCE(ac."integrationProviderConfig"->>'tsWorkspace', '') <> ''))
+  )`;
+
 export async function buildStatement(from: Date, to: Date, label: string): Promise<CommissionStatement> {
   // Test accounts are excluded: they are ours, nobody pays for them, and including a £0 line
   // would only invite a question about why it is there.
@@ -53,7 +70,7 @@ export async function buildStatement(from: Date, to: Date, label: string): Promi
           AND i.status = 'paid'
           AND COALESCE(i."paidAt", i."createdAt") >= $1
           AND COALESCE(i."paidAt", i."createdAt") <  $2
-     WHERE ac."agentScript" = 'tyresoft-agent' AND g."isTestAccount" = false
+     WHERE ${TYRESOFT_GARAGE_SQL} AND g."isTestAccount" = false
      GROUP BY g.name
      ORDER BY 3 DESC`,
     from, to,

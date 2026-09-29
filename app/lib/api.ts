@@ -821,7 +821,14 @@ export const fetchPendingAgreement = async (): Promise<PendingAgreementResponse>
 
 export const fetchAgreementByToken = async (
   token: string
-): Promise<{ agreement: AgreementSummary; customerEmail: string; html: string; css: string }> => {
+): Promise<{
+  agreement: AgreementSummary;
+  customerEmail: string;
+  html: string;
+  css: string;
+  /** The diary this customer books into, named for the post-sign steps. Null when unknown. */
+  diaryLabel?: string | null;
+}> => {
   const { data } = await api.get(`/api/agreements/sign/${encodeURIComponent(token)}`);
   return data;
 };

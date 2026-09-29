@@ -34,7 +34,7 @@ function AgreementSignInner() {
       whatHappensNext: 'What happens next',
       step1Title: 'We set up your agent',
       step1Body: 'Nothing needed from you — we build it and get it ready.',
-      step2Title: 'We connect your Garage Hive diary',
+      step2Title: (diary: string | null) => `We connect your ${diary ?? 'booking'} diary`,
       step2Body: 'So your agent books straight into the diary you already use.',
       step3Title: "You'll get an email when your agent is ready",
       step3Body: 'It carries your login details — that’s your cue to get started.',
@@ -85,7 +85,7 @@ function AgreementSignInner() {
       whatHappensNext: 'Prochaines étapes',
       step1Title: 'Nous configurons votre agent',
       step1Body: 'Rien à faire de votre côté — nous le préparons pour vous.',
-      step2Title: 'Nous connectons votre agenda Garage Hive',
+      step2Title: (diary: string | null) => `Nous connectons votre agenda ${diary ?? 'de réservation'}`,
       step2Body: 'Votre agent réserve directement dans l’agenda que vous utilisez déjà.',
       step3Title: 'Vous recevrez un e-mail dès que votre agent est prêt',
       step3Body: 'Il contient vos identifiants de connexion — c’est votre signal de départ.',
@@ -135,6 +135,9 @@ function AgreementSignInner() {
   const [html, setHtml] = useState<string>('');
   const [css, setCss] = useState<string>('');
   const [customerEmail, setCustomerEmail] = useState<string | null>(null);
+  // Which diary this customer actually uses. Null when they have none or their branches
+  // disagree, and the step then says "your booking diary" rather than naming the wrong product.
+  const [diaryLabel, setDiaryLabel] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -162,6 +165,7 @@ function AgreementSignInner() {
           setHtml(res.html);
           setCss(res.css);
           setCustomerEmail(res.customerEmail);
+          setDiaryLabel(res.diaryLabel ?? null);
         } else {
           if (!getSessionToken()) {
             router.replace('/login?next=/agreement/sign');
@@ -312,7 +316,7 @@ function AgreementSignInner() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{c.whatHappensNext}</p>
                 <ol className="mt-3 space-y-3 text-sm text-slate-700">
                   <NextStep n={1} title={c.step1Title} body={c.step1Body} />
-                  <NextStep n={2} title={c.step2Title} body={c.step2Body} />
+                  <NextStep n={2} title={c.step2Title(diaryLabel)} body={c.step2Body} />
                   <NextStep n={3} title={c.step3Title} body={c.step3Body} />
                   <NextStep n={4} title={c.step4Title} body={c.step4Body} />
                   <NextStep n={5} title={c.step5Title} body={c.step5Body} />

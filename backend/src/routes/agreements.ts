@@ -25,6 +25,7 @@ import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendEmail, brandedEmailShell, SUPPORT_REPLY_TO } from '../utils/email.js';
 import twilio from 'twilio';
 import { normalisePhone } from '../services/outboundSend.js';
+import { PROVIDERS, type ProviderKey } from '../services/diaryConnect.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { updateOpportunity, HL_CONTRACT_SENT_STAGE_ID } from '../services/highlevel.js';
 import {
@@ -106,6 +107,27 @@ const markExternalSchema = z.object({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * The diary this customer actually uses, for the "what happens next" list they see after
+ * signing. That list said "We connect your Garage Hive diary" to everyone, including a Bookar
+ * customer who has never heard of Garage Hive — the first thing they read after signing named
+ * the wrong product. Null when there is no diary or the branches disagree, and the page then
+ * says "your diary" rather than guessing.
+ */
+async function diaryLabelForAgreement(businessId: string | null): Promise<string | null> {
+  if (!businessId) return null;
+  const garages = await prisma.garage.findMany({
+    where: { businessId, archivedAt: null },
+    select: { agentConfiguration: { select: { integrationProvider: true } } },
+  });
+  const provs = new Set(garages.map((g) => String(g.agentConfiguration?.integrationProvider || 'none')));
+  provs.delete('none');
+  if (provs.size !== 1) return null;
+  const only = [...provs][0];
+  if (only === 'garage_hive') return 'Garage Hive';
+  return PROVIDERS[only as ProviderKey]?.label ?? null;
+}
 
 function buildSnapshot(agreement: {
   type?: string;
@@ -246,6 +268,7 @@ router.get('/agreements/sign/:token', async (req: Request, res: Response) => {
       type: agreement.type,
       version: agreement.version,
     },
+    diaryLabel: await diaryLabelForAgreement(agreement.businessId),
     customerEmail: tokenRow.user.email,
     html,
     css: AGREEMENT_CSS,

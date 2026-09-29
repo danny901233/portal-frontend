@@ -193,6 +193,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setIsStaffUser(isReceptionMateStaff());
     setIsAdminUser(isManager());
 
+    // Paint immediately from the cached list so the picker doesn't flash empty, then fall through
+    // and refresh it from the server. This used to `return` here, which made the copy written at
+    // login authoritative until the next logout — so a garage archived afterwards stayed in the
+    // branch dropdown indefinitely, however well the API filtered it.
     if (storedGarages.length > 0) {
       setGaragesState(storedGarages);
       if (!storedGarages.some((garage) => garage.id === storedGarageId)) {
@@ -203,7 +207,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
         }
       }
       setIsReady(true);
-      return;
     }
 
     try {

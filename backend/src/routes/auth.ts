@@ -245,11 +245,14 @@ router.post('/login', async (req: Request, res: Response) => {
 
     let allowedGarageIds = Array.isArray(user.garageAccessIds) ? [...user.garageAccessIds] : [];
     if (user.role === 'RECEPTIONMATE_STAFF') {
-      const allGarages = await prisma.garage.findMany({ select: { id: true } });
+      // Archived garages are former customers. They are filtered out of /api/garages, the health
+      // board and the forecast — but this list is what the browser caches as the branch dropdown
+      // at login, so leaving them in here put leavers back in the picker on every sign-in.
+      const allGarages = await prisma.garage.findMany({ where: { archivedAt: null }, select: { id: true } });
       allowedGarageIds = allGarages.map((entry) => entry.id);
     }
     if (allowedGarageIds.length === 0) {
-      const fallback = await prisma.garage.findFirst({ select: { id: true } });
+      const fallback = await prisma.garage.findFirst({ where: { archivedAt: null }, select: { id: true } });
       if (!fallback) {
         return res.status(404).json({ error: 'No garages available' });
       }
@@ -266,8 +269,10 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Garage not found' });
     }
 
+    // The dropdown is seeded from this and cached in localStorage, so it must match what
+    // /api/garages would return on the next refresh.
     const accessibleGarages = await prisma.garage.findMany({
-      where: { id: { in: allowedGarageIds } },
+      where: { id: { in: allowedGarageIds }, archivedAt: null },
       orderBy: { name: 'asc' },
     });
 
@@ -488,7 +493,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       const allowedGarageIds = Array.isArray(updatedUser.garageAccessIds) ? updatedUser.garageAccessIds : [];
       const branchRoles = sanitizeBranchRoles(updatedUser.branchRoles);
       const accessibleGarages = await prisma.garage.findMany({
-        where: { id: { in: allowedGarageIds } },
+        where: { id: { in: allowedGarageIds }, archivedAt: null },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       });

@@ -799,6 +799,7 @@ router.post('/admin/agreements/draft', authenticate, requireAdmin, async (req: R
   });
 
   return res.status(201).json({ agreement });
+});
 
 /**
  * POST /api/admin/agreements/preview
@@ -832,7 +833,6 @@ router.post('/admin/agreements/preview', authenticate, requireAdmin, async (req:
     d.licenceFeeGbp * d.centresCount +
     (d.messagingFeeGbp ?? 0) * (d.messagingCentresCount ?? d.centresCount);
   return res.json({ html, css: AGREEMENT_CSS, monthlyTotalGbp: monthlyTotal });
-});
 });
 
 /**

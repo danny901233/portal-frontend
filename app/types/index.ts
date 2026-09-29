@@ -169,7 +169,11 @@ export const createEmptyWeeklyOpeningHours = (): WeeklyOpeningHours => {
   }, {} as WeeklyOpeningHours);
 };
 
-export type IntegrationProvider = 'none' | 'garage_hive';
+// Kept in step with backend/src/utils/types.ts. It was stuck on 'none' | 'garage_hive' long
+// after the other three diaries shipped, so every `integrationProvider === 'tyresoft'`
+// (and bookar, and poole) in the UI was a comparison TypeScript called impossible — three
+// standing errors that made a fourth one look like more of the same noise.
+export type IntegrationProvider = 'none' | 'garage_hive' | 'bookar' | 'poole' | 'tyresoft';
 
 export type AgentType = 'assist' | 'automate';
 
@@ -267,7 +271,7 @@ export interface AgentConfiguration {
   tyresoftSettings: TyresoftSettings;
   hubspotSettings: HubspotSettings;
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'unified-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
   screenBeforeAgent?: boolean;

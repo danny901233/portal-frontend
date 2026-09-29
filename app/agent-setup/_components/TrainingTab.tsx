@@ -233,7 +233,15 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
 
   const websitePages = knowledgeBase.filter((d) => d.source === 'website-scan').length;
   const isAssist = config.agentType === 'assist';
-  const isTyresoftAgent = config.agentScript === 'tyresoft-agent';
+  // The Services CSV upload is the ONLY place a Tyresoft garage's MOT and service prices get
+  // into the portal — the adapter reads them from config, never from Tyresoft's API — so
+  // gating it on the legacy script alone hid it from every garage that moved to the unified
+  // agent. Elite Autocare and Lurgan Tyre Centre both read as 'unified-agent' with the
+  // provider set to tyresoft, and neither could see the upload. AdminTab already pairs the
+  // script with the provider this way for all four diaries; this tab was missed.
+  const isTyresoftAgent =
+    config.agentScript === 'tyresoft-agent'
+    || (config.agentScript === 'unified-agent' && config.integrationProvider === 'tyresoft');
   const hasPriceList = uploadedDocs.some((d) => d.kind === 'price-list');
   const hasTyresoftRules =
     Object.keys(config.tyresoftSettings?.pricingRules ?? {}).length > 0;

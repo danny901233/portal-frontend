@@ -175,10 +175,18 @@ export const initializeScheduledReports = (): void => {
 
   console.log("✓ In'n'out invoice scheduled: 1st of month at 9:00 AM (UK time)");
 
-  // Tyresoft commission statement: 09:00 on the 1st of Jan/Apr/Jul/Oct, covering the
+  // Tyresoft commission statement: 09:00 on the 5th of Jan/Apr/Jul/Oct, covering the
   // quarter that just closed. Tyresoft take 7.5% of what we bill (ex VAT) any garage
   // running their integration, so they need the figure to raise their invoice to us.
-  cron.schedule('0 9 1 1,4,7,10 *', async () => {
+  //
+  // The 5th, not the 1st. The statement counts PAID invoices, and a Direct Debit charged in
+  // the last days of a quarter is still unconfirmed on the 1st — the GoCardless sync runs at
+  // 08:00, one hour before this did. Worse than being late, it was unrecoverable: the sync
+  // backdates paidAt to the charge date, so a payment confirmed after the statement went out
+  // landed in a quarter already reported and would never appear in the next one either. Elite
+  // Autocare's September 2026 invoice (£649 ex VAT, charged 28 Sep) was one sync away from
+  // being dropped that way. Four extra days lets the quarter's last collections settle.
+  cron.schedule('0 9 5 1,4,7,10 *', async () => {
     console.log('Running Tyresoft quarterly commission job...');
     try {
       const sent = await sendQuarterlyCommission();
@@ -190,7 +198,7 @@ export const initializeScheduledReports = (): void => {
     timezone: 'Europe/London', // UK timezone
   });
 
-  console.log('✓ Tyresoft commission scheduled: 1 Jan/Apr/Jul/Oct at 9:00 AM (UK time)');
+  console.log('✓ Tyresoft commission scheduled: 5 Jan/Apr/Jul/Oct at 9:00 AM (UK time)');
 
   // Garage Hive service/MOT reminders: every day at 9:00 AM. For each garage with
   // an enabled Garage Hive connection, pull vehicles due in N days and send the

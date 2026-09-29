@@ -875,7 +875,26 @@ router.get('/outbound/campaigns/:id', authenticate, async (req: Request, res: Re
       conversation: ct.conversationId ? convById.get(ct.conversationId) ?? null : null,
     }));
 
-    res.json({ campaign: { ...campaign, contacts } });
+    // Which template each customer was actually sent. The campaign holds ids — one per stage for a
+    // staged reminder, a single one for a one-off — and a garage reading the results needs the name
+    // it knows the template by, not a cuid. Resolved here so the page never has to hold the whole
+    // template list just to label a row.
+    const stageTemplates = (campaign.stageTemplates as Record<string, string> | null) || {};
+    const templateIds = [...new Set([
+      campaign.messageTemplateId,
+      ...Object.values(stageTemplates),
+    ].filter(Boolean))] as string[];
+    const templateNames = Object.fromEntries(
+      (templateIds.length
+        ? await prisma.messageTemplate.findMany({
+            where: { id: { in: templateIds } },
+            select: { id: true, name: true },
+          })
+        : []
+      ).map((t) => [t.id, t.name]),
+    );
+
+    res.json({ campaign: { ...campaign, contacts, templateNames } });
   } catch (error) {
     console.error('[OUTBOUND] Get campaign error:', error);
     res.status(500).json({ error: 'Failed to get campaign' });

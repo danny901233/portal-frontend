@@ -386,6 +386,7 @@ export default function OutboundPage() {
       colMotDue: 'MOT Due',
       colServiceDue: 'Service Due',
       colChasing: 'Chasing',
+      colTemplate: 'Template sent',
       chasingMot: 'MOT',
       chasingService: 'Service',
       andMore: (n: number) => `…and ${n} more`,
@@ -587,6 +588,7 @@ export default function OutboundPage() {
       colMotDue: 'Contrôle technique dû',
       colServiceDue: 'Entretien dû',
       colChasing: 'Relance',
+      colTemplate: 'Modèle envoyé',
       chasingMot: 'CT',
       chasingService: 'Révision',
       andMore: (n: number) => `…et ${n} de plus`,
@@ -1943,6 +1945,7 @@ export default function OutboundPage() {
                       <th className="px-4 py-2">{c.colMotDue}</th>
                       <th className="px-4 py-2">{c.colServiceDue}</th>
                       <th className="px-4 py-2">{c.colChasing}</th>
+                      <th className="px-4 py-2">{c.colTemplate}</th>
                       <th className="px-4 py-2">{c.thStatus}</th>
                       <th className="px-4 py-2">{c.cOutcome}</th>
                       <th className="px-4 py-2">{c.cDetail}</th>
@@ -1989,6 +1992,34 @@ export default function OutboundPage() {
                             <span className={contact.messageType === 'service' ? 'text-sky-600' : 'text-amber-600'}>
                               {contact.messageType === 'service' ? c.chasingService : c.chasingMot}
                             </span>
+                          </td>
+                          {/* What this customer was actually sent, stage by stage. Read from the
+                              stages recorded against the contact rather than the campaign's current
+                              settings, so editing a schedule never rewrites the history of what went
+                              out. Nothing sent yet shows a dash, not the template it is queued for. */}
+                          <td className="px-4 py-2 text-xs">
+                            {(() => {
+                              const names = selectedCampaign?.templateNames || {};
+                              const stages = [...(contact.stagesSent || [])].sort((a, b) => b - a);
+                              const staged = selectedCampaign?.stageTemplates || {};
+                              const rows = stages.length
+                                ? stages.map((st) => ({
+                                    stage: st,
+                                    name: names[staged[String(st)]] || names[selectedCampaign?.messageTemplateId || ''],
+                                  }))
+                                // A one-off send keeps no stages: everyone got the campaign's own
+                                // template, so show it for anyone the send actually reached.
+                                : ['sent', 'delivered', 'read', 'replied', 'failed'].includes(contact.status)
+                                  ? [{ stage: null, name: names[selectedCampaign?.messageTemplateId || ''] }]
+                                  : [];
+                              if (!rows.length) return <span className="text-slate-400">—</span>;
+                              return rows.map((r) => (
+                                <span key={r.stage ?? 'oneoff'} className="block font-mono text-[11px] text-slate-600">
+                                  {r.stage !== null && <span className="text-slate-400">{r.stage}d </span>}
+                                  {r.name || '—'}
+                                </span>
+                              ));
+                            })()}
                           </td>
                           <td className={`px-4 py-2 text-xs font-medium ${statusColor[contact.status] ?? 'text-slate-500'}`}>
                             {statusLabel[contact.status] ?? contact.status}

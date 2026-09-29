@@ -586,6 +586,8 @@ export interface OutboundContact extends OutboundContactInput {
   status: string;
   messageSid?: string | null;
   errorReason?: string | null;
+  /** Days-before-due marks already sent to this contact — empty until the sweep messages them. */
+  stagesSent?: number[];
   conversationId?: string | null;
   /** The conversation their reply started, if they replied — this is where the outcome lives. */
   conversation?: {
@@ -614,6 +616,10 @@ export interface OutboundCampaign {
   campaignType?: 'reminder' | 'oneoff';
   reminderStages?: number[];
   messageTemplateId?: string | null;
+  /** { "30": "<templateId>", "14": "..." } — which template each stage sends. */
+  stageTemplates?: Record<string, string> | null;
+  /** Template id → the name the garage knows it by. Only sent on the single-campaign fetch. */
+  templateNames?: Record<string, string>;
   variableMapping?: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;

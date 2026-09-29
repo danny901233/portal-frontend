@@ -266,8 +266,72 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
     }
   }
 
+  // The sweep sends contact-by-contact and never touches the campaign row, so without this every
+  // staged campaign sits at its default 'draft' with sentCount 0 forever, however many messages
+  // actually went out. Anything reading the campaign — the outbound page, reporting — then shows
+  // a delivered run as an untouched draft.
+  if (armed) {
+    const rolled = await rollUpReminderCampaigns();
+    if (rolled) console.log(`[REMINDERS] rolled up ${rolled} campaign(s)`);
+  }
+
   console.log(`[REMINDERS] sweep done — garages:${garagesTouched} sent:${sent} wouldSend:${wouldSend} expired:${expired} armed:${armed}`);
   return { garages: garagesTouched, sent, wouldSend, expired };
+}
+
+/**
+ * Bring every staged reminder campaign's own row back in line with what its contacts show.
+ *
+ * Recomputed from the contacts rather than incremented as we send, so a run that crashes halfway,
+ * or the campaigns already sent before this existed, are corrected on the next sweep instead of
+ * staying wrong forever.
+ *
+ * Only 'draft' and 'sending' are looked at: once a campaign is finished it is left alone, which
+ * also keeps this bounded to the last few days of runs.
+ */
+export async function rollUpReminderCampaigns(): Promise<number> {
+  const campaigns = await prisma.outboundCampaign.findMany({
+    where: { campaignType: 'reminder', status: { in: ['draft', 'sending'] } },
+    select: {
+      id: true, status: true, sentAt: true, sentCount: true, reminderStages: true,
+      contacts: { select: { status: true, stagesSent: true, dueDate: true, updatedAt: true } },
+    },
+  });
+
+  let updated = 0;
+  for (const c of campaigns) {
+    if (c.contacts.length === 0) continue;
+    const stages = c.reminderStages?.length ? c.reminderStages : DEFAULT_STAGES;
+
+    // One contact can be messaged once per stage, so the count is messages sent, not people
+    // reached — the same thing sentCount means on a manual campaign send.
+    const sentCount = c.contacts.reduce((n, ct) => n + (ct.stagesSent?.length ?? 0), 0);
+    if (sentCount === 0) continue;
+
+    // A contact is done when it has had every stage, when its due date has passed so no later
+    // stage can fire, or when it is no longer 'pending' — the sweep only ever picks up 'pending'
+    // rows, so anything a delivery webhook has moved on is out of the series either way.
+    const finished = c.contacts.every((ct) =>
+      ct.status !== 'pending'
+      || (ct.stagesSent?.length ?? 0) >= stages.length
+      || !ct.dueDate || daysUntil(ct.dueDate) < 0);
+
+    // Approximate: the earliest touch on a contact that has been messaged. A delivery webhook can
+    // have moved it since, so this is the right day rather than the exact second.
+    const firstTouch = c.contacts
+      .filter((ct) => (ct.stagesSent?.length ?? 0) > 0)
+      .reduce<Date | null>((min, ct) => (!min || ct.updatedAt < min ? ct.updatedAt : min), null);
+
+    const status = finished ? 'processed' : 'sending';
+    if (c.status === status && c.sentCount === sentCount && c.sentAt) continue;
+
+    await prisma.outboundCampaign.update({
+      where: { id: c.id },
+      data: { status, sentCount, sentAt: c.sentAt ?? firstTouch ?? new Date() },
+    });
+    updated++;
+  }
+  return updated;
 }
 
 export function initAbandonedCheckoutCron(): void {

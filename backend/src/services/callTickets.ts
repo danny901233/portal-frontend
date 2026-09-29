@@ -50,7 +50,7 @@ interface CreateArgs {
   category?: TicketCategory;
 }
 
-async function createCallTicket(args: CreateArgs): Promise<void> {
+export async function createCallTicket(args: CreateArgs): Promise<void> {
   const phone = args.callerPhone?.trim() || null;
 
   // A Contact needs an email or a phone. Withheld numbers give us neither, so

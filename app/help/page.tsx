@@ -1,9 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { collections, searchArticles } from './_content/articles';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import api from '../lib/api';
+import { getGarageId } from '../lib/auth';
 
 const collectionIconPaths: Record<string, string> = {
   rocket:    'M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z',
@@ -13,6 +15,40 @@ const collectionIconPaths: Record<string, string> = {
   card:      'M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z',
   lifebuoy:  'M16.712 4.33a9.027 9.027 0 011.652 1.306c.51.51.944 1.064 1.306 1.652M16.712 4.33l-3.448 4.138m3.448-4.138a9.014 9.014 0 00-9.424 0M19.67 7.288l-4.138 3.448m4.138-3.448a9.014 9.014 0 010 9.424m-4.138-5.976a3.736 3.736 0 00-.88-1.388 3.737 3.737 0 00-1.388-.88m2.268 2.268a3.765 3.765 0 010 2.528m-2.268-4.796L9.83 9.832m4.138-2.456a3.765 3.765 0 00-2.528 0m-1.61 7.564l4.138-3.448m-4.138 3.448a9.014 9.014 0 01-9.424 0m4.138-3.448a3.765 3.765 0 002.528 0m-1.61-4.116L4.33 7.288m4.138 3.448a3.736 3.736 0 00-.88 1.388 3.737 3.737 0 00-.88 1.388M4.33 7.288a9.014 9.014 0 000 9.424',
 };
+
+/**
+ * The five digits a garage reads out when they ring support from a phone we do
+ * not recognise. Fetched rather than baked in, and only when someone actually
+ * looks at this page, so a garage that never rings support never gets one.
+ *
+ * Quiet on failure: a support code that will not load is not a reason to put an
+ * error on the help page, and the number they call from usually identifies them
+ * anyway.
+ */
+function SupportCodeCard({ title, body, hint }: { title: string; body: string; hint: string }) {
+  const [code, setCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    const garageId = getGarageId();
+    if (!garageId) return;
+    let cancelled = false;
+    api.get<{ supportCode: string }>(`/api/garages/${garageId}/support-code`)
+      .then((res: { data: { supportCode: string } }) => { if (!cancelled) setCode(res.data.supportCode); })
+      .catch(() => { /* leave it hidden */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!code) return null;
+
+  return (
+    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
+      <p className="text-base font-semibold text-slate-900">{title}</p>
+      <p className="mt-1 text-sm text-slate-600">{body}</p>
+      <p className="mt-3 font-mono text-3xl font-bold tracking-[0.3em] text-brand-700">{code}</p>
+      <p className="mt-3 text-xs text-slate-500">{hint}</p>
+    </div>
+  );
+}
 
 export default function HelpHomePage() {
   const [query, setQuery] = useState('');
@@ -34,6 +70,9 @@ export default function HelpHomePage() {
       stillStuck: 'Still stuck?',
       stillStuckBody: "Email our team and we'll usually reply within an hour.",
       emailUs: 'Email hello@receptionmate.co.uk',
+      codeTitle: 'Ringing us?',
+      codeBody: 'If you call from your main contact number we know who you are. From any other phone, read out this code:',
+      codeHint: 'It identifies your garage so we can look at your calls and settings while we talk. Keep it to your own team.',
     },
     fr: {
       eyebrow: "Centre d'aide",
@@ -51,6 +90,9 @@ export default function HelpHomePage() {
       stillStuck: 'Toujours bloqué ?',
       stillStuckBody: "Écrivez à notre équipe et nous répondons généralement dans l'heure.",
       emailUs: 'Écrire à hello@receptionmate.co.uk',
+      codeTitle: 'Vous nous appelez ?',
+      codeBody: "Si vous appelez depuis votre numéro de contact principal, nous vous reconnaissons. Depuis un autre téléphone, communiquez ce code :",
+      codeHint: "Il identifie votre garage pour que nous puissions consulter vos appels et vos réglages pendant l'échange. À réserver à votre équipe.",
     },
   }[lang];
 
@@ -197,6 +239,7 @@ export default function HelpHomePage() {
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clipRule="evenodd" /></svg>
               </a>
             </div>
+            <SupportCodeCard title={c.codeTitle} body={c.codeBody} hint={c.codeHint} />
           </>
         )}
       </section>

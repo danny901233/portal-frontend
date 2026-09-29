@@ -47,6 +47,7 @@ import agreementsRouter from './routes/agreements.js';
 import supportRouter from './routes/support.js';
 import supportVoiceRouter from './routes/support-voice.js';
 import ticketsRouter from './routes/tickets.js';
+import agentSupportRouter, { supportCodeRouter } from './routes/agent-support.js';
 import opsTasksRouter from './routes/opsTasks.js';
 import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler, installProcessErrorHandlers } from './middleware/errorHandler.js';
@@ -185,6 +186,9 @@ app.use('/api', agreementsRouter);
 app.use('/api', supportRouter);
 app.use('/api', supportVoiceRouter);
 app.use('/api', ticketsRouter);
+// Agent-facing support lookups. Its own secret check inside, not `authenticate`.
+app.use('/api', agentSupportRouter);
+app.use('/api', supportCodeRouter);
 app.use('/api', opsTasksRouter);
 app.use('/api', deviceTokensRouter);
 app.use('/api', templatesRouter);

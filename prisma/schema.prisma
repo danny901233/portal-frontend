@@ -33,6 +33,12 @@ model Garage {
   // not a failed-collection signal, and the billing watchdog must not treat them as unpaid.
   paymentMethod      String  @default("direct_debit") // 'direct_debit' | 'invoice'
   twilioNumber       String?
+  // Five digits the garage reads out to prove who they are when they ring
+  // support from a number we do not recognise. Shown to them in the portal.
+  // Deliberately short: it is spoken aloud down a phone, not typed. Short is
+  // also why it only ever unlocks READING their own data — see
+  // routes/agent-support.ts.
+  supportCode        String?  @unique
   hasMessagingAccess Boolean @default(false)
   hasVoiceAccess Boolean @default(true)
 

@@ -4,6 +4,7 @@
  * Endpoints:
  *   POST /api/agent/support/identify        — who is this? (caller number or code)
  *   GET  /api/agent/support/context/:id     — their recent calls + configuration
+ *   POST /api/agent/support/add-rule        — add ONE rule (the only thing it may change)
  *   POST /api/agent/support/change-request  — what the agent WOULD have changed
  *
  * READ ONLY, deliberately. Identification here is a phone number that can be
@@ -18,7 +19,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
-import { TicketCategory, TicketPriority } from '@prisma/client';
+import { Prisma, TicketCategory, TicketPriority } from '@prisma/client';
 import { prisma } from '../db.js';
 import {
   identifyByCallerNumber,
@@ -28,6 +29,7 @@ import {
 } from '../services/supportIdentity.js';
 import { authenticate } from '../middleware/auth.js';
 import { createCallTicket } from '../services/callTickets.js';
+import { sendAgentConfigWebhook } from './config.js';
 
 const router = Router();
 
@@ -190,6 +192,111 @@ router.post('/agent/support/find-call', async (req: Request, res: Response) => {
     found: calls.map((c) => ({ ...c, summary: (c.summary ?? '').slice(0, 800) })),
     ...(calls.length ? {} : { reason: 'Nobody of that name on a recent call. Ask for the call ID from the portal instead.' }),
   });
+});
+
+// ─── Adding a rule ──────────────────────────────────────────────────────────
+// The one thing the support agent may change, and only for a caller it has
+// proved. Deliberately ADD ONLY: appending a rule is recoverable — a person can
+// read it and take it out — whereas editing or deleting the ones already there
+// lets a voice on the phone quietly undo something a garage set up months ago.
+//
+// Writing to Postgres is not enough on its own. The agents read their runtime
+// config from DynamoDB, so this goes out through the same sync a portal save
+// uses; without it the rule would sit in the database looking applied while the
+// agent carried on exactly as before.
+//
+// Every addition also raises a ticket. Somebody should see what was added to a
+// live agent's behaviour over the phone, the same day, without going looking.
+
+const MAX_RULES = 40;
+
+const addRuleSchema = z.object({
+  garageId: z.string().trim().min(1),
+  rule: z.string().trim().min(3).max(500),
+  callId: z.string().trim().max(64).nullable().optional(),
+  callerPhone: z.string().trim().max(32).nullable().optional(),
+  callerName: z.string().trim().max(120).nullable().optional(),
+});
+
+const ruleText = (r: unknown): string =>
+  typeof r === 'string' ? r
+    : (r && typeof r === 'object' && typeof (r as Record<string, unknown>).text === 'string')
+      ? (r as Record<string, string>).text
+      : '';
+
+router.post('/agent/support/add-rule', async (req: Request, res: Response) => {
+  const parsed = addRuleSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', issues: parsed.error.issues });
+  const { garageId, rule, callId, callerPhone, callerName } = parsed.data;
+
+  const garage = await prisma.garage.findUnique({ where: { id: garageId }, select: { name: true } });
+  if (!garage) return res.status(404).json({ error: 'Not found' });
+
+  const cfg = await prisma.agentConfiguration.findUnique({
+    where: { garageId },
+    select: { customRules: true },
+  });
+  if (!cfg) return res.status(404).json({ error: 'No agent configuration for that garage' });
+
+  const existing: unknown[] = Array.isArray(cfg.customRules) ? (cfg.customRules as unknown[]) : [];
+  if (existing.length >= MAX_RULES) {
+    return res.status(409).json({
+      error: `They already have ${existing.length} rules, which is as many as we add over the phone. `
+        + 'Take it as a change request instead so somebody can tidy them up.',
+    });
+  }
+  if (existing.some((r) => ruleText(r).trim().toLowerCase() === rule.toLowerCase())) {
+    return res.json({ ok: true, duplicate: true, ruleCount: existing.length });
+  }
+
+  const next = [...existing, { text: rule }];
+  await prisma.agentConfiguration.update({
+    where: { garageId },
+    data: { customRules: next as Prisma.InputJsonValue },
+  });
+
+  // The same audit trail a portal save leaves, so this is never invisible.
+  await prisma.agentConfigChange.create({
+    data: {
+      garageId,
+      userEmail: `support agent (call ${callId || 'unknown'}, ${callerPhone || 'number withheld'})`,
+      scope: 'agent_config',
+      changes: [{
+        field: 'customRules',
+        from: `${existing.length} rules`,
+        to: `${next.length} rules — added: ${rule}`,
+      }] as Prisma.InputJsonValue,
+    },
+  });
+
+  // Push it to where the agent actually reads from.
+  try {
+    await sendAgentConfigWebhook(garageId);
+  } catch (err) {
+    console.error('[AGENT_SUPPORT] rule added but the sync failed for', garageId, err);
+  }
+
+  const base = (process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '');
+  await createCallTicket({
+    garageId,
+    garageName: garage.name,
+    callerPhone: callerPhone ?? null,
+    callerName: callerName ?? null,
+    title: `Rule added over the phone — ${garage.name}`.slice(0, 300),
+    body: [
+      'A verified caller asked the support agent to add a rule, and it did. It is live now.',
+      '',
+      `"${rule}"`,
+      '',
+      `They have ${next.length} rules in total. Worth checking it reads the way they meant it.`,
+      callId ? `${base}/calls/${callId}` : '',
+    ].filter(Boolean).join('\n'),
+    priority: TicketPriority.normal,
+    category: TicketCategory.setup_help,
+  });
+
+  console.log(`[AGENT_SUPPORT] rule added to ${garage.name} over the phone (now ${next.length})`);
+  return res.status(201).json({ ok: true, ruleCount: next.length });
 });
 
 // ─── What the agent would have changed ──────────────────────────────────────

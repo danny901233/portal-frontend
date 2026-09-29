@@ -114,22 +114,42 @@ export async function runGarageReminders(conn: NonNullable<Connection>): Promise
     return { ...base, ok: true };
   }
 
-  // Idempotency: skip a reg+type already reminded within the recent window so
-  // re-runs / retries don't double-message. Window covers the due horizon + slack.
+  // Idempotency: skip a vehicle already reminded within the recent window so re-runs / retries
+  // don't double-message. Window covers the due horizon + slack.
   const windowStart = new Date();
   windowStart.setDate(windowStart.getDate() - (daysAhead + 7));
   const recent = await prisma.outboundContact.findMany({
     where: {
       garageId,
       createdAt: { gte: windowStart },
-      status: { in: ['sent', 'delivered', 'read', 'replied'] },
+      // Anything that actually went on the wire, not just what a webhook has since confirmed.
+      // Status alone was the test, which let an undeliverable number be retried every few days
+      // ('failed' was not in the list), and left the gap between sending and the delivery
+      // webhook landing — where the row still reads 'pending' — invisible to tomorrow's run.
+      OR: [
+        { status: { in: ['sent', 'delivered', 'read', 'replied', 'failed', 'opted_out'] } },
+        { messageSid: { not: null } },
+      ],
     },
-    select: { registration: true, messageType: true },
+    select: { registration: true },
   });
-  const seen = new Set(recent.map((r) => `${(r.registration || '').toUpperCase()}|${r.messageType}`));
+  // Keyed on the VEHICLE, not vehicle-and-job. EU67VFA was reminded about a service on the 21st
+  // and an MOT on the 22nd: two template messages on consecutive mornings about one car, because
+  // the key included the due type and Garage Hive typed it differently on each pull. A customer
+  // counts one reminder per car, whatever happens to be due on it.
+  const seen = new Set(recent.map((r) => (r.registration || '').toUpperCase()));
+
+  // Someone who asked to be left alone stays left alone. The manual campaign sender has always
+  // built this list; the daily pull did not, so an opt-out only held until the next morning
+  // brought a fresh row for the same person. Not windowed — an opt-out does not expire.
+  const optedOut = await prisma.outboundContact.findMany({
+    where: { garageId, status: 'opted_out' },
+    select: { phone: true },
+  });
+  const dnc = new Set(optedOut.map((c) => normalisePhone(c.phone)));
 
   const contactData = contacts
-    .filter((c) => !seen.has(`${c.registration.toUpperCase()}|${c.dueType}`))
+    .filter((c) => !seen.has(c.registration.toUpperCase()) && !dnc.has(normalisePhone(c.phone)))
     .map((c) => ({
       garageId,
       customerName: c.customerName,

@@ -13,7 +13,8 @@ import {
   sendSupportMessage,
   type SupportMessage,
 } from '../lib/api';
-import { getSessionToken } from '../lib/auth';
+import { getSessionToken, getGarageId } from '../lib/auth';
+import api from '../lib/api';
 import { useLang } from '@/app/i18n/LocaleProvider';
 
 const POLL_MS_OPEN = 20_000;
@@ -36,9 +37,40 @@ const AI_PERSONA = {
   tagline: 'Instant answers about your account, setup and billing.',
 };
 
-// Phone tile target — UK freephone for the team.
-const SUPPORT_PHONE_DISPLAY = '0800 107 5988';
-const SUPPORT_PHONE_DIAL = '+448001075988';
+// Phone tile target. This is the line our own support agent answers, so a garage
+// ringing it is recognised from their main contact number, or by reading out the
+// support code shown below.
+const SUPPORT_PHONE_DISPLAY = '0333 370 1610';
+const SUPPORT_PHONE_DIAL = '+443333701610';
+
+/**
+ * The five digits a garage reads out when they ring us from a phone we do not
+ * recognise. Shown right above the number, because that is the moment they need
+ * it — not on another page they would have to go and find.
+ *
+ * Quiet on failure: it is a convenience, and calling from the number we hold
+ * identifies them anyway.
+ */
+function SupportCodeLine() {
+  const [code, setCode] = useState<string | null>(null);
+  useEffect(() => {
+    const garageId = getGarageId();
+    if (!garageId) return;
+    let cancelled = false;
+    api.get<{ supportCode: string }>(`/api/garages/${garageId}/support-code`)
+      .then((res: { data: { supportCode: string } }) => { if (!cancelled) setCode(res.data.supportCode); })
+      .catch(() => { /* leave it out */ });
+    return () => { cancelled = true; };
+  }, []);
+  if (!code) return null;
+  return (
+    <p className="px-1 text-[11px] leading-relaxed text-slate-500">
+      Calling from another phone? Quote your support code{' '}
+      <span className="font-mono font-semibold tracking-widest text-slate-700">{code}</span>{' '}
+      so we can pull your account up.
+    </p>
+  );
+}
 
 type View = 'menu' | 'connecting' | 'chat';
 
@@ -290,6 +322,7 @@ function MenuView({
           subtitle={c.whatsAppSubtitle}
           dimmed
         />
+        <SupportCodeLine />
         <a
           href={`tel:${SUPPORT_PHONE_DIAL}`}
           className="block rounded-xl border border-slate-200 bg-white p-3 transition hover:border-slate-300 hover:shadow-sm"

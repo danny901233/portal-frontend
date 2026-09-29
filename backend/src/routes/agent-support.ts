@@ -285,7 +285,11 @@ router.post('/agent/support/add-rule', async (req: Request, res: Response) => {
     return res.json({ ok: true, duplicate: true, ruleCount: existing.length });
   }
 
-  const next = [...existing, { text: rule }];
+  // `active: true` matters: the portal writes every rule as { text, active }
+  // and the Rules tab has a checkbox for it, so a rule saved without the flag is
+  // stored but never applied — it looks added and changes nothing. Added over
+  // the phone on 2026-09-29 and it sat there inert.
+  const next = [...existing, { text: rule, active: true }];
   await prisma.agentConfiguration.update({
     where: { garageId },
     data: { customRules: next as Prisma.InputJsonValue },

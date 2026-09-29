@@ -251,12 +251,17 @@ router.post('/support/voice/identify', async (req: Request, res: Response) => {
 const ticketSchema = z.object({
   reason: z.enum(['human_requested', 'cannot_answer', 'complaint', 'sales', 'other']),
   summary: z.string().trim().min(1).max(2000),
-  callerName: z.string().trim().max(200).optional(),
-  callerPhone: z.string().trim().max(40).optional(),
-  callerEmail: z.string().trim().max(200).optional(),
-  company: z.string().trim().max(200).optional(),
-  garageId: z.string().trim().max(64).optional(),
-  transcript: z.string().trim().max(20000).optional(),
+  // nullable(), for the same reason identifySchema above carries the scar: the
+  // agent sends what it does not have as an explicit null, and zod's optional()
+  // takes a MISSING key but refuses a null one. Every ticket a support call
+  // tried to raise 400'd on this — twice on one call on 2026-09-29 — and the
+  // agent had already told the caller a ticket was raised.
+  callerName: z.string().trim().max(200).nullable().optional(),
+  callerPhone: z.string().trim().max(40).nullable().optional(),
+  callerEmail: z.string().trim().max(200).nullable().optional(),
+  company: z.string().trim().max(200).nullable().optional(),
+  garageId: z.string().trim().max(64).nullable().optional(),
+  transcript: z.string().trim().max(20000).nullable().optional(),
   urgency: z.enum(['normal', 'urgent']).default('normal'),
 });
 

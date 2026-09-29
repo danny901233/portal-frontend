@@ -109,6 +109,10 @@ router.get('/agent/support/context/:garageId', async (req: Request, res: Respons
         branchName: true, agentName: true, phoneNumber: true, emailAddress: true,
         greetingLine: true, weeklyOpeningHours: true, transferNumber: true,
         humanEscalation: true, bookingLeadTimeDays: true, updatedAt: true,
+        // The rules and FAQs are the things people ring up about most: "why did
+        // it say that", "why won't it book X". The agent cannot change them,
+        // but it can read them back and suggest what to change.
+        customRules: true, faqs: true,
       },
     }),
     prisma.call.findMany({

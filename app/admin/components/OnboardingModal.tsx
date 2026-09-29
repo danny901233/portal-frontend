@@ -27,9 +27,14 @@ function BranchRow({ index, value, onChange, onRemove, defaultVoice, defaultMess
   const [predictions, setPredictions] = useState<{ placeId: string; description: string }[]>([]);
   const [show, setShow] = useState(false);
   const [buying, setBuying] = useState(false);
+  // A new branch is often not on Google yet, and this one box is both the name and the search —
+  // so the list reopened on every keystroke with nothing in it to pick and no way to get rid of
+  // it. Saying "not on Google" stops the searching and keeps the name exactly as typed.
+  const [noGoogle, setNoGoogle] = useState(false);
   const pickedRef = useRef(false);
   useEffect(() => {
     if (pickedRef.current) { pickedRef.current = false; return; }
+    if (noGoogle) { setPredictions([]); setShow(false); return; }
     const q = value.name.trim();
     if (q.length < 3) { setPredictions([]); return; }
     const t = setTimeout(async () => {
@@ -40,7 +45,7 @@ function BranchRow({ index, value, onChange, onRemove, defaultVoice, defaultMess
       } catch { setPredictions([]); }
     }, 350);
     return () => clearTimeout(t);
-  }, [value.name]);
+  }, [value.name, noGoogle]);
   const buyNumber = async () => {
     setBuying(true);
     try {
@@ -53,6 +58,8 @@ function BranchRow({ index, value, onChange, onRemove, defaultVoice, defaultMess
     } catch { /* leave for manual entry */ }
     finally { setBuying(false); }
   };
+  // Closing on blur has to lag the click, or choosing a suggestion unmounts the button first.
+  const closeListSoon = () => setTimeout(() => setShow(false), 150);
   const pick = (p: { placeId: string; description: string }) => {
     pickedRef.current = true;
     const nm = p.description.split(',')[0]?.trim() || p.description;
@@ -71,17 +78,37 @@ function BranchRow({ index, value, onChange, onRemove, defaultVoice, defaultMess
           type="text"
           value={value.name}
           onChange={(e) => onChange({ ...value, name: e.target.value, googlePlaceId: null })}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setShow(false); } }}
+          onBlur={closeListSoon}
           placeholder="Branch name — or search Google"
           className="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
         />
         {value.googlePlaceId && <p className="mt-1 text-xs text-emerald-600">✓ Google-linked — details will autofill</p>}
-        {show && predictions.length > 0 && (
+        {noGoogle && !value.googlePlaceId && (
+          <p className="mt-1 text-xs text-slate-500">
+            Using the name as typed — no Google autofill.{' '}
+            <button type="button" onClick={() => setNoGoogle(false)} className="font-medium text-violet-700 hover:underline">
+              Search Google instead
+            </button>
+          </p>
+        )}
+        {show && !noGoogle && value.name.trim().length >= 3 && (
           <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
             {predictions.map((p) => (
               <li key={p.placeId}>
                 <button type="button" onClick={() => pick(p)} className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-violet-50">{p.description}</button>
               </li>
             ))}
+            {/* Always offered, and the only option when a new branch has no listing yet. */}
+            <li className="border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => { setNoGoogle(true); setShow(false); onChange({ ...value, googlePlaceId: null }); }}
+                className="block w-full px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Use &ldquo;<span className="font-medium">{value.name.trim()}</span>&rdquo; — not on Google yet
+              </button>
+            </li>
           </ul>
         )}
       </div>

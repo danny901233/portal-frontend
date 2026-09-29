@@ -47,10 +47,15 @@ function money(pence: number): string {
 // identify
 // ---------------------------------------------------------------------------
 
+// nullable(), not just optional(): the agent sends the fields it does not have as explicit
+// JSON nulls ({"email": "x", "company": null, "phone": null}), and zod's .optional() accepts a
+// MISSING key but rejects a null one. Every look_up_account call therefore 400'd — the agent
+// could never identify a caller by email or garage name, only by caller ID. The enquiry schema
+// below has always had .nullable().optional() for exactly this reason.
 const identifySchema = z.object({
-  phone: z.string().trim().max(40).optional(),
-  email: z.string().trim().email().max(200).optional(),
-  company: z.string().trim().max(200).optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  email: z.string().trim().email().max(200).nullable().optional(),
+  company: z.string().trim().max(200).nullable().optional(),
 });
 
 router.post('/support/voice/identify', async (req: Request, res: Response) => {

@@ -30,6 +30,7 @@ import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { stripTicketTag, ticketNumberCandidates } from '../services/ticketRef.js';
 import { sendTicketEmail } from '../services/ticketEmail.js';
+import { fileTicketMail } from '../services/outlookMailbox.js';
 import { verifyPushReplyToken } from '../services/pushReplyToken.js';
 import { staleWhere, REMIND_AFTER_DAYS } from '../services/ticketStaleSweep.js';
 
@@ -656,6 +657,14 @@ router.patch('/admin/tickets/:id/status', authenticate, requireAdmin, async (req
     }),
   ]);
 
+  // Keep the mailbox in step: closing files the original mail away, taking a
+  // ticket back out of closed brings it back. Fire-and-forget on purpose.
+  if (parsed.data.status === TicketStatus.closed) {
+    void fileTicketMail(ticket.id, 'archive');
+  } else if (ticket.status === TicketStatus.closed) {
+    void fileTicketMail(ticket.id, 'inbox');
+  }
+
   return res.json({ ticket: serializeTicket(updated) });
 });
 
@@ -692,6 +701,7 @@ router.post('/admin/tickets/:id/spam', authenticate, requireAdmin, async (req: R
       },
     }),
   ]);
+  void fileTicketMail(ticket.id, 'junkemail');
   console.log(`[TICKETS] #${ticket.number} marked as spam by ${req.user.email ?? req.user.userId}; blocked ${who}`);
   return res.json({ ticket: serializeTicket(updated) });
 });
@@ -724,6 +734,7 @@ router.post('/admin/tickets/:id/not-spam', authenticate, requireAdmin, async (re
       },
     }),
   ]);
+  void fileTicketMail(ticket.id, 'inbox');
   return res.json({ ticket: serializeTicket(updated) });
 });
 

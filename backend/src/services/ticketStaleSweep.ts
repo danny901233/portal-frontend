@@ -26,6 +26,7 @@
 import { Prisma, TicketChannel, TicketEntryKind, TicketStatus } from '@prisma/client';
 import { prisma } from '../db.js';
 import { sendTicketEmail } from './ticketEmail.js';
+import { fileTicketMail } from './outlookMailbox.js';
 import { isNoReplySender } from './emailClassifier.js';
 
 export const REMIND_AFTER_DAYS = 2;
@@ -169,6 +170,7 @@ async function close(now: Date): Promise<void> {
         },
       }));
       await prisma.$transaction(ops);
+      void fileTicketMail(t.id, 'archive');
       console.log(`[TICKET_STALE] #${t.number} closed after ${CLOSE_AFTER_DAYS} days of silence${told ? ' (customer told)' : ''}`);
     } catch (err) {
       console.error(`[TICKET_STALE] close failed for #${t.number}:`, err);

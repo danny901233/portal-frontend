@@ -31,13 +31,14 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import crypto from 'crypto';
-import { Prisma, TicketChannel, TicketEntryKind, TicketStatus, TicketPriority } from '@prisma/client';
+import { Prisma, TicketCategory, TicketChannel, TicketEntryKind, TicketStatus, TicketPriority } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../../utils/email.js';
 import { enrichNewTicket } from '../../services/ticketAi.js';
 import { classifyDeterministic, isNoReplySender, parseMailgunHeaders } from '../../services/emailClassifier.js';
 import { ticketSubjectTag, ticketNumberFromSubject, stripTicketTag } from '../../services/ticketRef.js';
 import { pushNewTicketToStaff, pushCustomerReply } from '../../services/ticketPush.js';
+import { fileTicketMail } from '../../services/outlookMailbox.js';
 import { withSupportSignature } from '../../services/ticketEmail.js';
 
 const router = Router();
@@ -471,6 +472,11 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
       patch.closedAt = null;
     }
     await prisma.ticket.update({ where: { id: ticket.id }, data: patch });
+    // Back in the queue, so back in the inbox. The new message is there already;
+    // this returns the earlier ones we had filed away, so the thread stays whole.
+    if (patch.status === TicketStatus.open && ticket.status === TicketStatus.closed) {
+      void fileTicketMail(ticket.id, 'inbox');
+    }
 
     // 8. Deterministic classification (spec §4): supplier domains + complaint
     //    keywords go through hand-rolled rules FIRST. Only what remains falls
@@ -518,6 +524,9 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
               ...(det.autoClose ? { status: TicketStatus.closed, closedAt: new Date() } : {}),
             },
           });
+          // Filed on arrival here means filed in the mailbox too, so the inbox
+          // does not keep what the queue already decided it did not need.
+          if (det.autoClose) void fileTicketMail(ticket.id, det.category === TicketCategory.spam ? 'junkemail' : 'archive');
           console.log(
             `[MAILGUN_INBOUND] Deterministic rule "${det.rule}" matched ticket #${ticket.number}` +
             ` → category=${det.category}` +

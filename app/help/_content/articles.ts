@@ -103,7 +103,7 @@ const gettingStarted: Collection = {
           'Billing — your Direct Debit mandate setup via GoCardless.',
           'Complete — final review.',
         ]},
-        { type: 'callout', tone: 'tip', text: 'You can revisit and edit any of these later from the Agent Setup page in the portal sidebar.' },
+        { type: 'callout', tone: 'tip', text: 'You can revisit and edit any of these later from the Agent Configurations page in the portal sidebar.' },
       ],
     },
     {
@@ -158,7 +158,7 @@ const gettingStarted: Collection = {
         { type: 'h', text: 'Assist — £200/month' },
         { type: 'ul', items: [
           'Leah answers every call and captures the booking request — name, vehicle, service, preferred time, callback number.',
-          'She quotes prices from the service menu you train her on (Agent Setup → Training).',
+          'She quotes prices from the service menu you train her on (Agent Configurations → Training).',
           "The captured request lands in your portal and (optionally) is texted to your team's mobile.",
           "Your team then opens the job in your existing booking system manually.",
           'Live in minutes — no integration required.',
@@ -198,7 +198,7 @@ const configuringAgent: Collection = {
       body: [
         { type: 'p', text: "Company information is everything Leah needs to know about your business at the most basic level. She'll use it when a caller asks where you're based, your opening hours, or your website address." },
         { type: 'h', text: 'Where to set it' },
-        { type: 'p', text: 'Agent Setup → Company information.' },
+        { type: 'p', text: 'Agent Configurations → Company information.' },
         { type: 'ul', items: [
           'Branch name — how Leah refers to your garage during the call.',
           'Branch phone — the public number customers know.',
@@ -222,7 +222,7 @@ const configuringAgent: Collection = {
         ]},
         { type: 'h', text: 'How to set them' },
         { type: 'ol', items: [
-          'Open Agent Setup → Opening hours.',
+          'Open Agent Configurations → Opening hours.',
           'Toggle each day open or closed.',
           'For open days, set the start and end times.',
           'Add holiday closures (e.g. Christmas Day) in the Holiday Closures box — one date per line.',
@@ -238,9 +238,9 @@ const configuringAgent: Collection = {
       body: [
         { type: 'p', text: "The greeting is what callers hear in the first 3-4 seconds — it sets the tone for the whole call." },
         { type: 'h', text: 'Default greeting' },
-        { type: 'p', text: "By default Leah uses something like: \"Good [morning/afternoon] [garage name], you're through to Leah — how can I help?\"" },
+        { type: 'p', text: "By default the agent uses something like: \"Good {timeofday}, you're through to {name} — Leah speaking. How can I help?\"" },
         { type: 'h', text: 'Customising it' },
-        { type: 'p', text: "Go to Agent Setup → Greeting and type your preferred opening line. You can include placeholders like [GREETING] (morning/afternoon/evening) and [BRANCH_NAME] which Leah will fill in." },
+        { type: 'p', text: "Go to Agent Configurations → Identity, voice & greeting and type your preferred opening line. You can include two placeholders, which the agent fills in as it speaks: {timeofday} becomes good morning, good afternoon or good evening, and {name} becomes the branch name." },
         { type: 'callout', tone: 'tip', text: "Keep it under 12 words. Long greetings annoy customers; short ones make Leah feel responsive." },
       ],
     },
@@ -260,7 +260,7 @@ const configuringAgent: Collection = {
         ]},
         { type: 'h', text: 'How to add one' },
         { type: 'ol', items: [
-          'Open Agent Setup → F&Qs.',
+          'Open Agent Configurations → Smart questions & F&Qs.',
           'Click "Add F&Q".',
           'Type the question (or a paraphrase) in the first field.',
           "Type the exact answer you want Leah to say in the second.",
@@ -274,7 +274,7 @@ const configuringAgent: Collection = {
       excerpt: 'How Leah learns your services, pricing, and policies.',
       minutes: 3,
       body: [
-        { type: 'p', text: "On signup we scrape your website to give Leah a starting point. You can refine her knowledge from Agent Setup → Training." },
+        { type: 'p', text: "On signup we scrape your website to give Leah a starting point. You can refine her knowledge from Agent Configurations → Training." },
         { type: 'h', text: 'What to add' },
         { type: 'ul', items: [
           'Your service menu (MOT, interim service, full service, etc.) with current pricing.',
@@ -330,7 +330,7 @@ const configuringAgent: Collection = {
       excerpt: 'Pick which voice answers your calls and how she comes across.',
       minutes: 2,
       body: [
-        { type: 'p', text: "Agent Setup → Identity & voice lets you choose Leah's voice and personality." },
+        { type: 'p', text: "Agent Configurations → Identity, voice & greeting lets you choose Leah's voice and personality." },
         { type: 'h', text: 'Voice options' },
         { type: 'ul', items: [
           'Leah — clear UK female, warm. Default.',
@@ -360,7 +360,7 @@ const configuringAgent: Collection = {
           'Featherstonehaugh → "fan-shaw"',
           'Peugeot → "per-zhoh"',
         ]},
-        { type: 'p', text: "Go to Agent Setup → Pronunciations, add the word and how it sounds. Leah will use your version from the next call onwards." },
+        { type: 'p', text: "Go to Agent Configurations → Identity, voice & greeting, add the word and how it sounds. Leah will use your version from the next call onwards." },
       ],
     },
     {
@@ -392,7 +392,7 @@ const configuringAgent: Collection = {
           'Leah hits her limits — anything she\'s genuinely unsure of',
         ]},
         { type: 'h', text: 'Where to configure' },
-        { type: 'p', text: 'Agent Setup → Transfers → Transfer number. Set the mobile or landline that should ring when Leah transfers. Leave blank to disable transfers entirely.' },
+        { type: 'p', text: 'Agent Configurations → Bookings & transfers → Transfer number. Set the mobile or landline that should ring when Leah transfers. Leave blank to disable transfers entirely.' },
       ],
     },
     {
@@ -736,7 +736,7 @@ const messagesAndWebchat: Collection = {
         { type: 'p', text: "If Leah can't fully confirm a booking on a call — usually because she needs the customer to pick from several slots — she'll text them a link to a booking page." },
         { type: 'p', text: 'The page shows the available slots Leah found, and the customer picks one with a single tap. The confirmation flows back into your portal and (for Automate) into your diary.' },
         { type: 'h', text: 'Where to enable / disable' },
-        { type: 'p', text: 'Agent Setup → Booking → Enable SMS booking links. On by default for Automate customers.' },
+        { type: 'p', text: 'Agent Configurations → Bookings & transfers → Enable SMS booking links. On by default for Automate customers.' },
         { type: 'h', text: 'Tracking' },
         { type: 'p', text: 'SMS Booking Links sent and converted are visible on the Dashboard.' },
       ],

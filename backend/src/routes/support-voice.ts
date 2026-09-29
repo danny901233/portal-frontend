@@ -468,11 +468,20 @@ router.post('/support/voice/enquiry', async (req: Request, res: Response) => {
   ].join('\n');
 
   try {
+    // to is string[], not a string. The `as never` cast that used to sit here silenced the
+    // compiler, and every enquiry email died at runtime on `options.to.join is not a function`
+    // — so a front-door lead reached HighLevel and the team was never told. The ticket handler
+    // above has always passed an array; this is the same thing done properly.
     await sendEmail({
-      to: TEAM_INBOX,
+      to: [TEAM_INBOX],
       subject: demo ? `Demo request — ${label}` : `Phone enquiry — ${label}`,
       text: body,
-    } as never);
+      // html is required too, and the cast hid that as well. The body is already laid out as
+      // aligned plain text, so a <pre> keeps it readable rather than collapsing every field
+      // onto one line.
+      html: `<pre style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;white-space:pre-wrap">${escapeHtml(body)}</pre>`,
+      template: demo ? 'frontdoor_demo_request' : 'frontdoor_enquiry',
+    });
   } catch (err) {
     console.error('[frontdoor] enquiry email failed', err);
   }

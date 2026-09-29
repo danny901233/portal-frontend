@@ -439,10 +439,33 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
       },
     });
 
-    // 7. Bump lastCustomerActivityAt. If ticket had been solved, reopen it — a
-    //    customer reply on a "solved" ticket is a signal we didn't actually solve it.
-    const patch: Prisma.TicketUpdateInput = { lastCustomerActivityAt: new Date(), reminderSentAt: null };
-    if (ticket.status === TicketStatus.solved || ticket.status === TicketStatus.closed) {
+    // 7. Bump lastCustomerActivityAt and hand the ticket back to us.
+    //
+    //    Whatever state it was in, the customer has just written: it is ours to
+    //    act on again. `pending` especially — the status means "we replied,
+    //    waiting on them", and the moment they answer that is no longer true.
+    //    It used to stay pending, which dropped their reply out of the work
+    //    queue entirely (Vostel, #141, 2026-09-29: they answered twice and the
+    //    ticket sat in Pending as though they never had). A reply on a solved
+    //    or closed ticket reopens it for the same reason — it says we did not
+    //    actually solve it.
+    //
+    //    `on_hold` is left alone on purpose: that is blocked on something at
+    //    our end, and their writing in does not unblock it.
+    //
+    //    autoChase goes off too. It means "we are waiting on an answer", and
+    //    the answer has arrived. Whoever replies next re-arms it if they are
+    //    waiting on something further.
+    const patch: Prisma.TicketUpdateInput = {
+      lastCustomerActivityAt: new Date(),
+      reminderSentAt: null,
+      autoChase: false,
+    };
+    if (
+      ticket.status === TicketStatus.pending
+      || ticket.status === TicketStatus.solved
+      || ticket.status === TicketStatus.closed
+    ) {
       patch.status = TicketStatus.open;
       patch.solvedAt = null;
       patch.closedAt = null;

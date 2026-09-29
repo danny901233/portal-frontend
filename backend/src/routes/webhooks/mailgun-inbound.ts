@@ -37,7 +37,7 @@ import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../../utils/email.js';
 import { enrichNewTicket } from '../../services/ticketAi.js';
 import { classifyDeterministic, isNoReplySender, parseMailgunHeaders } from '../../services/emailClassifier.js';
 import { ticketSubjectTag, ticketNumberFromSubject, stripTicketTag } from '../../services/ticketRef.js';
-import { pushNewTicketToStaff } from '../../services/ticketPush.js';
+import { pushNewTicketToStaff, pushCustomerReply } from '../../services/ticketPush.js';
 import { withSupportSignature } from '../../services/ticketEmail.js';
 
 const router = Router();
@@ -580,6 +580,16 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
     //      spam in the meantime goes silent too.
     if (created && !ruleAutoClosed) {
       void pushNewTicketToStaff(ticket.id);
+    } else if (!created && !noReplySender) {
+      // They have written back on a ticket that already exists. This used to be
+      // silent on the grounds that an open ticket is already somebody's — but
+      // combined with the reply leaving the ticket in Pending, it meant an
+      // answer arrived and nothing anywhere said so. No wait for a draft: we do
+      // not draft replies to replies, so there would be nothing to wait for.
+      //
+      // Never for a no-reply sender: an automated message threading onto a
+      // ticket is not somebody answering us.
+      void pushCustomerReply(ticket.id);
     }
 
     // 11. Fire-and-forget: auto-ack for new tickets (spec §5), once the

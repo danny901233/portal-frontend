@@ -17,7 +17,7 @@
  */
 import { TicketCategory, TicketEntryKind, TicketStatus } from '@prisma/client';
 import { prisma } from '../db.js';
-import { notifyStaffIndividually } from '../utils/push.js';
+import { notifyStaffIndividually, notifyUser } from '../utils/push.js';
 import { mintPushReplyToken } from './pushReplyToken.js';
 
 /** How long to wait for the AI draft before notifying without one. */
@@ -104,5 +104,70 @@ export async function pushNewTicketToStaff(ticketId: string): Promise<void> {
     }));
   } catch (err) {
     console.error('[TICKET_PUSH] failed:', err);
+  }
+}
+
+/**
+ * A customer has written back on a ticket that already exists.
+ *
+ * Separate from the new-ticket push, and deliberately leaner. There is no AI
+ * draft on a reply — we do not draft one, because a fresh suggestion on every
+ * turn would fill the thread — so there is nothing to wait for and it goes out
+ * at once. The reply token still rides along, which is the point: the useful
+ * thing to do with "they have answered" is answer back.
+ *
+ * Goes to the assignee alone when the ticket has one. Somebody else's
+ * conversation buzzing your phone is the noise that makes people turn
+ * notifications off; an unassigned ticket is nobody's, so the team gets it.
+ */
+export async function pushCustomerReply(ticketId: string): Promise<void> {
+  try {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      select: {
+        id: true, number: true, title: true, status: true, category: true, assigneeId: true,
+        contact: { select: { name: true, email: true, phone: true } },
+      },
+    });
+    if (!ticket) return;
+    // Filed away by a rule, or marked as spam by a person: not news.
+    if (ticket.status === TicketStatus.closed || ticket.category === TicketCategory.spam) return;
+
+    const latest = await prisma.ticketEntry.findFirst({
+      where: { ticketId, kind: TicketEntryKind.public_reply, authorContactId: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { body: true },
+    });
+
+    const who = ticket.contact.name?.trim()
+      || ticket.contact.email
+      || ticket.contact.phone
+      || 'Someone';
+
+    const build = (userId: string) => ({
+      title: `${who} replied`,
+      subtitle: `#${ticket.number} · ${ticket.title}`.slice(0, 120),
+      body: (latest?.body ?? '').slice(0, MESSAGE_LIMIT) || 'Open the ticket to read it.',
+      data: {
+        type: 'ticket',
+        ticketId: ticket.id,
+        ticketNumber: ticket.number,
+        // No draft exists on a reply, so the expanded view offers Reply only.
+        category: 'TICKET',
+        message: (latest?.body ?? '').slice(0, MESSAGE_LIMIT),
+        draft: '',
+        replyToken: mintPushReplyToken({ ticketId: ticket.id, userId }) ?? '',
+      },
+    });
+
+    if (ticket.assigneeId) {
+      await notifyUser(ticket.assigneeId, build(ticket.assigneeId));
+      console.log(`[TICKET_PUSH] #${ticket.number}: reply from ${who} → assignee`);
+    } else {
+      await notifyStaffIndividually(build);
+      console.log(`[TICKET_PUSH] #${ticket.number}: reply from ${who} → all staff (unassigned)`);
+    }
+  } catch (err) {
+    console.error('[TICKET_PUSH] reply push failed:', err);
   }
 }

@@ -20,6 +20,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { sendEmail } from '../utils/email.js';
+import { identifyByCallerNumber, identifyBySupportCode, tooManyAttempts } from '../services/supportIdentity.js';
 
 const router = Router();
 
@@ -56,6 +57,8 @@ const identifySchema = z.object({
   phone: z.string().trim().max(40).nullable().optional(),
   email: z.string().trim().email().max(200).nullable().optional(),
   company: z.string().trim().max(200).nullable().optional(),
+  // Five digits from their own portal. See services/supportIdentity.ts.
+  supportCode: z.string().trim().max(16).nullable().optional(),
 });
 
 router.post('/support/voice/identify', async (req: Request, res: Response) => {
@@ -63,9 +66,21 @@ router.post('/support/voice/identify', async (req: Request, res: Response) => {
 
   const parsed = identifySchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'Bad request' });
-  const { phone, email, company } = parsed.data;
+  const { phone, email, company, supportCode } = parsed.data;
 
   try {
+    // ── Is this PROVEN, or merely a guess? ───────────────────────────────────
+    //
+    // A guess is fine for "am I speaking to Kestrels?". It is not fine for what
+    // they pay, what their last invoice was, or whether a Direct Debit has
+    // failed — and a company-name match used to hand all of that over, so
+    // anyone who knew a garage's name could hear it. Caller ID against the main
+    // contact number, or the five-digit code, is proof; a name is not.
+    const proof =
+      (await identifyByCallerNumber(phone))
+      || (supportCode && !tooManyAttempts(phone)
+            ? await identifyBySupportCode(supportCode, phone)
+            : null);
     let matchedBy: 'email' | 'phone' | 'company' | null = null;
     let garages: { id: string; name: string; businessId: string | null }[] = [];
 
@@ -159,9 +174,31 @@ router.post('/support/voice/identify', async (req: Request, res: Response) => {
       if (days > 14) flags.push(`no calls for ${days} days — forwarding may be off`);
     }
 
+    // Proof has to be of THIS garage. Recognising the number of one garage does
+    // not entitle anyone to another's billing.
+    const verified = !!proof && proof.garageId === full.id;
+
+    if (!verified) {
+      // Enough to confirm who we are speaking to and be helpful about general
+      // things. Nothing about money, usage or account standing.
+      return res.json({
+        known: true,
+        matchedBy,
+        verified: false,
+        confidence: matchedBy === 'email' ? 'high' : matchedBy === 'phone' ? 'medium' : 'low',
+        garage: { id: full.id, name: full.name, business: full.business?.name || null },
+        branches: garages.map((g) => g.name),
+        needsVerification:
+          'Not calling from the main contact number we hold. For anything about their account, '
+          + 'calls or settings, ask for the five-digit support code on the Help page of their portal.',
+      });
+    }
+
     return res.json({
       known: true,
       matchedBy,
+      verified: true,
+      verifiedVia: proof!.via,
       confidence: matchedBy === 'email' ? 'high' : matchedBy === 'phone' ? 'medium' : 'low',
       garage: {
         id: full.id,

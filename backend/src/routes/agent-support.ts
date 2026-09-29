@@ -130,6 +130,60 @@ router.get('/agent/support/context/:garageId', async (req: Request, res: Respons
   });
 });
 
+// ─── Finding the one call they are ringing about ────────────────────────────
+// "It went wrong on a call yesterday" is not something anyone can act on, so
+// the agent asks for the call ID from the portal, or the customer's name, and
+// looks it up. Scoped to the garage it has already identified — a call ID from
+// somewhere else returns nothing rather than someone else's call.
+
+const findCallSchema = z.object({
+  garageId: z.string().trim().min(1),
+  callId: z.string().trim().max(64).optional(),
+  customerName: z.string().trim().max(120).optional(),
+});
+
+router.post('/agent/support/find-call', async (req: Request, res: Response) => {
+  const parsed = findCallSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const { garageId, callId, customerName } = parsed.data;
+
+  if (!callId && !customerName) {
+    return res.json({
+      found: [],
+      reason: 'Ask them for the call ID shown in the portal, or the name of the customer on the call.',
+    });
+  }
+
+  const select = {
+    id: true, createdAt: true, durationSeconds: true, callType: true,
+    fromNumber: true, customerName: true, registrationNumber: true,
+    confirmedBooking: true, summary: true,
+  } as const;
+
+  // The id is exact and unambiguous, so it wins.
+  if (callId) {
+    const call = await prisma.call.findFirst({
+      where: { id: callId.replace(/\D/g, ''), garageId },
+      select,
+    });
+    return res.json({
+      found: call ? [{ ...call, summary: (call.summary ?? '').slice(0, 1200) }] : [],
+      ...(call ? {} : { reason: 'No call with that ID on this account. Check the digits, or try the customer name.' }),
+    });
+  }
+
+  const calls = await prisma.call.findMany({
+    where: { garageId, customerName: { contains: customerName as string, mode: 'insensitive' } },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+    select,
+  });
+  return res.json({
+    found: calls.map((c) => ({ ...c, summary: (c.summary ?? '').slice(0, 800) })),
+    ...(calls.length ? {} : { reason: 'Nobody of that name on a recent call. Ask for the call ID from the portal instead.' }),
+  });
+});
+
 // ─── What the agent would have changed ──────────────────────────────────────
 
 const changeRequestSchema = z.object({

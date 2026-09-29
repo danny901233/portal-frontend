@@ -123,6 +123,21 @@ router.post('/support/voice/identify', async (req: Request, res: Response) => {
       if (garages.length) matchedBy = 'company';
     }
 
+    // The searches above match on the agent's own Twilio number, not the main
+    // contact number — so a garage ringing from their own landline found
+    // nothing at all, which is the one case that should work best. Proof is a
+    // match in its own right, and the strongest one we have.
+    if (!garages.length && proof) {
+      const g = await prisma.garage.findUnique({
+        where: { id: proof.garageId },
+        select: { id: true, name: true, businessId: true },
+      });
+      if (g) {
+        garages = [g];
+        matchedBy = 'phone';
+      }
+    }
+
     if (!garages.length) {
       return res.json({ known: false, matchedBy: null });
     }

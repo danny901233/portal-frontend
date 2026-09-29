@@ -79,6 +79,12 @@ const draftSchema = z.object({
   freeUntilBookings: z.number().int().positive().max(1000).optional().nullable(),
 });
 
+/**
+ * The same commercial terms as a draft, minus who it is for — a preview is rendered from the
+ * numbers alone and never touches the database.
+ */
+const previewSchema = draftSchema.omit({ userId: true, businessId: true });
+
 const signSchema = z.object({
   signedByName: z.string().min(1).max(120),
   signedByPosition: z.string().min(1).max(120),
@@ -793,6 +799,40 @@ router.post('/admin/agreements/draft', authenticate, requireAdmin, async (req: R
   });
 
   return res.status(201).json({ agreement });
+
+/**
+ * POST /api/admin/agreements/preview
+ * Render what the customer would be sent, without creating or sending anything.
+ *
+ * Staff never saw the agreement before it was emailed: the onboarding modal drafted and sent it
+ * in one action, so a wrong fee or centre count was only discovered once it was in the
+ * customer's inbox — twice in one afternoon, the second time for £1,298 against a £899 deal.
+ */
+router.post('/admin/agreements/preview', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const parsed = previewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const d = parsed.data;
+  const html = renderAgreementHtml({
+    clientName: d.clientName,
+    setupFeeGbp: d.setupFeeGbp,
+    licenceFeeGbp: d.licenceFeeGbp,
+    centresCount: d.centresCount,
+    messagingFeeGbp: d.messagingFeeGbp ?? 0,
+    messagingCentresCount: d.messagingCentresCount ?? null,
+    licences: d.licences as LicenceTier[],
+    goLiveDate: d.goLiveDate ? new Date(d.goLiveDate) : null,
+    freeTrialDays: d.freeTrialDays ?? null,
+    freeUntilBookings: d.freeUntilBookings ?? null,
+    // Unsigned: the preview shows the blank signature block the customer will see.
+    effectiveDate: null,
+  });
+  const monthlyTotal =
+    d.licenceFeeGbp * d.centresCount +
+    (d.messagingFeeGbp ?? 0) * (d.messagingCentresCount ?? d.centresCount);
+  return res.json({ html, css: AGREEMENT_CSS, monthlyTotalGbp: monthlyTotal });
+});
 });
 
 /**

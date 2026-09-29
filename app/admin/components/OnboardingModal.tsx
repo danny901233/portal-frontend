@@ -313,6 +313,10 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const [agreementSetupFee, setAgreementSetupFee] = useState('0');
   const [agreementCentres, setAgreementCentres] = useState('1');
   const [agreementLicences, setAgreementLicences] = useState<('assist' | 'automate' | 'connect')[]>(['assist']);
+  // What the customer would actually receive. Staff had no way to see it before it was emailed.
+  const [preview, setPreview] = useState<{ html: string; css: string; monthlyTotalGbp: number } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   const [agreementGoLive, setAgreementGoLive] = useState('');
   // Optional extras for the sign link, mirroring the Agreements page's Send dialog: text it as
   // well as emailing it, and/or send it to someone other than the portal account holder (the
@@ -379,6 +383,46 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     }
     const total = plan.headlineVoice * voiceCentres + plan.headlineMessaging * messagingCentres;
     return `£${plan.headlineVoice} voice × ${voiceCentres} + £${plan.headlineMessaging} Connect × ${messagingCentres} = £${total} per month, ex VAT.`;
+  };
+
+  /**
+   * The commercial terms exactly as the submit path would post them, so a preview cannot show
+   * one thing and the sent agreement say another.
+   */
+  const agreementTermsForPreview = () => {
+    const plan = pricingPlan();
+    const typedCentres = Number(agreementCentres) || 1;
+    const existingCount = businessMode === 'existing' ? (selectedExistingBiz?.branchCount ?? 0) : 0;
+    const voiceCentres = plan.validExtra.length > 0
+      ? existingCount + plan.voiceCentres
+      : (businessMode === 'existing' ? existingCount + plan.voiceCentres : typedCentres);
+    const messagingCentres = plan.validExtra.length > 0
+      ? plan.messagingCentres
+      : (plan.headlineMessaging > 0 ? typedCentres : 0);
+    return {
+      clientName: (businessMode === 'existing' ? bizSearch : businessName).trim() || 'Client',
+      setupFeeGbp: Number(agreementSetupFee) || 0,
+      licenceFeeGbp: plan.headlineVoice,
+      messagingFeeGbp: plan.headlineMessaging,
+      centresCount: Math.max(1, voiceCentres),
+      messagingCentresCount: plan.headlineMessaging > 0 ? Math.max(1, messagingCentres) : null,
+      licences: agreementLicences,
+      goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
+      ...agreementFreePeriod(),
+    };
+  };
+
+  const openPreview = async () => {
+    setPreviewing(true);
+    setPreviewError('');
+    try {
+      const { data } = await api.post('/admin/agreements/preview', agreementTermsForPreview());
+      setPreview(data);
+    } catch (err) {
+      setPreviewError(serverError(err, 'Could not render the agreement'));
+    } finally {
+      setPreviewing(false);
+    }
   };
 
   /** The free period the contract should describe, derived from the billing-start radio. */
@@ -615,6 +659,8 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     setAgreementSetupFee('0');
     setAgreementCentres('1');
     setAgreementLicences(['assist']);
+    setPreview(null);
+    setPreviewError('');
     setExtraBranches([]);
     setPlaceQuery('');
     setGooglePlaceId(null);
@@ -674,6 +720,45 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      {/* The agreement as the customer will receive it. Sits above the form so the numbers can
+          be checked and corrected before anything is created or emailed. */}
+      {preview && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Agreement preview</h3>
+                <p className="text-xs text-slate-500">
+                  Nothing has been created or sent. Total £{preview.monthlyTotalGbp} per month, ex VAT.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+            <div className="overflow-y-auto p-6">
+              <style>{preview.css}</style>
+              <div dangerouslySetInnerHTML={{ __html: preview.html }} />
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
+              <p className="text-xs text-slate-500">
+                Wrong? Close this, fix the prices or licences, and preview again.
+              </p>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              >
+                Looks right
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
         <button
           onClick={handleClose}
@@ -1359,7 +1444,19 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
 
                   <div className="col-span-2 flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
                     <p className="text-xs text-slate-500">{agreementSummary()}</p>
+                    <button
+                      type="button"
+                      onClick={() => void openPreview()}
+                      disabled={previewing}
+                      className="shrink-0 rounded-md border border-violet-300 bg-violet-50 px-3 py-1.5 text-sm font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                    >
+                      {previewing ? 'Rendering…' : 'Preview agreement'}
+                    </button>
                   </div>
+
+                  {previewError && (
+                    <p className="col-span-2 text-xs text-red-600">{previewError}</p>
+                  )}
 
                   <div className="col-span-2 grid grid-cols-2 gap-3 border-t border-slate-200 pt-3">
                     <div>

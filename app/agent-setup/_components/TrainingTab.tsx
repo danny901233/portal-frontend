@@ -58,6 +58,11 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
       priceOnAssist:
         'Upload a price list — the agent quotes ONLY the figures in it, never an invented price.',
       priceOffTyresoft: 'Off by default. Turn on to upload your Tyresoft price list as a CSV.',
+      tyreMarkup: 'Tyre markup',
+      tyreMarkupHint:
+        "Added to Tyresoft's supplier price before the agent quotes a tyre. Leave blank for no markup.",
+      flatPerTyre: 'Flat £ per tyre',
+      percentage: 'Percentage %',
       priceOffAssist:
         'Off by default. Turn on to upload a price list the agent can quote from. Turning it off removes any uploaded price list.',
       currentPriceList: 'Current price list: ',
@@ -116,6 +121,11 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
         "Téléversez une liste de prix — l'agent ne cite QUE les chiffres qui s'y trouvent, jamais un prix inventé.",
       priceOffTyresoft:
         'Désactivé par défaut. Activez pour téléverser votre liste de prix Tyresoft au format CSV.',
+      tyreMarkup: 'Marge sur pneus',
+      tyreMarkupHint:
+        "Ajoutée au prix fournisseur Tyresoft avant que l'agent ne cite un pneu. Laissez vide pour aucune marge.",
+      flatPerTyre: 'Montant fixe £ par pneu',
+      percentage: 'Pourcentage %',
       priceOffAssist:
         "Désactivé par défaut. Activez pour téléverser une liste de prix que l'agent peut citer. Le désactiver supprime toute liste de prix téléversée.",
       currentPriceList: 'Liste de prix actuelle : ',
@@ -339,6 +349,10 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                   e.target.value = '';
                   if (file) servicesCsvMut.mutate(file);
                 };
+                const markupType = config.tyresoftSettings?.tyreMarkupType ?? 'flat';
+                const markupValue = config.tyresoftSettings?.tyreMarkupValue ?? '';
+                const saveMarkup = (next: { tyreMarkupType?: 'flat' | 'percent'; tyreMarkupValue?: string }) =>
+                  save({ tyresoftSettings: { ...(config.tyresoftSettings ?? {}), ...next } } as Parameters<typeof save>[0]);
                 return (
                   <div className="mt-3 rounded-md border border-dashed border-brand-300 bg-brand-50 p-3">
                     {upload ? (
@@ -414,6 +428,37 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
                         </table>
                       </div>
                     ) : null}
+                    {/* Tyre markup — what the garage adds to Tyresoft's supplier price. It sat on
+                        the Admin tab beside the API credentials, which is a routing screen the
+                        garage has no reason to open; the markup is theirs to set and belongs
+                        next to the prices it changes. */}
+                    <div className="mt-3 border-t border-brand-200 pt-3">
+                      <p className="text-xs font-medium text-brand-800">{c.tyreMarkup}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-600">{c.tyreMarkupHint}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <select
+                          value={markupType}
+                          onChange={(e) => saveMarkup({ tyreMarkupType: e.target.value as 'flat' | 'percent' })}
+                          disabled={isSaving}
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                        >
+                          <option value="flat">{c.flatPerTyre}</option>
+                          <option value="percent">{c.percentage}</option>
+                        </select>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          defaultValue={markupValue}
+                          onBlur={(e) => {
+                            if (e.target.value !== markupValue) saveMarkup({ tyreMarkupValue: e.target.value });
+                          }}
+                          disabled={isSaving}
+                          placeholder={markupType === 'percent' ? 'e.g. 15' : 'e.g. 28'}
+                          className="w-32 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                        />
+                      </div>
+                    </div>
                   </div>
                 );
               })()

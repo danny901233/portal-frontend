@@ -599,32 +599,6 @@ export default function AdminTab({ config, save, isSaving }: Props) {
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
             />
           </Field>
-          <Field
-            label={c.tyreMarkup}
-            hint={c.tyreMarkupHint}
-          >
-            <div className="flex flex-wrap gap-2">
-              <select
-                value={ts.tyreMarkupType ?? 'flat'}
-                onChange={(e) =>
-                  setTs({ ...ts, tyreMarkupType: e.target.value as 'flat' | 'percent' })
-                }
-                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 md:w-auto"
-              >
-                <option value="flat">{c.flatPerTyre}</option>
-                <option value="percent">{c.percentage}</option>
-              </select>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={ts.tyreMarkupValue ?? ''}
-                onChange={(e) => setTs({ ...ts, tyreMarkupValue: e.target.value })}
-                placeholder={ts.tyreMarkupType === 'percent' ? 'e.g. 15' : 'e.g. 28'}
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 md:w-32"
-              />
-            </div>
-          </Field>
           </div>
         </div>
       )}

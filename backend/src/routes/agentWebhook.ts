@@ -276,23 +276,31 @@ router.get('/tyre-inventory/:garageId', async (req: Request, res: Response) => {
 
   try {
     const rows = await readCsvAsRecords(csvPath);
+    // Tyresoft's current export writes RETAIL where the older one wrote Retail, and a
+    // case-sensitive lookup turned every price into 0 — which reaches the caller as a tyre
+    // quoted at nothing. Match a header however it is cased.
+    const pick = (row: Record<string, string>, name: string): string => {
+      if (row[name] !== undefined) return row[name];
+      const key = Object.keys(row).find((k) => k.toLowerCase() === name.toLowerCase());
+      return key ? row[key] : '';
+    };
     const inventory = rows.map((row) => ({
-      stock_number: row['Product Stock Number'] ?? '',
-      ean: row['Product EAN'] ?? '',
-      title: row['Product Title'] ?? '',
-      price: parseFloat(row['Retail'] || '0') || 0,
-      width: row['Width'] ?? '',
-      aspect_ratio: row['Aspect Ratio'] ?? '',
-      rim: row['Rim'] ?? '',
-      speed_rating: row['Speed Rating'] ?? '',
-      load_index: row['Load Index'] ?? '',
-      brand: row['Brand Name'] ?? '',
-      vehicle_type: row['Vehicle Type'] ?? '',
-      product_type: row['Product Type'] ?? '',
-      runflat: (row['Runflat'] ?? 'FALSE').toUpperCase() === 'TRUE',
-      availability: row['Product Channel Available'] ?? '',
-      lead_time: row['Product Channel Lead Time'] ?? '',
-      source_supplier_id: parseInt(row['Product Channel Source Supplier ID'] || '0', 10) || 0,
+      stock_number: pick(row, 'Product Stock Number'),
+      ean: pick(row, 'Product EAN'),
+      title: pick(row, 'Product Title'),
+      price: parseFloat((pick(row, 'Retail') || '0')) || 0,
+      width: pick(row, 'Width'),
+      aspect_ratio: pick(row, 'Aspect Ratio'),
+      rim: pick(row, 'Rim'),
+      speed_rating: pick(row, 'Speed Rating'),
+      load_index: pick(row, 'Load Index'),
+      brand: pick(row, 'Brand Name'),
+      vehicle_type: pick(row, 'Vehicle Type'),
+      product_type: pick(row, 'Product Type'),
+      runflat: (pick(row, 'Runflat') || 'FALSE').toUpperCase() === 'TRUE',
+      availability: pick(row, 'Product Channel Available'),
+      lead_time: pick(row, 'Product Channel Lead Time'),
+      source_supplier_id: parseInt((pick(row, 'Product Channel Source Supplier ID') || '0'), 10) || 0,
     }));
 
     console.log(`[TYRE_INVENTORY] Serving ${inventory.length} tyres for garage ${garageId} branch ${branchNum} (folder: ${folder})`);

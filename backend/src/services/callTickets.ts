@@ -112,8 +112,21 @@ async function createCallTicket(args: CreateArgs): Promise<void> {
 
 /** Call categories that mean a person is wanted. Deliberately short: a booking
  *  the agent completed is a job done, not a ticket, and a queue full of "took a
- *  booking" is a queue nobody reads. */
-const CATEGORIES_NEEDING_A_HUMAN = new Set(['complaint', 'human request']);
+ *  booking" is a queue nobody reads.
+ *
+ *  'support' belongs here because these are calls to OUR line: somebody rang up
+ *  with a problem, which is the definition of a ticket. It was missing, so a
+ *  six-minute call reporting booking errors, wrong opening hours and dropped
+ *  calls raised nothing (97796390, 2026-09-29) — while the agent told the
+ *  caller on the call that a ticket had been raised. */
+const CATEGORIES_NEEDING_A_HUMAN = new Set(['complaint', 'human request', 'support']);
+
+/** What the ticket is called, by the kind of call it was. */
+const TITLE_FOR: Record<string, string> = {
+  complaint: 'Complaint',
+  'human request': 'Caller asked for a person',
+  support: 'Support call',
+};
 
 export async function raiseTicketFromAiCall(args: {
   garageId: string;
@@ -135,7 +148,7 @@ export async function raiseTicketFromAiCall(args: {
       garageName: args.garageName,
       callerPhone: args.customerPhone,
       callerName: args.customerName,
-      title: `${type === 'complaint' ? 'Complaint' : 'Caller asked for a person'} — ${args.customerPhone || 'withheld number'}`,
+      title: `${TITLE_FOR[type] ?? 'Call'} — ${args.customerPhone || 'withheld number'}`,
       body: [
         `The agent handled this call and classified it as "${type}".`,
         args.summary ? `\n${args.summary}` : '',

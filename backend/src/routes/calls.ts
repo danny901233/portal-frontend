@@ -247,6 +247,22 @@ const parseCallJson = (call: Call & { feedback?: CallFeedback | null }): CallWit
 
 // Arrears gating: strip every content field from a parsed call so a restricted garage's own
 // users see ONLY when the call happened and its tag. Everything that identifies the caller or
+/**
+ * Pull the caller's number out of a LiveKit room name.
+ *
+ * Rooms are named `garage-<garageId>__+447700900123_<random>`. The garage id is
+ * a uuid and sits before the double underscore, so there is nothing else in the
+ * name that looks like a phone number.
+ *
+ * Returns null for rooms that carry no number — the web demo, and anything not
+ * arriving over SIP.
+ */
+export function callerNumberFromRoomName(roomName: string | null | undefined): string | null {
+  if (!roomName) return null;
+  const m = roomName.match(/__(\+?\d{7,15})(?:_|$)/);
+  return m ? m[1] : null;
+}
+
 // reveals what was said/booked is nulled server-side (including roomName, which embeds the
 // caller's number, and metrics, which can carry the AI diagnosis). Internal staff never hit this.
 const redactRestrictedCall = (call: ReturnType<typeof parseCallJson>) => ({
@@ -389,6 +405,15 @@ router.post('/calls', async (req: Request, res: Response) => {
       console.log(`[CALL] Derived capturedRevenue £${capturedRevenue.toFixed(2)} from bookingDetails`);
     }
 
+    // The caller's number, when the agent did not send one.
+    //
+    // Every SIP room is named `garage-<id>__<caller>_<suffix>`, so the number is
+    // right there even when the agent omits fromNumber — which the support
+    // agent does, leaving the portal showing a call from nobody (97796390,
+    // 2026-09-29). Reading it here fixes every agent at once rather than
+    // waiting for each to be taught to pass it.
+    const fromNumber = payload.fromNumber || callerNumberFromRoomName(payload.roomName);
+
     const callId = await generateUniqueCallId();
 
     const createdCall = await prisma.call.create({
@@ -402,7 +427,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         durationSeconds: actualDuration,
         callType,
         twilioCallSid: payload.twilioCallSid,
-        fromNumber: payload.fromNumber,
+        fromNumber,
         registrationNumber: payload.registrationNumber,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,

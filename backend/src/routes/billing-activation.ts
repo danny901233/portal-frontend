@@ -4,6 +4,7 @@ import { createRequire } from 'module';
 import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { sendDirectDebitRequestEmail } from '../services/directDebitRequestEmail.js';
+import { hasChargeableSubscription } from '../services/billing.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -59,6 +60,8 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
         id: true,
         name: true,
         subscriptionCostGbp: true,
+        hasMessagingAccess: true,
+        messagingSubscriptionCostGbp: true,
         vatRate: true,
         trialEndDate: true,
         requiresBookingActivation: true,
@@ -71,11 +74,12 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
 
     const now = new Date();
 
-    // Calculate total subscription cost for active garages
+    // Calculate total subscription cost for active garages. Connect counts as a subscription
+    // in its own right — a messaging-only branch has no voice cost and was skipped entirely.
     const activeGarages = garages.filter(g => {
       const inTrial = g.trialEndDate && g.trialEndDate > now;
       const needsActivation = g.requiresBookingActivation;
-      return !inTrial && !needsActivation && g.subscriptionCostGbp > 0;
+      return !inTrial && !needsActivation && hasChargeableSubscription(g);
     });
 
     if (activeGarages.length === 0) {
@@ -85,7 +89,12 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
       });
     }
 
-    const totalSubscriptionCost = activeGarages.reduce((sum, g) => sum + g.subscriptionCostGbp, 0);
+    // What each garage costs per month: the voice subscription plus the Connect one where it
+    // is sold. Splitting the total evenly (as this did) gave every branch of a mixed group the
+    // same invoice, so no branch's invoice matched what that branch is actually on.
+    const monthlyCostOf = (g: { subscriptionCostGbp: number; hasMessagingAccess: boolean; messagingSubscriptionCostGbp: number | null }) =>
+      g.subscriptionCostGbp + (g.hasMessagingAccess ? (g.messagingSubscriptionCostGbp ?? 0) : 0);
+    const totalSubscriptionCost = activeGarages.reduce((sum, g) => sum + monthlyCostOf(g), 0);
     // Apply VAT — use the first garage's vatRate (all garages on one mandate share the same rate)
     const vatRate = activeGarages[0]?.vatRate ?? 0.2;
     const vatAmount = totalSubscriptionCost * vatRate;
@@ -134,10 +143,15 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
 
     // Create an invoice record for each active garage
     if (paymentId) {
-      const costPerGarage = totalSubscriptionCost / activeGarages.length;
-      const vatPerGarage = costPerGarage * vatRate;
-      const totalPerGarage = costPerGarage + vatPerGarage;
       for (const garage of activeGarages) {
+        const costPerGarage = monthlyCostOf(garage);
+        const vatPerGarage = costPerGarage * vatRate;
+        const totalPerGarage = costPerGarage + vatPerGarage;
+        // Keep the two subscriptions on their own lines, the way the monthly run does, so the
+        // invoice says which licence the money is for.
+        const messagingPerGarage = garage.hasMessagingAccess
+          ? (garage.messagingSubscriptionCostGbp ?? 0)
+          : 0;
         await prisma.invoice.create({
           data: {
             garageId: garage.id,
@@ -147,13 +161,14 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
             minutesUsed: 0,
             minutesIncluded: 0,
             smsCount: 0,
-            subscriptionAmount: Math.round(costPerGarage * 100),
+            subscriptionAmount: Math.round(garage.subscriptionCostGbp * 100),
+            messagingSubscriptionAmount: Math.round(messagingPerGarage * 100),
             minutesAmount: 0,
             smsAmount: 0,
             subtotal: Math.round(costPerGarage * 100),
             vatAmount: Math.round(vatPerGarage * 100),
             total: Math.round(totalPerGarage * 100),
-            subscriptionCostGbp: costPerGarage / 100,
+            subscriptionCostGbp: garage.subscriptionCostGbp,
             costPerMinuteGbp: 0,
             vatRate,
             status: 'pending',
@@ -174,7 +189,7 @@ router.post('/admin/activate-billing/:userId', authenticate, requireAdmin, async
       vatAmount,
       vatRate,
       paymentId,
-      garages: activeGarages.map(g => ({ id: g.id, name: g.name, cost: g.subscriptionCostGbp })),
+      garages: activeGarages.map(g => ({ id: g.id, name: g.name, cost: monthlyCostOf(g) })),
     });
   } catch (error) {
     console.error('Failed to activate billing:', error);
@@ -211,6 +226,8 @@ router.get('/admin/users-pending-billing', authenticate, requireAdmin, async (re
             id: true,
             name: true,
             subscriptionCostGbp: true,
+            hasMessagingAccess: true,
+            messagingSubscriptionCostGbp: true,
             trialEndDate: true,
             requiresBookingActivation: true,
           },
@@ -220,10 +237,13 @@ router.get('/admin/users-pending-billing', authenticate, requireAdmin, async (re
         const activeGarages = garages.filter(g => {
           const inTrial = g.trialEndDate && g.trialEndDate > now;
           const needsActivation = g.requiresBookingActivation;
-          return !inTrial && !needsActivation && g.subscriptionCostGbp > 0;
+          return !inTrial && !needsActivation && hasChargeableSubscription(g);
         });
 
-        const totalCost = activeGarages.reduce((sum, g) => sum + g.subscriptionCostGbp, 0);
+        const totalCost = activeGarages.reduce(
+          (sum, g) => sum + g.subscriptionCostGbp + (g.hasMessagingAccess ? (g.messagingSubscriptionCostGbp ?? 0) : 0),
+          0,
+        );
         const canActivate = activeGarages.length > 0;
 
         return {

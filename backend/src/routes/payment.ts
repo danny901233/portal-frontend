@@ -6,6 +6,7 @@ import { createRequire } from 'module';
 import { prisma } from '../db.js';
 import { setBusinessMandate } from '../utils/businessBilling.js';
 import { authenticate } from '../middleware/auth.js';
+import { hasChargeableSubscription } from '../services/billing.js';
 
 const require = createRequire(import.meta.url);
 const gocardless = require('gocardless-nodejs');
@@ -241,11 +242,13 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
     });
 
     // Separate flag for whether to actually charge the first month — only true when
-    // there's at least one garage with a real subscription cost.
+    // there's at least one garage with a real subscription cost. Connect counts: a branch sold
+    // messaging only has no voice subscription, and reading subscriptionCostGbp alone meant its
+    // first month was never charged at all.
     const hasActiveGarages = garages.some(g => {
       const inTrial = g.trialEndDate && g.trialEndDate > now;
       const needsActivation = g.requiresBookingActivation;
-      return !inTrial && !needsActivation && g.subscriptionCostGbp > 0;
+      return !inTrial && !needsActivation && hasChargeableSubscription(g);
     });
 
     let billingCycleStartDate: Date | null = null;
@@ -263,7 +266,7 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       const activeGarages = garages.filter(g => {
         const inTrial = g.trialEndDate && g.trialEndDate > now;
         const needsActivation = g.requiresBookingActivation;
-        return !inTrial && !needsActivation && g.subscriptionCostGbp > 0;
+        return !inTrial && !needsActivation && hasChargeableSubscription(g);
       });
 
       const invoices = [];

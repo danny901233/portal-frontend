@@ -414,8 +414,13 @@ model Agreement {
   // Commercial terms (the placeholders from the PDF)
   clientName    String // matches the business name at the time of issue
   setupFeeGbp   Float     @default(0)
-  licenceFeeGbp Float // £ per centre per month
+  licenceFeeGbp Float // £ per centre per month (the voice licence: Assist or Automate)
   centresCount  Int       @default(1)
+  // Connect is priced and counted separately: a group can take voice on one branch and
+  // messaging on all of them, which a single fee x centres could not express — the agreement
+  // silently understated those deals by the whole Connect fee.
+  messagingFeeGbp       Float @default(0) // £ per Connect centre per month; 0 = no Connect line
+  messagingCentresCount Int?  // how many centres take Connect; null = same as centresCount
   licences      String[]  @default(["assist"]) // any of: assist, automate, connect
   goLiveDate    DateTime?
 
@@ -647,6 +652,13 @@ model Business {
   contactRole  String?
   garages      Garage[]
   billingMethod String @default("directdebit") // 'directdebit' | 'stripe_card' | 'invoice'
+
+  // One invoice for the whole business, with a section per branch, instead of an invoice per
+  // branch. The money has always been collected as a single Direct Debit; only the paperwork
+  // was split, which is why a two-branch customer received two documents for one collection.
+  // Off by default so no existing customer's invoices change shape mid-contract — Quick
+  // Onboard turns it on for businesses created from now on.
+  combinedInvoicing Boolean @default(false)
 
   // When somebody first opened the diary-credentials link we emailed them.
   //

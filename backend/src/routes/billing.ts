@@ -12,6 +12,7 @@ import {
   findUsersDueForBilling,
   generateInvoicesForUser,
   processMonthlyBilling,
+  hasChargeableSubscription,
 } from '../services/billing.js';
 
 const router = Router();
@@ -389,12 +390,16 @@ router.get(
               id: true,
               name: true,
               subscriptionCostGbp: true,
+              hasMessagingAccess: true,
+              messagingSubscriptionCostGbp: true,
             },
           });
 
           return {
             ...user,
-            garages: garages.filter(g => g.subscriptionCostGbp > 0),
+            // Connect-only branches have a £0 voice subscription and were hidden from this
+            // list entirely, so the garage nobody could see was also the one nobody billed.
+            garages: garages.filter(hasChargeableSubscription),
           };
         })
       );

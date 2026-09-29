@@ -14,7 +14,7 @@
 // in clauses 9, 12, 13 are mis-numbered) are intentional — they mirror the
 // source document verbatim. Fix the source, then bump TEMPLATE_VERSION here.
 
-export const TEMPLATE_VERSION = '1.1';
+export const TEMPLATE_VERSION = '1.2';
 
 export type LicenceTier = 'assist' | 'automate' | 'connect';
 
@@ -39,8 +39,14 @@ export const LICENCE_DETAILS: Record<LicenceTier, { name: string; description: s
 export interface AgreementInputs {
   clientName: string;
   setupFeeGbp: number;
-  licenceFeeGbp: number;       // per centre per month
+  licenceFeeGbp: number;       // per centre per month — the voice licence (Assist or Automate)
   centresCount: number;
+  // Connect, priced and counted on its own. A group can take voice on one branch and messaging
+  // on all of them; a single fee x centres cannot say that, and rendered the Connect fee as
+  // nothing at all. 0 keeps the old single-fee wording, so agreements raised before this read
+  // exactly as they did.
+  messagingFeeGbp?: number;
+  messagingCentresCount?: number | null; // null/undefined = the same centres as the voice licence
   licences: LicenceTier[];
   goLiveDate: Date | null;
   // The free period before billing starts. The onboarding modal has always computed these from
@@ -76,10 +82,31 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
     ? `a <strong>${trialDays}-day free trial</strong>`
     : `a <strong>free period lasting until the Client has taken ${freeBookings} confirmed bookings</strong> through the Services`;
 
-  const monthlyTotal = inputs.licenceFeeGbp * inputs.centresCount;
+  const messagingFee = inputs.messagingFeeGbp ?? 0;
+  const messagingCentres = messagingFee > 0
+    ? (inputs.messagingCentresCount ?? inputs.centresCount)
+    : 0;
+  const voiceTotal = inputs.licenceFeeGbp * inputs.centresCount;
+  const messagingTotal = messagingFee * messagingCentres;
+  const monthlyTotal = voiceTotal + messagingTotal;
   const setupFeeStr = inputs.setupFeeGbp > 0 ? GBP.format(inputs.setupFeeGbp) : '£0 (waived)';
   const licenceFeeStr = GBP.format(inputs.licenceFeeGbp);
   const monthlyTotalStr = GBP.format(monthlyTotal);
+  // The voice tier this agreement is actually for, so the split reads "Automate" rather than
+  // the generic word "licence" when both tiers are on the contract.
+  const voiceTierName = inputs.licences.includes('automate')
+    ? LICENCE_DETAILS.automate.name
+    : inputs.licences.includes('assist')
+      ? LICENCE_DETAILS.assist.name
+      : 'Voice';
+  const centreWord = (n: number) => `${n} centre${n === 1 ? '' : 's'}`;
+  // Mixed deals get an itemised split; everything else keeps the original one-line wording.
+  const feeBreakdown = messagingTotal > 0
+    ? `<ul>
+      <li><strong>${voiceTierName}</strong> — ${licenceFeeStr} per centre per month &times; ${centreWord(inputs.centresCount)} = <strong>${GBP.format(voiceTotal)}</strong></li>
+      <li><strong>${LICENCE_DETAILS.connect.name}</strong> — ${GBP.format(messagingFee)} per centre per month &times; ${centreWord(messagingCentres)} = <strong>${GBP.format(messagingTotal)}</strong></li>
+    </ul>`
+    : '';
 
   return `
 <article class="rm-agreement">
@@ -172,11 +199,20 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
       <strong>5.${hasFreePeriod ? '3' : '2'} Licence Fee.</strong> ${
         hasFreePeriod ? `Following the ${freePeriodName}, the` : 'The'
       } subscription fee shall be
-      <strong>${licenceFeeStr}</strong> per month per centre, payable monthly in advance throughout the Proof
+      ${
+        messagingTotal > 0
+          ? `made up of the licences below, payable monthly in advance throughout the Proof Period and the
+      Contract Term, giving a total monthly subscription of <strong>${monthlyTotalStr}</strong> exclusive of VAT.
+    </p>
+    ${feeBreakdown}
+    `
+          : `<strong>${licenceFeeStr}</strong> per month per centre, payable monthly in advance throughout the Proof
       Period and the Contract Term. The number of centres being onboarded under this Agreement is
       <strong>${inputs.centresCount}</strong>, giving a total monthly subscription of
       <strong>${monthlyTotalStr}</strong> exclusive of VAT.
     </p>
+    `
+      }
     <p>The licences included under this Agreement are:</p>
     <ul>${licenceList}</ul>
 

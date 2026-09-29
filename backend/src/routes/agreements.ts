@@ -65,6 +65,11 @@ const draftSchema = z.object({
   setupFeeGbp: z.number().nonnegative().default(0),
   licenceFeeGbp: z.number().nonnegative(),
   centresCount: z.number().int().positive().default(1),
+  // Connect, priced separately from the voice licence. The onboarding modal has always sent a
+  // messaging fee and it was silently stripped here, so a group paying for voice on one branch
+  // and messaging on all of them was invited to sign for the voice fee alone.
+  messagingFeeGbp: z.number().nonnegative().optional().default(0),
+  messagingCentresCount: z.number().int().positive().optional().nullable(),
   licences: z.array(z.enum(LICENCE_VALUES)).min(1).default(['assist']),
   goLiveDate: z.string().datetime().optional().nullable(),
   // The free period before billing starts, from the modal's billing-start choice. Both were
@@ -102,6 +107,8 @@ function buildSnapshot(agreement: {
   setupFeeGbp: number;
   licenceFeeGbp: number;
   centresCount: number;
+  messagingFeeGbp?: number;
+  messagingCentresCount?: number | null;
   licences: string[];
   goLiveDate: Date | null;
   freeTrialDays?: number | null;
@@ -121,6 +128,8 @@ function buildSnapshot(agreement: {
     setupFeeGbp: agreement.setupFeeGbp,
     licenceFeeGbp: agreement.licenceFeeGbp,
     centresCount: agreement.centresCount,
+    messagingFeeGbp: agreement.messagingFeeGbp ?? 0,
+    messagingCentresCount: agreement.messagingCentresCount ?? null,
     licences: agreement.licences as LicenceTier[],
     goLiveDate: agreement.goLiveDate,
     freeTrialDays: agreement.freeTrialDays ?? null,
@@ -660,6 +669,8 @@ async function sendSignedCopies(args: {
     setupFeeGbp: number;
     licenceFeeGbp: number;
     centresCount: number;
+    messagingFeeGbp?: number;
+    messagingCentresCount?: number | null;
     licences: string[];
     goLiveDate: Date | null;
   };
@@ -706,6 +717,8 @@ async function sendSignedCopies(args: {
         setupFeeGbp: args.agreement.setupFeeGbp,
         licenceFeeGbp: args.agreement.licenceFeeGbp,
         centresCount: args.agreement.centresCount,
+        messagingFeeGbp: args.agreement.messagingFeeGbp ?? 0,
+        messagingCentresCount: args.agreement.messagingCentresCount ?? null,
         licences: args.agreement.licences as LicenceTier[],
         goLiveDate: args.agreement.goLiveDate,
         effectiveDate: args.signedAt,
@@ -768,6 +781,8 @@ router.post('/admin/agreements/draft', authenticate, requireAdmin, async (req: R
       setupFeeGbp: parsed.data.setupFeeGbp,
       licenceFeeGbp: parsed.data.licenceFeeGbp,
       centresCount: parsed.data.centresCount,
+      messagingFeeGbp: parsed.data.messagingFeeGbp ?? 0,
+      messagingCentresCount: parsed.data.messagingCentresCount ?? null,
       licences: parsed.data.licences,
       goLiveDate,
       freeTrialDays: parsed.data.freeTrialDays ?? null,
@@ -905,6 +920,8 @@ router.get('/admin/agreements/:id/pdf', authenticate, requireAdmin, async (req: 
       setupFeeGbp: agreement.setupFeeGbp,
       licenceFeeGbp: agreement.licenceFeeGbp,
       centresCount: agreement.centresCount,
+      messagingFeeGbp: agreement.messagingFeeGbp ?? 0,
+      messagingCentresCount: agreement.messagingCentresCount ?? null,
       licences: agreement.licences as LicenceTier[],
       goLiveDate: agreement.goLiveDate,
       effectiveDate: agreement.signedAt ?? agreement.externallySignedAt,

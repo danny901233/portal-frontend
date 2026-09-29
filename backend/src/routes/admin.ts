@@ -920,6 +920,14 @@ const completeOnboardingSchema = z.object({
   includedMinutes: z.number().int().min(0).max(100000),
   costPerMinuteGbp: z.number().min(0).max(100),
   vatRate: z.number().min(0).max(1).optional().default(0.2),
+  // Connect. The modal has always collected and posted these three and zod stripped every one
+  // of them, so the FIRST branch of a deal — the only one this endpoint creates — went live
+  // with no messaging price and messaging switched off, while its extra branches (created by
+  // the batch route, which does read them) got Connect. Nobody noticed because the branch
+  // someone checks is usually branch 2.
+  messagingSubscriptionCostGbp: z.number().min(0).max(10000).optional(),
+  includedMessages: z.number().int().min(0).max(1000000).optional(),
+  costPerMessageGbp: z.number().min(0).max(100).optional(),
   // Optional routing pick from the quick-onboard modal — saves a trip into
   // Agent Configurations -> Routing after onboarding. Defaults to Assist-agent
   // (a.k.a. RMB-Assist on account 2) when omitted, matching self-serve.
@@ -965,7 +973,8 @@ const DEFAULT_PASSWORD = 'Nomoremissedcalls';
 // Mirrors onboard step 5. Throws on failure so the caller can decide (batch treats it non-fatal).
 async function provisionBranchTwilio(opts: { garageId: string; garageName: string; branchName: string; contactEmail?: string | null; twilioNumber: string; agentScript?: string | null; }) {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
-  const agentName = opts.agentScript === 'tyresoft-agent' ? 'tyresoft-agent'
+  const agentName = opts.agentScript === 'unified-agent' ? 'unified-agent'
+    : opts.agentScript === 'tyresoft-agent' ? 'tyresoft-agent'
     : opts.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3'
       : opts.agentScript === 'MMH-agent' ? 'MMH-agent'
         : opts.agentScript === 'bookar-agent' ? 'bookar-agent'
@@ -1005,7 +1014,16 @@ const batchBranchSchema = z.object({
     messagingSubscriptionCostGbp: z.number().min(0).max(10000).optional(),
     includedMessages: z.number().int().min(0).max(1000000).optional(),
     costPerMessageGbp: z.number().min(0).max(100).optional(),
-    agentScript: z.enum(['Assist-agent', 'GarageHive-agent', 'tyresoft-agent', 'receptionmate-agent-v3', 'receptionmate-agent']).optional().default('Assist-agent'),
+    // A branch that isn't on the voice tier. Without this every branch of a group had to be
+    // sold the same licences as branch 1, and a Connect-only branch was left showing a Calls
+    // page it can never fill and tripping the "voice access but no number" health check.
+    hasVoiceAccess: z.boolean().optional(),
+    // 'unified-agent' was missing while the modal offered it, so picking it and adding a
+    // second branch failed validation and created none of them.
+    agentScript: z.enum(['Assist-agent', 'GarageHive-agent', 'tyresoft-agent', 'unified-agent', 'receptionmate-agent-v3', 'receptionmate-agent']).optional().default('Assist-agent'),
+    // Which diary these branches book into. The modal sends it, zod stripped it, and every
+    // branch after the first was created with 'none' — integrated on paper, booking nothing.
+    integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft']).optional().default('none'),
   })).min(1).max(20),
   userId: z.string().optional(), // existing user to grant MANAGER access to the new branches
 });
@@ -1030,7 +1048,13 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
 
     // 1. Create business
     const business = await prisma.business.create({
-      data: { name: parsed.data.businessName },
+      data: {
+        name: parsed.data.businessName,
+        // One invoice for the group, branches as sections — the Direct Debit was always a
+        // single combined collection, so two branches meant two documents for one payment.
+        // New businesses only: existing customers keep the invoices they have.
+        combinedInvoicing: true,
+      },
     });
 
     // 2. Create branch/garage with billing configuration so it's immediately billable.
@@ -1044,6 +1068,13 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         includedMinutes: parsed.data.includedMinutes,
         costPerMinuteGbp: parsed.data.costPerMinuteGbp,
         vatRate: parsed.data.vatRate,
+        ...(parsed.data.messagingSubscriptionCostGbp != null
+          ? { messagingSubscriptionCostGbp: parsed.data.messagingSubscriptionCostGbp }
+          : {}),
+        ...(parsed.data.includedMessages != null ? { includedMessages: parsed.data.includedMessages } : {}),
+        ...(parsed.data.costPerMessageGbp != null ? { costPerMessageGbp: parsed.data.costPerMessageGbp } : {}),
+        // A price for Connect means they bought Connect — same rule the batch-branch route uses.
+        ...((parsed.data.messagingSubscriptionCostGbp ?? 0) > 0 ? { hasMessagingAccess: true } : {}),
         // Link the deal to its HighLevel opportunity so stage changes can be mirrored there.
         ghlOpportunityId: parsed.data.ghlOpportunityId || null,
         // onboardingStage defaults to 'live', which is right for the garages that already
@@ -1565,6 +1596,7 @@ router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, 
         ...(b.includedMessages != null ? { includedMessages: b.includedMessages } : {}),
         ...(b.costPerMessageGbp != null ? { costPerMessageGbp: b.costPerMessageGbp } : {}),
         ...((b.messagingSubscriptionCostGbp ?? 0) > 0 ? { hasMessagingAccess: true } : {}),
+        ...(b.hasVoiceAccess != null ? { hasVoiceAccess: b.hasVoiceAccess } : {}),
       },
     });
     await prisma.agentConfiguration.create({
@@ -1582,7 +1614,7 @@ router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, 
         responseSpeed: 'normal',
         interruptionSensitivity: 0.5,
         allowFastFitOnly: false,
-        integrationProvider: 'none',
+        integrationProvider: b.integrationProvider,
         agentScript: b.agentScript,
       },
     });
@@ -1623,6 +1655,19 @@ router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, 
       } catch (e) {
         console.error('[BATCH-BRANCH] Twilio provision failed:', e);
         twilioWarning = e instanceof Error ? e.message : 'Twilio provision failed';
+      }
+      // The unified agent lives in its own LiveKit project, which /provision does not manage —
+      // same step the single-branch onboard does, or the number resolves and then rings out.
+      if (b.agentScript === 'unified-agent') {
+        const wired = await ensureUnifiedSipRouting({
+          garageId: garage.id,
+          garageName: garage.name,
+          twilioNumber: b.twilioNumber,
+        });
+        if (!wired.ok) {
+          console.error(`[BATCH-BRANCH] ${garage.name} is on the unified agent but its SIP trunk was NOT created (${wired.reason}).`);
+          twilioWarning = twilioWarning ?? `unified SIP trunk not created (${wired.reason})`;
+        }
       }
     }
     created.push({ id: garage.id, name: garage.name, twilioNumber: b.twilioNumber || null, twilioWarning });

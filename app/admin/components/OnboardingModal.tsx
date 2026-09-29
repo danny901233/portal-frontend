@@ -4,14 +4,25 @@ import { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 
-type ExtraBranch = { name: string; googlePlaceId: string | null; twilioNumber?: string };
+// A branch can differ from the headline price: a group often buys voice on one site and
+// messaging on all of them. Blank means "same as the price above"; 0 means not on that licence,
+// and a branch with £0 voice is created with voice access switched off.
+type ExtraBranch = {
+  name: string;
+  googlePlaceId: string | null;
+  twilioNumber?: string;
+  voiceSubscription?: string;
+  messagingSubscription?: string;
+};
 
 // One additional branch — its own Google type-ahead + name + per-branch cost.
-function BranchRow({ index, value, onChange, onRemove }: {
+function BranchRow({ index, value, onChange, onRemove, defaultVoice, defaultMessaging }: {
   index: number;
   value: ExtraBranch;
   onChange: (v: ExtraBranch) => void;
   onRemove: () => void;
+  defaultVoice: string;
+  defaultMessaging: string;
 }) {
   const [predictions, setPredictions] = useState<{ placeId: string; description: string }[]>([]);
   const [show, setShow] = useState(false);
@@ -90,6 +101,32 @@ function BranchRow({ index, value, onChange, onRemove }: {
           {buying ? 'Buying…' : 'Buy new'}
         </button>
       </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Voice £/mo</label>
+          <input
+            type="number" step="0.01" min="0"
+            value={value.voiceSubscription ?? ''}
+            onChange={(e) => onChange({ ...value, voiceSubscription: e.target.value })}
+            placeholder={defaultVoice ? `same as above (${defaultVoice})` : 'same as above'}
+            className="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-600">Connect £/mo</label>
+          <input
+            type="number" step="0.01" min="0"
+            value={value.messagingSubscription ?? ''}
+            onChange={(e) => onChange({ ...value, messagingSubscription: e.target.value })}
+            placeholder={defaultMessaging ? `same as above (${defaultMessaging})` : 'none'}
+            className="w-full rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
+          />
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-slate-400">
+        Leave blank to use the prices above. <strong>0</strong> means this branch isn&rsquo;t on that
+        licence — £0 voice also switches the Calls page off for it.
+      </p>
     </div>
   );
 }
@@ -269,6 +306,54 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
     if (res?.data?.smsError) alert(res.data.smsError);
   };
 
+  /**
+   * What each branch is being sold, and therefore how many centres are on each licence.
+   *
+   * Branches default to the headline prices and can be overridden one by one, so voice and
+   * Connect are counted separately — £399 voice on one site plus £250 Connect on both is £899,
+   * which a single fee x branches could never express.
+   */
+  const pricingPlan = () => {
+    const headlineVoice = Number(subscriptionCost) || 0;
+    const headlineMessaging = Number(messagingSubscription) || 0;
+    const validExtra = extraBranches.filter((b) => b.name.trim());
+    const override = (raw: string | undefined, fallback: number) =>
+      raw != null && raw.trim() !== '' ? Number(raw) || 0 : fallback;
+    const branchPricing = validExtra.map((b) => ({
+      branch: b,
+      voice: override(b.voiceSubscription, headlineVoice),
+      messaging: override(b.messagingSubscription, headlineMessaging),
+    }));
+    return {
+      headlineVoice,
+      headlineMessaging,
+      validExtra,
+      branchPricing,
+      // Branch 1 always carries the headline prices — its subscription is a required field.
+      voiceCentres: (headlineVoice > 0 ? 1 : 0) + branchPricing.filter((p) => p.voice > 0).length,
+      messagingCentres: (headlineMessaging > 0 ? 1 : 0) + branchPricing.filter((p) => p.messaging > 0).length,
+    };
+  };
+
+  /**
+   * What the customer will be asked to sign, in money. Staff never see the rendered agreement
+   * before it is emailed, so with two licences priced per branch this line is the only chance
+   * to notice the total is wrong.
+   */
+  const agreementSummary = () => {
+    const plan = pricingPlan();
+    const typedCentres = Number(agreementCentres) || 1;
+    const voiceCentres = plan.validExtra.length > 0 ? plan.voiceCentres : typedCentres;
+    const messagingCentres = plan.validExtra.length > 0
+      ? plan.messagingCentres
+      : (plan.headlineMessaging > 0 ? typedCentres : 0);
+    if (plan.headlineMessaging <= 0) {
+      return `£${plan.headlineVoice} × ${voiceCentres} centre${voiceCentres === 1 ? '' : 's'} = £${plan.headlineVoice * voiceCentres} per month, ex VAT.`;
+    }
+    const total = plan.headlineVoice * voiceCentres + plan.headlineMessaging * messagingCentres;
+    return `£${plan.headlineVoice} voice × ${voiceCentres} + £${plan.headlineMessaging} Connect × ${messagingCentres} = £${total} per month, ex VAT.`;
+  };
+
   /** The free period the contract should describe, derived from the billing-start radio. */
   const agreementFreePeriod = () => ({
     freeTrialDays: billingStart === 'trial' && Number(trialDays) > 0 ? Number(trialDays) : null,
@@ -339,48 +424,65 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   const onboardMutation = useMutation({
     mutationFn: async () => {
       const finalNumber = useManualEntry ? manualNumber : twilioNumber;
-      // One cost per branch applies to every branch; agreement = cost-per-branch × count.
-      const validExtra = extraBranches.filter((b) => b.name.trim());
-      const totalBranches = 1 + validExtra.length;
+      const { headlineVoice, headlineMessaging, validExtra, branchPricing, voiceCentres, messagingCentres } =
+        pricingPlan();
+      // A branch payload for the batch route, priced on its own terms.
+      const branchPayload = (p: { branch: ExtraBranch; voice: number; messaging: number }) => ({
+        name: p.branch.name.trim(),
+        googlePlaceId: p.branch.googlePlaceId || undefined,
+        twilioNumber: p.branch.twilioNumber || undefined,
+        subscriptionCostGbp: p.voice,
+        includedMinutes: p.voice > 0 ? Number(includedMinutes) : 0,
+        costPerMinuteGbp: p.voice > 0 ? Number(costPerMinute) : 0,
+        vatRate: Number(vatRatePct) / 100,
+        messagingSubscriptionCostGbp: p.messaging,
+        includedMessages: p.messaging > 0 && includedMessages ? Number(includedMessages) : undefined,
+        costPerMessageGbp: p.messaging > 0 && costPerMessage ? Number(costPerMessage) : undefined,
+        // No voice licence, no Calls page — and no "voice access but no number" health alert.
+        hasVoiceAccess: p.voice > 0,
+        agentScript,
+        integrationProvider,
+      });
+      // The commercial terms the agreement is raised on, for whichever path creates it.
+      const agreementTerms = {
+        setupFeeGbp: Number(agreementSetupFee) || 0,
+        licenceFeeGbp: headlineVoice,
+        messagingFeeGbp: headlineMessaging,
+        licences: agreementLicences,
+        goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
+      };
 
       // Existing business: add branches via the batch endpoint (no new business/user); they
       // bill on the business's existing mandate. Optionally raise an updated agreement.
       if (businessMode === 'existing') {
         const branch1Number = useManualEntry ? manualNumber : twilioNumber;
         const allBranches = [
-          { name: branchName.trim(), googlePlaceId, twilioNumber: branch1Number },
-          ...validExtra.map((b) => ({ name: b.name.trim(), googlePlaceId: b.googlePlaceId, twilioNumber: b.twilioNumber })),
+          // Branch 1 on the headline prices, then each extra on its own.
+          branchPayload({
+            branch: { name: branchName.trim(), googlePlaceId, twilioNumber: branch1Number },
+            voice: headlineVoice,
+            messaging: headlineMessaging,
+          }),
+          ...branchPricing.map(branchPayload),
         ].filter((b) => b.name);
         const resp = await api.post(`/admin/businesses/${existingBusinessId}/branches/batch`, {
           userId: existingUserId || undefined,
-          branches: allBranches.map((b) => ({
-            name: b.name,
-            googlePlaceId: b.googlePlaceId || undefined,
-            twilioNumber: b.twilioNumber || undefined,
-            subscriptionCostGbp: Number(subscriptionCost) || undefined,
-            includedMinutes: Number(includedMinutes),
-            costPerMinuteGbp: Number(costPerMinute),
-            vatRate: Number(vatRatePct) / 100,
-            messagingSubscriptionCostGbp: messagingSubscription ? Number(messagingSubscription) : undefined,
-            includedMessages: includedMessages ? Number(includedMessages) : undefined,
-            costPerMessageGbp: costPerMessage ? Number(costPerMessage) : undefined,
-            agentScript,
-            integrationProvider,
-          })),
+          branches: allBranches,
         });
         if (sendAgreement && existingUserId) {
-          const newTotal = (selectedExistingBiz?.branchCount ?? 0) + allBranches.length;
+          const existingCount = selectedExistingBiz?.branchCount ?? 0;
           const draft = await api.post('/admin/agreements/draft', {
             userId: existingUserId,
             businessId: existingBusinessId,
             clientName: bizSearch.trim(),
-            setupFeeGbp: Number(agreementSetupFee) || 0,
-            licenceFeeGbp: Number(subscriptionCost),
-            messagingFeeGbp: Number(messagingSubscription) || 0,
+            ...agreementTerms,
             ...agreementFreePeriod(),
-            centresCount: newTotal,
-            licences: agreementLicences,
-            goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
+            // Voice keeps counting the whole estate, as it always has. Connect counts only the
+            // branches being added here: we know those took it, and we do not know whether the
+            // ones already on the mandate did — guessing would put a fee on the contract that
+            // nobody agreed to.
+            centresCount: existingCount + voiceCentres,
+            messagingCentresCount: messagingCentres || null,
           });
           reportSmsResult(await api.post(`/admin/agreements/${draft.data.agreement.id}/send`, agreementSendOptions()));
         }
@@ -426,13 +528,16 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
           userId: data.user.id,
           businessId: data.business.id,
           clientName: businessName.trim(),
-          setupFeeGbp: Number(agreementSetupFee) || 0,
-          licenceFeeGbp: Number(subscriptionCost),
-          messagingFeeGbp: Number(messagingSubscription) || 0,
+          ...agreementTerms,
           ...agreementFreePeriod(),
-          centresCount: validExtra.length > 0 ? totalBranches : (Number(agreementCentres) || 1),
-          licences: agreementLicences,
-          goLiveDate: agreementGoLive ? new Date(agreementGoLive).toISOString() : null,
+          // With extra branches the count comes from what was actually priced, per licence;
+          // with one branch it stays the number staff typed, so a deal can still be contracted
+          // for centres that are not being created today.
+          centresCount: validExtra.length > 0 ? voiceCentres : (Number(agreementCentres) || 1),
+          messagingCentresCount:
+            headlineMessaging > 0
+              ? (validExtra.length > 0 ? messagingCentres : (Number(agreementCentres) || 1))
+              : null,
         });
         reportSmsResult(await api.post(`/admin/agreements/${draft.data.agreement.id}/send`, agreementSendOptions()));
       }
@@ -442,20 +547,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
       if (validExtra.length) {
         await api.post(`/admin/businesses/${data.business.id}/branches/batch`, {
           userId: data.user.id,
-          branches: validExtra.map((b) => ({
-            name: b.name.trim(),
-            googlePlaceId: b.googlePlaceId || undefined,
-            twilioNumber: b.twilioNumber || undefined,
-            subscriptionCostGbp: Number(subscriptionCost),
-            includedMinutes: Number(includedMinutes),
-            costPerMinuteGbp: Number(costPerMinute),
-            vatRate: Number(vatRatePct) / 100,
-            messagingSubscriptionCostGbp: messagingSubscription ? Number(messagingSubscription) : undefined,
-            includedMessages: includedMessages ? Number(includedMessages) : undefined,
-            costPerMessageGbp: costPerMessage ? Number(costPerMessage) : undefined,
-            agentScript,
-            integrationProvider,
-          })),
+          branches: branchPricing.map(branchPayload),
         });
       }
 
@@ -980,13 +1072,15 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
             <div className="border-t border-slate-300 pt-4">
               <h3 className="text-sm font-semibold text-slate-600 mb-1">Additional branches</h3>
               <p className="text-xs text-slate-500 mb-3">
-                Same business &amp; manager, billed together on one mandate. Every branch uses the monthly subscription above (cost per branch); each just needs its name / Google listing for autofill (address, hours, FAQs).
+                Same business &amp; manager, billed together on one mandate. Each branch uses the prices above unless you override them on the row &mdash; that is how a group takes voice on one site and messaging on all of them. Each just needs its name / Google listing for autofill (address, hours, FAQs).
               </p>
               <div className="space-y-3">
                 {extraBranches.map((b, i) => (
                   <BranchRow
                     key={i}
                     index={i}
+                    defaultVoice={subscriptionCost ? `£${subscriptionCost}` : ''}
+                    defaultMessaging={messagingSubscription ? `£${messagingSubscription}` : ''}
                     value={b}
                     onChange={(v) => setExtraBranches((prev) => prev.map((x, xi) => (xi === i ? v : x)))}
                     onRemove={() => setExtraBranches((prev) => prev.filter((_, xi) => xi !== i))}
@@ -1237,11 +1331,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                   </div>
 
                   <div className="col-span-2 flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
-                    <p className="text-xs text-slate-500">
-                      {Number(messagingSubscription) > 0
-                        ? `£${Number(subscriptionCost) || 0} voice + £${Number(messagingSubscription)} Connect = £${(Number(subscriptionCost) || 0) + Number(messagingSubscription)} per branch, per month.`
-                        : 'These terms go into the agreement the customer signs.'}
-                    </p>
+                    <p className="text-xs text-slate-500">{agreementSummary()}</p>
                   </div>
 
                   <div className="col-span-2 grid grid-cols-2 gap-3 border-t border-slate-200 pt-3">

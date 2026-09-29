@@ -14,6 +14,8 @@ type AdminAgreement = {
   setupFeeGbp: number;
   licenceFeeGbp: number;
   centresCount: number;
+  messagingFeeGbp?: number;
+  messagingCentresCount?: number | null;
   licences: string[];
   goLiveDate: string | null;
   signedAt: string | null;
@@ -291,6 +293,11 @@ export default function AdminAgreementsPage() {
                   <Td><StatusPill status={a.status} /></Td>
                   <Td>
                     <div className="text-slate-900">{formatGbp(a.licenceFeeGbp)}/centre/mo</div>
+                    {(a.messagingFeeGbp ?? 0) > 0 && (
+                      <div className="text-xs text-slate-500">
+                        + {formatGbp(a.messagingFeeGbp!)}/centre/mo Connect × {a.messagingCentresCount ?? a.centresCount}
+                      </div>
+                    )}
                     <div className="text-xs text-slate-500">{a.setupFeeGbp > 0 ? `Setup ${formatGbp(a.setupFeeGbp)}` : 'No setup fee'}</div>
                   </Td>
                   <Td className="text-xs text-slate-500">

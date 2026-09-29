@@ -322,6 +322,22 @@ export async function generateInvoice(
 }
 
 /**
+ * Is there anything to charge this garage for?
+ *
+ * A Connect-only branch — messaging sold, no voice tier — has a £0 voice subscription, and every
+ * gate here used to read `subscriptionCostGbp > 0` alone. That branch was silently never
+ * invoiced: no error, no watchdog entry until someone noticed the money missing. Connect counts.
+ */
+export function hasChargeableSubscription(garage: {
+  subscriptionCostGbp: number;
+  hasMessagingAccess?: boolean;
+  messagingSubscriptionCostGbp?: number | null;
+}): boolean {
+  if (garage.subscriptionCostGbp > 0) return true;
+  return Boolean(garage.hasMessagingAccess) && (garage.messagingSubscriptionCostGbp ?? 0) > 0;
+}
+
+/**
  * Generate invoices for all garages for a given period
  */
 export async function generateInvoicesForPeriod(
@@ -330,9 +346,11 @@ export async function generateInvoicesForPeriod(
 ) {
   const garages = await prisma.garage.findMany({
     where: {
-      subscriptionCostGbp: {
-        gt: 0, // Only bill garages with subscription cost set
-      },
+      // Priced on either tier — a Connect-only branch has no voice subscription at all.
+      OR: [
+        { subscriptionCostGbp: { gt: 0 } },
+        { hasMessagingAccess: true, messagingSubscriptionCostGbp: { gt: 0 } },
+      ],
     },
     select: {
       id: true,
@@ -623,7 +641,7 @@ export async function generateInvoicesForUser(userId: string) {
         continue;
       }
 
-      if (!garage || garage.subscriptionCostGbp === 0) {
+      if (!garage || !hasChargeableSubscription(garage)) {
         results.push({
           garageId,
           garageName: garage?.name || 'Unknown',

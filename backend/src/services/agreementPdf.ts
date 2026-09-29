@@ -25,6 +25,9 @@ export interface AgreementPdfInputs {
   setupFeeGbp: number;
   licenceFeeGbp: number;
   centresCount: number;
+  // Connect priced on its own — see agreementTemplate.ts. 0 keeps the single-fee wording.
+  messagingFeeGbp?: number;
+  messagingCentresCount?: number | null;
   licences: LicenceTier[];
   goLiveDate: Date | null;
   effectiveDate: Date | null;
@@ -68,7 +71,19 @@ export async function renderAgreementPdf(inputs: AgreementPdfInputs): Promise<Bu
 function drawDocument(doc: PDFKit.PDFDocument, inputs: AgreementPdfInputs, logo: Buffer | null) {
   const setupFeeStr = inputs.setupFeeGbp > 0 ? GBP.format(inputs.setupFeeGbp) : '£0 (waived)';
   const licenceFeeStr = GBP.format(inputs.licenceFeeGbp);
-  const monthlyTotalStr = GBP.format(inputs.licenceFeeGbp * inputs.centresCount);
+  const messagingFee = inputs.messagingFeeGbp ?? 0;
+  const messagingCentres = messagingFee > 0
+    ? (inputs.messagingCentresCount ?? inputs.centresCount)
+    : 0;
+  const voiceTotal = inputs.licenceFeeGbp * inputs.centresCount;
+  const messagingTotal = messagingFee * messagingCentres;
+  const monthlyTotalStr = GBP.format(voiceTotal + messagingTotal);
+  const voiceTierName = inputs.licences.includes('automate')
+    ? LICENCE_DETAILS.automate.name
+    : inputs.licences.includes('assist')
+      ? LICENCE_DETAILS.assist.name
+      : 'Voice';
+  const centreWord = (n: number) => `${n} centre${n === 1 ? '' : 's'}`;
 
   // ---------- Header ----------
   if (logo) {
@@ -137,16 +152,31 @@ function drawDocument(doc: PDFKit.PDFDocument, inputs: AgreementPdfInputs, logo:
     { text: setupFeeStr, bold: true },
     { text: ' is due upon signing this Agreement.' },
   ]);
-  numberedRich(doc, '5.2', [
-    { text: 'Licence Fee.', bold: true },
-    { text: ` The subscription fee shall be ` },
-    { text: licenceFeeStr, bold: true },
-    { text: ` per month per centre, payable monthly in advance. The number of centres being onboarded under this Agreement is ` },
-    { text: String(inputs.centresCount), bold: true },
-    { text: ', giving a total monthly subscription of ' },
-    { text: monthlyTotalStr, bold: true },
-    { text: ' exclusive of VAT.' },
-  ]);
+  if (messagingTotal > 0) {
+    // Mixed deal: the licences are priced and counted separately, so one fee x centres would
+    // leave the Connect fee off the contract entirely.
+    numberedRich(doc, '5.2', [
+      { text: 'Licence Fee.', bold: true },
+      { text: ' The subscription fee is made up of the licences below, payable monthly in advance, giving a total monthly subscription of ' },
+      { text: monthlyTotalStr, bold: true },
+      { text: ' exclusive of VAT.' },
+    ]);
+    bulletList(doc, [
+      [voiceTierName, ` — ${licenceFeeStr} per centre per month × ${centreWord(inputs.centresCount)} = ${GBP.format(voiceTotal)}`],
+      [LICENCE_DETAILS.connect.name, ` — ${GBP.format(messagingFee)} per centre per month × ${centreWord(messagingCentres)} = ${GBP.format(messagingTotal)}`],
+    ]);
+  } else {
+    numberedRich(doc, '5.2', [
+      { text: 'Licence Fee.', bold: true },
+      { text: ` The subscription fee shall be ` },
+      { text: licenceFeeStr, bold: true },
+      { text: ` per month per centre, payable monthly in advance. The number of centres being onboarded under this Agreement is ` },
+      { text: String(inputs.centresCount), bold: true },
+      { text: ', giving a total monthly subscription of ' },
+      { text: monthlyTotalStr, bold: true },
+      { text: ' exclusive of VAT.' },
+    ]);
+  }
 
   para(doc, 'The licences included under this Agreement are:');
   bulletList(doc,

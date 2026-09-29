@@ -250,16 +250,17 @@ const parseCallJson = (call: Call & { feedback?: CallFeedback | null }): CallWit
 /**
  * Pull the caller's number out of a LiveKit room name.
  *
- * Rooms are named `garage-<garageId>__+447700900123_<random>`. The garage id is
- * a uuid and sits before the double underscore, so there is nothing else in the
- * name that looks like a phone number.
+ * Rooms are named `garage-<garageId>_<caller>_<random>`, and some agents use a
+ * double underscore before the caller. Both are matched. A uuid contains no
+ * underscore, so the first underscore-delimited run of digits in the name is
+ * always the number and never part of the garage id.
  *
- * Returns null for rooms that carry no number — the web demo, and anything not
- * arriving over SIP.
+ * Returns null for rooms that carry no number — the web demo, test rooms, and
+ * anything not arriving over SIP.
  */
 export function callerNumberFromRoomName(roomName: string | null | undefined): string | null {
   if (!roomName) return null;
-  const m = roomName.match(/__(\+?\d{7,15})(?:_|$)/);
+  const m = roomName.match(/_{1,2}(\+?\d{7,15})(?:_|$)/);
   return m ? m[1] : null;
 }
 

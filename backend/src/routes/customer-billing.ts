@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { prisma } from '../db.js';
-import { generateInvoicePdf } from '../services/invoicePdf.js';
+import { generateInvoicePdf, generateCombinedInvoicePdf, combinedInvoiceNumber } from '../services/invoicePdf.js';
 import { isManagerForGarage } from '../utils/branchRoles.js';
 
 const router = Router();
@@ -56,12 +56,23 @@ router.get('/invoices', authenticate, requireManager, async (req: Request, res: 
       }
     }
 
-    // Build query
-    const where: any = {
-      garageId: garageId
-        ? garageId
-        : { in: managedGarageIds },
-    };
+    // Build query. A business on combined invoicing is billed as one, so picking a branch must
+    // not hide the rest of the invoice they are charged for — widen back to the whole business.
+    let scopeGarageIds: string[] = garageId && typeof garageId === 'string' ? [garageId] : managedGarageIds;
+    if (garageId && typeof garageId === 'string') {
+      const picked = await prisma.garage.findUnique({
+        where: { id: garageId },
+        select: { businessId: true, business: { select: { combinedInvoicing: true } } },
+      });
+      if (picked?.business?.combinedInvoicing && picked.businessId) {
+        const siblings = await prisma.garage.findMany({
+          where: { businessId: picked.businessId, id: { in: managedGarageIds } },
+          select: { id: true },
+        });
+        scopeGarageIds = siblings.map((g) => g.id);
+      }
+    }
+    const where: any = { garageId: { in: scopeGarageIds } };
 
     const invoices = await prisma.invoice.findMany({
       where,
@@ -70,6 +81,7 @@ router.get('/invoices', authenticate, requireManager, async (req: Request, res: 
           select: {
             id: true,
             name: true,
+            businessId: true,
           },
         },
       },
@@ -78,12 +90,125 @@ router.get('/invoices', authenticate, requireManager, async (req: Request, res: 
       },
     });
 
-    res.json({ invoices });
+    res.json({ invoices: await combineWhereAsked(invoices, managedGarageIds) });
   } catch (error) {
     console.error('Error fetching invoices:', error);
     res.status(500).json({ error: 'Failed to fetch invoices' });
   }
 });
+
+
+/**
+ * Roll a business's per-branch invoices into the one invoice the customer is actually charged.
+ *
+ * The Direct Debit was already a single combined collection; only the paperwork was split, so a
+ * two-branch customer saw two documents for one payment and no total anywhere matched their bank
+ * statement. Businesses opt in with `combinedInvoicing`, so no existing customer's invoices
+ * change shape mid-contract.
+ *
+ * The per-branch rows are untouched underneath — arrears, chasing and reconciliation still read
+ * them. This is a view, not a second source of truth.
+ */
+type InvoiceWithGarage = Awaited<ReturnType<typeof prisma.invoice.findMany>>[number] & {
+  garage: { id: string; name: string; businessId: string | null };
+};
+
+const COMBINED_PREFIX = 'cmb_';
+
+/** `cmb_<businessId>_<periodStart ms>` — enough to re-find the group, and obvious in a log. */
+function combinedId(businessId: string, periodStart: Date): string {
+  const day = new Date(periodStart);
+  day.setHours(0, 0, 0, 0);
+  return `${COMBINED_PREFIX}${businessId}_${day.getTime()}`;
+}
+
+function parseCombinedId(id: string): { businessId: string; periodStart: Date } | null {
+  if (!id.startsWith(COMBINED_PREFIX)) return null;
+  const rest = id.slice(COMBINED_PREFIX.length);
+  const split = rest.lastIndexOf('_');
+  if (split <= 0) return null;
+  const ms = Number(rest.slice(split + 1));
+  if (!Number.isFinite(ms)) return null;
+  return { businessId: rest.slice(0, split), periodStart: new Date(ms) };
+}
+
+async function combineWhereAsked(invoices: InvoiceWithGarage[], managedGarageIds: string[]) {
+  const businessIds = [...new Set(invoices.map((i) => i.garage.businessId).filter(Boolean))] as string[];
+  if (businessIds.length === 0) return invoices;
+
+  const combining = new Set(
+    (await prisma.business.findMany({
+      where: { id: { in: businessIds }, combinedInvoicing: true },
+      select: { id: true },
+    })).map((b) => b.id),
+  );
+  if (combining.size === 0) return invoices;
+
+  const out: unknown[] = [];
+  // period -> the branch invoices that make it up, per business.
+  const groups = new Map<string, InvoiceWithGarage[]>();
+  for (const inv of invoices) {
+    const businessId = inv.garage.businessId;
+    if (!businessId || !combining.has(businessId)) {
+      out.push(inv);
+      continue;
+    }
+    const key = combinedId(businessId, inv.periodStart);
+    const group = groups.get(key);
+    if (group) group.push(inv);
+    else groups.set(key, [inv]);
+  }
+
+  for (const [id, group] of groups) {
+    const parsed = parseCombinedId(id)!;
+    // A branch the viewer does not manage still belongs on the invoice they are charged for,
+    // but they must not be shown a total they cannot see the parts of.
+    const visible = group.filter((i) => managedGarageIds.includes(i.garageId));
+    if (visible.length === 0) continue;
+    // Nothing to combine: a single-branch business (or a viewer who manages one branch of it)
+    // keeps the ordinary invoice, named after its branch rather than "All branches (1)".
+    if (visible.length === 1) {
+      out.push(visible[0]);
+      continue;
+    }
+    const sum = (pick: (i: InvoiceWithGarage) => number) => visible.reduce((t, i) => t + pick(i), 0);
+    const newest = visible.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+    const statuses = new Set(visible.map((i) => i.status.toLowerCase()));
+    out.push({
+      ...newest,
+      id,
+      combined: true,
+      invoiceNumber: combinedInvoiceNumber(parsed.businessId, parsed.periodStart),
+      branchCount: visible.length,
+      branches: visible.map((i) => ({ id: i.garageId, name: i.garage.name, total: i.total })),
+      garage: { id: '', name: `All branches (${visible.length})` },
+      minutesUsed: sum((i) => i.minutesUsed),
+      minutesIncluded: sum((i) => i.minutesIncluded),
+      smsCount: sum((i) => i.smsCount),
+      subscriptionAmount: sum((i) => i.subscriptionAmount),
+      messagingSubscriptionAmount: sum((i) => i.messagingSubscriptionAmount),
+      minutesAmount: sum((i) => i.minutesAmount),
+      smsAmount: sum((i) => i.smsAmount),
+      subtotal: sum((i) => i.subtotal),
+      vatAmount: sum((i) => i.vatAmount),
+      total: sum((i) => i.total),
+      // One collection: the group is only paid when every branch is, and one failure fails it.
+      status: statuses.has('failed')
+        ? 'failed'
+        : statuses.has('pending')
+          ? 'pending'
+          : statuses.has('draft')
+            ? 'draft'
+            : 'paid',
+    });
+  }
+
+  return out.sort((a, b) => {
+    const at = new Date((a as { createdAt: Date }).createdAt).getTime();
+    const bt = new Date((b as { createdAt: Date }).createdAt).getTime();
+    return bt - at;
+  });
+}
 
 /**
  * GET /api/customer/billing/invoices/:invoiceId/pdf
@@ -92,6 +217,25 @@ router.get('/invoices', authenticate, requireManager, async (req: Request, res: 
 router.get('/invoices/:invoiceId/pdf', authenticate, requireManager, async (req: Request, res: Response) => {
   try {
     const { invoiceId } = req.params;
+    const managedGarageIds = getManagedGarageIds(req);
+
+    // A combined invoice is the whole business's bill for that period, not a row in the table.
+    const combined = parseCombinedId(invoiceId);
+    if (combined) {
+      const managesThisBusiness = await prisma.garage.findFirst({
+        where: { id: { in: managedGarageIds }, businessId: combined.businessId },
+        select: { id: true },
+      });
+      if (!managesThisBusiness) {
+        return res.status(403).json({ error: 'Access denied to this invoice' });
+      }
+      const pdf = await generateCombinedInvoicePdf(combined.businessId, combined.periodStart);
+      const name = combinedInvoiceNumber(combined.businessId, combined.periodStart);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${name}.pdf"`);
+      res.setHeader('Content-Length', pdf.length);
+      return res.send(pdf);
+    }
 
     // Fetch invoice to check garage access
     const invoice = await prisma.invoice.findUnique({
@@ -112,7 +256,6 @@ router.get('/invoices/:invoiceId/pdf', authenticate, requireManager, async (req:
     }
 
     // Validate user manages this garage
-    const managedGarageIds = getManagedGarageIds(req);
     if (!managedGarageIds.includes(invoice.garageId)) {
       return res.status(403).json({ error: 'Access denied to this invoice' });
     }

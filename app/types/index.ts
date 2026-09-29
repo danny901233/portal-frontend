@@ -403,6 +403,11 @@ export interface BillingCalculation {
 }
 
 export interface Invoice {
+  /** Set on a combined (per-business) invoice: one document covering every branch. */
+  combined?: boolean;
+  invoiceNumber?: string;
+  branchCount?: number;
+  branches?: { id: string; name: string; total: number }[];
   /** When GoCardless will collect a pending Direct Debit — money in transit, not owed. */
   gocardlessChargeDate?: string | null;
   id: string;

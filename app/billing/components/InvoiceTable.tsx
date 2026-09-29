@@ -65,7 +65,7 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
     try {
       setDownloadingId(invoice.id);
       const blob = await downloadInvoicePdf(invoice.id);
-      const filename = `invoice-${invoice.id.slice(0, 8)}.pdf`;
+      const filename = `${invoice.invoiceNumber ?? `invoice-${invoice.id.slice(0, 8)}`}.pdf`;
       triggerPdfDownload(blob, filename);
     } catch (error) {
       console.error('Failed to download PDF:', error);
@@ -160,11 +160,22 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
               <tr key={invoice.id} className="transition-colors hover:bg-slate-50">
                 <td className="px-6 py-4">
                   <span className="font-mono text-sm text-slate-600">
-                    {invoice.id.slice(0, 8).toUpperCase()}
+                    {invoice.invoiceNumber ?? invoice.id.slice(0, 8).toUpperCase()}
                   </span>
                 </td>
                 <td className="px-6 py-4">
                   <span className="text-sm text-slate-600">{invoice.garage.name}</span>
+                  {/* One invoice for the group, so say what each branch came to — otherwise the
+                      only number they can see is a total they cannot check. */}
+                  {invoice.branches && invoice.branches.length > 1 && (
+                    <ul className="mt-1 space-y-0.5">
+                      {invoice.branches.map((b) => (
+                        <li key={b.id} className="text-xs text-slate-500">
+                          {b.name} — {formatCurrency(b.total)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </td>
                 <td className="px-6 py-4">
                   <div className="text-sm text-slate-500">

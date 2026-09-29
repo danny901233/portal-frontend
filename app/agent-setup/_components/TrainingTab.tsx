@@ -243,8 +243,14 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
     config.agentScript === 'tyresoft-agent'
     || (config.agentScript === 'unified-agent' && config.integrationProvider === 'tyresoft');
   const hasPriceList = uploadedDocs.some((d) => d.kind === 'price-list');
+  // "Does this garage have prices?" asked only about pricingRules, which holds engine-size
+  // BRACKETS. A garage whose services are all fixed-price has none, so Lurgan Tyre Centre
+  // imported seven priced services and the section then collapsed itself and showed nothing.
+  // An uploaded catalogue counts however it is priced.
   const hasTyresoftRules =
-    Object.keys(config.tyresoftSettings?.pricingRules ?? {}).length > 0;
+    Object.keys(config.tyresoftSettings?.pricingRules ?? {}).length > 0
+    || (config.tyresoftSettings?.tsServices?.length ?? 0) > 0
+    || Boolean(config.tyresoftSettings?.tsServicesUpload);
   // null = no explicit user choice → fall back to derived (on if data exists).
   // true/false = user has clicked the toggle and that wins until they click again.
   const [userPricesPref, setUserPricesPref] = useState<boolean | null>(null);
